@@ -1,7 +1,7 @@
 import type { Context } from 'cordis'
 import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
-import type { TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
+import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { LoopAgent } from './agent.ts'
@@ -20,108 +20,176 @@ export interface LoopHandle {
  * ```
  * forever:
  *   wait for queued messages (idle)
- *   TURN: drain queued → session('turn/start') → emit agent/turn-start
+ *   TURN (error-contained — a throwing plugin ends the turn, never the loop):
+ *     drain queued → session('user/message'…) → 'turn/start' → emit agent/turn-start
  *     STEP loop:
+ *       drain steering → session('steering/message')  ⟵ catches late steering
  *       emit agent/step-start
- *       assembly = ctx.systemPrompt.assemble()          ⟵ waterfall system-prompt/assemble
+ *       assembly = ctx.systemPrompt.assemble()        ⟵ waterfall system-prompt/assemble
  *       req = {model, system, tools, messages: session.deriveMessages(), signal}
- *       req = waterfall agent/request                   ⟵ hooks/compaction/model-switch
- *       stream ctx.llm.stream(req)                      ⟵ waterfall llm/stream (raw chunks)
- *         session('assistant/chunk'); emit agent/stream-chunk; assembler.push
- *       session('assistant/message','usage')
- *       msg = waterfall agent/step-result               ⟵ post-process before tool dispatch
- *       each tool-call (sequential):
- *         session('tool/call'); ctx.tools.execute()     ⟵ waterfall tools/execute
+ *       req = waterfall agent/request                 ⟵ hooks/compaction/model-switch
+ *       stream ctx.llm.stream(req)                    ⟵ waterfall llm/stream (raw chunks)
+ *         session('assistant/chunk'); emit agent/stream-chunk
+ *       msg = waterfall agent/step-result             ⟵ BEFORE the log append, so the
+ *       session('assistant/message','usage')             session records what actually ran
+ *       each tool-call in msg (sequential, abort-checked):
+ *         session('tool/call'); ctx.tools.execute()   ⟵ waterfall tools/execute
  *         session('tool/result')
  *       drain steering → session('steering/message'); emit agent/steering
  *       emit agent/step-end
  *       cont = waterfall agent/turn-continuation(default = hadToolCalls || steered)
+ *       if !cont && steering arrived from step-end/continuation listeners: cont = true
+ *       if !cont: break
  *     session('turn/end'); emit agent/turn-end
- *     await ctx.parallel('session/flush', session)      ⟵ durability checkpoint
+ *     await ctx.parallel('session/flush', session)    ⟵ durability checkpoint
+ *     re-enqueue leftover steering as queued          ⟵ steering is never stranded
+ *   idle (emit agent/status) unless more queued
  * ```
  */
 export async function runLoop(ctx: Context, agent: LoopAgent, handle: LoopHandle): Promise<void> {
   const { session } = agent
+  let turn = lastTurnNumber(session) // seeded/forked sessions continue numbering
 
   while (!handle.isDisposed()) {
     await agent.inbox.waitForQueued(handle.disposed)
     if (handle.isDisposed()) break
 
     handle.setStatus('running')
-    const turn = nextTurnNumber(session)
-
-    // Drain queued messages into the session — they trigger this turn.
-    const queued = agent.inbox.drainQueued()
-    const trigger: TurnTrigger = { kind: 'message', source: queued[0]!.source }
-    for (const message of queued) {
-      session.append('user/message', { content: message.content, source: message.source })
-    }
-
-    session.append('turn/start', { turn, trigger })
-    ctx.emit('agent/turn-start', agent, turn)
-
-    let reason: TurnEndReason = { kind: 'completed' }
-    let step = 0
-
-    while (true) {
-      step += 1
-      ctx.emit('agent/step-start', agent, turn, step)
-      session.append('step/start', { turn, step })
-
-      const abort = new AbortController()
-      handle.setAbort(abort)
-
-      let stepOutcome: { hadToolCalls: boolean } | { error: Error }
+    turn += 1
+    try {
+      await runTurn(ctx, agent, handle, turn)
+    } catch (error: any) {
+      // Backstop: a throwing emit listener (turn boundaries) or a broken
+      // finalizer must not kill the driver. Record what we can and move on.
       try {
-        stepOutcome = await runStep(ctx, agent, turn, step, abort.signal)
-      } catch (error: any) {
-        stepOutcome = { error: error instanceof Error ? error : new Error(String(error)) }
-      } finally {
-        handle.setAbort(undefined)
-      }
-
-      // Steering arrives between steps: drain before deciding continuation
-      // so the decision (and the next request) sees it.
-      const steered = agent.inbox.drainSteering()
-      for (const message of steered) {
-        session.append('steering/message', { turn, content: message.content, source: message.source })
-        ctx.emit('agent/steering', agent, turn, message.content)
-      }
-
-      session.append('step/end', { turn, step })
-      ctx.emit('agent/step-end', agent, turn, step)
-
-      if ('error' in stepOutcome) {
-        const { error } = stepOutcome
-        if (abort.signal.aborted || handle.isDisposed()) {
-          reason = { kind: 'aborted', reason: String(abort.signal.reason ?? 'aborted') }
-        } else {
-          session.append('error', { turn, step, message: error.message, code: (error as any).code })
-          ctx.emit('agent/error', agent, turn, step, error)
-          reason = { kind: 'error', message: error.message, code: (error as any).code }
-        }
-        break
-      }
-
-      const defaultDecision = stepOutcome.hadToolCalls || steered.length > 0
-      const shouldContinue = await ctx.waterfall(
-        'agent/turn-continuation', agent, turn, defaultDecision,
-        async () => defaultDecision,
-      )
-      if (!shouldContinue || handle.isDisposed()) break
+        const err = error instanceof Error ? error : new Error(String(error))
+        session.append('error', { turn, step: 0, message: err.message, code: (err as any).code })
+        ctx.emit('agent/error', agent, turn, 0, err)
+      } catch { /* the error path itself is broken; nothing left to do */ }
     }
 
-    if (handle.isDisposed() && reason.kind === 'completed') {
-      reason = { kind: 'disposed' }
+    // Steering that arrived too late to join this turn (turn-end listeners,
+    // flush) becomes a queued message — it must never be stranded.
+    for (const message of agent.inbox.drainSteering()) {
+      agent.inbox.enqueue(message)
     }
-    session.append('turn/end', { turn, reason })
-    ctx.emit('agent/turn-end', agent, turn, reason)
-
-    // Durability checkpoint: persistence plugins drain write-behind buffers.
-    await ctx.parallel('session/flush', session)
 
     if (!agent.inbox.hasQueued) handle.setStatus('idle')
   }
+}
+
+async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn: number): Promise<void> {
+  const { session } = agent
+
+  // Drain queued messages into the session — they trigger this turn.
+  const queued = agent.inbox.drainQueued()
+  const trigger: TurnTrigger = { kind: 'message', source: queued[0]!.source }
+  for (const message of queued) {
+    session.append('user/message', { content: message.content, source: message.source })
+  }
+
+  session.append('turn/start', { turn, trigger })
+  ctx.emit('agent/turn-start', agent, turn)
+
+  let reason: TurnEndReason = { kind: 'completed' }
+  let step = 0
+
+  while (true) {
+    step += 1
+
+    // Steering from the previous round's step-end/continuation listeners
+    // (or turn-start listeners on the first step) joins before the request.
+    drainSteering(ctx, agent, turn)
+
+    ctx.emit('agent/step-start', agent, turn, step)
+    session.append('step/start', { turn, step })
+
+    const abort = new AbortController()
+    handle.setAbort(abort)
+
+    let stepOutcome: { hadToolCalls: boolean } | { error: Error }
+    try {
+      stepOutcome = await runStep(ctx, agent, turn, step, abort.signal)
+    } catch (error: any) {
+      stepOutcome = { error: error instanceof Error ? error : new Error(String(error)) }
+    } finally {
+      handle.setAbort(undefined)
+    }
+
+    if ('error' in stepOutcome) {
+      // Steering that arrived during the failed step stays in the inbox —
+      // runLoop re-enqueues it as a queued message, so an abort-then-steer
+      // starts a fresh turn instead of being silently consumed.
+      session.append('step/end', { turn, step })
+      ctx.emit('agent/step-end', agent, turn, step)
+      const { error } = stepOutcome
+      if (handle.isDisposed()) {
+        reason = { kind: 'disposed' }
+      } else if (abort.signal.aborted) {
+        reason = { kind: 'aborted', reason: String(abort.signal.reason ?? 'aborted') }
+      } else {
+        session.append('error', { turn, step, message: error.message, code: (error as any).code })
+        ctx.emit('agent/error', agent, turn, step, error)
+        reason = { kind: 'error', message: error.message, code: (error as any).code }
+      }
+      break
+    }
+
+    // Steering that arrived during streaming/tool execution.
+    const steered = drainSteering(ctx, agent, turn)
+
+    session.append('step/end', { turn, step })
+    ctx.emit('agent/step-end', agent, turn, step)
+
+    const defaultDecision = stepOutcome.hadToolCalls || steered
+    let shouldContinue: boolean
+    try {
+      shouldContinue = await ctx.waterfall(
+        'agent/turn-continuation', agent, turn, defaultDecision,
+        async () => defaultDecision,
+      )
+    } catch (error: any) {
+      // A broken continuation plugin ends the turn, not the loop.
+      const err = error instanceof Error ? error : new Error(String(error))
+      session.append('error', { turn, step, message: err.message, code: (err as any).code })
+      ctx.emit('agent/error', agent, turn, step, err)
+      reason = { kind: 'error', message: err.message, code: (err as any).code }
+      break
+    }
+
+    // Steering from step-end/continuation listeners (the /goal pattern)
+    // demands the model see it — it overrides a negative decision; the
+    // next iteration's drain records it.
+    if (!shouldContinue && agent.inbox.hasSteering) shouldContinue = true
+
+    if (!shouldContinue || handle.isDisposed()) {
+      if (handle.isDisposed()) reason = { kind: 'disposed' }
+      break
+    }
+  }
+
+  session.append('turn/end', { turn, reason })
+  ctx.emit('agent/turn-end', agent, turn, reason)
+
+  // Durability checkpoint: persistence plugins drain write-behind buffers.
+  // A failing persistence plugin is reported but doesn't kill the agent.
+  try {
+    await ctx.parallel('session/flush', session)
+  } catch (error: any) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    session.append('error', { turn, step, message: err.message, code: (err as any).code })
+    ctx.emit('agent/error', agent, turn, step, err)
+  }
+}
+
+/** Drain the steering queue into the session. Returns whether any arrived. */
+function drainSteering(ctx: Context, agent: LoopAgent, turn: number): boolean {
+  const messages = agent.inbox.drainSteering()
+  for (const message of messages) {
+    agent.session.append('steering/message', { turn, content: message.content, source: message.source })
+    ctx.emit('agent/steering', agent, turn, message.content, message.source)
+  }
+  return messages.length > 0
 }
 
 /** One step: assemble request → stream model → record → execute tools. */
@@ -141,13 +209,16 @@ async function runStep(
     .join('\n\n')
 
   let request: GenerateOptions = {
-    model: options.model ?? 'default',
+    model: options.model ?? '',
     messages: session.deriveMessages(),
     system: system || undefined,
     tools: assembly.tools.length > 0 ? assembly.tools : undefined,
     signal,
   }
   request = await ctx.waterfall('agent/request', agent, turn, step, request, async () => request)
+  if (!request.model) {
+    throw new Error(`agent "${agent.id}" has no model: set AgentOptions.model or supply one via the agent/request waterfall`)
+  }
 
   // --- Model call (streaming-first; raw chunks are the replay record) ---
   const assembler = new BlockAssembler()
@@ -158,17 +229,23 @@ async function runStep(
     assembler.push(chunk)
   }
 
+  // The step-result waterfall runs BEFORE the session append so the log (the
+  // source of truth for derived history and replay) records the message that
+  // tool dispatch actually uses.
   let message: Message = assembler.message()
+  message = await ctx.waterfall('agent/step-result', agent, turn, step, message, async () => message)
+
   session.append('assistant/message', { turn, step, content: message.content })
   if (assembler.usage) {
     session.append('usage', { turn, step, usage: assembler.usage })
   }
 
-  message = await ctx.waterfall('agent/step-result', agent, turn, step, message, async () => message)
-
   // --- Tool execution (sequential; parallel execution is a TODO) ---
+  // ToolRegistry.execute converts tool failures (including aborts) into
+  // isError results, so abort is re-checked around every call here.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')
   for (const call of toolCalls) {
+    if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
     session.append('tool/call', { turn, step, callId: call.id, name: call.name, arguments: call.arguments })
     let parsedArguments: unknown
     try {
@@ -189,17 +266,17 @@ async function runStep(
       content: result.content,
       isError: result.isError,
     })
+    if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
   }
 
   return { hadToolCalls: toolCalls.length > 0 }
 }
 
-function nextTurnNumber(session: LoopAgent['session']): number {
+/** The last turn number in a (possibly seeded) session log, or 0. */
+function lastTurnNumber(session: Session): number {
   for (let index = session.events.length - 1; index >= 0; index--) {
     const event = session.events[index]
-    if (event.type === 'turn/start') {
-      return (event.data as { turn: number }).turn + 1
-    }
+    if (event.type === 'turn/start') return event.data.turn
   }
-  return 1
+  return 0
 }

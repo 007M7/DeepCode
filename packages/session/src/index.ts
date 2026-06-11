@@ -66,9 +66,9 @@ export class Session {
 
   /** Append one event. Synchronous — the hot path never blocks on I/O. */
   append<T extends SessionEventType>(type: T, data: SessionEventMap[T]): SessionEvent<T> {
-    const event: SessionEvent<T> = { type, seq: this.log.length, time: Date.now(), data }
-    this.log.push(event as SessionEvent)
-    this.onAppend?.(event as SessionEvent)
+    const event = { type, seq: this.log.length, time: Date.now(), data } as SessionEvent<T>
+    this.log.push(event)
+    this.onAppend?.(event)
     return event
   }
 
@@ -87,17 +87,15 @@ export class Session {
     for (const event of this.log) {
       switch (event.type) {
         case 'user/message': {
-          const { content } = event.data as SessionEventMap['user/message']
-          messages.push({ role: 'user', content })
+          messages.push({ role: 'user', content: event.data.content })
           break
         }
         case 'assistant/message': {
-          const { content } = event.data as SessionEventMap['assistant/message']
-          messages.push({ role: 'assistant', content })
+          messages.push({ role: 'assistant', content: event.data.content })
           break
         }
         case 'tool/result': {
-          const { callId, content, isError } = event.data as SessionEventMap['tool/result']
+          const { callId, content, isError } = event.data
           messages.push({
             role: 'user',
             content: [{ type: 'tool-result', toolCallId: callId, content, isError }],
@@ -105,12 +103,12 @@ export class Session {
           break
         }
         case 'context/message': {
-          const { content, source } = event.data as SessionEventMap['context/message']
+          const { content, source } = event.data
           messages.push({ role: 'user', content: renderTagged('context', content, source) })
           break
         }
         case 'steering/message': {
-          const { content, source } = event.data as SessionEventMap['steering/message']
+          const { content, source } = event.data
           messages.push({ role: 'user', content: renderTagged('steering', content, source) })
           break
         }
@@ -139,8 +137,8 @@ export class SessionStore extends Service {
     id ??= `session-${++this.counter}`
     if (this.store.has(id)) throw new Error(`session "${id}" already exists`)
     const session = new Session(id, seed)
-    session.onAppend = (event) => this.ctx.emit('session/event', session, event)
     this.ctx.effect(() => {
+      session.onAppend = (event) => this.ctx.emit('session/event', session, event)
       this.store.set(id, session)
       this.ctx.emit('session/created', session)
       return () => {

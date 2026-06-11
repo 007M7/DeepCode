@@ -56,6 +56,11 @@ export class LlmService extends Service {
   /** Register an adapter for the given model names. Disposed with the fiber. */
   registerAdapter(models: string[], adapter: LlmAdapter): () => void {
     return this.ctx.effect(() => {
+      for (const model of models) {
+        if (this.adapters.has(model)) {
+          throw new LlmError(`an adapter for model "${model}" is already registered`, 'DUPLICATE_ADAPTER')
+        }
+      }
       for (const model of models) this.adapters.set(model, adapter)
       this.ctx.emit('llm/adapter-change')
       return () => {
@@ -85,14 +90,19 @@ export class LlmService extends Service {
 
   /**
    * Stream one model call as completed content blocks — a convenience view
-   * for consumers that don't care about token-level deltas.
+   * for consumers that don't care about token-level deltas. Blocks are
+   * yielded strictly in stream order as soon as they (and everything before
+   * them) complete; blocks left open at end of stream (delta-only protocols)
+   * are assembled and flushed last, so the sequence always equals
+   * `generate()`'s `message.content`.
    */
   async * streamBlocks(options: GenerateOptions): AsyncIterable<ContentBlock> {
     const assembler = new BlockAssembler()
     for await (const chunk of this.stream(options)) {
-      const block = assembler.push(chunk)
-      if (block) yield block
+      assembler.push(chunk)
+      yield * assembler.flushReady()
     }
+    yield * assembler.flushRemaining()
   }
 
   /** One model call, fully assembled (drains the chunk stream). */

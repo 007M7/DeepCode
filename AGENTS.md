@@ -73,7 +73,10 @@ only needed for publishing/consumption outside the repo.
   docs/architecture.md). Changing `agent-loop` requires updating that doc.
 - **Tests**: vitest, colocated under `packages/<name>/tests/*.spec.ts`. Every
   registry needs an HMR-safety test (dispose the contributing fiber, assert
-  cleanup).
+  cleanup). **Excessive tests are welcome** — when in doubt, write the test;
+  err on the side of covering edge cases, error paths, event ordering, and
+  concurrency races even if they seem unlikely. Review findings get regression
+  tests (see `packages/agent-loop/tests/review-fixes.spec.ts`).
 
 ## Vendoring Policy
 

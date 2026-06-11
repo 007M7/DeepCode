@@ -1,7 +1,7 @@
 import type { Context } from 'cordis'
 import type { AgentOptions, AgentStatus, SendOptions } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { Inbox } from './inbox.ts'
 import { runLoop } from './loop.ts'
@@ -44,25 +44,28 @@ export class LoopAgent implements Agent {
     this.ctx.emit('agent/status', this, status)
   }
 
+  private resolveSource(options?: SendOptions): MessageSource {
+    return options?.source ?? { kind: 'user' }
+  }
+
   send(content: ContentBlock[], options?: SendOptions): void {
     if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
-    const source = options?.source ?? { kind: 'user' as const }
+    const source = this.resolveSource(options)
     this.inbox.enqueue({ content, source })
-    this.ctx.emit('agent/queued', this, content, { ...options, steering: false })
+    this.ctx.emit('agent/queued', this, content, { source, steering: false })
   }
 
   steer(content: ContentBlock[], options?: SendOptions): void {
     if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
     if (this._status !== 'running') return this.send(content, options)
-    const source = options?.source ?? { kind: 'user' as const }
+    const source = this.resolveSource(options)
     this.inbox.steer({ content, source })
-    this.ctx.emit('agent/queued', this, content, { ...options, steering: true })
+    this.ctx.emit('agent/queued', this, content, { source, steering: true })
   }
 
   inject(content: ContentBlock[], options?: SendOptions): void {
     if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
-    const source = options?.source ?? { kind: 'user' as const }
-    this.session.append('context/message', { content, source })
+    this.session.append('context/message', { content, source: this.resolveSource(options) })
   }
 
   abort(reason?: string): void {
@@ -77,10 +80,22 @@ export class LoopAgent implements Agent {
       disposed: this.disposed,
       isDisposed: () => this._status === 'disposed',
     })
+    // The disposer must be infallible: it runs inside the fiber's LIFO
+    // disposal chain, where a throw would skip later disposers (e.g. the
+    // registry unregistration) and leave `done` pending forever.
     return () => {
+      if (this._status === 'disposed') return
       this._status = 'disposed'
       this.resolveDisposed()
       this.currentAbort?.abort('disposed')
+      // setStatus refuses transitions out of 'disposed', so emit directly —
+      // 'disposed' is part of the agent/status contract. Guarded: a throwing
+      // listener must not break the disposal chain.
+      try {
+        this.ctx.emit('agent/status', this, 'disposed')
+      } catch {
+        // listener error during disposal — nothing safe left to do with it
+      }
     }
   }
 }

@@ -69,8 +69,11 @@ declare module 'cordis' {
     'agent/disposed'(agent: Agent): void
     /** Agent status changed (idle/running/disposed). */
     'agent/status'(agent: Agent, status: AgentStatus): void
-    /** A message entered the agent's inbox (queued or steering). */
-    'agent/queued'(agent: Agent, content: ContentBlock[], options: SendOptions & { steering: boolean }): void
+    /**
+     * A message entered the agent's inbox (queued or steering). `source` is
+     * the resolved source (defaults applied), not the caller's raw options.
+     */
+    'agent/queued'(agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void
 
     // ---- turn/step boundaries (emit) ----
     'agent/turn-start'(agent: Agent, turn: number): void
@@ -100,7 +103,7 @@ declare module 'cordis' {
     /** A raw stream chunk arrived (token-level UI/log feed). */
     'agent/stream-chunk'(agent: Agent, turn: number, step: number, chunk: StreamChunk): void
     /** Steering content was injected into a running turn. */
-    'agent/steering'(agent: Agent, turn: number, content: ContentBlock[]): void
+    'agent/steering'(agent: Agent, turn: number, content: ContentBlock[], source: MessageSource): void
     /** A step or turn errored. */
     'agent/error'(agent: Agent, turn: number, step: number, error: Error): void
   }

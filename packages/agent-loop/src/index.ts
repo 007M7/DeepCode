@@ -59,14 +59,12 @@ export class AgentLoop extends Service {
   create(id: string, options: AgentOptions = {}): LoopAgent {
     const session = this.ctx.sessions.create(`${id}-session`)
     const agent = new LoopAgent(this.ctx, id, options, session)
-    this.ctx.effect(() => {
-      const stop = agent.start()
-      const unregister = this.ctx.agents.register(agent)
-      return () => {
-        stop()
-        unregister()
-      }
-    }, 'agentLoop.create()')
+    // Generator effect: stop and unregister are independent disposables
+    // (LIFO), so a throwing stop() cannot leak the registry entry.
+    this.ctx.effect(function* (this: AgentLoop) {
+      yield this.ctx.agents.register(agent)
+      yield agent.start()
+    }.bind(this), 'agentLoop.create()')
     return agent
   }
 }

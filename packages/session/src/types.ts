@@ -63,12 +63,19 @@ export interface SessionEventMap {
 
 export type SessionEventType = keyof SessionEventMap
 
-/** One immutable entry in the session log. */
-export interface SessionEvent<T extends SessionEventType = SessionEventType> {
-  type: T
-  /** Monotonic sequence number within the session. */
-  seq: number
-  /** Unix epoch milliseconds. */
-  time: number
-  data: SessionEventMap[T]
-}
+/**
+ * One immutable entry in the session log.
+ *
+ * A proper discriminated union over `type` (not independent `type`/`data`
+ * unions), so `switch (event.type)` narrows `event.data` without casts.
+ */
+export type SessionEvent<T extends SessionEventType = SessionEventType> = {
+  [K in SessionEventType]: {
+    type: K
+    /** Monotonic sequence number within the session. */
+    seq: number
+    /** Unix epoch milliseconds. */
+    time: number
+    data: SessionEventMap[K]
+  }
+}[T]

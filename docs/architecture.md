@@ -154,27 +154,39 @@ deferred.
 ```
 forever:
   wait for queued messages (idle)
-  TURN: drain queued → session('user/message'…) → 'turn/start' → emit agent/turn-start
+  emit agent/status(running)
+  TURN (error-contained — a throwing plugin ends the turn, never the loop):
+    drain queued → session('user/message'…) → 'turn/start' → emit agent/turn-start
     STEP loop:
+      drain steering (late steering from previous step's listeners)
       emit agent/step-start
       assembly = ctx.systemPrompt.assemble()          ⟵ waterfall system-prompt/assemble
       req = {model, system, tools, messages: session.deriveMessages(), signal}
       req = waterfall agent/request                   ⟵ hooks, compaction, model switch
       stream ctx.llm.stream(req)                      ⟵ waterfall llm/stream (raw chunks)
         session('assistant/chunk'); emit agent/stream-chunk
-      session('assistant/message', 'usage')
-      msg = waterfall agent/step-result               ⟵ post-process before tool dispatch
-      each tool-call (sequential):
+      msg = waterfall agent/step-result               ⟵ runs BEFORE the log append, so the
+      session('assistant/message', 'usage')              log records what tool dispatch uses
+      each tool-call (sequential, abort-checked between calls):
         session('tool/call'); ctx.tools.execute()     ⟵ waterfall tools/execute
         session('tool/result')
       drain steering → session('steering/message'); emit agent/steering
       emit agent/step-end
       cont = waterfall agent/turn-continuation(default = hadToolCalls || steered)
+      steering pending from step-end/continuation listeners forces cont = true
       if !cont: break
   session('turn/end'); emit agent/turn-end
-  await ctx.parallel('session/flush', session)        ⟵ durability checkpoint
-  idle (emit agent/status) unless more queued
+  await ctx.parallel('session/flush', session)        ⟵ durability checkpoint (failure
+                                                         reported via agent/error, not fatal)
+  leftover steering re-enqueued as queued messages    ⟵ steering is never stranded
+  emit agent/status(idle) unless more queued
 ```
+
+Error containment: a throwing `agent/turn-continuation` listener or a
+rejecting `session/flush` ends the **turn** with an `error` event — never the
+driver loop. `abort()` is honored mid-stream **and** between tool calls;
+disposal mid-turn ends the turn with reason `disposed` and emits
+`agent/status('disposed')`.
 
 ### Event taxonomy
 
@@ -206,8 +218,11 @@ receives `(...args, next)`:
 - return a value **without** calling `next()` to short-circuit (veto);
 - listeners run in registration order; `prepend: true` jumps the queue.
 
-Mutate the passed-in object (e.g. `options.model = '…'`) or return a
-replacement value — both compose.
+Composition caveat: values propagate through `next()`'s **return value**.
+Mutating the passed-in object works when later listeners receive the same
+reference, but a listener that returns a *new* object makes earlier mutations
+invisible downstream. Prefer mutate-then-`next()` for cooperative middleware;
+return a replacement only when you mean to take over the result.
 
 ## Plugin sanity checklist
 
