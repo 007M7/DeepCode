@@ -1,23 +1,4 @@
 {
   "extends": "./tsconfig.base.json",
-  "compilerOptions": {
-    "paths": {
-      "cordis": ["./vendor/cordis/src"],
-      "cosmokit": ["./vendor/cosmokit/src"],
-      "schemastery": ["./vendor/schemastery/src"],
-      "@cordisjs/plugin-loader": ["./vendor/loader/src"],
-      "@cordisjs/plugin-include": ["./vendor/include/src"],
-      "@cordisjs/plugin-group": ["./vendor/group/src"],
-      "@cordisjs/plugin-timer": ["./vendor/timer/src"],
-      "@cordisjs/plugin-hmr": ["./vendor/hmr/src"],
-      "@cordisjs/plugin-logger-console": ["./vendor/logger-console/src"],
-      "@deepseek-ai/dsh-llm": ["./packages/llm/src"],
-      "@deepseek-ai/dsh-session": ["./packages/session/src"],
-      "@deepseek-ai/dsh-system-prompt": ["./packages/system-prompt/src"],
-      "@deepseek-ai/dsh-tools": ["./packages/tools/src"],
-      "@deepseek-ai/dsh-agent": ["./packages/agent/src"],
-      "@deepseek-ai/dsh-agent-loop": ["./packages/agent-loop/src"]
-    }
-  },
   "files": []
 }

@@ -50,7 +50,11 @@ yarn demo           # run examples/echo-agent (needs --expose-internals, the
 
 Dev/test/demo run **unbuilt** via tsx + the `paths` map in the root
 `tsconfig.json` (`vitest` resolves through `tsconfig.test.json`). Building is
-only needed for publishing/consumption outside the repo.
+only needed for publishing/consumption outside the repo — with one exception:
+`yarn lint`'s type-aware rules resolve vendor packages through their built
+declarations (`tsconfig.typecheck.json` → `vendor/*/lib`), so run
+`yarn typecheck` once after a fresh clone (CI does the same) or lint reports
+unresolved-type `no-unsafe-*` errors.
 
 ## Conventions
 
