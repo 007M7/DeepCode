@@ -1,0 +1,28 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    "composite": false,
+    "incremental": false,
+    "types": ["node"],
+    "paths": {
+      "cordis": ["./vendor/cordis/lib"],
+      "cosmokit": ["./vendor/cosmokit/lib"],
+      "schemastery": ["./vendor/schemastery/lib"],
+      "@cordisjs/plugin-loader": ["./vendor/loader/lib"],
+      "@cordisjs/plugin-include": ["./vendor/include/lib"],
+      "@cordisjs/plugin-group": ["./vendor/group/lib"],
+      "@cordisjs/plugin-timer": ["./vendor/timer/lib"],
+      "@cordisjs/plugin-hmr": ["./vendor/hmr/lib"],
+      "@cordisjs/plugin-logger-console": ["./vendor/logger-console/lib/shared"],
+      "@deepseek-ai/dsh-llm": ["./packages/llm/src"],
+      "@deepseek-ai/dsh-session": ["./packages/session/src"],
+      "@deepseek-ai/dsh-system-prompt": ["./packages/system-prompt/src"],
+      "@deepseek-ai/dsh-tools": ["./packages/tools/src"],
+      "@deepseek-ai/dsh-agent": ["./packages/agent/src"],
+      "@deepseek-ai/dsh-agent-loop": ["./packages/agent-loop/src"]
+    }
+  },
+  "include": ["packages/*/src", "packages/*/tests", "examples", "scripts"]
+}

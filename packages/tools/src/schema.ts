@@ -66,24 +66,30 @@ type TypeOf<T extends SchemaType> =
   T extends 'array' ? unknown[] :
   never
 
+/** Flatten an intersection into one object type for readable hovers. */
+type Simplify<T> = { [K in keyof T]: T[K] } & {}
+
+/** Keys of `S` whose prop is marked `required: true`. */
+type RequiredKeys<S extends SchemaSpec> =
+  { [K in keyof S]: S[K] extends { required: true } ? K : never }[keyof S]
+
 /**
- * Infer the TS type of a single {@link SchemaProp}.
- * - `required: true` → required (non-optional)
- * - absent required → optional
- * - `properties` on 'object' → recurse
+ * The VALUE type of one {@link SchemaProp} — optionality is handled at the
+ * key level by {@link InferArgs}, never here.
+ * - `properties` on 'object' → recurse into the nested SchemaSpec
+ * - `items` on 'array' → recurse into the item prop (arrays of objects work)
+ * - otherwise → the primitive for `type`
  */
-type InferProp<P extends SchemaProp> =
-  P extends { type: 'object'; properties: infer Sub extends SchemaSpec } ?
-    // Nested objects with their own SchemaSpec — infer their shape
-    (P extends { required: true } ? InferArgs<Sub> : InferArgs<Sub> | undefined) :
-  P extends { type: 'array'; items: infer Item extends SchemaProp } ?
-    // Arrays: infer item type
-    (P extends { required: true } ? TypeOf<Item['type']>[] : TypeOf<Item['type']>[] | undefined) :
-  // Primitive types
-  (P extends { required: true } ? TypeOf<P['type']> : TypeOf<P['type']> | undefined)
+type InferPropValue<P extends SchemaProp> =
+  P extends { type: 'object'; properties: infer Sub extends SchemaSpec } ? InferArgs<Sub> :
+  P extends { type: 'array'; items: infer Item extends SchemaProp } ? InferPropValue<Item>[] :
+  TypeOf<P['type']>
 
 /**
  * Infer the TS argument type for a complete {@link SchemaSpec}.
+ *
+ * Properties marked `required: true` are required keys; all others are
+ * genuinely optional keys (`?`), so callers may omit them entirely.
  *
  * Example:
  * ```ts
@@ -91,9 +97,10 @@ type InferProp<P extends SchemaProp> =
  * // → { path: string; limit?: number }
  * ```
  */
-export type InferArgs<S extends SchemaSpec> = {
-  [K in keyof S]: InferProp<S[K]>
-}
+export type InferArgs<S extends SchemaSpec> = Simplify<
+  & { [K in RequiredKeys<S>]: InferPropValue<S[K]> }
+  & { [K in Exclude<keyof S, RequiredKeys<S>>]?: InferPropValue<S[K]> }
+>
 
 // ---------------------------------------------------------------------------
 // Runtime conversion: SchemaSpec → JSON Schema

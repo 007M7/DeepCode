@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from 'cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool, schemaSpecToJsonSchema, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, {
+  defineTool, schemaSpecToJsonSchema,
+  type InferArgs, type SchemaSpec, type ToolExecutionResult,
+} from '@deepseek-ai/dsh-tools'
 
 async function setup() {
   const ctx = new Context()
@@ -29,9 +32,9 @@ describe('ToolRegistry', () => {
       description: 'echo arguments back',
       parameters: { type: 'object', properties: { text: { type: 'string' } } },
     }])
-    // schemas() result must not leak execute — as any intentional: 'execute'
-    // is deliberately absent from ToolSchema, we're testing it's not there
-    expect((ctx.tools.schemas()[0] as Record<string, unknown>).execute).toBeUndefined()
+    // schemas() result must not leak execute — ToolSchema deliberately has no
+    // 'execute' key, so widen through unknown to probe for the absent property
+    expect((ctx.tools.schemas()[0] as unknown as Record<string, unknown>).execute).toBeUndefined()
 
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.tools.map(t => t.name)).toEqual(['echo'])
@@ -123,10 +126,10 @@ describe('ToolRegistry', () => {
 describe('defineTool / schema DSL', () => {
   it('converts SchemaSpec to standard JSON Schema with required array', () => {
     const spec = {
-      path: { type: 'string', required: true as const, description: 'Absolute path' },
+      path: { type: 'string', required: true, description: 'Absolute path' },
       offset: { type: 'number' },
       limit: { type: 'number', description: 'Max lines' },
-    }
+    } satisfies SchemaSpec
     const jsonSchema = schemaSpecToJsonSchema(spec)
     expect(jsonSchema).toEqual({
       type: 'object',
@@ -149,14 +152,14 @@ describe('defineTool / schema DSL', () => {
   it('handles nested object spec', () => {
     const spec = {
       config: {
-        type: 'object' as const,
-        required: true as const,
+        type: 'object',
+        required: true,
         properties: {
-          host: { type: 'string', required: true as const },
+          host: { type: 'string', required: true },
           port: { type: 'number' },
         },
       },
-    }
+    } satisfies SchemaSpec
     const jsonSchema = schemaSpecToJsonSchema(spec)
     expect(jsonSchema).toEqual({
       type: 'object',
@@ -297,5 +300,84 @@ describe('defineTool / schema DSL', () => {
     })
     expect(result.isError).toBe(false)
     expect(result.content).toEqual([{ type: 'text', text: '/tmp' }])
+  })
+})
+
+describe('schema DSL regressions (Codex review round 2)', () => {
+  it('InferArgs makes non-required keys genuinely optional (omittable)', () => {
+    type Args = InferArgs<{
+      path: { type: 'string'; required: true }
+      limit: { type: 'number' }
+    }>
+    expectTypeOf<Args>().toEqualTypeOf<{ path: string; limit?: number }>()
+    // omitting the optional key is assignable — the actual regression
+    const omitted: Args = { path: '/tmp' }
+    expect(omitted.limit).toBeUndefined()
+  })
+
+  it('InferArgs recurses into array items, including arrays of objects', () => {
+    type Args = InferArgs<{
+      names: { type: 'array'; required: true; items: { type: 'string' } }
+      servers: {
+        type: 'array'
+        items: {
+          type: 'object'
+          properties: {
+            host: { type: 'string'; required: true }
+            port: { type: 'number' }
+          }
+        }
+      }
+    }>
+    expectTypeOf<Args>().toEqualTypeOf<{
+      names: string[]
+      servers?: { host: string; port?: number }[]
+    }>()
+  })
+
+  it('runtime JSON Schema matches the array-of-objects inference', () => {
+    const spec = {
+      servers: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            host: { type: 'string', required: true },
+            port: { type: 'number' },
+          },
+        },
+      },
+    } satisfies SchemaSpec
+    expect(schemaSpecToJsonSchema(spec)).toEqual({
+      type: 'object',
+      properties: {
+        servers: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              host: { type: 'string' },
+              port: { type: 'number' },
+            },
+            required: ['host'],
+          },
+        },
+      },
+    })
+  })
+
+  it('reports messages from non-Error throws (throw { message })', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'object-thrower',
+      async execute() {
+        // eslint-disable-next-line no-throw-literal — testing non-Error throws
+        throw { message: 'denied by object' }
+      },
+    })
+    const result = await ctx.tools.execute({ callId: 'c1', name: 'object-thrower', arguments: {} })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({ text: 'Error: denied by object' })
   })
 })

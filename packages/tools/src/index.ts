@@ -71,6 +71,21 @@ export interface ToolExecutionResult {
 }
 
 /**
+ * Best-effort human-readable message from an arbitrary thrown value: Error
+ * instances use `.message`; non-Error objects with a string `message`
+ * property (e.g. `throw { message: 'denied' }`) use it too; everything else
+ * is stringified.
+ */
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'object' && error !== null
+    && 'message' in error && typeof error.message === 'string') {
+    return error.message
+  }
+  return String(error)
+}
+
+/**
  * Tool registry (`ctx.tools`): tool plugins register definitions; the agent
  * loop executes calls through the `tools/execute` waterfall. The registry
  * contributes its schemas into the system-prompt assembly.
@@ -138,10 +153,9 @@ export class ToolRegistry extends Service {
         const content = await tool.execute(exec.arguments, exec)
         return { callId: exec.callId, content, isError: false }
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error)
         return {
           callId: exec.callId,
-          content: [{ type: 'text', text: `Error: ${message}` }],
+          content: [{ type: 'text', text: `Error: ${errorMessage(error)}` }],
           isError: true,
         }
       }

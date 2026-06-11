@@ -13,7 +13,7 @@
   ],
   "scripts": {
     "build": "tsc -b tsconfig.build.json && tsx scripts/build.ts",
-    "typecheck": "tsc -b tsconfig.build.json",
+    "typecheck": "tsc -b tsconfig.build.json && tsc -p tsconfig.typecheck.json",
     "test": "vitest run",
     "demo": "node --expose-internals --import tsx examples/echo-agent/start.ts"
   },
