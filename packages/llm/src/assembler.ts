@@ -131,6 +131,7 @@ export class BlockAssembler {
     const ready: ContentBlock[] = []
     while (this.flushed < this.order.length) {
       const index = this.order[this.flushed]
+      /* v8 ignore next 3 -- noUncheckedIndexedAccess guard: loop condition guarantees index exists in a non-empty array */
       if (index === undefined) break
       const partial = this.mustGet(index)
       if (!partial.block) break
@@ -150,6 +151,7 @@ export class BlockAssembler {
     const remaining: ContentBlock[] = []
     while (this.flushed < this.order.length) {
       const index = this.order[this.flushed]
+      /* v8 ignore next 3 -- noUncheckedIndexedAccess guard: loop condition guarantees index exists */
       if (index === undefined) break
       remaining.push(this.assemble(this.mustGet(index), index))
       this.flushed += 1

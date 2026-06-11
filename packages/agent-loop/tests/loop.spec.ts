@@ -383,6 +383,30 @@ describe('agent loop', () => {
     expect(() => { send(agent, 'too late') }).toThrow('disposed')
   })
 
+  it('creates agents from config on startup', async () => {
+    const adapter = new MockAdapter([textResponse('from config')])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, {
+      agents: [{ id: 'config-agent', model: 'mock', systemPrompt: 'Config prompt' }],
+    })
+    ctx.llm.registerAdapter(['mock'], adapter)
+
+    const agent = ctx.agents.get('config-agent')! as LoopAgent
+    expect(agent).toBeDefined()
+    expect(agent.id).toBe('config-agent')
+    expect(agent.options.model).toBe('mock')
+
+    // the agent is alive: send triggers a turn
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+    expect(adapter.requests).toHaveLength(1)
+  })
+
   it('replays a session log into an identical derived history', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'echo', { text: 'x' }),

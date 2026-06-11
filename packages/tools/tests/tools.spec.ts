@@ -121,6 +121,18 @@ describe('ToolRegistry', () => {
     await fiber.dispose()
     expect(ctx.tools.schemas().map(t => t.name)).toEqual(['echo'])
   })
+
+  it('returns a callable disposer from register() that unregisters the tool', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+
+    // Register a second tool and call its returned disposer directly
+    const dispose = ctx.tools.register({ ...echoTool, name: 'disposable' })
+    expect(ctx.tools.schemas().map(t => t.name)).toEqual(['echo', 'disposable'])
+
+    dispose()
+    expect(ctx.tools.schemas().map(t => t.name)).toEqual(['echo'])
+  })
 })
 
 describe('defineTool / schema DSL', () => {
@@ -303,6 +315,137 @@ describe('defineTool / schema DSL', () => {
   })
 })
 
+describe('schema DSL edge cases', () => {
+  it('emits enum values in JSON Schema property', () => {
+    const spec = {
+      color: { type: 'string', enum: ['red', 'green', 'blue'], description: 'Color choice' },
+    } satisfies SchemaSpec
+    const jsonSchema = schemaSpecToJsonSchema(spec)
+    expect(jsonSchema.properties['color']).toMatchObject({
+      type: 'string',
+      enum: ['red', 'green', 'blue'],
+      description: 'Color choice',
+    })
+  })
+
+  it('emits default value in JSON Schema property', () => {
+    const spec = {
+      limit: { type: 'number', default: 25 },
+    } satisfies SchemaSpec
+    const jsonSchema = schemaSpecToJsonSchema(spec)
+    expect(jsonSchema.properties['limit']).toMatchObject({
+      type: 'number',
+      default: 25,
+    })
+  })
+
+  it('handles array items without nested properties (plain type array)', () => {
+    const spec = {
+      tags: { type: 'array', items: { type: 'string' } },
+    } satisfies SchemaSpec
+    const jsonSchema = schemaSpecToJsonSchema(spec)
+    expect(jsonSchema.properties['tags']).toEqual({
+      type: 'array',
+      items: { type: 'string' },
+    })
+  })
+
+  it('defineTool passes through strict flag when set to true', () => {
+    const tool = defineTool({
+      name: 'strict-tool',
+      description: 'A strict tool',
+      parameters: { input: { type: 'string' } },
+      strict: true,
+      async execute(args) {
+        return [{ type: 'text' as const, text: args.input ?? '' }]
+      },
+    })
+    expect(tool.strict).toBe(true)
+  })
+
+  it('defineTool omits strict when not provided', () => {
+    const tool = defineTool({
+      name: 'non-strict-tool',
+      description: 'A non-strict tool',
+      parameters: { input: { type: 'string' } },
+      async execute(args) {
+        return [{ type: 'text' as const, text: args.input ?? '' }]
+      },
+    })
+    expect('strict' in tool).toBe(false)
+  })
+
+  it('defineTool strict=false is included', () => {
+    const tool = defineTool({
+      name: 'explicitly-non-strict',
+      description: 'Explicitly non-strict',
+      parameters: { input: { type: 'string' } },
+      strict: false,
+      async execute(args) {
+        return [{ type: 'text' as const, text: args.input ?? '' }]
+      },
+    })
+    expect(tool.strict).toBe(false)
+  })
+
+  it('handles enum and default together in one property', () => {
+    const spec = {
+      level: { type: 'string', enum: ['low', 'high'], default: 'low' },
+    } satisfies SchemaSpec
+    const jsonSchema = schemaSpecToJsonSchema(spec)
+    expect(jsonSchema.properties['level']).toMatchObject({
+      type: 'string',
+      enum: ['low', 'high'],
+      default: 'low',
+    })
+  })
+
+  it('omits description, enum, default keys when not specified', () => {
+    const spec = {
+      bare: { type: 'string' },
+    } satisfies SchemaSpec
+    const jsonSchema = schemaSpecToJsonSchema(spec)
+    const prop = jsonSchema.properties['bare'] as Record<string, unknown>
+    expect(prop).toEqual({ type: 'string' })
+    expect('description' in prop).toBe(false)
+    expect('enum' in prop).toBe(false)
+    expect('default' in prop).toBe(false)
+  })
+
+  it('handles array with no items (items omitted)', () => {
+    const spec = {
+      raw: { type: 'array' },
+    } satisfies SchemaSpec
+    const jsonSchema = schemaSpecToJsonSchema(spec)
+    expect(jsonSchema.properties['raw']).toEqual({
+      type: 'array',
+    })
+  })
+
+  it('handles nested object with all-optional properties (no required array)', () => {
+    const spec = {
+      config: {
+        type: 'object',
+        properties: {
+          host: { type: 'string' },
+          port: { type: 'number' },
+        },
+      },
+    } satisfies SchemaSpec
+    const jsonSchema = schemaSpecToJsonSchema(spec)
+    expect(jsonSchema.properties['config']).toMatchObject({
+      type: 'object',
+      properties: {
+        host: { type: 'string' },
+        port: { type: 'number' },
+      },
+    })
+    // no 'required' key in the nested object because nothing is required
+    const config = jsonSchema.properties['config'] as Record<string, unknown>
+    expect('required' in config).toBe(false)
+  })
+})
+
 describe('schema DSL regressions (Codex review round 2)', () => {
   it('InferArgs makes non-required keys genuinely optional (omittable)', () => {
     type Args = InferArgs<{
@@ -379,5 +522,54 @@ describe('schema DSL regressions (Codex review round 2)', () => {
     const result = await ctx.tools.execute({ callId: 'c1', name: 'object-thrower', arguments: {} })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: denied by object' })
+  })
+
+  it('reports messages from throws of non-objects (throw "string")', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'string-thrower',
+      async execute() {
+        // testing primitive throws on purpose
+        throw 'kaboom'
+      },
+    })
+    const result = await ctx.tools.execute({ callId: 'c1', name: 'string-thrower', arguments: {} })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({ text: 'Error: kaboom' })
+  })
+
+  it('reports messages from throws of objects without message property', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'object-no-message',
+      async execute() {
+        // testing object throw without .message
+        throw { code: 500 }
+      },
+    })
+    const result = await ctx.tools.execute({ callId: 'c1', name: 'object-no-message', arguments: {} })
+    expect(result.isError).toBe(true)
+    const firstContent = result.content[0]!
+    expect(firstContent.type).toBe('text')
+    if (firstContent.type === 'text') {
+      expect(firstContent.text).toBe('Error: [object Object]')
+    }
+  })
+})
+
+describe('ToolRegistry.get', () => {
+  it('get() returns the registered tool definition', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    const tool = ctx.tools.get('echo')
+    expect(tool).toBeDefined()
+    expect(tool!.name).toBe('echo')
+  })
+
+  it('get() returns undefined for unknown tool names', async () => {
+    const ctx = await setup()
+    expect(ctx.tools.get('nope')).toBeUndefined()
   })
 })

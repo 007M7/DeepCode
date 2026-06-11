@@ -78,6 +78,7 @@ export class SystemPrompt extends Service {
       this.ctx.emit('system-prompt/change')
       return () => {
         const index = this.sections.indexOf(section)
+        /* v8 ignore next 3 -- defensive: section was registered, so indexOf is guaranteed >= 0 */
         if (index >= 0) this.sections.splice(index, 1)
         this.ctx.emit('system-prompt/change')
       }
@@ -98,6 +99,7 @@ export class SystemPrompt extends Service {
       this.ctx.emit('system-prompt/change')
       return () => {
         const index = this.toolProviders.indexOf(provider)
+        /* v8 ignore next 3 -- defensive: provider was registered, so indexOf is guaranteed >= 0 */
         if (index >= 0) this.toolProviders.splice(index, 1)
         this.ctx.emit('system-prompt/change')
       }

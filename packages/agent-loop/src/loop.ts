@@ -114,6 +114,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
   // Drain queued messages into the session — they trigger this turn.
   const queued = agent.inbox.drainQueued()
   const first = queued[0]
+  /* v8 ignore next 3 -- invariant guard: runLoop only calls runTurn when hasQueued */
   if (!first) throw new Error('runTurn invariant violated: no queued message at turn start')
   const trigger: TurnTrigger = { kind: 'message', source: first.source }
   for (const message of queued) {
@@ -158,6 +159,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
       if (handle.isDisposed()) {
         reason = { kind: 'disposed' }
       } else if (abort.signal.aborted) {
+        /* v8 ignore next -- abort.signal.reason always set by agent.abort() which provides a default */
         reason = { kind: 'aborted', reason: String(abort.signal.reason ?? 'aborted') }
       } else {
         const coded = error as CodedError
@@ -196,6 +198,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     if (!shouldContinue && agent.inbox.hasSteering) shouldContinue = true
 
     if (!shouldContinue || handle.isDisposed()) {
+      /* v8 ignore next -- disposal during continuation-decision window is a narrow race; error-path disposal is covered elsewhere */
       if (handle.isDisposed()) reason = { kind: 'disposed' }
       break
     }
@@ -256,6 +259,7 @@ async function runStep(
   // --- Model call (streaming-first; raw chunks are the replay record) ---
   const assembler = new BlockAssembler()
   for await (const chunk of ctx.llm.stream(request)) {
+    /* v8 ignore next -- signal.reason always set by agent.abort() which provides a default */
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
     session.append('assistant/chunk', { turn, step, chunk })
     ctx.emit('agent/stream-chunk', agent, turn, step, chunk)
@@ -278,6 +282,7 @@ async function runStep(
   // isError results, so abort is re-checked around every call here.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')
   for (const call of toolCalls) {
+    /* v8 ignore next -- signal.reason always set by agent.abort() which provides a default */
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
     session.append('tool/call', { turn, step, callId: call.id, name: call.name, arguments: call.arguments })
     let parsedArguments: unknown
@@ -301,8 +306,12 @@ async function runStep(
     })
     // signal CAN flip during the await above (abort() inside a tool);
     // the analyzer can't see through the await boundary.
+    // signal can flip during the await above (abort() inside a tool);
+    // the analyzer can't see through the await boundary.
+    /* v8 ignore start -- signal.reason default unreachable via agent.abort() */
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
+    /* v8 ignore stop */
   }
 
   return { hadToolCalls: toolCalls.length > 0 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import SystemPrompt, { PromptAssembly, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt, { PromptAssembly, PromptSection, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 
 describe('SystemPrompt', () => {
   it('assembles sections in order with dynamic text and collected tools', async () => {
@@ -67,5 +67,78 @@ describe('SystemPrompt', () => {
 
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections).toHaveLength(0)
+  })
+
+  it('filters out empty section text from renderPrompt', () => {
+    // Direct test of renderPrompt: function returning empty string, and empty static text
+    const result = renderPrompt({
+      sections: [
+        { name: 'empty-fn', order: 0, text: () => '' },
+        { name: 'real', order: 1, text: 'content' },
+        { name: 'empty-static', order: 2, text: '' },
+      ],
+      tools: [],
+    })
+    expect(result).toBe('content')
+  })
+
+  it('evaluates dynamic function-text sections at each renderPrompt call', () => {
+    let counter = 0
+    const section: PromptSection = { name: 'dynamic', order: 0, text: () => `call ${++counter}` }
+    expect(renderPrompt({ sections: [section], tools: [] })).toBe('call 1')
+    expect(renderPrompt({ sections: [section], tools: [] })).toBe('call 2')
+  })
+
+  it('emits system-prompt/change when a tool provider is registered and disposed', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+
+    const changes: number = 0
+    let changeCount = 0
+    ctx.on('system-prompt/change', () => void changeCount++)
+
+    const dispose = ctx.systemPrompt.tools(() => [])
+    // registration emits change
+    expect(changeCount).toBe(1)
+
+    dispose()
+    // disposal emits change again
+    expect(changeCount).toBe(2)
+    void changes // silence unused
+  })
+
+  it('cleans up tool providers on fiber dispose', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      inner.systemPrompt.tools(() => [{ name: 'fiber-tool', description: '', parameters: {} }])
+    }, { inject: ['systemPrompt'] }))
+
+    expect((await ctx.systemPrompt.assemble()).tools).toHaveLength(1)
+    await fiber.dispose()
+    expect((await ctx.systemPrompt.assemble()).tools).toHaveLength(0)
+  })
+
+  it('removes section when returned disposer is called directly', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+
+    const dispose = ctx.systemPrompt.section({ name: 'direct', order: 0, text: 'direct section' })
+    expect((await ctx.systemPrompt.assemble()).sections).toHaveLength(1)
+
+    dispose()
+    expect((await ctx.systemPrompt.assemble()).sections).toHaveLength(0)
+  })
+
+  it('removes tool provider when returned disposer is called directly', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+
+    const dispose = ctx.systemPrompt.tools(() => [{ name: 'direct-tool', description: '', parameters: {} }])
+    expect((await ctx.systemPrompt.assemble()).tools).toHaveLength(1)
+
+    dispose()
+    expect((await ctx.systemPrompt.assemble()).tools).toHaveLength(0)
   })
 })

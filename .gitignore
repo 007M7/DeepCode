@@ -6,3 +6,4 @@ lib/
 yarn-error.log
 examples/*/*.jsonl
 .claude/
+coverage/
