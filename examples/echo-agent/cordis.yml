@@ -1,0 +1,48 @@
+# The echo-agent plugin tree, loaded via @cordisjs/plugin-include.
+# Core services first, then the demo plugins, then the agent itself.
+
+- id: logger
+  name: '@cordisjs/plugin-logger-console'
+
+- id: timer
+  name: '@cordisjs/plugin-timer'
+
+- id: hmr
+  name: '@cordisjs/plugin-hmr'
+  config:
+    root: ['.']
+
+- id: llm
+  name: '@deepseek-ai/dsh-llm'
+
+- id: sessions
+  name: '@deepseek-ai/dsh-session'
+
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+
+- id: agents
+  name: '@deepseek-ai/dsh-agent'
+
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'
+  config:
+    agents:
+      - id: main
+        model: mock-echo
+        systemPrompt: 'You are echo-agent, a demo agent.'
+
+- id: mock-llm
+  name: './src/mock-llm.ts'
+
+- id: echo-tool
+  name: './src/echo-tool.ts'
+
+- id: session-jsonl
+  name: './src/session-jsonl.ts'
+
+- id: stdio-chat
+  name: './src/stdio-chat.ts'
