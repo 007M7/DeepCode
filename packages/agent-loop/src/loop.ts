@@ -18,6 +18,19 @@ import type { LoopAgent } from './agent.ts'
 /** An Error with an optional machine-readable code (e.g., from LlmError or a throwing plugin). */
 type CodedError = Error & { code?: string }
 
+/** Normalize an arbitrary thrown value into a (possibly coded) Error. */
+function toError(error: unknown): CodedError {
+  return error instanceof Error ? error : new Error(String(error))
+}
+
+/**
+ * Build the `{ message, code? }` part of an error payload, omitting the
+ * `code` key entirely when absent (exactOptionalPropertyTypes-correct).
+ */
+function errorData(err: CodedError): { message: string; code?: string } {
+  return { message: err.message, ...typeof err.code === 'string' ? { code: err.code } : {} }
+}
+
 /**
  * Ambient handles the loop driver receives from the agent. Decouples the
  * pure function `runLoop` from the mutable LoopAgent fields, making the
@@ -79,8 +92,8 @@ export async function runLoop(ctx: Context, agent: LoopAgent, handle: LoopHandle
       // Backstop: a throwing emit listener (turn boundaries) or a broken
       // finalizer must not kill the driver. Record what we can and move on.
       try {
-        const err: CodedError = error instanceof Error ? error : new Error(String(error))
-        session.append('error', { turn, step: 0, message: err.message, code: err.code })
+        const err = toError(error)
+        session.append('error', { turn, step: 0, ...errorData(err) })
         ctx.emit('agent/error', agent, turn, 0, err)
       } catch { /* the error path itself is broken; nothing left to do */ }
     }
@@ -146,9 +159,9 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
         reason = { kind: 'aborted', reason: String(abort.signal.reason ?? 'aborted') }
       } else {
         const coded = error as CodedError
-        session.append('error', { turn, step, message: coded.message, code: coded.code })
+        session.append('error', { turn, step, ...errorData(coded) })
         ctx.emit('agent/error', agent, turn, step, error)
-        reason = { kind: 'error', message: coded.message, code: coded.code }
+        reason = { kind: 'error', ...errorData(coded) }
       }
       break
     }
@@ -168,10 +181,10 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
       )
     } catch (error: unknown) {
       // A broken continuation plugin ends the turn, not the loop.
-      const err: CodedError = error instanceof Error ? error : new Error(String(error))
-      session.append('error', { turn, step, message: err.message, code: err.code })
+      const err = toError(error)
+      session.append('error', { turn, step, ...errorData(err) })
       ctx.emit('agent/error', agent, turn, step, err)
-      reason = { kind: 'error', message: err.message, code: err.code }
+      reason = { kind: 'error', ...errorData(err) }
       break
     }
 
@@ -194,8 +207,8 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
   try {
     await ctx.parallel('session/flush', session)
   } catch (error: unknown) {
-    const err: CodedError = error instanceof Error ? error : new Error(String(error))
-    session.append('error', { turn, step, message: err.message, code: err.code })
+    const err = toError(error)
+    session.append('error', { turn, step, ...errorData(err) })
     ctx.emit('agent/error', agent, turn, step, err)
   }
 }
@@ -229,8 +242,8 @@ async function runStep(
   let request: GenerateOptions = {
     model: options.model ?? '',
     messages: session.deriveMessages(),
-    system: system || undefined,
-    tools: assembly.tools.length > 0 ? assembly.tools : undefined,
+    ...system ? { system } : {},
+    ...assembly.tools.length > 0 ? { tools: assembly.tools } : {},
     signal,
   }
   request = await ctx.waterfall('agent/request', agent, turn, step, request, async () => request)
@@ -293,7 +306,7 @@ async function runStep(
 /** The last turn number in a (possibly seeded) session log, or 0. */
 function lastTurnNumber(session: Session): number {
   for (let index = session.events.length - 1; index >= 0; index--) {
-    const event = session.events[index]
+    const event = session.events[index]!
     if (event.type === 'turn/start') return event.data.turn
   }
   return 0

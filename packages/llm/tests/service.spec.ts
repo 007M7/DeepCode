@@ -57,7 +57,7 @@ describe('LlmService', () => {
     await ctx.plugin(LlmService)
     ctx.llm.registerAdapter(['test-model'], new ScriptedAdapter(SCRIPT))
 
-    ctx.on('llm/stream', function (options, next) {
+    ctx.on('llm/stream', function (_options, next) {
       const inner = next()
       return (async function * () {
         yield { type: 'block-start', index: 99, blockType: 'text' } satisfies StreamChunk

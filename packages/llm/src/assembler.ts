@@ -123,7 +123,8 @@ export class BlockAssembler {
   flushReady(): ContentBlock[] {
     const ready: ContentBlock[] = []
     while (this.flushed < this.order.length) {
-      const partial = this.partials.get(this.order[this.flushed])!
+      const index = this.order[this.flushed]!
+      const partial = this.partials.get(index)!
       if (!partial.block) break
       ready.push(partial.block)
       this.flushed += 1
@@ -140,7 +141,7 @@ export class BlockAssembler {
   flushRemaining(): ContentBlock[] {
     const remaining: ContentBlock[] = []
     while (this.flushed < this.order.length) {
-      const index = this.order[this.flushed]
+      const index = this.order[this.flushed]!
       remaining.push(this.assemble(this.partials.get(index)!, index))
       this.flushed += 1
     }
@@ -162,6 +163,10 @@ export class BlockAssembler {
 
   /** The assembled non-streaming result. */
   result(): GenerateResult {
-    return { message: this.message(), usage: this._usage, finish: this.finish }
+    return {
+      message: this.message(),
+      ...this._usage !== undefined ? { usage: this._usage } : {},
+      finish: this.finish,
+    }
   }
 }

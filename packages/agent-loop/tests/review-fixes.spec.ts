@@ -58,7 +58,7 @@ describe('HIGH: session log records what agent/step-result actually produced', (
 
     // Plugin rewrites the message: replaces the text AND adds a tool call.
     let rewritten = false
-    ctx.on('agent/step-result', async (_agent, _turn, _step, message, next) => {
+    ctx.on('agent/step-result', async (_agent, _turn, _step, _message, next) => {
       if (rewritten) return next()
       rewritten = true
       return {
@@ -166,7 +166,7 @@ describe('HIGH: steering from late extension points is never stranded', () => {
     await waitForIdle(ctx, agent)
 
     expect(adapter.requests).toHaveLength(2)
-    expect(JSON.stringify(adapter.requests[1].messages)).toContain('goal reminder from step-end')
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('goal reminder from step-end')
   })
 
   it('steer() from an agent/turn-continuation listener overrides a stop decision', async () => {
@@ -191,7 +191,7 @@ describe('HIGH: steering from late extension points is never stranded', () => {
 
     // the default decision was false (no tools), but steering forced step 2
     expect(adapter.requests).toHaveLength(2)
-    expect(JSON.stringify(adapter.requests[1].messages)).toContain('one more thing')
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('one more thing')
   })
 
   it('steer() from an agent/turn-end listener becomes a queued message for the next turn', async () => {
@@ -216,7 +216,7 @@ describe('HIGH: steering from late extension points is never stranded', () => {
 
     expect(turns).toEqual([1, 2])
     expect(adapter.requests).toHaveLength(2)
-    expect(JSON.stringify(adapter.requests[1].messages)).toContain('too late for this turn')
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('too late for this turn')
   })
 
   it('steering queued during an aborted step is re-delivered, not silently consumed', async () => {
@@ -232,7 +232,7 @@ describe('HIGH: steering from late extension points is never stranded', () => {
 
     // a new turn ran with the steering content delivered as a message
     expect(adapter.requests).toHaveLength(2)
-    expect(JSON.stringify(adapter.requests[1].messages)).toContain('redirect')
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('redirect')
   })
 })
 
@@ -361,8 +361,8 @@ describe('MEDIUM: misc registry and config fixes', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
     expect(errors).toHaveLength(1)
-    expect(errors[0].message).toContain('has no model')
-    expect(errors[0].message).toContain('agent/request')
+    expect(errors[0]!.message).toContain('has no model')
+    expect(errors[0]!.message).toContain('agent/request')
   })
 
   it('the agent/request waterfall can supply the model for a model-less agent', async () => {

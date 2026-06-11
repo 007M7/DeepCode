@@ -90,13 +90,13 @@ describe('ToolRegistry', () => {
     ctx.tools.register(echoTool)
 
     const order: string[] = []
-    ctx.on('tools/execute', async (exec, next) => {
+    ctx.on('tools/execute', async (_exec, next) => {
       order.push('first:before')
       const result = await next()
       order.push('first:after')
       return result
     })
-    ctx.on('tools/execute', async (exec, next) => {
+    ctx.on('tools/execute', async (_exec, next) => {
       order.push('second:before')
       const result = await next()
       order.push('second:after')
@@ -251,7 +251,7 @@ describe('defineTool / schema DSL', () => {
     // Schema round-trip: schemas() returns standard JSON Schema
     const schemas = ctx.tools.schemas()
     expect(schemas).toHaveLength(1)
-    expect(schemas[0].parameters).toEqual({
+    expect(schemas[0]!.parameters).toEqual({
       type: 'object',
       properties: {
         req: { type: 'string' },
@@ -287,7 +287,7 @@ describe('defineTool / schema DSL', () => {
     })
 
     const schemas = ctx.tools.schemas()
-    expect(schemas[0].parameters).toEqual({
+    expect(schemas[0]!.parameters).toEqual({
       type: 'object',
       properties: { path: { type: 'string' } },
       required: ['path'],

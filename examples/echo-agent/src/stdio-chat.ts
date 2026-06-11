@@ -11,7 +11,7 @@ export const inject = ['agents']
  * is "just a plugin" — it only consumes the agent/* event taxonomy.
  */
 export function apply(ctx: Context) {
-  ctx.on('agent/stream-chunk', (agent, _turn, _step, chunk) => {
+  ctx.on('agent/stream-chunk', (_agent, _turn, _step, chunk) => {
     if (chunk.type === 'text-delta') process.stdout.write(chunk.text)
   })
 

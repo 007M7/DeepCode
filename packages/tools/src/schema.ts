@@ -223,7 +223,7 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
     name: options.name,
     description: options.description,
     parameters: schemaSpecToJsonSchema(options.parameters) as unknown as Record<string, unknown>,
-    strict: options.strict,
+    ...options.strict !== undefined ? { strict: options.strict } : {},
     execute: options.execute as ToolDefinition['execute'],
   }
 }

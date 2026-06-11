@@ -3,10 +3,19 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "lib",
-    "module": "preserve"
+    "module": "preserve",
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
+    "noImplicitOverride": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
   },
-  "include": ["src"],
+  "include": [
+    "src"
+  ],
   "references": [
-    { "path": "../cosmokit" }
+    {
+      "path": "../cosmokit"
+    }
   ]
 }

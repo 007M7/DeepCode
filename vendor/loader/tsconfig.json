@@ -3,11 +3,22 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "lib",
-    "noImplicitAny": false
+    "noImplicitAny": false,
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
+    "noImplicitOverride": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
   },
-  "include": ["src"],
+  "include": [
+    "src"
+  ],
   "references": [
-    { "path": "../cosmokit" },
-    { "path": "../cordis" }
+    {
+      "path": "../cosmokit"
+    },
+    {
+      "path": "../cordis"
+    }
   ]
 }

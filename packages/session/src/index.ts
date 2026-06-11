@@ -57,8 +57,8 @@ function renderTagged(tag: string, content: ContentBlock[], source: MessageSourc
  */
 export class Session {
   private log: SessionEvent[] = []
-  /** Set by the store so appends are observable; no-op when detached. */
-  onAppend?: (event: SessionEvent) => void
+  /** Set by the store so appends are observable; undefined when detached. */
+  onAppend: ((event: SessionEvent) => void) | undefined
 
   constructor(public readonly id: string, seed?: SessionEvent[]) {
     if (seed) this.log = [...seed]

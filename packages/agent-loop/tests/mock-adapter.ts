@@ -59,7 +59,7 @@ export class MockAdapter extends LlmAdapter {
     if (entry === 'hang') {
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'text-delta', index: 0, text: 'partial' }
-      await new Promise<void>((resolve, reject) => {
+      await new Promise<void>((_resolve, reject) => {
         if (options.signal?.aborted) return reject(new Error('aborted'))
         options.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
       })

@@ -67,7 +67,7 @@ describe('agent loop', () => {
     // derived history: user + assistant
     const messages = agent.session.deriveMessages()
     expect(messages.map(m => m.role)).toEqual(['user', 'assistant'])
-    expect(messages[1].content).toEqual([{ type: 'text', text: 'hello there' }])
+    expect(messages[1]!.content).toEqual([{ type: 'text', text: 'hello there' }])
   })
 
   it('round-trips tool calls: model requests tool → executes → result in next request', async () => {
@@ -93,7 +93,7 @@ describe('agent loop', () => {
     expect(adapter.requests).toHaveLength(2)
 
     // the second request's derived history contains the tool result
-    const secondMessages = adapter.requests[1].messages
+    const secondMessages = adapter.requests[1]!.messages
     const toolResultMessage = secondMessages.find(m =>
       m.content.some(b => b.type === 'tool-result'))
     expect(toolResultMessage).toBeDefined()
@@ -125,8 +125,8 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     const request = adapter.requests[0]
-    expect(request.system).toBe('You are a test agent.\n\nAgent-specific suffix.')
-    expect(request.tools?.map(t => t.name)).toEqual(['noop'])
+    expect(request!.system).toBe('You are a test agent.\n\nAgent-specific suffix.')
+    expect(request!.tools?.map(t => t.name)).toEqual(['noop'])
   })
 
   it('records raw chunks for replay and emits agent/stream-chunk', async () => {
@@ -185,7 +185,7 @@ describe('agent loop', () => {
 
     // the second model request saw the steering content
     const secondRequest = adapter.requests[1]
-    const flat = JSON.stringify(secondRequest.messages)
+    const flat = JSON.stringify(secondRequest!.messages)
     expect(flat).toContain('change of plans')
   })
 
@@ -212,7 +212,7 @@ describe('agent loop', () => {
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
-    const flat = JSON.stringify(adapter.requests[0].messages)
+    const flat = JSON.stringify(adapter.requests[0]!.messages)
     expect(flat).toContain('file changed: a.ts')
     expect(flat).toContain('<context source=\\"plugin\\">')
   })
@@ -276,7 +276,7 @@ describe('agent loop', () => {
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
-    expect(adapter.requests[0].model).toBe('other-model')
+    expect(adapter.requests[0]!.model).toBe('other-model')
   })
 
   it('abort() mid-stream ends the turn with reason aborted', async () => {
@@ -356,7 +356,7 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     expect(errors).toHaveLength(1)
-    expect(errors[0].message).toContain('script exhausted')
+    expect(errors[0]!.message).toContain('script exhausted')
     expect(reasons[0]).toMatchObject({ kind: 'error' })
     expect(agent.session.events.some(e => e.type === 'error')).toBe(true)
   })

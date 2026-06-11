@@ -21,8 +21,8 @@ describe('Session', () => {
     const messages = session.deriveMessages()
     expect(messages.map(m => m.role)).toEqual(['user', 'assistant', 'user'])
     // raw chunks must NOT appear in derived history
-    expect(messages[1].content).toHaveLength(2)
-    expect(messages[2].content[0]).toMatchObject({ type: 'tool-result', toolCallId: 'c1' })
+    expect(messages[1]!.content).toHaveLength(2)
+    expect(messages[2]!.content[0]).toMatchObject({ type: 'tool-result', toolCallId: 'c1' })
   })
 
   it('renders context and steering messages as tagged synthetic user content', () => {
@@ -38,10 +38,10 @@ describe('Session', () => {
     })
 
     const [contextMessage, steeringMessage] = session.deriveMessages()
-    expect(contextMessage.role).toBe('user')
-    expect(contextMessage.content[0]).toMatchObject({ type: 'text', text: '<context source="plugin">' })
-    expect(contextMessage.content.at(-1)).toMatchObject({ type: 'text', text: '</context>' })
-    expect(steeringMessage.content[0]).toMatchObject({ type: 'text', text: '<steering source="user">' })
+    expect(contextMessage!.role).toBe('user')
+    expect(contextMessage!.content[0]).toMatchObject({ type: 'text', text: '<context source="plugin">' })
+    expect(contextMessage!.content.at(-1)).toMatchObject({ type: 'text', text: '</context>' })
+    expect(steeringMessage!.content[0]).toMatchObject({ type: 'text', text: '<steering source="user">' })
   })
 
   it('replays identically from a seeded event log', () => {
@@ -70,8 +70,8 @@ describe('SessionStore', () => {
 
     session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } })
     expect(events).toHaveLength(1)
-    expect(events[0][0]).toBe(session)
-    expect(events[0][1].type).toBe('user/message')
+    expect(events[0]![0]).toBe(session)
+    expect(events[0]![1].type).toBe('user/message')
 
     expect(ctx.sessions.get(session.id)).toBe(session)
     expect(ctx.sessions.list()).toEqual([session])
