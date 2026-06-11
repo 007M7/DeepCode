@@ -261,22 +261,30 @@ implements it **without modifying the loop**:
 
 ```ts
 import type { Context } from 'cordis'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 
 export const name = 'my-tool'
 export const inject = ['tools']
 
 export function apply(ctx: Context) {
-  ctx.tools.register({
+  ctx.tools.register(defineTool({
     name: 'read_file',
     description: 'Read a file from disk.',
-    parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
-    async execute(args: any) {
+    parameters: {
+      path: { type: 'string', required: true, description: 'Absolute file path' },
+    },
+    async execute(args) {
+      // args is typed: { path: string }
       const text = await readFile(args.path, 'utf8')
       return [{ type: 'text', text }]
     },
-  })
+  }))
 }
 ```
+
+(Raw JSON-Schema `ToolDefinition`s are still accepted by
+`ctx.tools.register()` directly — that's how MCP-sourced tools arrive.
+`defineTool` is the typed sugar for first-party tools.)
 
 ### A hook plugin (permission gate)
 

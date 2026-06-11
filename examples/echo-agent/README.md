@@ -18,8 +18,8 @@ Runnable demo: stdin chat with a scripted mock model and an echo tool.
 
 | File | Role | Key patterns demonstrated |
 |---|---|---|
-| `mock-llm.ts` | `LlmAdapter` registration | `ctx.llm.registerAdapter([])`, streaming chunks with proper `block-start`/`block-end` protocol |
-| `echo-tool.ts` | Tool registration | `ctx.tools.register()`, tool execution returning `ContentBlock[]` |
+| `mock-llm.ts` | `LlmAdapter` registration | `ctx.llm.registerAdapter(['mock-echo'], …)`, streaming chunks with proper `block-start`/`block-end` protocol |
+| `echo-tool.ts` | Tool registration | `ctx.tools.register(defineTool(…))` with typed `execute` args, tool execution returning `ContentBlock[]` |
 | `session-jsonl.ts` | Persistence | `session/event` listener + `session/flush` drain, fiber-dispose cleanup |
 | `stdio-chat.ts` | UI | `agent/stream-chunk`, `session/event` (tool/*), stdin→send/steer |
 | `start.ts` | Bootstrap | `Context` + `Loader` + `plugin-include` wired to `cordis.yml` |
