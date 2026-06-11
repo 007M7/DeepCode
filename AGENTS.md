@@ -29,7 +29,9 @@ packages/    Harness packages, all named @deepseek-ai/dsh-<name>:
   agent-loop/     THE concrete plugin: LoopAgent + the loop driver
 examples/    Runnable demos (not workspaces). echo-agent = mock model + echo
              tool + stdio UI + JSONL persistence, wired via cordis.yml.
-docs/        architecture.md — the design doc.
+docs/        architecture.md — the design doc. adr/ — decision records (the
+             why behind vendoring, event-sourcing, the schema DSL, …).
+             rfc/ — proposals for substantial future work.
 scripts/     build.ts — dumble JS bundling for all packages.
 ```
 
