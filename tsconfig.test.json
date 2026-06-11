@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    "composite": false,
+    "types": ["node"]
+  },
+  "include": ["vendor/*/src", "packages/*/src", "packages/*/tests", "examples"]
+}

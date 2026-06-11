@@ -1,1 +1,7 @@
 CLAUDE.local.md
+node_modules/
+lib/
+*.tsbuildinfo
+.yarn/
+yarn-error.log
+examples/*/*.jsonl

@@ -1,0 +1,28 @@
+{
+  "name": "@deepseek-ai/dsh-root",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "packageManager": "yarn@4.14.1",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "vendor/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json && tsx scripts/build.ts",
+    "typecheck": "tsc -b tsconfig.build.json",
+    "test": "vitest run",
+    "demo": "node --expose-internals --import tsx examples/echo-agent/start.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.5",
+    "dumble": "^0.2.3",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vite-tsconfig-paths": "^6.1.1",
+    "vitest": "^4.1.8"
+  }
+}
