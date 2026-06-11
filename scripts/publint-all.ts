@@ -1,0 +1,18 @@
+import { execFileSync } from 'node:child_process'
+import { resolve } from 'node:path'
+
+// publint every publishable package (vendor/ is private upstream code and
+// examples/ are not packages; both are out of scope).
+const packages = [
+  'packages/llm',
+  'packages/session',
+  'packages/system-prompt',
+  'packages/tools',
+  'packages/agent',
+  'packages/agent-loop',
+]
+
+const root = resolve(import.meta.dirname, '..')
+for (const path of packages) {
+  execFileSync('node_modules/.bin/publint', [path], { cwd: root, stdio: 'inherit' })
+}

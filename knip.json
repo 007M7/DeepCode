@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "exclude": ["duplicates"],
+  "ignoreWorkspaces": ["vendor/*"],
+  "workspaces": {
+    ".": {
+      "entry": ["examples/echo-agent/src/*.ts"],
+      "project": ["scripts/**/*.ts", "examples/**/*.ts"]
+    },
+    "packages/*": {
+      "entry": ["tests/**/*.spec.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    }
+  }
+}
