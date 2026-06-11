@@ -1,0 +1,97 @@
+import { Dict } from 'cosmokit'
+import { EventsService } from './events'
+import { LoggerService } from './logger'
+import { ReflectService } from './reflect'
+import { InjectKey, RegistryService } from './registry'
+import { getTraceable, symbols } from './utils'
+import { Fiber } from './fiber'
+
+/**
+ * Public shape of a Cordis context.
+ *
+ * The concrete `Context` class is proxied at runtime, so this interface is
+ * augmented by core services and plugins to describe the properties that may
+ * be read from `ctx`.
+ */
+export interface Context {
+  [symbols.isolate]: Dict<symbol>
+  [symbols.intercept]: Dict
+  /** @experimental */
+  root: this
+  baseUrl?: string
+  events: EventsService
+  logger: LoggerService
+  reflect: ReflectService
+  registry: RegistryService
+}
+
+/**
+ * Root and child dependency containers for Cordis plugins.
+ *
+ * A context is a proxy: normal property reads go through the service resolver,
+ * while `extend()`, `isolate()`, and `intercept()` create scoped child
+ * contexts without mutating their parent.
+ */
+export class Context {
+  static readonly effect: unique symbol = symbols.effect
+  static readonly filter: unique symbol = symbols.filter
+  static readonly isolate: unique symbol = symbols.isolate
+  static readonly intercept: unique symbol = symbols.intercept
+
+  /** Returns true for Cordis context proxies and context prototypes. */
+  static is(value: any): value is Context {
+    return !!value?.[Context.is as any]
+  }
+
+  static {
+    Context.is[Symbol.toPrimitive] = () => Symbol.for('cordis.is')
+    Context.prototype[Context.is as any] = true
+  }
+
+  /** Create the root context and install the built-in services. */
+  constructor() {
+    this[symbols.isolate] = Object.create(null)
+    this[symbols.intercept] = Object.create(null)
+    const self = new Proxy<this>(this, ReflectService.handler)
+    this.root = self
+    this.baseUrl = undefined
+    this.fiber = new Fiber(self, {}, Object.create(null), null, () => [])
+    this.reflect = new ReflectService(self)
+    this.registry = new RegistryService(self)
+    this.events = new EventsService(self)
+    this.logger = new LoggerService(self)
+    this.fiber._disposables.clear()
+    return self
+  }
+
+  [Symbol.for('nodejs.util.inspect.custom')]() {
+    return `Context <${this.fiber.name}>`
+  }
+
+  /** Create a child context with extra metadata on top of the current scope. */
+  extend(meta = {}): this {
+    const shadow = Reflect.getOwnPropertyDescriptor(this, symbols.shadow)?.value
+    const self = Object.create(getTraceable(this, this))
+    for (const prop of Reflect.ownKeys(meta)) {
+      Object.defineProperty(self, prop, Reflect.getOwnPropertyDescriptor(meta, prop)!)
+    }
+    if (!shadow) return self
+    return Object.assign(Object.create(self), { [symbols.shadow]: shadow })
+  }
+
+  /** Create a child context with an independent service scope for `name`. */
+  isolate(name: string, label?: symbol) {
+    const shadow = Object.create(this[symbols.isolate])
+    shadow[name] = label ?? Symbol(name)
+    return this.extend({ [symbols.isolate]: shadow })
+  }
+
+  /** Add service-specific intercept config for plugins started below this context. */
+  intercept<K extends InjectKey>(name: K, config: Context[K] extends { [symbols.config]: infer T } ? T : never): this
+  intercept(name: string, config: any): this
+  intercept(name: string, config: any) {
+    const intercept = Object.create(this[symbols.intercept])
+    intercept[name] = config
+    return this.extend({ [symbols.intercept]: intercept })
+  }
+}

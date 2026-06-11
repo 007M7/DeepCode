@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib",
+    "noImplicitAny": false,
+    "noImplicitThis": false,
+    "strictFunctionTypes": false
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../cosmokit" }
+  ]
+}

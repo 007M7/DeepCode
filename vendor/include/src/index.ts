@@ -1,0 +1,229 @@
+import { EntryOptions, EntryTree, isJsExpr } from '@cordisjs/plugin-loader'
+import { Context, Service } from 'cordis'
+import { extname } from 'node:path'
+import { access, constants, readFile, rename, writeFile } from 'node:fs/promises'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import * as yaml from 'js-yaml'
+
+const JsExpr = new yaml.Type('tag:yaml.org,2002:js', {
+  kind: 'scalar',
+  resolve: (data) => typeof data === 'string',
+  construct: (data) => ({ __jsExpr: data }),
+  predicate: isJsExpr,
+  represent: (data) => data['__jsExpr'],
+})
+
+const schema = yaml.JSON_SCHEMA.extend(JsExpr)
+
+const writable: Record<string, string> = {
+  '.json': 'application/json',
+  '.yaml': 'application/yaml',
+  '.yml': 'application/yaml',
+}
+
+const supported = new Set(Object.keys(writable))
+
+/** Runtime patch applied to entries loaded from an included config file. */
+export interface PatchOptions {
+  id?: string
+  insert?: EntryOptions[]
+  name?: string
+  config?: any
+  group?: boolean | null
+  disabled?: boolean | null
+  inject?: any
+  intercept?: any
+  isolate?: any
+  [key: string]: any
+}
+
+/** Config namespace for the file-backed include loader. */
+export namespace Include {
+  /** Config for a file-backed loader subtree. */
+  export interface Config {
+    /** YAML or JSON path resolved from `ctx.baseUrl`. */
+    path: string
+    /** Entry list written when the file does not already exist. */
+    initial?: any[]
+    /** Runtime patches applied after reading the file. */
+    patches?: PatchOptions[]
+    /** Enables loader apply/reload/unload logs for this subtree. */
+    enableLogs?: boolean
+  }
+}
+
+/** Loader entry tree backed by a YAML or JSON file. */
+export class Include extends EntryTree {
+  static inject = ['loader']
+
+  public filename: string
+  private type?: string
+  private readonly: boolean
+  private content?: string
+  private data?: EntryOptions[]
+  private writeTask?: NodeJS.Timeout
+
+  constructor(ctx: Context, public config: Include.Config) {
+    super(ctx)
+    this.enableLogs = config.enableLogs ?? ctx.fiber.entry?.parent.tree.enableLogs ?? false
+    this.filename = fileURLToPath(new URL(this.config.path, this.ctx.baseUrl))
+    const ext = extname(this.filename)
+    if (!supported.has(ext)) {
+      throw new Error(`extension "${ext}" not supported`)
+    }
+    this.type = writable[ext]
+    this.readonly = !this.type
+    this.ctx.baseUrl = new URL('.', pathToFileURL(this.filename)).href
+
+    ctx.on('internal/update', (config, _, next) => {
+      if (config.path !== this.config.path) return next()
+      this.root.update(this.data!)
+    })
+  }
+
+  private async checkAccess() {
+    if (!this.type) return
+    try {
+      await access(this.filename, constants.W_OK)
+    } catch {
+      this.readonly = true
+    }
+  }
+
+  private async read(forced = false) {
+    const content = await readFile(this.filename, 'utf8')
+    if (!forced && this.content === content) return false
+    this.content = content
+    if (this.type === 'application/yaml') {
+      this.data = yaml.load(this.content, { schema }) as any
+    } else if (this.type === 'application/json') {
+      this.data = JSON.parse(this.content) as any
+    } else {
+      const module = await import(/* @vite-ignore */ this.filename)
+      this.data = module.default || module
+    }
+    await this.checkAccess()
+    return true
+  }
+
+  private applyPatches(data: EntryOptions[]): EntryOptions[] {
+    const { patches } = this.config
+    if (!patches?.length) return data
+
+    const entryMap = new Map<string, EntryOptions>()
+    const buildMap = (entries: EntryOptions[]) => {
+      for (const entry of entries) {
+        if (entry.id) entryMap.set(entry.id, entry)
+        if (entry.group && Array.isArray(entry.config)) {
+          buildMap(entry.config)
+        }
+      }
+    }
+    buildMap(data)
+
+    for (const patch of patches) {
+      const { id, insert, name, ...overrides } = patch
+
+      if (insert) {
+        if (id) {
+          const target = entryMap.get(id)
+          if (!target) {
+            this.ctx.root.logger?.('loader').warn('patch insert: entry %C not found', id)
+            continue
+          }
+          if (!target.group) {
+            this.ctx.root.logger?.('loader').warn('patch insert: entry %C is not a group', id)
+            continue
+          }
+          if (!Array.isArray(target.config)) target.config = []
+          target.config.push(...insert)
+        } else {
+          data.push(...insert)
+        }
+        continue
+      }
+
+      if (!id) {
+        this.ctx.root.logger?.('loader').warn('patch: id is required for non-insert patches')
+        continue
+      }
+
+      const target = entryMap.get(id)
+      if (!target) {
+        this.ctx.root.logger?.('loader').warn('patch: entry %C not found', id)
+        continue
+      }
+
+      if (name && name !== target.name) {
+        this.ctx.root.logger?.('loader').warn(
+          'patch: name mismatch for %C (expected %C, got %C), skipping',
+          id, target.name, name,
+        )
+        continue
+      }
+
+      for (const [key, value] of Object.entries(overrides)) {
+        if (key === 'id') continue
+        target[key] = value
+      }
+    }
+
+    return data
+  }
+
+  async* [Service.init]() {
+    try {
+      await this.read()
+    } catch {
+      if (this.config.initial) {
+        this.writeFile(this.config.initial as any)
+        await this.read()
+      } else {
+        throw new Error(`config file not found: ${this.filename}`)
+      }
+    }
+
+    yield () => this.stop()
+    const data = this.applyPatches([...this.data!])
+    await this.root.update(data)
+  }
+
+  stop() {
+    this.root.stop()
+  }
+
+  /** Re-read the file and refresh child entries when content changed. */
+  async refresh() {
+    if (!await this.read()) return
+    this.root.update(this.data!)
+  }
+
+  private async _writeFile(config: EntryOptions[]) {
+    if (this.readonly) {
+      throw new Error(`cannot overwrite readonly config`)
+    }
+    if (this.type === 'application/yaml') {
+      this.content = yaml.dump(config, { schema })
+    } else if (this.type === 'application/json') {
+      this.content = JSON.stringify(config, null, 2)
+    }
+    await writeFile(this.filename + '.tmp', this.content!)
+    await rename(this.filename + '.tmp', this.filename)
+  }
+
+  private writeFile(config: EntryOptions[]) {
+    clearTimeout(this.writeTask)
+    this.writeTask = setTimeout(() => {
+      this.writeTask = undefined
+      this._writeFile(config)
+    }, 0)
+  }
+
+  /** Schedule a write of the current root entry data. */
+  write() {
+    this.context.emit('loader/config-update')
+    return this.writeFile(this.root.data)
+  }
+}
+
+export default Include
