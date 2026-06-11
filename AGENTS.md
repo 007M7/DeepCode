@@ -68,6 +68,13 @@ only needed for publishing/consumption outside the repo.
 - **Waterfall semantics**: `ctx.waterfall` listeners receive `(...args, next)`
   and MUST call `next()` to delegate; returning without it short-circuits.
   This is the veto mechanism — use deliberately.
+- **Switch exhaustiveness**: switches over CLOSED unions (e.g. `StreamChunk`)
+  end with `default: assertNever(value, 'context')` (from dsh-llm) so adding a
+  variant breaks compilation at every switch that must handle it. Switches
+  over MERGE-EXTENSIBLE unions (`SessionEventMap`, `ContentBlockMap`, …) must
+  NOT use assertNever — plugin-added variants are valid unknown values; handle
+  known cases and fall through with a comment (the lint rule
+  `switch-exhaustiveness-check` makes the choice explicit either way).
 - **Plugins, not loop changes**: new behavior goes into a plugin on the
   documented extension seams (see the plugin sanity checklist in
   docs/architecture.md). Changing `agent-loop` requires updating that doc.

@@ -6,6 +6,7 @@
  */
 
 import { CallId } from './brand.ts'
+import { assertNever } from './never.ts'
 import type { ContentBlock, FinishReason, GenerateResult, Message, StreamChunk, TokenUsage } from './types.ts'
 
 interface PartialBlock {
@@ -82,6 +83,7 @@ export class BlockAssembler {
         this._finish = chunk.reason
         return
       }
+      default: return assertNever(chunk, 'BlockAssembler.push')
     }
   }
 

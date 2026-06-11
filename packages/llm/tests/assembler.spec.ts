@@ -151,3 +151,18 @@ describe('BlockAssembler', () => {
     expect('usage' in result).toBe(true)
   })
 })
+
+describe('assertNever', () => {
+  it('throws with diagnostics when a value escapes a closed union at runtime', async () => {
+    const { assertNever } = await import('@deepseek-ai/dsh-llm')
+    expect(() => assertNever({ type: 'rogue' } as never, 'test-context'))
+      .toThrow('unreachable variant in test-context: {"type":"rogue"}')
+    expect(() => assertNever(undefined as never)).toThrow('unreachable variant: undefined')
+  })
+
+  it('BlockAssembler.push rejects chunks outside the closed StreamChunk union', () => {
+    const assembler = new BlockAssembler()
+    expect(() => assembler.push({ type: 'rogue-chunk' } as unknown as StreamChunk))
+      .toThrow('unreachable variant in BlockAssembler.push')
+  })
+})

@@ -11,6 +11,7 @@ import type { ContentBlock, GenerateOptions, GenerateResult, StreamChunk } from 
 import { BlockAssembler } from './assembler.ts'
 
 export * from './brand.ts'
+export * from './never.ts'
 export * from './types.ts'
 export { BlockAssembler } from './assembler.ts'
 
