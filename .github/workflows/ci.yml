@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [24, 26]
+    name: node ${{ matrix.node }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Enable corepack (yarn 4)
+        run: corepack enable
+
+      - name: Install (immutable)
+        run: yarn install --immutable
+
+      - name: Constraints
+        run: yarn constraints
+
+      - name: Lint
+        run: yarn lint
+
+      - name: Typecheck (src + tests + examples)
+        run: yarn typecheck
+
+      - name: Tests with coverage gate (per-file 100%)
+        run: yarn test:coverage
+
+      - name: Hygiene (knip + publint)
+        run: yarn knip && yarn publint
+
+      - name: Build (tsc -b + dumble bundles)
+        run: yarn build
+
+      - name: Demo smoke test
+        run: |
+          set -euo pipefail
+          out=$(printf 'echo ci smoke\n' | timeout 60 node --expose-internals --import tsx examples/echo-agent/start.ts 2>&1)
+          echo "$out"
+          echo "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
+          echo "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
+          test -f examples/echo-agent/main-session.jsonl
+          rm -f examples/echo-agent/*.jsonl
