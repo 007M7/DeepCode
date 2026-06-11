@@ -1,6 +1,6 @@
 import type { Context } from 'cordis'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { LlmAdapter } from '@deepseek-ai/dsh-llm'
+import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 
 /**
  * Demo adapter for the `mock-echo` model.
@@ -30,8 +30,8 @@ class MockEchoAdapter extends LlmAdapter {
       }
       yield { type: 'block-end', index: 0, block: { type: 'text', text: 'Let me echo that for you.' } }
       yield { type: 'block-start', index: 1, blockType: 'tool-call' }
-      yield { type: 'tool-call-delta', index: 1, id: 'call-echo', name: 'echo', argumentsDelta: args }
-      yield { type: 'block-end', index: 1, block: { type: 'tool-call', id: 'call-echo', name: 'echo', arguments: args } }
+      yield { type: 'tool-call-delta', index: 1, id: CallId('call-echo'), name: 'echo', argumentsDelta: args }
+      yield { type: 'block-end', index: 1, block: { type: 'tool-call', id: CallId('call-echo'), name: 'echo', arguments: args } }
       yield { type: 'usage', usage: { inputTokens: 20, outputTokens: 10 } }
       yield { type: 'finish', reason: { kind: 'tool-calls' } }
       return

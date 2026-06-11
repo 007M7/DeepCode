@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -101,7 +102,7 @@ describe('LoopAgent', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create('test')
-    const agent = new LoopAgent(ctx, 'bare', { model: 'mock' }, session)
+    const agent = new LoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
 
     // Start the loop to get the disposer; the agent waits for messages
     // (idle, never-resolving cancel), so it will stay idle.

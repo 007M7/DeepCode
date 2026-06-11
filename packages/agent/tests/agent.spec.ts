@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { Session } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { Agent } from '@deepseek-ai/dsh-agent'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import AgentRegistry, { Agent, AgentId } from '@deepseek-ai/dsh-agent'
 
-function stubAgent(id: string): Agent {
+function stubAgent(rawId: string): Agent {
+  const id = AgentId(rawId)
   return {
     id,
     options: {},
-    session: new Session(`${id}-session`),
+    session: new Session(SessionId(`${id}-session`)),
     status: 'idle',
     send() {},
     steer() {},

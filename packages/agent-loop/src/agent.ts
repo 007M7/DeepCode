@@ -7,7 +7,7 @@
  */
 
 import type { Context } from 'cordis'
-import type { AgentOptions, AgentStatus, SendOptions } from '@deepseek-ai/dsh-agent'
+import type { AgentId, AgentOptions, AgentStatus, SendOptions } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -33,7 +33,7 @@ export class LoopAgent implements Agent {
 
   constructor(
     private ctx: Context,
-    public readonly id: string,
+    public readonly id: AgentId,
     public readonly options: AgentOptions,
     public readonly session: Session,
   ) {

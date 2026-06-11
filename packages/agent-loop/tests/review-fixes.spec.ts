@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { ContentBlock, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
+import LlmService, { CallId, ContentBlock, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
+import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { LoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
@@ -65,7 +65,7 @@ describe('HIGH: session log records what agent/step-result actually produced', (
         role: 'assistant' as const,
         content: [
           { type: 'text' as const, text: 'rewritten' },
-          { type: 'tool-call' as const, id: 'c-injected', name: 'injected-tool', arguments: '{}' },
+          { type: 'tool-call' as const, id: CallId('c-injected'), name: 'injected-tool', arguments: '{}' },
         ],
       }
     })
@@ -96,9 +96,9 @@ describe('HIGH: abort during tool execution ends the turn', () => {
       // model asks for two tool calls in one step
       [
         { type: 'block-start', index: 0, blockType: 'tool-call' },
-        { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'c1', name: 'aborter', arguments: '{}' } },
+        { type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('c1'), name: 'aborter', arguments: '{}' } },
         { type: 'block-start', index: 1, blockType: 'tool-call' },
-        { type: 'block-end', index: 1, block: { type: 'tool-call', id: 'c2', name: 'second', arguments: '{}' } },
+        { type: 'block-end', index: 1, block: { type: 'tool-call', id: CallId('c2'), name: 'second', arguments: '{}' } },
         { type: 'finish', reason: { kind: 'tool-calls' } },
       ] satisfies StreamChunk[],
       textResponse('should never be requested'),
@@ -429,7 +429,7 @@ describe('MEDIUM: turn numbering continues across seeded (forked) sessions', () 
     ctx2.llm.registerAdapter(['mock'], second)
 
     const seeded = ctx2.sessions.create('forked', [...agent.session.events])
-    const forked = new LoopAgent(ctx2, 'forked-agent', { model: 'mock' }, seeded)
+    const forked = new LoopAgent(ctx2, AgentId('forked-agent'), { model: 'mock' }, seeded)
     ctx2.effect(() => forked.start())
 
     const turns: number[] = []
@@ -459,10 +459,10 @@ describe('LOW: BlockAssembler and streamBlocks edge cases', () => {
   it('assembles tool-call blocks from deltas without block-end', async () => {
     const { BlockAssembler } = await import('@deepseek-ai/dsh-llm')
     const assembler = new BlockAssembler()
-    assembler.push({ type: 'tool-call-delta', index: 0, id: 'c9', name: 'echo', argumentsDelta: '{"a"' })
-    assembler.push({ type: 'tool-call-delta', index: 0, id: 'c9', argumentsDelta: ':1}' })
+    assembler.push({ type: 'tool-call-delta', index: 0, id: CallId('c9'), name: 'echo', argumentsDelta: '{"a"' })
+    assembler.push({ type: 'tool-call-delta', index: 0, id: CallId('c9'), argumentsDelta: ':1}' })
     expect(assembler.blocks()).toEqual([
-      { type: 'tool-call', id: 'c9', name: 'echo', arguments: '{"a":1}' },
+      { type: 'tool-call', id: CallId('c9'), name: 'echo', arguments: '{"a":1}' },
     ])
   })
 
@@ -531,9 +531,9 @@ describe('LOW: BlockAssembler and streamBlocks edge cases', () => {
 
 describe('LOW: discriminated SessionEvent narrows without casts', () => {
   it('narrows event.data from event.type', () => {
-    const session = new Session('s')
+    const session = new Session(SessionId('s'))
     const appended: SessionEvent = session.append('tool/call', {
-      turn: 1, step: 1, callId: 'c1', name: 'echo', arguments: '{}',
+      turn: 1, step: 1, callId: CallId('c1'), name: 'echo', arguments: '{}',
     })
     // compile-time: this switch narrows; runtime: values flow through
     switch (appended.type) {

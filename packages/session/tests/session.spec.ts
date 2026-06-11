@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import SessionStore, { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { CallId } from '@deepseek-ai/dsh-llm'
+import SessionStore, { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 
 describe('Session', () => {
   it('derives message history from the event log', () => {
-    const session = new Session('s1')
+    const session = new Session(SessionId('s1'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('user/message', { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
     session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'hi' } })
@@ -12,21 +13,21 @@ describe('Session', () => {
       turn: 1, step: 1,
       content: [
         { type: 'text', text: 'let me check' },
-        { type: 'tool-call', id: 'c1', name: 'echo', arguments: '{}' },
+        { type: 'tool-call', id: CallId('c1'), name: 'echo', arguments: '{}' },
       ],
     })
-    session.append('tool/result', { turn: 1, step: 1, callId: 'c1', content: [{ type: 'text', text: 'ok' }], isError: false })
+    session.append('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 
     const messages = session.deriveMessages()
     expect(messages.map(m => m.role)).toEqual(['user', 'assistant', 'user'])
     // raw chunks must NOT appear in derived history
     expect(messages[1]!.content).toHaveLength(2)
-    expect(messages[2]!.content[0]).toMatchObject({ type: 'tool-result', toolCallId: 'c1' })
+    expect(messages[2]!.content[0]).toMatchObject({ type: 'tool-result', toolCallId: CallId('c1') })
   })
 
   it('renders context and steering messages as tagged synthetic user content', () => {
-    const session = new Session('s2')
+    const session = new Session(SessionId('s2'))
     session.append('context/message', {
       content: [{ type: 'text', text: 'file changed: a.ts' }],
       source: { kind: 'plugin', plugin: 'watcher' },
@@ -45,11 +46,11 @@ describe('Session', () => {
   })
 
   it('replays identically from a seeded event log', () => {
-    const original = new Session('s3')
+    const original = new Session(SessionId('s3'))
     original.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
     original.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'a' }] })
 
-    const replayed = new Session('s3-replay', [...original.events])
+    const replayed = new Session(SessionId('s3-replay'), [...original.events])
     expect(replayed.deriveMessages()).toEqual(original.deriveMessages())
     expect(replayed.seq).toBe(original.seq)
   })

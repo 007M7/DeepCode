@@ -10,6 +10,7 @@ import { Context, Service } from 'cordis'
 import type { ContentBlock, GenerateOptions, GenerateResult, StreamChunk } from './types.ts'
 import { BlockAssembler } from './assembler.ts'
 
+export * from './brand.ts'
 export * from './types.ts'
 export { BlockAssembler } from './assembler.ts'
 

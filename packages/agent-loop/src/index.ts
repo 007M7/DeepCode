@@ -9,6 +9,7 @@
 
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-session'
@@ -67,7 +68,7 @@ export class AgentLoop extends Service {
    */
   create(id: string, options: AgentOptions = {}): LoopAgent {
     const session = this.ctx.sessions.create(`${id}-session`)
-    const agent = new LoopAgent(this.ctx, id, options, session)
+    const agent = new LoopAgent(this.ctx, AgentId(id), options, session)
     // Generator effect: stop and unregister are independent disposables
     // (LIFO), so a throwing stop() cannot leak the registry entry.
     this.ctx.effect(function* (this: AgentLoop) {

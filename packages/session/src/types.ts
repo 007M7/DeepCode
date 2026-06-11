@@ -1,4 +1,12 @@
-import type { ContentBlock, MessageSource, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { Branded, CallId, ContentBlock, MessageSource, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
+
+/** Identifies one session in the store (and its persistence artifacts). */
+export type SessionId = Branded<'SessionId'>
+
+/** Brand a string as a {@link SessionId}. */
+export function SessionId(id: string): SessionId {
+  return id as SessionId
+}
 
 /**
  * What started a turn.
@@ -53,8 +61,8 @@ export interface SessionEventMap {
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /** Assembled assistant message for one step (derived history uses this). */
   'assistant/message': { turn: number; step: number; content: ContentBlock[] }
-  'tool/call': { turn: number; step: number; callId: string; name: string; arguments: string }
-  'tool/result': { turn: number; step: number; callId: string; content: ContentBlock[]; isError: boolean }
+  'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
+  'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean }
   /** Steering content injected between steps of a running turn. */
   'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
   'usage': { turn: number; step: number; usage: TokenUsage }

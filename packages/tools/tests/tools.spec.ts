@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from 'cordis'
+import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, {
   defineTool, schemaSpecToJsonSchema,
@@ -43,8 +44,8 @@ describe('ToolRegistry', () => {
   it('executes a tool and returns its content', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
-    const result = await ctx.tools.execute({ callId: 'c1', name: 'echo', arguments: { text: 'hi' } })
-    expect(result).toEqual({ callId: 'c1', content: [{ type: 'text', text: 'hi' }], isError: false })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'hi' }], isError: false })
   })
 
   it('returns isError results for unknown tools and throwing tools', async () => {
@@ -57,10 +58,10 @@ describe('ToolRegistry', () => {
       },
     })
 
-    const unknown = await ctx.tools.execute({ callId: 'c1', name: 'nope', arguments: {} })
+    const unknown = await ctx.tools.execute({ callId: CallId('c1'), name: 'nope', arguments: {} })
     expect(unknown.isError).toBe(true)
 
-    const thrown = await ctx.tools.execute({ callId: 'c2', name: 'boom', arguments: {} })
+    const thrown = await ctx.tools.execute({ callId: CallId('c2'), name: 'boom', arguments: {} })
     expect(thrown.isError).toBe(true)
     expect(thrown.content[0]).toMatchObject({ text: 'Error: exploded' })
   })
@@ -80,7 +81,7 @@ describe('ToolRegistry', () => {
       return next()
     })
 
-    const result = await ctx.tools.execute({ callId: 'c1', name: 'echo', arguments: { text: 'hi' } })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'denied by policy' })
   })
@@ -103,7 +104,7 @@ describe('ToolRegistry', () => {
       return result
     })
 
-    const result = await ctx.tools.execute({ callId: 'c1', name: 'echo', arguments: { text: 'x' } })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'x' } })
     expect(result.isError).toBe(false)
     expect(order).toEqual(['first:before', 'second:before', 'second:after', 'first:after'])
   })
@@ -220,7 +221,7 @@ describe('defineTool / schema DSL', () => {
     }])
 
     const result = await ctx.tools.execute({
-      callId: 'c1',
+      callId: CallId('c1'),
       name: 'typed-echo',
       arguments: { text: 'hello', uppercase: true },
     })
@@ -274,7 +275,7 @@ describe('defineTool / schema DSL', () => {
 
     // Execution round-trip
     const result = await ctx.tools.execute({
-      callId: 'c1',
+      callId: CallId('c1'),
       name: 'roundtrip',
       arguments: { req: 'hello' },
     })
@@ -306,7 +307,7 @@ describe('defineTool / schema DSL', () => {
     })
 
     const result = await ctx.tools.execute({
-      callId: 'c1',
+      callId: CallId('c1'),
       name: 'raw-tool',
       arguments: { path: '/tmp' },
     })
@@ -519,7 +520,7 @@ describe('schema DSL regressions (Codex review round 2)', () => {
         throw { message: 'denied by object' }
       },
     })
-    const result = await ctx.tools.execute({ callId: 'c1', name: 'object-thrower', arguments: {} })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'object-thrower', arguments: {} })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: denied by object' })
   })
@@ -534,7 +535,7 @@ describe('schema DSL regressions (Codex review round 2)', () => {
         throw 'kaboom'
       },
     })
-    const result = await ctx.tools.execute({ callId: 'c1', name: 'string-thrower', arguments: {} })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'string-thrower', arguments: {} })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: kaboom' })
   })
@@ -549,7 +550,7 @@ describe('schema DSL regressions (Codex review round 2)', () => {
         throw { code: 500 }
       },
     })
-    const result = await ctx.tools.execute({ callId: 'c1', name: 'object-no-message', arguments: {} })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'object-no-message', arguments: {} })
     expect(result.isError).toBe(true)
     const firstContent = result.content[0]!
     expect(firstContent.type).toBe('text')

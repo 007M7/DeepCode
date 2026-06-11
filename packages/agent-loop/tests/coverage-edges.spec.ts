@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { LlmError, StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, LlmError, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
@@ -100,7 +100,7 @@ describe('tool JSON parse', () => {
       // model emits tool-call with malformed arguments (not valid JSON)
       [
         { type: 'block-start' as const, index: 0, blockType: 'tool-call' as const },
-        { type: 'block-end' as const, index: 0, block: { type: 'tool-call' as const, id: 'c1', name: 'echo', arguments: 'not json' } },
+        { type: 'block-end' as const, index: 0, block: { type: 'tool-call' as const, id: CallId('c1'), name: 'echo', arguments: 'not json' } },
         { type: 'finish' as const, reason: { kind: 'tool-calls' as const } },
       ] satisfies StreamChunk[],
       textResponse('done'),
@@ -133,7 +133,7 @@ describe('tool JSON parse', () => {
     const adapter = new MockAdapter([
       [
         { type: 'block-start' as const, index: 0, blockType: 'tool-call' as const },
-        { type: 'block-end' as const, index: 0, block: { type: 'tool-call' as const, id: 'c1', name: 'noarg', arguments: '' } },
+        { type: 'block-end' as const, index: 0, block: { type: 'tool-call' as const, id: CallId('c1'), name: 'noarg', arguments: '' } },
         { type: 'finish' as const, reason: { kind: 'tool-calls' as const } },
       ] satisfies StreamChunk[],
       textResponse('done'),

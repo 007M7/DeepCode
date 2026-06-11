@@ -8,7 +8,7 @@
  */
 
 import { Context, Service } from 'cordis'
-import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
@@ -54,7 +54,7 @@ export interface ToolDefinition extends ToolSchema {
 
 /** One pending tool call, as it flows through the execution waterfall. */
 export interface ToolExecution {
-  callId: string
+  callId: CallId
   name: string
   /** Parsed JSON arguments (unknown — tools validate their own input). */
   arguments: unknown
@@ -65,7 +65,7 @@ export interface ToolExecution {
 
 /** The outcome of one tool call. */
 export interface ToolExecutionResult {
-  callId: string
+  callId: CallId
   content: ContentBlock[]
   isError: boolean
 }

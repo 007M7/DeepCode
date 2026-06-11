@@ -19,6 +19,8 @@
  * ```
  */
 
+import type { CallId } from './brand.ts'
+
 /** Cache hint attached to a content block (provider-interpreted). */
 export type CacheHint = 'ephemeral'
 
@@ -39,7 +41,7 @@ export interface ReasoningBlock {
 export interface ToolCallBlock {
   type: 'tool-call'
   /** Provider-issued call id; correlates with the matching tool result. */
-  id: string
+  id: CallId
   name: string
   /** Raw JSON string as produced by the model. */
   arguments: string
@@ -48,7 +50,7 @@ export interface ToolCallBlock {
 /** The result of a tool invocation, sent back to the model. */
 export interface ToolResultBlock {
   type: 'tool-result'
-  toolCallId: string
+  toolCallId: CallId
   content: ContentBlock[]
   isError?: boolean
   cache?: CacheHint
@@ -134,7 +136,7 @@ export type StreamChunk =
   | { type: 'block-start'; index: number; blockType: ContentBlockType }
   | { type: 'text-delta'; index: number; text: string }
   | { type: 'reasoning-delta'; index: number; text: string }
-  | { type: 'tool-call-delta'; index: number; id: string; name?: string; argumentsDelta: string }
+  | { type: 'tool-call-delta'; index: number; id: CallId; name?: string; argumentsDelta: string }
   | { type: 'block-end'; index: number; block: ContentBlock }
   | { type: 'usage'; usage: TokenUsage }
   | { type: 'finish'; reason: FinishReason }

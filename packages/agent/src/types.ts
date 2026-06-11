@@ -9,7 +9,15 @@
  * @module @deepseek-ai/dsh-agent/types
  */
 
-import type { ContentBlock, GenerateOptions, Message, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { Branded, ContentBlock, GenerateOptions, Message, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
+
+/** Identifies one live agent in the registry. */
+export type AgentId = Branded<'AgentId'>
+
+/** Brand a string as an {@link AgentId}. */
+export function AgentId(id: string): AgentId {
+  return id as AgentId
+}
 import type { Session, TurnEndReason } from '@deepseek-ai/dsh-session'
 
 /**
@@ -36,7 +44,7 @@ export type AgentStatus = 'idle' | 'running' | 'disposed'
  * package should depend on the implementation.
  */
 export interface Agent {
-  readonly id: string
+  readonly id: AgentId
   readonly options: AgentOptions
   readonly session: Session
   readonly status: AgentStatus

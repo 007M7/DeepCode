@@ -8,6 +8,7 @@
 
 import { Context, Service } from 'cordis'
 import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
+import { SessionId } from './types.ts'
 import type { SessionEvent, SessionEventMap, SessionEventType } from './types.ts'
 
 export * from './types.ts'
@@ -60,7 +61,7 @@ export class Session {
   /** Set by the store so appends are observable; undefined when detached. */
   onAppend: ((event: SessionEvent) => void) | undefined
 
-  constructor(public readonly id: string, seed?: SessionEvent[]) {
+  constructor(public readonly id: SessionId, seed?: SessionEvent[]) {
     if (seed) this.log = [...seed]
   }
 
@@ -155,16 +156,16 @@ export class SessionStore extends Service {
    * session from the store.
    */
   create(id?: string, seed?: SessionEvent[]): Session {
-    id ??= `session-${++this.counter}`
-    if (this.store.has(id)) throw new Error(`session "${id}" already exists`)
-    const session = new Session(id, seed)
+    const sessionId = SessionId(id ?? `session-${++this.counter}`)
+    if (this.store.has(sessionId)) throw new Error(`session "${sessionId}" already exists`)
+    const session = new Session(sessionId, seed)
     this.ctx.effect(() => {
       session.onAppend = (event) => { this.ctx.emit('session/event', session, event) }
-      this.store.set(id, session)
+      this.store.set(sessionId, session)
       this.ctx.emit('session/created', session)
       return () => {
         session.onAppend = undefined
-        this.store.delete(id)
+        this.store.delete(sessionId)
       }
     }, 'sessions.create()')
     return session
