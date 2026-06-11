@@ -8,7 +8,7 @@ describe('SystemPrompt', () => {
     await ctx.plugin(SystemPrompt)
 
     ctx.systemPrompt.section({ name: 'persona', order: 0, text: 'You are DeepSeek Code.' })
-    ctx.systemPrompt.section({ name: 'cwd', order: 20, text: () => `cwd: /tmp` })
+    ctx.systemPrompt.section({ name: 'cwd', order: 20, text: () => 'cwd: /tmp' })
     ctx.systemPrompt.section({ name: 'rules', order: 10, text: 'Be precise.' })
     ctx.systemPrompt.tools(() => [{ name: 'echo', description: 'echo back', parameters: {} }])
 

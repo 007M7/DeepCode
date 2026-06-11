@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { StreamChunk, ToolResultBlock } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionEventType, TurnEndReason } from '@deepseek-ai/dsh-session'
+import LlmService, { StreamChunk } from '@deepseek-ai/dsh-llm'
+import SessionStore, { TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -99,7 +99,7 @@ describe('agent loop', () => {
     expect(toolResultMessage).toBeDefined()
     const block = toolResultMessage!.content.find(b => b.type === 'tool-result')!
     expect(block).toMatchObject({ toolCallId: 'c1', isError: false })
-    expect((block as ToolResultBlock).content).toEqual([{ type: 'text', text: 'echo: ping' }])
+    expect((block).content).toEqual([{ type: 'text', text: 'echo: ping' }])
 
     // session log records call + result
     const types = agent.session.events.map(e => e.type)
@@ -380,7 +380,7 @@ describe('agent loop', () => {
 
     expect(agent.status).toBe('disposed')
     expect(ctx.agents.get('scoped')).toBeUndefined()
-    expect(() => send(agent, 'too late')).toThrow('disposed')
+    expect(() => { send(agent, 'too late') }).toThrow('disposed')
   })
 
   it('replays a session log into an identical derived history', async () => {
@@ -405,6 +405,6 @@ describe('agent loop', () => {
     expect(replayed.deriveMessages()).toEqual(agent.session.deriveMessages())
     // event-by-event identity of types
     expect(replayed.events.map(e => e.type)).toEqual(
-      agent.session.events.map(e => e.type as SessionEventType))
+      agent.session.events.map(e => e.type))
   })
 })

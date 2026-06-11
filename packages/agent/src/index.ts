@@ -35,7 +35,7 @@ export class AgentRegistry extends Service {
    * when the calling fiber is disposed. Returns the disposer.
    */
   register(agent: Agent): () => void {
-    return this.ctx.effect(() => {
+    const dispose = this.ctx.effect(() => {
       if (this.store.has(agent.id)) {
         throw new Error(`agent "${agent.id}" is already registered`)
       }
@@ -46,6 +46,9 @@ export class AgentRegistry extends Service {
         this.ctx.emit('agent/disposed', agent)
       }
     }, 'agents.register()')
+    // ctx.effect's disposer returns Promise<void>; our disposer API is
+    // synchronous fire-and-forget — discard the (always-resolved) promise.
+    return () => void dispose()
   }
 
   get(id: string): Agent | undefined {

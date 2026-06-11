@@ -107,7 +107,7 @@ export class ToolRegistry extends Service {
    * with the calling fiber. Emits `tools/change` on register/unregister.
    */
   register(definition: ToolDefinition): () => void {
-    return this.ctx.effect(() => {
+    const dispose = this.ctx.effect(() => {
       if (this.store.has(definition.name)) {
         throw new Error(`tool "${definition.name}" is already registered`)
       }
@@ -118,6 +118,9 @@ export class ToolRegistry extends Service {
         this.ctx.emit('tools/change')
       }
     }, 'tools.register()')
+    // ctx.effect's disposer returns Promise<void>; our disposer API is
+    // synchronous fire-and-forget — discard the (always-resolved) promise.
+    return () => void dispose()
   }
 
   get(name: string): ToolDefinition | undefined {
@@ -130,6 +133,8 @@ export class ToolRegistry extends Service {
    * assembly.
    */
   schemas(): ToolSchema[] {
+    // Rest-destructure to drop `execute`; the unused binding is the idiom.
+    // eslint-disable-next-line @typescript-eslint/unbound-method, @typescript-eslint/no-unused-vars
     return [...this.store.values()].map(({ execute, ...schema }) => schema)
   }
 

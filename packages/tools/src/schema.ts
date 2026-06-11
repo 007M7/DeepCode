@@ -60,11 +60,11 @@ export type SchemaSpec = Record<string, SchemaProp>
 /** Map a {@link SchemaType} to its TS primitive type. */
 type TypeOf<T extends SchemaType> =
   T extends 'string' ? string :
-  T extends 'number' ? number :
-  T extends 'boolean' ? boolean :
-  T extends 'object' ? Record<string, unknown> :
-  T extends 'array' ? unknown[] :
-  never
+    T extends 'number' ? number :
+      T extends 'boolean' ? boolean :
+        T extends 'object' ? Record<string, unknown> :
+          T extends 'array' ? unknown[] :
+            never
 
 /** Flatten an intersection into one object type for readable hovers. */
 type Simplify<T> = { [K in keyof T]: T[K] } & {}
@@ -82,8 +82,8 @@ type RequiredKeys<S extends SchemaSpec> =
  */
 type InferPropValue<P extends SchemaProp> =
   P extends { type: 'object'; properties: infer Sub extends SchemaSpec } ? InferArgs<Sub> :
-  P extends { type: 'array'; items: infer Item extends SchemaProp } ? InferPropValue<Item>[] :
-  TypeOf<P['type']>
+    P extends { type: 'array'; items: infer Item extends SchemaProp } ? InferPropValue<Item>[] :
+      TypeOf<P['type']>
 
 /**
  * Infer the TS argument type for a complete {@link SchemaSpec}.
@@ -117,7 +117,7 @@ function propToJsonSchema(prop: SchemaProp): { schema: Record<string, unknown>; 
   if (prop.enum) result.enum = prop.enum
   if (prop.default !== undefined) result.default = prop.default
 
-  let required = prop.required === true
+  const required = prop.required === true
 
   if (prop.type === 'object' && prop.properties) {
     const nested = schemaSpecToJsonSchema(prop.properties)
@@ -224,6 +224,9 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
     description: options.description,
     parameters: schemaSpecToJsonSchema(options.parameters) as unknown as Record<string, unknown>,
     ...options.strict !== undefined ? { strict: options.strict } : {},
-    execute: options.execute as ToolDefinition['execute'],
+    // Object-literal execute methods don't use `this`; passing the reference
+    // through is safe.
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    execute: options.execute,
   }
 }

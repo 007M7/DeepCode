@@ -69,7 +69,7 @@ export class LlmService extends Service {
    * fiber.
    */
   registerAdapter(models: string[], adapter: LlmAdapter): () => void {
-    return this.ctx.effect(() => {
+    const dispose = this.ctx.effect(() => {
       for (const model of models) {
         if (this.adapters.has(model)) {
           throw new LlmError(`an adapter for model "${model}" is already registered`, 'DUPLICATE_ADAPTER')
@@ -82,6 +82,9 @@ export class LlmService extends Service {
         this.ctx.emit('llm/adapter-change')
       }
     }, 'llm.registerAdapter()')
+    // ctx.effect's disposer returns Promise<void>; our disposer API is
+    // synchronous fire-and-forget — discard the (always-resolved) promise.
+    return () => void dispose()
   }
 
   /** Model names with a registered adapter. */

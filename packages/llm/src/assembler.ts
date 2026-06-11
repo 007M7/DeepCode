@@ -109,9 +109,16 @@ export class BlockAssembler {
     }
   }
 
+  /** Invariant accessor: every index in `order` has a partial. */
+  private mustGet(index: number): PartialBlock {
+    const partial = this.partials.get(index)
+    if (!partial) throw new Error(`BlockAssembler invariant violated: no partial for index ${index}`)
+    return partial
+  }
+
   /** Assemble all blocks seen so far, in stream order. */
   blocks(): ContentBlock[] {
-    return this.order.map(index => this.assemble(this.partials.get(index)!, index))
+    return this.order.map(index => this.assemble(this.mustGet(index), index))
   }
 
   /**
@@ -123,8 +130,9 @@ export class BlockAssembler {
   flushReady(): ContentBlock[] {
     const ready: ContentBlock[] = []
     while (this.flushed < this.order.length) {
-      const index = this.order[this.flushed]!
-      const partial = this.partials.get(index)!
+      const index = this.order[this.flushed]
+      if (index === undefined) break
+      const partial = this.mustGet(index)
       if (!partial.block) break
       ready.push(partial.block)
       this.flushed += 1
@@ -141,8 +149,9 @@ export class BlockAssembler {
   flushRemaining(): ContentBlock[] {
     const remaining: ContentBlock[] = []
     while (this.flushed < this.order.length) {
-      const index = this.order[this.flushed]!
-      remaining.push(this.assemble(this.partials.get(index)!, index))
+      const index = this.order[this.flushed]
+      if (index === undefined) break
+      remaining.push(this.assemble(this.mustGet(index), index))
       this.flushed += 1
     }
     return remaining

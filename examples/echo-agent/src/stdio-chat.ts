@@ -55,6 +55,6 @@ export function apply(ctx: Context) {
       setTimeout(() => process.exit(0), 200)
     })
     process.stdout.write('echo-agent ready. Type a message ("echo <text>" triggers the tool).\n> ')
-    return () => reader.close()
+    return () => { reader.close() }
   }, 'stdio-chat')
 }

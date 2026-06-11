@@ -18,7 +18,7 @@ const echoTool = defineTool({
   description: 'echo arguments back',
   parameters: { text: { type: 'string' } },
   async execute(args) {
-    return [{ type: 'text' as const, text: String(args.text ?? '') }]
+    return [{ type: 'text' as const, text: args.text ?? '' }]
   },
 })
 
@@ -372,7 +372,7 @@ describe('schema DSL regressions (Codex review round 2)', () => {
       ...echoTool,
       name: 'object-thrower',
       async execute() {
-        // eslint-disable-next-line no-throw-literal — testing non-Error throws
+        // testing non-Error throws on purpose
         throw { message: 'denied by object' }
       },
     })

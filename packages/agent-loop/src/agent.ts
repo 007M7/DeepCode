@@ -65,7 +65,7 @@ export class LoopAgent implements Agent {
 
   steer(content: ContentBlock[], options?: SendOptions): void {
     if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
-    if (this._status !== 'running') return this.send(content, options)
+    if (this._status !== 'running') { this.send(content, options); return }
     const source = this.resolveSource(options)
     this.inbox.steer({ content, source })
     this.ctx.emit('agent/queued', this, content, { source, steering: true })
@@ -88,7 +88,7 @@ export class LoopAgent implements Agent {
    */
   start(): () => void {
     this.done = runLoop(this.ctx, this, {
-      setStatus: status => this.setStatus(status),
+      setStatus: (status) => { this.setStatus(status) },
       setAbort: controller => void (this.currentAbort = controller),
       disposed: this.disposed,
       isDisposed: () => this._status === 'disposed',

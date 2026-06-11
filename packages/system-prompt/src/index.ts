@@ -73,7 +73,7 @@ export class SystemPrompt extends Service {
    * fiber is disposed. Emits `system-prompt/change` on register/unregister.
    */
   section(section: PromptSection): () => void {
-    return this.ctx.effect(() => {
+    const dispose = this.ctx.effect(() => {
       this.sections.push(section)
       this.ctx.emit('system-prompt/change')
       return () => {
@@ -82,6 +82,9 @@ export class SystemPrompt extends Service {
         this.ctx.emit('system-prompt/change')
       }
     }, 'systemPrompt.section()')
+    // ctx.effect's disposer returns Promise<void>; our disposer API is
+    // synchronous fire-and-forget — discard the (always-resolved) promise.
+    return () => void dispose()
   }
 
   /**
@@ -90,7 +93,7 @@ export class SystemPrompt extends Service {
    * removed when the calling fiber is disposed. Emits `system-prompt/change`.
    */
   tools(provider: () => ToolSchema[]): () => void {
-    return this.ctx.effect(() => {
+    const dispose = this.ctx.effect(() => {
       this.toolProviders.push(provider)
       this.ctx.emit('system-prompt/change')
       return () => {
@@ -99,6 +102,9 @@ export class SystemPrompt extends Service {
         this.ctx.emit('system-prompt/change')
       }
     }, 'systemPrompt.tools()')
+    // ctx.effect's disposer returns Promise<void>; our disposer API is
+    // synchronous fire-and-forget — discard the (always-resolved) promise.
+    return () => void dispose()
   }
 
   /**
@@ -113,7 +119,7 @@ export class SystemPrompt extends Service {
       sections: [...this.sections].sort((a, b) => a.order - b.order),
       tools: this.toolProviders.flatMap(provider => provider()),
     }
-    return this.ctx.waterfall(this, 'system-prompt/assemble', assembly, async () => assembly)
+    return this.ctx.waterfall(this, 'system-prompt/assemble', assembly, () => Promise.resolve(assembly))
   }
 }
 

@@ -97,6 +97,10 @@ export class Session {
   deriveMessages(): Message[] {
     const messages: Message[] = []
     for (const event of this.log) {
+      // Intentionally non-exhaustive: only message-producing events derive
+      // history; turn/step boundaries, chunks, usage, and errors are
+      // trace/replay data.
+      // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
       switch (event.type) {
         case 'user/message': {
           messages.push({ role: 'user', content: event.data.content })
@@ -155,7 +159,7 @@ export class SessionStore extends Service {
     if (this.store.has(id)) throw new Error(`session "${id}" already exists`)
     const session = new Session(id, seed)
     this.ctx.effect(() => {
-      session.onAppend = (event) => this.ctx.emit('session/event', session, event)
+      session.onAppend = (event) => { this.ctx.emit('session/event', session, event) }
       this.store.set(id, session)
       this.ctx.emit('session/created', session)
       return () => {

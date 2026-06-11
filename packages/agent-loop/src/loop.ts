@@ -113,7 +113,9 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
 
   // Drain queued messages into the session — they trigger this turn.
   const queued = agent.inbox.drainQueued()
-  const trigger: TurnTrigger = { kind: 'message', source: queued[0]!.source }
+  const first = queued[0]
+  if (!first) throw new Error('runTurn invariant violated: no queued message at turn start')
+  const trigger: TurnTrigger = { kind: 'message', source: first.source }
   for (const message of queued) {
     session.append('user/message', { content: message.content, source: message.source })
   }
@@ -177,7 +179,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     try {
       shouldContinue = await ctx.waterfall(
         'agent/turn-continuation', agent, turn, defaultDecision,
-        async () => defaultDecision,
+        () => Promise.resolve(defaultDecision),
       )
     } catch (error: unknown) {
       // A broken continuation plugin ends the turn, not the loop.
@@ -246,7 +248,7 @@ async function runStep(
     ...assembly.tools.length > 0 ? { tools: assembly.tools } : {},
     signal,
   }
-  request = await ctx.waterfall('agent/request', agent, turn, step, request, async () => request)
+  request = await ctx.waterfall('agent/request', agent, turn, step, request, () => Promise.resolve(request))
   if (!request.model) {
     throw new Error(`agent "${agent.id}" has no model: set AgentOptions.model or supply one via the agent/request waterfall`)
   }
@@ -264,7 +266,7 @@ async function runStep(
   // source of truth for derived history and replay) records the message that
   // tool dispatch actually uses.
   let message: Message = assembler.message()
-  message = await ctx.waterfall('agent/step-result', agent, turn, step, message, async () => message)
+  message = await ctx.waterfall('agent/step-result', agent, turn, step, message, () => Promise.resolve(message))
 
   session.append('assistant/message', { turn, step, content: message.content })
   if (assembler.usage) {
@@ -297,6 +299,9 @@ async function runStep(
       content: result.content,
       isError: result.isError,
     })
+    // signal CAN flip during the await above (abort() inside a tool);
+    // the analyzer can't see through the await boundary.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
   }
 
@@ -305,9 +310,6 @@ async function runStep(
 
 /** The last turn number in a (possibly seeded) session log, or 0. */
 function lastTurnNumber(session: Session): number {
-  for (let index = session.events.length - 1; index >= 0; index--) {
-    const event = session.events[index]!
-    if (event.type === 'turn/start') return event.data.turn
-  }
-  return 0
+  const lastStart = session.events.findLast(event => event.type === 'turn/start')
+  return lastStart?.data.turn ?? 0
 }

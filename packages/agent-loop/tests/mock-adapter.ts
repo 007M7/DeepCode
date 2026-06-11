@@ -5,7 +5,7 @@ import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 export function textResponse(text: string): StreamChunk[] {
   return [
     { type: 'block-start', index: 0, blockType: 'text' },
-    ...[...text].map((char): StreamChunk => ({ type: 'text-delta', index: 0, text: char })),
+    ...Array.from(text, (char): StreamChunk => ({ type: 'text-delta', index: 0, text: char })),
     { type: 'block-end', index: 0, block: { type: 'text', text } },
     { type: 'usage', usage: { inputTokens: 10, outputTokens: text.length } },
     { type: 'finish', reason: { kind: 'stop' } },
@@ -60,8 +60,8 @@ export class MockAdapter extends LlmAdapter {
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'text-delta', index: 0, text: 'partial' }
       await new Promise<void>((_resolve, reject) => {
-        if (options.signal?.aborted) return reject(new Error('aborted'))
-        options.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+        if (options.signal?.aborted) { reject(new Error('aborted')); return }
+        options.signal?.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
       })
       return
     }
