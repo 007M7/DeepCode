@@ -49,6 +49,11 @@ Keep this log exhaustive — every divergence from upstream must be listed.
    peer-dependency ranges preserved.
 3. **All `tsconfig.json` files**: regenerated to extend the repo-root
    `tsconfig.base.json` and declare project references.
+4. **`schemastery/tsdown.config.ts` and `logger-console/tsdown.config.ts`**:
+   ours, not upstream files — per-package build-shape overrides (dual
+   ESM+CJS output; separate node/browser entries) for the repo-root tsdown
+   build. Like the regenerated tsconfigs, they are not part of the upstream
+   sync surface.
 
 ## Sync procedure
 

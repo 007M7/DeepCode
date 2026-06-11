@@ -32,7 +32,9 @@ examples/    Runnable demos (not workspaces). echo-agent = mock model + echo
 docs/        architecture.md — the design doc. adr/ — decision records (the
              why behind vendoring, event-sourcing, the schema DSL, …).
              rfc/ — proposals for substantial future work.
-scripts/     build.ts — dumble JS bundling for all packages.
+scripts/     repo maintenance scripts (vendor-manifest guard, publint runner).
+             JS bundling is tsdown (root tsdown.config.ts + two per-package
+             overrides in vendor/).
 ```
 
 ## Commands
@@ -41,7 +43,7 @@ scripts/     build.ts — dumble JS bundling for all packages.
 yarn install        # Yarn 4 workspaces (node-modules linker), node >= 24
 yarn test           # vitest run (packages/*/tests/**/*.spec.ts)
 yarn typecheck      # tsc -b tsconfig.build.json (declarations only)
-yarn build          # typecheck + dumble JS bundles into each package's lib/
+yarn build          # typecheck + tsdown JS bundles into each package's lib/
 yarn demo           # run examples/echo-agent (needs --expose-internals, the
                     # script passes it; type "echo hi" to see a tool call)
 ```

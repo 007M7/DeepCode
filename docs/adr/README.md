@@ -17,3 +17,4 @@ with a new one and cross-link.
 | [0005](0005-custom-schema-dsl-over-schemastery.md) | Custom typed tool-schema DSL instead of schemastery | accepted |
 | [0006](0006-tool-schemas-in-prompt-assembly.md) | Tool schemas are part of the system-prompt assembly | accepted |
 | [0007](0007-quality-gates.md) | Mechanical quality gates over prose guidelines | accepted |
+| [0008](0008-tsdown-over-dumble.md) | tsdown for JS bundling instead of dumble | accepted |

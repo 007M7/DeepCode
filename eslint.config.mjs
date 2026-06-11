@@ -24,6 +24,7 @@ export default tseslint.config(
       'vendor/**', // vendored source keeps upstream style and idioms
       '**/*.js',
       '**/*.mjs',
+      '*.config.ts', // root tool configs (vitest, tsdown) — no project service
     ],
   },
 
