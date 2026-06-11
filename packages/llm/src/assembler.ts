@@ -1,3 +1,10 @@
+/**
+ * Incremental chunk-to-message assembler. This is the single canonical assembly
+ * algorithm used by both the agent loop and the LLM service convenience views.
+ *
+ * @module @deepseek-ai/dsh-llm/assembler
+ */
+
 import type { ContentBlock, FinishReason, GenerateResult, Message, StreamChunk, TokenUsage } from './types.ts'
 
 interface PartialBlock {

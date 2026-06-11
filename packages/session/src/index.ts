@@ -1,3 +1,11 @@
+/**
+ * Event-sourced session service: append-only session log, in-memory store, and
+ * the derived LLM message history. Persistence is a plugin concern (subscribe
+ * to `session/event`, drain on `session/flush`).
+ *
+ * @module @deepseek-ai/dsh-session
+ */
+
 import { Context, Service } from 'cordis'
 import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionEventMap, SessionEventType } from './types.ts'
@@ -64,7 +72,11 @@ export class Session {
     return this.log.length
   }
 
-  /** Append one event. Synchronous — the hot path never blocks on I/O. */
+  /**
+   * Append one typed event to the log and synchronously notify observers via
+   * `onAppend`. The hot path never blocks on I/O — persistence plugins buffer
+   * asynchronously.
+   */
   append<T extends SessionEventType>(type: T, data: SessionEventMap[T]): SessionEvent<T> {
     const event = { type, seq: this.log.length, time: Date.now(), data } as SessionEvent<T>
     this.log.push(event)
@@ -132,7 +144,12 @@ export class SessionStore extends Service {
     super(ctx, 'sessions')
   }
 
-  /** Create a session. `seed` replays/forks an existing event log. */
+  /**
+   * Create a session. If `seed` is provided, the session is populated with
+   * a copy of those events (replay/fork). The session is a Cordis effect:
+   * disposing the calling fiber stops event notification and removes the
+   * session from the store.
+   */
   create(id?: string, seed?: SessionEvent[]): Session {
     id ??= `session-${++this.counter}`
     if (this.store.has(id)) throw new Error(`session "${id}" already exists`)

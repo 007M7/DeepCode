@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionEventType } from '@deepseek-ai/dsh-session'
+import LlmService, { StreamChunk, ToolResultBlock } from '@deepseek-ai/dsh-llm'
+import SessionStore, { SessionEventType, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop, { LoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
@@ -76,14 +76,14 @@ describe('agent loop', () => {
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register({
+    ctx.tools.register(defineTool({
       name: 'echo',
       description: 'echo back',
-      parameters: { type: 'object' },
-      async execute(args: any) {
+      parameters: { text: { type: 'string' } },
+      async execute(args) {
         return [{ type: 'text', text: `echo: ${args.text}` }]
       },
-    })
+    }))
     const agent = ctx.agentLoop.create('a1', { model: 'mock' })
 
     send(agent, 'use the tool')
@@ -99,7 +99,7 @@ describe('agent loop', () => {
     expect(toolResultMessage).toBeDefined()
     const block = toolResultMessage!.content.find(b => b.type === 'tool-result')!
     expect(block).toMatchObject({ toolCallId: 'c1', isError: false })
-    expect((block as any).content).toEqual([{ type: 'text', text: 'echo: ping' }])
+    expect((block as ToolResultBlock).content).toEqual([{ type: 'text', text: 'echo: ping' }])
 
     // session log records call + result
     const types = agent.session.events.map(e => e.type)
@@ -111,14 +111,14 @@ describe('agent loop', () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     ctx.systemPrompt.section({ name: 'persona', order: 0, text: 'You are a test agent.' })
-    ctx.tools.register({
+    ctx.tools.register(defineTool({
       name: 'noop',
       description: 'does nothing',
-      parameters: { type: 'object' },
+      parameters: {},
       async execute() {
         return []
       },
-    })
+    }))
     const agent = ctx.agentLoop.create('a1', { model: 'mock', systemPrompt: 'Agent-specific suffix.' })
 
     send(agent, 'hi')
@@ -146,9 +146,9 @@ describe('agent loop', () => {
     expect(streamed).toHaveLength(7)
     // replay: chunk events alone re-assemble to the recorded assistant message
     const deltaText = chunkEvents
-      .map(e => (e.data as any).chunk)
-      .filter((c: StreamChunk) => c.type === 'text-delta')
-      .map((c: any) => c.text)
+      .flatMap(e => e.type === 'assistant/chunk' ? [e.data.chunk] : [])
+      .filter((c: StreamChunk): c is Extract<StreamChunk, { type: 'text-delta' }> => c.type === 'text-delta')
+      .map(c => c.text)
       .join('')
     expect(deltaText).toBe('abc')
   })
@@ -161,16 +161,16 @@ describe('agent loop', () => {
     const ctx = await harness(adapter)
 
     const agent = ctx.agentLoop.create('a1', { model: 'mock' })
-    ctx.tools.register({
+    ctx.tools.register(defineTool({
       name: 'slow',
       description: '',
-      parameters: { type: 'object' },
+      parameters: {},
       async execute() {
         // steer while the turn is running (during tool execution)
         agent.steer([{ type: 'text', text: 'change of plans' }])
         return [{ type: 'text', text: 'tool done' }]
       },
-    })
+    }))
 
     send(agent, 'start')
     await waitForIdle(ctx, agent)
@@ -243,14 +243,14 @@ describe('agent loop', () => {
   it('agent/turn-continuation can veto continuation despite tool calls (budget-guard pattern)', async () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', { text: 'x' })])
     const ctx = await harness(adapter)
-    ctx.tools.register({
+    ctx.tools.register(defineTool({
       name: 'echo',
       description: '',
-      parameters: { type: 'object' },
-      async execute(args: any) {
+      parameters: { text: { type: 'string' } },
+      async execute(args) {
         return [{ type: 'text', text: String(args.text) }]
       },
-    })
+    }))
     const agent = ctx.agentLoop.create('a1', { model: 'mock' })
 
     ctx.on('agent/turn-continuation', async () => false as const)
@@ -284,7 +284,7 @@ describe('agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create('a1', { model: 'mock' })
 
-    const reasons: any[] = []
+    const reasons: TurnEndReason[] = []
     ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
 
     send(agent, 'go')
@@ -348,7 +348,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create('a1', { model: 'mock' })
 
     const errors: Error[] = []
-    const reasons: any[] = []
+    const reasons: TurnEndReason[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
     ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
 
@@ -389,14 +389,14 @@ describe('agent loop', () => {
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register({
+    ctx.tools.register(defineTool({
       name: 'echo',
       description: '',
-      parameters: { type: 'object' },
-      async execute(args: any) {
+      parameters: { text: { type: 'string' } },
+      async execute(args) {
         return [{ type: 'text', text: String(args.text) }]
       },
-    })
+    }))
     const agent = ctx.agentLoop.create('a1', { model: 'mock' })
     send(agent, 'run')
     await waitForIdle(ctx, agent)

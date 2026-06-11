@@ -1,3 +1,11 @@
+/**
+ * LLM service: adapter registry with waterfall-interceptable streaming and
+ * non-streaming call surfaces. Exports the `LlmService` default, the abstract
+ * `LlmAdapter` for provider backends, and `BlockAssembler` for chunk assembly.
+ *
+ * @module @deepseek-ai/dsh-llm
+ */
+
 import { Context, Service } from 'cordis'
 import type { ContentBlock, GenerateOptions, GenerateResult, StreamChunk } from './types.ts'
 import { BlockAssembler } from './assembler.ts'
@@ -20,6 +28,7 @@ declare module 'cordis' {
   }
 }
 
+/** Typed error for LLM-related failures. The `code` string enables programmatic handling. */
 export class LlmError extends Error {
   constructor(message: string, public code: string) {
     super(message)
@@ -53,7 +62,12 @@ export class LlmService extends Service {
     super(ctx, 'llm')
   }
 
-  /** Register an adapter for the given model names. Disposed with the fiber. */
+  /**
+   * Register an adapter for the given model names. Throws `LlmError` with code
+   * `DUPLICATE_ADAPTER` if any model already has an adapter (all-or-nothing).
+   * Emits `llm/adapter-change` on registration and disposal. Disposed with the
+   * fiber.
+   */
   registerAdapter(models: string[], adapter: LlmAdapter): () => void {
     return this.ctx.effect(() => {
       for (const model of models) {
@@ -81,7 +95,11 @@ export class LlmService extends Service {
     return adapter
   }
 
-  /** Stream one model call as raw chunks (token-level deltas). */
+  /**
+   * Stream one model call as raw chunks (token-level deltas). Throws
+   * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
+   * `options.model`. Dispatches through the `llm/stream` waterfall.
+   */
   stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     return this.ctx.waterfall(this, 'llm/stream', options, () => {
       return this.adapter(options.model).stream(options)
@@ -105,7 +123,11 @@ export class LlmService extends Service {
     yield * assembler.flushRemaining()
   }
 
-  /** One model call, fully assembled (drains the chunk stream). */
+  /**
+   * One model call, fully assembled (drains the chunk stream). Dispatches
+   * through the `llm/generate` waterfall (and the inner stream through
+   * `llm/stream`). Same completion guarantees as `streamBlocks()`.
+   */
   generate(options: GenerateOptions): Promise<GenerateResult> {
     return this.ctx.waterfall(this, 'llm/generate', options, async () => {
       const assembler = new BlockAssembler()

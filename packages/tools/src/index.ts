@@ -1,7 +1,27 @@
+/**
+ * Tool registry and execution waterfall. Plugins register tools; the registry
+ * feeds schemas into the system prompt, and `execute()` dispatches each call
+ * through the `tools/execute` waterfall for sandbox, permission, and hook
+ * plugins to wrap or veto.
+ *
+ * @module @deepseek-ai/dsh-tools
+ */
+
 import { Context, Service } from 'cordis'
 import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+
+export {
+  defineTool,
+  schemaSpecToJsonSchema,
+  type SchemaSpec,
+  type SchemaProp,
+  type SchemaType,
+  type InferArgs,
+  type DefineToolOptions,
+  type JsonSchemaObject,
+} from './schema.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -65,7 +85,12 @@ export class ToolRegistry extends Service {
     ctx.systemPrompt.tools(() => this.schemas())
   }
 
-  /** Register a tool. Disposed with the calling fiber. */
+  /**
+   * Register a tool. Throws if a tool with the same name is already
+   * registered. The tool's schema (minus the `execute` function) is
+   * automatically contributed to the system-prompt assembly. Disposed
+   * with the calling fiber. Emits `tools/change` on register/unregister.
+   */
   register(definition: ToolDefinition): () => void {
     return this.ctx.effect(() => {
       if (this.store.has(definition.name)) {
@@ -84,12 +109,21 @@ export class ToolRegistry extends Service {
     return this.store.get(name)
   }
 
-  /** Schemas of all registered tools (without the execute functions). */
+  /**
+   * Return all registered tool schemas, stripped of their `execute` functions.
+   * These are exactly what gets sent to the model via the system-prompt
+   * assembly.
+   */
   schemas(): ToolSchema[] {
     return [...this.store.values()].map(({ execute, ...schema }) => schema)
   }
 
-  /** Execute one tool call through the `tools/execute` waterfall. */
+  /**
+   * Execute one tool call through the `tools/execute` waterfall. If the tool
+   * is not registered, returns an `isError` result immediately (no waterfall).
+   * If the tool throws, the error is caught and returned as an `isError` result
+   * so the loop never sees an uncaught exception from a tool.
+   */
   execute(exec: ToolExecution): Promise<ToolExecutionResult> {
     return this.ctx.waterfall(this, 'tools/execute', exec, async (): Promise<ToolExecutionResult> => {
       const tool = this.store.get(exec.name)
@@ -103,10 +137,11 @@ export class ToolRegistry extends Service {
       try {
         const content = await tool.execute(exec.arguments, exec)
         return { callId: exec.callId, content, isError: false }
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error)
         return {
           callId: exec.callId,
-          content: [{ type: 'text', text: `Error: ${error?.message ?? error}` }],
+          content: [{ type: 'text', text: `Error: ${message}` }],
           isError: true,
         }
       }

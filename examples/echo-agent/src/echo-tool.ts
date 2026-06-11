@@ -1,19 +1,19 @@
 import type { Context } from 'cordis'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 
 export const name = 'echo-tool'
 export const inject = ['tools']
 
 export function apply(ctx: Context) {
-  ctx.tools.register({
+  ctx.tools.register(defineTool({
     name: 'echo',
     description: 'Echo the given text back, uppercased.',
     parameters: {
-      type: 'object',
-      properties: { text: { type: 'string' } },
-      required: ['text'],
+      text: { type: 'string', required: true },
     },
-    async execute(args: any) {
-      return [{ type: 'text', text: `ECHO: ${String(args?.text ?? '').toUpperCase()}` }]
+    async execute(args) {
+      // args is typed: { text: string }
+      return [{ type: 'text', text: `ECHO: ${args.text.toUpperCase()}` }]
     },
-  })
+  }))
 }

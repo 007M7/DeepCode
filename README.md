@@ -16,4 +16,4 @@ yarn test        # vitest
 yarn demo        # runnable echo-agent example
 ```
 
-See [AGENTS.md](AGENTS.md) for layout, commands, and conventions, and [docs/architecture.md](docs/architecture.md) for the design.
+For agent instructions see [AGENTS.md](AGENTS.md). For the architecture design see [docs/architecture.md](docs/architecture.md). Each subdirectory has its own README.md with local context: [packages/](packages/), [vendor/](vendor/).

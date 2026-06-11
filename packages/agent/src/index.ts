@@ -1,3 +1,10 @@
+/**
+ * Agent registry service. Tracks live agents so plugins can find them without
+ * depending on the concrete loop package. Agent creation belongs to the loop.
+ *
+ * @module @deepseek-ai/dsh-agent
+ */
+
 import { Context, Service } from 'cordis'
 import type { Agent } from './types.ts'
 
@@ -22,7 +29,11 @@ export class AgentRegistry extends Service {
     super(ctx, 'agents')
   }
 
-  /** Register a live agent. Disposed with the calling fiber. */
+  /**
+   * Register a live agent. Throws if an agent with the same id is already
+   * registered. Emits `agent/created` on registration and `agent/disposed`
+   * when the calling fiber is disposed. Returns the disposer.
+   */
   register(agent: Agent): () => void {
     return this.ctx.effect(() => {
       if (this.store.has(agent.id)) {

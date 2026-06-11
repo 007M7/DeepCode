@@ -1,3 +1,11 @@
+/**
+ * Per-agent message inbox: queued and steering FIFOs. Purely an in-memory
+ * mechanism of the loop driver — the public surface is `Agent.send()` and
+ * `Agent.steer()`.
+ *
+ * @module dsh-agent-loop/inbox
+ */
+
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 
 /** One message waiting in an agent's inbox. */

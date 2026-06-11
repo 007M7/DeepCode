@@ -78,6 +78,30 @@ only needed for publishing/consumption outside the repo.
   concurrency races even if they seem unlikely. Review findings get regression
   tests (see `packages/agent-loop/tests/review-fixes.spec.ts`).
 
+## Type Safety and Documentation
+
+This codebase aims to be **very type-safe and well documented** for
+maintainability. Code that fails to compile under `strict: true` (with
+`noImplicitAny` enabled for all `packages/*` source) is not acceptable. Every
+`any` that remains must have a specific justification (a comment explaining why
+a narrower type is infeasible).
+
+In the **core** packages (`packages/llm`, `packages/tools`, `packages/agent`,
+`packages/agent-loop`, `packages/session`, `packages/system-prompt`), **type
+gymnastics are acceptable when they improve the DX of plugin authors** for
+common plugin types. The `defineTool` typed schema DSL in `dsh-tools` is the
+canonical example: the `SchemaSpec` to `InferArgs<S>` type-level mapping gives
+tool authors zero-cast typed `execute` args, and the cost of the conditional
+types stays inside the core package.
+
+Verbose documentation is fine **as long as docs and code stay strictly in
+sync**. Out-of-sync docs are worse than no docs. Every module has a module-level
+doc comment explaining its role. Every exported class, interface, type,
+function, and non-obvious method has a JSDoc that explains semantics (not just
+the name) — contracts (what events fire when), disposal behavior, error
+behavior, and extension intent. Internal helpers get docs only where non-obvious.
+Prefer one-liners when one line suffices.
+
 ## Vendoring Policy
 
 `vendor/` packages are pinned source copies (manifest with upstream commit

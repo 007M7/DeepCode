@@ -1,3 +1,11 @@
+/**
+ * System prompt assembly registry. Plugins contribute ordered text sections and
+ * tool schema providers; `assemble()` collates them through a waterfall that
+ * runs once per step.
+ *
+ * @module @deepseek-ai/dsh-system-prompt
+ */
+
 import { Context, Service } from 'cordis'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 
@@ -59,7 +67,11 @@ export class SystemPrompt extends Service {
     super(ctx, 'systemPrompt')
   }
 
-  /** Contribute a section. Disposed with the calling fiber. */
+  /**
+   * Contribute a text section to the system prompt. Order is determined by
+   * `section.order` (ascending). The section is removed when the calling
+   * fiber is disposed. Emits `system-prompt/change` on register/unregister.
+   */
   section(section: PromptSection): () => void {
     return this.ctx.effect(() => {
       this.sections.push(section)
@@ -72,7 +84,11 @@ export class SystemPrompt extends Service {
     }, 'systemPrompt.section()')
   }
 
-  /** Contribute tool schemas (evaluated at each assembly). Disposed with the fiber. */
+  /**
+   * Contribute a tool-schema provider that is evaluated at each assembly
+   * call (so it can reflect the live registry state). The provider is
+   * removed when the calling fiber is disposed. Emits `system-prompt/change`.
+   */
   tools(provider: () => ToolSchema[]): () => void {
     return this.ctx.effect(() => {
       this.toolProviders.push(provider)
@@ -85,7 +101,13 @@ export class SystemPrompt extends Service {
     }, 'systemPrompt.tools()')
   }
 
-  /** Assemble the current prompt (sections sorted, tools collected). */
+  /**
+   * Assemble the current prompt (sections sorted by order, tools collected
+   * from all providers). Runs through the `system-prompt/assemble` waterfall,
+   * giving listeners the opportunity to mutate or replace the assembly before
+   * it reaches the model. Await the result before reading the assembly values —
+   * waterfall listeners may be async.
+   */
   assemble(): Promise<PromptAssembly> {
     const assembly: PromptAssembly = {
       sections: [...this.sections].sort((a, b) => a.order - b.order),

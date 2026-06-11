@@ -1,3 +1,11 @@
+/**
+ * The concrete Agent implementation: LoopAgent plus its inbox. Everything
+ * observable happens through session events and the agent/* event taxonomy —
+ * plugins never need this class.
+ *
+ * @module dsh-agent-loop/agent
+ */
+
 import type { Context } from 'cordis'
 import type { AgentOptions, AgentStatus, SendOptions } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -72,7 +80,12 @@ export class LoopAgent implements Agent {
     this.currentAbort?.abort(reason ?? 'aborted')
   }
 
-  /** Start the driver loop. Returns a disposer that stops it. */
+  /**
+   * Start the driver loop. Returns a disposer: calling it sets status to
+   * `disposed`, emits `agent/status('disposed')`, resolves the disposed
+   * promise (unblocking the idle wait), and aborts the current request if
+   * any. The returned `agent.done` promise resolves once the loop exits.
+   */
   start(): () => void {
     this.done = runLoop(this.ctx, this, {
       setStatus: status => this.setStatus(status),

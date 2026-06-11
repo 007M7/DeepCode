@@ -1,3 +1,14 @@
+/**
+ * Agent interface and event taxonomy. Every plugin programs against the
+ * `Agent` handle defined here; the concrete implementation lives in
+ * `@deepseek-ai/dsh-agent-loop`.
+ *
+ * Merge-extensible: `AgentOptions` supports declaration merging for
+ * plugin-specific creation options.
+ *
+ * @module @deepseek-ai/dsh-agent/types
+ */
+
 import type { ContentBlock, GenerateOptions, Message, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { Session, TurnEndReason } from '@deepseek-ai/dsh-session'
 

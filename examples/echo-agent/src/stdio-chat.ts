@@ -25,11 +25,11 @@ export function apply(ctx: Context) {
 
   ctx.on('session/event', (_session, event) => {
     if (event.type === 'tool/call') {
-      const { name: toolName, arguments: args } = event.data as any
+      const { name: toolName, arguments: args } = event.data
       process.stdout.write(`\n  [tool call] ${toolName}(${args})`)
     } else if (event.type === 'tool/result') {
-      const { content } = event.data as any
-      const text = content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
+      const { content } = event.data
+      const text = content.filter(b => b.type === 'text').map(b => b.text).join('')
       process.stdout.write(`\n  [tool result] ${text}\n  `)
     }
   })

@@ -1,3 +1,12 @@
+/**
+ * The agent loop driver: one `runLoop()` invocation drives one agent for its
+ * whole lifetime. Error-contained at the turn level — a throwing plugin ends
+ * the turn, never kills the loop. See the JSDoc on `runLoop()` for the full
+ * lifecycle pseudo-code.
+ *
+ * @module dsh-agent-loop/loop
+ */
+
 import type { Context } from 'cordis'
 import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
@@ -6,6 +15,14 @@ import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { LoopAgent } from './agent.ts'
 
+/** An Error with an optional machine-readable code (e.g., from LlmError or a throwing plugin). */
+type CodedError = Error & { code?: string }
+
+/**
+ * Ambient handles the loop driver receives from the agent. Decouples the
+ * pure function `runLoop` from the mutable LoopAgent fields, making the
+ * loop testable without a real agent.
+ */
 export interface LoopHandle {
   setStatus(status: 'idle' | 'running'): void
   setAbort(controller: AbortController | undefined): void
@@ -58,12 +75,12 @@ export async function runLoop(ctx: Context, agent: LoopAgent, handle: LoopHandle
     turn += 1
     try {
       await runTurn(ctx, agent, handle, turn)
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Backstop: a throwing emit listener (turn boundaries) or a broken
       // finalizer must not kill the driver. Record what we can and move on.
       try {
-        const err = error instanceof Error ? error : new Error(String(error))
-        session.append('error', { turn, step: 0, message: err.message, code: (err as any).code })
+        const err: CodedError = error instanceof Error ? error : new Error(String(error))
+        session.append('error', { turn, step: 0, message: err.message, code: err.code })
         ctx.emit('agent/error', agent, turn, 0, err)
       } catch { /* the error path itself is broken; nothing left to do */ }
     }
@@ -110,7 +127,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     let stepOutcome: { hadToolCalls: boolean } | { error: Error }
     try {
       stepOutcome = await runStep(ctx, agent, turn, step, abort.signal)
-    } catch (error: any) {
+    } catch (error: unknown) {
       stepOutcome = { error: error instanceof Error ? error : new Error(String(error)) }
     } finally {
       handle.setAbort(undefined)
@@ -128,9 +145,10 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
       } else if (abort.signal.aborted) {
         reason = { kind: 'aborted', reason: String(abort.signal.reason ?? 'aborted') }
       } else {
-        session.append('error', { turn, step, message: error.message, code: (error as any).code })
+        const coded = error as CodedError
+        session.append('error', { turn, step, message: coded.message, code: coded.code })
         ctx.emit('agent/error', agent, turn, step, error)
-        reason = { kind: 'error', message: error.message, code: (error as any).code }
+        reason = { kind: 'error', message: coded.message, code: coded.code }
       }
       break
     }
@@ -148,12 +166,12 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
         'agent/turn-continuation', agent, turn, defaultDecision,
         async () => defaultDecision,
       )
-    } catch (error: any) {
+    } catch (error: unknown) {
       // A broken continuation plugin ends the turn, not the loop.
-      const err = error instanceof Error ? error : new Error(String(error))
-      session.append('error', { turn, step, message: err.message, code: (err as any).code })
+      const err: CodedError = error instanceof Error ? error : new Error(String(error))
+      session.append('error', { turn, step, message: err.message, code: err.code })
       ctx.emit('agent/error', agent, turn, step, err)
-      reason = { kind: 'error', message: err.message, code: (err as any).code }
+      reason = { kind: 'error', message: err.message, code: err.code }
       break
     }
 
@@ -175,9 +193,9 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
   // A failing persistence plugin is reported but doesn't kill the agent.
   try {
     await ctx.parallel('session/flush', session)
-  } catch (error: any) {
-    const err = error instanceof Error ? error : new Error(String(error))
-    session.append('error', { turn, step, message: err.message, code: (err as any).code })
+  } catch (error: unknown) {
+    const err: CodedError = error instanceof Error ? error : new Error(String(error))
+    session.append('error', { turn, step, message: err.message, code: err.code })
     ctx.emit('agent/error', agent, turn, step, err)
   }
 }

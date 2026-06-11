@@ -1,3 +1,12 @@
+/**
+ * THE concrete agent plugin: creates LoopAgents, runs their loops, and
+ * registers them in ctx.agents. Deliberately thin — every behavior beyond
+ * "call the model, run the tools, repeat" belongs to plugins on the event
+ * taxonomy.
+ *
+ * @module @deepseek-ai/dsh-agent-loop
+ */
+
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import LlmService, { ContentBlock, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
+import SessionStore, { Session, SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop, { LoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
@@ -45,15 +45,15 @@ describe('HIGH: session log records what agent/step-result actually produced', (
     const adapter = new MockAdapter([textResponse('original'), textResponse('done')])
     const ctx = await harness(adapter)
     const executed: string[] = []
-    ctx.tools.register({
+    ctx.tools.register(defineTool({
       name: 'injected-tool',
       description: '',
-      parameters: { type: 'object' },
+      parameters: {},
       async execute() {
         executed.push('injected-tool')
         return [{ type: 'text', text: 'ran' }]
       },
-    })
+    }))
     const agent = ctx.agentLoop.create('a1', { model: 'mock' })
 
     // Plugin rewrites the message: replaces the text AND adds a tool call.
@@ -81,7 +81,8 @@ describe('HIGH: session log records what agent/step-result actually produced', (
     expect(JSON.stringify(recorded.data)).not.toContain('original')
     // tool/call + tool/result correlate with the injected call id
     const callEvent = agent.session.events.find(e => e.type === 'tool/call')!
-    expect((callEvent.data as any).callId).toBe('c-injected')
+    if (callEvent.type !== 'tool/call') throw new Error('wrong event type')
+    expect(callEvent.data.callId).toBe('c-injected')
     // derived history shows the rewritten message (replay-correct)
     const derived = agent.session.deriveMessages()
     expect(JSON.stringify(derived)).toContain('rewritten')
@@ -105,27 +106,27 @@ describe('HIGH: abort during tool execution ends the turn', () => {
     const ctx = await harness(adapter)
     const executed: string[] = []
     const agent = ctx.agentLoop.create('a1', { model: 'mock' })
-    ctx.tools.register({
+    ctx.tools.register(defineTool({
       name: 'aborter',
       description: '',
-      parameters: { type: 'object' },
+      parameters: {},
       async execute() {
         executed.push('aborter')
         agent.abort('user interrupt')
         return [{ type: 'text', text: 'done' }]
       },
-    })
-    ctx.tools.register({
+    }))
+    ctx.tools.register(defineTool({
       name: 'second',
       description: '',
-      parameters: { type: 'object' },
+      parameters: {},
       async execute() {
         executed.push('second')
         return [{ type: 'text', text: 'done' }]
       },
-    })
+    }))
 
-    const reasons: any[] = []
+    const reasons: TurnEndReason[] = []
     ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
 
     send(agent, 'go')
@@ -144,14 +145,14 @@ describe('HIGH: steering from late extension points is never stranded', () => {
       textResponse('after steering'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register({
+    ctx.tools.register(defineTool({
       name: 'echo',
       description: '',
-      parameters: { type: 'object' },
-      async execute(args: any) {
+      parameters: { text: { type: 'string' } },
+      async execute(args) {
         return [{ type: 'text', text: String(args.text) }]
       },
-    })
+    }))
     const agent = ctx.agentLoop.create('a1', { model: 'mock' })
 
     let steeredOnce = false
@@ -301,7 +302,7 @@ describe('MEDIUM: disposed status is part of the agent/status contract', () => {
     }, { inject: ['agentLoop'] }))
 
     const statuses: string[] = []
-    const reasons: any[] = []
+    const reasons: TurnEndReason[] = []
     ctx.on('agent/status', (_agent, status) => void statuses.push(status))
     ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
 
@@ -384,18 +385,18 @@ describe('MEDIUM: misc registry and config fixes', () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'noop', {}), textResponse('done')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create('a1', { model: 'mock' })
-    ctx.tools.register({
+    ctx.tools.register(defineTool({
       name: 'noop',
       description: '',
-      parameters: { type: 'object' },
+      parameters: {},
       async execute() {
         agent.steer([{ type: 'text', text: 's' }], { source: { kind: 'plugin', plugin: 'goal' } })
         return []
       },
-    })
+    }))
 
-    const queuedSources: any[] = []
-    const steeringSources: any[] = []
+    const queuedSources: { source: MessageSource; steering: boolean }[] = []
+    const steeringSources: MessageSource[] = []
     ctx.on('agent/queued', (_agent, _content, info) => void queuedSources.push(info))
     ctx.on('agent/steering', (_agent, _turn, _content, source) => void steeringSources.push(source))
 
