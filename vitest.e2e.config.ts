@@ -25,10 +25,15 @@ export default defineConfig({
   plugins: [tsconfigPaths({ projects: ['./tsconfig.test.json'] })],
   test: {
     include: ['packages/*/tests/**/*.e2e.ts', 'examples/*/tests/**/*.e2e.ts'],
-    // Real model calls: generous timeouts, one retry for transient flakes,
-    // no coverage (unit suites own the coverage gate).
+    // Real model calls: generous timeouts, and retries for transient flakes
+    // (the shared internal key hits concurrency quotas). No coverage — the
+    // unit suites own the coverage gate.
     testTimeout: 120_000,
     hookTimeout: 30_000,
-    retry: 1,
+    retry: 2,
+    // Run e2e files one at a time: the shared internal API key has a small
+    // concurrency quota, and parallel files issue enough simultaneous requests
+    // to trip it (manifesting as flaky rate-limit errors).
+    fileParallelism: false,
   },
 })

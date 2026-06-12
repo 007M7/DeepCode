@@ -34,9 +34,13 @@ packages/    Harness packages, all named @deepseek-ai/dsh-<name>:
   tool-bash/      model-facing bash/bash_output/bash_kill tool schemas
 examples/    Runnable demos (not workspaces). echo-agent = mock model + echo
              tool + stdio UI + JSONL persistence, wired via cordis.yml.
+             coding-agent = the real thing: DeepSeek V4 + bash tools
+             (yarn demo:coding, needs DEEPSEEK_API_KEY).
 docs/        architecture.md — the design doc. adr/ — decision records (the
              why behind vendoring, event-sourcing, the schema DSL, …).
              rfc/ — proposals for substantial future work.
+             cookbook/ — step-by-step guides: adding a package, a tool,
+             an LLM adapter.
 scripts/     repo maintenance scripts (vendor-manifest guard, publint runner).
              JS bundling is tsdown (root tsdown.config.ts + two per-package
              overrides in vendor/).
@@ -53,6 +57,8 @@ yarn typecheck      # tsc -b tsconfig.build.json (declarations only)
 yarn build          # typecheck + tsdown JS bundles into each package's lib/
 yarn demo           # run examples/echo-agent (needs --expose-internals, the
                     # script passes it; type "echo hi" to see a tool call)
+yarn demo:coding    # run examples/coding-agent — the real agent (needs
+                    # DEEPSEEK_API_KEY; give it a coding task)
 ```
 
 ## Secrets / .env
@@ -98,13 +104,21 @@ unresolved-type `no-unsafe-*` errors.
 - **Waterfall semantics**: `ctx.waterfall` listeners receive `(...args, next)`
   and MUST call `next()` to delegate; returning without it short-circuits.
   This is the veto mechanism — use deliberately.
+- **Discriminated unions: match, don't chain**: branch on a tagged union
+  (`StreamChunk`, `FinishReason`, `SessionEvent`, …) with a `switch` on the
+  tag, not a chain of `if (x.kind === '…')`. The switch narrows each arm so
+  member-only fields (`finish.message`, `finish.code`) are reachable in the
+  right case and a typo'd tag fails to compile. Prefer extracting a small
+  typed helper (`finishError(finish: FinishReason)`) over inlining the
+  branches at the call site.
 - **Switch exhaustiveness**: switches over CLOSED unions (e.g. `StreamChunk`)
   end with `default: assertNever(value, 'context')` (from dsh-llm) so adding a
   variant breaks compilation at every switch that must handle it. Switches
-  over MERGE-EXTENSIBLE unions (`SessionEventMap`, `ContentBlockMap`, …) must
-  NOT use assertNever — plugin-added variants are valid unknown values; handle
-  known cases and fall through with a comment (the lint rule
-  `switch-exhaustiveness-check` makes the choice explicit either way).
+  over MERGE-EXTENSIBLE unions (`SessionEventMap`, `ContentBlockMap`,
+  `FinishReason`, …) must NOT use assertNever — plugin-added variants are
+  valid unknown values; handle known cases and fall through `default` with a
+  comment (the lint rule `switch-exhaustiveness-check` makes the choice
+  explicit either way; a redundant disable directive is itself a lint error).
 - **Plugins, not loop changes**: new behavior goes into a plugin on the
   documented extension seams (see the plugin sanity checklist in
   docs/architecture.md). Changing `agent-loop` requires updating that doc.
@@ -136,12 +150,77 @@ unresolved-type `no-unsafe-*` errors.
   `response.json()` parse in `dsh-llm-deepseek`'s adapter sets `code` + HTTP
   `status` from the status line before the `try`, so a malformed provider body
   can only cost a richer message, never the real error.
+- **Symmetry is usually more correct**: when two related values play parallel
+  roles (a test fixture and its expected output, a request shape and its
+  response shape, a buggy input and the test that checks the fix), give them
+  parallel form — both named consts, or both inline, not one each way. Asymmetry
+  is a smell that usually points at a missed extraction.
 - **Tests**: vitest, colocated under `packages/<name>/tests/*.spec.ts`. Every
   registry needs an HMR-safety test (dispose the contributing fiber, assert
   cleanup). **Excessive tests are welcome** — when in doubt, write the test;
   err on the side of covering edge cases, error paths, event ordering, and
   concurrency races even if they seem unlikely. Review findings get regression
   tests (see `packages/agent-loop/tests/review-fixes.spec.ts`).
+
+## Defensive patterns (hard-won)
+
+Each bullet is a bug class that bit us; the rule prevents the reoccurrence.
+
+- **Report orthogonal outcomes independently.** A result can be several
+  things at once (a process can both time out AND exit 0 because it trapped
+  the signal). Don't nest the report of one flag inside the branch of
+  another. Surface each independent fact (`timedOut`, `signal`, `exitCode`)
+  on its own so a caller never reads a cut-short run as a clean success.
+- **Honor cross-seam contracts on BOTH sides.** When an interface documents
+  two valid ways to signal something (e.g. an adapter may report a model
+  failure by THROWING from `stream()` *or* by ending the stream with a
+  `finish {kind:'error'|'aborted'}` chunk), the consumer must handle both —
+  not just the one the first implementation happened to use. A library-backed
+  adapter that can't throw mid-stream relies on the finish-chunk path; if the
+  loop only catches throws, a provider 401 becomes a normal completed turn.
+  Document the contract where the type is defined and exercise every branch
+  through the real consumer in tests.
+- **Async state is not synchronous state.** `agent.send()` does not flip
+  status to `running` before it returns; a background task's completion races
+  turn boundaries; `reader.close()` fires for both EOF and disposal. Never
+  gate control flow on a status you only *just* requested. Drive lifecycle off
+  the events/promises that actually fire (`agent/status`, `task.done`), and
+  when "done" needs a settle signal, observe the transition (saw `running`
+  THEN `idle`) rather than counting actions you assume map 1:1 to turns —
+  the loop batches queued messages into one turn. But a settle-signal guard
+  cuts both ways: if the awaited transition can *never* occur (EOF with no
+  work submitted → no turn ever starts → never `running`), it hangs forever.
+  Always handle the "nothing to wait for" branch explicitly alongside the
+  "wait for the work" branch.
+- **Dispose must reach quiescence, not just request it.** A teardown that
+  issues kills/aborts but returns before the work stops leaves orphans. Make
+  cleanup `async` and `await` the children's exit (kill → await `done`), and
+  close listener/notification registries *before* killing so late completions
+  stay silent. Tests must prove disposal *waited* (pid already gone right
+  after `await fiber.dispose()`), not merely that the process eventually dies.
+- **Contain callback exceptions at the boundary.** A user-supplied listener
+  (`onTaskDone`, event handlers) that throws must not reject the promise it
+  runs inside or starve the listeners after it. Wrap the dispatch loop in
+  try/catch and log; never let one bad subscriber break core lifecycle.
+- **Never hand untrusted/model output the ambient environment or predictable
+  paths.** Spawned commands get a scrubbed env (drop `*KEY*`/`*SECRET*`/
+  `*TOKEN*`) so the harness's own credentials can't leak into output, `env`,
+  or spill files. Temp/spill files use a private (0700) dir, random names,
+  and exclusive owner-only (`'wx'`, `0o600`) opens — predictable
+  world-readable paths invite symlink races and disclosure.
+- **e2e tests own their resources.** Real-API/integration tests must create
+  the harness in the test and dispose it in `afterEach` (even on
+  failure/retry/timeout), so a flaky run doesn't leak processes or contexts.
+  Shared fixtures live in a plain `tests/harness.ts` module, NOT another
+  `*.e2e.ts` file — importing a spec file re-registers its `describe` and
+  duplicates real API calls. Verify the WORLD, not the agent's self-report:
+  re-run the command/check externally and assert files are byte-identical
+  where they should be unchanged (a keyword probe lets a cheating agent pass).
+- **Tag spelling and EOF hygiene.** cordis.yml interpolates env via the
+  `!!js` tag (js-yaml resolves custom tags under `tag:yaml.org,2002:js`), not
+  `!js` — keep code, comments, and docs consistent. Files end with exactly
+  one trailing newline; `git diff --check` (a pre-push gate) rejects new
+  blank lines at EOF.
 
 ## Type Safety and Documentation
 

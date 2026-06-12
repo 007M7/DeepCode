@@ -371,14 +371,22 @@ export function apply(ctx: Context) {
 }
 ```
 
-A complete runnable wiring lives in [`examples/echo-agent`](../examples/echo-agent)
-(mock model + echo tool + stdio UI + JSONL persistence, loaded from
-`cordis.yml` with HMR).
+Two complete runnable wirings exist: [`examples/echo-agent`](../examples/echo-agent)
+(mock model + echo tool — the all-mock skeleton check) and
+[`examples/coding-agent`](../examples/coding-agent) (DeepSeek V4 + the bash
+tool suite — the real thing; `yarn demo:coding`). Both load from `cordis.yml`
+with HMR.
+
+Step-by-step guides live in [`docs/cookbook`](./cookbook): adding a package,
+adding a tool, adding an LLM adapter.
 
 ## Deferred work (TODO)
 
 Tracked here deliberately — each is designed-for but not implemented:
 
+- **Restructure this document** — it has grown long; split it into focused
+  sections (or per-area files) so readers can navigate it without scrolling
+  the whole thing.
 - **Sub-agent spawn/fork semantics** (seam: `AgentLoop.create()`); inter-agent
   channels beyond `send`/`steer`/events.
 - **Persistence backends** (JSONL session dirs, sqlite) on the
