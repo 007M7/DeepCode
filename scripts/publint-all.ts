@@ -10,6 +10,9 @@ const packages = [
   'packages/tools',
   'packages/agent',
   'packages/agent-loop',
+  'packages/bash',
+  'packages/bash-local',
+  'packages/tool-bash',
 ]
 
 const root = resolve(import.meta.dirname, '..')

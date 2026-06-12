@@ -27,6 +27,9 @@ packages/    Harness packages, all named @deepseek-ai/dsh-<name>:
   tools/          tool registry + tools/execute waterfall
   agent/          Agent interface, registry, agent/* event vocabulary
   agent-loop/     THE concrete plugin: LoopAgent + the loop driver
+  bash/           abstract bash executor seam (ctx.bash) — interface only
+  bash-local/     local-subprocess BashExecutor implementation
+  tool-bash/      model-facing bash/bash_output/bash_kill tool schemas
 examples/    Runnable demos (not workspaces). echo-agent = mock model + echo
              tool + stdio UI + JSONL persistence, wired via cordis.yml.
 docs/        architecture.md — the design doc. adr/ — decision records (the
@@ -86,6 +89,25 @@ unresolved-type `no-unsafe-*` errors.
 - **Plugins, not loop changes**: new behavior goes into a plugin on the
   documented extension seams (see the plugin sanity checklist in
   docs/architecture.md). Changing `agent-loop` requires updating that doc.
+- **Capability seams are three packages**: when adding a swappable capability
+  (an execution backend, a provider integration, …), split it into
+  *interface* (abstract service + vocabulary types, e.g. `bash/`),
+  *implementation* (a concrete subclass, e.g. `bash-local/`), and
+  *consumer* (what the model/plugins see, e.g. `tool-bash/`). Implementations
+  and consumers then evolve independently — a sandboxed executor replaces
+  `bash-local` without touching tool schemas. The LLM seam follows the same
+  shape (`llm/` is interface + consumer surface; adapters are implementations).
+  See docs/architecture.md § "Capability seams" for when NOT to split.
+- **Explicit > implicit at package seams**: interface/vocabulary types spell
+  out every field a consumer must supply — no optional field that the
+  implementation silently fills with a hidden `?? default`. Put defaulting in
+  the owning implementation as an explicit step (a `resolve(request): Spec`
+  method that turns the optional-field request into the required-field spec),
+  not smuggled inside `run()`/`start()`. Example: `dsh-bash` splits
+  `BashExecRequest` (optional `workdir`/`timeoutMs`, model-facing) from
+  `BashExecSpec` (required, what `run`/`start` act on); the tool layer calls
+  `ctx.bash.resolve()` between them. The reader of a `BashExecSpec` never has
+  to wonder where the working directory came from.
 - **Tests**: vitest, colocated under `packages/<name>/tests/*.spec.ts`. Every
   registry needs an HMR-safety test (dispose the contributing fiber, assert
   cleanup). **Excessive tests are welcome** — when in doubt, write the test;

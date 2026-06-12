@@ -177,7 +177,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@deepseek-ai/dsh-agent-loop@workspace:packages/agent-loop":
+"@deepseek-ai/dsh-agent-loop@npm:^0.0.1, @deepseek-ai/dsh-agent-loop@workspace:packages/agent-loop":
   version: 0.0.0-use.local
   resolution: "@deepseek-ai/dsh-agent-loop@workspace:packages/agent-loop"
   dependencies:
@@ -208,6 +208,29 @@ __metadata:
   peerDependencies:
     "@deepseek-ai/dsh-llm": ^0.0.1
     "@deepseek-ai/dsh-session": ^0.0.1
+    cordis: ^4.0.0-rc.6
+  languageName: unknown
+  linkType: soft
+
+"@deepseek-ai/dsh-bash-local@npm:^0.0.1, @deepseek-ai/dsh-bash-local@workspace:packages/bash-local":
+  version: 0.0.0-use.local
+  resolution: "@deepseek-ai/dsh-bash-local@workspace:packages/bash-local"
+  dependencies:
+    "@deepseek-ai/dsh-bash": "npm:^0.0.1"
+    cordis: "npm:^4.0.0-rc.6"
+    schemastery: "npm:^3.18.0"
+  peerDependencies:
+    "@deepseek-ai/dsh-bash": ^0.0.1
+    cordis: ^4.0.0-rc.6
+  languageName: unknown
+  linkType: soft
+
+"@deepseek-ai/dsh-bash@npm:^0.0.1, @deepseek-ai/dsh-bash@workspace:packages/bash":
+  version: 0.0.0-use.local
+  resolution: "@deepseek-ai/dsh-bash@workspace:packages/bash"
+  dependencies:
+    cordis: "npm:^4.0.0-rc.6"
+  peerDependencies:
     cordis: ^4.0.0-rc.6
   languageName: unknown
   linkType: soft
@@ -263,6 +286,28 @@ __metadata:
     cordis: "npm:^4.0.0-rc.6"
   peerDependencies:
     "@deepseek-ai/dsh-llm": ^0.0.1
+    cordis: ^4.0.0-rc.6
+  languageName: unknown
+  linkType: soft
+
+"@deepseek-ai/dsh-tool-bash@workspace:packages/tool-bash":
+  version: 0.0.0-use.local
+  resolution: "@deepseek-ai/dsh-tool-bash@workspace:packages/tool-bash"
+  dependencies:
+    "@deepseek-ai/dsh-agent": "npm:^0.0.1"
+    "@deepseek-ai/dsh-agent-loop": "npm:^0.0.1"
+    "@deepseek-ai/dsh-bash": "npm:^0.0.1"
+    "@deepseek-ai/dsh-bash-local": "npm:^0.0.1"
+    "@deepseek-ai/dsh-llm": "npm:^0.0.1"
+    "@deepseek-ai/dsh-session": "npm:^0.0.1"
+    "@deepseek-ai/dsh-system-prompt": "npm:^0.0.1"
+    "@deepseek-ai/dsh-tools": "npm:^0.0.1"
+    cordis: "npm:^4.0.0-rc.6"
+  peerDependencies:
+    "@deepseek-ai/dsh-agent": ^0.0.1
+    "@deepseek-ai/dsh-bash": ^0.0.1
+    "@deepseek-ai/dsh-llm": ^0.0.1
+    "@deepseek-ai/dsh-tools": ^0.0.1
     cordis: ^4.0.0-rc.6
   languageName: unknown
   linkType: soft

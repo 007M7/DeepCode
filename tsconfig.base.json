@@ -39,7 +39,10 @@
       "@deepseek-ai/dsh-system-prompt": ["./packages/system-prompt/src"],
       "@deepseek-ai/dsh-tools": ["./packages/tools/src"],
       "@deepseek-ai/dsh-agent": ["./packages/agent/src"],
-      "@deepseek-ai/dsh-agent-loop": ["./packages/agent-loop/src"]
+      "@deepseek-ai/dsh-agent-loop": ["./packages/agent-loop/src"],
+      "@deepseek-ai/dsh-bash": ["./packages/bash/src"],
+      "@deepseek-ai/dsh-bash-local": ["./packages/bash-local/src"],
+      "@deepseek-ai/dsh-tool-bash": ["./packages/tool-bash/src"]
     }
   }
 }

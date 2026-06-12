@@ -21,15 +21,18 @@ Requirement context: [Coding Harness MVP 需求分析][mvp-doc].
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  future plugins: tools, hooks, compaction, sandbox, UI, MCP… │
+│  future plugins: hooks, compaction, sandbox, UI, MCP…        │
 ├─────────────────────────────────────────────────────────────┤
 │  @deepseek-ai/dsh-agent-loop      (the ONE concrete plugin)  │
+│  @deepseek-ai/dsh-bash-local      (bash impl)                │
+│  @deepseek-ai/dsh-tool-bash       (bash tool schemas)        │
 ├─────────────────────────────────────────────────────────────┤
 │  @deepseek-ai/dsh-agent           (vocabulary + registry)    │
 │  @deepseek-ai/dsh-tools           (registry + exec waterfall)│
 │  @deepseek-ai/dsh-system-prompt   (assembly registry)        │
 │  @deepseek-ai/dsh-session         (event-sourced log)        │
 │  @deepseek-ai/dsh-llm             (abstract model service)   │
+│  @deepseek-ai/dsh-bash            (abstract bash executor)   │
 ├─────────────────────────────────────────────────────────────┤
 │  vendor/: cordis, loader, include, group, timer, hmr,        │
 │           logger-console, cosmokit, schemastery              │
@@ -50,10 +53,48 @@ working against the `dsh-agent` vocabulary if the loop is replaced.
 | `ctx.tools` | `ToolRegistry` | dsh-tools | tool definitions; `execute()` through waterfall |
 | `ctx.agents` | `AgentRegistry` | dsh-agent | live `Agent` handles |
 | `ctx.agentLoop` | `AgentLoop` | dsh-agent-loop | creates `LoopAgent`s and drives their loops |
+| `ctx.bash` | `BashExecutor` (abstract) | dsh-bash | bash execution seam: foreground runs + background tasks |
 
 All registrations (`registerAdapter`, `section`, `tools`, `register`, …) go
 through `ctx.effect()` and return disposers, so plugin hot-reload (vendored
 HMR) and fiber disposal clean up automatically.
+
+## Capability seams: interface / implementation / consumer
+
+Swappable capabilities are split into **three packages** so each part evolves
+independently. The bash capability is the template:
+
+1. **Interface** (`dsh-bash`) — an abstract service plus the vocabulary types
+   (`BashExecutor`, `BashRunResult`, `BashTask`, …). Defines the contract,
+   owns the `ctx.bash` key, depends only on cordis.
+2. **Implementation** (`dsh-bash-local`) — a concrete subclass loaded as a
+   plugin (local subprocesses, process-group kills, spill-file truncation).
+   Sandboxed, containerized, or remote backends are sibling packages
+   implementing the same interface.
+3. **Consumer** (`dsh-tool-bash`) — what the model and other plugins program
+   against (the `bash`/`bash_output`/`bash_kill` tool schemas). Consumers
+   `inject` the interface's ctx key and never import implementation types.
+
+The LLM seam has the same topology folded differently: `dsh-llm` carries the
+interface (`LlmAdapter`) AND the consumer surface (`ctx.llm.stream()`), with
+adapters as implementation packages — there the consumer is the loop itself,
+not a swappable schema surface. Use the full three-package split when the
+consumer is independently replaceable; keep interface + consumer together
+when they are one concern. Don't split preemptively: a capability with one
+conceivable implementation and one consumer stays one package until proven
+otherwise.
+
+> **"Capability" — two unrelated meanings.** (1) The *seam pattern* above
+> ("one plugin provides a capability, another needs it") is realized by
+> plain Cordis **services + `inject`**: a provider registers a service
+> (`ctx.bash`, declared in `interface Context`); a consumer declares
+> `inject: ['bash']` and its fiber stays pending until the service exists,
+> tearing down via HMR if it later vanishes. No extra library is needed.
+> (2) `@cordisjs/plugin-capability` is a different axis entirely — a
+> **permission/capability-security** service (named permissions with
+> inheritance/dependency, tested against a session via `ctx.capability.test`).
+> It is a candidate for the deferred permissions/sandbox work (the
+> `tools/execute` veto seam), NOT a mechanism for swapping implementations.
 
 ## The vocabulary (dsh-llm)
 
@@ -240,9 +281,9 @@ implements it **without modifying the loop**:
 | System prompt configurability | `ctx.systemPrompt.section()` with ordering |
 | AGENTS.md (root) | a section provider reading the file |
 | AGENTS.md (subdir, on-touch) + file-change notices | `agent.inject()` from a watcher / tool-result listener |
-| Built-in tools (Read/Write/Edit/Bash/…) | `ctx.tools.register()`; schemas flow into the assembly automatically |
+| Built-in tools (Read/Write/Edit/Bash/…) | `ctx.tools.register()`; schemas flow into the assembly automatically. **Bash: implemented** — `dsh-bash` (seam) + `dsh-bash-local` (subprocesses) + `dsh-tool-bash` (`bash`/`bash_output`/`bash_kill`, incl. background tasks) |
 | ToolSearch / progressive disclosure | wrap `agent/request`, filter `req.tools` |
-| Tool sandbox (landlock / sandbox-exec) | wrap `tools/execute` |
+| Tool sandbox (landlock / sandbox-exec) | wrap `tools/execute`, or implement a sandboxing `BashExecutor` (the dsh-bash seam) |
 | Permission system / AskUserQuestion | wrap `tools/execute` (veto or ask); register an ask tool |
 | Plan mode | wrap `tools/execute` (deny writes) + `agent/request` (inject mode prompt) |
 | Sub-agents (spawn / fork / steer) | TODO seam on `AgentLoop.create()`; fork = seed Session with parent events; `steer()` on the child handle |

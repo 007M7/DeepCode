@@ -15,6 +15,9 @@
     { "path": "./packages/system-prompt" },
     { "path": "./packages/agent" },
     { "path": "./packages/tools" },
-    { "path": "./packages/agent-loop" }
+    { "path": "./packages/agent-loop" },
+    { "path": "./packages/bash" },
+    { "path": "./packages/bash-local" },
+    { "path": "./packages/tool-bash" }
   ]
 }
