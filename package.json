@@ -18,6 +18,7 @@
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "knip": "knip",
     "publint": "tsx scripts/publint-all.ts",
     "hygiene": "yarn knip && yarn publint && yarn constraints",

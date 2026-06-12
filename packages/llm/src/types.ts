@@ -111,7 +111,14 @@ export interface FinishReasonMap {
 
 export type FinishReason = FinishReasonMap[keyof FinishReasonMap]
 
-/** Token accounting for one model call (cache fields are optional). */
+/**
+ * Token accounting for one model call (cache fields are optional).
+ *
+ * Counts are DISJOINT: `inputTokens` is uncached input only; cached input is
+ * reported separately as `cacheReadTokens`/`cacheWriteTokens` (billed input =
+ * sum of the three). Adapters whose providers fold cache hits into a total
+ * prompt count (DeepSeek's `prompt_tokens`) subtract them out.
+ */
 export interface TokenUsage {
   inputTokens: number
   outputTokens: number
@@ -128,9 +135,19 @@ export interface TokenUsage {
  * carries the fully-assembled ContentBlock so consumers don't have to
  * re-assemble deltas themselves (use {@link BlockAssembler} when they do).
  *
- * TODO(review): this protocol needs careful review before the first real
- * adapter lands (DeepSeek V4 wire format, partial JSON arguments, interleaved
- * reasoning signatures, …).
+ * Adapter contract — every adapter MUST obey these, and every consumer may
+ * rely on them:
+ * - Emit `usage` BEFORE `finish`, and nothing after `finish` (defer both to
+ *   the provider's end-of-stream marker so trailing usage-only chunks can't
+ *   violate this).
+ * - Tool-call `arguments` stay RAW JSON strings end-to-end; partial fragments
+ *   stream via `argumentsDelta` (providers that hand back parsed objects
+ *   re-stringify at `block-end`).
+ * - Failures may either THROW from `stream()` (transport/protocol errors) or
+ *   end the stream with `finish {kind:'error'|'aborted'}` (provider in-band
+ *   errors, for adapters that can't throw mid-stream); consumers must handle
+ *   both. The agent loop translates a finish-error/aborted into a turn error —
+ *   it never logs a normal completed assistant message for a failed step.
  */
 export type StreamChunk =
   | { type: 'block-start'; index: number; blockType: ContentBlockType }
@@ -168,6 +185,11 @@ export interface GenerateOptions {
   prefill?: ContentBlock[]
   temperature?: number
   maxTokens?: number
+  /**
+   * Stop sequences: generation halts as soon as the model produces any one of
+   * these strings (adapters map to the provider's stop field, e.g. OpenAI
+   * `stop`). The stop string itself is not included in the output.
+   */
   stop?: string[]
   signal?: AbortSignal
 }

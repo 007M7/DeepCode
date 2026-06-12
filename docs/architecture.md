@@ -112,9 +112,14 @@ into blocks/messages; the loop logs raw chunks (replay fidelity) while feeding
 the same chunks through an assembler.
 
 `LlmAdapter` is the provider seam: subclass, implement `stream()`, call
-`ctx.llm.registerAdapter(models, adapter)`.
-**TODO**: the DeepSeek V4 adapter is the first real adapter (next phase); the
-streaming protocol gets a careful review then.
+`ctx.llm.registerAdapter(models, adapter)`. Two real adapters implement it —
+`dsh-llm-deepseek` (hand-rolled fetch/SSE against the DeepSeek API) and
+`dsh-llm-pi-ai` (the same endpoint through the `@earendil-works/pi-ai`
+library). They exist as a pair deliberately: two independent internals over
+one contract verified the StreamChunk protocol, which is now documented (in
+`dsh-llm/src/types.ts`) with the conventions that review pinned down — usage
+before finish, nothing after finish, raw-string tool arguments, and the two
+sanctioned error paths (thrown vs `finish {kind:'error'}`).
 
 ## Event-sourced sessions (dsh-session)
 
@@ -206,6 +211,9 @@ forever:
       req = waterfall agent/request                   ⟵ hooks, compaction, model switch
       stream ctx.llm.stream(req)                      ⟵ waterfall llm/stream (raw chunks)
         session('assistant/chunk'); emit agent/stream-chunk
+      if assembler.finish is error/aborted: throw      ⟵ adapter's in-band error path →
+                                                         step error (turn ends error/aborted,
+                                                         not a normal completed message)
       msg = waterfall agent/step-result               ⟵ runs BEFORE the log append, so the
       session('assistant/message', 'usage')              log records what tool dispatch uses
       each tool-call (sequential, abort-checked between calls):
@@ -225,9 +233,12 @@ forever:
 
 Error containment: a throwing `agent/turn-continuation` listener or a
 rejecting `session/flush` ends the **turn** with an `error` event — never the
-driver loop. `abort()` is honored mid-stream **and** between tool calls;
-disposal mid-turn ends the turn with reason `disposed` and emits
-`agent/status('disposed')`.
+driver loop. An adapter that ends its stream with a `finish {kind:'error'}`
+or `{kind:'aborted'}` chunk (the in-band error path, for adapters that can't
+throw mid-stream) is likewise translated into a step error, so the turn ends
+`error`/`aborted` instead of logging a normal `completed` assistant message.
+`abort()` is honored mid-stream **and** between tool calls; disposal mid-turn
+ends the turn with reason `disposed` and emits `agent/status('disposed')`.
 
 ### Event taxonomy
 
@@ -293,7 +304,7 @@ implements it **without modifying the loop**:
 | Scheduled tasks (cron) | plugin registers model-callable scheduling tools; timer fires → `send(…, {source: {kind: 'cron', …}})` when idle / `inject()` notification when busy |
 | UI (GUI; CLI emits JSONL) | listen `agent/stream-chunk` + `session/event`; input → `send()` |
 | Telemetry / replayable trace | `session/event` → JSONL; replay = `sessions.create(id, seed)` |
-| DeepSeek V4 (and other) models | `LlmAdapter` subclass via `registerAdapter` |
+| DeepSeek V4 (and other) models | `LlmAdapter` subclass via `registerAdapter`. **Implemented twice**: `dsh-llm-deepseek` (hand-rolled) and `dsh-llm-pi-ai` (pi-ai-backed) |
 | Plugin hot-reload | every registration is a `ctx.effect` → vendored HMR just works |
 
 ## Extension cookbook
@@ -375,8 +386,6 @@ Tracked here deliberately — each is designed-for but not implemented:
 - **Compaction implementation** (auto thresholds, summarization prompts) on
   the `agent/request` seam, with its session-event types added by declaration
   merging.
-- **DeepSeek V4 adapter** — first real `LlmAdapter`; triggers the
-  streaming-protocol review (`TODO(review)` markers in dsh-llm).
 - **Parallel tool execution** (concurrency-safety hints on ToolDefinition).
 - **Session branching/tree** (pi-style entry tree) if needed beyond seed-based
   forking.

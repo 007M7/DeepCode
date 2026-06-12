@@ -21,7 +21,9 @@ vendor/      Vendored Cordis framework source (original npm names, private).
              and the upstream sync procedure. Do NOT edit casually — every
              divergence must be logged there.
 packages/    Harness packages, all named @deepseek-ai/dsh-<name>:
-  llm/            abstract LLM service + content-block vocabulary (no real adapter yet)
+  llm/            abstract LLM service + content-block vocabulary
+  llm-deepseek/   DeepSeek API adapter (hand-rolled fetch/SSE)
+  llm-pi-ai/      DeepSeek adapter via @earendil-works/pi-ai (design twin)
   session/        event-sourced session log + in-memory store
   system-prompt/  prompt-section + tool-schema assembly registry
   tools/          tool registry + tools/execute waterfall
@@ -45,11 +47,28 @@ scripts/     repo maintenance scripts (vendor-manifest guard, publint runner).
 ```sh
 yarn install        # Yarn 4 workspaces (node-modules linker), node >= 24
 yarn test           # vitest run (packages/*/tests/**/*.spec.ts)
+yarn test:e2e       # real-API tests (packages|examples/*/tests/**/*.e2e.ts);
+                    # self-skips without DEEPSEEK_API_KEY — see Secrets below
 yarn typecheck      # tsc -b tsconfig.build.json (declarations only)
 yarn build          # typecheck + tsdown JS bundles into each package's lib/
 yarn demo           # run examples/echo-agent (needs --expose-internals, the
                     # script passes it; type "echo hi" to see a tool call)
 ```
+
+## Secrets / .env
+
+Real-API e2e tests (`yarn test:e2e`) read `DEEPSEEK_API_KEY` (and optionally
+`DEEPSEEK_BASE_URL`) from the environment, or from a gitignored `.env` at the
+repo root loaded via Node's native `process.loadEnvFile()`:
+
+```
+DEEPSEEK_API_KEY=sk-…
+DEEPSEEK_BASE_URL=https://…   # optional; defaults to the public API
+```
+
+cordis.yml configs reference env vars with the `!!js` tag:
+`apiKey: !!js process.env.DEEPSEEK_API_KEY`. Never commit real credentials;
+CI has no secrets and e2e suites must self-skip without them.
 
 Dev/test/demo run **unbuilt** via tsx + the `paths` map in the root
 `tsconfig.json` (`vitest` resolves through `tsconfig.test.json`). Building is
@@ -108,6 +127,15 @@ unresolved-type `no-unsafe-*` errors.
   `BashExecSpec` (required, what `run`/`start` act on); the tool layer calls
   `ctx.bash.resolve()` between them. The reader of a `BashExecSpec` never has
   to wonder where the working directory came from.
+- **An empty `catch` must name what it swallows and why nothing else can hit
+  it**: a bare `catch {}` hides bugs. When you deliberately ignore a throw, the
+  comment must (a) name the single expected failure, (b) say why ignoring it is
+  correct — usually because the useful state was already captured *before* the
+  `try` — and (c) make clear nothing else of consequence can reach the catch
+  (ideally the `try` wraps a single statement). Example: the error-body
+  `response.json()` parse in `dsh-llm-deepseek`'s adapter sets `code` + HTTP
+  `status` from the status line before the `try`, so a malformed provider body
+  can only cost a richer message, never the real error.
 - **Tests**: vitest, colocated under `packages/<name>/tests/*.spec.ts`. Every
   registry needs an HMR-safety test (dispose the contributing fiber, assert
   cleanup). **Excessive tests are welcome** — when in doubt, write the test;
@@ -132,12 +160,20 @@ tool authors zero-cast typed `execute` args, and the cost of the conditional
 types stays inside the core package.
 
 Verbose documentation is fine **as long as docs and code stay strictly in
-sync**. Out-of-sync docs are worse than no docs. Every module has a module-level
-doc comment explaining its role. Every exported class, interface, type,
-function, and non-obvious method has a JSDoc that explains semantics (not just
-the name) — contracts (what events fire when), disposal behavior, error
-behavior, and extension intent. Internal helpers get docs only where non-obvious.
-Prefer one-liners when one line suffices.
+sync**. Out-of-sync docs are worse than no docs. **When you change code, update
+its docs in the SAME change** — grep the package README and the module/JSDoc
+comments for the old behavior (config keys, defaults, error codes, wire field
+names, event names) and fix every hit. CI has no doc-sync gate, so this is on
+the author. Every module has a module-level doc comment explaining its role.
+Every exported class, interface, type, function, and non-obvious method has a
+JSDoc that explains semantics (not just the name) — contracts (what events fire
+when), disposal behavior, error behavior, and extension intent. Internal
+helpers get docs only where non-obvious. Prefer one-liners when one line
+suffices.
+
+**Editing these instructions**: `AGENTS.md` is the real file; `CLAUDE.md` is a
+symlink to it (at the repo root and in `packages/`). Always edit `AGENTS.md` —
+never write through the `CLAUDE.md` symlink or replace it with a regular file.
 
 ## Vendoring Policy
 

@@ -546,3 +546,67 @@ describe('LOW: discriminated SessionEvent narrows without casts', () => {
     }
   })
 })
+
+describe('HIGH: a finish-error stream chunk ends the turn as error, not completed', () => {
+  it('translates finish {kind:error} into a turn error with a logged error event', async () => {
+    // The second sanctioned adapter error path (besides throwing): an
+    // adapter that cannot throw mid-stream ends the stream with a
+    // finish-error chunk (e.g. the pi-ai adapter mapping a provider 401).
+    // The loop must NOT log a normal assistant/message + completed turn.
+    const errorStream: StreamChunk[] = [
+      { type: 'finish', reason: { kind: 'error', message: 'provider 401', code: 'AUTH' } },
+    ]
+    const adapter = new MockAdapter([errorStream])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a-finish-error', { model: 'mock' })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(reasons).toEqual([{ kind: 'error', message: 'provider 401', code: 'AUTH' }])
+
+    const events = [...agent.session.events]
+    expect(events.some(event => event.type === 'error'
+      && event.data.message === 'provider 401' && event.data.code === 'AUTH')).toBe(true)
+    // Crucially: no assistant/message was logged for the failed step.
+    expect(events.some(event => event.type === 'assistant/message')).toBe(false)
+  })
+
+  it('translates finish {kind:aborted} into a turn error coded ABORTED', async () => {
+    const abortedStream: StreamChunk[] = [
+      { type: 'finish', reason: { kind: 'aborted' } },
+    ]
+    const adapter = new MockAdapter([abortedStream])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a-finish-aborted', { model: 'mock' })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(reasons).toEqual([{ kind: 'error', message: 'model stream aborted', code: 'ABORTED' }])
+    expect([...agent.session.events].some(event => event.type === 'assistant/message')).toBe(false)
+  })
+
+  it('handles a finish error without a code (code key omitted)', async () => {
+    const errorStream: StreamChunk[] = [
+      { type: 'finish', reason: { kind: 'error', message: 'codeless failure' } },
+    ]
+    const adapter = new MockAdapter([errorStream])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a-finish-error-nocode', { model: 'mock' })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(reasons).toEqual([{ kind: 'error', message: 'codeless failure' }])
+  })
+})

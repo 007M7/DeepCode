@@ -23,6 +23,8 @@
       "@deepseek-ai/dsh-agent": ["./packages/agent/src"],
       "@deepseek-ai/dsh-agent-loop": ["./packages/agent-loop/src"],
       "@deepseek-ai/dsh-bash": ["./packages/bash/src"],
+      "@deepseek-ai/dsh-llm-deepseek": ["./packages/llm-deepseek/src"],
+      "@deepseek-ai/dsh-llm-pi-ai": ["./packages/llm-pi-ai/src"],
       "@deepseek-ai/dsh-bash-local": ["./packages/bash-local/src"],
       "@deepseek-ai/dsh-tool-bash": ["./packages/tool-bash/src"]
     }

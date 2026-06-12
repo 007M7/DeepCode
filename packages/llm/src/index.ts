@@ -30,9 +30,14 @@ declare module 'cordis' {
   }
 }
 
-/** Typed error for LLM-related failures. The `code` string enables programmatic handling. */
+/**
+ * Typed error for LLM-related failures. The `code` string enables programmatic
+ * handling (e.g. `AUTH`, `RATE_LIMIT`, `NO_ADAPTER`); `status` carries the HTTP
+ * status when the error originated from a non-2xx provider response (absent for
+ * protocol/usage errors that have no HTTP status).
+ */
 export class LlmError extends Error {
-  constructor(message: string, public code: string) {
+  constructor(message: string, public code: string, public status?: number) {
     super(message)
     this.name = 'LlmError'
   }
@@ -45,8 +50,10 @@ export class LlmError extends Error {
  * StreamChunk) and one provider's wire format. Adapters register themselves
  * via `ctx.llm.registerAdapter(models, adapter)`.
  *
- * TODO: the first real adapter (DeepSeek V4) lands in a later phase; until
- * then only mock adapters (tests, demo) exist.
+ * Real implementations: `@deepseek-ai/dsh-llm-deepseek` (hand-rolled
+ * fetch/SSE) and `@deepseek-ai/dsh-llm-pi-ai` (pi-ai-backed) — two
+ * deliberately different internals over the same contract; see the
+ * adapter contract documented on `StreamChunk` in `./types.ts`.
  */
 export abstract class LlmAdapter {
   /** Stream one model call as raw chunks. The only required method. */

@@ -8,7 +8,7 @@
  */
 
 import type { Context } from 'cordis'
-import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
+import type { FinishReason, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
@@ -21,6 +21,40 @@ type CodedError = Error & { code?: string }
 /** Normalize an arbitrary thrown value into a (possibly coded) Error. */
 function toError(error: unknown): CodedError {
   return error instanceof Error ? error : new Error(String(error))
+}
+
+/**
+ * Map a model-call {@link FinishReason} to the step error it should raise, or
+ * `undefined` when the step completed normally.
+ *
+ * Adapters report provider/transport failures one of two sanctioned ways (see
+ * the StreamChunk contract in dsh-llm): throw from `stream()` (handled by the
+ * caller's try/catch), OR end the stream with a finish-error/aborted chunk
+ * (the only option for adapters that can't throw mid-stream, e.g.
+ * library-backed ones). This translates the latter into a thrown step error
+ * so the turn ends error/aborted with a logged `error` event, never as a
+ * normal `completed` assistant message.
+ *
+ * `FinishReason` is merge-extensible (plugins/adapters can add `kind`s), so
+ * the switch handles the known terminal-failure kinds and treats every other
+ * kind — `stop`, `tool-calls`, `max-tokens`, future additions — as success.
+ */
+function finishError(finish: FinishReason): CodedError | undefined {
+  switch (finish.kind) {
+    case 'error': {
+      const error: CodedError = new Error(finish.message)
+      if (finish.code !== undefined) error.code = finish.code
+      return error
+    }
+    case 'aborted': {
+      const error: CodedError = new Error('model stream aborted')
+      error.code = 'ABORTED'
+      return error
+    }
+    // stop / tool-calls / max-tokens / plugin-added kinds → not a failure.
+    default:
+      return undefined
+  }
 }
 
 /**
@@ -265,6 +299,14 @@ async function runStep(
     ctx.emit('agent/stream-chunk', agent, turn, step, chunk)
     assembler.push(chunk)
   }
+
+  // Adapters report provider/transport failures one of two sanctioned ways
+  // (see the StreamChunk contract in dsh-llm): throw from stream() — already
+  // handled by the caller's try/catch — OR end the stream with a
+  // finish-error/aborted chunk. finishError() maps the latter to the step
+  // error to raise (turn ends error/aborted, not a normal completed message).
+  const stepError = finishError(assembler.finish)
+  if (stepError) throw stepError
 
   // The step-result waterfall runs BEFORE the session append so the log (the
   // source of truth for derived history and replay) records the message that

@@ -11,6 +11,8 @@ const packages = [
   'packages/agent',
   'packages/agent-loop',
   'packages/bash',
+  'packages/llm-deepseek',
+  'packages/llm-pi-ai',
   'packages/bash-local',
   'packages/tool-bash',
 ]
