@@ -7,3 +7,5 @@ yarn-error.log
 examples/*/*.jsonl
 .claude/
 coverage/
+.vscode/
+.DS_Store
