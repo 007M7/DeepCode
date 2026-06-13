@@ -1,6 +1,6 @@
 # RFC 005: Runtime validation at the model boundary, error taxonomy, dev-mode invariants
 
-Status: partially implemented — part 1 (arg validation) → [ADR 0011](../adr/0011-runtime-arg-validation.md); part 3 (dev invariants) → [ADR 0012](../adr/0012-dev-invariants-over-deep-readonly.md); part 2 (error taxonomy) in progress
+Status: implemented — part 1 (arg validation) → [ADR 0011](../adr/0011-runtime-arg-validation.md); part 3 (dev invariants) → [ADR 0012](../adr/0012-dev-invariants-over-deep-readonly.md); part 2 (error taxonomy) → [ADR 0015](../adr/0015-structured-error-taxonomy.md)
 
 ## Problem
 

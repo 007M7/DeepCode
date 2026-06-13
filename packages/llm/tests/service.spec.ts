@@ -94,6 +94,28 @@ describe('LlmService', () => {
     expect(err.code).toBe('CUSTOM_CODE')
   })
 
+  it('LlmError extends the shared HarnessError base', async () => {
+    const { HarnessError, isHarnessError } = await import('@deepseek-ai/dsh-llm')
+    const err = new LlmError('boom', 'AUTH', 401)
+    expect(err).toBeInstanceOf(HarnessError)
+    expect(isHarnessError(err)).toBe(true)
+    expect(err.code).toBe('AUTH')
+    expect(err.status).toBe(401)
+  })
+
+  it('HarnessError carries a code, names itself by subclass, and chains cause', async () => {
+    const { HarnessError, isHarnessError } = await import('@deepseek-ai/dsh-llm')
+    const root = new Error('root cause')
+    const err = new HarnessError('wrapper', 'UNKNOWN', { cause: root })
+    expect(err).toBeInstanceOf(Error)
+    expect(err.name).toBe('HarnessError')
+    expect(err.code).toBe('UNKNOWN')
+    expect(err.cause).toBe(root)
+    expect(isHarnessError(err)).toBe(true)
+    expect(isHarnessError(root)).toBe(false)
+    expect(isHarnessError('nope')).toBe(false)
+  })
+
   it('disposes adapter registration on adapter-change event emission', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)

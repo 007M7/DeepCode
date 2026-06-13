@@ -6,7 +6,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop, { LoopAgent } from '@deepseek-ai/dsh-agent-loop'
-import { MockAdapter, textResponse } from './mock-adapter.ts'
+import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 async function harness(adapter: MockAdapter) {
   const ctx = new Context()
@@ -177,6 +177,10 @@ describe('toError normalization', () => {
     await waitForIdle(ctx, agent)
     expect(errors).toHaveLength(1)
     expect(errors[0]!.message).toBe('naked string error')
+    // A non-Error throw is wrapped in a HarnessError with code UNKNOWN, so the
+    // session error event carries a routable code instead of degrading.
+    const errorEvent = agent.session.events.find(e => e.type === 'error')
+    expect(errorEvent?.type === 'error' && errorEvent.data.code).toBe('UNKNOWN')
   })
 
   it('normalizes non-Error throws from agent/request waterfall via inline toError in runStep catch', async () => {
@@ -201,6 +205,8 @@ describe('toError normalization', () => {
     expect(errors).toHaveLength(1)
     // String() of { code: 500 } is '[object Object]'
     expect(errors[0]!.message).toBe('[object Object]')
+    const errorEvent = agent.session.events.find(e => e.type === 'error')
+    expect(errorEvent?.type === 'error' && errorEvent.data.code).toBe('UNKNOWN')
   })
 })
 
@@ -257,5 +263,35 @@ describe('disposed vs aborted branching', () => {
     // this assertion path. The reason is 'disposed' because isDisposed() is
     // checked before the abort signal check in the error path.
     expect(reasons).toContainEqual({ kind: 'disposed' })
+  })
+})
+
+describe('structured tool error propagation (RFC 005 pt 2)', () => {
+  it('forwards a tool HarnessError onto the tool/result session event', async () => {
+    const { HarnessError } = await import('@deepseek-ai/dsh-llm')
+    // First model turn calls the tool; second turn (after the tool result is
+    // fed back) ends with plain text so the loop settles.
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'boom', {}),
+      textResponse('done'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    ctx.tools.register(defineTool({
+      name: 'boom',
+      description: 'always fails',
+      parameters: {},
+      async execute() {
+        throw new HarnessError('exploded', 'BOOM')
+      },
+    }))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const toolResult = agent.session.events.find(e => e.type === 'tool/result')
+    expect(toolResult?.type === 'tool/result' && toolResult.data.isError).toBe(true)
+    expect(toolResult?.type === 'tool/result' && toolResult.data.error)
+      .toEqual({ name: 'HarnessError', code: 'BOOM' })
   })
 })

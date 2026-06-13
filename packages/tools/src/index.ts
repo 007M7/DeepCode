@@ -9,6 +9,7 @@
 
 import { Context, Service } from 'cordis'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
@@ -65,11 +66,23 @@ export interface ToolExecution {
   signal?: AbortSignal
 }
 
+/** Structured error metadata for a failed tool call (alongside the model-facing text). */
+export interface ToolErrorInfo {
+  name: string
+  code: string
+}
+
 /** The outcome of one tool call. */
 export interface ToolExecutionResult {
   callId: CallId
   content: ContentBlock[]
   isError: boolean
+  /**
+   * Set when the call failed with a {@link HarnessError}: machine-routable
+   * `{ name, code }` for retry/sandbox plugins and replay. The model-facing
+   * text in `content` is always present; this is extra structure for code.
+   */
+  error?: ToolErrorInfo
 }
 
 /**
@@ -85,6 +98,11 @@ function errorMessage(error: unknown): string {
     return error.message
   }
   return String(error)
+}
+
+/** Structured `{ name, code }` for a thrown HarnessError, else undefined. */
+function errorInfo(error: unknown): ToolErrorInfo | undefined {
+  return error instanceof HarnessError ? { name: error.name, code: error.code } : undefined
 }
 
 /**
@@ -160,10 +178,12 @@ export class ToolRegistry extends Service {
         const content = await tool.execute(exec.arguments, exec)
         return { callId: exec.callId, content, isError: false }
       } catch (error: unknown) {
+        const info = errorInfo(error)
         return {
           callId: exec.callId,
           content: [{ type: 'text', text: `Error: ${errorMessage(error)}` }],
           isError: true,
+          ...info ? { error: info } : {},
         }
       }
     })

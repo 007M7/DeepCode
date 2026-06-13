@@ -717,6 +717,52 @@ describe('defineTool validation (RFC 005 part 1)', () => {
     expect(err.message).toBe('invalid arguments: missing required property "a"; "b" must be a number')
   })
 
+  it('a schema-invalid call surfaces the structured error on the result', async () => {
+    const ctx = await setup()
+    ctx.tools.register(defineTool({
+      name: 'reader',
+      description: 'reads a path',
+      parameters: { path: { type: 'string', required: true } },
+      async execute(args) {
+        return [{ type: 'text', text: args.path }]
+      },
+    }))
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'reader', arguments: {} })
+    expect(result.isError).toBe(true)
+    expect(result.error).toEqual({ name: 'ToolArgsError', code: 'INVALID_ARGS' })
+  })
+
+  it('a tool throwing a HarnessError surfaces its name and code', async () => {
+    const { HarnessError } = await import('@deepseek-ai/dsh-llm')
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'coded',
+      async execute() {
+        throw new HarnessError('disk full', 'ENOSPC')
+      },
+    })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'coded', arguments: {} })
+    expect(result.isError).toBe(true)
+    expect(result.error).toEqual({ name: 'HarnessError', code: 'ENOSPC' })
+    expect(result.content[0]).toMatchObject({ text: 'Error: disk full' })
+  })
+
+  it('a non-HarnessError throw has no structured error (only the text)', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'plain',
+      async execute() {
+        throw new Error('just a message')
+      },
+    })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'plain', arguments: {} })
+    expect(result.isError).toBe(true)
+    expect(result.error).toBeUndefined()
+    expect(result.content[0]).toMatchObject({ text: 'Error: just a message' })
+  })
+
   it('raw-registered tools are NOT validated by defineTool (MCP keeps its own)', async () => {
     const ctx = await setup()
     // A raw ToolDefinition: no defineTool wrapping, so no validateArgs guard.

@@ -38,7 +38,8 @@ Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta
 - `LlmAdapter` — abstract base class for provider adapters. The only required method is `stream()`.
 - `BlockAssembler` — incrementally assembles raw chunks into complete content blocks and an assistant message. Used by the agent loop (raw chunks for replay
   + assembled for history) and by `streamBlocks()`/`generate()`.
-- `LlmError` — typed error with a `code` string (`NO_ADAPTER`, `DUPLICATE_ADAPTER`, and adapter codes like `AUTH`/`RATE_LIMIT`) and an optional numeric `status` when the failure came from a non-2xx provider response.
+- `HarnessError` — base class for the harness error taxonomy: a stable `code` string (distinct from the human `message`) plus `cause` chaining. Lives here, in the leaf package every other imports, so a single base is shared without a new dependency edge. Per-package errors (`LlmError`, `ToolArgsError`, `InvariantError`, …) extend it. `isHarnessError(value)` narrows at seams.
+- `LlmError` — extends `HarnessError`; `code` string (`NO_ADAPTER`, `DUPLICATE_ADAPTER`, and adapter codes like `AUTH`/`RATE_LIMIT`) plus an optional numeric `status` when the failure came from a non-2xx provider response.
 
 ### Real adapters
 
