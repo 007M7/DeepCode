@@ -1,6 +1,6 @@
 # RFC 001: Property-based testing for protocol-shaped code
 
-Status: proposed
+Status: implemented — see [ADR 0013](../adr/0013-property-based-testing.md). (It found a real BlockAssembler duplicate-`block-end` bug on first run.)
 
 ## Problem
 
