@@ -1,12 +1,8 @@
 # Architecture Decision Records
 
-Short, immutable records of the *why* behind decisions that shape this
-codebase. Code and docs say what the system does; ADRs say why it does it
-that way and what we gave up.
+Short, immutable records of the *why* behind decisions that shape this codebase. Code and docs say what the system does; ADRs say why it does it that way and what we gave up.
 
-Format: one file per decision, numbered, with Status / Context / Decision /
-Consequences. An ADR is never edited into a different decision — supersede it
-with a new one and cross-link.
+Format: one file per decision, numbered, with Status / Context / Decision / Consequences. An ADR is never edited into a different decision — supersede it with a new one and cross-link.
 
 | # | Title | Status |
 |---|---|---|

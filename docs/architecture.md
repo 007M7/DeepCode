@@ -1,16 +1,10 @@
 # DeepSeek Harness Architecture
 
-This document describes the phase-1 architecture of the DeepSeek Harness — the
-foundation of **DeepSeek Code**. The governing principle, from the
-[microkernel design discussion][microkernel-doc], is:
+This document describes the phase-1 architecture of the DeepSeek Harness — the foundation of **DeepSeek Code**. The governing principle, from the [microkernel design discussion][microkernel-doc], is:
 
 > **Microkernel approach. Everything is a plugin.**
 
-The harness core is deliberately tiny: a handful of abstract services plus one
-concrete plugin (the agent loop). Every product feature — tools, hooks,
-compaction, sandboxing, UI, persistence, sub-agents, MCP, skills — is meant to
-be written as a plugin against the extension surface described here, without
-modifying the loop.
+The harness core is deliberately tiny: a handful of abstract services plus one concrete plugin (the agent loop). Every product feature — tools, hooks, compaction, sandboxing, UI, persistence, sub-agents, MCP, skills — is meant to be written as a plugin against the extension surface described here, without modifying the loop.
 
 Requirement context: [Coding Harness MVP 需求分析][mvp-doc].
 
@@ -39,9 +33,7 @@ Requirement context: [Coding Harness MVP 需求分析][mvp-doc].
 └─────────────────────────────────────────────────────────────┘
 ```
 
-Dependency rule: plugins depend on interface packages, never on
-`dsh-agent-loop`. The loop itself is swappable — UI/hook/tool plugins keep
-working against the `dsh-agent` vocabulary if the loop is replaced.
+Dependency rule: plugins depend on interface packages, never on `dsh-agent-loop`. The loop itself is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced.
 
 ## Service map
 
@@ -55,34 +47,17 @@ working against the `dsh-agent` vocabulary if the loop is replaced.
 | `ctx.agentLoop` | `AgentLoop` | dsh-agent-loop | creates `LoopAgent`s and drives their loops |
 | `ctx.bash` | `BashExecutor` (abstract) | dsh-bash | bash execution seam: foreground runs + background tasks |
 
-All registrations (`registerAdapter`, `section`, `tools`, `register`, …) go
-through `ctx.effect()` and return disposers, so plugin hot-reload (vendored
-HMR) and fiber disposal clean up automatically.
+All registrations (`registerAdapter`, `section`, `tools`, `register`, …) go through `ctx.effect()` and return disposers, so plugin hot-reload (vendored HMR) and fiber disposal clean up automatically.
 
 ## Capability seams: interface / implementation / consumer
 
-Swappable capabilities are split into **three packages** so each part evolves
-independently. The bash capability is the template:
+Swappable capabilities are split into **three packages** so each part evolves independently. The bash capability is the template:
 
-1. **Interface** (`dsh-bash`) — an abstract service plus the vocabulary types
-   (`BashExecutor`, `BashRunResult`, `BashTask`, …). Defines the contract,
-   owns the `ctx.bash` key, depends only on cordis.
-2. **Implementation** (`dsh-bash-local`) — a concrete subclass loaded as a
-   plugin (local subprocesses, process-group kills, spill-file truncation).
-   Sandboxed, containerized, or remote backends are sibling packages
-   implementing the same interface.
-3. **Consumer** (`dsh-tool-bash`) — what the model and other plugins program
-   against (the `bash`/`bash_output`/`bash_kill` tool schemas). Consumers
-   `inject` the interface's ctx key and never import implementation types.
+1. **Interface** (`dsh-bash`) — an abstract service plus the vocabulary types (`BashExecutor`, `BashRunResult`, `BashTask`, …). Defines the contract, owns the `ctx.bash` key, depends only on cordis.
+2. **Implementation** (`dsh-bash-local`) — a concrete subclass loaded as a plugin (local subprocesses, process-group kills, spill-file truncation). Sandboxed, containerized, or remote backends are sibling packages implementing the same interface.
+3. **Consumer** (`dsh-tool-bash`) — what the model and other plugins program against (the `bash`/`bash_output`/`bash_kill` tool schemas). Consumers `inject` the interface's ctx key and never import implementation types.
 
-The LLM seam has the same topology folded differently: `dsh-llm` carries the
-interface (`LlmAdapter`) AND the consumer surface (`ctx.llm.stream()`), with
-adapters as implementation packages — there the consumer is the loop itself,
-not a swappable schema surface. Use the full three-package split when the
-consumer is independently replaceable; keep interface + consumer together
-when they are one concern. Don't split preemptively: a capability with one
-conceivable implementation and one consumer stays one package until proven
-otherwise.
+The LLM seam has the same topology folded differently: `dsh-llm` carries the interface (`LlmAdapter`) AND the consumer surface (`ctx.llm.stream()`), with adapters as implementation packages — there the consumer is the loop itself, not a swappable schema surface. Use the full three-package split when the consumer is independently replaceable; keep interface + consumer together when they are one concern. Don't split preemptively: a capability with one conceivable implementation and one consumer stays one package until proven otherwise.
 
 > **"Capability" — two unrelated meanings.** (1) The *seam pattern* above
 > ("one plugin provides a capability, another needs it") is realized by
@@ -98,103 +73,55 @@ otherwise.
 
 ## The vocabulary (dsh-llm)
 
-Messages are arrays of typed **content blocks** (`text`, `reasoning`,
-`tool-call`, `tool-result`, `image`); the union is derived from the
-merge-extensible `ContentBlockMap`, so plugins can add block types via
-declaration merging. The same merge-extensible-map pattern is used for
-`MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason` — typed
-sum types instead of strings.
+Messages are arrays of typed **content blocks** (`text`, `reasoning`, `tool-call`, `tool-result`, `image`); the union is derived from the merge-extensible `ContentBlockMap`, so plugins can add block types via declaration merging. The same merge-extensible-map pattern is used for `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason` — typed sum types instead of strings.
 
-Streaming is a raw chunk protocol (`block-start`, `text-delta`,
-`reasoning-delta`, `tool-call-delta`, `block-end`, `usage`, `finish`).
-`BlockAssembler` is the single shared implementation that assembles chunks
-into blocks/messages; the loop logs raw chunks (replay fidelity) while feeding
-the same chunks through an assembler.
+Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta`, `tool-call-delta`, `block-end`, `usage`, `finish`). `BlockAssembler` is the single shared implementation that assembles chunks into blocks/messages; the loop logs raw chunks (replay fidelity) while feeding the same chunks through an assembler.
 
-`LlmAdapter` is the provider seam: subclass, implement `stream()`, call
-`ctx.llm.registerAdapter(models, adapter)`. Two real adapters implement it —
-`dsh-llm-deepseek` (hand-rolled fetch/SSE against the DeepSeek API) and
-`dsh-llm-pi-ai` (the same endpoint through the `@earendil-works/pi-ai`
-library). They exist as a pair deliberately: two independent internals over
-one contract verified the StreamChunk protocol, which is now documented (in
-`dsh-llm/src/types.ts`) with the conventions that review pinned down — usage
-before finish, nothing after finish, raw-string tool arguments, and the two
-sanctioned error paths (thrown vs `finish {kind:'error'}`).
+`LlmAdapter` is the provider seam: subclass, implement `stream()`, call `ctx.llm.registerAdapter(models, adapter)`. Two real adapters implement it — `dsh-llm-deepseek` (hand-rolled fetch/SSE against the DeepSeek API) and `dsh-llm-pi-ai` (the same endpoint through the `@earendil-works/pi-ai` library). They exist as a pair deliberately: two independent internals over one contract verified the StreamChunk protocol, which is now documented (in `dsh-llm/src/types.ts`) with the conventions that review pinned down — usage before finish, nothing after finish, raw-string tool arguments, and the two sanctioned error paths (thrown vs `finish {kind:'error'}`).
 
 ## Event-sourced sessions (dsh-session)
 
-A `Session` is an append-only log of typed `SessionEvent`s — the single source
-of truth. The LLM message history is *derived* from the log
-(`deriveMessages()`):
+A `Session` is an append-only log of typed `SessionEvent`s — the single source of truth. The LLM message history is *derived* from the log (`deriveMessages()`):
 
 - `user/message` → user message
-- `assistant/message` → assistant message (raw `assistant/chunk` events are
-  replay/UI data and are skipped in derivation)
+- `assistant/message` → assistant message (raw `assistant/chunk` events are replay/UI data and are skipped in derivation)
 - `tool/result` → user message carrying a `tool-result` block
-- `context/message`, `steering/message` → user-role messages wrapped in a
-  tagged envelope (`<context source="…">…</context>`) at their chronological
-  position — the "system-reminder" pattern; models distinguish them from real
-  user prompts by the envelope. **TODO(review)**: revisit the envelope once a
-  real adapter exists.
+- `context/message`, `steering/message` → user-role messages wrapped in a tagged envelope (`<context source="…">…</context>`) at their chronological position — the "system-reminder" pattern; models distinguish them from real user prompts by the envelope. **TODO(review)**: revisit the envelope once a real adapter exists.
 
-Replay/fork = `ctx.sessions.create(id, seedEvents)`. Trace/telemetry = listen
-to `session/event`.
+Replay/fork = `ctx.sessions.create(id, seedEvents)`. Trace/telemetry = listen to `session/event`.
 
-**Durability seam**: `session/event` is a synchronous notification;
-persistence plugins buffer (write-behind) and drain at the awaited
-`session/flush` checkpoint the loop fires at every turn end (see
-`examples/echo-agent/src/session-jsonl.ts` for the pattern).
-**TODO**: real persistence backends (JSONL per session dir, sqlite) are a
-future phase.
+**Durability seam**: `session/event` is a synchronous notification; persistence plugins buffer (write-behind) and drain at the awaited `session/flush` checkpoint the loop fires at every turn end (see `examples/echo-agent/src/session-jsonl.ts` for the pattern). **TODO**: real persistence backends (JSONL per session dir, sqlite) are a future phase.
 
 ## Prompt assembly (dsh-system-prompt)
 
-Plugins contribute `PromptSection`s (named, ordered, static or computed) and
-tool-schema providers. `assemble()` returns a `PromptAssembly { sections,
-tools }` through the `system-prompt/assemble` waterfall.
+Plugins contribute `PromptSection`s (named, ordered, static or computed) and tool-schema providers. `assemble()` returns a `PromptAssembly { sections, tools }` through the `system-prompt/assemble` waterfall.
 
-Tool schemas are deliberately **part of the assembly**: "what the model is
-told it can do" is one coherent thing managed here, even though adapters
-transmit schemas as the wire-level `tools` field rather than prompt text.
+Tool schemas are deliberately **part of the assembly**: "what the model is told it can do" is one coherent thing managed here, even though adapters transmit schemas as the wire-level `tools` field rather than prompt text.
 
 ## Tool pipeline (dsh-tools)
 
-`ToolRegistry.register()` takes schema + `execute()`. The registry feeds its
-schemas into the system-prompt assembly automatically.
+`ToolRegistry.register()` takes schema + `execute()`. The registry feeds its schemas into the system-prompt assembly automatically.
 
-`execute()` runs through the **`tools/execute` waterfall** — the single seam
-where sandbox, permission, hooks, and plan-mode plugins wrap or veto a call.
-This collapses Claude Code's validate → PreToolUse → permission → execute →
-PostToolUse pipeline into ordered waterfall listeners.
+`execute()` runs through the **`tools/execute` waterfall** — the single seam where sandbox, permission, hooks, and plan-mode plugins wrap or veto a call. This collapses Claude Code's validate → PreToolUse → permission → execute → PostToolUse pipeline into ordered waterfall listeners.
 
-**TODO**: tool shapes get revisited when real tools land (e.g. a
-concurrency-safety hint for parallel execution; phase 1 executes tool calls
-sequentially).
+**TODO**: tool shapes get revisited when real tools land (e.g. a concurrency-safety hint for parallel execution; phase 1 executes tool calls sequentially).
 
 ## Agents (dsh-agent) and the loop (dsh-agent-loop)
 
 `Agent` is the handle every plugin programs against:
 
 - `send(content)` — queued message; starts a turn when idle, else next turn
-- `steer(content)` — mid-turn injection, drained **between steps**; behaves
-  like `send` when idle
-- `inject(content)` — in-session context (`context/message` event) without
-  triggering a turn; the next request sees it (Claude Code attachment /
-  system-reminder analog)
+- `steer(content)` — mid-turn injection, drained **between steps**; behaves like `send` when idle
+- `inject(content)` — in-session context (`context/message` event) without triggering a turn; the next request sees it (Claude Code attachment / system-reminder analog)
 - `abort(reason)` — aborts the in-flight step via `AbortSignal`
 - `session`, `status`, `options`
 
-**TODO(sub-agents)**: `spawn`/`fork` land on `AgentLoop.create()` — fork seeds
-the child Session with the parent's event log, spawn starts fresh; children
-are ordinary `Agent` handles so `steer()` and event subscription work
-uniformly. Inter-agent channels beyond these primitives are deliberately
-deferred.
+**TODO(sub-agents)**: `spawn`/`fork` land on `AgentLoop.create()` — fork seeds the child Session with the parent's event log, spawn starts fresh; children are ordinary `Agent` handles so `steer()` and event subscription work uniformly. Inter-agent channels beyond these primitives are deliberately deferred.
 
 ### Loop lifecycle (session / turn / step)
 
 - **Session**: the whole event log of one agent.
-- **Turn**: triggered by ≥1 queued message; runs steps until the model stops
-  requesting tools and no plugin requests continuation.
+- **Turn**: triggered by ≥1 queued message; runs steps until the model stops requesting tools and no plugin requests continuation.
 - **Step**: one model request + its tool executions.
 
 ```
@@ -231,14 +158,7 @@ forever:
   emit agent/status(idle) unless more queued
 ```
 
-Error containment: a throwing `agent/turn-continuation` listener or a
-rejecting `session/flush` ends the **turn** with an `error` event — never the
-driver loop. An adapter that ends its stream with a `finish {kind:'error'}`
-or `{kind:'aborted'}` chunk (the in-band error path, for adapters that can't
-throw mid-stream) is likewise translated into a step error, so the turn ends
-`error`/`aborted` instead of logging a normal `completed` assistant message.
-`abort()` is honored mid-stream **and** between tool calls; disposal mid-turn
-ends the turn with reason `disposed` and emits `agent/status('disposed')`.
+Error containment: a throwing `agent/turn-continuation` listener or a rejecting `session/flush` ends the **turn** with an `error` event — never the driver loop. An adapter that ends its stream with a `finish {kind:'error'}` or `{kind:'aborted'}` chunk (the in-band error path, for adapters that can't throw mid-stream) is likewise translated into a step error, so the turn ends `error`/`aborted` instead of logging a normal `completed` assistant message. `abort()` is honored mid-stream **and** between tool calls; disposal mid-turn ends the turn with reason `disposed` and emits `agent/status('disposed')`.
 
 ### Event taxonomy
 
@@ -262,24 +182,17 @@ Declared in `@deepseek-ai/dsh-agent` (so nothing depends on the loop package).
 
 ### Cordis waterfall semantics (important)
 
-`ctx.waterfall` is **around-middleware**, not a value reducer. Each listener
-receives `(...args, next)`:
+`ctx.waterfall` is **around-middleware**, not a value reducer. Each listener receives `(...args, next)`:
 
-- call `next()` to delegate to later listeners (and ultimately the core
-  behavior), possibly wrapping it;
+- call `next()` to delegate to later listeners (and ultimately the core behavior), possibly wrapping it;
 - return a value **without** calling `next()` to short-circuit (veto);
 - listeners run in registration order; `prepend: true` jumps the queue.
 
-Composition caveat: values propagate through `next()`'s **return value**.
-Mutating the passed-in object works when later listeners receive the same
-reference, but a listener that returns a *new* object makes earlier mutations
-invisible downstream. Prefer mutate-then-`next()` for cooperative middleware;
-return a replacement only when you mean to take over the result.
+Composition caveat: values propagate through `next()`'s **return value**. Mutating the passed-in object works when later listeners receive the same reference, but a listener that returns a *new* object makes earlier mutations invisible downstream. Prefer mutate-then-`next()` for cooperative middleware; return a replacement only when you mean to take over the result.
 
 ## Plugin sanity checklist
 
-Every MVP feature (including the TODO-marked ones), with the mechanism that
-implements it **without modifying the loop**:
+Every MVP feature (including the TODO-marked ones), with the mechanism that implements it **without modifying the loop**:
 
 | MVP feature | Plugin mechanism |
 |---|---|
@@ -334,9 +247,7 @@ export function apply(ctx: Context) {
 }
 ```
 
-(Raw JSON-Schema `ToolDefinition`s are still accepted by
-`ctx.tools.register()` directly — that's how MCP-sourced tools arrive.
-`defineTool` is the typed sugar for first-party tools.)
+(Raw JSON-Schema `ToolDefinition`s are still accepted by `ctx.tools.register()` directly — that's how MCP-sourced tools arrive. `defineTool` is the typed sugar for first-party tools.)
 
 ### A hook plugin (permission gate)
 
@@ -371,31 +282,18 @@ export function apply(ctx: Context) {
 }
 ```
 
-Two complete runnable wirings exist: [`examples/echo-agent`](../examples/echo-agent)
-(mock model + echo tool — the all-mock skeleton check) and
-[`examples/coding-agent`](../examples/coding-agent) (DeepSeek V4 + the bash
-tool suite — the real thing; `yarn demo:coding`). Both load from `cordis.yml`
-with HMR.
+Two complete runnable wirings exist: [`examples/echo-agent`](../examples/echo-agent) (mock model + echo tool — the all-mock skeleton check) and [`examples/coding-agent`](../examples/coding-agent) (DeepSeek V4 + the bash tool suite — the real thing; `yarn demo:coding`). Both load from `cordis.yml` with HMR.
 
-Step-by-step guides live in [`docs/cookbook`](./cookbook): adding a package,
-adding a tool, adding an LLM adapter.
+Step-by-step guides live in [`docs/cookbook`](./cookbook): adding a package, adding a tool, adding an LLM adapter.
 
 ## Deferred work (TODO)
 
 Tracked here deliberately — each is designed-for but not implemented:
 
-- **Restructure this document** — it has grown long; split it into focused
-  sections (or per-area files) so readers can navigate it without scrolling
-  the whole thing.
-- **Sub-agent spawn/fork semantics** (seam: `AgentLoop.create()`); inter-agent
-  channels beyond `send`/`steer`/events.
-- **Persistence backends** (JSONL session dirs, sqlite) on the
-  `session/event` + `session/flush` seam.
-- **Compaction implementation** (auto thresholds, summarization prompts) on
-  the `agent/request` seam, with its session-event types added by declaration
-  merging.
+- **Restructure this document** — it has grown long; split it into focused sections (or per-area files) so readers can navigate it without scrolling the whole thing.
+- **Sub-agent spawn/fork semantics** (seam: `AgentLoop.create()`); inter-agent channels beyond `send`/`steer`/events.
+- **Persistence backends** (JSONL session dirs, sqlite) on the `session/event` + `session/flush` seam.
+- **Compaction implementation** (auto thresholds, summarization prompts) on the `agent/request` seam, with its session-event types added by declaration merging.
 - **Parallel tool execution** (concurrency-safety hints on ToolDefinition).
-- **Session branching/tree** (pi-style entry tree) if needed beyond seed-based
-  forking.
-- **Session event vocabulary review** once the loop and a persistence plugin
-  coexist (`TODO(review)` in dsh-session).
+- **Session branching/tree** (pi-style entry tree) if needed beyond seed-based forking.
+- **Session event vocabulary review** once the loop and a persistence plugin coexist (`TODO(review)` in dsh-session).

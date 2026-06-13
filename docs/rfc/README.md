@@ -1,9 +1,6 @@
 # RFCs
 
-Proposals for substantial future work — reviewed before implementation,
-unlike ADRs (which record decisions already made). Each RFC groups a related
-set of ideas from the quality/robustness proposal (2026-06-11); statuses
-move proposed → accepted → implemented (then usually graduate to an ADR).
+Proposals for substantial future work — reviewed before implementation, unlike ADRs (which record decisions already made). Each RFC groups a related set of ideas from the quality/robustness proposal (2026-06-11); statuses move proposed → accepted → implemented (then usually graduate to an ADR).
 
 | # | Title | Status |
 |---|---|---|

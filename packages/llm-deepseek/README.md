@@ -1,13 +1,8 @@
 # @deepseek-ai/dsh-llm-deepseek
 
-DeepSeek chat-completions adapter for the harness LLM seam: hand-rolled
-`fetch` + SSE translation from the official wire format (source of truth:
-the API docs — guides/thinking_mode, guides/tool_calls,
-api/create-chat-completion) into the `StreamChunk` protocol.
+DeepSeek chat-completions adapter for the harness LLM seam: hand-rolled `fetch` + SSE translation from the official wire format (source of truth: the API docs — guides/thinking_mode, guides/tool_calls, api/create-chat-completion) into the `StreamChunk` protocol.
 
-A second, independent implementation of the same seam exists in
-`@deepseek-ai/dsh-llm-pi-ai` (library-backed). Same Config shape — pick one
-per context (registering both for the same model names throws by design).
+A second, independent implementation of the same seam exists in `@deepseek-ai/dsh-llm-pi-ai` (library-backed). Same Config shape — pick one per context (registering both for the same model names throws by design).
 
 ## Config
 
@@ -22,62 +17,30 @@ per context (registering both for the same model names throws by design).
     reasoningEffort: high    # optional; high | max — omitted ⇒ not sent
 ```
 
-`models` lists every model name this one adapter instance serves: the adapter
-registers itself for each (the harness model name IS the wire `model` string),
-so a `generate`/`stream` call routes to it whenever `options.model` is any of
-them. Registering a second adapter for a name already taken throws
-`LlmError('DUPLICATE_ADAPTER')` (the LLM service enforces one adapter per
-model, all-or-nothing).
+`models` lists every model name this one adapter instance serves: the adapter registers itself for each (the harness model name IS the wire `model` string), so a `generate`/`stream` call routes to it whenever `options.model` is any of them. Registering a second adapter for a name already taken throws `LlmError('DUPLICATE_ADAPTER')` (the LLM service enforces one adapter per model, all-or-nothing).
 
-`reasoningEffort` is **omitted by default** — when unset, the `reasoning_effort`
-wire field is not sent and the server applies its own default for the model.
-The only accepted values are `high` and `max` (DeepSeek's official effort
-levels). It is meaningful only with thinking enabled (the provider default).
+`reasoningEffort` is **omitted by default** — when unset, the `reasoning_effort` wire field is not sent and the server applies its own default for the model. The only accepted values are `high` and `max` (DeepSeek's official effort levels). It is meaningful only with thinking enabled (the provider default).
 
-`thinking`/`reasoningEffort` are adapter-level request defaults serialized as
-the official top-level `thinking: {type}` / `reasoning_effort` wire fields.
-They live in adapter config (not `GenerateOptions`) to keep the core
-vocabulary provider-neutral.
+`thinking`/`reasoningEffort` are adapter-level request defaults serialized as the official top-level `thinking: {type}` / `reasoning_effort` wire fields. They live in adapter config (not `GenerateOptions`) to keep the core vocabulary provider-neutral.
 
 ## Wire-format notes (verified live + against the official docs)
 
-- Streaming only (`stream_options.include_usage` always on). `usage` may
-  arrive attached to the finish chunk or as a trailing usage-only chunk —
-  the translator defers both to `[DONE]`, so `usage` always precedes
-  `finish` and nothing follows `finish`.
-- The first thinking-mode chunk carries `reasoning_content: ""` — handled
-  (no spurious reasoning block).
-- **Reasoning passback rule**: on assistant turns that carried tool calls,
-  `reasoning_content` is serialized back in history (required by the API in
-  thinking mode); on tool-call-free turns it is dropped (ignored anyway —
-  saves tokens).
-- `strict` on tool schemas passes through (officially Beta; the public API
-  wants the `/beta` base URL for it, the internal endpoint accepts it
-  directly).
-- Cache accounting: `cacheReadTokens` ← `prompt_cache_hit_tokens` /
-  `prompt_tokens_details.cached_tokens`; DeepSeek reports no cache-write
-  metric.
+- Streaming only (`stream_options.include_usage` always on). `usage` may arrive attached to the finish chunk or as a trailing usage-only chunk — the translator defers both to `[DONE]`, so `usage` always precedes `finish` and nothing follows `finish`.
+- The first thinking-mode chunk carries `reasoning_content: ""` — handled (no spurious reasoning block).
+- **Reasoning passback rule**: on assistant turns that carried tool calls, `reasoning_content` is serialized back in history (required by the API in thinking mode); on tool-call-free turns it is dropped (ignored anyway — saves tokens).
+- `strict` on tool schemas passes through (officially Beta; the public API wants the `/beta` base URL for it, the internal endpoint accepts it directly).
+- Cache accounting: `cacheReadTokens` ← `prompt_cache_hit_tokens` / `prompt_tokens_details.cached_tokens`; DeepSeek reports no cache-write metric.
 
 ## Limitations (MVP, documented deliberately)
 
-- `prefill` throws `LlmError('UNSUPPORTED')` — DeepSeek's chat-prefix
-  completion is a Beta feature on the `/beta` base URL; future work.
+- `prefill` throws `LlmError('UNSUPPORTED')` — DeepSeek's chat-prefix completion is a Beta feature on the `/beta` base URL; future work.
 - `image` blocks are skipped (no vision support on these models).
 - `tool_choice` is not mapped (not part of the core vocabulary).
 
 ## Errors
 
-Non-2xx responses throw `LlmError` with stable codes: `AUTH` (401/403),
-`RATE_LIMIT` (429), `INVALID_REQUEST` (400), `SERVER` (5xx), `HTTP_<status>`
-otherwise. Protocol violations throw `STREAM_CLOSED` (no `[DONE]`) or
-`MALFORMED_RESPONSE` (bad JSON payload). Unknown wire `finish_reason`s
-(e.g. `content_filter`, `insufficient_system_resource`) become
-`finish {kind: 'error', code: <REASON>}` chunks.
+Non-2xx responses throw `LlmError` with stable codes: `AUTH` (401/403), `RATE_LIMIT` (429), `INVALID_REQUEST` (400), `SERVER` (5xx), `HTTP_<status>` otherwise. Protocol violations throw `STREAM_CLOSED` (no `[DONE]`) or `MALFORMED_RESPONSE` (bad JSON payload). Unknown wire `finish_reason`s (e.g. `content_filter`, `insufficient_system_resource`) become `finish {kind: 'error', code: <REASON>}` chunks.
 
 ## Testing
 
-Unit suites run against a local `node:http` mock SSE server (no network).
-Real-API coverage lives in `tests/adapter.e2e.ts` (`yarn test:e2e`,
-key-gated): V4 Flash + V4 Pro across thinking enabled/disabled and both
-official effort levels, including the thinking+tools round trip with
-reasoning passback.
+Unit suites run against a local `node:http` mock SSE server (no network). Real-API coverage lives in `tests/adapter.e2e.ts` (`yarn test:e2e`, key-gated): V4 Flash + V4 Pro across thinking enabled/disabled and both official effort levels, including the thinking+tools round trip with reasoning passback.

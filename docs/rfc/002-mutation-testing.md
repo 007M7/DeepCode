@@ -4,35 +4,23 @@ Status: proposed
 
 ## Problem
 
-The per-file 100% coverage gate (ADR 0007) proves every line *executes* under
-test — not that any assertion would notice if the line were wrong. Under
-agent-written tests, coverage pressure can produce execution-without-assertion.
-Mutation testing measures what coverage cannot: whether the suite *kills*
-deliberately injected bugs.
+The per-file 100% coverage gate (ADR 0007) proves every line *executes* under test — not that any assertion would notice if the line were wrong. Under agent-written tests, coverage pressure can produce execution-without-assertion. Mutation testing measures what coverage cannot: whether the suite *kills* deliberately injected bugs.
 
 ## Proposal
 
 Stryker (`@stryker-mutator/vitest-runner`) over `packages/*/src`:
 
-- **PR-scoped incremental runs** (changed files only) as a CI job — fast
-  enough to gate merges once tuned.
-- **Nightly full runs** with a tracked mutation score; start by recording,
-  then set the threshold at the observed baseline and ratchet upward (same
-  policy as coverage: thresholds only ever tighten).
-- Surviving mutants are work items: an agent picks a survivor, writes the
-  killing test, repeats — a well-shaped autonomous loop.
-- Equivalent mutants (provably behavior-preserving) get annotated exclusions
-  with reasons, mirroring the `/* v8 ignore */` policy.
+- **PR-scoped incremental runs** (changed files only) as a CI job — fast enough to gate merges once tuned.
+- **Nightly full runs** with a tracked mutation score; start by recording, then set the threshold at the observed baseline and ratchet upward (same policy as coverage: thresholds only ever tighten).
+- Surviving mutants are work items: an agent picks a survivor, writes the killing test, repeats — a well-shaped autonomous loop.
+- Equivalent mutants (provably behavior-preserving) get annotated exclusions with reasons, mirroring the `/* v8 ignore */` policy.
 
 ## Plan
 
-1. Add Stryker config scoped to one package (llm — smallest, most algorithmic)
-   and measure runtime.
+1. Add Stryker config scoped to one package (llm — smallest, most algorithmic) and measure runtime.
 2. Expand to all packages; record baseline scores in the config.
 3. Wire the nightly job; add the incremental PR job once runtime is acceptable.
 
 ## Risks
 
-Runtime: mutation testing is expensive; per-file 100% coverage helps (every
-mutant is at least reached). If PR-scoped runs stay too slow, keep them
-nightly-only and rely on the score ratchet.
+Runtime: mutation testing is expensive; per-file 100% coverage helps (every mutant is at least reached). If PR-scoped runs stay too slow, keep them nightly-only and rely on the score ratchet.
