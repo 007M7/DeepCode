@@ -19,6 +19,19 @@ import { glob } from 'node:fs/promises'
 const root = resolve(import.meta.dirname, '..')
 
 /**
+ * Remove `/* *​/` block comments and `//` line comments from TS source. Used to
+ * de-risk the brace walk in {@link declaredEvents} — a JSDoc `{@link}` tag would
+ * otherwise throw off the `{`/`}` depth counter. Good enough for our own source
+ * (no string literals contain `//` or comment-like brace sequences in an Events
+ * block); it is not a general tokenizer.
+ */
+function stripComments(text: string): string {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1')
+}
+
+/**
  * Event names declared in source: the keys inside every `interface Events`
  * block under packages/* /src. A declared event is a quoted `'scope/name'(`
  * method signature at the start of a line within such a block.
@@ -27,7 +40,10 @@ async function declaredEvents(): Promise<Map<string, string>> {
   const found = new Map<string, string>()
   for await (const match of glob('packages/*/src/**/*.ts', { cwd: root })) {
     const abs = resolve(root, match)
-    const text = readFileSync(abs, 'utf8')
+    // Strip comments first so a JSDoc `{@link …}` tag (or a `// {` line) inside
+    // an Events block can't unbalance the brace walk below. Event names live in
+    // code, never in comments, so this loses nothing.
+    const text = stripComments(readFileSync(abs, 'utf8'))
     // Walk `interface Events {` blocks brace-balanced and pull quoted keys.
     const re = /interface\s+Events\s*\{/g
     let m: RegExpExecArray | null
