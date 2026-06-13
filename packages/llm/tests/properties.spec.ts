@@ -39,9 +39,12 @@ const chunkArb: fc.Arbitrary<StreamChunk> = indexArb.chain(index => fc.oneof(
     .map((r): StreamChunk => ({ type: 'tool-call-delta', index, id: CallId(r.id), argumentsDelta: r.argumentsDelta })),
   blockEndArb(index),
   fc.constant<StreamChunk>({ type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } }),
+  fc.constant<StreamChunk>({ type: 'finish', reason: { kind: 'stop' } }),
+  fc.constant<StreamChunk>({ type: 'finish', reason: { kind: 'tool-calls' } }),
+  fc.string().map((message): StreamChunk => ({ type: 'finish', reason: { kind: 'error', message } })),
 ))
 
-/** A stream is a list of chunks; we add the terminal `finish` ourselves. */
+/** A stream is an arbitrary list of chunks (we do NOT force a terminal finish). */
 const streamArb = fc.array(chunkArb, { maxLength: 30 })
 
 /** Feed a fresh assembler, return it. */
@@ -115,11 +118,33 @@ describe('BlockAssembler properties', () => {
     }))
   })
 
-  it('result().finish defaults to stop when no finish chunk arrives', () => {
+  it('finish reflects the last finish chunk, or defaults to stop when none arrives', () => {
     fc.assert(fc.property(streamArb, (chunks) => {
       const a = feed(chunks)
-      const hasFinish = chunks.some(c => c.type === 'finish')
-      if (!hasFinish) expect(a.finish).toEqual({ kind: 'stop' })
+      const finishes = chunks.filter(c => c.type === 'finish')
+      if (finishes.length === 0) {
+        expect(a.finish).toEqual({ kind: 'stop' })
+      } else {
+        // last-write-wins: the assembler keeps the most recent finish reason.
+        const last = finishes[finishes.length - 1]
+        if (last?.type === 'finish') expect(a.finish).toEqual(last.reason)
+      }
+    }))
+  })
+
+  it('streaming and one-shot assembly agree on usage and finish', () => {
+    fc.assert(fc.property(streamArb, (chunks) => {
+      // Streaming consumer: push + flush as it goes.
+      const streaming = new BlockAssembler()
+      for (const chunk of chunks) {
+        streaming.push(chunk)
+        streaming.flushReady()
+      }
+      streaming.flushRemaining()
+      // One-shot consumer: push all, then read.
+      const oneShot = feed(chunks)
+      expect(streaming.usage).toEqual(oneShot.usage)
+      expect(streaming.finish).toEqual(oneShot.finish)
     }))
   })
 })

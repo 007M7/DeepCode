@@ -74,19 +74,24 @@ describe('Session properties', () => {
     }))
   })
 
-  it('non-message events never affect derived history', () => {
+  it('non-message events never affect derived history (any interleaving)', () => {
     fc.assert(fc.property(
       fc.array(messageEventArb, { maxLength: 12 }),
       fc.array(nonMessageEventArb, { maxLength: 12 }),
-      (messages, noise) => {
-        // The same message events, with and without interleaved noise, derive
-        // the same history (noise is inserted at arbitrary positions).
+      // An arbitrary merge of the two streams that PRESERVES each stream's
+      // relative order (a random interleaving, not a fixed alternation).
+      fc.infiniteStream(fc.boolean()),
+      (messages, noise, pick) => {
         const clean = build(messages).deriveMessages()
         const interleaved: Appendable[] = []
-        const maxLen = Math.max(messages.length, noise.length)
-        for (let i = 0; i < maxLen; i++) {
-          if (i < noise.length) interleaved.push(noise[i]!)
-          if (i < messages.length) interleaved.push(messages[i]!)
+        let mi = 0
+        let ni = 0
+        const picker = pick[Symbol.iterator]()
+        while (mi < messages.length || ni < noise.length) {
+          // take from noise when chosen and available, else from messages
+          const takeNoise = ni < noise.length && (mi >= messages.length || picker.next().value === true)
+          if (takeNoise) { interleaved.push(noise[ni]!); ni++ }
+          else { interleaved.push(messages[mi]!); mi++ }
         }
         const withNoise = build(interleaved).deriveMessages()
         expect(withNoise).toEqual(clean)

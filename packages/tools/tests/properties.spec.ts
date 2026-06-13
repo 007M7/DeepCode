@@ -47,7 +47,7 @@ function specArb(depth: number): fc.Arbitrary<SchemaSpec> {
 function valueForProp(prop: SchemaProp): fc.Arbitrary<unknown> {
   switch (prop.type) {
     case 'string': return prop.enum ? fc.constantFrom(...prop.enum) : fc.string()
-    case 'number': return fc.double({ noNaN: true })
+    case 'number': return fc.double({ noNaN: true, noDefaultInfinity: true })
     case 'boolean': return fc.boolean()
     case 'object': return prop.properties ? validArgsForSpec(prop.properties) : fc.constant({})
     case 'array': return prop.items ? fc.array(valueForProp(prop.items), { maxLength: 3 }) : fc.constant([])
