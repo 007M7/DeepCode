@@ -24,6 +24,7 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 
 export const name = 'invariants'
+export const inject = ['sessions']
 
 /**
  * Thrown when a harness event-contract invariant is violated. Plain `Error`
@@ -55,17 +56,38 @@ interface SessionTrace {
   openTurn: number | null
   /** Open step within the current turn, or null between steps. */
   openStep: number | null
-  /** Outstanding tool-call ids awaiting a result (a result needs a prior call). */
+  /**
+   * Tool-call ids issued in the OPEN step awaiting a result. Cleared at
+   * `step/end` — a result must arrive in the same step as its call.
+   */
   pendingCalls: Set<string>
 }
 
-/** Deep-freeze a value and everything reachable from it. Idempotent. */
+/**
+ * Deep-freeze a value and everything reachable from it.
+ *
+ * Sound because this is only ever called top-down on event objects we just
+ * appended: by the time a node is frozen, this same walk has already frozen
+ * its descendants, so a frozen node implies frozen descendants — skipping it
+ * is correct and avoids re-walking on HMR replay. (We never pass an
+ * externally shallow-frozen object, which is the only input that would make
+ * the early-return unsound.)
+ */
 function deepFreeze(value: unknown): void {
   if (value === null || typeof value !== 'object') return
   if (Object.isFrozen(value)) return
   Object.freeze(value)
   for (const key of Object.keys(value)) {
     deepFreeze((value as Record<string, unknown>)[key])
+  }
+}
+
+/** Assert that a step-scoped event names the currently open turn and step. */
+function requireOpenStep(trace: SessionTrace, kind: string, turn: number, step: number): void {
+  if (trace.openTurn !== turn || trace.openStep !== step) {
+    throw new InvariantError(
+      `${kind} names turn ${turn}/step ${step} but open is turn ${trace.openTurn}/step ${trace.openStep}`,
+    )
   }
 }
 
@@ -80,6 +102,8 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
 
   // Intentionally non-exhaustive: only events that carry ordering structure
   // are checked; the rest are trace/replay data with no nesting contract.
+  // SessionEventMap is merge-extensible, so no assertNever — unknown event
+  // types fall through untouched.
   // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
   switch (event.type) {
     case 'turn/start': {
@@ -93,41 +117,50 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       if (trace.openTurn !== event.data.turn) {
         throw new InvariantError(`turn/end ${event.data.turn} does not match open turn ${trace.openTurn}`)
       }
+      if (trace.openStep !== null) {
+        throw new InvariantError(`turn/end ${event.data.turn} while step ${trace.openStep} is still open`)
+      }
       trace.openTurn = null
-      trace.openStep = null
       break
     }
     case 'step/start': {
       if (trace.openTurn !== event.data.turn) {
         throw new InvariantError(`step/start in turn ${event.data.turn} but open turn is ${trace.openTurn}`)
       }
+      if (trace.openStep !== null) {
+        throw new InvariantError(`step/start ${event.data.step} while step ${trace.openStep} is still open`)
+      }
       trace.openStep = event.data.step
       break
     }
     case 'step/end': {
-      if (trace.openStep !== event.data.step) {
-        throw new InvariantError(`step/end ${event.data.step} does not match open step ${trace.openStep}`)
-      }
+      requireOpenStep(trace, 'step/end', event.data.turn, event.data.step)
+      // A result must arrive in the step that issued the call; orphan calls
+      // (a step that errored before its result) do not carry to the next step.
+      trace.pendingCalls.clear()
       trace.openStep = null
       break
     }
     case 'assistant/chunk': {
-      // A chunk belongs to an open step — step/start must precede it.
-      if (trace.openStep === null) {
-        throw new InvariantError('assistant/chunk outside an open step (step/start must precede its chunks)')
-      }
+      requireOpenStep(trace, 'assistant/chunk', event.data.turn, event.data.step)
+      break
+    }
+    case 'assistant/message': {
+      requireOpenStep(trace, 'assistant/message', event.data.turn, event.data.step)
       break
     }
     case 'tool/call': {
+      requireOpenStep(trace, 'tool/call', event.data.turn, event.data.step)
       trace.pendingCalls.add(event.data.callId)
       break
     }
     case 'tool/result': {
-      // A result needs a prior matching call. (The converse does NOT hold: a
-      // call may have no result — a thrown tools/execute waterfall ends the
-      // step with no tool/result, which is legal.)
+      requireOpenStep(trace, 'tool/result', event.data.turn, event.data.step)
+      // A result needs a prior matching call in the same step. (The converse
+      // does NOT hold: a call may have no result — a throwing tools/execute
+      // waterfall ends the step with no tool/result, which is legal.)
       if (!trace.pendingCalls.delete(event.data.callId)) {
-        throw new InvariantError(`tool/result for ${event.data.callId} with no prior tool/call`)
+        throw new InvariantError(`tool/result for ${event.data.callId} with no prior tool/call in this step`)
       }
       break
     }
@@ -150,34 +183,46 @@ function checkTransition(from: AgentStatus | undefined, to: AgentStatus): void {
 }
 
 /**
- * Register the dev-mode invariants. Returns nothing — contributions are
- * effect-scoped, so disposing the plugin fiber removes all listeners and
- * stops freezing (HMR-safe).
+ * Register the dev-mode invariants. Contributions are effect-scoped, so
+ * disposing the plugin fiber removes all listeners and stops freezing
+ * (HMR-safe). On (re-)apply the trace state is rebuilt by replaying each
+ * existing session's log, so a hot reload mid-turn does not falsely reject the
+ * next event.
  */
 export function apply(ctx: Context, config: Config = {}): void {
   const freeze = config.freeze ?? true
   const traces = new WeakMap<Session, SessionTrace>()
+  // Agent status has no stored history to replay; the first observation after
+  // (re-)apply seeds the baseline, so a reload never produces a false positive.
   const lastStatus = new WeakMap<Agent, AgentStatus>()
 
-  const traceFor = (session: Session): SessionTrace => {
-    let trace = traces.get(session)
-    if (!trace) {
-      trace = { lastSeq: -1, openTurn: null, openStep: null, pendingCalls: new Set() }
-      traces.set(session, trace)
-    }
-    return trace
-  }
+  const freshTrace = (): SessionTrace => ({ lastSeq: -1, openTurn: null, openStep: null, pendingCalls: new Set() })
 
-  ctx.on('session/created', (session) => {
-    // A seeded/forked session arrives with events already in its log — the
-    // constructor copies the seed WITHOUT emitting session/event, so replay
-    // them through the checker here and freeze the existing entries.
-    const trace = traceFor(session)
+  /** Build (or rebuild) a session's trace by replaying its whole log; freeze it. */
+  const seedSession = (session: Session): SessionTrace => {
+    const trace = freshTrace()
+    traces.set(session, trace)
     for (const event of session.events) {
       checkEvent(trace, event)
       if (freeze) deepFreeze(event)
     }
-  })
+    return trace
+  }
+
+  // Every store-created session (the only kind that emits session/event) is
+  // seeded first — via ctx.sessions.list() at apply or session/created — so
+  // the fallback is a defensive guard, never hit in practice.
+  /* v8 ignore next -- traceFor's fallback: session/event always follows a seed */
+  const traceFor = (session: Session): SessionTrace => traces.get(session) ?? seedSession(session)
+
+  // Rebuild state for sessions that already exist at (re-)apply time — HMR
+  // reload starts a fresh fiber, and a mid-turn session would otherwise look
+  // like it began with a stray chunk/step-end.
+  for (const session of ctx.sessions.list()) seedSession(session)
+
+  // A newly created session may arrive seeded/forked (the constructor copies
+  // the seed WITHOUT emitting session/event), so replay its log here too.
+  ctx.on('session/created', (session) => { seedSession(session) })
 
   ctx.on('session/event', (session, event) => {
     checkEvent(traceFor(session), event)
@@ -189,5 +234,3 @@ export function apply(ctx: Context, config: Config = {}): void {
     lastStatus.set(agent, status)
   })
 }
-
-export default apply

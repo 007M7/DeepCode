@@ -8,6 +8,8 @@ The session log is append-only by contract, but `session.events` returns `readon
 
 ## Proposal
 
+> **Implemented differently — see the Status line and [ADR 0012](../adr/0012-dev-invariants-over-deep-readonly.md).** The `DeepReadonly<T>` design below was rejected as written (compile-only, high type-noise, castable). What shipped: an always-on deep clone in `deriveMessages` (closing the request/adapter aliasing path) plus a dev-mode `Object.freeze` + invariants plugin. The proposal text is kept for the record.
+
 Make immutability part of the type where mutation is corruption:
 
 - `SessionEvent` data becomes `DeepReadonly` on the way OUT of a session (`events`, `session/event` listeners); `append()` keeps taking plain mutable input. A `DeepReadonly<T>` utility type lands in dsh-llm next to the brand/never helpers.

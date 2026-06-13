@@ -6,14 +6,16 @@ Dev-mode event-contract invariants and session-log freeze. A pure-listener plugi
 
 ## Plugin
 
-```ts
-import Invariants from '@deepseek-ai/dsh-invariants'
+A functional plugin — register the module namespace (this is what loading by name in `cordis.yml` does):
 
-await ctx.plugin(Invariants)              // freeze on (default)
+```ts
+import * as Invariants from '@deepseek-ai/dsh-invariants'
+
+await ctx.plugin(Invariants)                     // freeze on (default)
 await ctx.plugin(Invariants, { freeze: false })  // assert contract, don't freeze
 ```
 
-`inject`: none required — it listens on `session/created`, `session/event`, and `agent/status`, all emitted by services it does not depend on directly.
+`inject`: `['sessions']` — it reads `ctx.sessions.list()` at apply time to rebuild trace state for sessions that already exist (so a hot reload mid-turn doesn't falsely reject the next event). It listens on `session/created`, `session/event`, and `agent/status`.
 
 ### Config
 

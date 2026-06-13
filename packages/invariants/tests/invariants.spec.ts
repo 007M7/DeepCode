@@ -3,7 +3,8 @@ import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
-import Invariants, { InvariantError } from '@deepseek-ai/dsh-invariants'
+import * as Invariants from '@deepseek-ai/dsh-invariants'
+import { InvariantError } from '@deepseek-ai/dsh-invariants'
 
 /** A Context with the session store and the invariants plugin registered. */
 async function setup(config?: { freeze?: boolean }) {
@@ -63,7 +64,7 @@ describe('session-log invariants', () => {
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
-    expect(() => session.append('step/end', { turn: 1, step: 2 })).toThrow(/does not match open step 1/)
+    expect(() => session.append('step/end', { turn: 1, step: 2 })).toThrow(/open is turn 1\/step 1/)
   })
 
   it('rejects an assistant/chunk outside an open step', async () => {
@@ -71,7 +72,7 @@ describe('session-log invariants', () => {
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     expect(() => session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'x' } }))
-      .toThrow(/outside an open step/)
+      .toThrow(/open is turn 1\/step null/)
   })
 
   it('rejects a tool/result with no prior tool/call', async () => {
@@ -113,6 +114,84 @@ describe('session-log invariants', () => {
     a.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     // b is a fresh session — its own turn/start must not see a's open turn.
     expect(() => b.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })).not.toThrow()
+  })
+
+  it('accepts multiple steps in a turn and consecutive turns', async () => {
+    const { ctx } = await setup({ freeze: false })
+    const session = ctx.sessions.create()
+    expect(() => {
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('step/start', { turn: 1, step: 1 })
+      session.append('assistant/message', { turn: 1, step: 1, content: [] })
+      session.append('step/end', { turn: 1, step: 1 })
+      session.append('step/start', { turn: 1, step: 2 })
+      session.append('assistant/message', { turn: 1, step: 2, content: [] })
+      session.append('step/end', { turn: 1, step: 2 })
+      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    }).not.toThrow()
+  })
+
+  it('rejects a turn/end while a step is still open', async () => {
+    const { ctx } = await setup({ freeze: false })
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    expect(() => session.append('turn/end', { turn: 1, reason: { kind: 'completed' } }))
+      .toThrow(/while step 1 is still open/)
+  })
+
+  it('rejects a step/start while a step is still open', async () => {
+    const { ctx } = await setup({ freeze: false })
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    expect(() => session.append('step/start', { turn: 1, step: 2 })).toThrow(/while step 1 is still open/)
+  })
+
+  it('rejects a tool/result satisfying a call from a previous step', async () => {
+    const { ctx } = await setup({ freeze: false })
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'echo', arguments: '{}' })
+    // step ends with the call unresolved — pendingCalls is cleared.
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('step/start', { turn: 1, step: 2 })
+    expect(() => session.append('tool/result', { turn: 1, step: 2, callId: CallId('c1'), content: [], isError: false }))
+      .toThrow(/no prior tool\/call in this step/)
+  })
+
+  it('rejects an assistant/message naming the wrong step', async () => {
+    const { ctx } = await setup({ freeze: false })
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    expect(() => session.append('assistant/message', { turn: 1, step: 2, content: [] }))
+      .toThrow(/open is turn 1\/step 1/)
+  })
+})
+
+describe('HMR state rebuild', () => {
+  it('rebuilds trace state for a session that exists at (re-)apply time', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    // First registration, mid-turn: a turn is open when the plugin reloads.
+    const first = await ctx.plugin(Invariants, { freeze: false })
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    await first.dispose()
+
+    // Re-apply (HMR): the fresh fiber must replay the existing log so the open
+    // step is known — the next chunk must NOT be a false positive.
+    await ctx.plugin(Invariants, { freeze: false })
+    expect(() => session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'h' } }))
+      .not.toThrow()
+    // And a genuine violation is still caught after the rebuild.
+    expect(() => session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } }))
+      .toThrow(/turn 1 is still open/)
   })
 })
 
