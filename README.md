@@ -18,3 +18,5 @@ yarn demo:coding   # the real DeepSeek coding agent (needs DEEPSEEK_API_KEY)
 ```
 
 For agent instructions see [AGENTS.md](AGENTS.md). For the architecture design see [docs/architecture.md](docs/architecture.md). Each subdirectory has its own README.md with local context: [packages/](packages/), [vendor/](vendor/).
+
+For local setup, hooks, environment variables, and quality gates, see the [development guide](docs/development.md).
