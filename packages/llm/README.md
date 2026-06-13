@@ -38,9 +38,8 @@ Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta
 - `LlmAdapter` — abstract base class for provider adapters. The only required method is `stream()`.
 - `BlockAssembler` — incrementally assembles raw chunks into complete content blocks and an assistant message. Used by the agent loop (raw chunks for replay
   + assembled for history) and by `streamBlocks()`/`generate()`.
-- `LlmError` — typed error with a `code` string (`NO_ADAPTER`, `DUPLICATE_ADAPTER`).
+- `LlmError` — typed error with a `code` string (`NO_ADAPTER`, `DUPLICATE_ADAPTER`, and adapter codes like `AUTH`/`RATE_LIMIT`) and an optional numeric `status` when the failure came from a non-2xx provider response.
 
-### What is NOT here (TODO)
+### Real adapters
 
-- **DeepSeek V4 adapter** — the first real adapter lands in a later phase.
-- **Streaming protocol review** — the chunk protocol has `TODO(review)` markers and needs careful review before the first real adapter (DeepSeek V4 wire format, partial JSON arguments, interleaved reasoning signatures, ...).
+Two adapters implement `LlmAdapter` against this vocabulary, deliberately built on different internals to keep the contract honest (see [ADR 0010](../../docs/adr/0010-twin-llm-adapters.md)): [`@deepseek-ai/dsh-llm-deepseek`](../llm-deepseek) (hand-rolled fetch/SSE) and [`@deepseek-ai/dsh-llm-pi-ai`](../llm-pi-ai) (via `@earendil-works/pi-ai`). The pair pinned down the `StreamChunk` conventions now documented in `types.ts` (usage before finish, raw-string tool arguments, the two sanctioned error paths).

@@ -8,6 +8,8 @@ The harness core is deliberately tiny: a handful of abstract services plus one c
 
 Requirement context: [Coding Harness MVP 需求分析][mvp-doc].
 
+**Contents:** [Layering](#layering) · [Service map](#service-map) · [Capability seams](#capability-seams-interface--implementation--consumer) · [The vocabulary (dsh-llm)](#the-vocabulary-dsh-llm) · [Event-sourced sessions](#event-sourced-sessions-dsh-session) · [Prompt assembly](#prompt-assembly-dsh-system-prompt) · [Tool pipeline](#tool-pipeline-dsh-tools) · [Agents and the loop](#agents-dsh-agent-and-the-loop-dsh-agent-loop) ([lifecycle](#loop-lifecycle-session--turn--step), [event taxonomy](#event-taxonomy), [waterfall semantics](#cordis-waterfall-semantics-important)) · [Plugin sanity checklist](#plugin-sanity-checklist) · [Extension cookbook](#extension-cookbook) · [Deferred work](#deferred-work-todo)
+
 [microkernel-doc]: https://trtgsjkv6r.feishu.cn/wiki/VS9Lw1kQki6mDJk2UHocyuphnsc
 [mvp-doc]: https://trtgsjkv6r.feishu.cn/wiki/ZwK6wfBE9i91V6kzMGYcgRGanxg
 
@@ -86,7 +88,7 @@ A `Session` is an append-only log of typed `SessionEvent`s — the single source
 - `user/message` → user message
 - `assistant/message` → assistant message (raw `assistant/chunk` events are replay/UI data and are skipped in derivation)
 - `tool/result` → user message carrying a `tool-result` block
-- `context/message`, `steering/message` → user-role messages wrapped in a tagged envelope (`<context source="…">…</context>`) at their chronological position — the "system-reminder" pattern; models distinguish them from real user prompts by the envelope. **TODO(review)**: revisit the envelope once a real adapter exists.
+- `context/message`, `steering/message` → user-role messages wrapped in a tagged envelope (`<context source="…">…</context>`) at their chronological position — the "system-reminder" pattern; models distinguish them from real user prompts by the envelope. **TODO(review)**: the real adapters now exist (the original precondition); the envelope still wants a deliberate review against live model behavior (`TODO(review)` in dsh-session).
 
 Replay/fork = `ctx.sessions.create(id, seedEvents)`. Trace/telemetry = listen to `session/event`.
 
@@ -104,7 +106,7 @@ Tool schemas are deliberately **part of the assembly**: "what the model is told 
 
 `execute()` runs through the **`tools/execute` waterfall** — the single seam where sandbox, permission, hooks, and plan-mode plugins wrap or veto a call. This collapses Claude Code's validate → PreToolUse → permission → execute → PostToolUse pipeline into ordered waterfall listeners.
 
-**TODO**: tool shapes get revisited when real tools land (e.g. a concurrency-safety hint for parallel execution; phase 1 executes tool calls sequentially).
+**TODO**: tool shapes get revisited now that real tools exist (the bash suite landed; the `TODO(review)` in dsh-tools is still open) — e.g. a concurrency-safety hint for parallel execution; phase 1 executes tool calls sequentially.
 
 ## Agents (dsh-agent) and the loop (dsh-agent-loop)
 
@@ -222,75 +224,12 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 
 ## Extension cookbook
 
-### A tool plugin
-
-```ts
-import type { Context } from 'cordis'
-import { defineTool } from '@deepseek-ai/dsh-tools'
-
-export const name = 'my-tool'
-export const inject = ['tools']
-
-export function apply(ctx: Context) {
-  ctx.tools.register(defineTool({
-    name: 'read_file',
-    description: 'Read a file from disk.',
-    parameters: {
-      path: { type: 'string', required: true, description: 'Absolute file path' },
-    },
-    async execute(args) {
-      // args is typed: { path: string }
-      const text = await readFile(args.path, 'utf8')
-      return [{ type: 'text', text }]
-    },
-  }))
-}
-```
-
-(Raw JSON-Schema `ToolDefinition`s are still accepted by `ctx.tools.register()` directly — that's how MCP-sourced tools arrive. `defineTool` is the typed sugar for first-party tools.)
-
-### A hook plugin (permission gate)
-
-```ts
-export const name = 'permission-gate'
-
-export function apply(ctx: Context) {
-  ctx.on('tools/execute', async (exec, next) => {
-    if (!(await isAllowed(exec))) {
-      return {
-        callId: exec.callId,
-        content: [{ type: 'text', text: 'Denied by policy.' }],
-        isError: true,
-      }
-    }
-    return next()
-  })
-}
-```
-
-### A UI plugin
-
-```ts
-export const name = 'my-ui'
-export const inject = ['agents']
-
-export function apply(ctx: Context) {
-  ctx.on('agent/stream-chunk', (agent, turn, step, chunk) => {
-    if (chunk.type === 'text-delta') render(chunk.text)
-  })
-  onUserInput(text => ctx.agents.get('main')?.send([{ type: 'text', text }]))
-}
-```
-
-Two complete runnable wirings exist: [`examples/echo-agent`](../examples/echo-agent) (mock model + echo tool — the all-mock skeleton check) and [`examples/coding-agent`](../examples/coding-agent) (DeepSeek V4 + the bash tool suite — the real thing; `yarn demo:coding`). Both load from `cordis.yml` with HMR.
-
-Step-by-step guides live in [`docs/cookbook`](./cookbook): adding a package, adding a tool, adding an LLM adapter.
+Code skeletons for the three plugin shapes (tool, hook/permission-gate, UI) and the two runnable example wirings live in [docs/cookbook/extension-cookbook.md](./cookbook/extension-cookbook.md). Step-by-step guides: [adding a package](./cookbook/adding-a-package.md), [adding a tool](./cookbook/adding-a-tool.md), [adding an LLM adapter](./cookbook/adding-an-llm-adapter.md), [adding a vendored package](./cookbook/adding-a-vendored-package.md).
 
 ## Deferred work (TODO)
 
 Tracked here deliberately — each is designed-for but not implemented:
 
-- **Restructure this document** — it has grown long; split it into focused sections (or per-area files) so readers can navigate it without scrolling the whole thing.
 - **Sub-agent spawn/fork semantics** (seam: `AgentLoop.create()`); inter-agent channels beyond `send`/`steer`/events.
 - **Persistence backends** (JSONL session dirs, sqlite) on the `session/event` + `session/flush` seam.
 - **Compaction implementation** (auto thresholds, summarization prompts) on the `agent/request` seam, with its session-event types added by declaration merging.

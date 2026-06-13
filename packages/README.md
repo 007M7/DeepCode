@@ -6,14 +6,19 @@ Harness packages, all under the `@deepseek-ai/dsh-*` scope. Each package is a Co
 
 ```
 dsh-llm          (no harness deps — pure vocabulary)
+dsh-bash          (no harness deps — abstract executor seam)
 dsh-session       ← dsh-llm
 dsh-system-prompt ← dsh-llm
 dsh-agent         ← dsh-llm, dsh-session
 dsh-tools         ← dsh-llm, dsh-system-prompt, dsh-agent
+dsh-bash-local    ← dsh-bash                       (BashExecutor impl)
+dsh-tool-bash     ← dsh-bash, dsh-tools            (bash tool schemas)
+dsh-llm-deepseek  ← dsh-llm                        (DeepSeek adapter)
+dsh-llm-pi-ai     ← dsh-llm                        (pi-ai-backed adapter)
 dsh-agent-loop    ← dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent
 ```
 
-The rule: plugins depend on interfaces, never on the concrete loop. `dsh-agent-loop` is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced.
+The rule: plugins depend on interfaces, never on the concrete loop. `dsh-agent-loop` is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced. A swappable capability splits into interface / implementation / consumer packages (the bash trio is the template — see [ADR 0009](../docs/adr/0009-capability-seams.md)).
 
 ## What goes where
 
@@ -25,6 +30,11 @@ The rule: plugins depend on interfaces, never on the concrete loop. `dsh-agent-l
 | `tools/` | Tool registry + `tools/execute` waterfall | `ctx.tools` |
 | `agent/` | Agent interface, registry, `agent/*` event vocabulary | `ctx.agents` |
 | `agent-loop/` | THE concrete plugin: `LoopAgent` + the loop driver | `ctx.agentLoop` |
+| `bash/` | Abstract bash executor seam (interface + vocabulary) | `ctx.bash` |
+| `bash-local/` | Local-subprocess `BashExecutor` implementation | (registers `ctx.bash`) |
+| `tool-bash/` | Model-facing `bash`/`bash_output`/`bash_kill` tool schemas | (registers on `ctx.tools`) |
+| `llm-deepseek/` | DeepSeek API adapter (hand-rolled fetch/SSE) | (registers on `ctx.llm`) |
+| `llm-pi-ai/` | DeepSeek adapter via `@earendil-works/pi-ai` (design twin) | (registers on `ctx.llm`) |
 
 Each package has its own `README.md` with purpose, service API, events, extension points, and deliberate non-goals (TODOs).
 

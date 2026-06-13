@@ -22,7 +22,7 @@
     "knip": "knip",
     "publint": "tsx scripts/publint-all.ts",
     "hygiene": "yarn knip && yarn publint && yarn constraints",
-    "demo": "node --expose-internals --import tsx examples/echo-agent/start.ts",
+    "demo:echo": "node --expose-internals --import tsx examples/echo-agent/start.ts",
     "demo:coding": "node --expose-internals --import tsx examples/coding-agent/start.ts",
     "postinstall": "lefthook install"
   },

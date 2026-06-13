@@ -51,12 +51,19 @@ scripts/     repo maintenance scripts (vendor-manifest guard, publint runner).
 ```sh
 yarn install        # Yarn 4 workspaces (node-modules linker), node >= 24
 yarn test           # vitest run (packages/*/tests/**/*.spec.ts)
+yarn test:coverage  # vitest run --coverage (per-file 100% gate on packages/*/src)
 yarn test:e2e       # real-API tests (packages|examples/*/tests/**/*.e2e.ts);
                     # self-skips without DEEPSEEK_API_KEY — see Secrets below
-yarn typecheck      # tsc -b tsconfig.build.json (declarations only)
-yarn build          # typecheck + tsdown JS bundles into each package's lib/
-yarn demo           # run examples/echo-agent (needs --expose-internals, the
-                    # script passes it; type "echo hi" to see a tool call)
+yarn typecheck      # tsc -b tsconfig.build.json (declarations) + tsc -p
+                    # tsconfig.typecheck.json (tests/examples typecheck too)
+yarn lint           # eslint .
+yarn lint:fix       # eslint . --fix
+yarn build          # tsc -b tsconfig.build.json && tsdown (JS bundles into lib/)
+yarn knip           # dead-code / unused-dependency check
+yarn publint        # package.json publish-correctness check (publishable packages/*)
+yarn hygiene        # knip + publint + yarn constraints
+yarn demo:echo      # run examples/echo-agent (no API key; type "echo hi" to
+                    # see a tool call) — the mock skeleton
 yarn demo:coding    # run examples/coding-agent — the real agent (needs
                     # DEEPSEEK_API_KEY; give it a coding task)
 ```
