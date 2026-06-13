@@ -15,6 +15,6 @@ The validator mirrors `schemaSpecToJsonSchema` semantics exactly — same struct
 ## Consequences
 
 - The model gets actionable feedback on its own malformed calls instead of an opaque crash, closing the gap between `InferArgs`'s promise and runtime reality.
-- The validator and `InferArgs` must stay in agreement; that drift risk is closed by a property test (RFC 001) generating args that satisfy `InferArgs` and asserting they pass `validateArgs`.
+- The validator and `InferArgs` must stay in agreement; that drift risk is to be closed by a property test (RFC 001, not yet landed) generating args that satisfy `InferArgs` and asserting they pass `validateArgs`. Until then the agreement rests on the example tests and the shared converter structure.
 - `ToolArgsError` is a plain `Error` with a `code` field for now; if a harness-wide error taxonomy lands it becomes a subclass without changing callers that read `.message`.
 - Validation cost is negligible next to a model call.

@@ -623,6 +623,18 @@ describe('validateArgs (RFC 005 part 1)', () => {
     expect(validateArgs(spec, { color: 'blue' })).toEqual(['"color" must be one of ["red","green"]'])
   })
 
+  it('checks enum uniformly with the converter (enum on a non-string prop)', () => {
+    // The converter emits `enum` regardless of type; the validator must agree.
+    // `enum` is string[], so a number value can never be a member.
+    const spec = { n: { type: 'number', enum: ['1', '2'] } } as unknown as SchemaSpec
+    expect(validateArgs(spec, { n: 1 })).toEqual(['"n" must be one of ["1","2"]'])
+  })
+
+  it('rejects an unknown SchemaType at runtime (assertNever guard)', () => {
+    const spec = { x: { type: 'weird' } } as unknown as SchemaSpec
+    expect(() => validateArgs(spec, { x: 1 })).toThrow(/unreachable variant.*validateArgs/)
+  })
+
   it('recurses into nested objects (and an object without properties only type-checks)', () => {
     const spec = {
       config: {

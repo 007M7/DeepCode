@@ -20,6 +20,7 @@
  */
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { assertNever } from '@deepseek-ai/dsh-llm'
 import type { ToolDefinition, ToolExecution } from './index.ts'
 
 // ---------------------------------------------------------------------------
@@ -202,16 +203,15 @@ function checkValue(prop: SchemaProp, value: unknown, path: string): string[] {
   switch (prop.type) {
     case 'string': {
       if (typeof value !== 'string') return [`"${path}" must be a string`]
-      if (prop.enum && !prop.enum.includes(value)) {
-        return [`"${path}" must be one of ${JSON.stringify(prop.enum)}`]
-      }
-      return []
+      break
     }
     case 'number': {
-      return typeof value === 'number' ? [] : [`"${path}" must be a number`]
+      if (typeof value !== 'number') return [`"${path}" must be a number`]
+      break
     }
     case 'boolean': {
-      return typeof value === 'boolean' ? [] : [`"${path}" must be a boolean`]
+      if (typeof value !== 'boolean') return [`"${path}" must be a boolean`]
+      break
     }
     case 'object': {
       if (!isPlainObject(value)) return [`"${path}" must be an object`]
@@ -225,8 +225,16 @@ function checkValue(prop: SchemaProp, value: unknown, path: string): string[] {
       const items = prop.items
       return value.flatMap((el, i) => checkValue(items, el, `${path}[${i}]`))
     }
-    // No default: SchemaType is a closed union; every case is handled above.
+    default: return assertNever(prop.type, 'validateArgs')
   }
+  // Enum membership, checked uniformly: the converter emits `enum` for any
+  // type ([prop.enum]), so the validator must too. `enum` is `string[]`, so a
+  // non-string value can never be a member — it falls out here, consistent
+  // with the schema the model was given.
+  if (prop.enum && !(prop.enum as unknown[]).includes(value)) {
+    return [`"${path}" must be one of ${JSON.stringify(prop.enum)}`]
+  }
+  return []
 }
 
 /** Collect violations for an object value against a {@link SchemaSpec}. */
