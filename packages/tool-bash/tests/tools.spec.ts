@@ -118,19 +118,30 @@ describe('bash tool', () => {
     expect(text(result)).toMatch(/aborted/)
   })
 
+  // Type and required-key violations are now rejected by the harness
+  // (defineTool validates against the SchemaSpec — ADR 0011) before execute.
   it.each([
-    [{}, /invalid command/],
-    [{ command: 42 }, /invalid command/],
-    [{ command: '  ' }, /invalid command/],
-    [{ command: 'x' }, /invalid description/],
-    [{ command: 'x', description: '' }, /invalid description/],
-    [{ command: 'x', description: 7 }, /invalid description/],
-    [{ command: 'x', description: 'd', timeoutMs: 'soon' }, /invalid timeoutMs/],
+    [{}, /missing required property "command"/],
+    [{ command: 42, description: 'd' }, /"command" must be a string/],
+    [{ command: 'x' }, /missing required property "description"/],
+    [{ command: 'x', description: 7 }, /"description" must be a string/],
+    [{ command: 'x', description: 'd', timeoutMs: 'soon' }, /"timeoutMs" must be a number/],
+    [{ command: 'x', description: 'd', workdir: 7 }, /"workdir" must be a string/],
+    [{ command: 'x', description: 'd', run_in_background: 'yes' }, /"run_in_background" must be a boolean/],
+  ])('rejects schema-invalid args %j', async (args, pattern) => {
+    const ctx = await setup()
+    const result = await call(ctx, 'bash', args)
+    expect(result.isError).toBe(true)
+    expect(text(result)).toMatch(pattern)
+  })
+
+  // Value constraints the SchemaSpec can't express stay in the tool body.
+  it.each([
+    [{ command: '  ', description: 'd' }, /invalid command/],
+    [{ command: 'x', description: '   ' }, /invalid description/],
     [{ command: 'x', description: 'd', timeoutMs: -1 }, /invalid timeoutMs/],
     [{ command: 'x', description: 'd', timeoutMs: Number.NaN }, /invalid timeoutMs/],
-    [{ command: 'x', description: 'd', workdir: 7 }, /invalid workdir/],
-    [{ command: 'x', description: 'd', run_in_background: 'yes' }, /invalid run_in_background/],
-  ])('rejects invalid args %j', async (args, pattern) => {
+  ])('rejects value-invalid args %j', async (args, pattern) => {
     const ctx = await setup()
     const result = await call(ctx, 'bash', args)
     expect(result.isError).toBe(true)
@@ -241,14 +252,14 @@ describe('background tools', () => {
   })
 
   it.each([
-    ['bash_output', {}],
-    ['bash_output', { task_id: 9 }],
-    ['bash_kill', { task_id: '' }],
-  ])('%s rejects invalid task_id %j', async (tool, args) => {
+    ['bash_output', {}, /missing required property "task_id"/],
+    ['bash_output', { task_id: 9 }, /"task_id" must be a string/],
+    ['bash_kill', { task_id: '' }, /invalid task_id/],
+  ])('%s rejects invalid task_id %j', async (tool, args, pattern) => {
     const ctx = await setup()
     const result = await call(ctx, tool, args)
     expect(result.isError).toBe(true)
-    expect(text(result)).toMatch(/invalid task_id/)
+    expect(text(result)).toMatch(pattern)
   })
 
   it('injects a completion notice into the owning agent', async () => {

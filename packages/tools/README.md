@@ -59,7 +59,9 @@ ctx.tools.register(defineTool({
 
 The helper converts the author-facing `SchemaSpec` (with `required: true` as a per-property boolean) to standard JSON Schema for the wire format. Raw JSON-Schema tool definitions (from MCP servers) are still accepted by the registry directly.
 
-See `defineTool`, `SchemaSpec`, `InferArgs`, and `schemaSpecToJsonSchema` in the public API for details.
+A `defineTool` tool also **validates the model-generated arguments against its `SchemaSpec` before `execute` runs** (`validateArgs`). The model's JSON is untrusted — `InferArgs<S>` is a compile-time claim, not a runtime guarantee — so on a mismatch (missing required key, wrong primitive, bad enum member, nested violation) the tool throws a `ToolArgsError` (`code: 'INVALID_ARGS'`); the registry turns it into an `isError` result whose text lists the violations, which the model sees and self-corrects from. Validation mirrors the JSON Schema conversion exactly: extra keys are allowed, `default` is not applied, and an `object`/`array` prop without `properties`/`items` only type-checks. Raw-registered tools (MCP) are **not** validated by the harness — they validate their own input.
+
+See `defineTool`, `validateArgs`, `ToolArgsError`, `SchemaSpec`, `InferArgs`, and `schemaSpecToJsonSchema` in the public API for details.
 
 ### What is NOT here (TODO)
 

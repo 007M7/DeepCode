@@ -28,14 +28,11 @@ export const name = 'tool-bash'
 export const inject = ['tools', 'bash']
 
 /**
- * Validate model-produced arguments. `defineTool`'s `InferArgs` typing is
- * compile-time only — at runtime `arguments` is whatever JSON the model
- * emitted, so every field is checked before it reaches the executor.
- *
- * TODO(RFC 005): this hand-rolled validation is the per-tool stopgap until
- * `defineTool` validates parsed args against the SchemaSpec itself (the
- * converter already encodes the structure). When that lands, delete this and
- * let the registry reject malformed calls — see docs/rfc/005.
+ * Validate the constraints the SchemaSpec can't express. `defineTool` now
+ * validates parsed args against the SchemaSpec before `execute` runs (RFC 005
+ * → ADR 0011), so type/required/enum checks are already done and `args` is
+ * the validated `InferArgs` shape here. What remains are value constraints the
+ * DSL has no vocabulary for: non-empty strings and a positive, finite timeout.
  */
 function validateBashArgs(args: {
   command: string
@@ -44,27 +41,24 @@ function validateBashArgs(args: {
   workdir?: string
   run_in_background?: boolean
 }): void {
-  if (typeof args.command !== 'string' || args.command.trim().length === 0) {
+  if (args.command.trim().length === 0) {
     throw new Error('invalid command: expected a non-empty string')
   }
-  if (typeof args.description !== 'string' || args.description.trim().length === 0) {
+  if (args.description.trim().length === 0) {
     throw new Error('invalid description: expected a non-empty string')
   }
-  if (args.timeoutMs !== undefined
-    && (typeof args.timeoutMs !== 'number' || !Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
+  if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
     throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
-  }
-  if (args.workdir !== undefined && typeof args.workdir !== 'string') {
-    throw new Error(`invalid workdir: expected a string, got ${JSON.stringify(args.workdir)}`)
-  }
-  if (args.run_in_background !== undefined && typeof args.run_in_background !== 'boolean') {
-    throw new Error(`invalid run_in_background: expected a boolean, got ${JSON.stringify(args.run_in_background)}`)
   }
 }
 
-/** Require a string `task_id` (model-produced, so runtime-checked). */
-function validateTaskId(value: unknown): string {
-  if (typeof value !== 'string' || value.length === 0) {
+/**
+ * Reject an empty `task_id`. Type and presence are guaranteed by the
+ * SchemaSpec validation (ADR 0011); only the non-empty constraint, which the
+ * DSL can't express, is left to check here.
+ */
+function validateTaskId(value: string): string {
+  if (value.length === 0) {
     throw new Error(`invalid task_id: expected a string, got ${JSON.stringify(value)}`)
   }
   return value

@@ -1,6 +1,6 @@
 # RFC 005: Runtime validation at the model boundary, error taxonomy, dev-mode invariants
 
-Status: proposed
+Status: partially implemented — part 1 (arg validation) → [ADR 0011](../adr/0011-runtime-arg-validation.md); parts 2-3 in progress
 
 ## Problem
 
