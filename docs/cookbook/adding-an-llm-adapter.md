@@ -4,7 +4,7 @@ How to connect a new model provider. Reference implementations: `packages/llm-de
 
 ## The shape
 
-```ts
+```ts ignore-check
 class MyAdapter extends LlmAdapter {
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> { … }
 }

@@ -17,7 +17,7 @@ This is the only package in the harness that contains concrete loop logic. Every
 ### Configuration (schemastery)
 
 ```ts
-Config: {
+interface Config {
   agents: Array<{
     id: string                 // required
     model?: string

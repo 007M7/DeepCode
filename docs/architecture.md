@@ -164,7 +164,7 @@ Error containment: a throwing `agent/turn-continuation` listener or a rejecting 
 
 ### Event taxonomy
 
-Declared in `@deepseek-ai/dsh-agent` (so nothing depends on the loop package).
+The `agent/*` events are declared in `@deepseek-ai/dsh-agent` (so nothing depends on the loop package); each other service declares its own events (`tools/*`, `llm/*`, `system-prompt/*`, `session/*`). The table below is CI-verified against the `interface Events` declarations in source (`scripts/verify-event-taxonomy.ts`).
 
 | Event | Mode | Purpose |
 |---|---|---|
@@ -177,8 +177,11 @@ Declared in `@deepseek-ai/dsh-agent` (so nothing depends on the loop package).
 | `agent/turn-continuation` | **waterfall** | override the continue/stop decision |
 | `agent/error` | emit | step/turn errors |
 | `tools/execute` (dsh-tools) | **waterfall** | wrap/veto/sandbox tool execution |
+| `tools/change` (dsh-tools) | emit | a tool was registered/unregistered |
 | `llm/stream` / `llm/generate` (dsh-llm) | **waterfall** | model-call interception |
+| `llm/adapter-change` (dsh-llm) | emit | an adapter was registered/unregistered |
 | `system-prompt/assemble` (dsh-system-prompt) | **waterfall** | mutate the assembly |
+| `system-prompt/change` (dsh-system-prompt) | emit | a section/tool-provider changed |
 | `session/created` / `session/event` (dsh-session) | emit | session lifecycle + log feed |
 | `session/flush` (dsh-session) | parallel (awaited) | durability checkpoint |
 

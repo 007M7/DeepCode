@@ -1,6 +1,6 @@
 # RFC 006: Doc-sync enforcement and API reports
 
-Status: proposed
+Status: implemented (parts 1-2) — see [ADR 0014](../adr/0014-doc-sync-enforcement.md). Part 3 (API reports) deferred.
 
 ## Problem
 

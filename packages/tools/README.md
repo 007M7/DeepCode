@@ -39,7 +39,11 @@ Tool registry and execution waterfall. Tool plugins register their schemas and e
 First-party plugin authors can use the `defineTool()` helper (exported from this package) for typed tool parameter schemas:
 
 ```ts
+import { readFile } from 'node:fs/promises'
+import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+
+declare const ctx: Context
 
 ctx.tools.register(defineTool({
   name: 'read_file',

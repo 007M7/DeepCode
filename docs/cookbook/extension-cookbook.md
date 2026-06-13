@@ -11,6 +11,11 @@ A tool registers on `ctx.tools`. The annotated `defineTool` example (typed `exec
 A hook wraps the `tools/execute` waterfall to veto or rewrite a call — the seam where sandbox, permission, and plan-mode plugins live.
 
 ```ts
+import type { Context } from 'cordis'
+import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+
+declare function isAllowed(exec: ToolExecution): Promise<boolean>
+
 export const name = 'permission-gate'
 
 export function apply(ctx: Context) {
@@ -32,6 +37,11 @@ export function apply(ctx: Context) {
 A UI plugin consumes `agent/stream-chunk` and session events for rendering, and drives input back in via `agent.send()` / `agent.steer()`.
 
 ```ts
+import type { Context } from 'cordis'
+
+declare function render(text: string): void
+declare function onUserInput(handler: (text: string) => void): void
+
 export const name = 'my-ui'
 export const inject = ['agents']
 

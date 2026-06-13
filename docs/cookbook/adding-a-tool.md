@@ -5,6 +5,7 @@ How to give the model a new capability. Reference implementations: `examples/ech
 ## The minimal shape
 
 ```ts
+import { readFile } from 'node:fs/promises'
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 

@@ -21,6 +21,8 @@
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "knip": "knip",
     "publint": "tsx scripts/publint-all.ts",
+    "doc-typecheck": "tsx scripts/doc-typecheck.ts",
+    "verify-event-taxonomy": "tsx scripts/verify-event-taxonomy.ts",
     "hygiene": "yarn knip && yarn publint && yarn constraints",
     "demo:echo": "node --expose-internals --import tsx examples/echo-agent/start.ts",
     "demo:coding": "node --expose-internals --import tsx examples/coding-agent/start.ts",
