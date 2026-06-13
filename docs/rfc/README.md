@@ -11,4 +11,4 @@ Proposals for substantial future work — reviewed before implementation, unlike
 | [005](005-runtime-validation-and-error-taxonomy.md) | Runtime arg validation, structured error taxonomy, dev-mode invariants | partially implemented |
 | [006](006-doc-sync-and-api-reports.md) | Doc-sync enforcement and API extractor reports | proposed |
 | [007](007-supply-chain-and-vendor-drift.md) | Supply chain checks and vendor drift verification | proposed |
-| [008](008-immutable-public-surfaces.md) | Deep-readonly public surfaces | proposed |
+| [008](008-immutable-public-surfaces.md) | Deep-readonly public surfaces | implemented (revised) |

@@ -15,6 +15,7 @@ const packages = [
   'packages/llm-pi-ai',
   'packages/bash-local',
   'packages/tool-bash',
+  'packages/invariants',
 ]
 
 const root = resolve(import.meta.dirname, '..')

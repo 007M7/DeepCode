@@ -94,6 +94,14 @@ export class Session {
    * - `tool/result` → user message carrying a tool-result block
    * - `context/message` / `steering/message` → tagged synthetic user messages
    *   at their chronological position
+   *
+   * The returned `content` is **deep-cloned** off the logged events: the loop
+   * hands these messages into the mutable `agent/request` waterfall and on to
+   * adapters, where mutating the request is sanctioned — but the session log
+   * is append-only by contract. Cloning at this boundary keeps in-flight
+   * mutation from reaching back and rewriting history (which would silently
+   * break replay equivalence). Cost is one structured clone per step,
+   * negligible next to a model call.
    */
   deriveMessages(): Message[] {
     const messages: Message[] = []
@@ -104,29 +112,29 @@ export class Session {
       // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
       switch (event.type) {
         case 'user/message': {
-          messages.push({ role: 'user', content: event.data.content })
+          messages.push({ role: 'user', content: structuredClone(event.data.content) })
           break
         }
         case 'assistant/message': {
-          messages.push({ role: 'assistant', content: event.data.content })
+          messages.push({ role: 'assistant', content: structuredClone(event.data.content) })
           break
         }
         case 'tool/result': {
           const { callId, content, isError } = event.data
           messages.push({
             role: 'user',
-            content: [{ type: 'tool-result', toolCallId: callId, content, isError }],
+            content: [{ type: 'tool-result', toolCallId: callId, content: structuredClone(content), isError }],
           })
           break
         }
         case 'context/message': {
           const { content, source } = event.data
-          messages.push({ role: 'user', content: renderTagged('context', content, source) })
+          messages.push({ role: 'user', content: renderTagged('context', structuredClone(content), source) })
           break
         }
         case 'steering/message': {
           const { content, source } = event.data
-          messages.push({ role: 'user', content: renderTagged('steering', content, source) })
+          messages.push({ role: 'user', content: renderTagged('steering', structuredClone(content), source) })
           break
         }
       }

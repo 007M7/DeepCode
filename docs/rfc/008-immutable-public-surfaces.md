@@ -1,6 +1,6 @@
 # RFC 008: Deep-readonly public surfaces
 
-Status: proposed
+Status: implemented (revised) — the pervasive `DeepReadonly<T>` type flip was rejected in favor of an always-on `deriveMessages` clone plus dev-mode `Object.freeze` + invariants. See [ADR 0012](../adr/0012-dev-invariants-over-deep-readonly.md).
 
 ## Problem
 

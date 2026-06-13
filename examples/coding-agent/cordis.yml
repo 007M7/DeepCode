@@ -30,6 +30,10 @@
 - id: agents
   name: '@deepseek-ai/dsh-agent'
 
+# Dev-mode event-contract assertions + session-log freeze (off in prod).
+- id: invariants
+  name: '@deepseek-ai/dsh-invariants'
+
 # The DeepSeek adapter. Swap to '@deepseek-ai/dsh-llm-pi-ai' for the
 # pi-ai-backed twin (same config shape; `reasoning: high` replaces
 # thinking/reasoningEffort).
