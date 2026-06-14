@@ -57,7 +57,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 lefthook is configured in `lefthook.yml` as an early local checkpoint before review:
 
 - `pre-commit` runs staged-file ESLint fixes, `yarn typecheck`, and the vendor manifest guard.
-- `pre-push` runs `yarn test` and `yarn hygiene`.
+- `pre-push` runs `yarn test`, `yarn hygiene`, and `yarn doc-sync`.
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 
@@ -71,6 +71,7 @@ The GitHub workflow runs these gates on each pull request:
 - `yarn constraints`
 - `yarn typecheck`
 - `yarn lint`
+- `yarn doc-sync`
 - `yarn test:coverage`
 - `yarn build`
 - `yarn knip && yarn publint`
@@ -89,11 +90,14 @@ yarn test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
 yarn typecheck      # build declarations, then typecheck source, tests, and examples
 yarn lint           # eslint .
 yarn lint:fix       # eslint . --fix
+yarn doc-typecheck  # compile checked TypeScript snippets in Markdown docs
+yarn verify-event-taxonomy  # compare docs/architecture.md event names with source
+yarn doc-sync       # doc-typecheck plus event taxonomy verification
 yarn build          # build declarations and JS bundles
 yarn hygiene        # knip, publint, and yarn constraints
 ```
 
-When changing package public behavior, update the relevant README or JSDoc in the same change. The repo does not have an automated doc-sync gate.
+When changing package public behavior, update the relevant README or JSDoc in the same change. `yarn doc-sync` catches checked TypeScript snippets and event-taxonomy drift, but broader prose/API sync still needs review.
 
 ## Demos
 
