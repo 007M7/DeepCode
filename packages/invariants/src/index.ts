@@ -66,19 +66,23 @@ interface SessionTrace {
 /**
  * Deep-freeze a value and everything reachable from it.
  *
- * Sound because this is only ever called top-down on event objects we just
- * appended: by the time a node is frozen, this same walk has already frozen
- * its descendants, so a frozen node implies frozen descendants — skipping it
- * is correct and avoids re-walking on HMR replay. (We never pass an
- * externally shallow-frozen object, which is the only input that would make
- * the early-return unsound.)
+ * Walks every object's own properties even when the object itself is already
+ * frozen: `Session.append()` accepts event data from arbitrary plugins/tools,
+ * so a caller can hand us a SHALLOW-frozen object whose descendants are still
+ * mutable. Skipping an already-frozen node (the obvious idempotence shortcut)
+ * would leave exactly the kind of mutable history ADR 0012 means to catch. A
+ * `WeakSet` of visited objects keeps it terminating on cycles and avoids
+ * re-walking shared subtrees / already-processed seed events.
  */
-function deepFreeze(value: unknown): void {
+function deepFreeze(value: unknown, seen: WeakSet<object> = new WeakSet()): void {
   if (value === null || typeof value !== 'object') return
-  if (Object.isFrozen(value)) return
+  if (seen.has(value)) return
+  seen.add(value)
+  // Freeze the node (no-op if a caller pre-froze it), then ALWAYS descend —
+  // a frozen container can still hold mutable children.
   Object.freeze(value)
   for (const key of Object.keys(value)) {
-    deepFreeze((value as Record<string, unknown>)[key])
+    deepFreeze((value as Record<string, unknown>)[key], seen)
   }
 }
 
