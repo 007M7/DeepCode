@@ -610,3 +610,32 @@ describe('HIGH: a finish-error stream chunk ends the turn as error, not complete
     expect(reasons).toEqual([{ kind: 'error', message: 'codeless failure' }])
   })
 })
+
+describe('P1-6: step/start is appended before agent/step-start is emitted', () => {
+  it('a step-start listener sees the step/start event already in session.events', async () => {
+    const adapter = new MockAdapter([textResponse('done')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a-step-order', { model: 'mock' })
+
+    // Capture, at the moment agent/step-start fires, whether the matching
+    // step/start event is already in the log (append-before-emit, ADR 0003).
+    const observed: { turn: number; step: number; lastEventType: string | undefined; sawStepStart: boolean }[] = []
+    ctx.on('agent/step-start', (subject, turn, step) => {
+      if (subject !== agent) return
+      const events = [...subject.session.events]
+      const last = events.at(-1)
+      observed.push({
+        turn,
+        step,
+        lastEventType: last?.type,
+        sawStepStart: events.some(e => e.type === 'step/start' && e.data.turn === turn && e.data.step === step),
+      })
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(observed).toHaveLength(1)
+    expect(observed[0]).toMatchObject({ turn: 1, step: 1, lastEventType: 'step/start', sawStepStart: true })
+  })
+})

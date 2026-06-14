@@ -134,7 +134,7 @@ forever:
     drain queued → session('user/message'…) → 'turn/start' → emit agent/turn-start
     STEP loop:
       drain steering (late steering from previous step's listeners)
-      emit agent/step-start
+      session('step/start'); emit agent/step-start
       assembly = ctx.systemPrompt.assemble()          ⟵ waterfall system-prompt/assemble
       req = {model, system, tools, messages: session.deriveMessages(), signal}
       req = waterfall agent/request                   ⟵ hooks, compaction, model switch
