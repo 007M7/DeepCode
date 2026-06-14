@@ -12,3 +12,6 @@ Proposals for substantial future work — reviewed before implementation, unlike
 | [006](006-doc-sync-and-api-reports.md) | Doc-sync enforcement and API extractor reports | implemented (pts 1-2; pt 3 deferred) |
 | [007](007-supply-chain-and-vendor-drift.md) | Supply chain checks and vendor drift verification | proposed |
 | [008](008-immutable-public-surfaces.md) | Deep-readonly public surfaces | implemented (revised) |
+| [009](009-session-persistence-and-resumability.md) | Durable session persistence — abstract, append-only, event-based store | proposed |
+| [010](010-acp-agent-client-protocol.md) | Agent Client Protocol (ACP) support for external editors | proposed |
+| [011](011-acp-multi-session.md) | Multiplex concurrent ACP sessions over one connection | proposed |
