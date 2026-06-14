@@ -4,7 +4,7 @@ This guide covers the local setup needed to work on DeepSeek Harness and underst
 
 ## Prerequisites
 
-- Node.js 24 or newer. The repo declares `node >=24`, and CI also exercises Node 24.
+- Node.js 24 or newer. The repo declares `node >=24`; CI runs the matrix on Node 24 and 26.
 - Corepack-enabled Yarn. The repo pins `yarn@4.14.1` in `package.json`; run `corepack enable` if `yarn --version` does not resolve through Corepack.
 - Git.
 - Optional: a DeepSeek API key for the coding-agent demo and real-API e2e tests.
