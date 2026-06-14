@@ -166,3 +166,38 @@ describe('assertNever', () => {
       .toThrow('unreachable variant in BlockAssembler.push')
   })
 })
+
+describe('BlockAssembler regressions (property-test findings)', () => {
+  it('first block-end wins: a duplicate block-end for a closed index is ignored', () => {
+    // Found by fast-check (RFC 001): two block-ends at the same index made the
+    // streamed prefix (first block) disagree with final blocks() (second
+    // block). The first close must win — same straggler rule as post-close
+    // deltas — so streaming and one-shot assembly stay identical.
+    const chunks: StreamChunk[] = [
+      { type: 'block-end', index: 0, block: { type: 'reasoning', text: 'first' } },
+      { type: 'block-end', index: 0, block: { type: 'text', text: 'second' } },
+    ]
+    const streaming = new BlockAssembler()
+    const flushed = []
+    for (const chunk of chunks) {
+      streaming.push(chunk)
+      flushed.push(...streaming.flushReady())
+    }
+    flushed.push(...streaming.flushRemaining())
+
+    const oneShot = new BlockAssembler()
+    for (const chunk of chunks) oneShot.push(chunk)
+
+    expect(flushed).toEqual([{ type: 'reasoning', text: 'first' }])
+    expect(oneShot.blocks()).toEqual([{ type: 'reasoning', text: 'first' }])
+    expect(flushed).toEqual(oneShot.blocks())
+  })
+
+  it('push returns undefined for a duplicate block-end (it closed nothing)', () => {
+    const a = new BlockAssembler()
+    expect(a.push({ type: 'block-end', index: 0, block: { type: 'text', text: 'x' } }))
+      .toEqual({ type: 'text', text: 'x' })
+    expect(a.push({ type: 'block-end', index: 0, block: { type: 'text', text: 'y' } }))
+      .toBeUndefined()
+  })
+})

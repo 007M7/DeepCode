@@ -1,12 +1,14 @@
 # RFC 008: Deep-readonly public surfaces
 
-Status: proposed
+Status: implemented (revised) — the pervasive `DeepReadonly<T>` type flip was rejected in favor of an always-on `deriveMessages` clone plus dev-mode `Object.freeze` + invariants. See [ADR 0012](../adr/0012-dev-invariants-over-deep-readonly.md).
 
 ## Problem
 
 The session log is append-only by contract, but `session.events` returns `readonly SessionEvent[]` whose *elements* are mutable: a plugin can reach in and rewrite history (`events[0].data.content.push(...)`), silently breaking replay equivalence and the derived-history guarantee. The same applies to derived messages and prompt assemblies passed through waterfalls — mutation is sometimes the intended idiom (waterfall middleware mutates the request) and sometimes corruption (mutating a *logged* event), and the types don't distinguish.
 
 ## Proposal
+
+> **Implemented differently — see the Status line and [ADR 0012](../adr/0012-dev-invariants-over-deep-readonly.md).** The `DeepReadonly<T>` design below was rejected as written (compile-only, high type-noise, castable). What shipped: an always-on deep clone in `deriveMessages` (closing the request/adapter aliasing path) plus a dev-mode `Object.freeze` + invariants plugin. The proposal text is kept for the record.
 
 Make immutability part of the type where mutation is corruption:
 

@@ -20,6 +20,7 @@
     { "path": "./packages/llm-deepseek" },
     { "path": "./packages/llm-pi-ai" },
     { "path": "./packages/bash-local" },
-    { "path": "./packages/tool-bash" }
+    { "path": "./packages/tool-bash" },
+    { "path": "./packages/invariants" }
   ]
 }

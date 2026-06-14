@@ -54,6 +54,31 @@ describe('Session', () => {
     expect(replayed.deriveMessages()).toEqual(original.deriveMessages())
     expect(replayed.seq).toBe(original.seq)
   })
+
+  it('isolates the log from mutation through a derived message (append-only contract)', () => {
+    const session = new Session(SessionId('s4'))
+    session.append('user/message', { content: [{ type: 'text', text: 'original' }], source: { kind: 'user' } })
+    session.append('tool/result', {
+      turn: 1, step: 1, callId: CallId('c1'),
+      content: [{ type: 'text', text: 'tool out' }], isError: false,
+    })
+    const before = structuredClone(session.events)
+
+    // A request middleware / adapter mutates the messages it was handed.
+    const messages = session.deriveMessages()
+    const userBlock = messages[0]!.content[0]!
+    if (userBlock.type === 'text') userBlock.text = 'HACKED'
+    const toolBlock = messages[1]!.content[0]!
+    if (toolBlock.type === 'tool-result') {
+      toolBlock.content.push({ type: 'text', text: 'injected' })
+    }
+    messages[0]!.content.push({ type: 'text', text: 'extra' })
+
+    // The log is unchanged: deep-equal to the snapshot taken before mutation.
+    expect(session.events).toEqual(before)
+    // And a fresh derivation still reflects the original content.
+    expect(session.deriveMessages()[0]!.content).toEqual([{ type: 'text', text: 'original' }])
+  })
 })
 
 describe('SessionStore', () => {

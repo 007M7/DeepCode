@@ -1,0 +1,176 @@
+/**
+ * Property-based tests for the agent loop's inbox/turn scheduling (RFC 001 →
+ * ADR 0013). Deterministic by construction: schedules are driven through the
+ * `agent/status` settle signal (no wall-clock sleeps), so a flake is a finding,
+ * not timing noise.
+ *
+ * Invariants: every sent message appears exactly once in the log (none lost);
+ * turn numbers strictly increase; status transitions follow the legal machine
+ * idle→running→idle (and →disposed at teardown).
+ */
+
+import { describe, expect, it } from 'vitest'
+import { Context } from 'cordis'
+import LlmService from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter } from '@deepseek-ai/dsh-llm'
+import SessionStore from '@deepseek-ai/dsh-session'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRegistry from '@deepseek-ai/dsh-tools'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentLoop, { type LoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import fc from 'fast-check'
+
+/** A never-exhausting adapter: every model call returns the same short reply. */
+class EchoAdapter extends LlmAdapter {
+  async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    if (options.signal?.aborted) throw new Error('aborted')
+    const text = 'ok'
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'text-delta', index: 0, text }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+    yield { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+}
+
+async function harness() {
+  const ctx = new Context()
+  await ctx.plugin(LlmService)
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(AgentLoop, { agents: [] })
+  ctx.llm.registerAdapter(['mock'], new EchoAdapter())
+  return ctx
+}
+
+/** Resolve on the agent's next transition to idle (event-based, not polled). */
+function nextIdle(ctx: Context, agent: LoopAgent): Promise<void> {
+  return new Promise((resolve) => {
+    const dispose = ctx.on('agent/status', (subject, status) => {
+      if (subject === agent && status === 'idle') {
+        dispose()
+        resolve()
+      }
+    })
+  })
+}
+
+/** Record every status transition for the legal-machine assertion. Returns
+ * the seen list plus a disposer for the listener (per the registry convention). */
+function recordStatus(ctx: Context, agent: LoopAgent): { seen: string[]; dispose: () => void } {
+  const seen: string[] = []
+  const dispose = ctx.on('agent/status', (subject, status) => {
+    if (subject === agent) seen.push(status)
+  })
+  return { seen, dispose }
+}
+
+function userMessageTexts(agent: LoopAgent): string[] {
+  return agent.session.events
+    .filter(e => e.type === 'user/message')
+    .map(e => (e.data as { content: { type: string; text?: string }[] }).content.map(b => b.text ?? '').join(''))
+}
+
+function turnNumbers(agent: LoopAgent): number[] {
+  return agent.session.events
+    .filter(e => e.type === 'turn/start')
+    .map(e => (e.data as { turn: number }).turn)
+}
+
+/** Assert a status trace is a legal run: idle/running alternating, ending idle. */
+function assertLegalStatusTrace(trace: string[]): void {
+  for (let i = 1; i < trace.length; i++) {
+    expect(trace[i]).not.toBe(trace[i - 1]) // no repeats (setStatus dedups)
+  }
+  for (const s of trace) expect(['idle', 'running']).toContain(s)
+}
+
+describe('agent loop scheduling properties', () => {
+  it('a synchronous burst loses no message and uses strictly increasing turns', async () => {
+    await fc.assert(fc.asyncProperty(
+      fc.array(fc.string({ minLength: 1 }), { minLength: 1, maxLength: 6 }),
+      async (texts) => {
+        const ctx = await harness()
+        try {
+          const agent = ctx.agentLoop.create('a', { model: 'mock' })
+          const { seen: trace } = recordStatus(ctx, agent)
+          const idle = nextIdle(ctx, agent)
+          // Send all in one synchronous tick: they queue before the loop wakes.
+          for (const text of texts) agent.send([{ type: 'text', text }])
+          await idle
+
+          // No message lost: every send appears as a user/message, in order.
+          expect(userMessageTexts(agent)).toEqual(texts)
+          // A synchronous burst batches into exactly one turn.
+          expect(turnNumbers(agent)).toEqual([1])
+          assertLegalStatusTrace(trace)
+        } finally {
+          await ctx.fiber.dispose()
+        }
+      },
+    ), { numRuns: 25, timeout: 2000 })
+  })
+
+  it('sequential sends each get their own turn with increasing numbers', async () => {
+    await fc.assert(fc.asyncProperty(
+      fc.array(fc.string({ minLength: 1 }), { minLength: 1, maxLength: 5 }),
+      async (texts) => {
+        const ctx = await harness()
+        try {
+          const agent = ctx.agentLoop.create('a', { model: 'mock' })
+          for (const text of texts) {
+            const idle = nextIdle(ctx, agent)
+            agent.send([{ type: 'text', text }])
+            await idle
+          }
+          // Each send was drained at a separate turn start: N turns, 1..N.
+          expect(turnNumbers(agent)).toEqual(texts.map((_, i) => i + 1))
+          expect(userMessageTexts(agent)).toEqual(texts)
+        } finally {
+          await ctx.fiber.dispose()
+        }
+      },
+    ), { numRuns: 20, timeout: 2000 })
+  })
+
+  it('mixed schedule (send, optionally settle) loses no message and orders turns', async () => {
+    // Each step is a (text, settle?) pair: settle=true awaits idle before the
+    // next send (own turn); settle=false sends in the same tick (batches).
+    const stepArb = fc.record({ text: fc.string({ minLength: 1 }), settle: fc.boolean() })
+    await fc.assert(fc.asyncProperty(
+      fc.array(stepArb, { minLength: 1, maxLength: 6 }),
+      async (steps) => {
+        const ctx = await harness()
+        try {
+          const agent = ctx.agentLoop.create('a', { model: 'mock' })
+          // Capture an idle waiter before EACH send; the last one is guaranteed
+          // to resolve because the final send always triggers (or joins) a turn
+          // that ends idle. Awaiting an already-resolved waiter is a no-op, so a
+          // trailing settle step can't cause a hang.
+          let lastIdle: Promise<void> | undefined
+          for (const step of steps) {
+            const idle = nextIdle(ctx, agent)
+            lastIdle = idle
+            agent.send([{ type: 'text', text: step.text }])
+            if (step.settle) await idle
+          }
+          await lastIdle
+
+          // No message lost or reordered, regardless of batching.
+          expect(userMessageTexts(agent)).toEqual(steps.map(s => s.text))
+          // Turn numbers are a strictly increasing 1..N prefix (N = turn count).
+          const turns = turnNumbers(agent)
+          expect(turns).toEqual(turns.map((_, i) => i + 1))
+          // Every message landed in some turn; turns never exceed messages.
+          expect(turns.length).toBeLessThanOrEqual(steps.length)
+          expect(turns.length).toBeGreaterThanOrEqual(1)
+        } finally {
+          await ctx.fiber.dispose()
+        }
+      },
+    ), { numRuns: 25, timeout: 3000 })
+  })
+})

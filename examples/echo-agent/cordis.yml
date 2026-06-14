@@ -27,6 +27,11 @@
 - id: agents
   name: '@deepseek-ai/dsh-agent'
 
+# Dev-mode event-contract assertions + session-log freeze (off in prod;
+# on here so the demo smoke test exercises the contract).
+- id: invariants
+  name: '@deepseek-ai/dsh-invariants'
+
 - id: agent-loop
   name: '@deepseek-ai/dsh-agent-loop'
   config:

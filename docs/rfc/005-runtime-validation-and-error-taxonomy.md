@@ -1,6 +1,6 @@
 # RFC 005: Runtime validation at the model boundary, error taxonomy, dev-mode invariants
 
-Status: partially implemented — part 1 (arg validation) → [ADR 0011](../adr/0011-runtime-arg-validation.md); parts 2-3 in progress
+Status: partially implemented — part 1 (arg validation) → [ADR 0011](../adr/0011-runtime-arg-validation.md); part 3 (dev invariants) → [ADR 0012](../adr/0012-dev-invariants-over-deep-readonly.md); part 2 (error taxonomy) in progress
 
 ## Problem
 
@@ -14,7 +14,7 @@ Three gaps where compile-time guarantees stop:
 
 1. **Schema validation in defineTool**: before `execute`, validate parsed args against the SchemaSpec (the converter already encodes the structure — a small interpreter walks it: presence of required keys, primitive type checks, enum membership, recursion into objects/arrays). On mismatch, return an `isError` ToolExecutionResult describing the violation — the model can self-correct. Raw-registered tools (MCP) keep validating their own input.
 2. **Structured error taxonomy**: per-package error classes extending a common `HarnessError` (name, `code`, `cause` chaining). `ToolExecutionResult` gains optional `error: { name, code }` alongside the model-facing text. The loop's `errorData` consumes it; session `error` events carry the code. This also properly fixes the non-Error-throw message degradation found in review.
-3. **Dev-mode invariants**: a `dsh-invariants` debug plugin (everything is a plugin — it's just listeners) asserting, when enabled: session seq strictly increases; `step/start` precedes its chunks; `turn/start`/`turn/end` pair and nest; tool/call has a matching tool/result; status transitions are legal. Enabled in tests and the demo; off in production. Doubles as executable documentation of the event contract.
+3. **Dev-mode invariants**: a `dsh-invariants` debug plugin (everything is a plugin — it's just listeners) asserting, when enabled: session seq strictly increases; `step/start` precedes its chunks; `turn/start`/`turn/end` pair and nest; tool/call has a matching tool/result; status transitions are legal. Enabled in tests and the demo; off in production. Doubles as executable documentation of the event contract. _(As implemented, the tool rule is one-directional — a `tool/result` requires a prior `tool/call`, but NOT the converse: a throwing `tools/execute` waterfall ends a step with no result. See [ADR 0012](../adr/0012-dev-invariants-over-deep-readonly.md).)_
 
 ## Plan
 

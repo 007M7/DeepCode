@@ -23,3 +23,5 @@ Do NOT write an ADR for: a mechanical or local choice (a variable name, a one-fi
 | [0009](0009-capability-seams.md) | Capability seams — interface / implementation / consumer split | accepted |
 | [0010](0010-twin-llm-adapters.md) | Two LLM adapters as a design-verification twin | accepted |
 | [0011](0011-runtime-arg-validation.md) | Runtime arg validation at the model boundary | accepted |
+| [0012](0012-dev-invariants-over-deep-readonly.md) | Dev-mode invariants over compile-time deep-readonly | accepted |
+| [0013](0013-property-based-testing.md) | Property-based testing for protocol-shaped code | accepted |
