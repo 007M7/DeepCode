@@ -72,6 +72,19 @@ export interface ToolErrorInfo {
   code: string
 }
 
+/**
+ * Thrown (internally) when the model requests a tool that isn't registered.
+ * Extends {@link HarnessError} (`code: 'UNKNOWN_TOOL'`) so an unknown-tool
+ * failure is as routable as a tool-thrown one — retry/sandbox/replay code can
+ * distinguish it from a tool body's own error.
+ */
+export class ToolNotFoundError extends HarnessError {
+  constructor(public readonly toolName: string) {
+    super(`unknown tool "${toolName}"`, 'UNKNOWN_TOOL')
+    this.name = 'ToolNotFoundError'
+  }
+}
+
 /** The outcome of one tool call. */
 export interface ToolExecutionResult {
   callId: CallId
@@ -160,21 +173,18 @@ export class ToolRegistry extends Service {
 
   /**
    * Execute one tool call through the `tools/execute` waterfall. If the tool
-   * is not registered, returns an `isError` result immediately (no waterfall).
-   * If the tool throws, the error is caught and returned as an `isError` result
-   * so the loop never sees an uncaught exception from a tool.
+   * is not registered, the result is an `isError` carrying a `UNKNOWN_TOOL`
+   * structured error. If the tool throws, the error is caught and returned as
+   * an `isError` result so the loop never sees an uncaught exception; a thrown
+   * {@link HarnessError} surfaces its `{ name, code }` on the result.
    */
   execute(exec: ToolExecution): Promise<ToolExecutionResult> {
     return this.ctx.waterfall(this, 'tools/execute', exec, async (): Promise<ToolExecutionResult> => {
-      const tool = this.store.get(exec.name)
-      if (!tool) {
-        return {
-          callId: exec.callId,
-          content: [{ type: 'text', text: `Error: unknown tool "${exec.name}"` }],
-          isError: true,
-        }
-      }
       try {
+        const tool = this.store.get(exec.name)
+        // Unknown tool routes through the same catch as a tool-thrown error, so
+        // both failure classes get structured `{ name, code }` from one path.
+        if (!tool) throw new ToolNotFoundError(exec.name)
         const content = await tool.execute(exec.arguments, exec)
         return { callId: exec.callId, content, isError: false }
       } catch (error: unknown) {

@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, {
-  defineTool, schemaSpecToJsonSchema, validateArgs, ToolArgsError,
+  defineTool, schemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
   type InferArgs, type SchemaSpec, type ToolExecutionResult,
 } from '@deepseek-ai/dsh-tools'
 
@@ -60,10 +60,23 @@ describe('ToolRegistry', () => {
 
     const unknown = await ctx.tools.execute({ callId: CallId('c1'), name: 'nope', arguments: {} })
     expect(unknown.isError).toBe(true)
+    expect(unknown.content[0]).toMatchObject({ text: 'Error: unknown tool "nope"' })
+    // An unknown tool is a routable failure class, same as a tool-thrown one.
+    expect(unknown.error).toEqual({ name: 'ToolNotFoundError', code: 'UNKNOWN_TOOL' })
 
     const thrown = await ctx.tools.execute({ callId: CallId('c2'), name: 'boom', arguments: {} })
     expect(thrown.isError).toBe(true)
     expect(thrown.content[0]).toMatchObject({ text: 'Error: exploded' })
+  })
+
+  it('ToolNotFoundError carries the tool name and a stable code', async () => {
+    const { HarnessError } = await import('@deepseek-ai/dsh-llm')
+    const err = new ToolNotFoundError('ghost')
+    expect(err).toBeInstanceOf(HarnessError)
+    expect(err.name).toBe('ToolNotFoundError')
+    expect(err.code).toBe('UNKNOWN_TOOL')
+    expect(err.toolName).toBe('ghost')
+    expect(err.message).toBe('unknown tool "ghost"')
   })
 
   it('lets tools/execute waterfall listeners veto a call (permission pattern)', async () => {
