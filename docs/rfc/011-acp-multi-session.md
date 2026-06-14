@@ -18,8 +18,8 @@ The harness core already supports many agents (`AgentRegistry.list()` and `Agent
 
 ## Plan
 
-1. Generalize the two id maps to multi-entry and add the `agent→sessionId` reverse map; add a per-session record holding the agent, the in-flight-prompt state, the pending-permission registry, and the session's child context (see step 2).
-2. Give each session its own child Cordis context (`ctx.extend()`) and register that session's listeners on it, so per-session listeners are fiber-scoped — disposing one session's child fiber removes exactly its listeners while the other N-1 sessions (and the bridge root) keep running. Demux every `agent/*` and `session/event` by id into the right session record. Note the single global `tools/execute` listener stays on the bridge root (it must see all agents) and routes via the reverse map.
+1. Generalize the two id maps to multi-entry and add the `agent→sessionId` reverse map; add a per-session record holding the agent, the in-flight-prompt state, the pending-permission registry, and the session's disposer scope (see step 2).
+2. Give each session a real per-session disposer scope, NOT `ctx.extend()` — in Cordis `ctx.extend()` only creates a child context/prototype, but `ctx.on()` registered on it is still owned by the current plugin fiber, so disposing it would not remove that session's listeners. Use a genuine child fiber (load a per-session sub-plugin, e.g. `ctx.plugin(...)` returning a fork, or collect each session's `ctx.on` disposers in its session record and call them on teardown). Demux every `agent/*` and `session/event` by id into the right session record. Note the single global `tools/execute` listener stays on the bridge root (it must see all agents) and routes via the reverse map.
 3. Lift the `session/new` guard; keep `session/load` (RFC 010) working per session.
 4. Tests for cross-session isolation: two sessions streaming and permission-prompting concurrently never interleave; a cancel/abort in one session leaves the other's stream and pending permission untouched; per-session in-flight-prompt enforcement holds independently; disposing one session leaves the others running.
 
