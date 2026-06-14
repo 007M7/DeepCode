@@ -15,6 +15,8 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 export {
   defineTool,
   schemaSpecToJsonSchema,
+  validateArgs,
+  ToolArgsError,
   type SchemaSpec,
   type SchemaProp,
   type SchemaType,

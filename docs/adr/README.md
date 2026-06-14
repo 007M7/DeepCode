@@ -22,3 +22,4 @@ Do NOT write an ADR for: a mechanical or local choice (a variable name, a one-fi
 | [0008](0008-tsdown-over-dumble.md) | tsdown for JS bundling instead of dumble | accepted |
 | [0009](0009-capability-seams.md) | Capability seams — interface / implementation / consumer split | accepted |
 | [0010](0010-twin-llm-adapters.md) | Two LLM adapters as a design-verification twin | accepted |
+| [0011](0011-runtime-arg-validation.md) | Runtime arg validation at the model boundary | accepted |

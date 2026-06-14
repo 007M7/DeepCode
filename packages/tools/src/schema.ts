@@ -20,6 +20,7 @@
  */
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { assertNever } from '@deepseek-ai/dsh-llm'
 import type { ToolDefinition, ToolExecution } from './index.ts'
 
 // ---------------------------------------------------------------------------
@@ -168,6 +169,108 @@ export function schemaSpecToJsonSchema(spec: SchemaSpec): JsonSchemaObject {
 }
 
 // ---------------------------------------------------------------------------
+// Runtime validation: model-generated args ↔ SchemaSpec
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown by a {@link defineTool} tool when the model-generated arguments don't
+ * match the declared {@link SchemaSpec}. The registry's execute waterfall
+ * catches it and returns an `isError` result so the model can self-correct.
+ *
+ * Plain `Error` for now (carries a `code` field); a later change promotes the
+ * harness error taxonomy and this extends a common base.
+ */
+export class ToolArgsError extends Error {
+  /** Machine-routable code; stable across the message wording. */
+  readonly code = 'INVALID_ARGS'
+  /** The individual violation messages, in declaration order. */
+  readonly violations: string[]
+
+  constructor(violations: string[]) {
+    super(`invalid arguments: ${violations.join('; ')}`)
+    this.name = 'ToolArgsError'
+    this.violations = violations
+  }
+}
+
+/** Whether a value is a non-null, non-array object (a JSON Schema `object`). */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Collect violations for one property value against its {@link SchemaProp}. */
+function checkValue(prop: SchemaProp, value: unknown, path: string): string[] {
+  switch (prop.type) {
+    case 'string': {
+      if (typeof value !== 'string') return [`"${path}" must be a string`]
+      break
+    }
+    case 'number': {
+      if (typeof value !== 'number') return [`"${path}" must be a number`]
+      break
+    }
+    case 'boolean': {
+      if (typeof value !== 'boolean') return [`"${path}" must be a boolean`]
+      break
+    }
+    case 'object': {
+      if (!isPlainObject(value)) return [`"${path}" must be an object`]
+      // Mirror the converter: an object without `properties` only type-checks.
+      return prop.properties ? checkSpec(prop.properties, value, path) : []
+    }
+    case 'array': {
+      if (!Array.isArray(value)) return [`"${path}" must be an array`]
+      // Mirror the converter: an array without `items` only type-checks.
+      if (!prop.items) return []
+      const items = prop.items
+      return value.flatMap((el, i) => checkValue(items, el, `${path}[${i}]`))
+    }
+    default: return assertNever(prop.type, 'validateArgs')
+  }
+  // Enum membership, checked uniformly: the converter emits `enum` for any
+  // type ([prop.enum]), so the validator must too. `enum` is `string[]`, so a
+  // non-string value can never be a member — it falls out here, consistent
+  // with the schema the model was given.
+  if (prop.enum && !(prop.enum as unknown[]).includes(value)) {
+    return [`"${path}" must be one of ${JSON.stringify(prop.enum)}`]
+  }
+  return []
+}
+
+/** Collect violations for an object value against a {@link SchemaSpec}. */
+function checkSpec(spec: SchemaSpec, value: unknown, path: string): string[] {
+  if (!isPlainObject(value)) return [`"${path || 'arguments'}" must be an object`]
+  const violations: string[] = []
+  for (const [key, prop] of Object.entries(spec)) {
+    const propPath = path ? `${path}.${key}` : key
+    const v = value[key]
+    if (v === undefined) {
+      // A required key absent OR present-but-undefined is a violation; an
+      // optional absent key is fine. `default` is NOT applied (validation only).
+      if (prop.required === true) violations.push(`missing required property "${propPath}"`)
+      continue
+    }
+    violations.push(...checkValue(prop, v, propPath))
+  }
+  return violations
+}
+
+/**
+ * Validate model-generated `args` against a {@link SchemaSpec}, returning a
+ * list of human-readable violation messages (empty = valid). Total — never
+ * throws, regardless of how malformed `args` is.
+ *
+ * Semantics mirror {@link schemaSpecToJsonSchema} exactly: the top level must
+ * be a non-array object; required keys come only from `required: true`; extra
+ * keys are allowed (no `additionalProperties: false`); `default` is not
+ * applied; an `object`/`array` prop without `properties`/`items` only
+ * type-checks; `enum` is membership (strings only).
+ */
+export function validateArgs(spec: SchemaSpec, args: unknown): string[] {
+  return checkSpec(spec, args, '')
+}
+
+// ---------------------------------------------------------------------------
 // defineTool — typed helper for first-party plugin authors
 // ---------------------------------------------------------------------------
 
@@ -219,14 +322,22 @@ export interface DefineToolOptions<S extends SchemaSpec> {
  * first-party plugin authors.
  */
 export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>): ToolDefinition {
+  // Object-literal execute methods don't use `this`; the reference is safe.
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const userExecute = options.execute
   return {
     name: options.name,
     description: options.description,
     parameters: schemaSpecToJsonSchema(options.parameters) as unknown as Record<string, unknown>,
     ...options.strict !== undefined ? { strict: options.strict } : {},
-    // Object-literal execute methods don't use `this`; passing the reference
-    // through is safe.
-    // eslint-disable-next-line @typescript-eslint/unbound-method
-    execute: options.execute,
+    async execute(args: unknown, exec: ToolExecution): Promise<ContentBlock[]> {
+      // Validate the model-generated args before the typed body runs. On
+      // mismatch we throw ToolArgsError; the registry turns it into an
+      // isError result so the model can self-correct. After this guard, the
+      // cast to InferArgs<S> reflects the validated shape.
+      const violations = validateArgs(options.parameters, args)
+      if (violations.length > 0) throw new ToolArgsError(violations)
+      return userExecute(args as InferArgs<S>, exec)
+    },
   }
 }

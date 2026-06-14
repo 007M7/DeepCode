@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, {
-  defineTool, schemaSpecToJsonSchema,
+  defineTool, schemaSpecToJsonSchema, validateArgs, ToolArgsError,
   type InferArgs, type SchemaSpec, type ToolExecutionResult,
 } from '@deepseek-ai/dsh-tools'
 
@@ -572,5 +572,165 @@ describe('ToolRegistry.get', () => {
   it('get() returns undefined for unknown tool names', async () => {
     const ctx = await setup()
     expect(ctx.tools.get('nope')).toBeUndefined()
+  })
+})
+
+describe('validateArgs (RFC 005 part 1)', () => {
+  it('returns [] for valid args and is total over malformed input', () => {
+    const spec = {
+      path: { type: 'string', required: true },
+      limit: { type: 'number' },
+    } satisfies SchemaSpec
+    expect(validateArgs(spec, { path: '/tmp' })).toEqual([])
+    expect(validateArgs(spec, { path: '/tmp', limit: 5 })).toEqual([])
+    // never throws regardless of shape
+    expect(validateArgs(spec, null)).toHaveLength(1)
+    expect(validateArgs(spec, 'nope')).toHaveLength(1)
+    expect(validateArgs(spec, [])).toHaveLength(1)
+  })
+
+  it('flags a missing required key and a required key present as undefined', () => {
+    const spec = { path: { type: 'string', required: true } } satisfies SchemaSpec
+    expect(validateArgs(spec, {})).toEqual(['missing required property "path"'])
+    expect(validateArgs(spec, { path: undefined })).toEqual(['missing required property "path"'])
+  })
+
+  it('allows extra keys (no additionalProperties:false) and omitted optionals', () => {
+    const spec = { path: { type: 'string', required: true } } satisfies SchemaSpec
+    expect(validateArgs(spec, { path: '/tmp', extra: 1 })).toEqual([])
+  })
+
+  it('does not apply defaults (validation only)', () => {
+    const spec = { limit: { type: 'number', default: 25 } } satisfies SchemaSpec
+    // absent optional is valid, and validation does not synthesize the default
+    expect(validateArgs(spec, {})).toEqual([])
+  })
+
+  it('type-checks primitives', () => {
+    const spec = {
+      s: { type: 'string' },
+      n: { type: 'number' },
+      b: { type: 'boolean' },
+    } satisfies SchemaSpec
+    expect(validateArgs(spec, { s: 1 })).toEqual(['"s" must be a string'])
+    expect(validateArgs(spec, { n: 'x' })).toEqual(['"n" must be a number'])
+    expect(validateArgs(spec, { b: 'x' })).toEqual(['"b" must be a boolean'])
+  })
+
+  it('checks enum membership', () => {
+    const spec = { color: { type: 'string', enum: ['red', 'green'] } } satisfies SchemaSpec
+    expect(validateArgs(spec, { color: 'red' })).toEqual([])
+    expect(validateArgs(spec, { color: 'blue' })).toEqual(['"color" must be one of ["red","green"]'])
+  })
+
+  it('checks enum uniformly with the converter (enum on a non-string prop)', () => {
+    // The converter emits `enum` regardless of type; the validator must agree.
+    // `enum` is string[], so a number value can never be a member.
+    const spec = { n: { type: 'number', enum: ['1', '2'] } } as unknown as SchemaSpec
+    expect(validateArgs(spec, { n: 1 })).toEqual(['"n" must be one of ["1","2"]'])
+  })
+
+  it('rejects an unknown SchemaType at runtime (assertNever guard)', () => {
+    const spec = { x: { type: 'weird' } } as unknown as SchemaSpec
+    expect(() => validateArgs(spec, { x: 1 })).toThrow(/unreachable variant.*validateArgs/)
+  })
+
+  it('recurses into nested objects (and an object without properties only type-checks)', () => {
+    const spec = {
+      config: {
+        type: 'object',
+        required: true,
+        properties: { host: { type: 'string', required: true }, port: { type: 'number' } },
+      },
+      bag: { type: 'object' },
+    } satisfies SchemaSpec
+    expect(validateArgs(spec, { config: { host: 'h' }, bag: { anything: true } })).toEqual([])
+    expect(validateArgs(spec, { config: { port: 9 }, bag: 5 })).toEqual([
+      'missing required property "config.host"',
+      '"bag" must be an object',
+    ])
+  })
+
+  it('recurses into array items (and an array without items only type-checks)', () => {
+    const spec = {
+      tags: { type: 'array', items: { type: 'string' } },
+      raw: { type: 'array' },
+    } satisfies SchemaSpec
+    expect(validateArgs(spec, { tags: ['a', 'b'], raw: [1, {}, 'x'] })).toEqual([])
+    expect(validateArgs(spec, { tags: ['a', 2] })).toEqual(['"tags[1]" must be a string'])
+    // a non-array value for an array-typed prop
+    expect(validateArgs(spec, { tags: 'nope' })).toEqual(['"tags" must be an array'])
+  })
+
+  it('validates arrays of objects element-wise', () => {
+    const spec = {
+      servers: {
+        type: 'array',
+        items: { type: 'object', properties: { host: { type: 'string', required: true } } },
+      },
+    } satisfies SchemaSpec
+    expect(validateArgs(spec, { servers: [{ host: 'a' }, {}] })).toEqual([
+      'missing required property "servers[1].host"',
+    ])
+  })
+})
+
+describe('defineTool validation (RFC 005 part 1)', () => {
+  it('returns an isError result with the violations when the model sends bad args', async () => {
+    const ctx = await setup()
+    ctx.tools.register(defineTool({
+      name: 'reader',
+      description: 'reads a path',
+      parameters: { path: { type: 'string', required: true } },
+      async execute(args) {
+        return [{ type: 'text', text: args.path }]
+      },
+    }))
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'reader', arguments: {} })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({
+      text: 'Error: invalid arguments: missing required property "path"',
+    })
+  })
+
+  it('runs execute normally when args are valid', async () => {
+    const ctx = await setup()
+    ctx.tools.register(defineTool({
+      name: 'reader',
+      description: 'reads a path',
+      parameters: { path: { type: 'string', required: true } },
+      async execute(args) {
+        return [{ type: 'text', text: `read ${args.path}` }]
+      },
+    }))
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'reader', arguments: { path: '/x' } })
+    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'read /x' }], isError: false })
+  })
+
+  it('ToolArgsError carries a stable code and the violation list', () => {
+    const err = new ToolArgsError(['missing required property "a"', '"b" must be a number'])
+    expect(err).toBeInstanceOf(Error)
+    expect(err.name).toBe('ToolArgsError')
+    expect(err.code).toBe('INVALID_ARGS')
+    expect(err.violations).toEqual(['missing required property "a"', '"b" must be a number'])
+    expect(err.message).toBe('invalid arguments: missing required property "a"; "b" must be a number')
+  })
+
+  it('raw-registered tools are NOT validated by defineTool (MCP keeps its own)', async () => {
+    const ctx = await setup()
+    // A raw ToolDefinition: no defineTool wrapping, so no validateArgs guard.
+    ctx.tools.register({
+      name: 'raw',
+      description: 'raw tool',
+      parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      async execute(args: unknown) {
+        return [{ type: 'text', text: typeof args }]
+      },
+    })
+    // Missing the "required" path — but raw tools validate their own input, so
+    // this reaches execute rather than being rejected by the harness.
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'raw', arguments: {} })
+    expect(result.isError).toBe(false)
   })
 })
