@@ -1,6 +1,6 @@
 # Development guide
 
-This guide covers the local setup needed to work on DeepSeek Harness and run the same checks the hooks and CI run.
+This guide covers the local setup needed to work on DeepSeek Harness and understand the local hooks, daily checks, and CI gates.
 
 ## Prerequisites
 
@@ -54,12 +54,29 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 ## Git hooks
 
-lefthook is configured in `lefthook.yml` and calls the same package scripts used by CI:
+lefthook is configured in `lefthook.yml` as an early local checkpoint before review:
 
 - `pre-commit` runs staged-file ESLint fixes, `yarn typecheck`, and the vendor manifest guard.
 - `pre-push` runs `yarn test` and `yarn hygiene`.
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
+
+These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests without coverage, while CI runs `yarn test:coverage`; CI also runs an echo-agent smoke test and exercises the matrix on Node 24 and 26.
+
+## CI gates
+
+The GitHub workflow runs these gates on each pull request:
+
+- `yarn install --immutable`
+- `yarn constraints`
+- `yarn typecheck`
+- `yarn lint`
+- `yarn test:coverage`
+- `yarn build`
+- `yarn knip && yarn publint`
+- an echo-agent smoke test that checks the demo's tool call, tool result, and JSONL output
+
+`yarn hygiene` is the local shorthand for `yarn knip && yarn publint && yarn constraints`; CI splits `yarn constraints` into its own earlier step, then runs `yarn knip && yarn publint` after `yarn build`.
 
 ## Daily commands
 
