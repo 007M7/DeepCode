@@ -26,7 +26,7 @@ Tool registry and execution waterfall. Tool plugins register their schemas and e
 
 - `ToolDefinition` — `ToolSchema` + `execute(args, exec): Promise<ContentBlock[]>`.
 - `ToolExecution` — one pending tool call: `{ callId, name, arguments, agent?, signal? }`.
-- `ToolExecutionResult` — outcome: `{ callId, content, isError }`.
+- `ToolExecutionResult` — outcome: `{ callId, content, isError, error? }`. On failure with a `HarnessError`, `error: { name, code }` carries the structured failure class alongside the model-facing text (the loop forwards it onto the `tool/result` session event for retry/sandbox plugins and replay).
 
 ### Extension points
 

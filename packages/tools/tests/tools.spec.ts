@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, {
-  defineTool, schemaSpecToJsonSchema, validateArgs, ToolArgsError,
+  defineTool, schemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
   type InferArgs, type SchemaSpec, type ToolExecutionResult,
 } from '@deepseek-ai/dsh-tools'
 
@@ -60,10 +60,23 @@ describe('ToolRegistry', () => {
 
     const unknown = await ctx.tools.execute({ callId: CallId('c1'), name: 'nope', arguments: {} })
     expect(unknown.isError).toBe(true)
+    expect(unknown.content[0]).toMatchObject({ text: 'Error: unknown tool "nope"' })
+    // An unknown tool is a routable failure class, same as a tool-thrown one.
+    expect(unknown.error).toEqual({ name: 'ToolNotFoundError', code: 'UNKNOWN_TOOL' })
 
     const thrown = await ctx.tools.execute({ callId: CallId('c2'), name: 'boom', arguments: {} })
     expect(thrown.isError).toBe(true)
     expect(thrown.content[0]).toMatchObject({ text: 'Error: exploded' })
+  })
+
+  it('ToolNotFoundError carries the tool name and a stable code', async () => {
+    const { HarnessError } = await import('@deepseek-ai/dsh-llm')
+    const err = new ToolNotFoundError('ghost')
+    expect(err).toBeInstanceOf(HarnessError)
+    expect(err.name).toBe('ToolNotFoundError')
+    expect(err.code).toBe('UNKNOWN_TOOL')
+    expect(err.toolName).toBe('ghost')
+    expect(err.message).toBe('unknown tool "ghost"')
   })
 
   it('lets tools/execute waterfall listeners veto a call (permission pattern)', async () => {
@@ -715,6 +728,52 @@ describe('defineTool validation (RFC 005 part 1)', () => {
     expect(err.code).toBe('INVALID_ARGS')
     expect(err.violations).toEqual(['missing required property "a"', '"b" must be a number'])
     expect(err.message).toBe('invalid arguments: missing required property "a"; "b" must be a number')
+  })
+
+  it('a schema-invalid call surfaces the structured error on the result', async () => {
+    const ctx = await setup()
+    ctx.tools.register(defineTool({
+      name: 'reader',
+      description: 'reads a path',
+      parameters: { path: { type: 'string', required: true } },
+      async execute(args) {
+        return [{ type: 'text', text: args.path }]
+      },
+    }))
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'reader', arguments: {} })
+    expect(result.isError).toBe(true)
+    expect(result.error).toEqual({ name: 'ToolArgsError', code: 'INVALID_ARGS' })
+  })
+
+  it('a tool throwing a HarnessError surfaces its name and code', async () => {
+    const { HarnessError } = await import('@deepseek-ai/dsh-llm')
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'coded',
+      async execute() {
+        throw new HarnessError('disk full', 'ENOSPC')
+      },
+    })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'coded', arguments: {} })
+    expect(result.isError).toBe(true)
+    expect(result.error).toEqual({ name: 'HarnessError', code: 'ENOSPC' })
+    expect(result.content[0]).toMatchObject({ text: 'Error: disk full' })
+  })
+
+  it('a non-HarnessError throw has no structured error (only the text)', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'plain',
+      async execute() {
+        throw new Error('just a message')
+      },
+    })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'plain', arguments: {} })
+    expect(result.isError).toBe(true)
+    expect(result.error).toBeUndefined()
+    expect(result.content[0]).toMatchObject({ text: 'Error: just a message' })
   })
 
   it('raw-registered tools are NOT validated by defineTool (MCP keeps its own)', async () => {

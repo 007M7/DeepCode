@@ -9,9 +9,11 @@
 import { Context, Service } from 'cordis'
 import type { ContentBlock, GenerateOptions, GenerateResult, StreamChunk } from './types.ts'
 import { BlockAssembler } from './assembler.ts'
+import { HarnessError } from './error.ts'
 
 export * from './brand.ts'
 export * from './never.ts'
+export * from './error.ts'
 export * from './types.ts'
 export { BlockAssembler } from './assembler.ts'
 
@@ -31,14 +33,14 @@ declare module 'cordis' {
 }
 
 /**
- * Typed error for LLM-related failures. The `code` string enables programmatic
- * handling (e.g. `AUTH`, `RATE_LIMIT`, `NO_ADAPTER`); `status` carries the HTTP
- * status when the error originated from a non-2xx provider response (absent for
- * protocol/usage errors that have no HTTP status).
+ * Typed error for LLM-related failures. Extends {@link HarnessError}, so the
+ * `code` string (e.g. `AUTH`, `RATE_LIMIT`, `NO_ADAPTER`) is shared taxonomy;
+ * `status` carries the HTTP status when the error originated from a non-2xx
+ * provider response (absent for protocol/usage errors that have no HTTP status).
  */
-export class LlmError extends Error {
-  constructor(message: string, public code: string, public status?: number) {
-    super(message)
+export class LlmError extends HarnessError {
+  constructor(message: string, code: string, public status?: number, options?: ErrorOptions) {
+    super(message, code, options)
     this.name = 'LlmError'
   }
 }

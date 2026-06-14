@@ -20,6 +20,7 @@
  */
 
 import type { Context } from 'cordis'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 
@@ -27,13 +28,13 @@ export const name = 'invariants'
 export const inject = ['sessions']
 
 /**
- * Thrown when a harness event-contract invariant is violated. Plain `Error`
- * with a `code` for now; a later change promotes the harness error taxonomy.
+ * Thrown when a harness event-contract invariant is violated. Extends
+ * {@link HarnessError} (`code: 'INVARIANT'`) so a violation is routable like
+ * any other harness failure.
  */
-export class InvariantError extends Error {
-  readonly code = 'INVARIANT'
+export class InvariantError extends HarnessError {
   constructor(message: string) {
-    super(`invariant violated: ${message}`)
+    super(`invariant violated: ${message}`, 'INVARIANT')
     this.name = 'InvariantError'
   }
 }

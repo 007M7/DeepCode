@@ -9,7 +9,7 @@
 
 import type { Context } from 'cordis'
 import type { FinishReason, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
-import { BlockAssembler } from '@deepseek-ai/dsh-llm'
+import { BlockAssembler, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -18,9 +18,15 @@ import type { LoopAgent } from './agent.ts'
 /** An Error with an optional machine-readable code (e.g., from LlmError or a throwing plugin). */
 type CodedError = Error & { code?: string }
 
-/** Normalize an arbitrary thrown value into a (possibly coded) Error. */
+/**
+ * Normalize an arbitrary thrown value into a coded Error. A real Error passes
+ * through (its `code`, if any, is preserved by {@link errorData}); a non-Error
+ * throw is wrapped in a {@link HarnessError} with code `UNKNOWN` and the
+ * original value chained as `cause`, so a bad throw still carries a routable
+ * code instead of degrading to a bare message.
+ */
 function toError(error: unknown): CodedError {
-  return error instanceof Error ? error : new Error(String(error))
+  return error instanceof Error ? error : new HarnessError(String(error), 'UNKNOWN', { cause: error })
 }
 
 /**
@@ -178,7 +184,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     try {
       stepOutcome = await runStep(ctx, agent, turn, step, abort.signal)
     } catch (error: unknown) {
-      stepOutcome = { error: error instanceof Error ? error : new Error(String(error)) }
+      stepOutcome = { error: toError(error) }
     } finally {
       handle.setAbort(undefined)
     }
@@ -345,6 +351,7 @@ async function runStep(
       callId: result.callId,
       content: result.content,
       isError: result.isError,
+      ...result.error ? { error: result.error } : {},
     })
     // signal CAN flip during the await above (abort() inside a tool);
     // the analyzer can't see through the await boundary.

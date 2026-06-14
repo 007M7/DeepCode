@@ -20,7 +20,7 @@
  */
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { assertNever } from '@deepseek-ai/dsh-llm'
+import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ToolDefinition, ToolExecution } from './index.ts'
 
 // ---------------------------------------------------------------------------
@@ -174,20 +174,17 @@ export function schemaSpecToJsonSchema(spec: SchemaSpec): JsonSchemaObject {
 
 /**
  * Thrown by a {@link defineTool} tool when the model-generated arguments don't
- * match the declared {@link SchemaSpec}. The registry's execute waterfall
- * catches it and returns an `isError` result so the model can self-correct.
- *
- * Plain `Error` for now (carries a `code` field); a later change promotes the
- * harness error taxonomy and this extends a common base.
+ * match the declared {@link SchemaSpec}. Extends {@link HarnessError}
+ * (`code: 'INVALID_ARGS'`); the registry's execute waterfall catches it and
+ * returns an `isError` ToolExecutionResult carrying the structured error, so
+ * the model can self-correct and downstream plugins can route on the code.
  */
-export class ToolArgsError extends Error {
-  /** Machine-routable code; stable across the message wording. */
-  readonly code = 'INVALID_ARGS'
+export class ToolArgsError extends HarnessError {
   /** The individual violation messages, in declaration order. */
   readonly violations: string[]
 
   constructor(violations: string[]) {
-    super(`invalid arguments: ${violations.join('; ')}`)
+    super(`invalid arguments: ${violations.join('; ')}`, 'INVALID_ARGS')
     this.name = 'ToolArgsError'
     this.violations = violations
   }

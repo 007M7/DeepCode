@@ -62,7 +62,7 @@ export interface SessionEventMap {
   /** Assembled assistant message for one step (derived history uses this). */
   'assistant/message': { turn: number; step: number; content: ContentBlock[] }
   'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
-  'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean }
+  'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string } }
   /** Steering content injected between steps of a running turn. */
   'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
   'usage': { turn: number; step: number; usage: TokenUsage }
