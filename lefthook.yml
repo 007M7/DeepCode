@@ -27,3 +27,6 @@ pre-push:
 
     - name: hygiene
       run: yarn hygiene
+
+    - name: doc-sync
+      run: yarn doc-sync
