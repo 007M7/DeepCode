@@ -222,16 +222,29 @@ describe('dev-freeze', () => {
     expect(Object.isFrozen(session.events[0])).toBe(true)
   })
 
-  it('is idempotent over already-frozen sub-structures', async () => {
+  it('freezes mutable descendants of a shallow-frozen event datum', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
-    // Pre-freeze a block before appending; deepFreeze must short-circuit on it
-    // (the already-frozen guard) while still freezing the enclosing event.
-    const block = Object.freeze({ type: 'text' as const, text: 'pre-frozen' })
-    const event = session.append('user/message', { content: [block], source: { kind: 'user' } })
-    expect(Object.isFrozen(event)).toBe(true)
-    expect(Object.isFrozen(event.data.content)).toBe(true)
-    expect(Object.isFrozen(event.data.content[0])).toBe(true)
+    // A caller hands in a SHALLOW-frozen block whose nested array is still
+    // mutable. deepFreeze must descend into the already-frozen object and
+    // freeze the descendant, not short-circuit on the frozen container —
+    // otherwise dev-mode misses exactly the history mutation ADR 0012 catches.
+    const innerContent: { type: 'text'; text: string }[] = [{ type: 'text', text: 'inner' }]
+    const block = Object.freeze({ type: 'tool-result' as const, toolCallId: CallId('c1'), content: innerContent, isError: false })
+    session.append('user/message', { content: [block], source: { kind: 'user' } })
+    expect(Object.isFrozen(block.content)).toBe(true)
+    expect(Object.isFrozen(block.content[0])).toBe(true)
+    expect(() => { block.content.push({ type: 'text', text: 'mutation' }) }).toThrow()
+  })
+
+  it('terminates on a cyclic event datum (WeakSet guard)', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    // A self-referential structure must not loop forever.
+    const cyclic: Record<string, unknown> = { type: 'text', text: 'x' }
+    cyclic['self'] = cyclic
+    expect(() => session.append('user/message', { content: [cyclic as never], source: { kind: 'user' } })).not.toThrow()
+    expect(Object.isFrozen(cyclic)).toBe(true)
   })
 })
 
