@@ -140,17 +140,22 @@ export class ToolRegistry extends Service {
    * with the calling fiber. Emits `tools/change` on register/unregister.
    */
   register(definition: ToolDefinition): () => void {
-    const dispose = this.ctx.effect(() => {
+    const dispose = this.ctx.effect(function* (this: ToolRegistry) {
       if (this.store.has(definition.name)) {
         throw new Error(`tool "${definition.name}" is already registered`)
       }
       this.store.set(definition.name, definition)
-      this.ctx.emit('tools/change')
-      return () => {
+      // Yield the rollback BEFORE emitting `tools/change`: a generator effect
+      // collects each yielded disposer before the next step runs, so a throwing
+      // `tools/change` listener removes the tool instead of leaking it (a leak
+      // would wedge the duplicate-name check until restart). The duplicate
+      // throw above fires before any mutation — it leaks nothing.
+      yield () => {
         this.store.delete(definition.name)
         this.ctx.emit('tools/change')
       }
-    }, 'tools.register()')
+      this.ctx.emit('tools/change')
+    }.bind(this), 'tools.register()')
     // ctx.effect's disposer returns Promise<void>; our disposer API is
     // synchronous fire-and-forget — discard the (always-resolved) promise.
     return () => void dispose()

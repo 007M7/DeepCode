@@ -167,15 +167,21 @@ export class SessionStore extends Service {
     const sessionId = SessionId(id ?? `session-${++this.counter}`)
     if (this.store.has(sessionId)) throw new Error(`session "${sessionId}" already exists`)
     const session = new Session(sessionId, seed)
-    this.ctx.effect(() => {
+    this.ctx.effect(function* (this: SessionStore) {
       session.onAppend = (event) => { this.ctx.emit('session/event', session, event) }
       this.store.set(sessionId, session)
-      this.ctx.emit('session/created', session)
-      return () => {
+      // Yield the rollback BEFORE emitting `session/created`: a generator
+      // effect collects each yielded disposer before the next step runs, so a
+      // throwing `session/created` listener detaches onAppend and removes the
+      // store entry instead of leaking them (a leak would wedge the
+      // already-exists check until restart). The duplicate throw above fires
+      // before any mutation — it leaks nothing.
+      yield () => {
         session.onAppend = undefined
         this.store.delete(sessionId)
       }
-    }, 'sessions.create()')
+      this.ctx.emit('session/created', session)
+    }.bind(this), 'sessions.create()')
     return session
   }
 

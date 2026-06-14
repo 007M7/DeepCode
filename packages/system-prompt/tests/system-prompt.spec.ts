@@ -34,6 +34,44 @@ describe('SystemPrompt', () => {
     expect(assembly.tools).toHaveLength(0)
   })
 
+  it('rolls back a section when a system-prompt/change listener throws (P1-1)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+
+    // Throw on the first emit only. Note the rollback path itself emits
+    // system-prompt/change, so a multi-shot guard would also fire on rollback;
+    // a single-shot guard isolates the register's own emit.
+    let threw = false
+    const off = ctx.on('system-prompt/change', () => {
+      if (!threw) { threw = true; throw new Error('boom change listener') }
+    })
+
+    expect(() => ctx.systemPrompt.section({ name: 'p', order: 0, text: 'persona' })).toThrow('boom change listener')
+    expect((await ctx.systemPrompt.assemble()).sections).toHaveLength(0) // nothing leaked
+
+    // Subsequent listener-free register contributes exactly once.
+    off()
+    ctx.systemPrompt.section({ name: 'p', order: 0, text: 'persona' })
+    expect((await ctx.systemPrompt.assemble()).sections.map(s => s.name)).toEqual(['p'])
+  })
+
+  it('rolls back a tool provider when a system-prompt/change listener throws (P1-1)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+
+    let threw = false
+    const off = ctx.on('system-prompt/change', () => {
+      if (!threw) { threw = true; throw new Error('boom change listener') }
+    })
+
+    expect(() => ctx.systemPrompt.tools(() => [{ name: 't', description: '', parameters: {} }])).toThrow('boom change listener')
+    expect((await ctx.systemPrompt.assemble()).tools).toHaveLength(0) // nothing leaked
+
+    off()
+    ctx.systemPrompt.tools(() => [{ name: 't', description: '', parameters: {} }])
+    expect((await ctx.systemPrompt.assemble()).tools.map(t => t.name)).toEqual(['t'])
+  })
+
   it('composes multiple system-prompt/assemble waterfall listeners in order', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)

@@ -80,19 +80,25 @@ export class LlmService extends Service {
    * fiber.
    */
   registerAdapter(models: string[], adapter: LlmAdapter): () => void {
-    const dispose = this.ctx.effect(() => {
+    const dispose = this.ctx.effect(function* (this: LlmService) {
       for (const model of models) {
         if (this.adapters.has(model)) {
           throw new LlmError(`an adapter for model "${model}" is already registered`, 'DUPLICATE_ADAPTER')
         }
       }
       for (const model of models) this.adapters.set(model, adapter)
-      this.ctx.emit('llm/adapter-change')
-      return () => {
+      // Yield the rollback BEFORE emitting the change event: a generator effect
+      // collects each yielded disposer before running the next step, so a
+      // throwing `llm/adapter-change` listener rolls the mutation back instead
+      // of leaking the entry (which would wedge the duplicate check until
+      // restart). The duplicate throws above fire before any mutation, so they
+      // correctly leak nothing.
+      yield () => {
         for (const model of models) this.adapters.delete(model)
         this.ctx.emit('llm/adapter-change')
       }
-    }, 'llm.registerAdapter()')
+      this.ctx.emit('llm/adapter-change')
+    }.bind(this), 'llm.registerAdapter()')
     // ctx.effect's disposer returns Promise<void>; our disposer API is
     // synchronous fire-and-forget — discard the (always-resolved) promise.
     return () => void dispose()

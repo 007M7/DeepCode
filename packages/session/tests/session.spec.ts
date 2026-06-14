@@ -132,4 +132,27 @@ describe('SessionStore', () => {
     session.append('user/message', { content: [{ type: 'text', text: 'late' }], source: { kind: 'user' } })
     expect(observed).toBe(0)
   })
+
+  it('rolls back the session (and onAppend) when a session/created listener throws (P1-1)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+
+    let threw = false
+    ctx.on('session/created', () => {
+      if (!threw) { threw = true; throw new Error('boom created listener') }
+    })
+
+    // The throwing emit must roll the store entry back, not leak it.
+    expect(() => ctx.sessions.create('fixed')).toThrow('boom created listener')
+    expect(ctx.sessions.get('fixed')).toBeUndefined() // rolled back, not leaked
+
+    // A subsequent create of the SAME id succeeds (the already-exists check is
+    // not wedged) and its onAppend is correctly wired (events observable).
+    const events: SessionEvent[] = []
+    ctx.on('session/event', (_session, event) => void events.push(event))
+    const session = ctx.sessions.create('fixed')
+    expect(ctx.sessions.get('fixed')).toBe(session)
+    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+    expect(events).toHaveLength(1)
+  })
 })
