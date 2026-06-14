@@ -43,6 +43,14 @@ jobs:
       - name: Lint
         run: yarn lint
 
+      # Doc-sync gates (RFC 006). doc-typecheck compiles the fenced ts blocks in
+      # the docs and resolves vendor packages via their built declarations, which
+      # the typecheck step above emits — so it runs after typecheck. The event
+      # taxonomy check only reads source. Same `doc-sync` script the pre-push
+      # hook runs (ADR 0007: one source of truth).
+      - name: Doc-sync gates (doc code blocks + event taxonomy)
+        run: yarn doc-sync
+
       - name: Tests with coverage gate (per-file 100%)
         run: yarn test:coverage
 

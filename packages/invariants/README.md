@@ -9,7 +9,10 @@ Dev-mode event-contract invariants and session-log freeze. A pure-listener plugi
 A functional plugin — register the module namespace (this is what loading by name in `cordis.yml` does):
 
 ```ts
+import type { Context } from 'cordis'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
+
+declare const ctx: Context
 
 await ctx.plugin(Invariants)                     // freeze on (default)
 await ctx.plugin(Invariants, { freeze: false })  // assert contract, don't freeze

@@ -7,5 +7,6 @@ lib/
 yarn-error.log
 examples/*/*.jsonl
 coverage/
+.doc-typecheck-*/
 .vscode/
 .DS_Store
