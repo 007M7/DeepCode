@@ -29,6 +29,7 @@ packages/    Harness packages, all named @deepseek-ai/dsh-<name>:
   tools/          tool registry + tools/execute waterfall
   agent/          Agent interface, registry, agent/* event vocabulary
   agent-loop/     THE concrete plugin: LoopAgent + the loop driver
+  invariants/     dev-mode event-contract invariants + session-log freeze
   bash/           abstract bash executor seam (ctx.bash) — interface only
   bash-local/     local-subprocess BashExecutor implementation
   tool-bash/      model-facing bash/bash_output/bash_kill tool schemas
@@ -62,6 +63,11 @@ yarn build          # tsc -b tsconfig.build.json && tsdown (JS bundles into lib/
 yarn knip           # dead-code / unused-dependency check
 yarn publint        # package.json publish-correctness check (publishable packages/*)
 yarn hygiene        # knip + publint + yarn constraints
+yarn doc-typecheck  # typecheck every ```ts block in README.md, docs/**/*.md,
+                    # packages/*/README.md (doc/code drift gate)
+yarn verify-event-taxonomy  # assert the event-taxonomy table in docs/architecture.md
+                    # matches the interface Events declarations in source
+yarn doc-sync       # doc-typecheck + verify-event-taxonomy (CI runs this)
 yarn demo:echo      # run examples/echo-agent (no API key; type "echo hi" to
                     # see a tool call) — the mock skeleton
 yarn demo:coding    # run examples/coding-agent — the real agent (needs
@@ -117,7 +123,7 @@ This codebase aims to be **very type-safe and well documented** for maintainabil
 
 In the **core** packages (`packages/llm`, `packages/tools`, `packages/agent`, `packages/agent-loop`, `packages/session`, `packages/system-prompt`), **type gymnastics are acceptable when they improve the DX of plugin authors** for common plugin types. The `defineTool` typed schema DSL in `dsh-tools` is the canonical example: the `SchemaSpec` to `InferArgs<S>` type-level mapping gives tool authors zero-cast typed `execute` args, and the cost of the conditional types stays inside the core package.
 
-Verbose documentation is fine **as long as docs and code stay strictly in sync**. Out-of-sync docs are worse than no docs. **When you change code, update its docs in the SAME change** — grep the package README and the module/JSDoc comments for the old behavior (config keys, defaults, error codes, wire field names, event names) and fix every hit. CI has no doc-sync gate, so this is on the author. Every module has a module-level doc comment explaining its role. Every exported class, interface, type, function, and non-obvious method has a JSDoc that explains semantics (not just the name) — contracts (what events fire when), disposal behavior, error behavior, and extension intent. Internal helpers get docs only where non-obvious. Prefer one-liners when one line suffices.
+Verbose documentation is fine **as long as docs and code stay strictly in sync**. Out-of-sync docs are worse than no docs. **When you change code, update its docs in the SAME change** — grep the package README and the module/JSDoc comments for the old behavior (config keys, defaults, error codes, wire field names, event names) and fix every hit. CI runs `yarn doc-sync` (`doc-typecheck` + `verify-event-taxonomy`), which typechecks every fenced `ts` block in `README.md`, `docs/**/*.md`, and `packages/*/README.md` and verifies the event-taxonomy table against source — but that scope does NOT cover `AGENTS.md`, `packages/AGENTS.md`, or `packages/README.md`, nor does it catch prose drift (config keys, defaults, error codes), so keeping those in sync remains on the author. Every module has a module-level doc comment explaining its role. Every exported class, interface, type, function, and non-obvious method has a JSDoc that explains semantics (not just the name) — contracts (what events fire when), disposal behavior, error behavior, and extension intent. Internal helpers get docs only where non-obvious. Prefer one-liners when one line suffices.
 
 **Markdown is not hard-wrapped**: write one line per paragraph and let the editor soft-wrap. Hard line breaks mid-paragraph make docs harder to edit and diff — a one-word change reflows and re-diffs the whole paragraph. This applies to prose only: leave fenced code blocks, tables, and list structure intact (a wrapped list item folds to one line per bullet). Code comments / JSDoc are exempt — they stay under the linter's column limit.
 
