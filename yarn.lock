@@ -706,6 +706,21 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@deepseek-ai/dsh-session-persistence-sqlite@workspace:packages/session-persistence-sqlite":
+  version: 0.0.0-use.local
+  resolution: "@deepseek-ai/dsh-session-persistence-sqlite@workspace:packages/session-persistence-sqlite"
+  dependencies:
+    "@deepseek-ai/dsh-session": "npm:^0.0.1"
+    "@deepseek-ai/dsh-session-persistence": "npm:^0.0.1"
+    cordis: "npm:^4.0.0-rc.6"
+    schemastery: "npm:^3.18.0"
+  peerDependencies:
+    "@deepseek-ai/dsh-session": ^0.0.1
+    "@deepseek-ai/dsh-session-persistence": ^0.0.1
+    cordis: ^4.0.0-rc.6
+  languageName: unknown
+  linkType: soft
+
 "@deepseek-ai/dsh-session-persistence@npm:^0.0.1, @deepseek-ai/dsh-session-persistence@workspace:packages/session-persistence":
   version: 0.0.0-use.local
   resolution: "@deepseek-ai/dsh-session-persistence@workspace:packages/session-persistence"

@@ -26,7 +26,7 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 
 Import `runPersistenceContract` from `tests/contract.ts` and call it with a factory that yields a fresh, empty backend plus a teardown. Every backend is held to the same append-only / contiguous-seq / lazy-materialization / serializability semantics; a backend's own spec adds implementation-specific tests (crash repair, path sanitization) on top.
 
-> **TODO (validate the abstraction with a second backend):** `dsh-session-persistence-jsonl` is currently the only implementation, so the interface and `runPersistenceContract` are only proven against one storage model. A second backend — a SQLite implementation (`dsh-session-persistence-sqlite`), where each `SessionEvent` maps 1:1 onto a row `(session_id, seq, type, time, data)` — would run the SAME `runPersistenceContract` suite and so prove the seam is genuinely backend-agnostic (lazy materialization, crash-tail-on-load, contiguous-seq all expressed against a transactional store rather than an append-only file).
+Two backends run this suite: `dsh-session-persistence-jsonl` (append-only file log) and `dsh-session-persistence-sqlite` (`node:sqlite`, each `SessionEvent` one row `(session_id, seq, type, time, data)`). Both passing the same contract is the proof that the seam is genuinely backend-agnostic — lazy materialization, crash-tail-on-load, and contiguous-seq hold identically over file bytes and over a transactional store.
 
 ## Metadata types
 

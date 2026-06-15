@@ -8,6 +8,7 @@ const packages = [
   'packages/session',
   'packages/session-persistence',
   'packages/session-persistence-jsonl',
+  'packages/session-persistence-sqlite',
   'packages/system-prompt',
   'packages/tools',
   'packages/agent',

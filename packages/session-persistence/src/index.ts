@@ -4,9 +4,12 @@
  * list, and update sessions — without saying HOW. Implementations subclass
  * {@link SessionPersistence} and register themselves as the
  * `sessionPersistence` service; `@deepseek-ai/dsh-session-persistence-jsonl`
- * (an append-only JSONL log per session) is the first. Future backends swap in
- * SQLite/WAL, an object store, or a remote service without touching the
- * consumers (the write-path plugin, the agent-loop resume seam).
+ * (an append-only JSONL log per session) is the first and
+ * `@deepseek-ai/dsh-session-persistence-sqlite` (`node:sqlite`, one row per
+ * event) is a second that validates the seam is backend-agnostic by passing
+ * the same `runPersistenceContract` suite. Further backends swap in an object
+ * store or a remote service without touching the consumers (the write-path
+ * plugin, the agent-loop resume seam).
  *
  * The persisted unit IS the existing {@link SessionEvent} — there is no
  * parallel "persisted message" type the log must be converted to and from
