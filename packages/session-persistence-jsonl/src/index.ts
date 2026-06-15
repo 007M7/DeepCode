@@ -424,20 +424,38 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     // final path already exists, so two processes materializing the same id
     // concurrently cannot clobber each other (both could pass the exists() check
     // above, but only one link() wins). rename() would silently overwrite the
-    // log the other process just committed. The temp link is always removed,
-    // whether link() succeeds or throws (EEXIST on a race, or any I/O error).
+    // log the other process just committed.
+    let linked = false
     try {
       await link(tmp, finalPath)
+      linked = true
     } finally {
-      await rm(tmp, { force: true })
+      // If link FAILED (EEXIST on a race, or any I/O error), the temp is the
+      // only reference and must be removed before the original error propagates.
+      // If link SUCCEEDED, the temp cleanup is deferred to AFTER the publish is
+      // durable (below) so a temp-rm failure can never reject a session whose
+      // log already published — that would leave state.materialized false and
+      // wedge every retry on the exists() backstop above.
+      /* v8 ignore next -- link failure is the TOCTOU/IO race guarded above; not reachable in test */
+      if (!linked) await rm(tmp, { force: true })
     }
-    // fsync the directory so the new entry survives a power loss: on POSIX
-    // filesystems the new link is not crash-durable until the parent directory's
-    // metadata is synced. The seam contract is "append returns once durable",
-    // and materialize is the first append's write — so the directory entry must
-    // be durable before we return.
+    // link() succeeded — the log is published. fsync the directory so the new
+    // entry survives a power loss: on POSIX filesystems the new link is not
+    // crash-durable until the parent directory's metadata is synced. The seam
+    // contract is "append returns once durable", and materialize is the first
+    // append's write — so the directory entry must be durable before we return.
     await this.syncDir(dir)
     state.materialized = true
+    // Best-effort temp cleanup: the log is already published and durable, so a
+    // failure to remove the (now-redundant) temp hard link must NOT reject the
+    // append. A leftover `*.tmp` is harmless — it is never read, and the next
+    // materialize of this id is guarded by exists()/link(). Swallow only the
+    // rm failure; nothing else of consequence runs in the try.
+    try {
+      await rm(tmp, { force: true })
+    } catch {
+      /* v8 ignore next -- redundant temp link; publish already durable, rm failure is an unreachable IO edge */
+    }
   }
 
   /** fsync a directory so a just-created/renamed entry inside it is crash-durable. */
