@@ -141,6 +141,50 @@ describe('LoopAgent', () => {
     expect(flushes).toBe(1) // checkpoint fired despite the throw
   })
 
+  it('idle inject() still checkpoints when a listener throws on the synthetic turn/end', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    let flushes = 0
+    ctx.on('session/flush', () => { flushes += 1 })
+    // A session/event listener that throws on the synthetic turn/end. Append
+    // pushes before notifying, so turn/end is in the log (turn balanced) but the
+    // throw must NOT skip the durability checkpoint — the flush decision is made
+    // from the log, not a flag set after the (throwing) append.
+    let threw = false
+    ctx.on('session/event', (_s, event) => {
+      if (!threw && event.type === 'turn/end') { threw = true; throw new Error('boom turn/end') }
+    })
+
+    expect(() => { agent.inject([{ type: 'text', text: 'notice' }], { source: { kind: 'plugin', plugin: 'p' } }) }).not.toThrow()
+    const types = agent.session.events.map(e => e.type)
+    expect(types).toEqual(['turn/start', 'context/message', 'turn/end']) // balanced
+    await new Promise(r => setTimeout(r, 10))
+    expect(flushes).toBe(1) // checkpoint fired despite the throwing turn/end listener
+  })
+
+  it('idle inject() reports a failing flush via agent/error (step 0) AND the logger', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    // A non-Error rejection exercises the String() normalization branch.
+    ctx.on('session/flush', () => { throw 'disk gone' })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const errors: { turn: number; step: number; message: string }[] = []
+    ctx.on('agent/error', (_a, turn, step, error) => void errors.push({ turn, step, message: error.message }))
+
+    agent.inject([{ type: 'text', text: 'notice' }], { source: { kind: 'plugin', plugin: 'p' } })
+    await new Promise(r => setTimeout(r, 20)) // let the contained flush settle
+
+    // Reported via agent/error (step 0 — the idle-injection convention) so
+    // plugins monitoring agent/error see idle-injection persistence failures,
+    // mirroring the loop's post-turn/end flush path. A non-Error throw is
+    // normalized to an Error.
+    expect(errors).toEqual([{ turn: 1, step: 0, message: 'disk gone' }])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('flush after idle injection failed'))
+    warn.mockRestore()
+  })
+
   it('idle inject() with a non-serializable source opens no turn (nothing to close)', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)

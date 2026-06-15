@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, isJsonValue } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
 import { SessionPersistence } from '../src/index.ts'
 import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
@@ -30,7 +30,7 @@ class MemoryPersistence extends SessionPersistence {
     for (let i = 0; i < events.length; i++) {
       const e = events[i]!
       if (e.seq !== nextSeq + i) throw new Error(`non-contiguous seq in batch for "${id}" at index ${i}`)
-      if (containsNonSerializable(e.data)) {
+      if (!isJsonValue(e.data)) {
         throw new Error(`event "${e.type}" carries non-JSON-serializable data`)
       }
     }
@@ -66,15 +66,6 @@ class MemoryPersistence extends SessionPersistence {
     const entry = this.store.get(id)
     if (entry) Object.assign(entry.meta, summary)
   }
-}
-
-/** Detect BigInt (and other JSON-hostile values) in event data. */
-function containsNonSerializable(value: unknown): boolean {
-  if (typeof value === 'bigint' || typeof value === 'function' || typeof value === 'symbol') return true
-  if (value && typeof value === 'object') {
-    return Object.values(value).some(containsNonSerializable)
-  }
-  return false
 }
 
 // Run the shared contract against the in-memory backend.

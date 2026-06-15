@@ -1014,6 +1014,36 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.fiber.dispose()
   })
 
+  it('list surfaces a non-ENOENT root error (ENOTDIR) instead of reporting no sessions', async () => {
+    // A durable backend must NOT collapse a storage fault to "no sessions". Point
+    // the root at a regular FILE: readdir then fails with ENOTDIR, which must
+    // propagate rather than be swallowed as an empty listing.
+    const filePath = join(root, 'not-a-dir')
+    await writeFile(filePath, 'x')
+    const ctx2 = new Context()
+    await ctx2.plugin(SessionStore)
+    await ctx2.plugin(SessionPersistenceJsonl, { root: filePath })
+    await expect(ctx2.sessionPersistence.list()).rejects.toThrow(/ENOTDIR/)
+    await ctx2.fiber.dispose()
+  })
+
+  it('exists() surfaces a non-ENOENT lookup error (ENOTDIR) instead of reporting absent', async () => {
+    // Same contract on the existence path: a non-ENOENT error from the per-id
+    // open() must surface, not be collapsed to "not found" (which would let a
+    // collision check proceed under a false absence assumption). A LAZY session
+    // (created, never appended) keeps its cwd in state, so has() reaches
+    // findLog(id, cwd) → exists(logPath). Make that cwd's bucket DIRECTORY a
+    // regular file: open()ing `bucket/<id>.jsonl` under it then fails ENOTDIR.
+    const cwd = '/x'
+    const ctx2 = new Context()
+    await ctx2.plugin(SessionStore)
+    await ctx2.plugin(SessionPersistenceJsonl, { root })
+    await ctx2.sessionPersistence.create(meta('exists-fault', cwd)) // lazy: no bucket yet
+    await writeFile(sessionDir(root, cwd), 'x') // bucket path is now a FILE
+    await expect(ctx2.sessionPersistence.has(SessionId('exists-fault'))).rejects.toThrow(/ENOTDIR/)
+    await ctx2.fiber.dispose()
+  })
+
   it('append() to a disk-only session adopts it and repairs a crash tail', async () => {
     // Persist a session, then corrupt its tail, all through ONE backend.
     const m = meta('disk-append', '/d')

@@ -23,7 +23,7 @@
 
 import { Context } from 'cordis'
 import z from 'schemastery'
-import { open, mkdir, readFile, readdir, rename, link, rm, writeFile, truncate } from 'node:fs/promises'
+import { open, mkdir, readFile, readdir, rename, link, rm, truncate } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
@@ -101,6 +101,19 @@ function assertSerializable(events: readonly SessionEvent[]): void {
       throw new Error(`event "${event.type}" carries non-JSON-serializable data (seq ${event.seq})`)
     }
   }
+}
+
+/**
+ * Whether `error` is a "no such file/directory" (`ENOENT`) failure — the ONLY
+ * filesystem error that legitimately means "this session/root is absent" for a
+ * durable backend. Any OTHER error (`EACCES`, `ENOTDIR`, transient I/O) must
+ * surface rather than be silently reported as absence: masking it would let
+ * `list()` report no sessions, `load()` report "not found", and collision
+ * checks proceed under a false absence assumption — all unsafe for durable
+ * persistence. (A NodeJS filesystem rejection carries a string `code`.)
+ */
+function isENOENT(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
 }
 
 /**
@@ -504,7 +517,17 @@ export class SessionPersistenceJsonl extends SessionPersistence {
       ...meta.firstPrompt !== undefined ? { firstPrompt: meta.firstPrompt } : {},
     }
     const tmp = `${path}.${randomBytes(6).toString('hex')}.tmp`
-    await writeFile(tmp, JSON.stringify(summary), { mode: 0o600 })
+    // Exclusive owner-only create ('wx', 0o600), matching the log-materialization
+    // temp write: the sidecar can carry user data (title/firstPrompt), so a
+    // predictable/pre-existing temp path must never be silently truncated and
+    // followed (symlink race / disclosure). The random suffix already makes a
+    // collision unlikely; 'wx' makes reuse an error rather than a clobber.
+    const handle = await open(tmp, 'wx', 0o600)
+    try {
+      await handle.writeFile(JSON.stringify(summary))
+    } finally {
+      await handle.close()
+    }
     await rename(tmp, path)
   }
 
@@ -550,8 +573,13 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     try {
       const entries = await readdir(this.root, { withFileTypes: true })
       return entries.filter(e => e.isDirectory()).map(e => `${this.root}/${e.name}`)
-    } catch {
-      return [] // root does not exist yet → no sessions
+    } catch (error) {
+      // ENOENT = the root has not been created yet → genuinely no sessions.
+      // Any other error (EACCES, ENOTDIR, transient I/O) must NOT be reported
+      // as "no sessions" — a durable backend cannot silently pretend persisted
+      // state is absent on a storage fault.
+      if (isENOENT(error)) return []
+      throw error
     }
   }
 
@@ -565,8 +593,12 @@ export class SessionPersistenceJsonl extends SessionPersistence {
       const handle = await open(path, 'r')
       await handle.close()
       return true
-    } catch {
-      return false
+    } catch (error) {
+      // Only ENOENT means absent. A permission/I/O error must surface, not be
+      // collapsed to `false` — otherwise load() reports "not found" and
+      // collision checks proceed under a false absence assumption.
+      if (isENOENT(error)) return false
+      throw error
     }
   }
 

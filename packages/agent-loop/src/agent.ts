@@ -93,29 +93,51 @@ export class LoopAgent implements Agent {
     // open injection turn that would corrupt later turns/replay. (If the
     // turn/start append throws BEFORE pushing — non-serializable trigger, which
     // can't happen for our fixed trigger — no turn was opened and none is owed.)
-    let turnRecorded = false
     try {
       this.session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
       this.session.append('context/message', { content, source })
     } finally {
-      // A turn was recorded iff turn/start made it into the log. Close it and
-      // mark it for the durability checkpoint below — which must run even when
-      // an append's listener threw (the turn is balanced and in memory, so it
-      // still needs a flush or a crash before the next turn/dispose loses it).
+      // Close the turn if turn/start made it into the log. Contain a throwing
+      // turn/end listener: Session.append pushes before notifying, so a throw
+      // here still leaves turn/end in the log (the turn is balanced) — swallow
+      // it so it neither replaces the original exception nor skips the flush
+      // decision below. (It surfaces through the flush path is not needed; the
+      // turn-balance contract is what matters and it holds.)
       if (isTurnOpen(this.session)) {
-        this.session.append('turn/end', { turn, reason: { kind: 'completed' } })
-        turnRecorded = true
+        try {
+          this.session.append('turn/end', { turn, reason: { kind: 'completed' } })
+        } catch {
+          // turn/end is already in the log (pushed before the listener threw),
+          // so the turn is balanced; the throw is the listener's bug.
+        }
       }
+      // Decide the durability checkpoint from the LOG, not a flag: a turn was
+      // recorded iff this turn's turn/start is logged (it may have been closed
+      // by a throwing-listener turn/end above, which still counts). A
+      // `turnRecorded` boolean set after append('turn/end') would be skipped by
+      // a throwing turn/end listener, losing the flush for a balanced in-memory
+      // turn (crash before the next turn/dispose would drop the idle injection).
+      const turnRecorded = this.session.events.some(e => e.type === 'turn/start' && e.data.turn === turn)
       // Checkpoint the one-shot turn for durability, exactly as the loop does at
       // every turn/end. The loop is NOT running (we are idle), so nothing else
       // will flush this turn. Fire-and-forget with error containment: inject()
       // is synchronous, and a persistence backend failing must not throw into
       // the caller (e.g. a tool-bash task-done callback). Disposal still drains
-      // independently, so a slow flush is safe. In the finally so it also runs
-      // when an append's listener threw (the turn is still balanced + durable).
+      // independently, so a slow flush is safe. A flush failure is reported via
+      // agent/error (step 0 — the idle-injection convention, there is no real
+      // step) AND the logger, mirroring the loop's post-turn/end flush path so
+      // plugins monitoring agent/error see idle-injection persistence failures
+      // too. A throwing agent/error listener is contained.
       if (turnRecorded) {
         void Promise.resolve(this.ctx.parallel('session/flush', this.session)).catch((error: unknown) => {
-          this.ctx.logger.warn(`agent "${this.id}": flush after idle injection failed: ${String(error)}`)
+          const err = error instanceof Error ? error : new Error(String(error))
+          this.ctx.logger.warn(`agent "${this.id}": flush after idle injection failed: ${err.message}`)
+          try {
+            this.ctx.emit('agent/error', this, turn, 0, err)
+          } catch {
+            // contained: the failure is already logged; a throwing agent/error
+            // listener must not escape this fire-and-forget catch.
+          }
         })
       }
     }

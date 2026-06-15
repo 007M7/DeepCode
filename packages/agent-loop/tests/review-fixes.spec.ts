@@ -822,13 +822,15 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(errorEmits).toHaveLength(0)
   })
 
-  it('a throw at the turn/start append (before turnStarted) is rethrown to the runLoop backstop', async () => {
-    // A session/event listener that throws specifically on the turn/start
-    // event makes session.append('turn/start') throw while turnStarted is
-    // still false. runTurn must NOT try to close a turn it never opened — it
-    // rethrows, and the runLoop backstop records the error and survives.
-    // (Uses the plain harness — NOT the invariants oracle — because the
-    // throwing listener is itself a session/event subscriber.)
+  it('a throwing session/event listener on the turn/start append still balances the turn', async () => {
+    // Session.append pushes the event BEFORE notifying session/event listeners,
+    // so a listener throwing on turn/start leaves turn/start IN THE LOG. The
+    // loop must therefore still owe (and append) a turn/end — deciding "owed"
+    // from the log via isTurnOpen, not a "turn started" flag that the throw
+    // skipped. Otherwise the turn stays permanently open and poisons the next
+    // turn/replay (ADR 0017). (Uses the plain harness — NOT the invariants
+    // oracle — because the throwing listener is itself a session/event
+    // subscriber.)
     const adapter = new MockAdapter([textResponse('turn 2')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create('a-preturn', { model: 'mock' })
@@ -843,10 +845,18 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    // The backstop logged exactly one error for the failed pre-turn append.
+    // The error was surfaced exactly once via agent/error.
     expect(errors.map(e => e.message)).toEqual(['boom turn/start append'])
-    // No turn/end was appended (none is owed — the turn never opened).
-    expect([...agent.session.events].some(e => e.type === 'turn/end')).toBe(false)
+    // The turn is BALANCED: turn/start is in the log (it was pushed before the
+    // listener threw), so a turn/end was owed and appended — no open turn. The
+    // last turn-boundary event being turn/end is exactly the loop's isTurnOpen
+    // check (no open turn remains).
+    const types = [...agent.session.events].map(e => e.type)
+    expect(types.filter(t => t === 'turn/start')).toHaveLength(1)
+    expect(types.filter(t => t === 'turn/end')).toHaveLength(1)
+    const lastBoundary = [...agent.session.events].reverse().find(e => e.type === 'turn/start' || e.type === 'turn/end')
+    expect(lastBoundary?.type).toBe('turn/end')
+    expect(agent.session.events.at(-1)?.type).toBe('turn/end')
 
     // loop survives: a second turn runs normally.
     send(agent, 'second')
