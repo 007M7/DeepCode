@@ -181,16 +181,27 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
   const closeStep = (): void => {
     if (!stepOpen) return
     stepOpen = false
-    session.append('step/end', { turn, step })
+    // Session.append pushes step/end BEFORE notifying session/event listeners,
+    // so a throwing listener leaves step/end in the log (balance holds) but
+    // would otherwise abort finalization. Contain it and surface it as a turn
+    // error below — the same outcome as a throwing agent/step-end listener.
+    let failure: unknown
+    try {
+      session.append('step/end', { turn, step })
+    } catch (error: unknown) {
+      failure = error
+    }
     try {
       ctx.emit('agent/step-end', agent, turn, step)
     } catch (error: unknown) {
-      // step/end is already recorded so balance holds; surface the throwing
-      // listener as a turn error via failTurn (idempotent). This prevents a
-      // throwing step-end listener from producing a silent "completed" turn
-      // when the step itself succeeded (the normal-path closeStep call).
-      failTurn(toError(error))
+      failure ??= error
     }
+    // A throwing step/end session-event listener OR a throwing agent/step-end
+    // listener surfaces as a turn error via failTurn (idempotent). This prevents
+    // a throwing listener from producing a silent "completed" turn when the step
+    // itself succeeded, AND keeps finalization going when closeStep runs from
+    // the outer catch.
+    if (failure !== undefined) failTurn(toError(failure))
   }
 
   // Record a step/turn failure exactly once: append the single `error` event
@@ -208,8 +219,18 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     // backend treats it as a crash tail and drops it on resume (ADR 0017). In
     // that case report via agent/error + the logger only; the turn is balanced.
     if (!turnEnded) {
-      session.append('error', { turn, step, ...errorData(err) })
+      // Set `reason` BEFORE the append: Session.append pushes the error event
+      // before notifying session/event listeners, so a throwing listener would
+      // otherwise leave `reason` unset (and closeTurn would record the wrong
+      // reason / the outer catch would skip closeTurn). The append is contained
+      // — the error event is already in the log either way; a throwing listener
+      // must not abort finalization.
       reason = { kind: 'error', ...errorData(err) }
+      try {
+        session.append('error', { turn, step, ...errorData(err) })
+      } catch (appendError: unknown) {
+        ctx.logger.warn(`agent "${agent.id}": session/event listener threw on the error event at turn ${turn}: ${toError(appendError).message}`)
+      }
     } else {
       ctx.logger.warn(`agent "${agent.id}": agent/turn-end listener threw after turn ${turn} closed: ${err.message}`)
     }
@@ -229,7 +250,19 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
   const closeTurn = (emit: boolean): void => {
     if (turnEnded) return
     turnEnded = true
-    session.append('turn/end', { turn, reason })
+    // Session.append pushes turn/end BEFORE notifying session/event listeners,
+    // so a throwing listener leaves turn/end in the log (the turn is balanced)
+    // but would otherwise escape — from the outer catch's closeTurn(false) it
+    // would propagate to the runLoop backstop, and from the normal-path
+    // closeTurn(true) it would skip the agent/turn-end emit. Contain it: the
+    // boundary is durable either way, and finalization must not abort on a bad
+    // listener. (On the normal path the outer catch also re-runs closeTurn,
+    // which is an idempotent no-op once turnEnded is set.)
+    try {
+      session.append('turn/end', { turn, reason })
+    } catch (error: unknown) {
+      ctx.logger.warn(`agent "${agent.id}": session/event listener threw on turn/end at turn ${turn}: ${toError(error).message}`)
+    }
     if (emit) ctx.emit('agent/turn-end', agent, turn, reason)
   }
 
