@@ -57,9 +57,10 @@ describe('agent loop', () => {
     expect(order).toEqual(['agent/turn-start', 'agent/step-start', 'agent/step-end', 'agent/turn-end'])
 
     const types = agent.session.events.map(e => e.type)
-    // user message recorded before turn/start, assembled message + usage present
-    expect(types[0]).toBe('user/message')
-    expect(types[1]).toBe('turn/start')
+    // turn/start opens the turn, THEN the queued user message is recorded inside
+    // it (every event is turn-enclosed), then assembled message + usage.
+    expect(types[0]).toBe('turn/start')
+    expect(types[1]).toBe('user/message')
     expect(types).toContain('assistant/message')
     expect(types).toContain('usage')
     expect(types.at(-1)).toBe('turn/end')
@@ -199,22 +200,60 @@ describe('agent loop', () => {
     expect(agent.session.events.some(e => e.type === 'user/message')).toBe(true)
   })
 
-  it('inject() appends context visible to the next request without starting a turn', async () => {
+  it('inject() while idle wraps context in a one-shot turn, visible to the next request', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create('a1', { model: 'mock' })
 
     agent.inject([{ type: 'text', text: 'file changed: a.ts' }], { source: { kind: 'plugin', plugin: 'watcher' } })
-    // no turn started
+    // The idle inject records a self-contained turn (turn/start → context/message
+    // → turn/end) so the event stays turn-enclosed, but does NOT run the model.
     await new Promise(r => setTimeout(r, 20))
     expect(agent.status).toBe('idle')
     expect(adapter.requests).toHaveLength(0)
+    const injectedTurn = agent.session.events.filter(e => e.type === 'turn/start')
+    expect(injectedTurn).toHaveLength(1)
+    const it0 = injectedTurn[0]!
+    expect(it0.type === 'turn/start' && it0.data.trigger.kind).toBe('injection')
+    expect(agent.session.events.at(-1)!.type).toBe('turn/end') // turn-enclosed
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
     const flat = JSON.stringify(adapter.requests[0]!.messages)
     expect(flat).toContain('file changed: a.ts')
     expect(flat).toContain('<context source=\\"plugin\\">')
+  })
+
+  it('inject() while running appends into the open turn (no extra synthetic turn)', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'noticer', {}, 'calling'),
+      textResponse('done'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    // A tool that injects mid-execution: at this point the agent is running, so
+    // inject must append the context/message into the ALREADY-open turn rather
+    // than wrap it in its own one-shot turn.
+    ctx.tools.register(defineTool({
+      name: 'noticer',
+      description: 'injects a notice',
+      parameters: {},
+      async execute() {
+        agent.inject([{ type: 'text', text: 'mid-turn notice' }], { source: { kind: 'plugin', plugin: 'x' } })
+        return [{ type: 'text', text: 'ok' }]
+      },
+    }))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    // Exactly ONE turn ran (no synthetic injection turn), and the mid-turn
+    // context/message sits inside it.
+    const turnStarts = agent.session.events.filter(e => e.type === 'turn/start')
+    expect(turnStarts).toHaveLength(1)
+    const ts0 = turnStarts[0]!
+    expect(ts0.type === 'turn/start' && ts0.data.trigger.kind).toBe('message')
+    expect(agent.session.events.some(e => e.type === 'context/message')).toBe(true)
   })
 
   it('agent/turn-continuation can force-continue (/loop pattern) and force-stop', async () => {

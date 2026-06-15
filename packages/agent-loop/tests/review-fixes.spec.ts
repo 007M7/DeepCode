@@ -854,6 +854,39 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(adapter.requests).toHaveLength(1)
   })
 
+  it('a throwing turn-end listener on a SUCCESSFUL turn leaves no event after turn/end (loadable log)', async () => {
+    // Regression: a normal turn completes, closeTurn(true) appends turn/end and
+    // emits agent/turn-end whose listener throws. The error must NOT be appended
+    // as a session event after turn/end — that would sit past the commit
+    // boundary and be dropped as a crash tail on resume (ADR 0017). It is
+    // surfaced via agent/error instead, and the log's last event is turn/end.
+    const adapter = new MockAdapter([textResponse('done'), textResponse('next ok')])
+    const ctx = await balancedHarness(adapter)
+    const agent = ctx.agentLoop.create('a-tend', { model: 'mock' })
+
+    let threw = false
+    ctx.on('agent/turn-end', () => { if (!threw) { threw = true; throw new Error('boom turn-end') } })
+    const errors: Error[] = []
+    ctx.on('agent/error', (_a, _t, _s, error) => void errors.push(error))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const c = boundaryCounts(agent)
+    expect(c.turnEnd).toBe(1)
+    expect(c.errors).toBe(0) // NO session error event (it would be post-turn/end)
+    expect(agent.session.events.at(-1)?.type).toBe('turn/end') // last event is the boundary
+    expect(errors.map(e => e.message)).toEqual(['boom turn-end']) // surfaced via agent/error
+    // The whole log is loadable (nothing dropped): a fresh replay sees the turn.
+    const replay = new Session(SessionId('replay'), [...agent.session.events])
+    expect(replay.deriveMessages().map(m => m.role)).toEqual(['user', 'assistant'])
+
+    // loop survives.
+    send(agent, 'again')
+    await waitForIdle(ctx, agent)
+    expect(boundaryCounts(agent).turnEnd).toBe(2)
+  })
+
   it('a step error followed by a throwing turn-end listener logs the error exactly once (no double-report)', async () => {
     // The step fails (finish-error) → failTurn records ONE error and sets the
     // error reason. closeTurn(true) then appends turn/end and emits

@@ -91,7 +91,7 @@ export interface LoopHandle {
  * forever:
  *   wait for queued messages (idle)
  *   TURN (error-contained — a throwing plugin ends the turn, never the loop):
- *     drain queued → session('user/message'…) → 'turn/start' → emit agent/turn-start
+ *     drain queued → 'turn/start' → session('user/message'…) → emit agent/turn-start
  *     STEP loop:
  *       drain steering → session('steering/message')  ⟵ catches late steering
  *       session('step/start'); emit agent/step-start    ⟵ append before emit (ADR 0003)
@@ -118,24 +118,31 @@ export interface LoopHandle {
  */
 export async function runLoop(ctx: Context, agent: LoopAgent, handle: LoopHandle): Promise<void> {
   const { session } = agent
-  let turn = lastTurnNumber(session) // seeded/forked sessions continue numbering
 
   while (!handle.isDisposed()) {
     await agent.inbox.waitForQueued(handle.disposed)
     if (handle.isDisposed()) break
 
     handle.setStatus('running')
-    turn += 1
+    // Re-derive the turn number from the log each iteration (do NOT keep a local
+    // counter): an idle `agent.inject()` can append its own one-shot turn while
+    // the loop waits above, so the next real turn must continue from whatever
+    // turn number is actually last in the log — a stale counter would collide.
+    const turn = lastTurnNumber(session) + 1
     try {
       await runTurn(ctx, agent, handle, turn)
     } catch (error: unknown) {
-      // Backstop: a throwing emit listener (turn boundaries) or a broken
-      // finalizer must not kill the driver. Record what we can and move on.
+      // Backstop: runTurn rethrows only a PRE-turn throw (the invariant guard
+      // before turn/start) — no turn/start was appended, so no turn is open and
+      // none is owed. A session `error` here would land outside any turn (after
+      // the previous turn/end), where the persistence backend drops it as a
+      // crash tail (ADR 0017). Report via agent/error + the logger only; the
+      // driver survives and moves on.
+      const err = toError(error)
+      ctx.logger.warn(`agent "${agent.id}": turn ${turn} failed before it started: ${err.message}`)
       try {
-        const err = toError(error)
-        session.append('error', { turn, step: 0, ...errorData(err) })
         ctx.emit('agent/error', agent, turn, 0, err)
-      } catch { /* the error path itself is broken; nothing left to do */ }
+      } catch { /* contained: a throwing agent/error listener must not kill the driver */ }
     }
 
     // Steering that arrived too late to join this turn (turn-end listeners,
@@ -151,17 +158,15 @@ export async function runLoop(ctx: Context, agent: LoopAgent, handle: LoopHandle
 async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn: number): Promise<void> {
   const { session } = agent
 
-  // --- Pre-turn. A throw here (the invariant guard or a user-message append)
-  // is owed NO turn/end — turn/start has not been appended — so it propagates
-  // to runLoop's backstop untouched.
+  // --- Pre-turn. A throw here (the invariant guard) is owed NO turn/end —
+  // turn/start has not been appended — so it propagates to runLoop's backstop
+  // untouched. The queued messages are drained here but appended AFTER
+  // turn/start (below), so every event in the log lives inside a turn.
   const queued = agent.inbox.drainQueued()
   const first = queued[0]
   /* v8 ignore next 3 -- invariant guard: runLoop only calls runTurn when hasQueued */
   if (!first) throw new Error('runTurn invariant violated: no queued message at turn start')
   const trigger: TurnTrigger = { kind: 'message', source: first.source }
-  for (const message of queued) {
-    session.append('user/message', { content: message.content, source: message.source })
-  }
 
   let reason: TurnEndReason = { kind: 'completed' }
   let step = 0
@@ -186,16 +191,26 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     }
   }
 
-  // Record a step/turn failure exactly once: append the single `error` event,
-  // set the error reason, and emit agent/error (contained — trap: a throwing
-  // agent/error listener must not re-escape and strand the turn). Disposal and
-  // abort set `reason` directly without calling this (no `error` event for
-  // those — they are not failures).
+  // Record a step/turn failure exactly once: append the single `error` event
+  // (only while the turn is still open — see below), set the error reason, and
+  // emit agent/error (contained — trap: a throwing agent/error listener must not
+  // re-escape and strand the turn). Disposal and abort set `reason` directly
+  // without calling this (no `error` event for those — they are not failures).
   const failTurn = (err: CodedError): void => {
     if (errorReported) return
     errorReported = true
-    session.append('error', { turn, step, ...errorData(err) })
-    reason = { kind: 'error', ...errorData(err) }
+    // Only append the session `error` INSIDE the turn (before turn/end). If the
+    // turn has already ended — the only way here is a throwing agent/turn-end
+    // listener after closeTurn(true) already appended turn/end — appending now
+    // would land the error AFTER the last turn/end, where the persistence
+    // backend treats it as a crash tail and drops it on resume (ADR 0017). In
+    // that case report via agent/error + the logger only; the turn is balanced.
+    if (!turnEnded) {
+      session.append('error', { turn, step, ...errorData(err) })
+      reason = { kind: 'error', ...errorData(err) }
+    } else {
+      ctx.logger.warn(`agent "${agent.id}": agent/turn-end listener threw after turn ${turn} closed: ${err.message}`)
+    }
     try {
       ctx.emit('agent/error', agent, turn, step, err)
     } catch {
@@ -221,6 +236,12 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     // matter what throws below; the catch + closeTurn guarantee it.
     session.append('turn/start', { turn, trigger })
     turnStarted = true
+    // Record the queued user messages INSIDE the turn (after turn/start), so
+    // every event in the log is turn-enclosed. turn/end is now owed, so a throw
+    // while appending these is caught below and the turn is still closed.
+    for (const message of queued) {
+      session.append('user/message', { content: message.content, source: message.source })
+    }
     ctx.emit('agent/turn-start', agent, turn)
 
     while (true) {
@@ -324,9 +345,20 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
   try {
     await ctx.parallel('session/flush', session)
   } catch (error: unknown) {
+    // The turn is already closed (turn/end appended above) and flush must run
+    // AFTER turn/end to be a checkpoint — so there is no in-turn position left
+    // for a session `error` event. Appending one here would land it after the
+    // last turn/end, where the persistence backend treats it as a crash tail
+    // and drops it on resume (ADR 0017: every event is turn-enclosed). Report
+    // the failure via agent/error + the logger only; persistence keeps the
+    // buffered events for the next flush/dispose, so nothing is lost.
     const err = toError(error)
-    session.append('error', { turn, step, ...errorData(err) })
-    ctx.emit('agent/error', agent, turn, step, err)
+    ctx.logger.warn(`agent "${agent.id}": session/flush failed at turn ${turn}: ${err.message}`)
+    try {
+      ctx.emit('agent/error', agent, turn, step, err)
+    } catch {
+      // contained: a throwing agent/error listener must not escape the loop.
+    }
   }
 }
 
@@ -445,7 +477,21 @@ async function runStep(
 }
 
 /** The last turn number in a (possibly seeded) session log, or 0. */
-function lastTurnNumber(session: Session): number {
+export function lastTurnNumber(session: Session): number {
   const lastStart = session.events.findLast(event => event.type === 'turn/start')
   return lastStart?.data.turn ?? 0
+}
+
+/**
+ * Whether a turn is currently open in the session log (a `turn/start` with no
+ * matching later `turn/end`). Decided from the LOG, not agent status: status
+ * can be `running` while no turn is open (an `agent/status` listener firing
+ * before `turn/start`, or the post-`turn/end` flush window before status
+ * returns to idle), so status is not a reliable open-turn signal. Used by
+ * `inject()` to choose between appending into an open turn vs. wrapping the
+ * injection in its own one-shot turn (ADR 0017).
+ */
+export function isTurnOpen(session: Session): boolean {
+  const last = session.events.findLast(e => e.type === 'turn/start' || e.type === 'turn/end')
+  return last?.type === 'turn/start'
 }

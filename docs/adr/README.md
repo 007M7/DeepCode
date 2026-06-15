@@ -27,3 +27,4 @@ Do NOT write an ADR for: a mechanical or local choice (a variable name, a one-fi
 | [0013](0013-property-based-testing.md) | Property-based testing for protocol-shaped code | accepted |
 | [0014](0014-doc-sync-enforcement.md) | Doc-sync enforcement (doc code blocks + event taxonomy) | accepted |
 | [0015](0015-structured-error-taxonomy.md) | Structured error taxonomy (HarnessError base) | accepted |
+| [0017](0017-turn-enclosure-invariant.md) | Every session event is enclosed in a turn | accepted |
