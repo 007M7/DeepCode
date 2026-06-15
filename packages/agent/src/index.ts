@@ -35,17 +35,22 @@ export class AgentRegistry extends Service {
    * when the calling fiber is disposed. Returns the disposer.
    */
   register(agent: Agent): () => void {
-    const dispose = this.ctx.effect(() => {
+    const dispose = this.ctx.effect(function* (this: AgentRegistry) {
       if (this.store.has(agent.id)) {
         throw new Error(`agent "${agent.id}" is already registered`)
       }
       this.store.set(agent.id, agent)
-      this.ctx.emit('agent/created', agent)
-      return () => {
+      // Yield the rollback BEFORE emitting `agent/created`: a generator effect
+      // collects each yielded disposer before the next step runs, so a
+      // throwing `agent/created` listener rolls the entry back instead of
+      // leaking it (a leak would wedge the duplicate-id check until restart).
+      // The duplicate throw above fires before any mutation — it leaks nothing.
+      yield () => {
         this.store.delete(agent.id)
         this.ctx.emit('agent/disposed', agent)
       }
-    }, 'agents.register()')
+      this.ctx.emit('agent/created', agent)
+    }.bind(this), 'agents.register()')
     // ctx.effect's disposer returns Promise<void>; our disposer API is
     // synchronous fire-and-forget — discard the (always-resolved) promise.
     return () => void dispose()

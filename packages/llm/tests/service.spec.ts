@@ -146,4 +146,26 @@ describe('LlmService', () => {
       expect((error as LlmError).code).toBe('DUPLICATE_ADAPTER')
     }
   })
+
+  it('rolls back the adapter entry when an adapter-change listener throws (P1-1)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+
+    // A change listener that throws on the FIRST emit only.
+    let threw = false
+    ctx.on('llm/adapter-change', () => {
+      if (!threw) { threw = true; throw new Error('boom change listener') }
+    })
+
+    // The throwing emit must roll the mutation back, not leak it.
+    expect(() => ctx.llm.registerAdapter(['m1'], new ScriptedAdapter(SCRIPT))).toThrow('boom change listener')
+    expect(ctx.llm.models()).toEqual([]) // entry rolled back, not leaked
+
+    // A subsequent listener-free register of the SAME model succeeds and
+    // contributes exactly once (the duplicate check is not wedged).
+    const dispose = ctx.llm.registerAdapter(['m1'], new ScriptedAdapter(SCRIPT))
+    expect(ctx.llm.models()).toEqual(['m1'])
+    dispose()
+    expect(ctx.llm.models()).toEqual([])
+  })
 })

@@ -52,4 +52,25 @@ describe('AgentRegistry', () => {
     await fiber.dispose()
     expect(ctx.agents.list().map(a => a.id)).toEqual(['main'])
   })
+
+  it('rolls back the agent entry when an agent/created listener throws (P1-1)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+
+    let threw = false
+    ctx.on('agent/created', () => {
+      if (!threw) { threw = true; throw new Error('boom created listener') }
+    })
+
+    // The throwing emit must roll the entry back, not leak it.
+    expect(() => ctx.agents.register(stubAgent('main'))).toThrow('boom created listener')
+    expect(ctx.agents.get('main')).toBeUndefined() // rolled back, not leaked
+
+    // A subsequent listener-free register of the SAME id succeeds and is
+    // tracked exactly once (the duplicate-id check is not wedged).
+    const dispose = ctx.agents.register(stubAgent('main'))
+    expect(ctx.agents.list().map(a => a.id)).toEqual(['main'])
+    dispose()
+    expect(ctx.agents.get('main')).toBeUndefined()
+  })
 })

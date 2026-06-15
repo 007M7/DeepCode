@@ -73,16 +73,20 @@ export class SystemPrompt extends Service {
    * fiber is disposed. Emits `system-prompt/change` on register/unregister.
    */
   section(section: PromptSection): () => void {
-    const dispose = this.ctx.effect(() => {
+    const dispose = this.ctx.effect(function* (this: SystemPrompt) {
       this.sections.push(section)
-      this.ctx.emit('system-prompt/change')
-      return () => {
+      // Yield the rollback BEFORE emitting `system-prompt/change`: a generator
+      // effect collects each yielded disposer before the next step runs, so a
+      // throwing change listener removes the section instead of leaking it into
+      // every future assembly.
+      yield () => {
         const index = this.sections.indexOf(section)
         /* v8 ignore next 3 -- defensive: section was registered, so indexOf is guaranteed >= 0 */
         if (index >= 0) this.sections.splice(index, 1)
         this.ctx.emit('system-prompt/change')
       }
-    }, 'systemPrompt.section()')
+      this.ctx.emit('system-prompt/change')
+    }.bind(this), 'systemPrompt.section()')
     // ctx.effect's disposer returns Promise<void>; our disposer API is
     // synchronous fire-and-forget — discard the (always-resolved) promise.
     return () => void dispose()
@@ -94,16 +98,17 @@ export class SystemPrompt extends Service {
    * removed when the calling fiber is disposed. Emits `system-prompt/change`.
    */
   tools(provider: () => ToolSchema[]): () => void {
-    const dispose = this.ctx.effect(() => {
+    const dispose = this.ctx.effect(function* (this: SystemPrompt) {
       this.toolProviders.push(provider)
-      this.ctx.emit('system-prompt/change')
-      return () => {
+      // Yield the rollback BEFORE emitting `system-prompt/change` (see section()).
+      yield () => {
         const index = this.toolProviders.indexOf(provider)
         /* v8 ignore next 3 -- defensive: provider was registered, so indexOf is guaranteed >= 0 */
         if (index >= 0) this.toolProviders.splice(index, 1)
         this.ctx.emit('system-prompt/change')
       }
-    }, 'systemPrompt.tools()')
+      this.ctx.emit('system-prompt/change')
+    }.bind(this), 'systemPrompt.tools()')
     // ctx.effect's disposer returns Promise<void>; our disposer API is
     // synchronous fire-and-forget — discard the (always-resolved) promise.
     return () => void dispose()

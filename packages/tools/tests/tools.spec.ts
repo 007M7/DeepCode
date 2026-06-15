@@ -147,6 +147,27 @@ describe('ToolRegistry', () => {
     dispose()
     expect(ctx.tools.schemas().map(t => t.name)).toEqual(['echo'])
   })
+
+  it('rolls back the tool entry when a tools/change listener throws (P1-1)', async () => {
+    const ctx = await setup()
+
+    let threw = false
+    ctx.on('tools/change', () => {
+      if (!threw) { threw = true; throw new Error('boom change listener') }
+    })
+
+    // The throwing emit must roll the entry back, not leak it.
+    expect(() => ctx.tools.register(echoTool)).toThrow('boom change listener')
+    expect(ctx.tools.get('echo')).toBeUndefined() // rolled back, not leaked
+    expect(ctx.tools.schemas()).toHaveLength(0)
+
+    // A subsequent listener-free register of the SAME name succeeds and is
+    // exposed exactly once (the duplicate-name check is not wedged).
+    const dispose = ctx.tools.register(echoTool)
+    expect(ctx.tools.schemas().map(t => t.name)).toEqual(['echo'])
+    dispose()
+    expect(ctx.tools.get('echo')).toBeUndefined()
+  })
 })
 
 describe('defineTool / schema DSL', () => {
