@@ -94,7 +94,7 @@ export interface LoopHandle {
  *     drain queued → session('user/message'…) → 'turn/start' → emit agent/turn-start
  *     STEP loop:
  *       drain steering → session('steering/message')  ⟵ catches late steering
- *       emit agent/step-start
+ *       session('step/start'); emit agent/step-start    ⟵ append before emit (ADR 0003)
  *       assembly = ctx.systemPrompt.assemble()        ⟵ waterfall system-prompt/assemble
  *       req = {model, system, tools, messages: session.deriveMessages(), signal}
  *       req = waterfall agent/request                 ⟵ hooks/compaction/model-switch
@@ -174,8 +174,8 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     // (or turn-start listeners on the first step) joins before the request.
     drainSteering(ctx, agent, turn)
 
-    ctx.emit('agent/step-start', agent, turn, step)
     session.append('step/start', { turn, step })
+    ctx.emit('agent/step-start', agent, turn, step)
 
     const abort = new AbortController()
     handle.setAbort(abort)
