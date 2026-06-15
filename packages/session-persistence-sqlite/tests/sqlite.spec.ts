@@ -18,6 +18,14 @@ async function freshDbPath(): Promise<string> {
   return join(dir, 'sessions.db')
 }
 
+/** A context with the session store + SQLite backend, plus a teardown. */
+async function backend(path = ':memory:'): Promise<{ ctx: Context; dispose: () => Promise<void> }> {
+  const ctx = new Context()
+  await ctx.plugin(SessionStore)
+  const fiber = await ctx.plugin(SessionPersistenceSqlite, { path })
+  return { ctx, dispose: () => fiber.dispose() }
+}
+
 // The payoff: the SAME backend-agnostic contract the JSONL backend runs, now
 // proving the SQLite backend satisfies identical semantics.
 runPersistenceContract('sqlite', async () => {
@@ -103,6 +111,61 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     const reloaded = await ctx2.sessionPersistence.load(m.id)
     expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
     await fiber2.dispose()
+  })
+
+  it('append snapshots the batch: mutating an event after the call does not corrupt the persisted copy', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceSqlite, { path: ':memory:' })
+    const m = meta('snapshot')
+    await ctx.sessionPersistence.create(m)
+    const batch: SessionEvent[] = [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'user/message', seq: 1, time: 2, data: { content: [{ type: 'text', text: 'original' }], source: { kind: 'user' } } },
+      { type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]
+    const p = ctx.sessionPersistence.append(m.id, batch)
+    // Mutate the live array AND an event's data AFTER the call but before it
+    // drains behind the per-session chain. The snapshot taken at call time must
+    // shield the persisted copy.
+    ;(batch[1]!.data as { content: { type: 'text'; text: string }[] }).content[0]!.text = 'HACKED'
+    batch.push({ type: 'user/message', seq: 3, time: 4, data: { content: [{ type: 'text', text: 'injected' }], source: { kind: 'user' } } })
+    await p
+    const loaded = await ctx.sessionPersistence.load(m.id)
+    expect(loaded.events).toHaveLength(3) // the pushed event was not persisted
+    const um = loaded.events[1]
+    expect(um?.type === 'user/message' && (um.data.content[0] as { text: string }).text).toBe('original')
+    await fiber.dispose()
+  })
+
+  it('a corrupt-JSON row in the uncommitted tail is discarded on load, not unloadable', async () => {
+    const path = await freshDbPath()
+    const m = meta('corrupt-tail')
+    const b1 = await backend(path)
+    await b1.ctx.sessionPersistence.create(m)
+    await b1.ctx.sessionPersistence.append(m.id, oneTurnLog()) // committed: seqs 0..5
+    await b1.dispose()
+
+    // Hand-insert an uncommitted tail row (seq 6, no closing turn/end) whose
+    // `data` is invalid JSON. The contract: only a parse error in the COMMITTED
+    // region is unloadable; a corrupt tail must be discarded (load cuts at the
+    // last turn/end using seq+type columns, never parsing tail `data`).
+    const db = openDatabase(path)
+    db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, 6, ?, 7, ?)')
+      .run(m.id, 'turn/start', '{not valid json')
+    db.close()
+
+    const b2 = await backend(path)
+    const loaded = await b2.ctx.sessionPersistence.load(m.id)
+    expect(loaded.events).toEqual(oneTurnLog()) // tail discarded, committed intact
+    // The corrupt tail row was physically deleted, so a fresh append continues.
+    await b2.ctx.sessionPersistence.append(m.id, [
+      { type: 'turn/start', seq: 6, time: 8, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/end', seq: 7, time: 9, data: { turn: 2, reason: { kind: 'completed' } } },
+    ])
+    const reloaded = await b2.ctx.sessionPersistence.load(m.id)
+    expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+    await b2.dispose()
   })
 
   it('append rolls back the whole batch on a mid-batch seq collision (transaction)', async () => {
@@ -294,13 +357,6 @@ describe('SessionPersistenceSqlite: write path (session/event → flush)', () =>
 })
 
 describe('SessionPersistenceSqlite: edge cases', () => {
-  async function backend(path = ':memory:'): Promise<{ ctx: Context; dispose: () => Promise<void> }> {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const fiber = await ctx.plugin(SessionPersistenceSqlite, { path })
-    return { ctx, dispose: () => fiber.dispose() }
-  }
-
   it('append of an empty batch is a no-op', async () => {
     const { ctx, dispose } = await backend()
     const m = meta('empty-batch')

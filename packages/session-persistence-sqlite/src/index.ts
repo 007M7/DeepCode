@@ -142,16 +142,25 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     this.states.set(meta.id, { meta, cursor: 0, materialized: false })
   }
 
-  append(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
-    return this.serialize(id, () => this.appendCore(id, events))
+  // `async` so the synchronous validate/clone below reject (not throw) per the
+  // Promise<void> contract — callers use `await expect(...).rejects`.
+  async append(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
+    // Validate serializability BEFORE cloning so a bad event surfaces the typed
+    // "non-JSON-serializable" error rather than an opaque DataCloneError from
+    // structuredClone. Then deep-snapshot the batch HERE, before the op waits
+    // behind the per-session chain: a caller that passes a live array (e.g.
+    // session.events) and mutates it — OR mutates an event inside it — before
+    // the op runs would otherwise have those changes persisted, or advance the
+    // cursor past what was written. The clone is taken at call time (before the
+    // first await), matching the JSONL backend.
+    assertSerializable(events)
+    const batch = events.map(e => structuredClone(e))
+    return this.serialize(id, () => this.appendCore(id, batch))
   }
 
   private async appendCore(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
     await this.ready
     if (events.length === 0) return
-    // Validate serializability up front so a bad event surfaces the typed error
-    // (rather than failing later inside the INSERT loop, mid-transaction).
-    assertSerializable(events)
     let state = this.states.get(id)
     if (state === undefined) state = await this.adopt(id)
 
@@ -200,16 +209,19 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     const meta = rowToMeta(row)
     this.assertVersion(meta)
 
-    // Read every stored event ordered by seq, then cut at the last complete
-    // turn/end — the same crash-tail semantics as the JSONL backend. A row that
-    // landed without its closing turn/end (process killed mid-turn) is an
-    // uncommitted tail and is excluded; a seq gap inside the committed region
-    // makes the session unloadable (cutAtLastTurnEnd throws).
+    // Read every stored row ordered by seq, then cut at the last complete
+    // turn/end — the same crash-tail semantics as the JSONL backend. The cut is
+    // computed from seq+type COLUMNS only, so a malformed `data` in the
+    // uncommitted tail is discarded (not unloadable); only `data` in the
+    // COMMITTED prefix is parsed (rowToEvent), where a parse error correctly
+    // surfaces. A row that landed without its closing turn/end is an
+    // uncommitted tail and is excluded; a seq gap in the committed region makes
+    // the session unloadable (cutAtLastTurnEnd throws).
     const eventRows = this.db
       .prepare('SELECT seq, type, time, data FROM events WHERE session_id = ? ORDER BY seq')
       .all(id) as unknown as EventRow[]
-    const all = eventRows.map(rowToEvent)
-    const { committed, cutTail } = cutAtLastTurnEnd(all)
+    const { committed, cutTail } = cutAtLastTurnEnd(eventRows)
+    const events = committed.map(rowToEvent)
 
     // Physically discard the crash tail so the stored log matches what load
     // returned (the next append continues at the committed length). Mirrors the
@@ -223,7 +235,7 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     // state keeps its OWN copy of the meta; the returned value is separate so a
     // consumer mutating loaded.meta cannot corrupt the backend's row metadata.
     this.states.set(id, { meta: { ...meta }, cursor: committed.length, materialized: committed.length > 0 })
-    return { meta, events: committed }
+    return { meta, events }
   }
 
   async list(): Promise<SessionMeta[]> {
@@ -450,7 +462,9 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     const rows = this.db
       .prepare('SELECT seq, type, time, data FROM events WHERE session_id = ? ORDER BY seq')
       .all(id) as unknown as EventRow[]
-    return cutAtLastTurnEnd(rows.map(rowToEvent)).committed
+    // Cut on seq+type columns, then parse `data` only for the committed prefix
+    // (a malformed tail must not throw here — same as loadCore).
+    return cutAtLastTurnEnd(rows).committed.map(rowToEvent)
   }
 
   /** Whether a live session's seed reproduces the first `cursor` stored events. */

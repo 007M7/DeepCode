@@ -105,31 +105,40 @@ export function rowToEvent(row: EventRow): SessionEvent {
 
 /**
  * The committed prefix of an ordered event list: everything up to and including
- * the LAST `turn/end`, plus whether a crash tail (events after it) was cut.
+ * the LAST `turn/end`, plus whether a crash tail (items after it) was cut.
+ *
+ * Generic over anything carrying `seq` + `type` (an {@link EventRow} or a
+ * {@link SessionEvent}) so the cut is computed from those COLUMNS alone — the
+ * caller parses each row's `data` only for the committed items it returns,
+ * never for the tail. This matters for the contract: a malformed `data` in an
+ * uncommitted crash tail must be discarded, not make the session unloadable —
+ * only a parse error / gap in the COMMITTED region is unloadable (see
+ * `SessionPersistence.load`). Mirrors the JSONL backend's `scanLog`, which
+ * likewise tolerates a corrupt tail after the last committed `turn/end`.
  *
  * The loop only flushes at `turn/end`, so the last `turn/end` is the last
  * durable boundary; anything after it is a never-committed crash tail (a batch
  * that landed without its closing `turn/end`, e.g. a process killed mid-turn).
- * This is the SQLite analogue of the JSONL backend's `scanLog` truncation point
- * — the SAME contract (`SessionPersistence.load`), expressed over rows rather
- * than file bytes. The committed region MUST be contiguous (`events[i].seq ===
- * i`); a gap there means committed data was lost and the session is unloadable.
+ * The committed region MUST be contiguous (`item.seq === i`); a gap there means
+ * committed data was lost and the session is unloadable.
  */
-export function cutAtLastTurnEnd(events: readonly SessionEvent[]): { committed: SessionEvent[]; cutTail: boolean } {
+export function cutAtLastTurnEnd<T extends { seq: number; type: string }>(
+  items: readonly T[],
+): { committed: T[]; cutTail: boolean } {
   let lastTurnEnd = -1
-  events.forEach((event, i) => {
-    if (event.type === 'turn/end') lastTurnEnd = i
+  items.forEach((item, i) => {
+    if (item.type === 'turn/end') lastTurnEnd = i
   })
   // No committed turn/end anywhere: the whole list is an uncommitted first-turn
   // tail. Nothing is committed (mirrors scanLog returning zero events).
   if (lastTurnEnd < 0) {
-    return { committed: [], cutTail: events.length > 0 }
+    return { committed: [], cutTail: items.length > 0 }
   }
-  const committed = events.slice(0, lastTurnEnd + 1)
-  committed.forEach((event, i) => {
-    if (event.seq !== i) {
-      throw new Error(`corrupt session log: seq gap in committed region at index ${i} (expected ${i}, got ${event.seq})`)
+  const committed = items.slice(0, lastTurnEnd + 1)
+  committed.forEach((item, i) => {
+    if (item.seq !== i) {
+      throw new Error(`corrupt session log: seq gap in committed region at index ${i} (expected ${i}, got ${item.seq})`)
     }
   })
-  return { committed, cutTail: lastTurnEnd < events.length - 1 }
+  return { committed, cutTail: lastTurnEnd < items.length - 1 }
 }
