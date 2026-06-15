@@ -425,7 +425,7 @@ describe('agent loop', () => {
     send(agent, 'run')
     await waitForIdle(ctx, agent)
 
-    const replayed = ctx.sessions.create('replayed', [...agent.session.events])
+    const replayed = ctx.sessions.create('replayed', { seed: [...agent.session.events] })
     expect(replayed.deriveMessages()).toEqual(agent.session.deriveMessages())
     // event-by-event identity of types
     expect(replayed.events.map(e => e.type)).toEqual(

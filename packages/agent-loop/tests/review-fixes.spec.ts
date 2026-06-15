@@ -429,7 +429,7 @@ describe('MEDIUM: turn numbering continues across seeded (forked) sessions', () 
     await ctx2.plugin(AgentLoop, { agents: [] })
     ctx2.llm.registerAdapter(['mock'], second)
 
-    const seeded = ctx2.sessions.create('forked', [...agent.session.events])
+    const seeded = ctx2.sessions.create('forked', { seed: [...agent.session.events] })
     const forked = new LoopAgent(ctx2, AgentId('forked-agent'), { model: 'mock' }, seeded)
     ctx2.effect(() => forked.start())
 

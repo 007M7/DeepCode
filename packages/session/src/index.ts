@@ -7,11 +7,14 @@
  */
 
 import { Context, Service } from 'cordis'
+import { isAbsolute } from 'node:path'
 import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionId } from './types.ts'
-import type { SessionEvent, SessionEventMap, SessionEventType } from './types.ts'
+import type { CreateSessionOptions, SessionEvent, SessionEventMap, SessionEventType, SessionHeader } from './types.ts'
+import { isJsonValue } from './json.ts'
 
 export * from './types.ts'
+export { isJsonValue } from './json.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -61,8 +64,35 @@ export class Session {
   /** Set by the store so appends are observable; undefined when detached. */
   onAppend: ((event: SessionEvent) => void) | undefined
 
-  constructor(public readonly id: SessionId, seed?: SessionEvent[]) {
-    if (seed) this.log = [...seed]
+  /**
+   * Immutable creation metadata (format version, cwd, lineage). Supplied by
+   * the store via `ctx.sessions.create()`. When a `Session` is constructed
+   * bare (tests, ad-hoc replay), a minimal v1 header is synthesized so
+   * `session.header` is always present. Kept out of the event log — it is a
+   * storage concern, not replayable conversation state.
+   */
+  readonly header: SessionHeader
+
+  constructor(public readonly id: SessionId, seed?: SessionEvent[], header?: SessionHeader) {
+    if (seed) {
+      // Validate the seed to the SAME invariants `append` enforces, so a
+      // replay/fork (`ctx.sessions.create(id, { seed })`) cannot construct a
+      // live log that no persistence backend could store: each event's `data`
+      // must be JSON-serializable, and `seq` must be contiguous from 0 (the
+      // `seq = log.length` contract the whole system relies on). Without this,
+      // a bad seed would surface only later as a backend rejection or a silent
+      // divergence between the live log and disk.
+      seed.forEach((event, index) => {
+        if (event.seq !== index) {
+          throw new Error(`seed event at index ${index} has seq ${event.seq} (expected ${index}); seed must be contiguous from 0`)
+        }
+        if (!isJsonValue(event.data)) {
+          throw new Error(`seed event "${event.type}" (seq ${event.seq}) carries non-JSON-serializable data`)
+        }
+      })
+      this.log = [...seed]
+    }
+    this.header = header ?? { version: 1, id, createdAt: Date.now() }
   }
 
   get events(): readonly SessionEvent[] {
@@ -77,8 +107,19 @@ export class Session {
    * Append one typed event to the log and synchronously notify observers via
    * `onAppend`. The hot path never blocks on I/O — persistence plugins buffer
    * asynchronously.
+   *
+   * @throws if `data` is not losslessly JSON-serializable (BigInt, function,
+   *   symbol, undefined, non-finite number, circular ref, or an exotic object
+   *   like Map/Set/Date). The event log is the durable source of truth, so this
+   *   invariant is enforced at the source — a bad event never enters the log,
+   *   keeping `session.events` always equal to what a backend can persist. The
+   *   throw surfaces at the buggy caller's append site, not asynchronously in a
+   *   backend flush.
    */
   append<T extends SessionEventType>(type: T, data: SessionEventMap[T]): SessionEvent<T> {
+    if (!isJsonValue(data)) {
+      throw new Error(`session event "${type}" carries non-JSON-serializable data`)
+    }
     const event = { type, seq: this.log.length, time: Date.now(), data } as SessionEvent<T>
     this.log.push(event)
     this.onAppend?.(event)
@@ -158,15 +199,31 @@ export class SessionStore extends Service {
   }
 
   /**
-   * Create a session. If `seed` is provided, the session is populated with
-   * a copy of those events (replay/fork). The session is a Cordis effect:
-   * disposing the calling fiber stops event notification and removes the
-   * session from the store.
+   * Create a session. `options.seed` populates the session with a copy of
+   * those events (replay/fork); `options.meta` attaches creation metadata
+   * (validated absolute `cwd`, `parentSession` lineage) as the immutable
+   * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`). The
+   * session is a Cordis effect: disposing the calling fiber stops event
+   * notification and removes the session from the store.
+   *
+   * @throws if a session with `id` already exists, or if `meta.cwd` is a
+   *   non-absolute path (storage backends key directories off it).
    */
-  create(id?: string, seed?: SessionEvent[]): Session {
+  create(id?: string, options?: CreateSessionOptions): Session {
     const sessionId = SessionId(id ?? `session-${++this.counter}`)
     if (this.store.has(sessionId)) throw new Error(`session "${sessionId}" already exists`)
-    const session = new Session(sessionId, seed)
+    const cwd = options?.meta?.cwd
+    if (cwd !== undefined && !isAbsolute(cwd)) {
+      throw new Error(`session cwd must be an absolute path, got "${cwd}"`)
+    }
+    const header: SessionHeader = {
+      version: 1,
+      id: sessionId,
+      createdAt: options?.meta?.createdAt ?? Date.now(),
+      ...cwd !== undefined ? { cwd } : {},
+      ...options?.meta?.parentSession !== undefined ? { parentSession: options.meta.parentSession } : {},
+    }
+    const session = new Session(sessionId, options?.seed, header)
     this.ctx.effect(function* (this: SessionStore) {
       session.onAppend = (event) => { this.ctx.emit('session/event', session, event) }
       this.store.set(sessionId, session)

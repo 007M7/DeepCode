@@ -9,12 +9,83 @@ export function SessionId(id: string): SessionId {
 }
 
 /**
+ * Immutable session metadata — written once at creation and never rewritten.
+ *
+ * Kept SEPARATE from the event log deliberately: format-version, cwd, and
+ * lineage are storage concerns, not conversation events, so they stay out of
+ * {@link SessionEventMap} and never reach `deriveMessages()`. Every reference
+ * system (pi's `version: 3` header, Codex's `SessionMeta`, Claude Code's tail
+ * metadata) writes such a header.
+ */
+export interface SessionHeader {
+  /** On-disk format version; a persistence backend rejects unknown versions. */
+  version: number
+  /** The session's id (mirrors the {@link Session}'s id). */
+  id: SessionId
+  /** Unix epoch milliseconds when the session was created. */
+  createdAt: number
+  /** Absolute working directory the session was created in (if any). */
+  cwd?: string
+  /** The session this one was forked from (seed lineage), if any. */
+  parentSession?: SessionId
+}
+
+/**
+ * Mutable session metadata — updateable without touching the append-only log.
+ * A persistence backend stores this beside the log (a sidecar file, a header
+ * row) and rewrites only it on update.
+ */
+export interface SessionSummary {
+  /** Unix epoch milliseconds of the last mutation (event append or update). */
+  updatedAt: number
+  /** Human-facing title (derived/edited), if any. */
+  title?: string
+  /** The first user prompt, cached for listing previews. */
+  firstPrompt?: string
+}
+
+/**
+ * Full session metadata: the immutable {@link SessionHeader} merged with the
+ * mutable {@link SessionSummary}. Owned here in `dsh-session` (beside
+ * {@link SessionId}) because `Session.header` is typed by it; the persistence
+ * package imports/re-exports these rather than owning them, which would force
+ * a package cycle.
+ */
+export type SessionMeta = SessionHeader & SessionSummary
+
+/**
+ * Options for creating a {@link Session} via the store. `seed` replays/forks
+ * an existing event log; `meta` carries the caller-supplied storage fields the
+ * store folds into a {@link SessionHeader}.
+ */
+export interface CreateSessionOptions {
+  /** Events to seed the new session with (replay/fork). */
+  seed?: SessionEvent[]
+  /**
+   * Creation metadata. The store fills in `version`/`id` and defaults
+   * `createdAt` to now; the caller supplies the storage-level fields (validated
+   * absolute `cwd`, `parentSession` lineage, and — when reconstructing a
+   * persisted session — the original `createdAt` to preserve it).
+   */
+  meta?: { cwd?: string; parentSession?: SessionId; createdAt?: number }
+}
+
+/**
  * What started a turn.
  * Merge-extensible sum type (same pattern as MessageSourceMap).
  */
 export interface TurnTriggerMap {
   message: { kind: 'message'; source: MessageSource }
   continuation: { kind: 'continuation' }
+  /**
+   * An out-of-band context injection (`agent.inject()`) made while the agent
+   * was idle. The loop wraps the injected `context/message` in a one-shot turn
+   * (`turn/start` → `context/message` → `turn/end`) so every event in the log
+   * stays turn-enclosed — the durability/replay boundary is the turn, and a
+   * bare event between turns would otherwise be indistinguishable from a crash
+   * tail on reload.
+   */
+  injection: { kind: 'injection'; source: MessageSource }
 }
 
 export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap]
@@ -41,8 +112,15 @@ export type TurnEndReason = TurnEndReasonMap[keyof TurnEndReasonMap]
  * Merge-extensible: plugins declare extra event types via declaration merging
  * (e.g. a compaction plugin adds `'compaction/marker'`).
  *
- * TODO(review): this vocabulary needs careful review once the loop and the
- * first persistence plugin exist side by side.
+ * Durability contract (what a persistence backend relies on): the durable log
+ * persists every event verbatim, INCLUDING `assistant/chunk` — `seq` must stay
+ * contiguous (`seq = log.length`), so chunks cannot be filtered out of the
+ * canonical log. All `event.data` must be JSON-serializable — `Session.append`
+ * (and the seed path in the constructor) enforces this at the source (throwing
+ * on non-serializable data), so a bad event never enters the log and
+ * `session.events` always equals what a backend can persist. Adding a new event
+ * type that carries non-serializable data, or that breaks the turn/step nesting
+ * the invariants plugin checks, is a breaking change to the on-disk format.
  */
 export interface SessionEventMap {
   'turn/start': { turn: number; trigger: TurnTrigger }
