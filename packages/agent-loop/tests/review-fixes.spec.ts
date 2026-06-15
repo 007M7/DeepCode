@@ -927,3 +927,51 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(boundaryCounts(agent).turnEnd).toBe(2)
   })
 })
+
+describe('P1-7: tool/result is logged under the originating call.id, not result.callId', () => {
+  it('a tools/execute listener returning a mismatched callId cannot orphan the call↔result pairing', async () => {
+    // Model emits a tool-call with id "c1", then a final text turn.
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'echo', { x: 1 }),
+      textResponse('done'),
+    ])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineTool({
+      name: 'echo',
+      description: 'echo',
+      parameters: { x: { type: 'number' } },
+      async execute() { return [{ type: 'text', text: 'ok' }] },
+    }))
+
+    // A waterfall listener short-circuits with a result carrying the WRONG
+    // callId (a listener-internal/proxy id). The loop must still record the
+    // tool/result under the model's authoritative call.id.
+    ctx.on('tools/execute', (exec) => {
+      expect(exec.callId).toBe(CallId('c1')) // the loop passed the real id in
+      return Promise.resolve({ callId: CallId('wrong-proxy-id'), content: [{ type: 'text', text: 'ok' }], isError: false })
+    }, { prepend: true })
+
+    const agent = ctx.agentLoop.create('a-callid', { model: 'mock' })
+    send(agent, 'use tool')
+    await waitForIdle(ctx, agent)
+
+    // The logged tool/result.callId is the originating call.id, NOT the
+    // listener's wrong id.
+    const resultEvent = [...agent.session.events].find(e => e.type === 'tool/result')
+    expect(resultEvent?.type).toBe('tool/result')
+    if (resultEvent?.type === 'tool/result') {
+      expect(resultEvent.data.callId).toBe(CallId('c1'))
+    }
+
+    // And deriveMessages pairs the tool-result with the assistant tool-call:
+    // the derived tool-result block's toolCallId equals the original call.id.
+    const messages = agent.session.deriveMessages()
+    const toolResultBlock = messages
+      .flatMap(m => m.content)
+      .find(b => b.type === 'tool-result')
+    expect(toolResultBlock?.type).toBe('tool-result')
+    if (toolResultBlock?.type === 'tool-result') {
+      expect(toolResultBlock.toolCallId).toBe(CallId('c1'))
+    }
+  })
+})
