@@ -170,7 +170,6 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
 
   let reason: TurnEndReason = { kind: 'completed' }
   let step = 0
-  let turnStarted = false
   let turnEnded = false
   let stepOpen = false
   let errorReported = false
@@ -236,9 +235,10 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
 
   try {
     // --- Turn boundary. Once turn/start is appended, a turn/end is owed no
-    // matter what throws below; the catch + closeTurn guarantee it.
+    // matter what throws below; the catch + closeTurn guarantee it (the catch
+    // decides "owed" from the log via isTurnOpen, so even a throwing turn/start
+    // listener — append pushes before notifying — still gets its turn/end).
     session.append('turn/start', { turn, trigger })
-    turnStarted = true
     // Record the queued user messages INSIDE the turn (after turn/start), so
     // every event in the log is turn-enclosed. turn/end is now owed, so a throw
     // while appending these is caught below and the turn is still closed.
@@ -320,12 +320,20 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     // Normal / inline-error loop exit: close the turn and notify.
     closeTurn(true)
   } catch (error: unknown) {
-    // A pre-turn throw (turn/start append) is owed no turn/end — rethrow to
-    // the backstop. Otherwise a boundary emit (turn-start, step-start, the
-    // normal-path turn-end) or other unhandled throw escaped: close any open
-    // step, choose the reason (disposal wins only if no error was reported),
-    // record the error, and close the turn WITHOUT re-emitting agent/turn-end.
-    if (!turnStarted) throw error
+    // Decide whether this turn was ever opened from the LOG, not a flag.
+    // Session.append pushes the event BEFORE notifying session/event listeners,
+    // so a throwing listener on the `turn/start` append leaves turn/start in the
+    // log even though execution never reached the lines after that append.
+    // Gating on a "turn started" boolean would skip turn/end and leave a
+    // permanently OPEN turn that poisons the next turn/replay (ADR 0017). We
+    // check the log for THIS turn's turn/start: present means a turn/end is owed
+    // (or was already appended — closeTurn/failTurn are idempotent, so running
+    // them again is a safe no-op that still preserves the disposed/error reason
+    // chosen below). Absent means the turn/start append threw BEFORE its push (a
+    // non-serializable trigger — impossible for our fixed trigger); nothing was
+    // opened, so rethrow to the runLoop backstop.
+    const turnStartLogged = session.events.some(e => e.type === 'turn/start' && e.data.turn === turn)
+    if (!turnStartLogged) throw error
     closeStep()
     // Choose the close reason. Disposal wins only if no error was already
     // reported: a turn disposed mid-step sets reason=disposed in the step-error

@@ -120,13 +120,31 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
     it('append rejects non-JSON-serializable event data, naming the event type', async () => {
       const { persistence, dispose } = await make()
       try {
-        const m = meta('s5')
-        await persistence.create(m)
-        // A plugin-added event carrying a BigInt (not JSON-serializable).
-        const bad = [
-          { type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra: 1n } },
-        ] as unknown as SessionEvent[]
-        await expect(persistence.append(m.id, bad)).rejects.toThrow(/user\/message/)
+        // Every value `isJsonValue` rejects must be rejected by the backend, not
+        // just BigInt — otherwise a backend could pass this contract while still
+        // accepting values that corrupt the durable round-trip. Each is a
+        // plugin-added `extra` field on a single user/message (seq 0).
+        const cyclic: Record<string, unknown> = { type: 'text', text: 'x' }
+        cyclic['self'] = cyclic
+        const badValues: unknown[] = [
+          1n,                  // BigInt
+          undefined,           // dropped by JSON.stringify
+          Infinity,            // → null
+          () => 0,             // function
+          Symbol('s'),         // symbol
+          new Map(),           // exotic object
+          cyclic,              // circular ref
+        ]
+        for (const [i, bad] of badValues.entries()) {
+          // A fresh session per value isolates each rejection (a rejected append
+          // must leave no state behind, but isolating keeps the assertion clean).
+          const mi = meta(`s5-${i}`)
+          await persistence.create(mi)
+          const events = [
+            { type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra: bad } },
+          ] as unknown as SessionEvent[]
+          await expect(persistence.append(mi.id, events)).rejects.toThrow(/user\/message/)
+        }
       } finally {
         await dispose()
       }

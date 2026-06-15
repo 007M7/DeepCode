@@ -277,12 +277,15 @@ describe('dev-freeze', () => {
     // mutable. deepFreeze must descend into the already-frozen object and
     // freeze the descendant, not short-circuit on the frozen container —
     // otherwise dev-mode misses exactly the history mutation ADR 0012 catches.
+    // `append` snapshots `data`, so the freeze applies to the LOGGED clone, not
+    // the caller's input — read the event back and assert on its data.
     const innerContent: { type: 'text'; text: string }[] = [{ type: 'text', text: 'inner' }]
     const block = Object.freeze({ type: 'tool-result' as const, toolCallId: CallId('c1'), content: innerContent, isError: false })
-    session.append('user/message', { content: [block], source: { kind: 'user' } })
-    expect(Object.isFrozen(block.content)).toBe(true)
-    expect(Object.isFrozen(block.content[0])).toBe(true)
-    expect(() => { block.content.push({ type: 'text', text: 'mutation' }) }).toThrow()
+    const event = session.append('user/message', { content: [block], source: { kind: 'user' } })
+    const logged = event.data.content[0] as { content: { type: 'text'; text: string }[] }
+    expect(Object.isFrozen(logged.content)).toBe(true)
+    expect(Object.isFrozen(logged.content[0])).toBe(true)
+    expect(() => { logged.content.push({ type: 'text', text: 'mutation' }) }).toThrow()
   })
 
   it('terminates on a cyclic event datum (WeakSet guard)', async () => {
