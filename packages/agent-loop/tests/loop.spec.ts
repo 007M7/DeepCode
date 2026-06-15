@@ -6,7 +6,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop, { LoopAgent } from '@deepseek-ai/dsh-agent-loop'
-import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
+import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 async function harness(adapter: MockAdapter) {
   const ctx = new Context()
@@ -334,6 +334,76 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     expect(reasons).toEqual([{ kind: 'aborted', reason: 'user interrupt' }])
+  })
+
+  it('surfaces max-tokens as the turn-end reason when the last step is cut off', async () => {
+    // A single step that ends with a max-tokens finish (no tool calls): the
+    // turn stops by default and ends max-tokens, not completed.
+    const adapter = new MockAdapter([maxTokensResponse('truncat')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(reasons).toEqual([{ kind: 'max-tokens' }])
+    // and the reason is recorded in the log's turn/end event
+    const turnEnd = agent.session.events.findLast(e => e.type === 'turn/end')
+    expect(turnEnd!.data.reason).toEqual({ kind: 'max-tokens' })
+  })
+
+  it('a max-tokens step earlier in a turn still surfaces as max-tokens after a later completed step', async () => {
+    // Step 1 is cut off (max-tokens, no tool calls → would stop by default), so
+    // continuation must be FORCED to reach step 2 which finishes normally
+    // (stop). The rule "any max-tokens step surfaces as max-tokens" means the
+    // turn ends max-tokens even though the LAST step completed cleanly.
+    const adapter = new MockAdapter([
+      maxTokensResponse('first half'),
+      textResponse('second half'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+
+    let steps = 0
+    ctx.on('agent/step-end', () => void steps++)
+    // Force exactly one continuation (step 1 → step 2), then defer to default
+    // (step 2 is a plain stop with no tool calls → stops).
+    ctx.on('agent/turn-continuation', async (_agent, _turn, _defaultDecision, next) => {
+      if (steps < 2) return true
+      return next()
+    })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(steps).toBe(2)
+    expect(adapter.requests).toHaveLength(2)
+    expect(reasons).toEqual([{ kind: 'max-tokens' }])
+  })
+
+  it('a completed step after no max-tokens keeps the turn completed (max-tokens does not leak across turns)', async () => {
+    // Two consecutive turns: turn 1 is cut off (max-tokens), turn 2 is a clean
+    // stop. The per-turn reason must be independent — turn 2 ends completed.
+    const adapter = new MockAdapter([maxTokensResponse('cut'), textResponse('clean')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+
+    expect(reasons).toEqual([{ kind: 'max-tokens' }, { kind: 'completed' }])
   })
 
   it('chains queued messages into consecutive turns', async () => {

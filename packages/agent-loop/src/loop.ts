@@ -72,6 +72,31 @@ function errorData(err: CodedError): { message: string; code?: string } {
 }
 
 /**
+ * The turn-end contribution of a step's *successful* finish, or `undefined`
+ * when the step finished ordinarily (a plain `completed`).
+ *
+ * {@link finishError} has already converted `error`/`aborted` finishes into
+ * thrown step errors, so the finishes that reach here are `stop`,
+ * `tool-calls`, `max-tokens`, or a future merge-extensible kind. Only
+ * `max-tokens` carries forward as a distinct {@link TurnEndReason}: a step that
+ * hit the output-token ceiling ended the turn cut-short rather than by the
+ * model's choice. `stop`/`tool-calls`/unknown kinds contribute nothing beyond
+ * the default `completed`. {@link runTurn} applies this with the rule "any
+ * `max-tokens` step in the turn makes the turn end `max-tokens`".
+ */
+function stepFinishReason(finish: FinishReason): TurnEndReason | undefined {
+  switch (finish.kind) {
+    case 'max-tokens':
+      return { kind: 'max-tokens' }
+    // stop / tool-calls / plugin-added kinds → no turn-end contribution
+    // beyond the default `completed`. FinishReason is merge-extensible, so a
+    // default (not assertNever) handles unknown kinds as ordinary success.
+    default:
+      return undefined
+  }
+}
+
+/**
  * Ambient handles the loop driver receives from the agent. Decouples the
  * pure function `runLoop` from the mutable LoopAgent fields, making the
  * loop testable without a real agent.
@@ -294,7 +319,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
       const abort = new AbortController()
       handle.setAbort(abort)
 
-      let stepOutcome: { hadToolCalls: boolean } | { error: Error }
+      let stepOutcome: { hadToolCalls: boolean; finish: FinishReason } | { error: Error }
       try {
         stepOutcome = await runStep(ctx, agent, turn, step, abort.signal)
       } catch (error: unknown) {
@@ -319,6 +344,16 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
         }
         break
       }
+
+      // The successful step's finish reason carries forward: a `max-tokens`
+      // step makes the whole turn end `max-tokens` (RFC 010's rule "any
+      // max-tokens step surfaces as max-tokens"). `stepFinishReason` returns
+      // `max-tokens` or `undefined`, so a later ordinary step never resets a
+      // max-tokens turn back to completed, and a never-truncated turn keeps the
+      // default `completed`. The disposal/abort/error branches above and the
+      // continuation-window disposal check below override this — they win.
+      const stepReason = stepFinishReason(stepOutcome.finish)
+      if (stepReason) reason = stepReason
 
       // Steering that arrived during streaming/tool execution.
       const steered = drainSteering(ctx, agent, turn)
@@ -423,7 +458,7 @@ async function runStep(
   turn: number,
   step: number,
   signal: AbortSignal,
-): Promise<{ hadToolCalls: boolean }> {
+): Promise<{ hadToolCalls: boolean; finish: FinishReason }> {
   const { session, options } = agent
 
   // --- Request assembly ---
@@ -517,7 +552,7 @@ async function runStep(
     /* v8 ignore stop */
   }
 
-  return { hadToolCalls: toolCalls.length > 0 }
+  return { hadToolCalls: toolCalls.length > 0, finish: assembler.finish }
 }
 
 /** The last turn number in a (possibly seeded) session log, or 0. */

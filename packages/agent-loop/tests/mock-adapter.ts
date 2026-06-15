@@ -12,6 +12,21 @@ export function textResponse(text: string): StreamChunk[] {
   ]
 }
 
+/**
+ * Like {@link textResponse} but the stream ends with a `max-tokens` finish —
+ * the model was cut off at the output-token ceiling (DeepSeek's `length`).
+ * Used to exercise the turn-end `max-tokens` surfacing rule.
+ */
+export function maxTokensResponse(text: string): StreamChunk[] {
+  return [
+    { type: 'block-start', index: 0, blockType: 'text' },
+    ...Array.from(text, (char): StreamChunk => ({ type: 'text-delta', index: 0, text: char })),
+    { type: 'block-end', index: 0, block: { type: 'text', text } },
+    { type: 'usage', usage: { inputTokens: 10, outputTokens: text.length } },
+    { type: 'finish', reason: { kind: 'max-tokens' } },
+  ]
+}
+
 export function toolCallResponse(rawCallId: string, name: string, args: object, text?: string): StreamChunk[] {
   const callId = CallId(rawCallId)
   const argumentsJson = JSON.stringify(args)
