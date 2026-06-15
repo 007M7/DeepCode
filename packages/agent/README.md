@@ -53,7 +53,7 @@ The handle every plugin programs against:
 
 - `agent.send(content, options?)` — queue a message; starts a turn when idle
 - `agent.steer(content, options?)` — steer a running turn (inject between steps); behaves like `send` when idle
-- `agent.inject(content, options?)` — inject in-session context without triggering a turn (context/message event); next request sees it
+- `agent.inject(content, options?)` — inject in-session context (context/message event); the next request sees it. Does not run the model. While a turn is open it joins that turn; while idle it is wrapped in a one-shot `injection` turn so every event stays turn-enclosed (ADR 0017)
 - `agent.abort(reason?)` — abort the in-flight step
 - `agent.session`, `agent.status`, `agent.options`, `agent.id`
 

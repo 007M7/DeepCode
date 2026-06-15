@@ -114,7 +114,7 @@ export class AgentLoop extends Service implements AgentFactory {
    * continue), and starts a fresh agent on it. The live session id is the
    * resumed id, NOT `${agentId}-session`.
    *
-   * Requires `ctx.sessionPersistence`; throws a typed error if it is not
+   * Requires `ctx.sessionPersistence`; rejects with a clear error if it is not
    * configured. NOT hard-injected (that would make non-persistent demos pend
    * forever) — callers that need resume (ACP) inject `sessionPersistence`, so
    * by the time this runs the service exists.
