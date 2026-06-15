@@ -561,6 +561,7 @@ __metadata:
     "@deepseek-ai/dsh-invariants": "npm:^0.0.1"
     "@deepseek-ai/dsh-llm": "npm:^0.0.1"
     "@deepseek-ai/dsh-session": "npm:^0.0.1"
+    "@deepseek-ai/dsh-session-persistence": "npm:^0.0.1"
     "@deepseek-ai/dsh-session-persistence-jsonl": "npm:^0.0.1"
     "@deepseek-ai/dsh-system-prompt": "npm:^0.0.1"
     "@deepseek-ai/dsh-tools": "npm:^0.0.1"
@@ -570,6 +571,7 @@ __metadata:
     "@deepseek-ai/dsh-agent": ^0.0.1
     "@deepseek-ai/dsh-llm": ^0.0.1
     "@deepseek-ai/dsh-session": ^0.0.1
+    "@deepseek-ai/dsh-session-persistence": ^0.0.1
     "@deepseek-ai/dsh-system-prompt": ^0.0.1
     "@deepseek-ai/dsh-tools": ^0.0.1
     cordis: ^4.0.0-rc.6

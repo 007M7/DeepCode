@@ -11,6 +11,7 @@
     { "path": "../../vendor/schemastery" },
     { "path": "../llm" },
     { "path": "../session" },
+    { "path": "../session-persistence" },
     { "path": "../system-prompt" },
     { "path": "../tools" },
     { "path": "../agent" }
