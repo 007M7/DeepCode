@@ -17,7 +17,7 @@ This is a where-to-look map, not a rules list. The rules live in the docs below 
 
 ## Where to look first (review-specific, not in the docs)
 
-1. **Docs in sync?** If the PR changes a config key, default, error code, wire field, or event name, did it update the package README + module/JSDoc in the same diff? Stale docs are the most common miss (the doc-sync rule has no gate).
+1. **Docs in sync?** If the PR changes a config key, default, error code, wire field, or event name, did it update the package README + module/JSDoc in the same diff? Stale docs are the most common miss — `yarn doc-sync` only gates compilable `ts` blocks and the event-taxonomy table, so prose drift (config keys, defaults, error codes, wire fields) has no gate and is on the reviewer to catch.
 2. **HMR-safety test present?** Any new registry/registration needs a test that disposes the contributing fiber and asserts cleanup. Its absence is a blocking gap.
 3. **Gates green?** typecheck, lint, test, test:coverage (100% per-file on `packages/*/src`), knip, build, publint, constraints. Don't re-review what a gate already enforces — trust the gate, spend attention on what gates can't check (intent, contracts, doc sync).
 4. **e2e verifies the world, not the agent's self-report.** For real-API tests, confirm the assertion re-runs the command/checks the file externally — a keyword probe lets a cheating agent pass (see AGENTS.md e2e bullet).

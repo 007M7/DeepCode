@@ -16,6 +16,7 @@ dsh-tool-bash     ← dsh-bash, dsh-tools            (bash tool schemas)
 dsh-llm-deepseek  ← dsh-llm                        (DeepSeek adapter)
 dsh-llm-pi-ai     ← dsh-llm                        (pi-ai-backed adapter)
 dsh-agent-loop    ← dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent
+dsh-invariants    ← dsh-llm, dsh-session, dsh-agent (dev-mode contract checks)
 ```
 
 The rule: plugins depend on interfaces, never on the concrete loop. `dsh-agent-loop` is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced. A swappable capability splits into interface / implementation / consumer packages (the bash trio is the template — see [ADR 0009](../docs/adr/0009-capability-seams.md)).
@@ -35,6 +36,7 @@ The rule: plugins depend on interfaces, never on the concrete loop. `dsh-agent-l
 | `tool-bash/` | Model-facing `bash`/`bash_output`/`bash_kill` tool schemas | (registers on `ctx.tools`) |
 | `llm-deepseek/` | DeepSeek API adapter (hand-rolled fetch/SSE) | (registers on `ctx.llm`) |
 | `llm-pi-ai/` | DeepSeek adapter via `@earendil-works/pi-ai` (design twin) | (registers on `ctx.llm`) |
+| `invariants/` | Dev-mode event-contract invariants + session-log freeze | (listens on `session/*`, `agent/*`) |
 
 Each package has its own `README.md` with purpose, service API, events, extension points, and deliberate non-goals (TODOs).
 
