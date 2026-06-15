@@ -185,9 +185,12 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     session.append('step/end', { turn, step })
     try {
       ctx.emit('agent/step-end', agent, turn, step)
-    } catch {
-      // contained: step/end is already recorded, so balance holds; a throwing
-      // step-end listener is the listener's bug, not the loop's.
+    } catch (error: unknown) {
+      // step/end is already recorded so balance holds; surface the throwing
+      // listener as a turn error via failTurn (idempotent). This prevents a
+      // throwing step-end listener from producing a silent "completed" turn
+      // when the step itself succeeded (the normal-path closeStep call).
+      failTurn(toError(error))
     }
   }
 
