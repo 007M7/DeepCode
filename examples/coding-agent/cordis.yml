@@ -74,8 +74,10 @@
           failures before moving on. Verify your work by running the code or
           tests. Keep answers brief and factual.
 
-- id: session-jsonl
-  name: './src/session-jsonl.ts'
+- id: session-persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'
 
 - id: stdio-chat
   name: './src/stdio-chat.ts'

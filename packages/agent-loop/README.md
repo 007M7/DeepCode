@@ -8,7 +8,7 @@ This is the only package in the harness that contains concrete loop logic. Every
 
 ### Public API
 
-- `ctx.agentLoop.create(id: string, options?: AgentOptions): LoopAgent` Create an agent, start its loop, and register it in `ctx.agents`. Disposed with the calling fiber.
+- `ctx.agentLoop.create(id: string, options?: AgentOptions): LoopAgent` — create an agent on a fresh per-run session id `${id}-session-<uuid>`, start its loop, and register it in `ctx.agents`. The per-run uuid avoids colliding with the on-disk log a prior run materialized once a durable persistence backend is loaded; each run is a new session (a deliberate demo simplification — a real resume-or-create policy is a TODO). Disposed with the calling fiber.
 
 ### Injected services
 

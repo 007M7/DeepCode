@@ -561,6 +561,7 @@ __metadata:
     "@deepseek-ai/dsh-invariants": "npm:^0.0.1"
     "@deepseek-ai/dsh-llm": "npm:^0.0.1"
     "@deepseek-ai/dsh-session": "npm:^0.0.1"
+    "@deepseek-ai/dsh-session-persistence-jsonl": "npm:^0.0.1"
     "@deepseek-ai/dsh-system-prompt": "npm:^0.0.1"
     "@deepseek-ai/dsh-tools": "npm:^0.0.1"
     cordis: "npm:^4.0.0-rc.6"
@@ -685,6 +686,33 @@ __metadata:
     typescript-eslint: "npm:^8.61.0"
     vite-tsconfig-paths: "npm:^6.1.1"
     vitest: "npm:^4.1.8"
+  languageName: unknown
+  linkType: soft
+
+"@deepseek-ai/dsh-session-persistence-jsonl@npm:^0.0.1, @deepseek-ai/dsh-session-persistence-jsonl@workspace:packages/session-persistence-jsonl":
+  version: 0.0.0-use.local
+  resolution: "@deepseek-ai/dsh-session-persistence-jsonl@workspace:packages/session-persistence-jsonl"
+  dependencies:
+    "@deepseek-ai/dsh-session": "npm:^0.0.1"
+    "@deepseek-ai/dsh-session-persistence": "npm:^0.0.1"
+    cordis: "npm:^4.0.0-rc.6"
+    schemastery: "npm:^3.18.0"
+  peerDependencies:
+    "@deepseek-ai/dsh-session": ^0.0.1
+    "@deepseek-ai/dsh-session-persistence": ^0.0.1
+    cordis: ^4.0.0-rc.6
+  languageName: unknown
+  linkType: soft
+
+"@deepseek-ai/dsh-session-persistence@npm:^0.0.1, @deepseek-ai/dsh-session-persistence@workspace:packages/session-persistence":
+  version: 0.0.0-use.local
+  resolution: "@deepseek-ai/dsh-session-persistence@workspace:packages/session-persistence"
+  dependencies:
+    "@deepseek-ai/dsh-session": "npm:^0.0.1"
+    cordis: "npm:^4.0.0-rc.6"
+  peerDependencies:
+    "@deepseek-ai/dsh-session": ^0.0.1
+    cordis: ^4.0.0-rc.6
   languageName: unknown
   linkType: soft
 

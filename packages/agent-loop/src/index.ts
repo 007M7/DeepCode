@@ -8,6 +8,7 @@
  */
 
 import { Context, Service } from 'cordis'
+import { randomUUID } from 'node:crypto'
 import z from 'schemastery'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
@@ -62,12 +63,24 @@ export class AgentLoop extends Service {
    * Create an agent, start its loop, and register it. Returns the agent.
    * Disposed with the calling fiber.
    *
+   * The session id is per-run (`${id}-session-<uuid>`, no fixed name): once a
+   * durable persistence backend is loaded, a fixed `${id}-session` collides on
+   * the second run — the backend refuses to re-create an id whose log already
+   * exists on disk (the SessionId is the identity). A fresh id means each run
+   * is a new session.
+   *
+   * TODO(demo): each run starting a brand-new session is fine for demos but is
+   * NOT real conversation continuity. A production config-driven agent needs a
+   * deliberate resume-or-create policy (resume the prior session if one exists,
+   * else start fresh) or an explicit caller-chosen session id — revisit when the
+   * UI/ACP path owns session selection.
+   *
    * TODO(sub-agents): spawn/fork land here — accept a parent agent reference;
    * fork seeds the new Session with the parent's event log, spawn starts
    * fresh; the child is returned as a regular Agent handle.
    */
   create(id: string, options: AgentOptions = {}): LoopAgent {
-    const session = this.ctx.sessions.create(`${id}-session`)
+    const session = this.ctx.sessions.create(`${id}-session-${randomUUID()}`, { meta: {} })
     const agent = new LoopAgent(this.ctx, AgentId(id), options, session)
     // Generator effect: stop and unregister are independent disposables
     // (LIFO), so a throwing stop() cannot leak the registry entry.

@@ -6,6 +6,8 @@ lib/
 .yarn/
 yarn-error.log
 examples/*/*.jsonl
+.sessions/
+examples/*/.sessions/
 coverage/
 .doc-typecheck-*/
 .vscode/

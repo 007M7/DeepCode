@@ -46,8 +46,10 @@
 - id: echo-tool
   name: './src/echo-tool.ts'
 
-- id: session-jsonl
-  name: './src/session-jsonl.ts'
+- id: session-persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'
 
 - id: stdio-chat
   name: './src/stdio-chat.ts'

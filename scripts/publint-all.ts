@@ -6,6 +6,8 @@ import { resolve } from 'node:path'
 const packages = [
   'packages/llm',
   'packages/session',
+  'packages/session-persistence',
+  'packages/session-persistence-jsonl',
   'packages/system-prompt',
   'packages/tools',
   'packages/agent',

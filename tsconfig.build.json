@@ -12,6 +12,8 @@
     { "path": "./vendor/logger-console" },
     { "path": "./packages/llm" },
     { "path": "./packages/session" },
+    { "path": "./packages/session-persistence" },
+    { "path": "./packages/session-persistence-jsonl" },
     { "path": "./packages/system-prompt" },
     { "path": "./packages/agent" },
     { "path": "./packages/tools" },
