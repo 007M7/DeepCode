@@ -35,9 +35,11 @@ function send(agent: LoopAgent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
-describe('loop backstop catch', () => {
-  it('a throwing turn-start listener is caught by the backstop and loop survives', async () => {
-    // The first turn will abort before the model call (turn-start throw).
+describe('turn boundary listener throws (handled in-turn, loop survives)', () => {
+  it('a throwing agent/turn-start listener surfaces via agent/error and the loop survives', async () => {
+    // The agent/turn-start emit happens AFTER turn/start is appended to the log,
+    // so a throwing listener is handled inside runTurn (the turn is balanced and
+    // closed via failTurn → agent/error), NOT rethrown to the runLoop backstop.
     // The second turn should proceed normally and consume the first script entry.
     const adapter = new MockAdapter([textResponse('turn 2')])
     const ctx = await harness(adapter)
@@ -57,6 +59,9 @@ describe('loop backstop catch', () => {
     send(agent, 'first')
     await waitForIdle(ctx, agent)
     expect(errors.map(e => e.message)).toEqual(['broken turn-start listener'])
+    // The turn is balanced: its turn/start was logged, so a turn/end was owed
+    // and appended (decided from the log, not a flag).
+    expect(agent.session.events.at(-1)?.type).toBe('turn/end')
 
     // loop survives: second turn works fine and makes the model call
     send(agent, 'second')
@@ -65,7 +70,7 @@ describe('loop backstop catch', () => {
     expect(adapter.requests[0]!.messages.some(m => m.content.some(b => 'text' in b && b.text === 'second'))).toBe(true)
   })
 
-  it('a throwing turn-end listener is caught by the backstop and loop survives', async () => {
+  it('a throwing agent/turn-end listener surfaces via agent/error and the loop survives', async () => {
     const adapter = new MockAdapter([textResponse('turn 1'), textResponse('turn 2')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create('a1', { model: 'mock' })
@@ -84,13 +89,43 @@ describe('loop backstop catch', () => {
     send(agent, 'first')
     await waitForIdle(ctx, agent)
     // The turn-end throw happens after the model call is complete, so turn 1's
-    // request is consumed. The error is surfaced by the backstop.
+    // request is consumed. turn/end is already in the log (append pushes before
+    // notifying), so the turn is balanced; the error is surfaced via agent/error.
     expect(errors.map(e => e.message)).toEqual(['broken turn-end listener'])
 
     // loop survives: second turn works fine
     send(agent, 'second')
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(2)
+  })
+
+  it('a pre-push turn/start failure (non-serializable source) is rethrown to the runLoop backstop', async () => {
+    // A non-serializable message source makes the turn/start append throw BEFORE
+    // the event is pushed (Session.append validates before push), so turn/start
+    // never enters the log. runTurn sees no logged turn/start and rethrows; the
+    // runLoop backstop reports via agent/error (step 0) + the logger and the
+    // driver survives. This is the ONLY path that reaches the backstop.
+    const adapter = new MockAdapter([textResponse('turn 2')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+
+    const errors: { turn: number; step: number; message: string }[] = []
+    ctx.on('agent/error', (_a, turn, step, error) => void errors.push({ turn, step, message: error.message }))
+
+    // A non-serializable source (BigInt) on the queued message.
+    agent.send([{ type: 'text', text: 'first' }], { source: { kind: 'plugin', plugin: 'p', bad: 1n } as never })
+    await waitForIdle(ctx, agent)
+
+    expect(errors).toHaveLength(1)
+    expect(errors[0]!.step).toBe(0)
+    expect(errors[0]!.message).toMatch(/non-JSON-serializable/)
+    // No turn boundary was written (the turn/start append threw before push).
+    expect(agent.session.events.some(e => e.type === 'turn/start')).toBe(false)
+
+    // loop survives: a well-formed second turn runs normally.
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+    expect(adapter.requests).toHaveLength(1)
   })
 })
 
@@ -157,7 +192,7 @@ describe('tool JSON parse', () => {
 })
 
 describe('toError normalization', () => {
-  it('normalizes non-Error throws from turn-start listeners via toError in the backstop', async () => {
+  it('normalizes non-Error throws from turn-start listeners via toError', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create('a1', { model: 'mock' })
@@ -166,7 +201,7 @@ describe('toError normalization', () => {
     ctx.on('agent/turn-start', () => {
       if (!threwOnce) {
         threwOnce = true
-        throw 'naked string error' // non-Error throw, goes through backstop's toError
+        throw 'naked string error' // non-Error throw, normalized via toError
       }
     })
 
