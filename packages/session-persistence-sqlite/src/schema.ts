@@ -48,11 +48,30 @@ export interface EventRow {
  * makes `ON DELETE CASCADE` drop a session's events with its row; `journal_mode
  * = WAL` matches the durability model the ADR records (the row shape maps 1:1
  * onto `SessionEvent`; opencode runs this exact shape on SQLite/WAL).
+ *
+ * The table-layout version is persisted in SQLite's `PRAGMA user_version` and
+ * checked on open: a fresh database (user_version 0) is stamped with the
+ * current {@link SCHEMA_VERSION}; an existing database with a NEWER version
+ * (written by a future, incompatible build) is rejected rather than opened
+ * against a layout this build does not understand. (An older-but-compatible
+ * version would be migrated here when migrations exist; v1 has none.)
  */
 export function openDatabase(path: string): DatabaseSync {
   const db = new DatabaseSync(path)
   db.exec('PRAGMA foreign_keys = ON')
   db.exec('PRAGMA journal_mode = WAL')
+  // `PRAGMA user_version` always returns exactly one row { user_version }.
+  const { user_version: onDisk } = db.prepare('PRAGMA user_version').get() as { user_version: number }
+  if (onDisk > SCHEMA_VERSION) {
+    db.close()
+    throw new Error(`session database at "${path}" has schema version ${onDisk}, newer than this build supports (${SCHEMA_VERSION})`)
+  }
+  if (onDisk === 0) {
+    // Fresh (or pre-versioning) database: stamp the current layout version.
+    // PRAGMA does not accept bound parameters, so interpolate the integer
+    // constant (SCHEMA_VERSION is a trusted in-code number, not user input).
+    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
       id             TEXT PRIMARY KEY,

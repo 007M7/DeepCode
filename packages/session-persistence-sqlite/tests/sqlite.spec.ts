@@ -80,7 +80,7 @@ describe('cutAtLastTurnEnd', () => {
 })
 
 describe('SessionPersistenceSqlite: durability and crash semantics', () => {
-  it('a crash tail (rows after the last turn/end) is excluded and deleted on load', async () => {
+  it('a crash tail (rows after the last turn/end) is excluded on load and repaired on the next append', async () => {
     const path = await freshDbPath()
     const m = meta('crash')
     // Run 1: persist a complete turn, then a half-written second turn (no turn/end).
@@ -95,15 +95,16 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     ])
     await fiber1.dispose()
 
-    // Run 2: load returns only the committed first turn; the tail is gone.
+    // Run 2: load returns only the committed first turn (tail excluded).
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
     const fiber2 = await ctx2.plugin(SessionPersistenceSqlite, { path })
     const loaded = await ctx2.sessionPersistence.load(m.id)
     expect(loaded.events).toEqual(oneTurnLog())
 
-    // The next append continues at seq 6 (the committed length) and the cut
-    // tail was physically deleted, so there is no UNIQUE collision.
+    // The next append continues at seq 6 and performs the deferred truncation-
+    // repair inside its transaction (DELETE seq >= 6 before inserting), so the
+    // orphaned tail rows are gone and there is no UNIQUE collision.
     await ctx2.sessionPersistence.append(m.id, [
       { type: 'turn/start', seq: 6, time: 9, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
       { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, reason: { kind: 'completed' } } },
@@ -111,6 +112,64 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     const reloaded = await ctx2.sessionPersistence.load(m.id)
     expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
     await fiber2.dispose()
+  })
+
+  it('load() is non-mutating: the crash tail rows survive until the next append repairs them', async () => {
+    const path = await freshDbPath()
+    const m = meta('load-nonmutating')
+    const b1 = await backend(path)
+    await b1.ctx.sessionPersistence.create(m)
+    await b1.ctx.sessionPersistence.append(m.id, oneTurnLog()) // seqs 0..5
+    await b1.dispose()
+    // Hand-write an uncommitted tail (seq 6, no turn/end).
+    const db = openDatabase(path)
+    db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, 6, ?, 7, ?)')
+      .run(m.id, 'turn/start', JSON.stringify({ turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } }))
+    db.close()
+
+    const b2 = await backend(path)
+    const loaded = await b2.ctx.sessionPersistence.load(m.id)
+    expect(loaded.events).toEqual(oneTurnLog())
+    // load() must NOT have deleted the tail row (contract: load returns the
+    // prefix; the next append repairs). Verify the row is still on disk.
+    const probe = openDatabase(path)
+    const tailRows = probe.prepare('SELECT seq FROM events WHERE session_id = ? AND seq >= 6').all(m.id)
+    probe.close()
+    expect(tailRows).toHaveLength(1)
+    await b2.dispose()
+  })
+
+  it('all-tail load: a session whose only content is a crash tail is absent from has()/list()', async () => {
+    const path = await freshDbPath()
+    const m = meta('all-tail')
+    const b1 = await backend(path)
+    await b1.ctx.sessionPersistence.create(m)
+    // A first turn that NEVER completed: turn/start + user/message, no turn/end.
+    await b1.ctx.sessionPersistence.append(m.id, [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'user/message', seq: 1, time: 2, data: { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } } },
+    ])
+    expect(await b1.ctx.sessionPersistence.has(m.id)).toBe(true) // materialized
+    await b1.dispose()
+
+    // A fresh backend loads it: the committed prefix is empty (no turn/end), so
+    // the session has no committed content. has()/list() must NOT report it.
+    const b2 = await backend(path)
+    const loaded = await b2.ctx.sessionPersistence.load(m.id)
+    expect(loaded.events).toEqual([])
+    expect(await b2.ctx.sessionPersistence.has(m.id)).toBe(false)
+    expect((await b2.ctx.sessionPersistence.list()).map(x => x.id)).not.toContain(m.id)
+    await b2.dispose()
+  })
+
+  it('rejects opening a database whose schema version is newer than this build', async () => {
+    const path = await freshDbPath()
+    openDatabase(path).close() // stamp user_version = SCHEMA_VERSION
+    // Bump user_version past what this build supports.
+    const db = openDatabase(path)
+    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`)
+    db.close()
+    expect(() => openDatabase(path)).toThrow(/newer than this build/)
   })
 
   it('append snapshots the batch: mutating an event after the call does not corrupt the persisted copy', async () => {

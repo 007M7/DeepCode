@@ -50,6 +50,14 @@ interface SessionState {
   cursor: number
   /** Whether the session has at least one persisted event (materialized). */
   materialized: boolean
+  /**
+   * If a load found a crash tail, the seq from which the next {@link append}
+   * must DELETE before inserting (the one-time truncation-repair). load() stays
+   * non-mutating w.r.t. the event log — it only records this marker — so the
+   * public contract matches the JSONL backend: load returns the committed
+   * prefix; the subsequent append performs the physical repair.
+   */
+  repairFrom?: number
   /** The live Session that owns this state (collision detection); see onCreated. */
   owner?: Session
 }
@@ -171,16 +179,24 @@ export class SessionPersistenceSqlite extends SessionPersistence {
       }
     }
 
-    // The transaction is the durability + atomicity boundary: materialize the
-    // sessions row (if lazy) and INSERT every event, or roll back entirely. A
-    // BEGIN/COMMIT around the batch means a mid-batch failure (a UNIQUE
-    // violation on a duplicated seq from a concurrent writer) leaves the stored
-    // log untouched, so the cursor stays truthful and a retry is clean.
+    // The transaction is the durability + atomicity boundary: run any deferred
+    // crash-tail repair, materialize the sessions row (if lazy), and INSERT
+    // every event, or roll back entirely. A BEGIN/COMMIT around the batch means
+    // a mid-batch failure (a UNIQUE violation on a duplicated seq from a
+    // concurrent writer) leaves the stored log untouched, so the cursor stays
+    // truthful and a retry is clean.
     const insertEvent = this.db.prepare(
       'INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)',
     )
     this.db.exec('BEGIN')
     try {
+      // One-time truncation-repair: a prior load() found a crash tail and
+      // deferred its physical removal to here (load stays non-mutating). DELETE
+      // the orphaned rows (seq >= repairFrom) before inserting, inside the same
+      // transaction, so the repair + first new append commit atomically.
+      if (state.repairFrom !== undefined) {
+        this.db.prepare('DELETE FROM events WHERE session_id = ? AND seq >= ?').run(id, state.repairFrom)
+      }
       if (!state.materialized) this.writeRow(state.meta)
       for (const event of events) {
         insertEvent.run(id, event.seq, event.type, event.time, JSON.stringify(event.data))
@@ -194,6 +210,7 @@ export class SessionPersistenceSqlite extends SessionPersistence {
       this.db.exec('ROLLBACK')
       throw error
     }
+    delete state.repairFrom
     state.materialized = true
     state.cursor += events.length
   }
@@ -223,18 +240,33 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     const { committed, cutTail } = cutAtLastTurnEnd(eventRows)
     const events = committed.map(rowToEvent)
 
-    // Physically discard the crash tail so the stored log matches what load
-    // returned (the next append continues at the committed length). Mirrors the
-    // JSONL truncation-repair, but done eagerly here (a DELETE is transactional;
-    // there is no half-written-line hazard to defer past).
-    if (cutTail) {
-      this.db.prepare('DELETE FROM events WHERE session_id = ? AND seq >= ?').run(id, committed.length)
+    // Do NOT delete the crash tail here: load() stays non-mutating w.r.t. the
+    // event log, matching the abstract contract and the JSONL backend (load
+    // returns the committed prefix; the next append performs the one-time
+    // physical repair). Record the repair point so the next appendCore DELETEs
+    // the orphaned tail inside its own transaction before inserting.
+    const materialized = committed.length > 0
+    if (committed.length === 0 && row.materialized === 1) {
+      // All-tail discard: the only committed events were a crash tail, so the
+      // session now has NO committed events. The metadata row, however, still
+      // reads materialized = 1 from the prior append — which would make has()
+      // and list() report a session that load() just emptied. Correct the
+      // materialized FLAG (metadata, not the event log) so has()/list() are
+      // immediately consistent. The orphaned tail rows are still removed by the
+      // deferred repair on the next append.
+      this.db.prepare('UPDATE sessions SET materialized = 0 WHERE id = ?').run(id)
     }
 
-    // Record state so a later append continues at the committed length. The
-    // state keeps its OWN copy of the meta; the returned value is separate so a
-    // consumer mutating loaded.meta cannot corrupt the backend's row metadata.
-    this.states.set(id, { meta: { ...meta }, cursor: committed.length, materialized: committed.length > 0 })
+    // Record state so a later append continues at the committed length and runs
+    // the deferred tail repair. The state keeps its OWN copy of the meta; the
+    // returned value is separate so a consumer mutating loaded.meta cannot
+    // corrupt the backend's row metadata.
+    this.states.set(id, {
+      meta: { ...meta },
+      cursor: committed.length,
+      materialized,
+      ...cutTail ? { repairFrom: committed.length } : {},
+    })
     return { meta, events }
   }
 
