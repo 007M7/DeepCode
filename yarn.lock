@@ -558,6 +558,7 @@ __metadata:
   resolution: "@deepseek-ai/dsh-agent-loop@workspace:packages/agent-loop"
   dependencies:
     "@deepseek-ai/dsh-agent": "npm:^0.0.1"
+    "@deepseek-ai/dsh-invariants": "npm:^0.0.1"
     "@deepseek-ai/dsh-llm": "npm:^0.0.1"
     "@deepseek-ai/dsh-session": "npm:^0.0.1"
     "@deepseek-ai/dsh-system-prompt": "npm:^0.0.1"
@@ -611,7 +612,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@deepseek-ai/dsh-invariants@workspace:packages/invariants":
+"@deepseek-ai/dsh-invariants@npm:^0.0.1, @deepseek-ai/dsh-invariants@workspace:packages/invariants":
   version: 0.0.0-use.local
   resolution: "@deepseek-ai/dsh-invariants@workspace:packages/invariants"
   dependencies:

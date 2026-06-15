@@ -151,7 +151,9 @@ export async function runLoop(ctx: Context, agent: LoopAgent, handle: LoopHandle
 async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn: number): Promise<void> {
   const { session } = agent
 
-  // Drain queued messages into the session — they trigger this turn.
+  // --- Pre-turn. A throw here (the invariant guard or a user-message append)
+  // is owed NO turn/end — turn/start has not been appended — so it propagates
+  // to runLoop's backstop untouched.
   const queued = agent.inbox.drainQueued()
   const first = queued[0]
   /* v8 ignore next 3 -- invariant guard: runLoop only calls runTurn when hasQueued */
@@ -161,91 +163,164 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     session.append('user/message', { content: message.content, source: message.source })
   }
 
-  session.append('turn/start', { turn, trigger })
-  ctx.emit('agent/turn-start', agent, turn)
-
   let reason: TurnEndReason = { kind: 'completed' }
   let step = 0
+  let turnStarted = false
+  let turnEnded = false
+  let stepOpen = false
+  let errorReported = false
 
-  while (true) {
-    step += 1
-
-    // Steering from the previous round's step-end/continuation listeners
-    // (or turn-start listeners on the first step) joins before the request.
-    drainSteering(ctx, agent, turn)
-
-    session.append('step/start', { turn, step })
-    ctx.emit('agent/step-start', agent, turn, step)
-
-    const abort = new AbortController()
-    handle.setAbort(abort)
-
-    let stepOutcome: { hadToolCalls: boolean } | { error: Error }
-    try {
-      stepOutcome = await runStep(ctx, agent, turn, step, abort.signal)
-    } catch (error: unknown) {
-      stepOutcome = { error: toError(error) }
-    } finally {
-      handle.setAbort(undefined)
-    }
-
-    if ('error' in stepOutcome) {
-      // Steering that arrived during the failed step stays in the inbox —
-      // runLoop re-enqueues it as a queued message, so an abort-then-steer
-      // starts a fresh turn instead of being silently consumed.
-      session.append('step/end', { turn, step })
-      ctx.emit('agent/step-end', agent, turn, step)
-      const { error } = stepOutcome
-      if (handle.isDisposed()) {
-        reason = { kind: 'disposed' }
-      } else if (abort.signal.aborted) {
-        /* v8 ignore next -- abort.signal.reason always set by agent.abort() which provides a default */
-        reason = { kind: 'aborted', reason: String(abort.signal.reason ?? 'aborted') }
-      } else {
-        const coded = error as CodedError
-        session.append('error', { turn, step, ...errorData(coded) })
-        ctx.emit('agent/error', agent, turn, step, error)
-        reason = { kind: 'error', ...errorData(coded) }
-      }
-      break
-    }
-
-    // Steering that arrived during streaming/tool execution.
-    const steered = drainSteering(ctx, agent, turn)
-
+  // Close the open step exactly once (idempotent via stepOpen). The
+  // agent/step-end emit is contained: a throwing step-end listener must not
+  // abort finalization and strand the turn open (turn/end balance > notifying
+  // one bad listener). Appended before the emit (ADR 0003 append-before-emit).
+  const closeStep = (): void => {
+    if (!stepOpen) return
+    stepOpen = false
     session.append('step/end', { turn, step })
-    ctx.emit('agent/step-end', agent, turn, step)
-
-    const defaultDecision = stepOutcome.hadToolCalls || steered
-    let shouldContinue: boolean
     try {
-      shouldContinue = await ctx.waterfall(
-        'agent/turn-continuation', agent, turn, defaultDecision,
-        () => Promise.resolve(defaultDecision),
-      )
+      ctx.emit('agent/step-end', agent, turn, step)
     } catch (error: unknown) {
-      // A broken continuation plugin ends the turn, not the loop.
-      const err = toError(error)
-      session.append('error', { turn, step, ...errorData(err) })
-      ctx.emit('agent/error', agent, turn, step, err)
-      reason = { kind: 'error', ...errorData(err) }
-      break
-    }
-
-    // Steering from step-end/continuation listeners (the /goal pattern)
-    // demands the model see it — it overrides a negative decision; the
-    // next iteration's drain records it.
-    if (!shouldContinue && agent.inbox.hasSteering) shouldContinue = true
-
-    if (!shouldContinue || handle.isDisposed()) {
-      /* v8 ignore next -- disposal during continuation-decision window is a narrow race; error-path disposal is covered elsewhere */
-      if (handle.isDisposed()) reason = { kind: 'disposed' }
-      break
+      // step/end is already recorded so balance holds; surface the throwing
+      // listener as a turn error via failTurn (idempotent). This prevents a
+      // throwing step-end listener from producing a silent "completed" turn
+      // when the step itself succeeded (the normal-path closeStep call).
+      failTurn(toError(error))
     }
   }
 
-  session.append('turn/end', { turn, reason })
-  ctx.emit('agent/turn-end', agent, turn, reason)
+  // Record a step/turn failure exactly once: append the single `error` event,
+  // set the error reason, and emit agent/error (contained — trap: a throwing
+  // agent/error listener must not re-escape and strand the turn). Disposal and
+  // abort set `reason` directly without calling this (no `error` event for
+  // those — they are not failures).
+  const failTurn = (err: CodedError): void => {
+    if (errorReported) return
+    errorReported = true
+    session.append('error', { turn, step, ...errorData(err) })
+    reason = { kind: 'error', ...errorData(err) }
+    try {
+      ctx.emit('agent/error', agent, turn, step, err)
+    } catch {
+      // contained: the error is already logged; a throwing agent/error
+      // listener must not prevent the turn from closing.
+    }
+  }
+
+  // Close the turn exactly once (idempotent via turnEnded). `emit` is false on
+  // the error path (the failure was already surfaced via agent/error) and true
+  // on the normal/inline-error path. A throwing agent/turn-end listener on the
+  // normal path escapes to the outer catch, which surfaces it via failTurn —
+  // turn/end is already appended, so balance holds either way.
+  const closeTurn = (emit: boolean): void => {
+    if (turnEnded) return
+    turnEnded = true
+    session.append('turn/end', { turn, reason })
+    if (emit) ctx.emit('agent/turn-end', agent, turn, reason)
+  }
+
+  try {
+    // --- Turn boundary. Once turn/start is appended, a turn/end is owed no
+    // matter what throws below; the catch + closeTurn guarantee it.
+    session.append('turn/start', { turn, trigger })
+    turnStarted = true
+    ctx.emit('agent/turn-start', agent, turn)
+
+    while (true) {
+      step += 1
+
+      // Steering from the previous round's step-end/continuation listeners
+      // (or turn-start listeners on the first step) joins before the request.
+      drainSteering(ctx, agent, turn)
+
+      session.append('step/start', { turn, step })
+      stepOpen = true
+      ctx.emit('agent/step-start', agent, turn, step)
+
+      const abort = new AbortController()
+      handle.setAbort(abort)
+
+      let stepOutcome: { hadToolCalls: boolean } | { error: Error }
+      try {
+        stepOutcome = await runStep(ctx, agent, turn, step, abort.signal)
+      } catch (error: unknown) {
+        stepOutcome = { error: toError(error) }
+      } finally {
+        handle.setAbort(undefined)
+      }
+
+      if ('error' in stepOutcome) {
+        // Steering that arrived during the failed step stays in the inbox —
+        // runLoop re-enqueues it as a queued message, so an abort-then-steer
+        // starts a fresh turn instead of being silently consumed.
+        closeStep()
+        const { error } = stepOutcome
+        if (handle.isDisposed()) {
+          reason = { kind: 'disposed' }
+        } else if (abort.signal.aborted) {
+          /* v8 ignore next -- abort.signal.reason always set by agent.abort() which provides a default */
+          reason = { kind: 'aborted', reason: String(abort.signal.reason ?? 'aborted') }
+        } else {
+          failTurn(error)
+        }
+        break
+      }
+
+      // Steering that arrived during streaming/tool execution.
+      const steered = drainSteering(ctx, agent, turn)
+
+      closeStep()
+
+      const defaultDecision = stepOutcome.hadToolCalls || steered
+      let shouldContinue: boolean
+      try {
+        shouldContinue = await ctx.waterfall(
+          'agent/turn-continuation', agent, turn, defaultDecision,
+          () => Promise.resolve(defaultDecision),
+        )
+      } catch (error: unknown) {
+        // A broken continuation plugin ends the turn, not the loop.
+        failTurn(toError(error))
+        break
+      }
+
+      // Steering from step-end/continuation listeners (the /goal pattern)
+      // demands the model see it — it overrides a negative decision; the
+      // next iteration's drain records it.
+      if (!shouldContinue && agent.inbox.hasSteering) shouldContinue = true
+
+      if (!shouldContinue || handle.isDisposed()) {
+        /* v8 ignore next -- disposal during continuation-decision window is a narrow race; error-path disposal is covered elsewhere */
+        if (handle.isDisposed()) reason = { kind: 'disposed' }
+        break
+      }
+    }
+
+    // Normal / inline-error loop exit: close the turn and notify.
+    closeTurn(true)
+  } catch (error: unknown) {
+    // A pre-turn throw (turn/start append) is owed no turn/end — rethrow to
+    // the backstop. Otherwise a boundary emit (turn-start, step-start, the
+    // normal-path turn-end) or other unhandled throw escaped: close any open
+    // step, choose the reason (disposal wins only if no error was reported),
+    // record the error, and close the turn WITHOUT re-emitting agent/turn-end.
+    if (!turnStarted) throw error
+    closeStep()
+    // Choose the close reason. Disposal wins only if no error was already
+    // reported: a turn disposed mid-step sets reason=disposed in the step-error
+    // branch (without reporting an error), and if closeTurn(true)'s turn-end
+    // emit then throws, we land here and must PRESERVE disposed rather than
+    // overwrite it with the listener's throw. Otherwise a boundary-emit throw
+    // on a live agent is a real failure → failTurn. (errorReported is mutated
+    // only inside the failTurn closure, which the analyzer can't follow, hence
+    // the inline lint-disable.)
+    if (handle.isDisposed() && !errorReported) { // eslint-disable-line @typescript-eslint/no-unnecessary-condition
+      reason = { kind: 'disposed' }
+    } else {
+      failTurn(toError(error))
+    }
+    closeTurn(false)
+  }
 
   // Durability checkpoint: persistence plugins drain write-behind buffers.
   // A failing persistence plugin is reported but doesn't kill the agent.
