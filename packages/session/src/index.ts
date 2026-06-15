@@ -90,7 +90,15 @@ export class Session {
           throw new Error(`seed event "${event.type}" (seq ${event.seq}) carries non-JSON-serializable data`)
         }
       })
-      this.log = [...seed]
+      // Deep-clone each seed event, NOT just the array: the seed events and
+      // their `data` are still owned by the caller (or the source session of a
+      // fork), so keeping the references would let a post-create mutation of the
+      // original rewrite this session's durable log — or reintroduce a
+      // non-JSON-serializable value AFTER the validation above. Snapshotting at
+      // the boundary makes `session.events` independent and keeps it equal to
+      // what was validated. Serializability is guaranteed by the check above, so
+      // structuredClone can never hit a non-cloneable value here.
+      this.log = seed.map(event => structuredClone(event))
     }
     this.header = header ?? { version: 1, id, createdAt: Date.now() }
   }
@@ -120,7 +128,16 @@ export class Session {
     if (!isJsonValue(data)) {
       throw new Error(`session event "${type}" carries non-JSON-serializable data`)
     }
-    const event = { type, seq: this.log.length, time: Date.now(), data } as SessionEvent<T>
+    // Snapshot `data` into the log, NOT the caller's reference: the validation
+    // above proves it is JSON-serializable AT THIS MOMENT, but the caller still
+    // owns the object and could mutate it afterwards (before a persistence
+    // flush, or permanently in the in-memory history) — making `session.events`
+    // diverge from the value that passed validation, or reintroducing a
+    // non-serializable value. Cloning here keeps the log equal to what was
+    // validated. structuredClone is safe because serializability was just
+    // checked. The returned event carries the SAME snapshot, so a caller reading
+    // back `event.data` sees the logged value, not its own mutable input.
+    const event = { type, seq: this.log.length, time: Date.now(), data: structuredClone(data) } as SessionEvent<T>
     this.log.push(event)
     this.onAppend?.(event)
     return event

@@ -139,6 +139,39 @@ describe('Session', () => {
     const session = new Session(SessionId('seed-ok'), goodSeed)
     expect(session.events).toHaveLength(3)
   })
+
+  it('snapshots the seed: mutating the original after construction does not affect session.events', () => {
+    const seed = [
+      { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
+      { type: 'user/message' as const, seq: 1, time: 2, data: { content: [{ type: 'text' as const, text: 'original' }], source: { kind: 'user' as const } } },
+      { type: 'turn/end' as const, seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' as const } } },
+    ] as SessionEvent[]
+    const session = new Session(SessionId('seed-snapshot'), seed)
+    // Mutate the ORIGINAL seed objects after construction: a shared reference
+    // would let this rewrite the forked log (or reintroduce non-serializable
+    // data past validation). The snapshot must shield session.events.
+    const um = seed[1]!
+    ;(um.data as { content: { type: 'text'; text: string }[] }).content[0]!.text = 'HACKED'
+    ;(um.data as Record<string, unknown>)['injected'] = 1n // would have failed validation
+    const logged = session.events[1]!
+    expect(logged.type === 'user/message' && (logged.data.content[0] as { text: string }).text).toBe('original')
+    expect((logged.data as Record<string, unknown>)['injected']).toBeUndefined()
+  })
+
+  it('snapshots append data: mutating the passed object after append does not affect session.events', () => {
+    const session = new Session(SessionId('append-snapshot'))
+    const data = { content: [{ type: 'text' as const, text: 'original' }], source: { kind: 'user' as const } }
+    const event = session.append('user/message', data)
+    // Mutate the caller's object after append returns. A shared reference would
+    // make session.events diverge from the value that passed validation.
+    data.content[0]!.text = 'HACKED'
+    ;(data as Record<string, unknown>)['injected'] = 1n
+    const logged = session.events[0]!
+    expect(logged.type === 'user/message' && (logged.data.content[0] as { text: string }).text).toBe('original')
+    expect((logged.data as Record<string, unknown>)['injected']).toBeUndefined()
+    // The returned event carries the same snapshot, not the caller's input.
+    expect((event.data.content[0] as { text: string }).text).toBe('original')
+  })
 })
 
 
