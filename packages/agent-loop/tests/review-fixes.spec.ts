@@ -854,6 +854,46 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(adapter.requests).toHaveLength(1)
   })
 
+  it('a throwing agent/step-end listener during a successful step ends the turn as error, not completed', async () => {
+    // closeStep() must surface a throwing step-end listener via failTurn so the
+    // turn ends with reason error, not a silent "completed" with the throw
+    // swallowed. Regression test for the closeStep() catch that previously
+    // swallowed the throw in the normal (no-tool, no-steering) path.
+    const adapter = new MockAdapter([textResponse('all good'), textResponse('turn 2 ok')])
+    const ctx = await balancedHarness(adapter)
+    const agent = ctx.agentLoop.create('a-stepend-throw', { model: 'mock' })
+
+    let threw = false
+    ctx.on('agent/step-end', () => { if (!threw) { threw = true; throw new Error('boom step-end') } })
+    const errors: Error[] = []
+    ctx.on('agent/error', (_a, _t, _s, error) => void errors.push(error))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const c = boundaryCounts(agent)
+    // step opened and closed; exactly one error; turn balanced; turn ends error.
+    expect(c).toMatchObject({ turnStart: 1, turnEnd: 1, stepStart: 1, stepEnd: 1, errors: 1 })
+    expect(errors.map(e => e.message)).toEqual(['boom step-end'])
+    expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason)
+      .toEqual({ kind: 'error', message: 'boom step-end' })
+
+    // step/end precedes turn/end (ordering contract)
+    const e = [...agent.session.events]
+    const stepEndIdx = e.findIndex(x => x.type === 'step/end')
+    const turnEndIdx = e.findIndex(x => x.type === 'turn/end')
+    expect(stepEndIdx).toBeGreaterThanOrEqual(0)
+    expect(stepEndIdx).toBeLessThan(turnEndIdx)
+
+    // loop survives: a subsequent turn runs to completion
+    send(agent, 'again')
+    await waitForIdle(ctx, agent)
+    const c2 = boundaryCounts(agent)
+    expect(c2.turnStart).toBe(2)
+    expect(c2.turnEnd).toBe(2)
+    expect(c2.stepStart).toBe(c2.stepEnd)
+  })
+
   it('a step error followed by a throwing turn-end listener logs the error exactly once (no double-report)', async () => {
     // The step fails (finish-error) → failTurn records ONE error and sets the
     // error reason. closeTurn(true) then appends turn/end and emits
