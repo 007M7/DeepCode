@@ -22,6 +22,14 @@
  * convert lossily. Sparse arrays are rejected too: a hole serializes to `null`,
  * so `[1, , 3]` would not round-trip. Detects circular references (which would
  * throw) and reports them as non-serializable rather than propagating the throw.
+ *
+ * Scope — matches `JSON.stringify` exactly: only an object's OWN ENUMERABLE
+ * STRING-keyed properties are inspected (`Object.values`). Symbol-keyed and
+ * non-enumerable properties are NOT examined, because `JSON.stringify` likewise
+ * drops them — they never reach the durable form, so a non-serializable value
+ * hiding under a symbol/non-enumerable key cannot make the round-trip lossy.
+ * Getters are invoked during the check (again as `JSON.stringify` would), so the
+ * contract is for plain data records, not objects with side-effecting accessors.
  */
 export function isJsonValue(value: unknown, seen: Set<object> = new Set()): boolean {
   if (value === null) return true

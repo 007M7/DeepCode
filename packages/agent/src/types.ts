@@ -68,7 +68,9 @@ export interface Agent {
    * an inject while idle wraps its `context/message` in a one-shot `injection`
    * turn (`turn/start` → `context/message` → `turn/end`) and checkpoints it for
    * durability, so every event stays inside a turn and a persistence backend
-   * never loses a between-turn notice.
+   * never loses a between-turn notice. The idle checkpoint is fire-and-forget
+   * (inject is synchronous): a failing flush is reported via `agent/error`
+   * (step `0`) and the logger, never thrown into the caller.
    *
    * TODO(review): exact envelope/rendering rules live in dsh-session and need
    * review once a real adapter exists.
