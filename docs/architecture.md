@@ -90,7 +90,7 @@ A `Session` is an append-only log of typed `SessionEvent`s — the single source
 - `tool/result` → user message carrying a `tool-result` block
 - `context/message`, `steering/message` → user-role messages wrapped in a tagged envelope (`<context source="…">…</context>`) at their chronological position — the "system-reminder" pattern; models distinguish them from real user prompts by the envelope. **TODO(review)**: the real adapters now exist (the original precondition); the envelope still wants a deliberate review against live model behavior (`TODO(review)` in dsh-session).
 
-Replay/fork = `ctx.sessions.create(id, seedEvents)`. Trace/telemetry = listen to `session/event`.
+Replay/fork = `ctx.sessions.create(id, { seed: seedEvents })`. Trace/telemetry = listen to `session/event`.
 
 **Durability seam**: `session/event` is a synchronous notification; persistence plugins buffer (write-behind) and drain at the awaited `session/flush` checkpoint the loop fires at every turn end (see `examples/echo-agent/src/session-jsonl.ts` for the pattern). **TODO**: real persistence backends (JSONL per session dir, sqlite) are a future phase.
 
@@ -114,7 +114,7 @@ Tool schemas are deliberately **part of the assembly**: "what the model is told 
 
 - `send(content)` — queued message; starts a turn when idle, else next turn
 - `steer(content)` — mid-turn injection, drained **between steps**; behaves like `send` when idle
-- `inject(content)` — in-session context (`context/message` event) without triggering a turn; the next request sees it (Claude Code attachment / system-reminder analog)
+- `inject(content)` — in-session context (`context/message` event); the next request sees it (Claude Code attachment / system-reminder analog). An inject made while the agent is *running* joins the open turn; an inject while *idle* is wrapped in a one-shot turn (`turn/start{trigger:injection}` → `context/message` → `turn/end`) so every event stays turn-enclosed (see ADR 0017).
 - `abort(reason)` — aborts the in-flight step via `AbortSignal`
 - `session`, `status`, `options`
 
@@ -131,7 +131,7 @@ forever:
   wait for queued messages (idle)
   emit agent/status(running)
   TURN (error-contained — a throwing plugin ends the turn, never the loop):
-    drain queued → session('user/message'…) → 'turn/start' → emit agent/turn-start
+    drain queued → 'turn/start' → session('user/message'…) → emit agent/turn-start
     STEP loop:
       drain steering (late steering from previous step's listeners)
       session('step/start'); emit agent/step-start
@@ -160,7 +160,11 @@ forever:
   emit agent/status(idle) unless more queued
 ```
 
-Error containment: a throwing `agent/turn-continuation` listener or a rejecting `session/flush` ends the **turn** with an `error` event — never the driver loop. An adapter that ends its stream with a `finish {kind:'error'}` or `{kind:'aborted'}` chunk (the in-band error path, for adapters that can't throw mid-stream) is likewise translated into a step error, so the turn ends `error`/`aborted` instead of logging a normal `completed` assistant message. `abort()` is honored mid-stream **and** between tool calls; disposal mid-turn ends the turn with reason `disposed` and emits `agent/status('disposed')`.
+Error containment: a throwing `agent/turn-continuation` listener or a broken step ends the **turn** with an `error` event (appended INSIDE the turn, before `turn/end`) — never the driver loop. An adapter that ends its stream with a `finish {kind:'error'}` or `{kind:'aborted'}` chunk (the in-band error path, for adapters that can't throw mid-stream) is likewise translated into a step error, so the turn ends `error`/`aborted` instead of logging a normal `completed` assistant message. `abort()` is honored mid-stream **and** between tool calls; disposal mid-turn ends the turn with reason `disposed` and emits `agent/status('disposed')`.
+
+A failure that happens once the turn is already closed has no in-turn position for a session `error` event (appending one after `turn/end` would put it past a persistence backend's commit boundary, where it is dropped as a crash tail — ADR 0017). So a rejecting `session/flush` (the post-`turn/end` durability checkpoint) and a throwing `agent/turn-end` listener are reported via `agent/error` + the logger only, NOT as a session event; the turn stays balanced and the backend keeps its buffered events for the next flush.
+
+**Turn-enclosure invariant**: every session event lives inside a turn (between a `turn/start` and its `turn/end`). The loop appends queued `user/message` events *after* `turn/start`, and an idle `agent.inject()` wraps its `context/message` in a one-shot `injection` turn. This makes the turn the single durability/replay boundary: a persistence backend can treat anything after the last `turn/end` as an interrupted-crash tail without risking the loss of legitimately-recorded between-turn context. The `dsh-invariants` plugin enforces it in dev (a message event outside an open turn throws). See ADR 0017.
 
 ### Event taxonomy
 
@@ -221,7 +225,7 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 | Memory | section provider + tool |
 | Scheduled tasks (cron) | plugin registers model-callable scheduling tools; timer fires → `send(…, {source: {kind: 'cron', …}})` when idle / `inject()` notification when busy |
 | UI (GUI; CLI emits JSONL) | listen `agent/stream-chunk` + `session/event`; input → `send()` |
-| Telemetry / replayable trace | `session/event` → JSONL; replay = `sessions.create(id, seed)` |
+| Telemetry / replayable trace | `session/event` → JSONL; replay = `sessions.create(id, { seed })` |
 | DeepSeek V4 (and other) models | `LlmAdapter` subclass via `registerAdapter`. **Implemented twice**: `dsh-llm-deepseek` (hand-rolled) and `dsh-llm-pi-ai` (pi-ai-backed) |
 | Plugin hot-reload | every registration is a `ctx.effect` → vendored HMR just works |
 

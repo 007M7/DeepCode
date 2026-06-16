@@ -105,11 +105,10 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
   }
   trace.lastSeq = event.seq
 
-  // Intentionally non-exhaustive: only events that carry ordering structure
-  // are checked; the rest are trace/replay data with no nesting contract.
-  // SessionEventMap is merge-extensible, so no assertNever — unknown event
-  // types fall through untouched.
-  // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
+  // Boundary/step-scoped events have explicit cases; every OTHER event type —
+  // including plugin-added (merge-extensible) SessionEventMap keys — is caught
+  // by the `default` and must be turn-enclosed (ADR 0017). No assertNever: an
+  // unknown variant is valid, not a compile error.
   switch (event.type) {
     case 'turn/start': {
       if (trace.openTurn !== null) {
@@ -166,6 +165,22 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       // waterfall ends the step with no tool/result, which is legal.)
       if (!trace.pendingCalls.delete(event.data.callId)) {
         throw new InvariantError(`tool/result for ${event.data.callId} with no prior tool/call in this step`)
+      }
+      break
+    }
+    // Turn-enclosure (ADR 0017): EVERY session event not handled by a boundary
+    // case above must sit inside an open turn. The durable session log uses the
+    // turn as its commit/replay boundary (the JSONL backend treats anything
+    // after the last turn/end as a crash tail), so a bare event between turns is
+    // silently dropped on reload. The loop records queued user messages after
+    // turn/start, an idle agent.inject() wraps its context/message in a one-shot
+    // turn, and usage/error are only appended inside an open turn. A `default`
+    // (not an enumerated list) is deliberate: SessionEventMap is
+    // merge-extensible, so a PLUGIN-added event type appended while idle must
+    // also fail here rather than fall through and be dropped on resume.
+    default: {
+      if (trace.openTurn === null) {
+        throw new InvariantError(`${event.type} appended outside any open turn (every event must be turn-enclosed)`)
       }
       break
     }

@@ -60,9 +60,17 @@ export interface Agent {
 
   /**
    * Inject in-session context (file-change notices, skill content, cron
-   * notifications, …): appends a `context/message` session event without
-   * triggering a turn — the next model request sees it at its chronological
-   * position, rendered as tagged synthetic context rather than a user prompt.
+   * notifications, …): appends a `context/message` session event the next model
+   * request sees at its chronological position, rendered as tagged synthetic
+   * context rather than a user prompt. Does not run the model.
+   *
+   * Turn-enclosure (ADR 0017): an inject while a turn is open joins that turn;
+   * an inject while idle wraps its `context/message` in a one-shot `injection`
+   * turn (`turn/start` → `context/message` → `turn/end`) and checkpoints it for
+   * durability, so every event stays inside a turn and a persistence backend
+   * never loses a between-turn notice. The idle checkpoint is fire-and-forget
+   * (inject is synchronous): a failing flush is reported via `agent/error`
+   * (step `0`) and the logger, never thrown into the caller.
    *
    * TODO(review): exact envelope/rendering rules live in dsh-session and need
    * review once a real adapter exists.
