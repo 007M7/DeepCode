@@ -6,8 +6,19 @@ peerDependencyRules:
   allowedVersions:
     typescript: '>=5 <7'
 
+# pnpm 10+ blocks any dependency shipping an install/build script until it is
+# explicitly reviewed here (strictDepBuilds defaults to true: an unlisted script
+# is a hard install error). Every such package MUST be listed; we deny by
+# default and only allow scripts we need. esbuild (native binary) and lefthook
+# (git hooks) genuinely need theirs.
 allowBuilds:
-  '@google/genai': true
   esbuild: true
   lefthook: true
-  protobufjs: true
+  # Transitive deps of @earendil-works/pi-ai (the dsh-llm-pi-ai design-twin
+  # adapter, ADR 0010), consumed prebuilt — surprising to see here, but pnpm
+  # lists them only because they ship lifecycle scripts. Those scripts are
+  # no-ops we don't need (@google/genai's preinstall is an `echo`; protobufjs's
+  # postinstall only warns about version schemes and returns early when unset),
+  # so we deny them: install still succeeds, no needless code runs.
+  '@google/genai': false
+  protobufjs: false
