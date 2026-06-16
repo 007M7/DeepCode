@@ -48,9 +48,9 @@ Covered automatically by globs — no edits needed: root `package.json` workspac
 ## 4. Verify
 
 ```sh
-yarn install        # registers the workspace
-yarn typecheck      # the base→lib path split means: run once after a fresh add
-yarn build && yarn test && yarn constraints
+pnpm install        # registers the workspace
+pnpm run typecheck  # the base→lib path split means: run once after a fresh add
+pnpm run build && pnpm run test && pnpm run constraints
 ```
 
-Note the `tsconfig` two-map split (called out in [AGENTS.md](../../AGENTS.md) § Secrets/.env): `lint`'s type-aware rules resolve vendored packages through their built `lib/` declarations, so run `yarn typecheck` (which builds them) once after adding the package or lint reports unresolved-type errors.
+Note the `tsconfig` two-map split (called out in [AGENTS.md](../../AGENTS.md) § Secrets/.env): `lint`'s type-aware rules resolve vendored packages through their built `lib/` declarations, so run `pnpm run typecheck` (which builds them) once after adding the package or lint reports unresolved-type errors.

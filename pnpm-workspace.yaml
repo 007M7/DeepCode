@@ -1,0 +1,13 @@
+packages:
+  - vendor/*
+  - packages/*
+
+peerDependencyRules:
+  allowedVersions:
+    typescript: '>=5 <7'
+
+allowBuilds:
+  '@google/genai': true
+  esbuild: true
+  lefthook: true
+  protobufjs: true

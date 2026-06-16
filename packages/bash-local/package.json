@@ -27,7 +27,7 @@
     "schemastery": "^3.18.0"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-bash": "^0.0.1",
+    "@deepseek-ai/dsh-bash": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }
 }

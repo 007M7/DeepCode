@@ -43,4 +43,4 @@ Non-2xx responses throw `LlmError` with stable codes: `AUTH` (401/403), `RATE_LI
 
 ## Testing
 
-Unit suites run against a local `node:http` mock SSE server (no network). Real-API coverage lives in `tests/adapter.e2e.ts` (`yarn test:e2e`, key-gated): V4 Flash + V4 Pro across thinking enabled/disabled and both official effort levels, including the thinking+tools round trip with reasoning passback.
+Unit suites run against a local `node:http` mock SSE server (no network). Real-API coverage lives in `tests/adapter.e2e.ts` (`pnpm run test:e2e`, key-gated): V4 Flash + V4 Pro across thinking enabled/disabled and both official effort levels, including the thinking+tools round trip with reasoning passback.

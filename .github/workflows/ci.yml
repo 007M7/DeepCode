@@ -24,24 +24,24 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
-      - name: Enable corepack (yarn 4)
+      - name: Enable corepack (pnpm)
         run: corepack enable
 
       - name: Install (immutable)
-        run: yarn install --immutable
+        run: pnpm install --frozen-lockfile
 
       - name: Constraints
-        run: yarn constraints
+        run: pnpm run constraints
 
       # Before lint: the type-aware ESLint config resolves vendor packages via
       # their built declarations (tsconfig.typecheck.json -> vendor/*/lib),
-      # which `yarn typecheck` emits. Lint on a fresh checkout would otherwise
+      # which `pnpm run typecheck` emits. Lint on a fresh checkout would otherwise
       # see unresolved types and erupt with no-unsafe-* errors.
       - name: Typecheck (src + tests + examples)
-        run: yarn typecheck
+        run: pnpm run typecheck
 
       - name: Lint
-        run: yarn lint
+        run: pnpm run lint
 
       # Doc-sync gates (RFC 006). doc-typecheck compiles the fenced ts blocks in
       # the docs and resolves vendor packages via their built declarations, which
@@ -49,18 +49,18 @@ jobs:
       # taxonomy check only reads source. Same `doc-sync` script the pre-push
       # hook runs (ADR 0007: one source of truth).
       - name: Doc-sync gates (doc code blocks + event taxonomy)
-        run: yarn doc-sync
+        run: pnpm run doc-sync
 
       - name: Tests with coverage gate (per-file 100%)
-        run: yarn test:coverage
+        run: pnpm run test:coverage
 
       # Before hygiene: publint validates the packed artifacts (lib/index.js),
       # which only the tsdown bundling step emits.
       - name: Build (tsc -b + tsdown bundles)
-        run: yarn build
+        run: pnpm run build
 
       - name: Hygiene (knip + publint)
-        run: yarn knip && yarn publint
+        run: pnpm run knip && pnpm run publint
 
       - name: Demo smoke test
         run: |

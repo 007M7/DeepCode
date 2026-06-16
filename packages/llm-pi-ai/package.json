@@ -28,8 +28,8 @@
     "schemastery": "^3.18.0"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-llm": "^0.0.1",
-    "@deepseek-ai/dsh-llm-deepseek": "^0.0.1",
+    "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-llm-deepseek": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }
 }

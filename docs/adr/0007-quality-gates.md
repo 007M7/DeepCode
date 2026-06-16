@@ -13,7 +13,7 @@ Every AGENTS.md promise gets a command that exits non-zero, wired into git hooks
 - Max-strict TypeScript (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, …); tests and examples typecheck in CI via `tsconfig.typecheck.json` (vendored packages resolve as built declarations).
 - ESLint strict-type-checked + @stylistic (the house style, enforced); vendored code excluded.
 - Per-file 100% coverage on `packages/*/src` (v8); unreachable defensive guards carry `/* v8 ignore */ ` with stated reasons instead of deletion.
-- knip (dead code/deps), publint (package correctness), yarn constraints (workspace rules: private, cordis peer+dev, uniform version, ESM).
+- knip (dead code/deps), publint (package correctness), workspace constraints (workspace rules: private, cordis peer+dev, uniform version, ESM).
 - lefthook pre-commit (lint staged, typecheck, vendor-manifest guard) and pre-push (tests, hygiene); CI runs the full matrix on node 24/26 plus a demo smoke test driving the echo-agent end to end.
 
 ## Consequences
