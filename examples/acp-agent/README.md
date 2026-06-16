@@ -3,7 +3,7 @@
 The DeepSeek Harness coding agent exposed as an **Agent Client Protocol (ACP)** server over JSON-RPC stdio — drive it from Zed or any other ACP client.
 
 ```sh
-yarn demo:acp          # needs DEEPSEEK_API_KEY (repo-root .env or env)
+pnpm run demo:acp          # needs DEEPSEEK_API_KEY (repo-root .env or env)
 ```
 
 This boots `@deepseek-ai/dsh-acp` over the shared provider/tool core (`../base.yml`), with `agent-loop` configured with **no pre-created agents** (ACP `session/new` creates them on demand) and JSONL session persistence (so `session/load` works).
@@ -20,8 +20,8 @@ Add to your Zed `settings.json` under `agent_servers`:
 {
   "agent_servers": {
     "DeepSeek Harness": {
-      "command": "yarn",
-      "args": ["demo:acp"],
+      "command": "pnpm",
+      "args": ["run", "demo:acp"],
       "env": { "DEEPSEEK_API_KEY": "sk-…" }
     }
   }

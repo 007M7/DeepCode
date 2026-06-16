@@ -1,0 +1,21 @@
+packages:
+  - vendor/*
+  - packages/*
+
+peerDependencyRules:
+  allowedVersions:
+    typescript: '>=5 <7'
+
+# pnpm 10+ blocks any dependency shipping an install/build script until it is
+# explicitly reviewed here (strictDepBuilds defaults to true: an unlisted script
+# is a hard install error). Every such package MUST be listed; we deny by
+# default and only allow scripts we need. esbuild (native binary) and lefthook
+# (git hooks) genuinely need theirs.
+allowBuilds:
+  esbuild: true
+  lefthook: true
+  # Pulled in by @earendil-works/pi-ai (optional LLM API backend). pnpm lists
+  # them only because they ship lifecycle scripts, but those are no-ops we don't
+  # need, so we deny them — install still succeeds.
+  '@google/genai': false
+  protobufjs: false

@@ -57,14 +57,14 @@ The JSON-RPC frames go on stdout, so this plugin MUST run in an example that loa
 
 ## Running
 
-`yarn demo:acp` boots `examples/acp-agent` (needs `DEEPSEEK_API_KEY`). Point an ACP client at it; for Zed, add to `agent_servers`:
+`pnpm run demo:acp` boots `examples/acp-agent` (needs `DEEPSEEK_API_KEY`). Point an ACP client at it; for Zed, add to `agent_servers`:
 
 ```json
 {
   "agent_servers": {
     "DeepSeek Harness": {
-      "command": "yarn",
-      "args": ["demo:acp"]
+      "command": "pnpm",
+      "args": ["run", "demo:acp"]
     }
   }
 }

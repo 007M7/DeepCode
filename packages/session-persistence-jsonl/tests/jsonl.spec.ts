@@ -107,36 +107,41 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     expect(loaded.events).toEqual(log) // chunks preserved, contiguous seqs
   })
 
-  it('crash tolerance: load truncates an uncommitted final turn back to the last turn/end', async () => {
+  it('crash recovery: load preserves the interrupted turn and closes it with a synthetic turn/end {interrupted}', async () => {
     const m = meta('crash', '/proj')
     await ctx.sessionPersistence.create(m)
     await ctx.sessionPersistence.append(m.id, oneTurnLog()) // seqs 0..5, turn/end at 5
 
     // Simulate a crash mid-second-turn: append raw lines that are NOT closed by
-    // a turn/end (and a final partial line with no newline).
+    // a turn/end (turn/start + step/start are fully written), plus a final
+    // partial line with no newline (a torn fragment never fully flushed).
     const path = logPath(root, '/proj', m.id)
-    const tail = [
+    await writeFile(path, [
       JSON.stringify({ type: 'turn/start', seq: 6, time: 8, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } }),
       JSON.stringify({ type: 'step/start', seq: 7, time: 9, data: { turn: 2, step: 1 } }),
-      '{"type":"assistant/chunk","seq":8,"ti', // truncated partial line
-    ].join('\n')
-    await writeFile(path, tail, { flag: 'a' })
+      '{"type":"assistant/chunk","seq":8,"ti', // truncated partial line (no newline)
+    ].join('\n'), { flag: 'a' })
 
-    // load returns only the committed first turn.
+    // load PRESERVES the interrupted turn's real events (turn/start 6, step/start
+    // 7) — a turn can be huge, so they must not be truncated — and durably closes
+    // the orphaned turn with synthetic step/end (8) + turn/end {interrupted} (9).
     const loaded = await ctx.sessionPersistence.load(m.id)
-    expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5])
+    expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+    const last = loaded.events.at(-1)!
+    expect(last.type === 'turn/end' && last.data.reason).toEqual({ kind: 'interrupted' })
+    const stepEnd = loaded.events[8]!
+    expect(stepEnd.type).toBe('step/end')
+    // the torn seq-8 chunk fragment did not survive
+    expect(loaded.events.some(e => e.type === 'assistant/chunk' && e.seq === 8)).toBe(false)
 
-    // The next append repairs the file (discarding the crash tail) and resumes
-    // at seq 6.
-    const turn2 = [
-      { type: 'turn/start', seq: 6, time: 10, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
-      { type: 'turn/end', seq: 7, time: 11, data: { turn: 2, reason: { kind: 'completed' } } },
+    // The next append continues at seq 10 (the balanced length).
+    const turn3 = [
+      { type: 'turn/start', seq: 10, time: 11, data: { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/end', seq: 11, time: 12, data: { turn: 3, reason: { kind: 'completed' } } },
     ] as SessionEvent[]
-    await ctx.sessionPersistence.append(m.id, turn2)
+    await ctx.sessionPersistence.append(m.id, turn3)
     const reloaded = await ctx.sessionPersistence.load(m.id)
-    expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
-    // and no orphaned seq-8 chunk survived
-    expect(reloaded.events.some(e => e.seq === 8)).toBe(false)
+    expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
   })
 
   it('committed events are never rewritten: only the crash tail is repaired', async () => {
@@ -490,15 +495,17 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
     expect(() => scanLog(Buffer.from('{"type":"event"}\n'))).toThrow(/session header/)
   })
 
-  it('a seq gap with NO committed turn/end yields zero committed events (uncommitted tail)', () => {
+  it('a seq gap after the last turn/end bounds the preserved tail (torn fragment tolerated)', () => {
     const log = [
       JSON.stringify({ type: 'session', version: 1, id: 'g', createdAt: 1 }),
       JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
       JSON.stringify({ type: 'step/start', seq: 2, time: 2, data: { turn: 1, step: 1 } }), // gap: missing seq 1
     ].join('\n') + '\n'
-    // Nothing reached a turn/end, so nothing is committed — the whole region is
-    // an uncommitted (crash) tail. Safe to load as empty, NOT a corruption.
-    expect(scanLog(Buffer.from(log)).events).toEqual([])
+    // No committed turn/end, so the gap is a tolerated crash boundary: scanLog
+    // PRESERVES the contiguous prefix (turn/start seq 0) — real interrupted-turn
+    // work, not discarded — and stops at the gap. The orphaned open turn is
+    // closed by loadCore's synthetic turn/end, not here.
+    expect(scanLog(Buffer.from(log)).events.map(e => e.seq)).toEqual([0])
   })
 
   it('rejects a seq gap BEFORE a later committed turn/end (committed data damaged)', () => {
@@ -522,13 +529,23 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
     expect(() => scanLog(Buffer.from(log))).toThrow(/unparsable committed event/)
   })
 
-  it('a corrupt line with NO committed turn/end yields zero committed events', () => {
+  it('a header-only log (no event lines at all) preserves nothing — committedBytes is the header', () => {
+    const log = JSON.stringify({ type: 'session', version: 1, id: 'h0', createdAt: 1 }) + '\n'
+    const scanned = scanLog(Buffer.from(log))
+    expect(scanned.events).toEqual([])
+    // committedBytes falls back to the header line's end (no preserved events).
+    expect(scanned.committedBytes).toBe(Buffer.byteLength(log, 'utf8'))
+  })
+
+  it('a corrupt line after the last turn/end bounds the preserved tail', () => {
     const log = [
       JSON.stringify({ type: 'session', version: 1, id: 'c2', createdAt: 1 }),
       JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
       '{not json', // corrupt crash fragment, no turn/end committed
     ].join('\n') + '\n'
-    expect(scanLog(Buffer.from(log)).events).toEqual([])
+    // The contiguous prefix (turn/start seq 0) is preserved; the corrupt
+    // fragment after it is the tolerated crash boundary.
+    expect(scanLog(Buffer.from(log)).events.map(e => e.seq)).toEqual([0])
   })
 
   it('tolerates a seq gap AFTER a turn/end (uncommitted tail)', () => {
@@ -1066,13 +1083,19 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.fiber.dispose()
   })
 
-  it('a header-only log (no turn/end) loads as zero committed events', () => {
-    const log = [
-      JSON.stringify({ type: 'session', version: 1, id: 'open', createdAt: 1 }),
-      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
-    ].join('\n') + '\n'
-    const { events } = scanLog(Buffer.from(log))
-    expect(events).toEqual([]) // nothing committed (no turn/end)
+  it('a header-only log (open turn, no turn/end) preserves the open turn on load and closes it', async () => {
+    // A session whose only durable content is an unclosed first turn. scanLog
+    // preserves the turn/start; loadCore closes it with a synthetic
+    // turn/end {interrupted} so the returned log is balanced.
+    const m = meta('open-turn', '/h')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    ] as SessionEvent[])
+    const { events } = await ctx.sessionPersistence.load(m.id)
+    expect(events.map(e => e.type)).toEqual(['turn/start', 'turn/end'])
+    const end = events[1]!
+    expect(end.type === 'turn/end' && end.data.reason).toEqual({ kind: 'interrupted' })
   })
 
   it('initFor is idempotent: a re-seeded existing session is not re-initialized', async () => {

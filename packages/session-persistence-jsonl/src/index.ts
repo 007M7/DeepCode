@@ -27,7 +27,7 @@ import { open, mkdir, readFile, readdir, rename, link, rm, truncate } from 'node
 import { resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { isJsonValue } from '@deepseek-ai/dsh-session'
+import { isJsonValue, interruptedTurnClosers } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
 import {
   encodeSegment, eventLine, logPath, parseHeaderMeta, scanLog, sessionDir, sidecarPath, toHeaderLine,
@@ -58,11 +58,6 @@ interface SessionState {
    * new session's events to be dropped against the old cursor).
    */
   owner?: Session
-  /**
-   * If a load truncation-repair is pending, the byte offset to truncate the
-   * file to before the next append (discards the never-committed crash tail).
-   */
-  repairTo?: number
 }
 
 /**
@@ -238,13 +233,6 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     let state = this.states.get(id)
     if (state === undefined) state = await this.adopt(id) // calls loadCore, not load
 
-    // Truncation-repair: on the first append after a load that found a crash
-    // tail, physically discard the orphaned bytes before writing.
-    if (state.repairTo !== undefined) {
-      await this.repair(state, state.repairTo)
-      delete state.repairTo
-    }
-
     // Contiguity contract: each event's seq must continue the stored log.
     for (const [i, event] of events.entries()) {
       if (event.seq !== state.cursor + i) {
@@ -280,19 +268,42 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     const summary = await this.readSidecar(id, meta.cwd)
     const fullMeta: SessionMeta = { ...meta, ...summary }
 
-    // Record the state so the next append repairs the crash tail (if any) and
-    // continues at the committed length. The state keeps its OWN copy of the
-    // meta; the value returned to the caller is a SEPARATE copy so a consumer
-    // mutating `loaded.meta` (e.g. `cwd`) cannot corrupt the backend's pathing
-    // metadata and send later reads/writes to the wrong log.
-    const needsRepair = committedBytes < buffer.byteLength
-    this.states.set(id, {
+    // Crash-recovery: if the log ended mid-turn (an open turn with real,
+    // preserved events but no closing turn/end), close it durably DURING load so
+    // disk, the returned log, and the cursor all agree — both append routes then
+    // continue with no special-casing. Synthesize the boundary events (a
+    // step/end if a step was open, then a turn/end {kind:'interrupted'}); the
+    // interrupted turn's real events are preserved, never truncated (a turn can
+    // be huge — ADR 0018).
+    const closers = interruptedTurnClosers(events)
+    const balanced = [...events, ...closers]
+
+    // Set state BEFORE the repair writes so they can resolve the log path.
+    const needsTorn = committedBytes < buffer.byteLength
+    const state: SessionState = {
       meta: { ...fullMeta },
       cursor: events.length,
       materialized: true,
-      ...needsRepair ? { repairTo: committedBytes } : {},
-    })
-    return { meta: fullMeta, events }
+    }
+    this.states.set(id, state)
+
+    if (needsTorn) {
+      // Discard the torn trailing fragment (a final line never fully flushed)
+      // before writing the closers, so the closers land at a clean EOF.
+      await this.repair(state, committedBytes)
+    }
+    if (closers.length > 0) {
+      // Durably append the synthetic closers, then advance the cursor to the
+      // balanced length. After this, disk == balanced and the next append (live
+      // or direct) continues cleanly. No sidecar touch here: load is not a
+      // summary-changing op (the closers carry no new title/firstPrompt), and
+      // the next real append bumps `updatedAt` — keeping the summary write off
+      // the recovery path avoids a second best-effort failure mode.
+      await this.appendLines(state, closers)
+      state.cursor = balanced.length
+    }
+
+    return { meta: fullMeta, events: balanced }
   }
 
   async list(): Promise<SessionMeta[]> {

@@ -16,3 +16,4 @@ Proposals for substantial future work — reviewed before implementation, unlike
 | [010](010-acp-agent-client-protocol.md) | Agent Client Protocol (ACP) support for external editors | proposed |
 | [011](011-acp-multi-session.md) | Multiplex concurrent ACP sessions over one connection | proposed |
 | [012](012-optional-code-mode.md) | Optional Code Mode — model writes TypeScript against an SDK of all tools | proposed |
+| [013](013-typed-event-schemas.md) | Runtime schemas for the event vocabulary (Zod vs the merge-extensible-map pattern) | proposed |
