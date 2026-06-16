@@ -4,7 +4,7 @@ Status: accepted (2026-06-15)
 
 ## Context
 
-The durable JSONL backend ([ADR 0016](0016-session-persistence.md)) uses the **turn** as its crash-recovery boundary: `load` returns events only up to the last complete `turn/end`, and the first post-load `append` truncates whatever follows as a never-committed crash tail. This is safe only if nothing *legitimately* durable can sit after the last `turn/end`.
+The durable JSONL backend ([ADR 0018](0018-session-persistence.md)) uses the **turn** as its crash-recovery boundary: `load` returns events only up to the last complete `turn/end`, and the first post-load `append` truncates whatever follows as a never-committed crash tail. This is safe only if nothing *legitimately* durable can sit after the last `turn/end`.
 
 That assumption did not hold. Two paths recorded events outside any turn:
 
@@ -29,7 +29,7 @@ The serializability invariant is enforced at the same source boundary (`Session.
 
 ## Consequences
 
-The turn is now the *single* durability/replay boundary, so [ADR 0016](0016-session-persistence.md)'s "last `turn/end` = commit point" rule is complete, not merely sufficient: a backend can discard everything after the last `turn/end` with zero risk of losing between-turn context, because there is no between-turn context. `scanLog` stays simple (no partial-turn boundary walk), and an idle background-task notice survives persist + resume.
+The turn is now the *single* durability/replay boundary, so [ADR 0018](0018-session-persistence.md)'s "last `turn/end` = commit point" rule is complete, not merely sufficient: a backend can discard everything after the last `turn/end` with zero risk of losing between-turn context, because there is no between-turn context. `scanLog` stays simple (no partial-turn boundary walk), and an idle background-task notice survives persist + resume.
 
 Costs: `agent.inject()` while idle now writes three log lines instead of one, and the derived history gains a turn that carries only injected context (no assistant output) — `deriveMessages()` already derives purely by event type, so this renders identically. The `injection` trigger is a new on-disk vocabulary value; like every `SessionEventMap`/`TurnTriggerMap` addition it is part of the frozen format. Event ordering within a turn changed (`turn/start` now precedes `user/message`), which is observable to anything that asserted the old order — the loop's own tests were the only such consumers.
 

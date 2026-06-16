@@ -1,4 +1,4 @@
-# ADR 0016: Session persistence as an abstract service over the existing `SessionEvent`
+# ADR 0018: Session persistence as an abstract service over the existing `SessionEvent`
 
 Status: accepted (2026-06-15)
 
