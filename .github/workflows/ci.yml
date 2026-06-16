@@ -51,6 +51,12 @@ jobs:
       - name: Doc-sync gates (doc code blocks + event taxonomy)
         run: pnpm run doc-sync
 
+      # Module-graph freshness: regenerate docs/module-graph.md from the
+      # packages' peerDependencies and fail if it differs from the committed
+      # file. Only reads source package.json — no build needed.
+      - name: Module-graph freshness
+        run: pnpm run verify-module-graph
+
       - name: Tests with coverage gate (per-file 100%)
         run: pnpm run test:coverage
 

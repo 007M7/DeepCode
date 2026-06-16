@@ -37,7 +37,9 @@ examples/    Runnable demos (not workspaces). echo-agent = mock model + echo
              tool + stdio UI + JSONL persistence, wired via cordis.yml.
              coding-agent = the real thing: DeepSeek V4 + bash tools
              (pnpm run demo:coding, needs DEEPSEEK_API_KEY).
-docs/        architecture.md — the design doc. adr/ — decision records (the
+docs/        architecture.md — the design doc. module-graph.md — generated
+             inter-package dependency graph (Mermaid; `pnpm run gen-module-graph`).
+             adr/ — decision records (the
              why behind vendoring, event-sourcing, the schema DSL, …).
              rfc/ — proposals for substantial future work.
              cookbook/ — step-by-step guides: adding a package, a tool,
