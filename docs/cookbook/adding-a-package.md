@@ -15,7 +15,7 @@ packages/<name>/
   README.md        # service API, events, extension points, design notes
 ```
 
-package.json invariants (enforced by `yarn constraints` / yarn.config.cjs): `private: true`, `version: 0.0.1`, `type: module`, `cordis` in BOTH peerDependencies and devDependencies (same range). Mirror every dsh peer dependency in devDependencies. `schemastery` goes in `dependencies` (it is a runtime validator), matching agent-loop.
+package.json invariants (enforced by `pnpm run constraints` / `scripts/check-workspace-constraints.ts`): `private: true`, `version: 0.0.1`, `type: module`, `cordis` in BOTH peerDependencies and devDependencies (same range). Mirror every dsh peer dependency in devDependencies. `schemastery` goes in `dependencies` (it is a runtime validator), matching agent-loop.
 
 ## 2. Register it in the root configs
 
@@ -36,10 +36,10 @@ For a swappable capability, split interface / implementation / consumer into sep
 ## 4. Verify
 
 ```sh
-yarn install        # registers the workspace
-yarn constraints && yarn typecheck && yarn lint
-yarn test:coverage  # 100% per-file over src (types.ts exempt)
-yarn build && yarn knip && yarn publint
+pnpm install        # registers the workspace
+pnpm run constraints && pnpm run typecheck && pnpm run lint
+pnpm run test:coverage  # 100% per-file over src (types.ts exempt)
+pnpm run build && pnpm run knip && pnpm run publint
 ```
 
 Test expectations: every registry/registration needs an HMR-safety test (register from a child fiber, dispose it, assert cleanup). Excessive tests are welcome — see AGENTS.md.

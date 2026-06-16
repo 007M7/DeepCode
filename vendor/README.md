@@ -2,7 +2,7 @@
 
 This directory contains source-vendored copies of the Cordis framework and its foundation libraries. They are copied into this monorepo instead of being depended on via npm, so that the harness fully owns its framework layer (auditable, patchable, pinned).
 
-All vendored packages keep their **original npm names** (they are resolved through Yarn workspaces) and are marked `private: true` — they are never published from this repo. Upstream MIT `LICENSE` files are preserved in each package directory.
+All vendored packages keep their **original npm names** (they are resolved through pnpm workspaces) and are marked `private: true` — they are never published from this repo. Upstream MIT `LICENSE` files are preserved in each package directory.
 
 This file covers the manifest, the local-modification log, and the procedure for **updating** an existing vendored package. To **add a new** one, see the cookbook guide: [docs/cookbook/adding-a-vendored-package.md](../docs/cookbook/adding-a-vendored-package.md).
 
@@ -31,7 +31,7 @@ Intentionally **not** vendored (verified unused by this set): `reggol`, `@cordis
 Keep this log exhaustive — every divergence from upstream must be listed.
 
 1. **`hmr/src/index.ts`**: removed the `./locales/en-US.yml` / `./locales/zh-CN.yml` imports, the `.i18n({...})` call on the `Config` schema, and the `src/locales/` directory. Rationale: those imports require a runtime YAML loader hook (`@cordisjs/unyaml`) that we do not vendor; the i18n texts only localize config descriptions.
-2. **All `package.json` files**: regenerated — added `private: true`, added `src` to `files` and a `./src/*` export where missing, removed upstream `devDependencies`/`scripts`/`repository` fields. Dependency and peer-dependency ranges preserved.
+2. **All `package.json` files**: regenerated — added `private: true`, added `src` to `files` and a `./src/*` export where missing, removed upstream `devDependencies`/`scripts`/`repository` fields. Dependency and peer-dependency ranges preserved, except `hmr` declares `esbuild` as a direct dev dependency because its source imports the `BuildFailure` type and pnpm's strict workspace resolution requires the owner package to name that dependency.
 3. **All `tsconfig.json` files**: regenerated to extend the repo-root `tsconfig.base.json` and declare project references.
 4. **`schemastery/tsdown.config.ts` and `logger-console/tsdown.config.ts`**: ours, not upstream files — per-package build-shape overrides (dual ESM+CJS output; separate node/browser entries) for the repo-root tsdown build. Like the regenerated tsconfigs, they are not part of the upstream sync surface.
 
@@ -43,4 +43,4 @@ To update a vendored package from upstream:
 2. Copy the package's `src/` (and `bin.js`, `README.md`, `LICENSE` if changed) over the vendored directory.
 3. Re-apply the local modifications listed above (or drop them if upstream made them unnecessary — update the log either way).
 4. Update the version and commit hash in the manifest table.
-5. Run `yarn install && yarn test && yarn build` at the repo root.
+5. Run `pnpm install && pnpm run test && pnpm run build` at the repo root.

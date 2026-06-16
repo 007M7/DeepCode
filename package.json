@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "packageManager": "yarn@4.14.1",
+  "packageManager": "pnpm@11.7.0",
   "engines": {
     "node": ">=24"
   },
@@ -23,8 +23,9 @@
     "publint": "tsx scripts/publint-all.ts",
     "doc-typecheck": "tsx scripts/doc-typecheck.ts",
     "verify-event-taxonomy": "tsx scripts/verify-event-taxonomy.ts",
-    "doc-sync": "yarn doc-typecheck && yarn verify-event-taxonomy",
-    "hygiene": "yarn knip && yarn publint && yarn constraints",
+    "constraints": "tsx scripts/check-workspace-constraints.ts",
+    "doc-sync": "pnpm run doc-typecheck && pnpm run verify-event-taxonomy",
+    "hygiene": "pnpm run knip && pnpm run publint && pnpm run constraints",
     "demo:echo": "node --expose-internals --import tsx examples/echo-agent/start.ts",
     "demo:coding": "node --expose-internals --import tsx examples/coding-agent/start.ts",
     "postinstall": "lefthook install"
@@ -33,7 +34,6 @@
     "@stylistic/eslint-plugin": "^5.10.0",
     "@types/node": "^25.3.5",
     "@vitest/coverage-v8": "^4.1.8",
-    "@yarnpkg/types": "^4.0.1",
     "eslint": "^10.4.1",
     "fast-check": "^4.8.0",
     "knip": "^6.16.1",

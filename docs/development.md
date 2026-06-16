@@ -5,7 +5,7 @@ This guide covers the local setup needed to work on DeepSeek Harness and underst
 ## Prerequisites
 
 - Node.js 24 or newer. The repo declares `node >=24`; CI runs the matrix on Node 24 and 26.
-- Corepack-enabled Yarn. The repo pins `yarn@4.14.1` in `package.json`; run `corepack enable` if `yarn --version` does not resolve through Corepack.
+- Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
 - Git.
 - Optional: a DeepSeek API key for the coding-agent demo and real-API e2e tests.
 
@@ -14,32 +14,32 @@ This guide covers the local setup needed to work on DeepSeek Harness and underst
 Install dependencies from the repo root:
 
 ```sh
-yarn install
+pnpm install
 ```
 
-Yarn uses the `node-modules` linker in this repo. The install also runs the root `postinstall` script, which installs lefthook from the repo dev dependency.
+The install also runs the root `postinstall` script, which installs lefthook from the repo dev dependency.
 
 If hooks are missing because dependencies were restored from cache or `postinstall` was skipped, install them manually:
 
 ```sh
-yarn lefthook install
+pnpm exec lefthook install
 ```
 
 Run typecheck once after a fresh clone:
 
 ```sh
-yarn typecheck
+pnpm run typecheck
 ```
 
-That first typecheck builds declaration output used by type-aware linting for vendored packages. Without it, `yarn lint` can report unresolved-type `no-unsafe-*` errors even when source code is fine.
+That first typecheck builds declaration output used by type-aware linting for vendored packages. Without it, `pnpm run lint` can report unresolved-type `no-unsafe-*` errors even when source code is fine.
 
 If you are preparing to push from a fresh clone or worktree, also build once:
 
 ```sh
-yarn build
+pnpm run build
 ```
 
-`yarn hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files. A fresh worktree has no bundled JS until `yarn build` runs.
+`pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files. A fresh worktree has no bundled JS until `pnpm run build` runs.
 
 ## Environment variables
 
@@ -56,61 +56,61 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 lefthook is configured in `lefthook.yml` as an early local checkpoint before review:
 
-- `pre-commit` runs staged-file ESLint fixes, `yarn typecheck`, and the vendor manifest guard.
-- `pre-push` runs `yarn test`, `yarn hygiene`, and `yarn doc-sync`.
+- `pre-commit` runs staged-file ESLint fixes, `pnpm run typecheck`, and the vendor manifest guard.
+- `pre-push` runs `pnpm run test`, `pnpm run hygiene`, and `pnpm run doc-sync`.
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 
-These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests without coverage, while CI runs `yarn test:coverage`; CI also runs an echo-agent smoke test and exercises the matrix on Node 24 and 26.
+These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests without coverage, while CI runs `pnpm run test:coverage`; CI also runs an echo-agent smoke test and exercises the matrix on Node 24 and 26.
 
 ## CI gates
 
 The GitHub workflow runs these gates on each pull request:
 
-- `yarn install --immutable`
-- `yarn constraints`
-- `yarn typecheck`
-- `yarn lint`
-- `yarn doc-sync`
-- `yarn test:coverage`
-- `yarn build`
-- `yarn knip && yarn publint`
+- `pnpm install --frozen-lockfile`
+- `pnpm run constraints`
+- `pnpm run typecheck`
+- `pnpm run lint`
+- `pnpm run doc-sync`
+- `pnpm run test:coverage`
+- `pnpm run build`
+- `pnpm run knip && pnpm run publint`
 - an echo-agent smoke test that checks the demo's tool call, tool result, and JSONL output
 
-`yarn hygiene` is the local shorthand for `yarn knip && yarn publint && yarn constraints`; CI splits `yarn constraints` into its own earlier step, then runs `yarn knip && yarn publint` after `yarn build`.
+`pnpm run hygiene` is the local shorthand for `pnpm run knip && pnpm run publint && pnpm run constraints`; CI splits `pnpm run constraints` into its own earlier step, then runs `pnpm run knip && pnpm run publint` after `pnpm run build`.
 
 ## Daily commands
 
 Use these from the repo root:
 
 ```sh
-yarn test           # unit tests
-yarn test:coverage  # unit tests with per-file coverage gates
-yarn test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
-yarn typecheck      # build declarations, then typecheck source, tests, and examples
-yarn lint           # eslint .
-yarn lint:fix       # eslint . --fix
-yarn doc-typecheck  # compile checked TypeScript snippets in Markdown docs
-yarn verify-event-taxonomy  # compare docs/architecture.md event names with source
-yarn doc-sync       # doc-typecheck plus event taxonomy verification
-yarn build          # build declarations and JS bundles
-yarn hygiene        # knip, publint, and yarn constraints
+pnpm run test           # unit tests
+pnpm run test:coverage  # unit tests with per-file coverage gates
+pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
+pnpm run typecheck      # build declarations, then typecheck source, tests, and examples
+pnpm run lint           # eslint .
+pnpm run lint:fix       # eslint . --fix
+pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
+pnpm run verify-event-taxonomy  # compare docs/architecture.md event names with source
+pnpm run doc-sync       # doc-typecheck plus event taxonomy verification
+pnpm run build          # build declarations and JS bundles
+pnpm run hygiene        # knip, publint, and workspace constraints
 ```
 
-When changing package public behavior, update the relevant README or JSDoc in the same change. `yarn doc-sync` catches checked TypeScript snippets and event-taxonomy drift, but broader prose/API sync still needs review.
+When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets and event-taxonomy drift, but broader prose/API sync still needs review.
 
 ## Demos
 
 The echo demo does not need API credentials:
 
 ```sh
-yarn demo:echo
+pnpm run demo:echo
 ```
 
 The coding-agent demo uses the real DeepSeek adapter and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
 
 ```sh
-yarn demo:coding
+pnpm run demo:coding
 ```
 
 ## Architecture context

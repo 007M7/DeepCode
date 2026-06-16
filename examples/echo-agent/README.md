@@ -24,7 +24,7 @@ Persistence is the shared `@deepseek-ai/dsh-session-persistence-jsonl` plugin (n
 ## Run
 
 ```sh
-yarn demo:echo
+pnpm run demo:echo
 # or:
 node --expose-internals --import tsx examples/echo-agent/start.ts
 ```
