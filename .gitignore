@@ -3,8 +3,8 @@ CLAUDE.local.md
 node_modules/
 lib/
 *.tsbuildinfo
-.yarn/
-yarn-error.log
+pnpm-debug.log
+.pnpm-store/
 examples/*/*.jsonl
 coverage/
 .doc-typecheck-*/

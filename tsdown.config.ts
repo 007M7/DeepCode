@@ -11,7 +11,7 @@ import { defineConfig } from 'tsdown'
  */
 export default defineConfig({
   // Explicit globs: `workspace: true` would also discover examples/* (any
-  // package.json), but only vendor/* and packages/* are yarn workspaces.
+  // package.json), but only vendor/* and packages/* are pnpm workspaces.
   workspace: ['vendor/*', 'packages/*'],
   entry: ['src/index.ts'],
   outDir: 'lib',

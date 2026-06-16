@@ -25,8 +25,8 @@
     "cordis": "^4.0.0-rc.6"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-llm": "^0.0.1",
-    "@deepseek-ai/dsh-session": "^0.0.1",
+    "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-session": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }
 }
