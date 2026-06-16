@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -61,5 +61,77 @@ describe('config-driven session id', () => {
     a2.send([{ type: 'text', text: 'q2' }], { source: { kind: 'user' } })
     await waitForIdle(ctx2, a2)
     await ctx2.fiber.dispose()
+  })
+
+  it('config-driven resumeSessionId continues a persisted session (env-var resume)', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-resume-'))
+    dirs.push(root)
+
+    // Run 1: a programmatically-created agent on a KNOWN session id persists a
+    // completed turn, so run 2 has a concrete id to resume.
+    const ctx1 = new Context()
+    await ctx1.plugin(LlmService)
+    await ctx1.plugin(SessionStore)
+    await ctx1.plugin(SystemPrompt)
+    await ctx1.plugin(ToolRegistry)
+    await ctx1.plugin(AgentRegistry)
+    await ctx1.plugin(AgentLoop, { agents: [] })
+    await ctx1.plugin(SessionPersistenceJsonl, { root })
+    ctx1.llm.registerAdapter(['mock'], new MockAdapter([textResponse('first')]))
+    const a1 = ctx1.agents.create({ agentId: 'main', sessionId: 'sticky-1' }) as LoopAgent
+    a1.send([{ type: 'text', text: 'remember me' }], { source: { kind: 'user' } })
+    await waitForIdle(ctx1, a1)
+    await ctx1.fiber.dispose()
+
+    // Run 2: a CONFIG agent with resumeSessionId continues that session. The
+    // resume is deferred until sessionPersistence loads (ctx.inject), so wait
+    // for the agent to appear, then assert it is on the resumed id with history.
+    const ctx2 = new Context()
+    await ctx2.plugin(LlmService)
+    await ctx2.plugin(SessionStore)
+    await ctx2.plugin(SystemPrompt)
+    await ctx2.plugin(ToolRegistry)
+    await ctx2.plugin(AgentRegistry)
+    await ctx2.plugin(AgentLoop, { agents: [{ id: 'main', model: 'mock', systemPrompt: '', resumeSessionId: 'sticky-1' }] })
+    await ctx2.plugin(SessionPersistenceJsonl, { root })
+    ctx2.llm.registerAdapter(['mock'], new MockAdapter([textResponse('second')]))
+
+    // The deferred resume runs on a microtask after the backend is available.
+    let resumed: LoopAgent | undefined
+    for (let i = 0; i < 50 && !resumed; i++) {
+      await new Promise(r => setTimeout(r, 5))
+      resumed = ctx2.agents.get('main') as LoopAgent | undefined
+    }
+    expect(resumed).toBeDefined()
+    // The live session id IS the resumed id (NOT a fresh ${id}-session-<uuid>),
+    // and the prior turn's user message is in the derived history.
+    expect(resumed!.session.id).toBe('sticky-1')
+    const derived = resumed!.session.deriveMessages()
+    expect(JSON.stringify(derived)).toContain('remember me')
+    await ctx2.fiber.dispose()
+  })
+
+  it('config-driven resume of a missing session is contained: logs a warning, no agent, no crash', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-resume-miss-'))
+    dirs.push(root)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [{ id: 'main', model: 'mock', systemPrompt: '', resumeSessionId: 'does-not-exist' }] })
+    const warn = vi.spyOn((ctx.agentLoop as unknown as { ctx: { logger: { warn: (...a: unknown[]) => void } } }).ctx.logger, 'warn')
+      .mockImplementation(() => undefined)
+    await ctx.plugin(SessionPersistenceJsonl, { root })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('x')]))
+
+    // The deferred resume fails (no such session on disk). It must be contained:
+    // a warning is logged, no 'main' agent is registered, and the app stays up.
+    await new Promise(r => setTimeout(r, 200))
+    expect(ctx.agents.get('main')).toBeUndefined()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('config-driven resume of "does-not-exist" failed'))
+    warn.mockRestore()
+    await ctx.fiber.dispose()
   })
 })

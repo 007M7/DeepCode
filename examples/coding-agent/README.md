@@ -22,6 +22,16 @@ Type a coding task. The agent's only tools are `bash` (+ `bash_output` / `bash_k
   …
 ```
 
+### Resuming a prior session
+
+Each run starts a fresh session by default (its event log lands under `./.sessions/`). To **continue** a previous conversation, set `RESUME_SESSION_ID` to that session's id — the `main` agent then rehydrates the persisted log instead of starting fresh, so the model sees the earlier turns as history:
+
+```sh
+RESUME_SESSION_ID=<prior-session-id> pnpm run demo:coding
+```
+
+The id is wired through `cordis.yml` (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`); unset, the agent starts a new session. A missing/unreadable id is non-fatal — it logs a warning and starts no `main` agent.
+
 ## What each plugin demonstrates
 
 | Entry | Demonstrates |
@@ -36,5 +46,6 @@ Type a coding task. The agent's only tools are `bash` (+ `bash_output` / `bash_k
 
 - `tests/full-loop.e2e.ts` — the canary: real model runs `echo e2e-ok` through the real bash tool; asserts `tool/call`/`tool/result` session events and the final answer.
 - `tests/coding-task.e2e.ts` — the swebench-style smoke: a temp dir holds `add.js` (with `a - b` where `a + b` belongs) and a failing `add.test.js`; the agent must fix the bug and verify. The test re-runs `node add.test.js` ITSELF and inspects the files — agent claims are not trusted.
+- `tests/resume.e2e.ts` — durable continuity across processes: run 1 tells the real model a secret code and persists the turn to a temp JSONL root, then the whole context is disposed; run 2 is a fresh context over the same root that RESUMES the session id and asks the model to recall the code. The recall can only come from the rehydrated log.
 
 Both self-skip without `DEEPSEEK_API_KEY`.
