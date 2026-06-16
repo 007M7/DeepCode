@@ -18,10 +18,11 @@ import type { SessionEvent, SessionId, SessionMeta } from '@deepseek-ai/dsh-sess
 export const SCHEMA_VERSION = 1
 
 /**
- * A row of the `sessions` table — the out-of-log metadata (`SessionMeta`) plus
- * the `materialized` flag that implements lazy materialization (a created-but-
- * never-appended session has `materialized = 0` and is excluded from
- * `has`/`list`, mirroring the JSONL backend's "no file until first append").
+ * A row of the `sessions` table — the out-of-log metadata (`SessionMeta`). The
+ * row's EXISTENCE is the materialization signal: it is written only by the
+ * first `append` (lazy materialization), so a created-but-never-appended
+ * session has no row and is absent from `has`/`list`, mirroring the JSONL
+ * backend's "no file until first append".
  */
 export interface SessionRow {
   id: string
@@ -32,7 +33,6 @@ export interface SessionRow {
   updated_at: number
   title: string | null
   first_prompt: string | null
-  materialized: number
 }
 
 /** An `events` table row: one `SessionEvent` mapped 1:1 (`data` is JSON text). */
@@ -81,8 +81,7 @@ export function openDatabase(path: string): DatabaseSync {
       parent_session TEXT,
       updated_at     INTEGER NOT NULL,
       title          TEXT,
-      first_prompt   TEXT,
-      materialized   INTEGER NOT NULL DEFAULT 0
+      first_prompt   TEXT
     ) STRICT
   `)
   db.exec(`

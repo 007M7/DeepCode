@@ -245,18 +245,12 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     // returns the committed prefix; the next append performs the one-time
     // physical repair). Record the repair point so the next appendCore DELETEs
     // the orphaned tail inside its own transaction before inserting.
-    const materialized = committed.length > 0
-    if (committed.length === 0 && row.materialized === 1) {
-      // All-tail discard: the only committed events were a crash tail, so the
-      // session now has NO committed events. The metadata row, however, still
-      // reads materialized = 1 from the prior append — which would make has()
-      // and list() report a session that load() just emptied. Correct the
-      // materialized FLAG (metadata, not the event log) so has()/list() are
-      // immediately consistent. The orphaned tail rows are still removed by the
-      // deferred repair on the next append.
-      this.db.prepare('UPDATE sessions SET materialized = 0 WHERE id = ?').run(id)
-    }
-
+    //
+    // The metadata row stays as-is even when committed.length === 0 (an all-tail
+    // crash): the session WAS materialized by the partial append, so its row
+    // exists and has()/list() report it present — the same as the JSONL backend,
+    // whose file likewise survives a first append that never reached turn/end.
+    //
     // Record state so a later append continues at the committed length and runs
     // the deferred tail repair. The state keeps its OWN copy of the meta; the
     // returned value is separate so a consumer mutating loaded.meta cannot
@@ -264,7 +258,7 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     this.states.set(id, {
       meta: { ...meta },
       cursor: committed.length,
-      materialized,
+      materialized: true,
       ...cutTail ? { repairFrom: committed.length } : {},
     })
     return { meta, events }
@@ -272,11 +266,11 @@ export class SessionPersistenceSqlite extends SessionPersistence {
 
   async list(): Promise<SessionMeta[]> {
     await this.ready
-    // Materialized rows only: a created-but-never-appended (lazy) session has no
-    // row at all, and a load that cut every event back to zero leaves
-    // materialized = 0. Both are excluded, matching has().
+    // Every metadata row is a materialized session: the row is written only by
+    // the first append (a created-but-never-appended session has no row), so
+    // listing all rows is exactly the materialized set.
     const rows = this.db
-      .prepare('SELECT * FROM sessions WHERE materialized = 1')
+      .prepare('SELECT * FROM sessions')
       .all() as unknown as SessionRow[]
     return rows.map(rowToMeta)
   }
@@ -285,8 +279,8 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     await this.ready
     const state = this.states.get(id)
     if (state?.materialized) return true
-    const row = this.rowFor(id)
-    return row !== undefined && row.materialized === 1
+    // A metadata row exists iff the session was materialized by a first append.
+    return this.rowFor(id) !== undefined
   }
 
   delete(id: SessionId): Promise<void> {
@@ -326,15 +320,15 @@ export class SessionPersistenceSqlite extends SessionPersistence {
   }
 
   /**
-   * Insert-or-replace a session's metadata row, marked materialized. The only
-   * callers are the first materializing `append` and a post-materialization
-   * `update` — a row is written only once a session has durable events, so
-   * `materialized` is always 1 (a never-appended session has no row at all).
+   * Insert-or-replace a session's metadata row. The only callers are the first
+   * materializing `append` and a post-materialization `update`, so writing the
+   * row IS the materialization (its existence is the signal `has`/`list` read);
+   * a never-appended session has no row at all.
    */
   private writeRow(meta: SessionMeta): void {
     this.db.prepare(`
-      INSERT INTO sessions (id, version, created_at, cwd, parent_session, updated_at, title, first_prompt, materialized)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+      INSERT INTO sessions (id, version, created_at, cwd, parent_session, updated_at, title, first_prompt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         version = excluded.version,
         created_at = excluded.created_at,
@@ -342,8 +336,7 @@ export class SessionPersistenceSqlite extends SessionPersistence {
         parent_session = excluded.parent_session,
         updated_at = excluded.updated_at,
         title = excluded.title,
-        first_prompt = excluded.first_prompt,
-        materialized = excluded.materialized
+        first_prompt = excluded.first_prompt
     `).run(
       meta.id,
       meta.version,
@@ -466,7 +459,7 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     }
 
     const row = this.rowFor(id)
-    if (row !== undefined && row.materialized === 1) {
+    if (row !== undefined) {
       const stored = this.eventsFor(id)
       if (!seedCoversPrefix(seed, stored)) {
         throw new Error(`session "${id}" already has a persisted log that does not match this live session (id collision)`)

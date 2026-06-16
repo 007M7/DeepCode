@@ -139,7 +139,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await b2.dispose()
   })
 
-  it('all-tail load: a session whose only content is a crash tail is absent from has()/list()', async () => {
+  it('all-tail load: a session materialized by a partial first turn stays present (JSONL parity), load returns zero committed events', async () => {
     const path = await freshDbPath()
     const m = meta('all-tail')
     const b1 = await backend(path)
@@ -153,12 +153,15 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await b1.dispose()
 
     // A fresh backend loads it: the committed prefix is empty (no turn/end), so
-    // the session has no committed content. has()/list() must NOT report it.
+    // load returns zero events — but the session WAS materialized (its metadata
+    // row exists), so has()/list() still report it present, matching the JSONL
+    // backend whose file likewise survives a first append that never reached
+    // turn/end. The orphaned tail rows are removed by the next append's repair.
     const b2 = await backend(path)
     const loaded = await b2.ctx.sessionPersistence.load(m.id)
     expect(loaded.events).toEqual([])
-    expect(await b2.ctx.sessionPersistence.has(m.id)).toBe(false)
-    expect((await b2.ctx.sessionPersistence.list()).map(x => x.id)).not.toContain(m.id)
+    expect(await b2.ctx.sessionPersistence.has(m.id)).toBe(true)
+    expect((await b2.ctx.sessionPersistence.list()).map(x => x.id)).toContain(m.id)
     await b2.dispose()
   })
 
@@ -269,7 +272,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     const path = await freshDbPath()
     // Materialize a row with version 2 directly via the real schema.
     const db = openDatabase(path)
-    db.prepare('INSERT INTO sessions (id, version, created_at, updated_at, materialized) VALUES (?, ?, ?, ?, 1)')
+    db.prepare('INSERT INTO sessions (id, version, created_at, updated_at) VALUES (?, ?, ?, ?)')
       .run('v2', 2, 1, 1)
     db.close()
 
