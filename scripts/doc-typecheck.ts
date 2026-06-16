@@ -62,10 +62,10 @@ function extractBlocks(absPath: string): Block[] {
 /**
  * Read the workspace `paths` map from tsconfig.typecheck.json (JSONC). This map
  * resolves vendored packages to their BUILT declarations (`lib`) and harness
- * packages to source (`src`) — the same resolution `yarn lint`/`typecheck` use.
+ * packages to source (`src`) — the same resolution `pnpm run lint`/`typecheck` use.
  * Resolving vendor to `lib` (not `src`) is essential: otherwise tsc type-checks
  * raw vendor source and floods the run with unrelated errors. Requires the
- * vendor `lib/` to exist (a fresh clone runs `yarn build` first; CI does too).
+ * vendor `lib/` to exist (a fresh clone runs `pnpm run build` first; CI does too).
  */
 function workspacePaths(): Record<string, string[]> {
   const raw = readFileSync(join(root, 'tsconfig.typecheck.json'), 'utf8')

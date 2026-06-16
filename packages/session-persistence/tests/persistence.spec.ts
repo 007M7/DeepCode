@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { SessionId, isJsonValue } from '@deepseek-ai/dsh-session'
+import { SessionId, isJsonValue, interruptedTurnClosers } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
 import { SessionPersistence } from '../src/index.ts'
 import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
@@ -46,6 +46,11 @@ class MemoryPersistence extends SessionPersistence {
   async load(id: SessionId): Promise<{ meta: SessionMeta; events: SessionEvent[] }> {
     const entry = this.store.get(id)
     if (!entry) throw new Error(`session "${id}" not found`)
+    // Honor the crash-recovery contract: if the stored log ends mid-turn, close
+    // the orphaned turn durably with synthetic boundary events and continue from
+    // the balanced length.
+    const closers = interruptedTurnClosers(entry.events)
+    if (closers.length > 0) entry.events.push(...structuredClone(closers))
     return { meta: structuredClone(entry.meta), events: structuredClone(entry.events) }
   }
 

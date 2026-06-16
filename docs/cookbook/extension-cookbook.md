@@ -55,4 +55,4 @@ export function apply(ctx: Context) {
 
 ## Runnable wirings
 
-Two complete examples load their plugin trees from `cordis.yml` with HMR: [`examples/echo-agent`](../../examples/echo-agent) (mock model + echo tool — the all-mock skeleton check, `yarn demo:echo`) and [`examples/coding-agent`](../../examples/coding-agent) (DeepSeek V4 + the bash tool suite — the real thing, `yarn demo:coding`).
+Two complete examples load their plugin trees from `cordis.yml` with HMR: [`examples/echo-agent`](../../examples/echo-agent) (mock model + echo tool — the all-mock skeleton check, `pnpm run demo:echo`) and [`examples/coding-agent`](../../examples/coding-agent) (DeepSeek V4 + the bash tool suite — the real thing, `pnpm run demo:coding`).

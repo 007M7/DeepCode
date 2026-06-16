@@ -1,8 +1,8 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
-// Real-API end-to-end tests: `yarn test:e2e`, file pattern *.e2e.ts.
-// Separate from the default suite (`yarn test`, *.spec.ts) on purpose —
+// Real-API end-to-end tests: `pnpm run test:e2e`, file pattern *.e2e.ts.
+// Separate from the default suite (`pnpm run test`, *.spec.ts) on purpose —
 // these hit the live DeepSeek API, spend tokens, and need a key.
 //
 // Secrets: tests gate themselves with

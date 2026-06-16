@@ -9,6 +9,7 @@ import AgentLoop, { LoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
+import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 
 /**
  * Shared harness for the coding-agent e2e suites: the full plugin stack
@@ -20,7 +21,7 @@ export const SYSTEM_PROMPT = 'You are a coding agent. Your only tool is bash; '
   + 'do file operations with cat/grep/heredocs, check [exit code: N] markers, '
   + 'and report results briefly.'
 
-export async function codingHarness(workdir: string): Promise<Context> {
+export async function codingHarness(workdir: string, persistenceRoot?: string): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
@@ -31,6 +32,10 @@ export async function codingHarness(workdir: string): Promise<Context> {
   await ctx.plugin(LlmDeepSeek, { models: ['deepseek-v4-flash'] })
   await ctx.plugin(LocalBashExecutor, { cwd: workdir, timeoutMs: 30_000 })
   await ctx.plugin(ToolBash)
+  // Durable JSONL persistence is opt-in: only the resume e2e needs it, and the
+  // other suites stay file-free. Loaded last so a resume's deferred
+  // `ctx.inject(['sessionPersistence'])` resolves once this is present.
+  if (persistenceRoot !== undefined) await ctx.plugin(SessionPersistenceJsonl, { root: persistenceRoot })
   return ctx
 }
 

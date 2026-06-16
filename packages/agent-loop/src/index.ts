@@ -17,7 +17,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
-import type {} from '@deepseek-ai/dsh-session-persistence'
+import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { LoopAgent } from './agent.ts'
 
 export { LoopAgent } from './agent.ts'
@@ -32,7 +32,19 @@ declare module 'cordis' {
 
 export interface Config {
   /** Agents created from configuration at startup. */
-  agents: (AgentOptions & { id: string })[]
+  agents: (AgentOptions & {
+    id: string
+    /**
+     * If set, the config agent RESUMES this persisted session id instead of
+     * starting a fresh `${id}-session-<uuid>`. Sourced from an env var in
+     * cordis.yml (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`), so a
+     * demo can continue a prior conversation without code changes. Requires a
+     * `dsh-session-persistence` backend; the resume is deferred until that
+     * service is available (via `ctx.inject`) and the loaded session's events
+     * seed the live session so history continues.
+     */
+    resumeSessionId?: string
+  })[]
 }
 
 /**
@@ -53,6 +65,7 @@ export class AgentLoop extends Service implements AgentFactory {
       id: z.string().required(),
       model: z.string(),
       systemPrompt: z.string(),
+      resumeSessionId: z.string(),
     })).default([]),
   })
 
@@ -61,8 +74,27 @@ export class AgentLoop extends Service implements AgentFactory {
     // Provide the agent-creation factory to the registry (effect-scoped: the
     // slot is cleared on dispose).
     ctx.effect(() => this.ctx.agents.setFactory(this), 'agentLoop.setFactory()')
-    for (const { id, ...options } of config.agents) {
-      this.create(id, options)
+    for (const { id, resumeSessionId, ...options } of config.agents) {
+      if (resumeSessionId !== undefined && resumeSessionId !== '') {
+        // Resume a prior session instead of starting fresh. resume() needs
+        // `ctx.sessionPersistence`, which may load AFTER this plugin (cordis.yml
+        // lists the backend later). `ctx.inject(['sessionPersistence'], cb)`
+        // runs `cb` with a child ctx once the service exists; the child reads
+        // the persistence and hands it to resumeWith (which uses this.ctx — the
+        // parent — for sessions/registry, all in AgentLoop's static inject). A
+        // failed resume is contained + logged: startup must not crash.
+        ctx.effect(() => {
+          const fiber = this.ctx.inject(['sessionPersistence'], (childCtx: Context) => {
+            void this.resumeWith(childCtx.sessionPersistence, { agentId: id, resumeSessionId, agentOptions: options })
+              .catch((error: unknown) => {
+                this.ctx.logger.warn(`agent "${id}": config-driven resume of "${resumeSessionId}" failed: ${String(error)}`)
+              })
+          })
+          return () => void fiber.dispose()
+        }, `agentLoop.resume(${id})`)
+      } else {
+        this.create(id, options)
+      }
     }
   }
 
@@ -120,7 +152,6 @@ export class AgentLoop extends Service implements AgentFactory {
    * by the time this runs the service exists.
    */
   async resume(options: ResumeAgentOptions): Promise<Agent> {
-    this.assertAgentIdFree(options.agentId)
     const persistence = this.ctx.sessionPersistence
     // `sessionPersistence` is declaration-merged onto Context as non-optional,
     // but the service is only present when a backend plugin is loaded — and
@@ -130,6 +161,20 @@ export class AgentLoop extends Service implements AgentFactory {
     if (persistence === undefined) {
       throw new Error('cannot resume: session persistence is not configured (load a dsh-session-persistence backend)')
     }
+    return this.resumeWith(persistence, options)
+  }
+
+  /**
+   * Resume against an EXPLICIT persistence handle. Factored out of {@link resume}
+   * so the config-driven path can pass the handle it obtained from a
+   * `ctx.inject(['sessionPersistence'], …)` child context: `this.ctx` (the
+   * service's own fiber) did not inject `sessionPersistence`, so reading it
+   * there from inside the inject child trips the cordis inject guard. The
+   * sessions store + registry are still read through `this.ctx` (both are in
+   * AgentLoop's static inject, so they resolve fine).
+   */
+  private async resumeWith(persistence: SessionPersistence, options: ResumeAgentOptions): Promise<Agent> {
+    this.assertAgentIdFree(options.agentId)
     const { meta, events } = await persistence.load(SessionId(options.resumeSessionId))
     // Re-check the agent id AFTER the await: the pre-load check above can go
     // stale while load() is pending (a concurrent resume/create may register the
