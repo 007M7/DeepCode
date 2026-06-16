@@ -46,7 +46,32 @@ function collect(): Pkg[] {
       .sort()
     pkgs.push({ short: json.name.slice(SCOPE.length), deps })
   }
-  return pkgs.sort((a, b) => a.short.localeCompare(b.short))
+  return topoSort(pkgs)
+}
+
+/**
+ * Order packages low-level → high-level: a package appears only after every
+ * package it depends on. Kahn-style layering with an alphabetical tiebreak
+ * within each layer, so the output stays deterministic (the freshness check
+ * compares whole-file). The graph is a DAG, so this always terminates; a cycle
+ * would leave nodes unplaced and throw.
+ */
+function topoSort(pkgs: Pkg[]): Pkg[] {
+  const remaining = new Map(pkgs.map(p => [p.short, p]))
+  const placed = new Set<string>()
+  const out: Pkg[] = []
+  while (remaining.size > 0) {
+    const ready = [...remaining.values()]
+      .filter(p => p.deps.every(d => placed.has(d)))
+      .sort((a, b) => a.short.localeCompare(b.short))
+    if (ready.length === 0) throw new Error(`gen-module-graph: dependency cycle among ${[...remaining.keys()].join(', ')}`)
+    for (const p of ready) {
+      out.push(p)
+      placed.add(p.short)
+      remaining.delete(p.short)
+    }
+  }
+  return out
 }
 
 /** Render the full docs/module-graph.md content (pure, deterministic). */

@@ -9,41 +9,41 @@ package `a` depends on package `b`. Names have the `@deepseek-ai/dsh-` prefix st
 
 ```mermaid
 graph TD
+  bash-local --> bash
+  llm-deepseek --> llm
+  llm-pi-ai --> llm
+  session --> llm
+  system-prompt --> llm
   agent --> llm
   agent --> session
+  invariants --> agent
+  invariants --> llm
+  invariants --> session
+  tools --> agent
+  tools --> llm
+  tools --> system-prompt
   agent-loop --> agent
   agent-loop --> llm
   agent-loop --> session
   agent-loop --> system-prompt
   agent-loop --> tools
-  bash-local --> bash
-  invariants --> agent
-  invariants --> llm
-  invariants --> session
-  llm-deepseek --> llm
-  llm-pi-ai --> llm
-  session --> llm
-  system-prompt --> llm
   tool-bash --> agent
   tool-bash --> bash
   tool-bash --> llm
   tool-bash --> tools
-  tools --> agent
-  tools --> llm
-  tools --> system-prompt
 ```
 
 | Package | Depends on |
 | --- | --- |
-| `agent` | `llm`, `session` |
-| `agent-loop` | `agent`, `llm`, `session`, `system-prompt`, `tools` |
 | `bash` | — |
-| `bash-local` | `bash` |
-| `invariants` | `agent`, `llm`, `session` |
 | `llm` | — |
+| `bash-local` | `bash` |
 | `llm-deepseek` | `llm` |
 | `llm-pi-ai` | `llm` |
 | `session` | `llm` |
 | `system-prompt` | `llm` |
-| `tool-bash` | `agent`, `bash`, `llm`, `tools` |
+| `agent` | `llm`, `session` |
+| `invariants` | `agent`, `llm`, `session` |
 | `tools` | `agent`, `llm`, `system-prompt` |
+| `agent-loop` | `agent`, `llm`, `session`, `system-prompt`, `tools` |
+| `tool-bash` | `agent`, `bash`, `llm`, `tools` |
