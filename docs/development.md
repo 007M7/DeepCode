@@ -116,6 +116,16 @@ The coding-agent demo uses the real DeepSeek adapter and needs `DEEPSEEK_API_KEY
 pnpm run demo:coding
 ```
 
+## TODO markers
+
+Use one of three comment tags to flag known issues in the code, ordered by urgency:
+
+- `FIXME` — an issue that should block a new release. A release should not ship with an open `FIXME` unless reviewers explicitly agree the change can be merged anyway.
+- `TODO` — an issue that should be fixed soon, once we have the resources.
+- `XXX` — an issue that we may fix someday; lowest priority, no commitment.
+
+Pick the tag that matches the urgency so anyone scanning the code can tell a release blocker from a someday-maybe.
+
 ## Architecture context
 
 Read `docs/architecture.md` before changing anything under `packages/`. The codebase is built around Cordis plugins, event-sourced sessions, typed service seams, and explicit extension points.
