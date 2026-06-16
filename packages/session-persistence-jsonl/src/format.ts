@@ -120,16 +120,23 @@ export function eventLine(event: SessionEvent): string {
 }
 
 /**
- * Compute the byte offset of the END of the last complete `turn/end` line in a
- * JSONL log buffer (the header line is index 0). Returns the offset to which a
- * crash tail should be truncated, and the contiguous events up to and including
- * that `turn/end`. A parse error or a `seq` gap in the MIDDLE (at or before the
- * last `turn/end`) makes the session unloadable and throws; trailing garbage
- * AFTER the last `turn/end` is the tolerated crash tail and is excluded.
+ * Parse a JSONL log buffer into its preserved event prefix (the header is line
+ * 0). Returns the longest prefix of complete, seq-contiguous events plus the
+ * byte offset of the end of the last preserved line (`committedBytes`).
+ *
+ * A crash can leave a durable log whose final turn never closed: real,
+ * fully-written events sit after the last `turn/end`. Those are PRESERVED (a
+ * single turn can be huge in a long-horizon task — truncating it would destroy
+ * real work); the backend closes the orphaned open turn with a synthetic
+ * `turn/end {kind:'interrupted'}` on reload (ADR 0018). Only a TORN trailing
+ * fragment — a final line never fully flushed (no newline, unparseable, or a
+ * seq gap) — is excluded; it bounds the preserved region. A parse error or seq
+ * gap AT OR BEFORE the last committed `turn/end` is committed-data corruption
+ * and makes the session unloadable (throws).
  *
  * This relies on the session-log invariant that every event lives inside a turn
- * (`Session.append` enforces it): the last `turn/end` is therefore the last
- * durable boundary, and nothing committed can sit outside a completed turn.
+ * (`Session.append` enforces it): only the final turn can be open, so the
+ * preserved tail is at most one unclosed turn.
  */
 export function scanLog(buffer: Buffer): { meta: SessionMeta; events: SessionEvent[]; committedBytes: number } {
   const text = buffer.toString('utf8')
@@ -187,38 +194,46 @@ export function scanLog(buffer: Buffer): { meta: SessionMeta; events: SessionEve
     }
   })
 
-  // The last index (into eventEntries) that is a valid `turn/end`.
+  // The last index (into eventEntries) that is a valid `turn/end` — the last
+  // fully-committed boundary (the loop flushes only at turn/end).
   let lastTurnEnd = -1
   for (let i = parsed.length - 1; i >= 0; i--) {
     const p = parsed[i]
     if (p?.ok && p.event?.type === 'turn/end') { lastTurnEnd = i; break }
   }
 
-  // No committed turn/end anywhere: nothing is committed. The whole event
-  // region is an uncommitted (first-turn) tail — committedBytes is the header.
-  if (lastTurnEnd < 0) {
-    const meta = metaFrom(headerLine)
-    return { meta, events: [], committedBytes: headerEntry.endByte }
-  }
-
-  // Pass 2: the committed prefix [0..lastTurnEnd] must be fully intact and
-  // contiguous (line i is a parsed event with seq === i). A hole or seq gap in
-  // the committed region means committed data was damaged → unloadable.
-  const committed: SessionEvent[] = []
-  for (let i = 0; i <= lastTurnEnd; i++) {
+  // Walk the longest PREFIX of complete, seq-contiguous, parseable event lines
+  // (line i is a parsed event with seq === i). This is the preservable region:
+  // it includes any fully-written events of an interrupted final turn AFTER the
+  // last turn/end — those are real, durably-written work and must NOT be
+  // truncated (a single turn can be huge in a long-horizon task; the orphaned
+  // open turn is closed with a synthetic turn/end on reload, not discarded —
+  // ADR 0018). The walk stops at the first hole (unparseable line or seq gap):
+  //   - if that hole is AT OR BEFORE the last committed turn/end, committed data
+  //     was damaged → the session is unloadable (throw);
+  //   - if it is AFTER (or there is no committed turn/end yet), it is the
+  //     tolerated crash boundary — a torn final line never fully flushed — and
+  //     it simply bounds the preserved tail.
+  const preserved: SessionEvent[] = []
+  for (let i = 0; i < parsed.length; i++) {
     const p = parsed[i]
     if (!p?.ok || p.event === undefined) {
-      throw new Error(`corrupt session log: unparsable committed event at line ${i + 1}`)
+      if (i <= lastTurnEnd) throw new Error(`corrupt session log: unparsable committed event at line ${i + 1}`)
+      break // torn tail fragment after the last turn/end — stop, tolerate
     }
     if (p.event.seq !== i) {
-      throw new Error(`corrupt session log: seq gap in committed region at line ${i + 1} (expected ${i}, got ${p.event.seq})`)
+      if (i <= lastTurnEnd) throw new Error(`corrupt session log: seq gap in committed region at line ${i + 1} (expected ${i}, got ${p.event.seq})`)
+      break // gap after the last turn/end — torn tail, stop
     }
-    committed.push(p.event)
+    preserved.push(p.event)
   }
-  const lastEntry = parsed[lastTurnEnd]
-  /* v8 ignore next -- lastTurnEnd indexes a parsed entry by construction */
-  const committedBytes = lastEntry ? lastEntry.endByte : headerEntry.endByte
-  return { meta: metaFrom(headerLine), events: committed, committedBytes }
+
+  // committedBytes = end of the last PRESERVED line (header if none): the next
+  // append truncates any torn bytes past this point before writing the
+  // synthetic closers + new events.
+  const lastPreserved = parsed[preserved.length - 1]
+  const committedBytes = preserved.length > 0 && lastPreserved ? lastPreserved.endByte : headerEntry.endByte
+  return { meta: metaFrom(headerLine), events: preserved, committedBytes }
 }
 
 /** Build the load-time {@link SessionMeta} from a header line (summary overlaid later). */
