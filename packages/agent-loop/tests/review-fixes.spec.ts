@@ -822,13 +822,15 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(errorEmits).toHaveLength(0)
   })
 
-  it('a throw at the turn/start append (before turnStarted) is rethrown to the runLoop backstop', async () => {
-    // A session/event listener that throws specifically on the turn/start
-    // event makes session.append('turn/start') throw while turnStarted is
-    // still false. runTurn must NOT try to close a turn it never opened — it
-    // rethrows, and the runLoop backstop records the error and survives.
-    // (Uses the plain harness — NOT the invariants oracle — because the
-    // throwing listener is itself a session/event subscriber.)
+  it('a throwing session/event listener on the turn/start append still balances the turn', async () => {
+    // Session.append pushes the event BEFORE notifying session/event listeners,
+    // so a listener throwing on turn/start leaves turn/start IN THE LOG. The
+    // loop must therefore still owe (and append) a turn/end — deciding "owed"
+    // from the log via isTurnOpen, not a "turn started" flag that the throw
+    // skipped. Otherwise the turn stays permanently open and poisons the next
+    // turn/replay (ADR 0017). (Uses the plain harness — NOT the invariants
+    // oracle — because the throwing listener is itself a session/event
+    // subscriber.)
     const adapter = new MockAdapter([textResponse('turn 2')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create('a-preturn', { model: 'mock' })
@@ -843,15 +845,56 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    // The backstop logged exactly one error for the failed pre-turn append.
+    // The error was surfaced exactly once via agent/error.
     expect(errors.map(e => e.message)).toEqual(['boom turn/start append'])
-    // No turn/end was appended (none is owed — the turn never opened).
-    expect([...agent.session.events].some(e => e.type === 'turn/end')).toBe(false)
+    // The turn is BALANCED: turn/start is in the log (it was pushed before the
+    // listener threw), so a turn/end was owed and appended — no open turn. The
+    // last turn-boundary event being turn/end is exactly the loop's isTurnOpen
+    // check (no open turn remains).
+    const types = [...agent.session.events].map(e => e.type)
+    expect(types.filter(t => t === 'turn/start')).toHaveLength(1)
+    expect(types.filter(t => t === 'turn/end')).toHaveLength(1)
+    const lastBoundary = [...agent.session.events].reverse().find(e => e.type === 'turn/start' || e.type === 'turn/end')
+    expect(lastBoundary?.type).toBe('turn/end')
+    expect(agent.session.events.at(-1)?.type).toBe('turn/end')
 
     // loop survives: a second turn runs normally.
     send(agent, 'second')
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1)
+  })
+
+  it('a throwing turn-end listener on a SUCCESSFUL turn leaves no event after turn/end (loadable log)', async () => {
+    // Regression: a normal turn completes, closeTurn(true) appends turn/end and
+    // emits agent/turn-end whose listener throws. The error must NOT be appended
+    // as a session event after turn/end — that would sit past the commit
+    // boundary and be dropped as a crash tail on resume (ADR 0017). It is
+    // surfaced via agent/error instead, and the log's last event is turn/end.
+    const adapter = new MockAdapter([textResponse('done'), textResponse('next ok')])
+    const ctx = await balancedHarness(adapter)
+    const agent = ctx.agentLoop.create('a-tend', { model: 'mock' })
+
+    let threw = false
+    ctx.on('agent/turn-end', () => { if (!threw) { threw = true; throw new Error('boom turn-end') } })
+    const errors: Error[] = []
+    ctx.on('agent/error', (_a, _t, _s, error) => void errors.push(error))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const c = boundaryCounts(agent)
+    expect(c.turnEnd).toBe(1)
+    expect(c.errors).toBe(0) // NO session error event (it would be post-turn/end)
+    expect(agent.session.events.at(-1)?.type).toBe('turn/end') // last event is the boundary
+    expect(errors.map(e => e.message)).toEqual(['boom turn-end']) // surfaced via agent/error
+    // The whole log is loadable (nothing dropped): a fresh replay sees the turn.
+    const replay = new Session(SessionId('replay'), [...agent.session.events])
+    expect(replay.deriveMessages().map(m => m.role)).toEqual(['user', 'assistant'])
+
+    // loop survives.
+    send(agent, 'again')
+    await waitForIdle(ctx, agent)
+    expect(boundaryCounts(agent).turnEnd).toBe(2)
   })
 
   it('a throwing agent/step-end listener during a successful step ends the turn as error, not completed', async () => {
@@ -925,6 +968,110 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     send(agent, 'again')
     await waitForIdle(ctx, agent)
     expect(boundaryCounts(agent).turnEnd).toBe(2)
+  })
+
+  it('a throwing session/event listener on the error event still closes the turn (finalizer containment)', async () => {
+    // failTurn appends the `error` event; Session.append pushes it BEFORE
+    // notifying session/event listeners, so a throwing listener leaves `error`
+    // in the log but must NOT abort finalization — `reason` is set before the
+    // append and the throw is contained, so closeTurn(false) still runs and
+    // turn/end is appended (the turn is balanced, not left open).
+    // Plain harness (no invariants oracle): the throwing listener is itself a
+    // session/event subscriber. A finish-error drives the boundary-error path.
+    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', message: 'provider down' } }]
+    const adapter = new MockAdapter([errorStream, textResponse('turn 2 ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a-errthrow', { model: 'mock' })
+
+    let threw = false
+    ctx.on('session/event', (_s, event) => {
+      if (!threw && event.type === 'error') { threw = true; throw new Error('boom error-event listener') }
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const e = [...agent.session.events]
+    // The error event is in the log (pushed before the listener threw)…
+    expect(e.some(x => x.type === 'error')).toBe(true)
+    // …and the turn was still closed with the error reason (finalization did not
+    // abort): the last event is turn/end carrying the error reason.
+    const last = e.at(-1)
+    expect(last?.type).toBe('turn/end')
+    expect(last?.type === 'turn/end' && last.data.reason).toMatchObject({ kind: 'error', message: 'provider down' })
+
+    // loop survives: a second turn runs normally.
+    send(agent, 'again')
+    await waitForIdle(ctx, agent)
+    expect(adapter.requests).toHaveLength(2)
+  })
+
+  it('a throwing session/event listener on step/end during finalization still appends turn/end', async () => {
+    // A throwing agent/step-start listener drives the outer catch, which calls
+    // closeStep() during finalization. closeStep appends step/end; a
+    // session/event listener throwing on THAT must not abort the catch before
+    // closeTurn(false) — step/end is already logged (balance holds) and the
+    // throw is contained + surfaced via failTurn, so turn/end is still appended.
+    const adapter = new MockAdapter([textResponse('never reached')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a-stependthrow', { model: 'mock' })
+
+    // Open a step, then make the agent/step-start emit throw (boundary throw →
+    // outer catch → closeStep during finalization).
+    ctx.on('agent/step-start', () => { throw new Error('boom step-start') })
+    let threw = false
+    ctx.on('session/event', (_s, event) => {
+      if (!threw && event.type === 'step/end') { threw = true; throw new Error('boom step/end listener') }
+    })
+    const errors: Error[] = []
+    ctx.on('agent/error', (_a, _t, _s, error) => void errors.push(error))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const e = [...agent.session.events]
+    // Both step/end and turn/end are present — finalization ran to completion.
+    expect(e.some(x => x.type === 'step/end')).toBe(true)
+    expect(e.some(x => x.type === 'turn/end')).toBe(true)
+    expect(e.at(-1)?.type).toBe('turn/end')
+    expect(errors.length).toBeGreaterThanOrEqual(1) // surfaced via agent/error
+
+    // loop survives.
+    send(agent, 'again')
+    await waitForIdle(ctx, agent)
+    expect(e.filter(x => x.type === 'turn/start').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('a throwing session/event listener on turn/end is contained (turn still balanced, loop survives)', async () => {
+    // closeTurn appends turn/end; Session.append pushes it BEFORE notifying
+    // session/event listeners, so a throwing listener leaves turn/end in the log
+    // (the turn is balanced) but must not escape — from the normal-path
+    // closeTurn(true) it would otherwise propagate; the append is contained so
+    // the turn/end emit + loop continue. (A throwing agent/turn-end LISTENER is
+    // a separate, already-tested path; here the session/event append notify is
+    // what throws.)
+    const adapter = new MockAdapter([textResponse('turn 1'), textResponse('turn 2')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a-turnendappend', { model: 'mock' })
+
+    let threw = false
+    ctx.on('session/event', (_s, event) => {
+      if (!threw && event.type === 'turn/end') { threw = true; throw new Error('boom turn/end listener') }
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+    // turn 1 is balanced despite the throwing turn/end listener.
+    const e1 = [...agent.session.events]
+    expect(e1.filter(x => x.type === 'turn/start')).toHaveLength(1)
+    expect(e1.filter(x => x.type === 'turn/end')).toHaveLength(1)
+    expect(e1.at(-1)?.type).toBe('turn/end')
+
+    // loop survives: a second turn runs to completion.
+    send(agent, 'again')
+    await waitForIdle(ctx, agent)
+    expect(adapter.requests).toHaveLength(2)
+    expect([...agent.session.events].filter(x => x.type === 'turn/end')).toHaveLength(2)
   })
 })
 

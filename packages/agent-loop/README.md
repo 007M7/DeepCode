@@ -41,7 +41,7 @@ One invocation of `runLoop()` drives one agent for its whole lifetime:
 forever:
   wait for queued messages (idle)
   TURN (error-contained):
-    drain queued → session('user/message') → 'turn/start'
+    drain queued → 'turn/start' → session('user/message')
     STEP loop:
       drain steering
       assembly = systemPrompt.assemble()

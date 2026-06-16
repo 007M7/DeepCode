@@ -85,6 +85,38 @@ describe('session-log invariants', () => {
       .toThrow(/open is turn 1\/step null/)
   })
 
+  it('rejects a message event appended outside any open turn (turn-enclosure)', async () => {
+    const { ctx } = await setup({ freeze: false })
+    const session = ctx.sessions.create()
+    // No turn open: every message-bearing event must be turn-enclosed (ADR 0017).
+    expect(() => session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
+      .toThrow(/outside any open turn/)
+    expect(() => session.append('context/message', { content: [{ type: 'text', text: 'ctx' }], source: { kind: 'user' } }))
+      .toThrow(/outside any open turn/)
+  })
+
+  it('rejects usage/error and plugin-added events appended outside any open turn', async () => {
+    const { ctx } = await setup({ freeze: false })
+    const session = ctx.sessions.create()
+    // usage and error are turn-scoped: outside a turn they would land past the
+    // commit boundary and be dropped on resume (ADR 0017).
+    expect(() => session.append('usage', { turn: 1, step: 1, usage: { inputTokens: 1, outputTokens: 1 } }))
+      .toThrow(/outside any open turn/)
+    expect(() => session.append('error', { turn: 1, step: 1, message: 'boom' }))
+      .toThrow(/outside any open turn/)
+    // A PLUGIN-added (merge-extensible) event type is caught by the default too.
+    expect(() => session.append('compaction/marker' as never, { foo: 'bar' } as never))
+      .toThrow(/outside any open turn/)
+  })
+
+  it('accepts message events once a turn is open', async () => {
+    const { ctx } = await setup({ freeze: false })
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    expect(() => session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
+      .not.toThrow()
+  })
+
   it('rejects a tool/result with no prior tool/call', async () => {
     const { ctx } = await setup({ freeze: false })
     const session = ctx.sessions.create()
@@ -211,6 +243,7 @@ describe('dev-freeze', () => {
   it('freezes appended event data so mutating a logged event throws', async () => {
     const { ctx } = await setup() // freeze defaults true
     const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     const event = session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
     expect(Object.isFrozen(event)).toBe(true)
     expect(Object.isFrozen(event.data)).toBe(true)
@@ -221,6 +254,7 @@ describe('dev-freeze', () => {
   it('does not freeze when freeze:false', async () => {
     const { ctx } = await setup({ freeze: false })
     const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     const event = session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
     expect(Object.isFrozen(event)).toBe(false)
   })
@@ -228,7 +262,8 @@ describe('dev-freeze', () => {
   it('freezes seeded events on session/created', async () => {
     const { ctx } = await setup()
     const seed = [
-      { type: 'user/message' as const, seq: 0, time: 0, data: { content: [{ type: 'text' as const, text: 'seeded' }], source: { kind: 'user' as const } } },
+      { type: 'turn/start' as const, seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
+      { type: 'user/message' as const, seq: 1, time: 0, data: { content: [{ type: 'text' as const, text: 'seeded' }], source: { kind: 'user' as const } } },
     ]
     const session = ctx.sessions.create(undefined, { seed })
     expect(Object.isFrozen(session.events[0])).toBe(true)
@@ -237,6 +272,7 @@ describe('dev-freeze', () => {
   it('freezes mutable descendants of a shallow-frozen event datum', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     // A caller hands in a SHALLOW-frozen block whose nested array is still
     // mutable. deepFreeze must descend into the already-frozen object and
     // freeze the descendant, not short-circuit on the frozen container —
@@ -260,7 +296,7 @@ describe('dev-freeze', () => {
     // non-serializable (incl. cyclic) data at the source, so drive the freeze
     // handler directly via hand-built session/events — exactly the shape the
     // invariants listener receives. Open a turn first (seq 0) so the cyclic
-    // user/message (seq 1) satisfies seq-contiguity.
+    // user/message (seq 1) satisfies the turn-enclosure invariant.
     ctx.emit('session/event', session, { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } } as never)
     const cyclic: Record<string, unknown> = { type: 'text', text: 'x' }
     cyclic['self'] = cyclic
