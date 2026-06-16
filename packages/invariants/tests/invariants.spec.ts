@@ -36,6 +36,16 @@ describe('session-log invariants', () => {
     }).not.toThrow()
   })
 
+  it('rejects a non-monotonic seq (replay spine)', async () => {
+    const { ctx } = await setup({ freeze: false })
+    const session = ctx.sessions.create()
+    // Session.append enforces seq-contiguity at the source, so drive the
+    // invariants seq check directly via session/event with a regressing seq.
+    ctx.emit('session/event', session, { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } } as never)
+    expect(() => { ctx.emit('session/event', session, { type: 'turn/end', seq: 0, time: 2, data: { turn: 1, reason: { kind: 'completed' } } } as never) })
+      .toThrow(/seq must strictly increase/)
+  })
+
   it('rejects a turn/start while another turn is open', async () => {
     const { ctx } = await setup({ freeze: false })
     const session = ctx.sessions.create()
@@ -98,13 +108,15 @@ describe('session-log invariants', () => {
 
   it('holds seeded sessions to the contract on session/created', async () => {
     const { ctx } = await setup({ freeze: false })
-    // A seed whose seq is non-monotonic must be rejected when the session is
-    // created (the constructor copies the seed without emitting session/event).
+    // A seq-contiguous, serializable seed (so it passes Session's constructor
+    // validation) that nonetheless violates turn nesting — a second turn/start
+    // while the first turn is still open — must be rejected by the invariants
+    // plugin when it replays the seed on session/created.
     const badSeed = [
       { type: 'turn/start' as const, seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
-      { type: 'turn/start' as const, seq: 0, time: 0, data: { turn: 2, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
+      { type: 'turn/start' as const, seq: 1, time: 0, data: { turn: 2, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
     ]
-    expect(() => ctx.sessions.create(undefined, badSeed)).toThrow(InvariantError)
+    expect(() => ctx.sessions.create(undefined, { seed: badSeed })).toThrow(InvariantError)
   })
 
   it('tracks turns per session independently', async () => {
@@ -218,7 +230,7 @@ describe('dev-freeze', () => {
     const seed = [
       { type: 'user/message' as const, seq: 0, time: 0, data: { content: [{ type: 'text' as const, text: 'seeded' }], source: { kind: 'user' as const } } },
     ]
-    const session = ctx.sessions.create(undefined, seed)
+    const session = ctx.sessions.create(undefined, { seed })
     expect(Object.isFrozen(session.events[0])).toBe(true)
   })
 
@@ -229,21 +241,31 @@ describe('dev-freeze', () => {
     // mutable. deepFreeze must descend into the already-frozen object and
     // freeze the descendant, not short-circuit on the frozen container —
     // otherwise dev-mode misses exactly the history mutation ADR 0012 catches.
+    // `append` snapshots `data`, so the freeze applies to the LOGGED clone, not
+    // the caller's input — read the event back and assert on its data.
     const innerContent: { type: 'text'; text: string }[] = [{ type: 'text', text: 'inner' }]
     const block = Object.freeze({ type: 'tool-result' as const, toolCallId: CallId('c1'), content: innerContent, isError: false })
-    session.append('user/message', { content: [block], source: { kind: 'user' } })
-    expect(Object.isFrozen(block.content)).toBe(true)
-    expect(Object.isFrozen(block.content[0])).toBe(true)
-    expect(() => { block.content.push({ type: 'text', text: 'mutation' }) }).toThrow()
+    const event = session.append('user/message', { content: [block], source: { kind: 'user' } })
+    const logged = event.data.content[0] as { content: { type: 'text'; text: string }[] }
+    expect(Object.isFrozen(logged.content)).toBe(true)
+    expect(Object.isFrozen(logged.content[0])).toBe(true)
+    expect(() => { logged.content.push({ type: 'text', text: 'mutation' }) }).toThrow()
   })
 
   it('terminates on a cyclic event datum (WeakSet guard)', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
-    // A self-referential structure must not loop forever.
+    // The deep-freeze WeakSet guard must terminate on a self-referential
+    // structure rather than recursing forever. Session.append now rejects
+    // non-serializable (incl. cyclic) data at the source, so drive the freeze
+    // handler directly via hand-built session/events — exactly the shape the
+    // invariants listener receives. Open a turn first (seq 0) so the cyclic
+    // user/message (seq 1) satisfies seq-contiguity.
+    ctx.emit('session/event', session, { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } } as never)
     const cyclic: Record<string, unknown> = { type: 'text', text: 'x' }
     cyclic['self'] = cyclic
-    expect(() => session.append('user/message', { content: [cyclic as never], source: { kind: 'user' } })).not.toThrow()
+    const event = { type: 'user/message', seq: 1, time: 1, data: { content: [cyclic], source: { kind: 'user' } } }
+    expect(() => { ctx.emit('session/event', session, event as never) }).not.toThrow()
     expect(Object.isFrozen(cyclic)).toBe(true)
   })
 })

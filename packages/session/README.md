@@ -8,7 +8,7 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 
 ### Public API
 
-- `ctx.sessions.create(id?: string, seed?: SessionEvent[]): Session` Create a session. `seed` replays/forks an existing event log. Disposed with the calling fiber.
+- `ctx.sessions.create(id?: string, options?: { seed?: SessionEvent[]; meta?: { cwd?: string; parentSession?: SessionId; createdAt?: number } }): Session` — Create a session. `options.seed` replays/forks an existing event log; `options.meta` attaches creation metadata (validated absolute `cwd`, `parentSession` lineage) as the immutable `SessionHeader`. The store fills `version`/`id` and defaults `createdAt` to now; a caller reconstructing a persisted session passes the original `createdAt` to preserve it. Disposed with the calling fiber.
 - `ctx.sessions.get(id: string): Session | undefined`
 - `ctx.sessions.list(): Session[]`
 
@@ -24,9 +24,16 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 
 Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 
-- `session.append(type, data): SessionEvent` — synchronous, never blocks on I/O.
+- `session.append(type, data): SessionEvent` — synchronous, never blocks on I/O. **Throws** if `data` is not losslessly JSON-serializable (BigInt, function, symbol, undefined, non-finite number, circular ref, or an exotic object like Map/Set/Date) — the event log is the durable source of truth, so this invariant is enforced at the source (exported as `isJsonValue` for backends to reuse on their replay/fork entry points).
 - `session.deriveMessages(): Message[]` — derive the LLM message history from the event log. Raw `assistant/chunk` events are skipped; `context/message` and `steering/message` render as tagged synthetic user messages.
 - `session.events`, `session.seq`, `session.id`
+- `session.header: SessionHeader` — immutable creation metadata (`version`, `id`, `createdAt`, optional `cwd`/`parentSession`). Kept out of the event log (a storage concern, not replayable state); a minimal v1 header is synthesized for bare `Session` construction.
+
+### Metadata types (`types.ts`)
+
+- `SessionHeader` — immutable, written once: `{ version, id, createdAt, cwd?, parentSession? }`.
+- `SessionSummary` — mutable, updateable without touching the log: `{ updatedAt, title?, firstPrompt? }`.
+- `SessionMeta = SessionHeader & SessionSummary` — owned here (beside `SessionId`) because `Session.header` is typed by it; persistence backends re-export these rather than own them (which would force a package cycle).
 
 ### Session event vocabulary (`types.ts`)
 
@@ -38,11 +45,9 @@ Also defines `TurnTriggerMap` and `TurnEndReasonMap` (merge-extensible sum types
 
 ### Extension points
 
-- Persistence plugins: subscribe to `session/event` (write-behind) and drain on `session/flush` (awaited) and fiber dispose. See `examples/echo-agent/src/session-jsonl.ts` for the pattern.
-- Replay/fork: `ctx.sessions.create(id, seed)` seeds a new session with an existing event log.
+- Persistence plugins: subscribe to `session/event` (write-behind) and drain on `session/flush` (awaited) and fiber dispose. A durable backend reads the log and reloads it into a live session; the metadata seam (`SessionHeader`/`SessionSummary`/`SessionMeta`, `session.header`) is what such a backend stores beside the log.
+- Replay/fork: `ctx.sessions.create(id, { seed })` seeds a new session with an existing event log.
 
 ### What is NOT here (TODO)
 
-- **Real persistence backends** (JSONL per session dir, sqlite) — future phase.
-- **Session event vocabulary review** — `TODO(review)` once the loop and a persistence plugin coexist.
 - **Session branching/tree** (pi-style entry tree) — defered unless needed beyond seed-based forking.

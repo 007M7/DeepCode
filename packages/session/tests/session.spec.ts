@@ -79,7 +79,101 @@ describe('Session', () => {
     // And a fresh derivation still reflects the original content.
     expect(session.deriveMessages()[0]!.content).toEqual([{ type: 'text', text: 'original' }])
   })
+
+  it('rejects non-JSON-serializable event data at the source (incl. sparse arrays)', () => {
+    const session = new Session(SessionId('s5'))
+    const bad = (extra: unknown) => () => session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra } as never)
+    expect(bad(1n)).toThrow(/non-JSON-serializable/)
+    expect(bad(() => 0)).toThrow(/non-JSON-serializable/)
+    expect(bad(Symbol('s'))).toThrow(/non-JSON-serializable/)
+    expect(bad(new Map())).toThrow(/non-JSON-serializable/)
+    expect(bad(undefined)).toThrow(/non-JSON-serializable/)
+    expect(bad(Infinity)).toThrow(/non-JSON-serializable/)
+    // A sparse array: `every` skips the hole but JSON.stringify writes it null.
+    // Build the hole without a sparse literal or `delete` (both linted).
+    const sparse: unknown[] = Array(3)
+    sparse[0] = 1
+    sparse[2] = 3 // index 1 stays a hole
+    expect(bad(sparse)).toThrow(/non-JSON-serializable/)
+    // A DENSE array carrying a non-serializable element is rejected too.
+    expect(bad([1, 2n, 3])).toThrow(/non-JSON-serializable/)
+    // A nested non-serializable value (inside a plain object) is rejected.
+    expect(bad({ nested: { deep: () => 0 } })).toThrow(/non-JSON-serializable/)
+    // A circular reference is rejected (the seen-set guard, not a stack blow-up).
+    const cyclic: Record<string, unknown> = { a: 1 }
+    cyclic['self'] = cyclic
+    expect(bad(cyclic)).toThrow(/non-JSON-serializable/)
+    // The rejected appends never entered the log.
+    expect(session.events).toHaveLength(0)
+  })
+
+  it('accepts dense arrays and nested plain objects', () => {
+    const session = new Session(SessionId('s6'))
+    expect(() => session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra: [1, 2, [3, { a: null, b: true }]] } as never)).not.toThrow()
+    expect(session.events).toHaveLength(1)
+  })
+
+  it('validates seed events: rejects a non-JSON-serializable seed', () => {
+    // A replay/fork seed must satisfy the SAME invariant as Session.append, or
+    // it builds a live log no backend can persist.
+    const badSeed = [
+      { type: 'user/message' as const, seq: 0, time: 1, data: { content: [{ type: 'text' as const, text: 'x' }], source: { kind: 'user' as const }, bad: 1n } },
+    ] as unknown as SessionEvent[]
+    expect(() => new Session(SessionId('seed-bad'), badSeed)).toThrow(/non-JSON-serializable/)
+  })
+
+  it('validates seed events: rejects a non-contiguous seq', () => {
+    const gapSeed = [
+      { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
+      { type: 'turn/end' as const, seq: 5, time: 2, data: { turn: 1, reason: { kind: 'completed' as const } } }, // gap: expected seq 1
+    ] as SessionEvent[]
+    expect(() => new Session(SessionId('seed-gap'), gapSeed)).toThrow(/contiguous|seq/)
+  })
+
+  it('accepts a well-formed contiguous serializable seed', () => {
+    const goodSeed = [
+      { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
+      { type: 'user/message' as const, seq: 1, time: 2, data: { content: [{ type: 'text' as const, text: 'hi' }], source: { kind: 'user' as const } } },
+      { type: 'turn/end' as const, seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' as const } } },
+    ] as SessionEvent[]
+    const session = new Session(SessionId('seed-ok'), goodSeed)
+    expect(session.events).toHaveLength(3)
+  })
+
+  it('snapshots the seed: mutating the original after construction does not affect session.events', () => {
+    const seed = [
+      { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
+      { type: 'user/message' as const, seq: 1, time: 2, data: { content: [{ type: 'text' as const, text: 'original' }], source: { kind: 'user' as const } } },
+      { type: 'turn/end' as const, seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' as const } } },
+    ] as SessionEvent[]
+    const session = new Session(SessionId('seed-snapshot'), seed)
+    // Mutate the ORIGINAL seed objects after construction: a shared reference
+    // would let this rewrite the forked log (or reintroduce non-serializable
+    // data past validation). The snapshot must shield session.events.
+    const um = seed[1]!
+    ;(um.data as { content: { type: 'text'; text: string }[] }).content[0]!.text = 'HACKED'
+    ;(um.data as Record<string, unknown>)['injected'] = 1n // would have failed validation
+    const logged = session.events[1]!
+    expect(logged.type === 'user/message' && (logged.data.content[0] as { text: string }).text).toBe('original')
+    expect((logged.data as Record<string, unknown>)['injected']).toBeUndefined()
+  })
+
+  it('snapshots append data: mutating the passed object after append does not affect session.events', () => {
+    const session = new Session(SessionId('append-snapshot'))
+    const data = { content: [{ type: 'text' as const, text: 'original' }], source: { kind: 'user' as const } }
+    const event = session.append('user/message', data)
+    // Mutate the caller's object after append returns. A shared reference would
+    // make session.events diverge from the value that passed validation.
+    data.content[0]!.text = 'HACKED'
+    ;(data as Record<string, unknown>)['injected'] = 1n
+    const logged = session.events[0]!
+    expect(logged.type === 'user/message' && (logged.data.content[0] as { text: string }).text).toBe('original')
+    expect((logged.data as Record<string, unknown>)['injected']).toBeUndefined()
+    // The returned event carries the same snapshot, not the caller's input.
+    expect((event.data.content[0] as { text: string }).text).toBe('original')
+  })
 })
+
 
 describe('SessionStore', () => {
   it('creates sessions, emits session/created and session/event', async () => {
@@ -110,8 +204,47 @@ describe('SessionStore', () => {
     expect(() => ctx.sessions.create('fixed')).toThrow('already exists')
 
     a.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
-    const forked = ctx.sessions.create('fork', [...a.events])
+    const forked = ctx.sessions.create('fork', { seed: [...a.events] })
     expect(forked.deriveMessages()).toEqual(a.deriveMessages())
+  })
+
+  it('synthesizes a minimal v1 header for a bare-created session', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create('plain')
+    expect(session.header).toMatchObject({ version: 1, id: 'plain' })
+    expect(typeof session.header.createdAt).toBe('number')
+    expect(session.header.cwd).toBeUndefined()
+    expect(session.header.parentSession).toBeUndefined()
+  })
+
+  it('attaches cwd and parentSession from meta to the header', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create('child', {
+      meta: { cwd: '/work/project', parentSession: SessionId('parent') },
+    })
+    expect(session.header).toMatchObject({
+      version: 1,
+      id: 'child',
+      cwd: '/work/project',
+      parentSession: 'parent',
+    })
+  })
+
+  it('rejects a non-absolute meta.cwd', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    expect(() => ctx.sessions.create('rel', { meta: { cwd: 'relative/path' } }))
+      .toThrow(/cwd must be an absolute path/)
+    // the rejected session was not registered
+    expect(ctx.sessions.get('rel')).toBeUndefined()
+  })
+
+  it('a bare Session() constructed without the store still exposes a v1 header', () => {
+    const session = new Session(SessionId('bare'))
+    expect(session.header).toMatchObject({ version: 1, id: 'bare' })
+    expect(typeof session.header.createdAt).toBe('number')
   })
 
   it('detaches sessions when the creating fiber is disposed (HMR safety)', async () => {
