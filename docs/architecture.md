@@ -61,17 +61,7 @@ Swappable capabilities are split into **three packages** so each part evolves in
 
 The LLM seam has the same topology folded differently: `dsh-llm` carries the interface (`LlmAdapter`) AND the consumer surface (`ctx.llm.stream()`), with adapters as implementation packages — there the consumer is the loop itself, not a swappable schema surface. Use the full three-package split when the consumer is independently replaceable; keep interface + consumer together when they are one concern. Don't split preemptively: a capability with one conceivable implementation and one consumer stays one package until proven otherwise.
 
-> **"Capability" — two unrelated meanings.** (1) The *seam pattern* above
-> ("one plugin provides a capability, another needs it") is realized by
-> plain Cordis **services + `inject`**: a provider registers a service
-> (`ctx.bash`, declared in `interface Context`); a consumer declares
-> `inject: ['bash']` and its fiber stays pending until the service exists,
-> tearing down via HMR if it later vanishes. No extra library is needed.
-> (2) `@cordisjs/plugin-capability` is a different axis entirely — a
-> **permission/capability-security** service (named permissions with
-> inheritance/dependency, tested against a session via `ctx.capability.test`).
-> It is a candidate for the deferred permissions/sandbox work (the
-> `tools/execute` veto seam), NOT a mechanism for swapping implementations.
+> **"Capability" — two unrelated meanings.** (1) The *seam pattern* above ("one plugin provides a capability, another needs it") is realized by plain Cordis **services + `inject`**: a provider registers a service (`ctx.bash`, declared in `interface Context`); a consumer declares `inject: ['bash']` and its fiber stays pending until the service exists, tearing down via HMR if it later vanishes. No extra library is needed. (2) `@cordisjs/plugin-capability` is a different axis entirely — a **permission/capability-security** service (named permissions with inheritance/dependency, tested against a session via `ctx.capability.test`). It is a candidate for the deferred permissions/sandbox work (the `tools/execute` veto seam), NOT a mechanism for swapping implementations.
 
 ## The vocabulary (dsh-llm)
 

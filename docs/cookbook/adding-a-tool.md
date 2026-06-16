@@ -42,9 +42,7 @@ Registration is effect-based: disposing the plugin fiber unregisters the tool (w
 
 Follow tool-bash's background pattern: a `run_in_background` flag returns a task id immediately; companion tools poll incrementally and kill; completion notices arrive via `agent.inject()`. Bound buffers and spill full output to disk so nothing is silently lost.
 
-> TODO: each tool reimplements this background pattern by hand today. At some
-> point we need a generic long-running-tool layer that handles task ids,
-> incremental polling, kill, and completion notices uniformly.
+> TODO: each tool reimplements this background pattern by hand today. At some point we need a generic long-running-tool layer that handles task ids, incremental polling, kill, and completion notices uniformly.
 
 ## Permissions / sandboxing
 
