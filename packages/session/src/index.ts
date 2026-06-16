@@ -15,6 +15,7 @@ import { isJsonValue } from './json.ts'
 
 export * from './types.ts'
 export { isJsonValue } from './json.ts'
+export { interruptedTurnClosers } from './repair.ts'
 
 declare module 'cordis' {
   interface Context {

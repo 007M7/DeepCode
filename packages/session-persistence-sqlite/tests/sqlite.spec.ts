@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionMeta } from '@deepseek-ai/dsh-session'
 import SessionPersistenceSqlite, { SCHEMA_VERSION } from '@deepseek-ai/dsh-session-persistence-sqlite'
-import { cutAtLastTurnEnd, openDatabase } from '../src/schema.ts'
+import { openDatabase, scanRows, type EventRow } from '../src/schema.ts'
 import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
 
 const dirs: string[] = []
@@ -38,49 +38,78 @@ runPersistenceContract('sqlite', async () => {
   }
 })
 
-describe('cutAtLastTurnEnd', () => {
-  it('returns the prefix through the last complete turn/end and flags a cut tail', () => {
-    const log = oneTurnLog()
-    const withTail: SessionEvent[] = [
-      ...log,
+describe('scanRows', () => {
+  // scanRows works off EventRows (data is a JSON string column); build them from
+  // SessionEvents so the unit tests read in terms of the event vocabulary.
+  const rows = (events: SessionEvent[]): EventRow[] =>
+    events.map(e => ({ seq: e.seq, type: e.type, time: e.time, data: JSON.stringify(e.data) }))
+
+  it('preserves the full log when it ends exactly on a turn/end (no torn tail)', () => {
+    const { preserved, tornFrom } = scanRows(rows(oneTurnLog()))
+    expect(preserved).toEqual(oneTurnLog())
+    expect(tornFrom).toBeUndefined()
+  })
+
+  it('PRESERVES the real events of an interrupted turn after the last turn/end', () => {
+    // turn 1 committed (0..5) + a crashed turn 2 (turn/start 6, step/start 7, no
+    // close): all 8 rows are intact, so the whole prefix is preserved and there
+    // is no torn fragment to delete. (load() then synthesizes the closers.)
+    const withOpenTurn: SessionEvent[] = [
+      ...oneTurnLog(),
       { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
-      { type: 'user/message', seq: 7, time: 8, data: { content: [{ type: 'text', text: 'q2' }], source: { kind: 'user' } } },
+      { type: 'step/start', seq: 7, time: 8, data: { turn: 2, step: 1 } },
     ]
-    const { committed, cutTail } = cutAtLastTurnEnd(withTail)
-    expect(committed).toEqual(log)
-    expect(cutTail).toBe(true)
+    const { preserved, tornFrom } = scanRows(rows(withOpenTurn))
+    expect(preserved.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+    expect(tornFrom).toBeUndefined()
   })
 
-  it('treats a log with no turn/end as fully uncommitted', () => {
-    const partial: SessionEvent[] = [
+  it('preserves the contiguous prefix and flags a torn tail at a seq gap', () => {
+    // A gap after seq 0 (no committed turn/end): seq 0 is the preserved
+    // interrupted-turn event; the gap bounds it and marks the torn fragment.
+    const gapped: SessionEvent[] = [
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
-      { type: 'user/message', seq: 1, time: 2, data: { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } } },
+      { type: 'step/start', seq: 2, time: 2, data: { turn: 1, step: 1 } }, // seq 1 missing
     ]
-    expect(cutAtLastTurnEnd(partial)).toEqual({ committed: [], cutTail: true })
+    const { preserved, tornFrom } = scanRows(rows(gapped))
+    expect(preserved.map(e => e.seq)).toEqual([0])
+    expect(tornFrom).toBe(1)
   })
 
-  it('reports no cut when the log ends exactly on a turn/end', () => {
-    const { committed, cutTail } = cutAtLastTurnEnd(oneTurnLog())
-    expect(committed).toEqual(oneTurnLog())
-    expect(cutTail).toBe(false)
+  it('an empty log preserves nothing and has no torn tail', () => {
+    expect(scanRows([])).toEqual({ preserved: [] })
   })
 
-  it('an empty log is committed-empty with no tail', () => {
-    expect(cutAtLastTurnEnd([])).toEqual({ committed: [], cutTail: false })
-  })
-
-  it('throws on a seq gap inside the committed region', () => {
+  it('throws on a seq gap inside the committed region (before the last turn/end)', () => {
     const gapped: SessionEvent[] = [
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
       { type: 'step/start', seq: 2, time: 2, data: { turn: 1, step: 1 } }, // seq 1 missing
       { type: 'turn/end', seq: 3, time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
-    expect(() => cutAtLastTurnEnd(gapped)).toThrow(/seq gap in committed region/)
+    expect(() => scanRows(rows(gapped))).toThrow(/seq gap in committed region/)
+  })
+
+  it('throws on an unparsable row inside the committed region', () => {
+    const withCorruptCommitted: EventRow[] = [
+      { seq: 0, type: 'turn/start', time: 1, data: '{not json' }, // corrupt, sits before a turn/end
+      { seq: 1, type: 'turn/end', time: 2, data: JSON.stringify({ turn: 1, reason: { kind: 'completed' } }) },
+    ]
+    expect(() => scanRows(withCorruptCommitted)).toThrow(/unparsable committed event/)
+  })
+
+  it('tolerates an unparsable torn-tail row after the last turn/end', () => {
+    const withCorruptTail: EventRow[] = [
+      ...rows(oneTurnLog()),
+      { seq: 6, type: 'turn/start', time: 7, data: '{not json' }, // torn fragment, no committed turn/end after
+    ]
+    const { preserved, tornFrom } = scanRows(withCorruptTail)
+    expect(preserved).toEqual(oneTurnLog())
+    expect(tornFrom).toBe(6)
   })
 })
 
 describe('SessionPersistenceSqlite: durability and crash semantics', () => {
-  it('a crash tail (rows after the last turn/end) is excluded on load and repaired on the next append', async () => {
+  it('an interrupted turn (rows after the last turn/end) is PRESERVED and closed during load', async () => {
     const path = await freshDbPath()
     const m = meta('crash')
     // Run 1: persist a complete turn, then a half-written second turn (no turn/end).
@@ -91,37 +120,44 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await ctx1.sessionPersistence.append(m.id, oneTurnLog())
     await ctx1.sessionPersistence.append(m.id, [
       { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
-      { type: 'user/message', seq: 7, time: 8, data: { content: [{ type: 'text', text: 'q2' }], source: { kind: 'user' } } },
+      { type: 'step/start', seq: 7, time: 8, data: { turn: 2, step: 1 } },
     ])
     await fiber1.dispose()
 
-    // Run 2: load returns only the committed first turn (tail excluded).
+    // Run 2: load PRESERVES the interrupted turn's real events (a turn can be huge
+    // — never truncated) and closes the orphaned turn with synthetic boundary
+    // events: step/end (the step was open) then turn/end {interrupted}.
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
     const fiber2 = await ctx2.plugin(SessionPersistenceSqlite, { path })
     const loaded = await ctx2.sessionPersistence.load(m.id)
-    expect(loaded.events).toEqual(oneTurnLog())
+    expect(loaded.events.map(e => e.type)).toEqual([
+      'turn/start', 'user/message', 'step/start', 'assistant/message', 'step/end', 'turn/end', // turn 1
+      'turn/start', 'step/start', 'step/end', 'turn/end', // turn 2: real events + synthetic closers
+    ])
+    expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+    const last = loaded.events.at(-1)!
+    expect(last.type === 'turn/end' && last.data.reason).toEqual({ kind: 'interrupted' })
 
-    // The next append continues at seq 6 and performs the deferred truncation-
-    // repair inside its transaction (DELETE seq >= 6 before inserting), so the
-    // orphaned tail rows are gone and there is no UNIQUE collision.
+    // load durably closed the turn, so the next append continues at the balanced
+    // length (seq 10) and a reload round-trips identically.
     await ctx2.sessionPersistence.append(m.id, [
-      { type: 'turn/start', seq: 6, time: 9, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
-      { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, reason: { kind: 'completed' } } },
+      { type: 'turn/start', seq: 10, time: 9, data: { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/end', seq: 11, time: 10, data: { turn: 3, reason: { kind: 'completed' } } },
     ])
     const reloaded = await ctx2.sessionPersistence.load(m.id)
-    expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+    expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
     await fiber2.dispose()
   })
 
-  it('load() is non-mutating: the crash tail rows survive until the next append repairs them', async () => {
+  it('load() durably closes the interrupted turn: the synthetic closers are on disk after load', async () => {
     const path = await freshDbPath()
-    const m = meta('load-nonmutating')
+    const m = meta('load-closes')
     const b1 = await backend(path)
     await b1.ctx.sessionPersistence.create(m)
     await b1.ctx.sessionPersistence.append(m.id, oneTurnLog()) // seqs 0..5
     await b1.dispose()
-    // Hand-write an uncommitted tail (seq 6, no turn/end).
+    // Hand-write an interrupted turn (turn/start seq 6, no turn/end).
     const db = openDatabase(path)
     db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, 6, ?, 7, ?)')
       .run(m.id, 'turn/start', JSON.stringify({ turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } }))
@@ -129,17 +165,20 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
 
     const b2 = await backend(path)
     const loaded = await b2.ctx.sessionPersistence.load(m.id)
-    expect(loaded.events).toEqual(oneTurnLog())
-    // load() must NOT have deleted the tail row (contract: load returns the
-    // prefix; the next append repairs). Verify the row is still on disk.
+    // turn 2's real turn/start (seq 6) is preserved + a synthetic turn/end (seq 7).
+    expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+    expect(loaded.events.at(-1)!.type).toBe('turn/end')
+    // load() is mutating: the synthetic turn/end MUST be on disk so the stored log
+    // is balanced and the cursor is truthful (contract: load closes, not defers).
     const probe = openDatabase(path)
-    const tailRows = probe.prepare('SELECT seq FROM events WHERE session_id = ? AND seq >= 6').all(m.id)
+    const stored = probe.prepare('SELECT seq, type FROM events WHERE session_id = ? ORDER BY seq').all(m.id) as { seq: number; type: string }[]
     probe.close()
-    expect(tailRows).toHaveLength(1)
+    expect(stored.map(r => r.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+    expect(stored.at(-1)!.type).toBe('turn/end')
     await b2.dispose()
   })
 
-  it('all-tail load: a session whose only content is a crash tail is absent from has()/list()', async () => {
+  it('all-tail load: a session whose only turn never closed is preserved and closed on load', async () => {
     const path = await freshDbPath()
     const m = meta('all-tail')
     const b1 = await backend(path)
@@ -152,13 +191,15 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     expect(await b1.ctx.sessionPersistence.has(m.id)).toBe(true) // materialized
     await b1.dispose()
 
-    // A fresh backend loads it: the committed prefix is empty (no turn/end), so
-    // the session has no committed content. has()/list() must NOT report it.
+    // A fresh backend loads it: the interrupted (only) turn's real events are
+    // preserved and closed with a synthetic turn/end {interrupted} — NOT
+    // truncated. The session was materialized, so has()/list() report it present.
     const b2 = await backend(path)
     const loaded = await b2.ctx.sessionPersistence.load(m.id)
-    expect(loaded.events).toEqual([])
-    expect(await b2.ctx.sessionPersistence.has(m.id)).toBe(false)
-    expect((await b2.ctx.sessionPersistence.list()).map(x => x.id)).not.toContain(m.id)
+    expect(loaded.events.map(e => e.type)).toEqual(['turn/start', 'user/message', 'turn/end'])
+    expect(loaded.events.at(-1)!.type === 'turn/end' && loaded.events.at(-1)!.data).toMatchObject({ reason: { kind: 'interrupted' } })
+    expect(await b2.ctx.sessionPersistence.has(m.id)).toBe(true)
+    expect((await b2.ctx.sessionPersistence.list()).map(x => x.id)).toContain(m.id)
     await b2.dispose()
   })
 
@@ -205,10 +246,11 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await b1.ctx.sessionPersistence.append(m.id, oneTurnLog()) // committed: seqs 0..5
     await b1.dispose()
 
-    // Hand-insert an uncommitted tail row (seq 6, no closing turn/end) whose
-    // `data` is invalid JSON. The contract: only a parse error in the COMMITTED
-    // region is unloadable; a corrupt tail must be discarded (load cuts at the
-    // last turn/end using seq+type columns, never parsing tail `data`).
+    // Hand-insert a torn tail row (seq 6, no closing turn/end) whose `data` is
+    // invalid JSON. The contract: only a parse error in the COMMITTED region is
+    // unloadable; a torn tail must be discarded. scanRows finds the last
+    // turn/end on the seq+type columns (never parsing tail `data`), so the
+    // unparsable row after it bounds the preserved prefix and is deleted by load.
     const db = openDatabase(path)
     db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, 6, ?, 7, ?)')
       .run(m.id, 'turn/start', '{not valid json')
@@ -216,8 +258,8 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
 
     const b2 = await backend(path)
     const loaded = await b2.ctx.sessionPersistence.load(m.id)
-    expect(loaded.events).toEqual(oneTurnLog()) // tail discarded, committed intact
-    // The corrupt tail row was physically deleted, so a fresh append continues.
+    expect(loaded.events).toEqual(oneTurnLog()) // torn tail discarded, committed intact (turn 1 already balanced → no closers)
+    // load physically deleted the corrupt tail row, so a fresh append continues.
     await b2.ctx.sessionPersistence.append(m.id, [
       { type: 'turn/start', seq: 6, time: 8, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
       { type: 'turn/end', seq: 7, time: 9, data: { turn: 2, reason: { kind: 'completed' } } },
@@ -269,7 +311,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     const path = await freshDbPath()
     // Materialize a row with version 2 directly via the real schema.
     const db = openDatabase(path)
-    db.prepare('INSERT INTO sessions (id, version, created_at, updated_at, materialized) VALUES (?, ?, ?, ?, 1)')
+    db.prepare('INSERT INTO sessions (id, version, created_at, updated_at) VALUES (?, ?, ?, ?)')
       .run('v2', 2, 1, 1)
     db.close()
 

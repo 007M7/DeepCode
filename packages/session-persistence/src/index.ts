@@ -42,14 +42,16 @@ declare module 'cordis' {
  * Contracts every implementation MUST honor (a DB backend asserts them inside
  * a transaction; a file backend appends at EOF):
  *
- * - **Append-only.** Committed events — those at or below a flushed `turn/end`
- *   — are never rewritten. The ONLY exception is the one-time truncation-repair
- *   of a never-committed crash tail on the first {@link append} after a
- *   {@link load} (see {@link load}).
+ * - **Append-only; a crashed turn is closed, not truncated.** Committed events
+ *   — those at or below a flushed `turn/end` — are never rewritten. A crash can
+ *   leave an unclosed final turn whose events are real (and possibly large);
+ *   {@link load} preserves them and closes the orphaned turn with synthetic
+ *   boundary events (see {@link load}). Only a never-fully-written torn tail
+ *   fragment is discarded.
  * - **Contiguous seq.** A persisted log is contiguous: `events[i].seq === i`.
- *   {@link load} rejects a parse error or a `seq` gap in the MIDDLE of the log
+ *   {@link load} rejects a parse error or a `seq` gap in the COMMITTED region
  *   (unloadable); {@link append}'s first event `seq` MUST equal the backend's
- *   stored next-seq after any repair.
+ *   stored next-seq (after `load` has balanced any interrupted turn).
  * - **JSON-serializable data.** `SessionEventMap` is merge-extensible and
  *   `event.data` is typed only as `SessionEventMap[K]`, so {@link append}
  *   REJECTS non-JSON-serializable data with an error naming the offending
@@ -75,9 +77,9 @@ export abstract class SessionPersistence extends Service {
   /**
    * Durably persist a batch of events (called from the write-behind drain at
    * the `session/flush` checkpoint). Honors the append-only and contiguous-seq
-   * contracts: the first event's `seq` MUST equal the stored next-seq after
-   * any truncation-repair of a crash tail. Rejects non-JSON-serializable
-   * `event.data` with an error naming the offending event type.
+   * contracts: the first event's `seq` MUST equal the stored next-seq (after
+   * `load` has durably closed any interrupted turn). Rejects non-JSON-
+   * serializable `event.data` with an error naming the offending event type.
    */
   abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 
@@ -86,13 +88,19 @@ export abstract class SessionPersistence extends Service {
    * durable checkpoint. Returns `meta` AND `events` so the live session is
    * reconstructed with its `cwd`/lineage, not just its log.
    *
-   * The loop only flushes at `turn/end`, so a crash can leave a half-written
-   * final turn below the last committed checkpoint. `load` returns events only
-   * up to the **last complete `turn/end`**; a subsequent {@link append} runs
-   * the one-time truncation-repair that physically discards the orphaned tail
-   * before writing. Returned events are contiguous (`events[i].seq === i`); a
-   * parse error or a `seq` gap in the MIDDLE of the log makes the session
-   * unloadable (reject). Rejects an unknown format `version`.
+   * The loop only flushes at `turn/end`, so a crash can leave a durable log
+   * whose final turn never closed: real, fully-written events sit after the last
+   * `turn/end`. Those events are PRESERVED — a single turn can be huge in a
+   * long-horizon task, so truncating it would destroy real work — and `load`
+   * CLOSES the orphaned turn by durably appending the minimal synthetic boundary
+   * events (a `step/end` if a step was open, then a `turn/end` carrying the
+   * `{ kind: 'interrupted' }` reason). The returned `events` therefore end on a
+   * balanced `turn/end` and are immediately usable as a session seed. Only a
+   * never-fully-written TORN tail fragment (a half-written final record) is
+   * discarded. Returned events are contiguous (`events[i].seq === i`); a parse
+   * error or a `seq` gap in the COMMITTED region (at or before the last real
+   * `turn/end`) makes the session unloadable (reject). Rejects an unknown format
+   * `version`. See ADR 0018 for the crash-recovery contract.
    */
   abstract load(id: SessionId): Promise<{ meta: SessionMeta; events: SessionEvent[] }>
 

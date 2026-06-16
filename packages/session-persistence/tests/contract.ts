@@ -64,6 +64,44 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
       }
     })
 
+    it('crash recovery: load preserves an interrupted (unclosed) turn and closes it with turn/end {interrupted}', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const m = meta('interrupted')
+        await persistence.create(m)
+        await persistence.append(m.id, oneTurnLog()) // turn 1, committed (seqs 0..5)
+        // A second turn that crashed mid-flight: turn/start + step/start were
+        // durably written, but no step/end / turn/end ever arrived.
+        await persistence.append(m.id, [
+          { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+          { type: 'step/start', seq: 7, time: 8, data: { turn: 2, step: 1 } },
+        ])
+
+        // load PRESERVES the interrupted turn's events (a turn can be huge — they
+        // must not be truncated) and closes the orphaned turn with synthetic
+        // boundary events: step/end (the step was open) then turn/end {interrupted}.
+        const loaded = await persistence.load(m.id)
+        expect(loaded.events.map(e => e.type)).toEqual([
+          'turn/start', 'user/message', 'step/start', 'assistant/message', 'step/end', 'turn/end', // turn 1
+          'turn/start', 'step/start', 'step/end', 'turn/end', // turn 2: real events + synthetic closers
+        ])
+        expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+        const last = loaded.events.at(-1)!
+        expect(last.type === 'turn/end' && last.data.reason).toEqual({ kind: 'interrupted' })
+
+        // The closed log is durable and continuable: a fresh append continues at
+        // the balanced length (seq 10), and a reload round-trips identically.
+        await persistence.append(m.id, [
+          { type: 'turn/start', seq: 10, time: 9, data: { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } } },
+          { type: 'turn/end', seq: 11, time: 10, data: { turn: 3, reason: { kind: 'completed' } } },
+        ])
+        const reloaded = await persistence.load(m.id)
+        expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+      } finally {
+        await dispose()
+      }
+    })
+
     it('has()/list() exclude a created-but-never-appended (zero-event) session', async () => {
       const { persistence, dispose } = await make()
       try {
