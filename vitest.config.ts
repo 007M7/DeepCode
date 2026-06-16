@@ -11,7 +11,7 @@ export default defineConfig({
   // importing file it discovers the NEAREST tsconfig.json and applies that
   // file's own `paths`. Every workspace under packages/* and vendor/* has its
   // own tsconfig.json without `paths`, so native resolution maps nothing,
-  // falls through to package.json exports (lib/, absent until `yarn build`),
+  // falls through to package.json exports (lib/, absent until `pnpm run build`),
   // and every test file fails to import (verified on vite 8.0.16 /
   // vitest 4.1.8). Making it work would mean copying the paths map into all
   // 15 workspace tsconfigs — including vendor/* ones, which are pinned

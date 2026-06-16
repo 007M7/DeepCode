@@ -1,6 +1,6 @@
 # Git hooks (lefthook). Hooks call the same package.json scripts CI runs —
 # one source of truth; the hook is just an earlier, faster checkpoint.
-# Install: `yarn lefthook install` (runs automatically via postinstall).
+# Install: `pnpm exec lefthook install` (runs automatically via postinstall).
 
 pre-commit:
   parallel: true
@@ -14,7 +14,7 @@ pre-commit:
 
     - name: typecheck
       glob: '*.ts'
-      run: yarn typecheck
+      run: pnpm run typecheck
 
     - name: vendor manifest guard
       run: scripts/check-vendor-manifest.sh
@@ -23,10 +23,10 @@ pre-push:
   parallel: true
   jobs:
     - name: test
-      run: yarn test
+      run: pnpm run test
 
     - name: hygiene
-      run: yarn hygiene
+      run: pnpm run hygiene
 
     - name: doc-sync
-      run: yarn doc-sync
+      run: pnpm run doc-sync
