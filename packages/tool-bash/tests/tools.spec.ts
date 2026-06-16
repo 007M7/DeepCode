@@ -338,6 +338,106 @@ describe('background tools', () => {
   })
 })
 
+describe('background task ownership (cross-session isolation)', () => {
+  /** Run a tool on behalf of a specific agent (sets exec.agent). */
+  function callAs(ctx: Context, agent: import('@deepseek-ai/dsh-agent').Agent | undefined, name: string, args: unknown) {
+    return ctx.tools.execute({ callId: CallId(`own-${++callCounter}`), name, arguments: args, ...agent ? { agent } : {} })
+  }
+  // Distinct identities — ownership is by agent object identity, not id.
+  const fakeAgent = () => ({ inject: () => undefined }) as unknown as import('@deepseek-ai/dsh-agent').Agent
+
+  it('rejects bash_output/bash_kill for a task owned by a DIFFERENT agent', async () => {
+    const ctx = await setup()
+    const a = fakeAgent()
+    const b = fakeAgent()
+    // Agent A starts a long-running background task.
+    const started = await callAs(ctx, a, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
+    const id = /task (bash-\d+)/.exec(text(started))![1]!
+
+    // Agent B cannot read or kill A's task.
+    const readByB = await callAs(ctx, b, 'bash_output', { task_id: id })
+    expect(readByB.isError).toBe(true)
+    expect(text(readByB)).toMatch(/belongs to another session/)
+    const killByB = await callAs(ctx, b, 'bash_kill', { task_id: id })
+    expect(killByB.isError).toBe(true)
+    expect(text(killByB)).toMatch(/belongs to another session/)
+
+    // The task is still running (B's kill did nothing) — A can still kill it.
+    const killByA = await callAs(ctx, a, 'bash_kill', { task_id: id })
+    expect(killByA.isError).toBe(false)
+    expect(text(killByA)).toBe(`killed background task ${id}`)
+  })
+
+  it('the no-agent (non-loop) caller cannot access an owned task', async () => {
+    const ctx = await setup()
+    const a = fakeAgent()
+    const started = await callAs(ctx, a, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
+    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    // A call with no exec.agent cannot prove ownership of an owned task.
+    const read = await callAs(ctx, undefined, 'bash_output', { task_id: id })
+    expect(read.isError).toBe(true)
+    expect(text(read)).toMatch(/belongs to another session/)
+    await callAs(ctx, a, 'bash_kill', { task_id: id }) // cleanup
+  })
+
+  it('an UNOWNED task (started with no agent) is accessible to anyone', async () => {
+    const ctx = await setup()
+    // Started by a non-loop caller (no exec.agent) → no recorded owner.
+    const started = await callAs(ctx, undefined, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
+    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    // Any agent (and the no-agent caller) may read/kill it.
+    const read = await callAs(ctx, fakeAgent(), 'bash_output', { task_id: id })
+    expect(read.isError).toBe(false)
+    const killed = await callAs(ctx, undefined, 'bash_kill', { task_id: id })
+    expect(killed.isError).toBe(false)
+  })
+
+  it('the owner can still access its task AFTER it completes (owner record persists)', async () => {
+    const ctx = await setup()
+    const a = fakeAgent()
+    const b = fakeAgent()
+    const started = await callAs(ctx, a, 'bash', { command: 'echo done', description: 'bg', run_in_background: true })
+    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    await ctx.bash.get(id)!.done
+    // Completion does NOT clear ownership: B is still rejected, A still allowed.
+    const readByB = await callAs(ctx, b, 'bash_output', { task_id: id })
+    expect(readByB.isError).toBe(true)
+    expect(text(readByB)).toMatch(/belongs to another session/)
+    const readByA = await callAs(ctx, a, 'bash_output', { task_id: id })
+    expect(readByA.isError).toBe(false)
+  })
+
+  it('documents the HMR caveat: an independent tool-bash reload resets ownership', async () => {
+    // The ownership map is per-plugin-instance (TODO(tool-bash-owner-hmr)). When
+    // ONLY tool-bash is reloaded (bash/executor + task survive), the new instance
+    // has an empty map, so the previously-owned task becomes unowned (open). This
+    // test pins that documented behavior — a regression here (e.g. an accidental
+    // global map) would change it.
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
+    ;(ctx.bash as LocalBashExecutor).internals = { spillDir, graceMs: 200 }
+    const fiber = await ctx.plugin(ToolBash)
+
+    const a = fakeAgent()
+    const b = fakeAgent()
+    const started = await callAs(ctx, a, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
+    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    // Before reload: B is rejected (A owns it).
+    expect((await callAs(ctx, b, 'bash_output', { task_id: id })).isError).toBe(true)
+
+    // Reload ONLY tool-bash; the executor and its running task survive.
+    await fiber.dispose()
+    await ctx.plugin(ToolBash)
+    expect(ctx.bash.get(id)?.status).toBe('running')
+
+    // After reload the fresh map has no owner → B can now access it (the caveat).
+    expect((await callAs(ctx, b, 'bash_output', { task_id: id })).isError).toBe(false)
+    await callAs(ctx, b, 'bash_kill', { task_id: id }) // cleanup
+  })
+})
+
 describe('renderResult', () => {
   const base = {
     exitCode: 0 as number | null,

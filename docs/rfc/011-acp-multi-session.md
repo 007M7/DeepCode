@@ -2,6 +2,8 @@
 
 Status: proposed
 
+> **Implementation status:** the multi-session bridge (steps 1, 3, 4) and the bash task-ownership isolation are implemented in `packages/acp` + `packages/tool-bash`. **Per-session *permission* ownership is deferred** — it depends on the RFC 010 permission gate (`TODO(rfc010-permission-gate)`), which is itself deferred; the `agent→sessionId` reverse map the gate will route through is in place. Step 2's "real per-session disposer scope" is also deferred (`TODO(rfc010-agent-disposal)`): the bridge demuxes via id-keyed maps and global `ctx.on` listeners (correct and leak-free — disposal drains every session in parallel to quiescence), and a per-agent disposer seam is the follow-up. Status stays `proposed` until per-session permission ownership lands.
+
 ## Problem
 
 RFC 010 ships ACP support with a single active session per connection: a second `session/new` is rejected. Editors expect to run several conversations over one agent subprocess — a user opens multiple threads, or a client pre-warms sessions. The single-session guard is a deliberate MVP scope cut, not an architectural limit; this RFC lifts it.

@@ -120,11 +120,18 @@ describe('acp bridge — session/load replay', () => {
       .rejects.toThrow(/launch directory/)
   })
 
-  it('rejects load when a session already exists (single-session MVP)', async () => {
-    live = await makeBridgeHarness({ storageDir, script: [] })
+  it('allows loading alongside an existing session but rejects re-loading the SAME id', async () => {
+    // Multi-session: a load can coexist with a live session, but loading an id
+    // that is already live is rejected (it is already loaded).
+    live = await makeBridgeHarness({ storageDir, script: [textResponse('one')] })
     await live.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
-    await live.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    await expect(live.client.loadSession({ sessionId: 'other', cwd: process.cwd(), mcpServers: [] }))
-      .rejects.toThrow(/single session/)
+    const { sessionId } = await live.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await live.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'hi' }] })
+    // A different new session coexists.
+    const other = await live.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    expect(other.sessionId).not.toBe(sessionId)
+    // Re-loading the already-live id is rejected.
+    await expect(live.client.loadSession({ sessionId, cwd: process.cwd(), mcpServers: [] }))
+      .rejects.toThrow(/already loaded/)
   })
 })
