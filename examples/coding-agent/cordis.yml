@@ -61,6 +61,9 @@
     agents:
       - id: main
         model: deepseek-v4-flash
+        # Set RESUME_SESSION_ID to continue a prior persisted session (the ids
+        # live under ./.sessions); unset starts a fresh session each run.
+        resumeSessionId: !!js process.env.RESUME_SESSION_ID
         systemPrompt: |
           You are coding-agent, a CLI coding assistant.
 
