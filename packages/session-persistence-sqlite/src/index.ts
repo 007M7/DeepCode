@@ -4,10 +4,10 @@
  * A SECOND {@link SessionPersistence} implementation, built to validate that
  * the abstract seam + the shared `runPersistenceContract` suite are genuinely
  * backend-agnostic: the same append-only / contiguous-seq / lazy-materialization
- * / crash-tail-on-load semantics the JSONL backend expresses over file bytes,
- * expressed here over `node:sqlite` rows. Each `SessionEvent` maps 1:1 onto a
- * row `(session_id, seq, type, time, data)`; `append` is an INSERT inside a
- * transaction that asserts the contiguous-seq contract; the mutable
+ * / interrupted-turn-close-on-load semantics the JSONL backend expresses over
+ * file bytes, expressed here over `node:sqlite` rows. Each `SessionEvent` maps
+ * 1:1 onto a row `(session_id, seq, type, time, data)`; `append` is an INSERT
+ * inside a transaction that asserts the contiguous-seq contract; the mutable
  * `SessionSummary` lives in the `sessions` metadata row.
  *
  * Like the JSONL backend it is also the write-path plugin: it installs the
@@ -25,10 +25,10 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { isJsonValue } from '@deepseek-ai/dsh-session'
+import { isJsonValue, interruptedTurnClosers } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
 import {
-  cutAtLastTurnEnd, openDatabase, rowToEvent, rowToMeta, type EventRow, type SessionRow,
+  openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
 } from './schema.ts'
 
 export { SCHEMA_VERSION } from './schema.ts'
@@ -50,14 +50,6 @@ interface SessionState {
   cursor: number
   /** Whether the session has at least one persisted event (materialized). */
   materialized: boolean
-  /**
-   * If a load found a crash tail, the seq from which the next {@link append}
-   * must DELETE before inserting (the one-time truncation-repair). load() stays
-   * non-mutating w.r.t. the event log — it only records this marker — so the
-   * public contract matches the JSONL backend: load returns the committed
-   * prefix; the subsequent append performs the physical repair.
-   */
-  repairFrom?: number
   /** The live Session that owns this state (collision detection); see onCreated. */
   owner?: Session
 }
@@ -179,24 +171,19 @@ export class SessionPersistenceSqlite extends SessionPersistence {
       }
     }
 
-    // The transaction is the durability + atomicity boundary: run any deferred
-    // crash-tail repair, materialize the sessions row (if lazy), and INSERT
-    // every event, or roll back entirely. A BEGIN/COMMIT around the batch means
-    // a mid-batch failure (a UNIQUE violation on a duplicated seq from a
-    // concurrent writer) leaves the stored log untouched, so the cursor stays
-    // truthful and a retry is clean.
+    // The transaction is the durability + atomicity boundary: materialize the
+    // sessions row (if lazy) and INSERT every event, or roll back entirely. A
+    // BEGIN/COMMIT around the batch means a mid-batch failure (a UNIQUE
+    // violation on a duplicated seq from a concurrent writer) leaves the stored
+    // log untouched, so the cursor stays truthful and a retry is clean. (A crash
+    // tail is already gone: load() physically deletes the torn fragment and
+    // durably closes the interrupted turn before returning, so by the time any
+    // append runs the stored log is balanced and contiguous.)
     const insertEvent = this.db.prepare(
       'INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)',
     )
     this.db.exec('BEGIN')
     try {
-      // One-time truncation-repair: a prior load() found a crash tail and
-      // deferred its physical removal to here (load stays non-mutating). DELETE
-      // the orphaned rows (seq >= repairFrom) before inserting, inside the same
-      // transaction, so the repair + first new append commit atomically.
-      if (state.repairFrom !== undefined) {
-        this.db.prepare('DELETE FROM events WHERE session_id = ? AND seq >= ?').run(id, state.repairFrom)
-      }
       if (!state.materialized) this.writeRow(state.meta)
       for (const event of events) {
         insertEvent.run(id, event.seq, event.type, event.time, JSON.stringify(event.data))
@@ -210,7 +197,6 @@ export class SessionPersistenceSqlite extends SessionPersistence {
       this.db.exec('ROLLBACK')
       throw error
     }
-    delete state.repairFrom
     state.materialized = true
     state.cursor += events.length
   }
@@ -226,42 +212,68 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     const meta = rowToMeta(row)
     this.assertVersion(meta)
 
-    // Read every stored row ordered by seq, then cut at the last complete
-    // turn/end — the same crash-tail semantics as the JSONL backend. The cut is
-    // computed from seq+type COLUMNS only, so a malformed `data` in the
-    // uncommitted tail is discarded (not unloadable); only `data` in the
-    // COMMITTED prefix is parsed (rowToEvent), where a parse error correctly
-    // surfaces. A row that landed without its closing turn/end is an
-    // uncommitted tail and is excluded; a seq gap in the committed region makes
-    // the session unloadable (cutAtLastTurnEnd throws).
+    // Read every stored row ordered by seq, then scan for the preserved prefix:
+    // the longest seq-contiguous, parseable run, INCLUDING the real events of an
+    // interrupted final turn after the last turn/end (a turn can be huge — they
+    // are never truncated). scanRows works off the seq+type COLUMNS for the
+    // last-turn/end boundary, so a malformed `data` in a torn tail row is
+    // discarded (not unloadable); only a parse error / seq gap in the COMMITTED
+    // region (at or before the last turn/end) throws (genuine corruption).
     const eventRows = this.db
       .prepare('SELECT seq, type, time, data FROM events WHERE session_id = ? ORDER BY seq')
       .all(id) as unknown as EventRow[]
-    const { committed, cutTail } = cutAtLastTurnEnd(eventRows)
-    const events = committed.map(rowToEvent)
+    const { preserved, tornFrom } = scanRows(eventRows)
 
-    // Do NOT delete the crash tail here: load() stays non-mutating w.r.t. the
-    // event log, matching the abstract contract and the JSONL backend (load
-    // returns the committed prefix; the next append performs the one-time
-    // physical repair). Record the repair point so the next appendCore DELETEs
-    // the orphaned tail inside its own transaction before inserting.
-    //
-    // The metadata row stays as-is even when committed.length === 0 (an all-tail
-    // crash): the session WAS materialized by the partial append, so its row
-    // exists and has()/list() report it present — the same as the JSONL backend,
-    // whose file likewise survives a first append that never reached turn/end.
-    //
-    // Record state so a later append continues at the committed length and runs
-    // the deferred tail repair. The state keeps its OWN copy of the meta; the
-    // returned value is separate so a consumer mutating loaded.meta cannot
-    // corrupt the backend's row metadata.
+    // Crash-recovery (mutating load, same as the JSONL backend): if the log ended
+    // mid-turn, close it DURING load so disk, the returned log, and the cursor all
+    // agree — both append routes then continue with no special-casing. Synthesize
+    // the boundary events (a step/end if a step was open, then a
+    // turn/end {kind:'interrupted'}); the interrupted turn's real events are
+    // preserved, never truncated (ADR 0018).
+    const closers = interruptedTurnClosers(preserved)
+    const balanced = [...preserved, ...closers]
+
+    // Physically repair the stored log inside one transaction: DELETE the torn
+    // tail fragment (if any), then INSERT the synthetic closers. After COMMIT the
+    // stored rows == balanced, so the cursor is truthful and the next append
+    // continues cleanly with no deferred repair. The metadata row stays as-is
+    // even when preserved.length === 0 (an all-tail crash): the session WAS
+    // materialized by the partial append, so has()/list() still report it — the
+    // same as the JSONL backend, whose file likewise survives a first append that
+    // never reached turn/end.
+    if (tornFrom !== undefined || closers.length > 0) {
+      this.db.exec('BEGIN')
+      try {
+        if (tornFrom !== undefined) {
+          this.db.prepare('DELETE FROM events WHERE session_id = ? AND seq >= ?').run(id, tornFrom)
+        }
+        if (closers.length > 0) {
+          const insertEvent = this.db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
+          for (const event of closers) {
+            insertEvent.run(id, event.seq, event.type, event.time, JSON.stringify(event.data))
+          }
+        }
+        this.db.exec('COMMIT')
+      } catch (error) {
+        // The DELETE+INSERT cannot collide (a row at a closer's seq is preserved
+        // or deleted as torn first); this rolls back a DB-level failure (disk
+        // full, etc.), unreachable in test.
+        /* v8 ignore start */
+        this.db.exec('ROLLBACK')
+        throw error
+        /* v8 ignore stop */
+      }
+    }
+
+    // Record state at the balanced length. The state keeps its OWN copy of the
+    // meta; the returned value is separate so a consumer mutating loaded.meta
+    // cannot corrupt the backend's row metadata.
     this.states.set(id, {
       meta: { ...meta },
-      cursor: committed.length,
+      cursor: balanced.length,
       materialized: true,
-      ...cutTail ? { repairFrom: committed.length } : {},
     })
-    return { meta, events }
+    return { meta, events: balanced }
   }
 
   async list(): Promise<SessionMeta[]> {
@@ -482,14 +494,17 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     if (seed.length > 0) await this.append(id, seed)
   }
 
-  /** The committed events for a session id (last-turn/end cut applied). */
+  /** The preserved events for a session id (torn tail excluded, turn NOT yet closed). */
   private eventsFor(id: SessionId): SessionEvent[] {
     const rows = this.db
       .prepare('SELECT seq, type, time, data FROM events WHERE session_id = ? ORDER BY seq')
       .all(id) as unknown as EventRow[]
-    // Cut on seq+type columns, then parse `data` only for the committed prefix
-    // (a malformed tail must not throw here — same as loadCore).
-    return cutAtLastTurnEnd(rows).committed.map(rowToEvent)
+    // Scan on seq+type columns, parsing `data` only for the preserved prefix (a
+    // malformed torn tail must not throw here — same as loadCore). Returns the
+    // preserved events WITHOUT the synthetic closers, so a collision check
+    // compares a live seed against the real on-disk events, mirroring the JSONL
+    // backend's scanLog use in onCreated.
+    return scanRows(rows).preserved
   }
 
   /** Whether a live session's seed reproduces the first `cursor` stored events. */

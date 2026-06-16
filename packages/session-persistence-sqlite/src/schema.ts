@@ -122,41 +122,69 @@ export function rowToEvent(row: EventRow): SessionEvent {
 }
 
 /**
- * The committed prefix of an ordered event list: everything up to and including
- * the LAST `turn/end`, plus whether a crash tail (items after it) was cut.
+ * The preserved prefix of an ordered event-row list (mirrors the JSONL
+ * backend's `scanLog`): the longest prefix of complete, seq-contiguous,
+ * parseable rows, PLUS the seq from which a never-committed torn tail must be
+ * deleted (or `undefined` if the whole list is intact).
  *
- * Generic over anything carrying `seq` + `type` (an {@link EventRow} or a
- * {@link SessionEvent}) so the cut is computed from those COLUMNS alone — the
- * caller parses each row's `data` only for the committed items it returns,
- * never for the tail. This matters for the contract: a malformed `data` in an
- * uncommitted crash tail must be discarded, not make the session unloadable —
- * only a parse error / gap in the COMMITTED region is unloadable (see
- * `SessionPersistence.load`). Mirrors the JSONL backend's `scanLog`, which
- * likewise tolerates a corrupt tail after the last committed `turn/end`.
+ * A crash can leave a durable log whose final turn never closed: real,
+ * fully-written rows sit after the last `turn/end`. Those are PRESERVED — a
+ * single turn can be huge in a long-horizon task, so truncating it would
+ * destroy real work; the backend closes the orphaned open turn with a synthetic
+ * `turn/end {kind:'interrupted'}` on load (ADR 0018). The ONLY thing excluded is
+ * a torn trailing fragment — a row whose `data` never parses, or a seq gap —
+ * AFTER the last committed `turn/end`; that bounds the preserved region and its
+ * seq is returned as `tornFrom` so `load` can physically delete it.
  *
- * The loop only flushes at `turn/end`, so the last `turn/end` is the last
- * durable boundary; anything after it is a never-committed crash tail (a batch
- * that landed without its closing `turn/end`, e.g. a process killed mid-turn).
- * The committed region MUST be contiguous (`item.seq === i`); a gap there means
- * committed data was lost and the session is unloadable.
+ * The last `turn/end` is computed from the `type` COLUMN (never parsing tail
+ * `data`), so a malformed `data` in an uncommitted tail row is discarded rather
+ * than making the session unloadable. A parse error or seq gap AT OR BEFORE the
+ * last committed `turn/end` is committed-data corruption and throws.
+ *
+ * This relies on the session-log invariant that every event lives inside a turn
+ * (`Session.append` enforces it): only the final turn can be open, so the
+ * preserved tail is at most one unclosed turn.
  */
-export function cutAtLastTurnEnd<T extends { seq: number; type: string }>(
-  items: readonly T[],
-): { committed: T[]; cutTail: boolean } {
-  let lastTurnEnd = -1
-  items.forEach((item, i) => {
-    if (item.type === 'turn/end') lastTurnEnd = i
-  })
-  // No committed turn/end anywhere: the whole list is an uncommitted first-turn
-  // tail. Nothing is committed (mirrors scanLog returning zero events).
-  if (lastTurnEnd < 0) {
-    return { committed: [], cutTail: items.length > 0 }
-  }
-  const committed = items.slice(0, lastTurnEnd + 1)
-  committed.forEach((item, i) => {
-    if (item.seq !== i) {
-      throw new Error(`corrupt session log: seq gap in committed region at index ${i} (expected ${i}, got ${item.seq})`)
+export function scanRows(rows: readonly EventRow[]): { preserved: SessionEvent[]; tornFrom?: number } {
+  // Pass 1: parse each row's data; a row whose data is not valid JSON is a hole.
+  // (The seq/type COLUMNS are always present even when `data` is corrupt.)
+  interface Parsed { ok: boolean; event?: SessionEvent }
+  const parsed: Parsed[] = rows.map((row) => {
+    try {
+      return { ok: true, event: rowToEvent(row) }
+    } catch {
+      return { ok: false }
     }
   })
-  return { committed, cutTail: lastTurnEnd < items.length - 1 }
+
+  // The last index that is a valid `turn/end` — the last fully-committed
+  // boundary (the loop flushes only at turn/end).
+  let lastTurnEnd = -1
+  for (let i = parsed.length - 1; i >= 0; i--) {
+    if (parsed[i]?.ok && rows[i]?.type === 'turn/end') { lastTurnEnd = i; break }
+  }
+
+  // Walk the longest PREFIX of complete, seq-contiguous, parseable rows
+  // (row i has seq === i). This includes the fully-written rows of an
+  // interrupted final turn AFTER the last turn/end — real work, never
+  // truncated. The walk stops at the first hole:
+  //   - at or before the last committed turn/end → committed corruption (throw);
+  //   - after it (or no committed turn/end) → tolerated torn tail (stop).
+  const preserved: SessionEvent[] = []
+  for (let i = 0; i < rows.length; i++) {
+    const p = parsed[i]
+    if (!p?.ok || p.event === undefined) {
+      if (i <= lastTurnEnd) throw new Error(`corrupt session log: unparsable committed event at seq ${rows[i]?.seq}`)
+      break // torn tail fragment after the last turn/end — stop, tolerate
+    }
+    if (p.event.seq !== i) {
+      if (i <= lastTurnEnd) throw new Error(`corrupt session log: seq gap in committed region (expected ${i}, got ${p.event.seq})`)
+      break // gap after the last turn/end — torn tail, stop
+    }
+    preserved.push(p.event)
+  }
+
+  // Any rows past the preserved prefix are a never-committed torn tail; their
+  // first seq is the deletion point for load's physical repair.
+  return preserved.length < rows.length ? { preserved, tornFrom: preserved.length } : { preserved }
 }
