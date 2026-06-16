@@ -36,7 +36,7 @@ packages/    Harness packages, all named @deepseek-ai/dsh-<name>:
 examples/    Runnable demos (not workspaces). echo-agent = mock model + echo
              tool + stdio UI + JSONL persistence, wired via cordis.yml.
              coding-agent = the real thing: DeepSeek V4 + bash tools
-             (yarn demo:coding, needs DEEPSEEK_API_KEY).
+             (pnpm run demo:coding, needs DEEPSEEK_API_KEY).
 docs/        architecture.md — the design doc. adr/ — decision records (the
              why behind vendoring, event-sourcing, the schema DSL, …).
              rfc/ — proposals for substantial future work.
@@ -50,33 +50,33 @@ scripts/     repo maintenance scripts (vendor-manifest guard, publint runner).
 ## Commands
 
 ```sh
-yarn install        # Yarn 4 workspaces (node-modules linker), node >= 24
-yarn test           # vitest run (packages/*/tests/**/*.spec.ts)
-yarn test:coverage  # vitest run --coverage (per-file 100% gate on packages/*/src)
-yarn test:e2e       # real-API tests (packages|examples/*/tests/**/*.e2e.ts);
+pnpm install        # pnpm workspaces, node >= 24
+pnpm run test           # vitest run (packages/*/tests/**/*.spec.ts)
+pnpm run test:coverage  # vitest run --coverage (per-file 100% gate on packages/*/src)
+pnpm run test:e2e       # real-API tests (packages|examples/*/tests/**/*.e2e.ts);
                     # self-skips without DEEPSEEK_API_KEY — see Secrets below
-yarn typecheck      # tsc -b tsconfig.build.json (declarations) + tsc -p
+pnpm run typecheck      # tsc -b tsconfig.build.json (declarations) + tsc -p
                     # tsconfig.typecheck.json (tests/examples typecheck too)
-yarn lint           # eslint .
-yarn lint:fix       # eslint . --fix
-yarn build          # tsc -b tsconfig.build.json && tsdown (JS bundles into lib/)
-yarn knip           # dead-code / unused-dependency check
-yarn publint        # package.json publish-correctness check (publishable packages/*)
-yarn hygiene        # knip + publint + yarn constraints
-yarn doc-typecheck  # typecheck every ```ts block in README.md, docs/**/*.md,
+pnpm run lint           # eslint .
+pnpm run lint:fix       # eslint . --fix
+pnpm run build          # tsc -b tsconfig.build.json && tsdown (JS bundles into lib/)
+pnpm run knip           # dead-code / unused-dependency check
+pnpm run publint        # package.json publish-correctness check (publishable packages/*)
+pnpm run hygiene        # knip + publint + workspace constraints
+pnpm run doc-typecheck  # typecheck every ```ts block in README.md, docs/**/*.md,
                     # packages/*/README.md (doc/code drift gate)
-yarn verify-event-taxonomy  # assert the event-taxonomy table in docs/architecture.md
+pnpm run verify-event-taxonomy  # assert the event-taxonomy table in docs/architecture.md
                     # matches the interface Events declarations in source
-yarn doc-sync       # doc-typecheck + verify-event-taxonomy (CI runs this)
-yarn demo:echo      # run examples/echo-agent (no API key; type "echo hi" to
+pnpm run doc-sync       # doc-typecheck + verify-event-taxonomy (CI runs this)
+pnpm run demo:echo      # run examples/echo-agent (no API key; type "echo hi" to
                     # see a tool call) — the mock skeleton
-yarn demo:coding    # run examples/coding-agent — the real agent (needs
+pnpm run demo:coding    # run examples/coding-agent — the real agent (needs
                     # DEEPSEEK_API_KEY; give it a coding task)
 ```
 
 ## Secrets / .env
 
-Real-API e2e tests (`yarn test:e2e`) read `DEEPSEEK_API_KEY` (and optionally `DEEPSEEK_BASE_URL`) from the environment, or from a gitignored `.env` at the repo root loaded via Node's native `process.loadEnvFile()`:
+Real-API e2e tests (`pnpm run test:e2e`) read `DEEPSEEK_API_KEY` (and optionally `DEEPSEEK_BASE_URL`) from the environment, or from a gitignored `.env` at the repo root loaded via Node's native `process.loadEnvFile()`:
 
 ```
 DEEPSEEK_API_KEY=sk-…
@@ -85,7 +85,7 @@ DEEPSEEK_BASE_URL=https://…   # optional; defaults to the public API
 
 cordis.yml configs reference env vars with the `!!js` tag: `apiKey: !!js process.env.DEEPSEEK_API_KEY`. Never commit real credentials; CI has no secrets and e2e suites must self-skip without them.
 
-Dev/test/demo run **unbuilt** via tsx + the `paths` map in the root `tsconfig.json` (`vitest` resolves through `tsconfig.test.json`). Building is only needed for publishing/consumption outside the repo — with one exception: `yarn lint`'s type-aware rules resolve vendor packages through their built declarations (`tsconfig.typecheck.json` → `vendor/*/lib`), so run `yarn typecheck` once after a fresh clone (CI does the same) or lint reports unresolved-type `no-unsafe-*` errors.
+Dev/test/demo run **unbuilt** via tsx + the `paths` map in the root `tsconfig.json` (`vitest` resolves through `tsconfig.test.json`). Building is only needed for publishing/consumption outside the repo — with one exception: `pnpm run lint`'s type-aware rules resolve vendor packages through their built declarations (`tsconfig.typecheck.json` → `vendor/*/lib`), so run `pnpm run typecheck` once after a fresh clone (CI does the same) or lint reports unresolved-type `no-unsafe-*` errors.
 
 ## Conventions
 
@@ -123,7 +123,7 @@ This codebase aims to be **very type-safe and well documented** for maintainabil
 
 In the **core** packages (`packages/llm`, `packages/tools`, `packages/agent`, `packages/agent-loop`, `packages/session`, `packages/system-prompt`), **type gymnastics are acceptable when they improve the DX of plugin authors** for common plugin types. The `defineTool` typed schema DSL in `dsh-tools` is the canonical example: the `SchemaSpec` to `InferArgs<S>` type-level mapping gives tool authors zero-cast typed `execute` args, and the cost of the conditional types stays inside the core package.
 
-Verbose documentation is fine **as long as docs and code stay strictly in sync**. Out-of-sync docs are worse than no docs. **When you change code, update its docs in the SAME change** — grep the package README and the module/JSDoc comments for the old behavior (config keys, defaults, error codes, wire field names, event names) and fix every hit. CI runs `yarn doc-sync` (`doc-typecheck` + `verify-event-taxonomy`), which typechecks every fenced `ts` block in `README.md`, `docs/**/*.md`, and `packages/*/README.md` and verifies the event-taxonomy table against source — but that scope does NOT cover `AGENTS.md`, `packages/AGENTS.md`, or `packages/README.md`, nor does it catch prose drift (config keys, defaults, error codes), so keeping those in sync remains on the author. Every module has a module-level doc comment explaining its role. Every exported class, interface, type, function, and non-obvious method has a JSDoc that explains semantics (not just the name) — contracts (what events fire when), disposal behavior, error behavior, and extension intent. Internal helpers get docs only where non-obvious. Prefer one-liners when one line suffices.
+Verbose documentation is fine **as long as docs and code stay strictly in sync**. Out-of-sync docs are worse than no docs. **When you change code, update its docs in the SAME change** — grep the package README and the module/JSDoc comments for the old behavior (config keys, defaults, error codes, wire field names, event names) and fix every hit. CI runs `pnpm run doc-sync` (`doc-typecheck` + `verify-event-taxonomy`), which typechecks every fenced `ts` block in `README.md`, `docs/**/*.md`, and `packages/*/README.md` and verifies the event-taxonomy table against source — but that scope does NOT cover `AGENTS.md`, `packages/AGENTS.md`, or `packages/README.md`, nor does it catch prose drift (config keys, defaults, error codes), so keeping those in sync remains on the author. Every module has a module-level doc comment explaining its role. Every exported class, interface, type, function, and non-obvious method has a JSDoc that explains semantics (not just the name) — contracts (what events fire when), disposal behavior, error behavior, and extension intent. Internal helpers get docs only where non-obvious. Prefer one-liners when one line suffices.
 
 **Markdown is not hard-wrapped**: write one line per paragraph and let the editor soft-wrap. Hard line breaks mid-paragraph make docs harder to edit and diff — a one-word change reflows and re-diffs the whole paragraph. This applies to prose only: leave fenced code blocks, tables, and list structure intact (a wrapped list item folds to one line per bullet). Code comments / JSDoc are exempt — they stay under the linter's column limit.
 
@@ -131,4 +131,4 @@ Verbose documentation is fine **as long as docs and code stay strictly in sync**
 
 ## Vendoring Policy
 
-`vendor/` packages are pinned source copies (manifest with upstream commit SHAs in [vendor/README.md](vendor/README.md)). To update one, follow the sync procedure there; re-apply (or retire) the logged local modifications and rerun `yarn test && yarn build`.
+`vendor/` packages are pinned source copies (manifest with upstream commit SHAs in [vendor/README.md](vendor/README.md)). To update one, follow the sync procedure there; re-apply (or retire) the logged local modifications and rerun `pnpm run test && pnpm run build`.
