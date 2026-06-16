@@ -10,14 +10,14 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 |---|---|
 | `create(meta): Promise<void>` | Register a new session's metadata. MAY defer the physical write until the first `append` (lazy materialization). |
 | `append(id, events): Promise<void>` | Durably persist a batch (from the `session/flush` drain). Append-only; first event `seq` == stored next-seq after any repair; rejects non-JSON-serializable data naming the offending type. |
-| `load(id): Promise<{ meta; events }>` | Reload meta + log up to the last complete `turn/end`; events contiguous (`events[i].seq === i`); rejects a mid-log gap/parse error or unknown `version`. |
+| `load(id): Promise<{ meta; events }>` | Reload meta + log. Preserves an interrupted (unclosed) final turn and closes it with synthetic `step/end?`+`turn/end {interrupted}` (a turn can be huge — never truncated); only a torn tail fragment is dropped. Events contiguous (`events[i].seq === i`); rejects a committed-region gap/parse error or unknown `version`. |
 | `list(): Promise<SessionMeta[]>` | Lightweight listing from metadata, no full-log parse. |
 | `has(id)` / `delete(id)` | Existence / removal. A zero-event lazily-materialized session is absent from `has`/`list`. |
 | `update(id, summary): Promise<void>` | Update mutable `SessionSummary` fields without touching the append-only log. |
 
 ## Invariants every backend must honor
 
-- **Append-only.** Committed events (at or below a flushed `turn/end`) are never rewritten. The only exception is the one-time truncation-repair of a never-committed crash tail on the first `append` after a `load`.
+- **Append-only; a crashed turn is closed, not truncated.** Committed events (at or below a flushed `turn/end`) are never rewritten. A crash can leave an unclosed final turn whose events are real and possibly large; `load` preserves them and durably appends synthetic closers (`step/end?`+`turn/end {interrupted}`) to balance the log. Only a never-fully-written torn tail fragment is discarded.
 - **Contiguous seq.** `load` rejects a `seq` gap/parse error in the MIDDLE of the log; `append`'s first `seq` must equal the stored next-seq.
 - **JSON-serializable data.** `append` rejects non-serializable `event.data`; backends snapshot each event when buffering (the live `session.events` object is mutable).
 - **Durability.** `append` returns only once the batch is durable.

@@ -99,6 +99,17 @@ export interface TurnEndReasonMap {
   aborted: { kind: 'aborted'; reason?: string }
   error: { kind: 'error'; message: string; code?: string }
   disposed: { kind: 'disposed' }
+  /**
+   * The turn never ended on its own: the process crashed mid-turn and a
+   * persistence backend later closed the orphaned (open) turn on reload so the
+   * log stays balanced. SYNTHESIZED by the backend's crash-recovery repair — no
+   * loop ever emits this. Its events are real (they were durably appended before
+   * the crash) and are PRESERVED, not discarded: a single turn can be huge in a
+   * long-horizon task (many steps, large tool output), so truncating it would
+   * lose real work. The marker records that the turn was cut short, not that the
+   * model completed it. See ADR 0018.
+   */
+  interrupted: { kind: 'interrupted' }
 }
 
 export type TurnEndReason = TurnEndReasonMap[keyof TurnEndReasonMap]
