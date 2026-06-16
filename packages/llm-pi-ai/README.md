@@ -35,4 +35,4 @@ Same MVP contract as llm-deepseek: `prefill` throws `UNSUPPORTED`, images are no
 
 ## Testing
 
-Unit suites run against a local `node:http` mock SSE server (pi-ai's openai SDK happily talks to any base URL). Real-API coverage in `tests/adapter.e2e.ts` (`yarn test:e2e`, key-gated): V4 Flash + V4 Pro across all exposed reasoning levels (off/high/xhigh), the thinking+tools round trip, and a cross-adapter structural-equivalence check against llm-deepseek.
+Unit suites run against a local `node:http` mock SSE server (pi-ai's openai SDK happily talks to any base URL). Real-API coverage in `tests/adapter.e2e.ts` (`pnpm run test:e2e`, key-gated): V4 Flash + V4 Pro across all exposed reasoning levels (off/high/xhigh), the thinking+tools round trip, and a cross-adapter structural-equivalence check against llm-deepseek.

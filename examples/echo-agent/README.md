@@ -23,7 +23,7 @@ Runnable demo: stdin chat with a scripted mock model and an echo tool.
 ## Run
 
 ```sh
-yarn demo:echo
+pnpm run demo:echo
 # or:
 node --expose-internals --import tsx examples/echo-agent/start.ts
 ```
