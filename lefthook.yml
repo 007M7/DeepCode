@@ -30,3 +30,6 @@ pre-push:
 
     - name: doc-sync
       run: pnpm run doc-sync
+
+    - name: module-graph freshness
+      run: pnpm run verify-module-graph
