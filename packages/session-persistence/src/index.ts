@@ -90,14 +90,17 @@ export abstract class SessionPersistence extends Service {
    * `turn/end`. Those events are PRESERVED — a single turn can be huge in a
    * long-horizon task, so truncating it would destroy real work — and `load`
    * CLOSES the orphaned turn by durably appending the minimal synthetic boundary
-   * events (a `step/end` if a step was open, then a `turn/end` carrying the
-   * `{ kind: 'interrupted' }` reason). The returned `events` therefore end on a
-   * balanced `turn/end` and are immediately usable as a session seed. Only a
-   * never-fully-written TORN tail fragment (a half-written final record) is
-   * discarded. Returned events are contiguous (`events[i].seq === i`); a parse
-   * error or a `seq` gap in the COMMITTED region (at or before the last real
-   * `turn/end`) makes the session unloadable (reject). Rejects an unknown format
-   * `version`. See ADR 0018 for the crash-recovery contract.
+   * events: an error `tool/result` for every `tool-call` the crash left
+   * unanswered (so the rehydrated history is a valid provider transcript — a
+   * dangling assistant tool-call is otherwise rejected), then a `step/end` if a
+   * step was open, then a `turn/end` carrying the `{ kind: 'interrupted' }`
+   * reason. The returned `events` therefore end on a balanced `turn/end` and are
+   * immediately usable as a session seed. Only a never-fully-written TORN tail
+   * fragment (a half-written final record) is discarded. Returned events are
+   * contiguous (`events[i].seq === i`); a parse error or a `seq` gap in the
+   * COMMITTED region (at or before the last real `turn/end`) makes the session
+   * unloadable (reject). Rejects an unknown format `version`. See ADR 0018 for
+   * the crash-recovery contract.
    */
   abstract load(id: SessionId): Promise<{ meta: SessionMeta; events: SessionEvent[] }>
 

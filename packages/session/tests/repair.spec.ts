@@ -1,0 +1,125 @@
+import { describe, expect, it } from 'vitest'
+import { CallId } from '@deepseek-ai/dsh-llm'
+import { interruptedTurnClosers } from '../src/index.ts'
+import type { SessionEvent } from '../src/index.ts'
+
+/**
+ * Unit coverage for the crash-recovery closer synthesis. The persistence
+ * contract exercises it end-to-end through both backends; these tests pin the
+ * pure function's branches directly — especially the synthetic error
+ * `tool/result` for a tool call the crash left unanswered (without it a
+ * resumed session replays a dangling assistant tool-call and the provider
+ * rejects the transcript).
+ */
+
+const userTurnStart = (turn: number, seq: number): SessionEvent =>
+  ({ type: 'turn/start', seq, time: seq, data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+
+describe('interruptedTurnClosers', () => {
+  it('returns nothing for a balanced log (ends on turn/end)', () => {
+    const balanced: SessionEvent[] = [
+      userTurnStart(1, 0),
+      { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]
+    expect(interruptedTurnClosers(balanced)).toEqual([])
+  })
+
+  it('returns nothing for an empty log', () => {
+    expect(interruptedTurnClosers([])).toEqual([])
+  })
+
+  it('closes an open turn with no open step (turn/end {interrupted} only)', () => {
+    const events: SessionEvent[] = [userTurnStart(1, 0)]
+    const closers = interruptedTurnClosers(events)
+    expect(closers.map(e => e.type)).toEqual(['turn/end'])
+    const end = closers[0]!
+    expect(end.seq).toBe(1)
+    expect(end.type === 'turn/end' && end.data.reason).toEqual({ kind: 'interrupted' })
+  })
+
+  it('closes an open step before the turn (step/end then turn/end)', () => {
+    const events: SessionEvent[] = [
+      userTurnStart(1, 0),
+      { type: 'step/start', seq: 1, time: 1, data: { turn: 1, step: 1 } },
+    ]
+    const closers = interruptedTurnClosers(events)
+    expect(closers.map(e => e.type)).toEqual(['step/end', 'turn/end'])
+    expect(closers.map(e => e.seq)).toEqual([2, 3])
+  })
+
+  it('synthesizes an error tool/result for a tool-call the crash left unanswered', () => {
+    // A step issued one tool call (in the assistant message) but crashed before
+    // the tool/result was logged — the classic mid-tool crash.
+    const events: SessionEvent[] = [
+      userTurnStart(2, 0),
+      { type: 'step/start', seq: 1, time: 1, data: { turn: 2, step: 1 } },
+      { type: 'assistant/message', seq: 2, time: 2, data: { turn: 2, step: 1, content: [
+        { type: 'text', text: 'calling a tool' },
+        { type: 'tool-call', id: CallId('call-1'), name: 'bash', arguments: '{}' },
+      ] } },
+    ]
+    const closers = interruptedTurnClosers(events)
+    // tool/result (for the orphaned call) → step/end → turn/end, contiguous seqs.
+    expect(closers.map(e => e.type)).toEqual(['tool/result', 'step/end', 'turn/end'])
+    expect(closers.map(e => e.seq)).toEqual([3, 4, 5])
+    const result = closers[0]!
+    expect(result.type === 'tool/result' && result.data).toMatchObject({
+      turn: 2, step: 1, callId: CallId('call-1'), isError: true, error: { code: 'interrupted' },
+    })
+  })
+
+  it('does NOT synthesize a result for a tool-call that already has one', () => {
+    const events: SessionEvent[] = [
+      userTurnStart(2, 0),
+      { type: 'step/start', seq: 1, time: 1, data: { turn: 2, step: 1 } },
+      { type: 'assistant/message', seq: 2, time: 2, data: { turn: 2, step: 1, content: [
+        { type: 'tool-call', id: CallId('call-1'), name: 'bash', arguments: '{}' },
+      ] } },
+      { type: 'tool/result', seq: 3, time: 3, data: { turn: 2, step: 1, callId: CallId('call-1'), content: [{ type: 'text', text: 'ok' }], isError: false } },
+    ]
+    // The call is answered, so only the open step + turn need closing.
+    const closers = interruptedTurnClosers(events)
+    expect(closers.map(e => e.type)).toEqual(['step/end', 'turn/end'])
+  })
+
+  it('synthesizes results only for the still-open turn, not a committed earlier turn', () => {
+    // Turn 1 completed with its own tool call+result (balanced). Turn 2 crashed
+    // with an unanswered call. Only turn 2's call must get a synthetic result.
+    const events: SessionEvent[] = [
+      userTurnStart(1, 0),
+      { type: 'step/start', seq: 1, time: 1, data: { turn: 1, step: 1 } },
+      { type: 'assistant/message', seq: 2, time: 2, data: { turn: 1, step: 1, content: [
+        { type: 'tool-call', id: CallId('old-call'), name: 'bash', arguments: '{}' },
+      ] } },
+      { type: 'tool/result', seq: 3, time: 3, data: { turn: 1, step: 1, callId: CallId('old-call'), content: [], isError: false } },
+      { type: 'step/end', seq: 4, time: 4, data: { turn: 1, step: 1 } },
+      { type: 'turn/end', seq: 5, time: 5, data: { turn: 1, reason: { kind: 'completed' } } },
+      userTurnStart(2, 6),
+      { type: 'step/start', seq: 7, time: 7, data: { turn: 2, step: 1 } },
+      { type: 'assistant/message', seq: 8, time: 8, data: { turn: 2, step: 1, content: [
+        { type: 'tool-call', id: CallId('new-call'), name: 'bash', arguments: '{}' },
+      ] } },
+    ]
+    const closers = interruptedTurnClosers(events)
+    expect(closers.map(e => e.type)).toEqual(['tool/result', 'step/end', 'turn/end'])
+    const result = closers[0]!
+    expect(result.type === 'tool/result' && result.data.callId).toBe('new-call')
+  })
+
+  it('synthesizes a result for each of multiple unanswered calls, in log order', () => {
+    const events: SessionEvent[] = [
+      userTurnStart(1, 0),
+      { type: 'step/start', seq: 1, time: 1, data: { turn: 1, step: 1 } },
+      { type: 'assistant/message', seq: 2, time: 2, data: { turn: 1, step: 1, content: [
+        { type: 'tool-call', id: CallId('call-a'), name: 'bash', arguments: '{}' },
+        { type: 'tool-call', id: CallId('call-b'), name: 'bash', arguments: '{}' },
+      ] } },
+      // call-a got answered before the crash; call-b did not.
+      { type: 'tool/result', seq: 3, time: 3, data: { turn: 1, step: 1, callId: CallId('call-a'), content: [], isError: false } },
+    ]
+    const closers = interruptedTurnClosers(events)
+    expect(closers.map(e => e.type)).toEqual(['tool/result', 'step/end', 'turn/end'])
+    const result = closers[0]!
+    expect(result.type === 'tool/result' && result.data.callId).toBe('call-b')
+  })
+})

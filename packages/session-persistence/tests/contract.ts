@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionMeta } from '@deepseek-ai/dsh-session'
+import { CallId } from '@deepseek-ai/dsh-llm'
 import type { SessionPersistence } from '../src/index.ts'
 
 /** A backend under test plus its teardown. */
@@ -97,6 +98,46 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         ])
         const reloaded = await persistence.load(m.id)
         expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+      } finally {
+        await dispose()
+      }
+    })
+
+    it('crash recovery: an interrupted tool call gets a synthetic error result so resume is a valid transcript', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const m = meta('interrupted-toolcall')
+        await persistence.create(m)
+        await persistence.append(m.id, oneTurnLog()) // turn 1, committed (seqs 0..5)
+        // Turn 2 crashed AFTER the assistant message asked for a tool call but
+        // BEFORE the tool/result was written (the loop runs tools after logging
+        // the assistant message — a process killed mid-tool lands exactly here).
+        await persistence.append(m.id, [
+          { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+          { type: 'step/start', seq: 7, time: 8, data: { turn: 2, step: 1 } },
+          { type: 'assistant/message', seq: 8, time: 9, data: { turn: 2, step: 1, content: [
+            { type: 'tool-call', id: CallId('call-x'), name: 'bash', arguments: '{}' },
+          ] } },
+        ])
+
+        const loaded = await persistence.load(m.id)
+        // The orphaned call is answered by a synthetic error tool/result BEFORE
+        // step/end + turn/end {interrupted}, so the step (and turn) are balanced
+        // and a resumed session derives a valid transcript (no dangling call).
+        expect(loaded.events.map(e => e.type)).toEqual([
+          'turn/start', 'user/message', 'step/start', 'assistant/message', 'step/end', 'turn/end', // turn 1
+          'turn/start', 'step/start', 'assistant/message', 'tool/result', 'step/end', 'turn/end', // turn 2
+        ])
+        const synthetic = loaded.events.find(e => e.type === 'tool/result')
+        expect(synthetic?.type === 'tool/result' && synthetic.data).toMatchObject({
+          callId: CallId('call-x'), isError: true, error: { code: 'interrupted' },
+        })
+        // The synthetic result carries the SAME callId as the orphaned tool-call,
+        // so deriveMessages() pairs them — no provider-invalid dangling call.
+        const call = loaded.events.findLast(e => e.type === 'assistant/message')
+        const callId = call?.type === 'assistant/message'
+          && call.data.content.find(b => b.type === 'tool-call')
+        expect(callId && callId.type === 'tool-call' && callId.id).toBe(CallId('call-x'))
       } finally {
         await dispose()
       }
