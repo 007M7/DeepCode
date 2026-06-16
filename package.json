@@ -23,6 +23,8 @@
     "publint": "tsx scripts/publint-all.ts",
     "doc-typecheck": "tsx scripts/doc-typecheck.ts",
     "verify-event-taxonomy": "tsx scripts/verify-event-taxonomy.ts",
+    "gen-module-graph": "tsx scripts/gen-module-graph.ts",
+    "verify-module-graph": "tsx scripts/gen-module-graph.ts --check",
     "constraints": "tsx scripts/check-workspace-constraints.ts",
     "doc-sync": "pnpm run doc-typecheck && pnpm run verify-event-taxonomy",
     "hygiene": "pnpm run knip && pnpm run publint && pnpm run constraints",
