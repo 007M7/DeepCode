@@ -33,10 +33,15 @@ packages/    Harness packages, all named @deepseek-ai/dsh-<name>:
   bash/           abstract bash executor seam (ctx.bash) — interface only
   bash-local/     local-subprocess BashExecutor implementation
   tool-bash/      model-facing bash/bash_output/bash_kill tool schemas
+  acp/            Agent Client Protocol bridge: drive the agent from an ACP
+                  editor (Zed) over JSON-RPC stdio
 examples/    Runnable demos (not workspaces). echo-agent = mock model + echo
              tool + stdio UI + JSONL persistence, wired via cordis.yml.
              coding-agent = the real thing: DeepSeek V4 + bash tools
              (yarn demo:coding, needs DEEPSEEK_API_KEY).
+             acp-agent = the coding agent exposed as an ACP server over
+             JSON-RPC stdio (yarn demo:acp, needs DEEPSEEK_API_KEY).
+             base.yml = shared provider/tool core both real demos include.
 docs/        architecture.md — the design doc. adr/ — decision records (the
              why behind vendoring, event-sourcing, the schema DSL, …).
              rfc/ — proposals for substantial future work.
@@ -72,6 +77,9 @@ yarn demo:echo      # run examples/echo-agent (no API key; type "echo hi" to
                     # see a tool call) — the mock skeleton
 yarn demo:coding    # run examples/coding-agent — the real agent (needs
                     # DEEPSEEK_API_KEY; give it a coding task)
+yarn demo:acp       # run examples/acp-agent — the coding agent as an ACP
+                    # server over JSON-RPC stdio (needs DEEPSEEK_API_KEY;
+                    # drive it from Zed or another ACP client)
 ```
 
 ## Secrets / .env

@@ -4,7 +4,11 @@
   "ignoreWorkspaces": ["vendor/*"],
   "workspaces": {
     ".": {
-      "entry": ["examples/echo-agent/src/*.ts", "examples/coding-agent/src/*.ts"],
+      "entry": [
+        "examples/echo-agent/src/*.ts",
+        "examples/coding-agent/src/*.ts",
+        "examples/acp-agent/tests/**/*.e2e.ts"
+      ],
       "project": ["scripts/**/*.ts", "examples/**/*.ts"]
     },
     "packages/*": {

@@ -1,0 +1,56 @@
+# Shared provider/tool core for the example agents, loaded via a nested
+# @cordisjs/plugin-include from each example's cordis.yml. Contains everything
+# the model and tools need; each example adds its own infra (logger/timer/hmr),
+# its agent-loop config (the examples disagree — see below), and its UI plugin.
+#
+# Deliberately EXCLUDES:
+#  - the console logger: it writes to stdout, which the acp-agent reserves for
+#    the JSON-RPC protocol (see packages/acp). Each example loads logging itself.
+#  - agent-loop: AgentLoop pre-creates its configured `agents` in its
+#    constructor, and the examples disagree — coding-agent needs a pre-created
+#    `main` (its stdio-chat calls ctx.agents.get('main')), while acp-agent must
+#    pre-create NONE (ACP session/new creates agents on demand). So each example
+#    declares agent-loop with its own `agents` list.
+#
+# Plugin entries here use package names (resolved from node_modules), so they
+# are insensitive to the baseUrl reset that plugin-include performs per file.
+# Requires DEEPSEEK_API_KEY (and optionally DEEPSEEK_BASE_URL) in the env.
+
+- id: llm
+  name: '@deepseek-ai/dsh-llm'
+
+- id: sessions
+  name: '@deepseek-ai/dsh-session'
+
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+
+- id: agents
+  name: '@deepseek-ai/dsh-agent'
+
+# Dev-mode event-contract assertions + session-log freeze (off in prod).
+- id: invariants
+  name: '@deepseek-ai/dsh-invariants'
+
+# The DeepSeek adapter. Swap to '@deepseek-ai/dsh-llm-pi-ai' for the pi-ai-backed
+# twin (same config shape; `reasoning: high` replaces thinking/reasoningEffort).
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    apiKey: !!js process.env.DEEPSEEK_API_KEY
+    baseURL: !!js process.env.DEEPSEEK_BASE_URL
+    models:
+      - deepseek-v4-flash
+      - deepseek-v4-pro
+
+# Bash execution: the local executor implementation + the tool schemas.
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+  config:
+    timeoutMs: 60000
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'

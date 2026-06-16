@@ -1,0 +1,7 @@
+{
+  "name": "acp-agent-example",
+  "description": "Runnable demo: the coding agent as an ACP server over JSON-RPC stdio (Zed & other ACP editors)",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module"
+}

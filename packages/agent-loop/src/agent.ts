@@ -30,6 +30,14 @@ export class LoopAgent implements Agent {
   private resolveDisposed!: () => void
   /** Resolves when the driver loop has fully exited (tests/disposal). */
   done: Promise<void> = Promise.resolve()
+  /**
+   * Pending {@link whenIdle} waiters, resolved by {@link settleIdleWaiters} when
+   * the agent next settles out of `running`. Kept as internal agent state (NOT
+   * an effect-scoped `ctx.on` listener) so a concurrent fiber disposal — which
+   * runs the agent's own listeners' disposers — cannot drop the waiter before
+   * the `disposed` transition fires and leave the promise hanging.
+   */
+  private idleWaiters: (() => void)[] = []
 
   constructor(
     private ctx: Context,
@@ -49,7 +57,24 @@ export class LoopAgent implements Agent {
   private setStatus(status: AgentStatus): void {
     if (this._status === status || this._status === 'disposed') return
     this._status = status
+    // Release quiescence waiters on a transition OUT of running BEFORE emitting
+    // (the disposer handles the disposed transition separately). Settling first
+    // means a throwing `agent/status` subscriber cannot starve a `whenIdle()`
+    // waiter (AGENTS.md "contain callback exceptions" — a lifecycle await must
+    // not hang on one bad listener).
+    if (status !== 'running') this.settleIdleWaiters()
     this.ctx.emit('agent/status', this, status)
+  }
+
+  /**
+   * Resolve and clear all pending {@link whenIdle} waiters. Called on a
+   * running→idle transition (from {@link setStatus}) and on disposal (from the
+   * {@link start} disposer, which chains `done` for true loop-exit quiescence).
+   */
+  private settleIdleWaiters(): void {
+    const waiters = this.idleWaiters
+    this.idleWaiters = []
+    for (const resolve of waiters) resolve()
   }
 
   private resolveSource(options?: SendOptions): MessageSource {
@@ -148,10 +173,40 @@ export class LoopAgent implements Agent {
   }
 
   /**
+   * Resolve once the agent has reached quiescence after settling out of
+   * `running`. If it is already disposed, awaits {@link done} (the loop-exit
+   * promise) — `agent/status('disposed')` fires in the disposer BEFORE the
+   * driver loop has unwound, so it is NOT itself a quiescence signal. If it is
+   * idle, resolves immediately. Otherwise queues an internal waiter (see
+   * {@link idleWaiters}) released on the next running→idle/disposed transition,
+   * resolving on `idle` directly (the turn fully ended) or chaining {@link done}
+   * on `disposed` (wait for the loop to actually exit). Implements the
+   * {@link Agent.whenIdle} contract used by teardown (`abort()` then
+   * `await whenIdle()`).
+   */
+  whenIdle(): Promise<void> {
+    if (this._status === 'disposed') return this.done
+    if (this._status !== 'running') return Promise.resolve()
+    // Register an internal waiter (resolved by settleIdleWaiters on the next
+    // running→idle/disposed transition), NOT an effect-scoped `ctx.on` listener:
+    // a concurrent fiber disposal runs this agent's listener disposers, which
+    // could remove a `ctx.on` waiter before the `disposed` transition fires and
+    // hang the promise. On disposal the disposer settles the waiter AND we chain
+    // `done` here for true loop-exit quiescence (status flips to disposed before
+    // the loop unwinds); a plain idle transition resolves directly.
+    return new Promise<void>((resolve) => {
+      this.idleWaiters.push(() => {
+        resolve(this._status === 'disposed' ? this.done : undefined)
+      })
+    })
+  }
+
+  /**
    * Start the driver loop. Returns a disposer: calling it sets status to
    * `disposed`, emits `agent/status('disposed')`, resolves the disposed
-   * promise (unblocking the idle wait), and aborts the current request if
-   * any. The returned `agent.done` promise resolves once the loop exits.
+   * promise (unblocking the idle wait), releases any `whenIdle` waiters, and
+   * aborts the current request if any. The returned `agent.done` promise
+   * resolves once the loop exits.
    */
   start(): () => void {
     this.done = runLoop(this.ctx, this, {
@@ -167,6 +222,10 @@ export class LoopAgent implements Agent {
       if (this._status === 'disposed') return
       this._status = 'disposed'
       this.resolveDisposed()
+      // Release whenIdle waiters BEFORE the (guarded) event emit — they are
+      // internal state that must settle even if a listener throws below. Each
+      // waiter chains `done`, so it resolves only once the loop actually exits.
+      this.settleIdleWaiters()
       this.currentAbort?.abort('disposed')
       // setStatus refuses transitions out of 'disposed', so emit directly —
       // 'disposed' is part of the agent/status contract. Guarded: a throwing

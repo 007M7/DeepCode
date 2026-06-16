@@ -30,7 +30,8 @@
       "@deepseek-ai/dsh-llm-pi-ai": ["./packages/llm-pi-ai/src"],
       "@deepseek-ai/dsh-bash-local": ["./packages/bash-local/src"],
       "@deepseek-ai/dsh-tool-bash": ["./packages/tool-bash/src"],
-      "@deepseek-ai/dsh-invariants": ["./packages/invariants/src"]
+      "@deepseek-ai/dsh-invariants": ["./packages/invariants/src"],
+      "@deepseek-ai/dsh-acp": ["./packages/acp/src"]
     }
   },
   "include": ["packages/*/src", "packages/*/tests", "examples", "scripts"]

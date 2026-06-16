@@ -5,6 +5,15 @@ __metadata:
   version: 9
   cacheKey: 10c0
 
+"@agentclientprotocol/sdk@npm:0.25.1":
+  version: 0.25.1
+  resolution: "@agentclientprotocol/sdk@npm:0.25.1"
+  peerDependencies:
+    zod: ^3.25.0 || ^4.0.0
+  checksum: 10c0/c2e02b52e339b31b982a6293bedb318a8006a1190dff45da2762d9d74f79368046dbaabb3c63b99b6766590ef4e126323912496287cb0feca1c4183d9875d31c
+  languageName: node
+  linkType: hard
+
 "@anthropic-ai/sdk@npm:0.91.1":
   version: 0.91.1
   resolution: "@anthropic-ai/sdk@npm:0.91.1"
@@ -553,6 +562,31 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@deepseek-ai/dsh-acp@workspace:packages/acp":
+  version: 0.0.0-use.local
+  resolution: "@deepseek-ai/dsh-acp@workspace:packages/acp"
+  dependencies:
+    "@agentclientprotocol/sdk": "npm:0.25.1"
+    "@deepseek-ai/dsh-agent": "npm:^0.0.1"
+    "@deepseek-ai/dsh-agent-loop": "npm:^0.0.1"
+    "@deepseek-ai/dsh-llm": "npm:^0.0.1"
+    "@deepseek-ai/dsh-session": "npm:^0.0.1"
+    "@deepseek-ai/dsh-session-persistence": "npm:^0.0.1"
+    "@deepseek-ai/dsh-session-persistence-jsonl": "npm:^0.0.1"
+    "@deepseek-ai/dsh-system-prompt": "npm:^0.0.1"
+    "@deepseek-ai/dsh-tools": "npm:^0.0.1"
+    cordis: "npm:^4.0.0-rc.6"
+    schemastery: "npm:^3.17.0"
+    zod: "npm:^4.0.0"
+  peerDependencies:
+    "@deepseek-ai/dsh-agent": ^0.0.1
+    "@deepseek-ai/dsh-llm": ^0.0.1
+    "@deepseek-ai/dsh-session": ^0.0.1
+    "@deepseek-ai/dsh-session-persistence": ^0.0.1
+    cordis: ^4.0.0-rc.6
+  languageName: unknown
+  linkType: soft
+
 "@deepseek-ai/dsh-agent-loop@npm:^0.0.1, @deepseek-ai/dsh-agent-loop@workspace:packages/agent-loop":
   version: 0.0.0-use.local
   resolution: "@deepseek-ai/dsh-agent-loop@workspace:packages/agent-loop"
@@ -673,6 +707,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@deepseek-ai/dsh-root@workspace:."
   dependencies:
+    "@agentclientprotocol/sdk": "npm:0.25.1"
     "@stylistic/eslint-plugin": "npm:^5.10.0"
     "@types/node": "npm:^25.3.5"
     "@vitest/coverage-v8": "npm:^4.1.8"
@@ -4303,7 +4338,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"schemastery@npm:^3.18.0, schemastery@workspace:vendor/schemastery":
+"schemastery@npm:^3.17.0, schemastery@npm:^3.18.0, schemastery@workspace:vendor/schemastery":
   version: 0.0.0-use.local
   resolution: "schemastery@workspace:vendor/schemastery"
   dependencies:
@@ -4901,7 +4936,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"zod@npm:^3.25.0 || ^4.0.0, zod@npm:^4.1.11":
+"zod@npm:^3.25.0 || ^4.0.0, zod@npm:^4.0.0, zod@npm:^4.1.11":
   version: 4.4.3
   resolution: "zod@npm:4.4.3"
   checksum: 10c0/7ea31b558e88f9faf44f31dd185e2e1cbf51fed3081787fb96cc2534749b50c0acfc6da7f0922a7353ed092dd358c7d50c28ea96c94d04af64191bd33152eca3

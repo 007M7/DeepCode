@@ -19,6 +19,7 @@ const packages = [
   'packages/bash-local',
   'packages/tool-bash',
   'packages/invariants',
+  'packages/acp',
 ]
 
 const root = resolve(import.meta.dirname, '..')

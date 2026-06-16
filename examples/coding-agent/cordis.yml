@@ -1,5 +1,6 @@
 # The coding-agent plugin tree, loaded via @cordisjs/plugin-include.
-# Core services first, then the real adapters/tools, then the agent itself.
+# Infra (logger/timer/hmr) first, then the shared provider/tool core (nested
+# include of ../base.yml), then this example's agent-loop config + UI.
 #
 # Requires DEEPSEEK_API_KEY (and optionally DEEPSEEK_BASE_URL) in the
 # environment — start.ts loads the gitignored repo-root .env first.
@@ -15,46 +16,16 @@
   config:
     root: ['.']
 
-- id: llm
-  name: '@deepseek-ai/dsh-llm'
-
-- id: sessions
-  name: '@deepseek-ai/dsh-session'
-
-- id: system-prompt
-  name: '@deepseek-ai/dsh-system-prompt'
-
-- id: tools
-  name: '@deepseek-ai/dsh-tools'
-
-- id: agents
-  name: '@deepseek-ai/dsh-agent'
-
-# Dev-mode event-contract assertions + session-log freeze (off in prod).
-- id: invariants
-  name: '@deepseek-ai/dsh-invariants'
-
-# The DeepSeek adapter. Swap to '@deepseek-ai/dsh-llm-pi-ai' for the
-# pi-ai-backed twin (same config shape; `reasoning: high` replaces
-# thinking/reasoningEffort).
-- id: llm-deepseek
-  name: '@deepseek-ai/dsh-llm-deepseek'
+# Shared provider/tool core (llm, sessions, system-prompt, tools, agents,
+# invariants, llm-deepseek, bash-local, tool-bash). Nested include: the path is
+# resolved relative to THIS file's directory.
+- id: base
+  name: '@cordisjs/plugin-include'
   config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
-    baseURL: !!js process.env.DEEPSEEK_BASE_URL
-    models:
-      - deepseek-v4-flash
-      - deepseek-v4-pro
+    path: '../base.yml'
 
-# Bash execution: the local executor implementation + the tool schemas.
-- id: bash
-  name: '@deepseek-ai/dsh-bash-local'
-  config:
-    timeoutMs: 60000
-
-- id: tool-bash
-  name: '@deepseek-ai/dsh-tool-bash'
-
+# agent-loop is per-example (NOT in base.yml): coding-agent pre-creates a `main`
+# agent its stdio-chat drives via ctx.agents.get('main').
 - id: agent-loop
   name: '@deepseek-ai/dsh-agent-loop'
   config:
