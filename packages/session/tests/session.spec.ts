@@ -26,6 +26,19 @@ describe('Session', () => {
     expect(messages[2]!.content[0]).toMatchObject({ type: 'tool-result', toolCallId: CallId('c1') })
   })
 
+  it('accepts and round-trips a max-tokens turn/end reason', () => {
+    // The max-tokens TurnEndReason variant carries no extra data, so it must
+    // append and persist like any other reason (JSON-serializable, no fields).
+    const session = new Session(SessionId('s1'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+
+    const turnEnd = session.events.findLast(e => e.type === 'turn/end')!
+    expect(turnEnd.data.reason).toEqual({ kind: 'max-tokens' })
+    // survives a structuredClone (the persistence-serialization boundary)
+    expect(structuredClone(turnEnd.data.reason)).toEqual({ kind: 'max-tokens' })
+  })
+
   it('renders context and steering messages as tagged synthetic user content', () => {
     const session = new Session(SessionId('s2'))
     session.append('context/message', {
