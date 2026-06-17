@@ -131,7 +131,7 @@ export function rowToEvent(row: EventRow): SessionEvent {
  * fully-written rows sit after the last `turn/end`. Those are PRESERVED — a
  * single turn can be huge in a long-horizon task, so truncating it would
  * destroy real work; the backend closes the orphaned open turn with a synthetic
- * `turn/end {kind:'interrupted'}` on load (ADR 0018). The ONLY thing excluded is
+ * `turn/end {kind:'interrupted'}` on load (the session-persistence RFC). The ONLY thing excluded is
  * a torn trailing fragment — a row whose `data` never parses, or a seq gap —
  * AFTER the last committed `turn/end`; that bounds the preserved region and its
  * seq is returned as `tornFrom` so `load` can physically delete it.

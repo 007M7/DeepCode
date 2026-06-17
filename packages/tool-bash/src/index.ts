@@ -29,10 +29,11 @@ export const inject = ['tools', 'bash']
 
 /**
  * Validate the constraints the SchemaSpec can't express. `defineTool` now
- * validates parsed args against the SchemaSpec before `execute` runs (RFC 005
- * → ADR 0011), so type/required/enum checks are already done and `args` is
- * the validated `InferArgs` shape here. What remains are value constraints the
- * DSL has no vocabulary for: non-empty strings and a positive, finite timeout.
+ * validates parsed args against the SchemaSpec before `execute` runs (the
+ * arg-validation RFC), so type/required/enum checks are already done and `args`
+ * is the validated `InferArgs` shape here. What remains are value constraints
+ * the DSL has no vocabulary for: non-empty strings and a positive, finite
+ * timeout.
  */
 function validateBashArgs(args: {
   command: string
@@ -54,7 +55,7 @@ function validateBashArgs(args: {
 
 /**
  * Reject an empty `task_id`. Type and presence are guaranteed by the
- * SchemaSpec validation (ADR 0011); only the non-empty constraint, which the
+ * SchemaSpec validation (the arg-validation RFC); only the non-empty constraint, which the
  * DSL can't express, is left to check here.
  */
 function validateTaskId(value: string): string {

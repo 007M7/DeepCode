@@ -229,7 +229,7 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     // agree — both append routes then continue with no special-casing. Synthesize
     // the boundary events (a step/end if a step was open, then a
     // turn/end {kind:'interrupted'}); the interrupted turn's real events are
-    // preserved, never truncated (ADR 0018).
+    // preserved, never truncated (the session-persistence RFC).
     const closers = interruptedTurnClosers(preserved)
     const balanced = [...preserved, ...closers]
 

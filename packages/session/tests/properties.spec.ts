@@ -1,5 +1,5 @@
 /**
- * Property-based tests for the Session event log (RFC 001 → ADR 0013).
+ * Property-based tests for the Session event log (the property-testing RFC).
  *
  * Generates arbitrary event logs and asserts the derivation invariants the
  * agent loop and replay depend on: deriveMessages is deterministic and

@@ -39,7 +39,7 @@ function waitForIdle(ctx: Context, agent: LoopAgent): Promise<void> {
   })
 }
 
-describe('RFC 009: AgentLoop factory create/resume', () => {
+describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
   it('createAgent uses the caller-supplied sessionId (not ${id}-session)', async () => {
     const adapter = new MockAdapter([textResponse('hi')])
     const { ctx } = await persistentHarness(adapter)
@@ -128,7 +128,7 @@ describe('RFC 009: AgentLoop factory create/resume', () => {
 
   it('an idle inject() is flushed durably on its own (survives without explicit flush/dispose)', async () => {
     // Lifecycle 1: run a turn, then inject context while idle. The idle inject
-    // wraps its context/message in a one-shot turn AND checkpoints it (ADR 0017)
+    // wraps its context/message in a one-shot turn AND checkpoints it (the turn-enclosure RFC)
     // — without an explicit flush or clean dispose, the notice must still reach
     // disk, since a crash before the next turn would otherwise lose it.
     const adapter1 = new MockAdapter([textResponse('answer')])
