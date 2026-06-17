@@ -12,7 +12,7 @@ Example-based tests pin the cases we thought of. The harness's core is protocol-
 
 ## Decision
 
-Adopt `fast-check` (a root devDependency) with one `tests/properties.spec.ts` per protocol-shaped package, generators tuned for *realistic-but-adversarial* inputs (not uniform noise) and `numRuns` kept so the suite stays well under ~10s locally, with a nightly CI job running 100× the iterations. Failures print a reproducible seed.
+Adopt `fast-check` (a root devDependency) with one `tests/properties.spec.ts` per protocol-shaped package, generators tuned for *realistic-but-adversarial* inputs (not uniform noise) and `numRuns` kept so the suite stays well under ~10s locally. Failures print a reproducible seed. (The original proposal also sketched a nightly CI job running 100× the iterations; that was not shipped — the property suite runs only in the normal `push`/`pull_request` CI, and a scheduled high-iteration job remains possible future work.)
 
 - **dsh-llm / BlockAssembler:** arbitrary chunk streams (valid + malformed: duplicate indices, stragglers, missing block-start). Invariants: `flushReady()+flushRemaining() ≡ blocks()` in order; the streamed prefix is always a prefix of final `blocks()`; partial count ≤ distinct indices; re-assembly idempotent.
 - **dsh-session:** arbitrary event logs. Invariants: `deriveMessages` deterministic; replay-from-seed identical; seq strictly monotonic; non-message events never affect derived history; derived content is decoupled from the log.

@@ -20,10 +20,13 @@
  * resolved against the linking file's directory, and the result must exist on
  * disk. This is checker, not fixer: it reports and never rewrites.
  *
- * Scope mirrors the other doc-sync gates plus the two AGENTS.md files:
- * README.md, docs/** /*.md, packages/* /README.md, AGENTS.md, packages/AGENTS.md.
- * The root and packages/ CLAUDE.md are symlinks to the AGENTS.md files, so they
- * are deduped by real path.
+ * Scope is the other doc-sync gates' set plus the two AGENTS.md files AND the
+ * repo-authored agent-skill Markdown under `.agents/skills/` — those skill
+ * files cross-link into the docs tree (e.g. the dsh-code-review skill cites the
+ * RFC index), so a rename must not silently break them either: README.md,
+ * docs/** /*.md, packages/* /README.md, AGENTS.md, packages/AGENTS.md,
+ * .agents/skills/** /*.md. The root and packages/ CLAUDE.md are symlinks to the
+ * AGENTS.md files, so they are deduped by real path.
  *
  * Run: `tsx scripts/verify-md-links.ts`.
  */
@@ -38,8 +41,18 @@ import type { Nodes } from 'mdast'
 
 const root = resolve(import.meta.dirname, '..')
 
-/** Files to check: doc-typecheck's scope plus the AGENTS.md pair. */
-const PATTERNS = ['README.md', 'docs/**/*.md', 'packages/*/README.md', 'AGENTS.md', 'packages/AGENTS.md']
+/**
+ * Files to check: doc-typecheck's scope, the AGENTS.md pair, and repo-authored
+ * agent-skill Markdown (which this repo's own docs reorg rewrites links in).
+ */
+const PATTERNS = [
+  'README.md',
+  'docs/**/*.md',
+  'packages/*/README.md',
+  'AGENTS.md',
+  'packages/AGENTS.md',
+  '.agents/skills/**/*.md',
+]
 
 /** A broken relative link: a target path that does not resolve to a file. */
 interface Violation {
@@ -62,9 +75,24 @@ function isExternalOrAnchor(url: string): boolean {
   return /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)
 }
 
-/** Strip the `#fragment` and `?query` from a link target, leaving the path. */
+/**
+ * Strip the `#fragment` and `?query` from a link target, then percent-decode
+ * the remaining path so an encoded target (`My%20File.md`, `READ%4DE.md`)
+ * probes the real filename on disk, the way a Markdown renderer resolves it. A
+ * malformed escape (`%zz`) makes `decodeURIComponent` throw; we keep the raw
+ * path in that case so the link is reported as broken (a `%zz` target is not a
+ * file anyone meant to link) rather than crashing the gate.
+ */
 function pathPart(url: string): string {
-  return url.replace(/[#?].*$/, '')
+  const raw = url.replace(/[#?].*$/, '')
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    // decodeURIComponent throws only on a malformed percent-escape; the raw
+    // string is then a path no renderer resolves, so fall through to the
+    // existence check, which reports it broken.
+    return raw
+  }
 }
 
 /** Find every broken relative cross-link in one Markdown file via its AST. */
