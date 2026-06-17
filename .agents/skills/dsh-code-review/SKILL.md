@@ -31,9 +31,9 @@ These define the conventions and gates this repo is checked against, and they ar
 
 These come straight from the source docs above. They are not discretionary; absence is a blocking gap.
 
-1. **Docs in sync.** If the PR changes a config key, default, error code, wire field, or event name, it must update the package README + module/JSDoc in the same diff. `pnpm run doc-sync` only gates compilable `ts` blocks and the event-taxonomy table, so prose drift (config keys, defaults, error codes, wire fields) has no automated gate and is on the reviewer to catch — but it is still required, not optional.
+1. **Docs in sync.** If the PR changes a config key, default, error code, wire field, or event name, it must update the package README + module/JSDoc in the same diff. The `doc-sync` gate (check #3) does not catch prose drift in config keys, defaults, error codes, or wire fields — that is on the reviewer, but it is still required, not optional.
 2. **HMR-safety test.** Any new registry/registration needs a test that disposes the contributing fiber and asserts cleanup (packages/AGENTS.md). Its absence blocks merge.
-3. **Quality gates pass.** typecheck, lint, test, test:coverage (100% per-file on `packages/*/src`), knip, build, publint, constraints (ADR 0007). Don't re-review what a gate already enforces — trust the gate and spend attention on what it can't check.
+3. **Quality gates pass.** typecheck, lint, test, test:coverage (100% per-file on `packages/*/src`), knip, build, publint, constraints, `doc-sync` (doc-typecheck + verify-event-taxonomy + verify-md-wrap), module-graph freshness (ADR 0007). Don't re-review what a gate already enforces — trust the gate and spend attention on what it can't check. Note that the `doc-sync` gate only covers compilable `ts` blocks, the event-taxonomy table, and markdown wrapping; prose drift (check #1) is *additional* manual review on top of it, not covered by it.
 
 ## Reviewer-only checks (gates can't catch these — judgment required)
 
