@@ -274,7 +274,7 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     // continue with no special-casing. Synthesize the boundary events (a
     // step/end if a step was open, then a turn/end {kind:'interrupted'}); the
     // interrupted turn's real events are preserved, never truncated (a turn can
-    // be huge — ADR 0018).
+    // be huge — the session-persistence RFC).
     const closers = interruptedTurnClosers(events)
     const balanced = [...events, ...closers]
 

@@ -619,7 +619,7 @@ describe('P1-6: step/start is appended before agent/step-start is emitted', () =
     const agent = ctx.agentLoop.create('a-step-order', { model: 'mock' })
 
     // Capture, at the moment agent/step-start fires, whether the matching
-    // step/start event is already in the log (append-before-emit, ADR 0003).
+    // step/start event is already in the log (append-before-emit, the event-sourcing RFC).
     const observed: { turn: number; step: number; lastEventType: string | undefined; sawStepStart: boolean }[] = []
     ctx.on('agent/step-start', (subject, turn, step) => {
       if (subject !== agent) return
@@ -828,7 +828,7 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     // loop must therefore still owe (and append) a turn/end — deciding "owed"
     // from the log via isTurnOpen, not a "turn started" flag that the throw
     // skipped. Otherwise the turn stays permanently open and poisons the next
-    // turn/replay (ADR 0017). (Uses the plain harness — NOT the invariants
+    // turn/replay (the turn-enclosure RFC). (Uses the plain harness — NOT the invariants
     // oracle — because the throwing listener is itself a session/event
     // subscriber.)
     const adapter = new MockAdapter([textResponse('turn 2')])
@@ -868,7 +868,7 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     // Regression: a normal turn completes, closeTurn(true) appends turn/end and
     // emits agent/turn-end whose listener throws. The error must NOT be appended
     // as a session event after turn/end — that would sit past the commit
-    // boundary and be dropped as a crash tail on resume (ADR 0017). It is
+    // boundary and be dropped as a crash tail on resume (the turn-enclosure RFC). It is
     // surfaced via agent/error instead, and the log's last event is turn/end.
     const adapter = new MockAdapter([textResponse('done'), textResponse('next ok')])
     const ctx = await balancedHarness(adapter)

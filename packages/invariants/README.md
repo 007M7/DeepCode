@@ -44,7 +44,7 @@ On any violation it throws `InvariantError` (`code: 'INVARIANT'`).
 
 ## Why runtime, not deep-readonly types
 
-A `DeepReadonly<SessionEvent>` is high type-noise across every log consumer, and a plugin can cast straight through it. A dev-mode freeze plus these assertions catch real corruption at zero production cost and zero type noise. The always-on half of that defense — cloning derived messages so request/adapter mutation can't reach back into the log — lives in `dsh-session`'s `deriveMessages`. This package is the dev-mode tripwire. See [ADR 0012](../../docs/adr/0012-dev-invariants-over-deep-readonly.md).
+A `DeepReadonly<SessionEvent>` is high type-noise across every log consumer, and a plugin can cast straight through it. A dev-mode freeze plus these assertions catch real corruption at zero production cost and zero type noise. The always-on half of that defense — cloning derived messages so request/adapter mutation can't reach back into the log — lives in `dsh-session`'s `deriveMessages`. This package is the dev-mode tripwire. See [dev-mode invariants](../../docs/rfc/implemented/2026-06-11-dev-invariants-over-deep-readonly.md).
 
 ## Seeded sessions
 
