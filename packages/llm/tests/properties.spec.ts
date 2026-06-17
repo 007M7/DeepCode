@@ -1,5 +1,5 @@
 /**
- * Property-based tests for the BlockAssembler (RFC 001 → ADR 0013).
+ * Property-based tests for the BlockAssembler (the property-testing RFC).
  *
  * The assembler is protocol-shaped: arbitrary interleavings of block-start,
  * deltas, block-end, usage, and finish — valid and malformed (duplicate

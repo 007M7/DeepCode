@@ -7,7 +7,7 @@ description: Use when reviewing a pull request in the deepseek-harness repo — 
 
 **This skill is guidance, not a complete checklist.** It is a where-to-look map that lowers your startup cost on an unfamiliar PR — clearing every item here does not mean the PR is good. You are the reviewer: reason independently from the code in front of you, and think broadly across every dimension a change can fail on. The items below are the failure modes this repo has already paid for; a real review also catches the ones nobody has written down yet.
 
-Independent judgment governs *what to look at* and *how to apply a rule to this case* — not whether the repo's documented requirements still hold. AGENTS.md, packages/AGENTS.md, and the [ADR 0007 quality gates](../../../docs/adr/0007-quality-gates.md) remain authoritative; a missing HMR-safety test or out-of-sync docs is a blocking gap regardless of your judgment, not a suggestion you can waive. Use your own reasoning to go *beyond* these checks and to weigh genuine edge cases against an ADR (raise it as a discussion, don't silently override) — never to demote a documented blocker to optional.
+Independent judgment governs *what to look at* and *how to apply a rule to this case* — not whether the repo's documented requirements still hold. AGENTS.md, packages/AGENTS.md, and the [quality gates](../../../docs/rfc/implemented/2026-06-11-quality-gates.md) remain authoritative; a missing HMR-safety test or out-of-sync docs is a blocking gap regardless of your judgment, not a suggestion you can waive. Use your own reasoning to go *beyond* these checks and to weigh genuine edge cases against an RFC (raise it as a discussion, don't silently override) — never to demote a documented blocker to optional.
 
 ## How to think about a review
 
@@ -25,7 +25,7 @@ These define the conventions and gates this repo is checked against, and they ar
 - **AGENTS.md § Defensive patterns (hard-won)** — each bullet is a bug class that bit us. Reviewing anything touching process lifecycle, async/await, disposal, or adapter error paths? Re-read this first — then look for the *adjacent* mistake it doesn't name.
 - **AGENTS.md § Type Safety and Documentation** — the doc-sync rule (code change ⇒ update README + JSDoc in the SAME commit) and the no-hard-wrap markdown convention.
 - **[packages/AGENTS.md](../../../packages/AGENTS.md)** — per-package conventions (file layout, the HMR-safety test requirement).
-- **[ADR index](../../../docs/adr/README.md)** — the *why* behind the architecture. Especially [0007 quality gates](../../../docs/adr/0007-quality-gates.md) (what a PR must pass) and [0009 capability seams](../../../docs/adr/0009-capability-seams.md) (the three-package split). If a change seems to fight an ADR, that's a discussion, not a silent override — and not an automatic veto either: an ADR can be wrong for this case, so reason about it.
+- **[RFC index](../../../docs/rfc/README.md)** — the *why* behind the architecture. Especially [quality gates](../../../docs/rfc/implemented/2026-06-11-quality-gates.md) (what a PR must pass) and [capability seams](../../../docs/rfc/implemented/2026-06-13-capability-seams.md) (the three-package split). If a change seems to fight an RFC, that's a discussion, not a silent override — and not an automatic veto either: an RFC can be wrong for this case, so reason about it.
 
 ## Hard blockers (documented requirements — missing one blocks merge)
 
@@ -33,14 +33,14 @@ These come straight from the source docs above. They are not discretionary; abse
 
 1. **Docs in sync.** If the PR changes a config key, default, error code, wire field, or event name, it must update the package README + module/JSDoc in the same diff. The `doc-sync` gate (check #3) does not catch prose drift in config keys, defaults, error codes, or wire fields — that is on the reviewer, but it is still required, not optional.
 2. **HMR-safety test.** Any new registry/registration needs a test that disposes the contributing fiber and asserts cleanup (packages/AGENTS.md). Its absence blocks merge.
-3. **Quality gates pass.** typecheck, lint, test, test:coverage (100% per-file on `packages/*/src`), knip, build, publint, constraints, `doc-sync` (doc-typecheck + verify-event-taxonomy + verify-md-wrap), module-graph freshness (ADR 0007). Don't re-review what a gate already enforces — trust the gate and spend attention on what it can't check. Note that the `doc-sync` gate only covers compilable `ts` blocks, the event-taxonomy table, and markdown wrapping; prose drift (check #1) is *additional* manual review on top of it, not covered by it.
+3. **Quality gates pass.** typecheck, lint, test, test:coverage (100% per-file on `packages/*/src`), knip, build, publint, constraints, `doc-sync` (doc-typecheck + verify-event-taxonomy + verify-md-wrap), module-graph freshness (the quality-gates RFC). Don't re-review what a gate already enforces — trust the gate and spend attention on what it can't check. Note that the `doc-sync` gate only covers compilable `ts` blocks, the event-taxonomy table, and markdown wrapping; prose drift (check #1) is *additional* manual review on top of it, not covered by it.
 
 ## Reviewer-only checks (gates can't catch these — judgment required)
 
 Where your independent reasoning earns its keep. Start here, then keep going across the broader aspects above.
 
 - **e2e verifies the world, not the agent's self-report.** For real-API tests, confirm the assertion re-runs the command/checks the file externally — a keyword probe lets a cheating agent pass (see AGENTS.md e2e bullet).
-- **Seam discipline.** New swappable capability? Check it's split per ADR 0009 (interface / impl / consumer), and that the consumer injects the interface key, never an implementation type.
+- **Seam discipline.** New swappable capability? Check it's split per the capability-seams RFC (interface / impl / consumer), and that the consumer injects the interface key, never an implementation type.
 - **Test quality.** A test that passes but asserts the wrong thing is worse than none. Check that new tests would actually fail if the behavior regressed, and that they exercise the contract (events fired, disposal reached) rather than restating the implementation.
 - **Intent and contracts.** Does the change do what the PR says, and honor the documented contract on *both* sides of every seam it touches (see AGENTS.md "Honor cross-seam contracts on BOTH sides")?
 

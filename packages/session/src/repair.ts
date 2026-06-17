@@ -16,7 +16,7 @@
  *   3. a `turn/end` carrying the merge-extensible `{ kind: 'interrupted' }` reason.
  *
  * The marker records that the turn was cut short by a crash, not completed by
- * the model. See ADR 0018.
+ * the model. See the session-persistence RFC.
  *
  * Why the synthetic tool results matter: `deriveMessages()` renders the
  * `tool-call` blocks inside a durable `assistant/message` but only emits a

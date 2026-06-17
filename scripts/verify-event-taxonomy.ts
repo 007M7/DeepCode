@@ -1,5 +1,5 @@
 /**
- * Doc-sync gate (RFC 006 part 2): verify the event-taxonomy table in
+ * Doc-sync gate (doc-sync-enforcement RFC, part 2): verify the event-taxonomy table in
  * docs/architecture.md against the events actually declared in source.
  *
  * The table duplicates the `declare module 'cordis' { interface Events }`

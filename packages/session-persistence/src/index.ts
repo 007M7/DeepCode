@@ -102,7 +102,7 @@ export abstract class SessionPersistence extends Service {
    * fragment (a half-written final record) is discarded. Returned events are
    * contiguous (`events[i].seq === i`); a parse error or a `seq` gap in the
    * COMMITTED region (at or before the last real `turn/end`) makes the session
-   * unloadable (reject). Rejects an unknown format `version`. See ADR 0018 for
+   * unloadable (reject). Rejects an unknown format `version`. See the session-persistence RFC for
    * the crash-recovery contract.
    */
   abstract load(id: SessionId): Promise<{ meta: SessionMeta; events: SessionEvent[] }>

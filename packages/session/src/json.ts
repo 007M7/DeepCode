@@ -1,7 +1,7 @@
 /**
  * JSON-serializability validation for session event data.
  *
- * The session event log is the durable source of truth (ADR 0003/0018): every
+ * The session event log is the durable source of truth (the event-sourcing / session-persistence RFCs): every
  * `event.data` must round-trip losslessly through JSON so any persistence
  * backend can store and reload it byte-identically. This invariant belongs to
  * the log itself — `Session.append` enforces it at the source, so a
