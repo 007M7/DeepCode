@@ -14,6 +14,7 @@
     { "path": "./packages/session" },
     { "path": "./packages/session-persistence" },
     { "path": "./packages/session-persistence-jsonl" },
+    { "path": "./packages/session-persistence-sqlite" },
     { "path": "./packages/system-prompt" },
     { "path": "./packages/agent" },
     { "path": "./packages/tools" },

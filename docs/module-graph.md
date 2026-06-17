@@ -20,6 +20,8 @@ graph TD
   invariants --> session
   session-persistence-jsonl --> session
   session-persistence-jsonl --> session-persistence
+  session-persistence-sqlite --> session
+  session-persistence-sqlite --> session-persistence
   tools --> agent
   tools --> llm
   tools --> system-prompt
@@ -48,6 +50,7 @@ graph TD
 | `session-persistence` | `session` |
 | `invariants` | `agent`, `llm`, `session` |
 | `session-persistence-jsonl` | `session`, `session-persistence` |
+| `session-persistence-sqlite` | `session`, `session-persistence` |
 | `tools` | `agent`, `llm`, `system-prompt` |
 | `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |

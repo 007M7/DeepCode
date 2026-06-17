@@ -215,6 +215,22 @@ importers:
         specifier: ^4.0.0-rc.6
         version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
 
+  packages/session-persistence-sqlite:
+    dependencies:
+      schemastery:
+        specifier: ^3.18.0
+        version: 3.18.0
+    devDependencies:
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../session
+      '@deepseek-ai/dsh-session-persistence':
+        specifier: workspace:^
+        version: link:../session-persistence
+      cordis:
+        specifier: ^4.0.0-rc.6
+        version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
+
   packages/system-prompt:
     devDependencies:
       '@deepseek-ai/dsh-llm':

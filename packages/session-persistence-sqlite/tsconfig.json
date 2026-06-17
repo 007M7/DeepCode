@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../vendor/cosmokit" },
+    { "path": "../../vendor/cordis" },
+    { "path": "../../vendor/schemastery" },
+    { "path": "../session" },
+    { "path": "../session-persistence" }
+  ]
+}
