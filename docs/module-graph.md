@@ -26,6 +26,7 @@ graph TD
   agent-loop --> agent
   agent-loop --> llm
   agent-loop --> session
+  agent-loop --> session-persistence
   agent-loop --> system-prompt
   agent-loop --> tools
   tool-bash --> agent
@@ -48,5 +49,5 @@ graph TD
 | `invariants` | `agent`, `llm`, `session` |
 | `session-persistence-jsonl` | `session`, `session-persistence` |
 | `tools` | `agent`, `llm`, `system-prompt` |
-| `agent-loop` | `agent`, `llm`, `session`, `system-prompt`, `tools` |
+| `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |

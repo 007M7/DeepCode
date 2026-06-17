@@ -74,3 +74,58 @@ describe('AgentRegistry', () => {
     expect(ctx.agents.get('main')).toBeUndefined()
   })
 })
+
+describe('AgentRegistry factory seam', () => {
+  /** A stub AgentFactory that records calls and returns a stub agent. */
+  function stubFactory() {
+    const calls: { create: unknown[]; resume: unknown[] } = { create: [], resume: [] }
+    const factory: import('@deepseek-ai/dsh-agent').AgentFactory = {
+      createAgent(options) { calls.create.push(options); return stubAgent(options.agentId) },
+      resume(options) { calls.resume.push(options); return Promise.resolve(stubAgent(options.agentId)) },
+    }
+    return { factory, calls }
+  }
+
+  it('create()/resume() throw when no factory is registered', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    expect(() => ctx.agents.create({ agentId: 'a', sessionId: 's' })).toThrow(/no agent factory/)
+    await expect(ctx.agents.resume({ agentId: 'a', resumeSessionId: 's' })).rejects.toThrow(/no agent factory/)
+  })
+
+  it('setFactory registers a factory; create/resume delegate to it', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const { factory, calls } = stubFactory()
+    ctx.agents.setFactory(factory)
+
+    const created = ctx.agents.create({ agentId: 'c1', sessionId: 'sess-1', meta: { cwd: '/w' } })
+    expect(created.id).toBe('c1')
+    expect(calls.create).toEqual([{ agentId: 'c1', sessionId: 'sess-1', meta: { cwd: '/w' } }])
+
+    const resumed = await ctx.agents.resume({ agentId: 'r1', resumeSessionId: 'old-sess' })
+    expect(resumed.id).toBe('r1')
+    expect(calls.resume).toEqual([{ agentId: 'r1', resumeSessionId: 'old-sess' }])
+  })
+
+  it('setFactory rejects a second factory', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    ctx.agents.setFactory(stubFactory().factory)
+    expect(() => ctx.agents.setFactory(stubFactory().factory)).toThrow(/already registered/)
+  })
+
+  it('disposing the setFactory fiber clears the factory (HMR safety)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    let dispose!: () => void
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      dispose = inner.agents.setFactory(stubFactory().factory)
+    }, { inject: ['agents'] }))
+    expect(() => ctx.agents.create({ agentId: 'a', sessionId: 's' })).not.toThrow()
+    void dispose
+    await fiber.dispose()
+    // factory slot cleared → create throws again
+    expect(() => ctx.agents.create({ agentId: 'a2', sessionId: 's2' })).toThrow(/no agent factory/)
+  })
+})

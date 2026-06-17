@@ -48,7 +48,7 @@ Dependency rule: plugins depend on interface packages, never on `dsh-agent-loop`
 | `ctx.sessionPersistence` | `SessionPersistence` (abstract) | dsh-session-persistence | durable persistence seam: create/append/load/list/update sessions |
 | `ctx.systemPrompt` | `SystemPrompt` | dsh-system-prompt | ordered sections + tool schemas → `assemble()` |
 | `ctx.tools` | `ToolRegistry` | dsh-tools | tool definitions; `execute()` through waterfall |
-| `ctx.agents` | `AgentRegistry` | dsh-agent | live `Agent` handles |
+| `ctx.agents` | `AgentRegistry` | dsh-agent | live `Agent` handles + the create/resume factory seam |
 | `ctx.agentLoop` | `AgentLoop` | dsh-agent-loop | creates `LoopAgent`s and drives their loops |
 | `ctx.bash` | `BashExecutor` (abstract) | dsh-bash | bash execution seam: foreground runs + background tasks |
 
@@ -85,7 +85,7 @@ A `Session` is an append-only log of typed `SessionEvent`s — the single source
 
 Replay/fork = `ctx.sessions.create(id, { seed: seedEvents })`. Trace/telemetry = listen to `session/event`.
 
-**Durability seam**: `session/event` is a synchronous notification; persistence plugins buffer (write-behind) and drain at the awaited `session/flush` checkpoint the loop fires at every turn end. The durable backend is a real **capability seam**: the abstract `SessionPersistence` service (`dsh-session-persistence`, `ctx.sessionPersistence`) defines create/append/load/list/update over the existing `SessionEvent` (no parallel persisted type), and `dsh-session-persistence-jsonl` is the first implementation — an append-only JSONL log per session with crash-safe atomic writes, crash recovery that PRESERVES an interrupted turn (closing it with a synthetic `turn/end {interrupted}` rather than truncating — a turn can be huge), and a read/replay path. Session metadata (format version, cwd, lineage) travels separately as `SessionMeta`, attached to a `Session` via `session.header`. `ctx.sessionPersistence.load(sessionId)` returns the committed event log so a caller can reconstruct a live session and continue it. A SQLite/WAL backend is a future drop-in `SessionPersistence` subclass (the row shape `(session_id, seq, type, time, data)` maps 1:1 onto `SessionEvent`).
+**Durability seam**: `session/event` is a synchronous notification; persistence plugins buffer (write-behind) and drain at the awaited `session/flush` checkpoint the loop fires at every turn end. The durable backend is a real **capability seam**: the abstract `SessionPersistence` service (`dsh-session-persistence`, `ctx.sessionPersistence`) defines create/append/load/list/update over the existing `SessionEvent` (no parallel persisted type), and `dsh-session-persistence-jsonl` is the first implementation — an append-only JSONL log per session with crash-safe atomic writes, crash recovery that PRESERVES an interrupted turn (closing it with a synthetic `turn/end {interrupted}` rather than truncating — a turn can be huge), and a read/replay path. Session metadata (format version, cwd, lineage) travels separately as `SessionMeta`, attached to a `Session` via `session.header`. Resuming a persisted session into a live agent is `ctx.agents.resume({ resumeSessionId })`. A SQLite/WAL backend is a future drop-in `SessionPersistence` subclass (the row shape `(session_id, seq, type, time, data)` maps 1:1 onto `SessionEvent`).
 
 ## Prompt assembly (dsh-system-prompt)
 

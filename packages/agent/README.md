@@ -8,9 +8,17 @@ Tracks live agents so UI, hook, and orchestrator plugins can find them without i
 
 ### Public API
 
-- `ctx.agents.register(agent: Agent): () => void` Register a live agent. Disposed with the calling fiber.
+- `ctx.agents.register(agent: Agent): () => void` — record an **already-constructed** agent. Disposed with the calling fiber.
 - `ctx.agents.get(id: string): Agent | undefined`
 - `ctx.agents.list(): Agent[]`
+
+#### Factory seam (creation)
+
+Agent *creation* is provided by whichever plugin implements `AgentFactory` (phase 1: `dsh-agent-loop`), registered via `setFactory`. This keeps creation on the `dsh-agent` interface so consumers (UI, the ACP bridge) program against `ctx.agents` without depending on the concrete loop package.
+
+- `ctx.agents.setFactory(factory: AgentFactory): () => void` — register the creation factory (the loop calls this on construction). Throws on a second factory; the slot clears on dispose.
+- `ctx.agents.create(options: CreateAgentOptions): Agent` — construct, start, AND register a new agent on a caller-supplied `sessionId` (with optional `meta.cwd`). Distinct from `register` (which only records). Throws if no factory is registered.
+- `ctx.agents.resume(options: ResumeAgentOptions): Promise<Agent>` — load a persisted session (RFC 009) and resume an agent on it. Async; rejects if no factory is registered, or if the factory finds session persistence unconfigured.
 
 ### Events
 
@@ -45,7 +53,7 @@ The handle every plugin programs against:
 
 - `agent.send(content, options?)` — queue a message; starts a turn when idle
 - `agent.steer(content, options?)` — steer a running turn (inject between steps); behaves like `send` when idle
-- `agent.inject(content, options?)` — inject in-session context (context/message event); next request sees it. While running it joins the open turn; while idle it is wrapped in a one-shot `injection` turn so every event stays turn-enclosed (ADR 0017)
+- `agent.inject(content, options?)` — inject in-session context (context/message event); the next request sees it. Does not run the model. While a turn is open it joins that turn; while idle it is wrapped in a one-shot `injection` turn so every event stays turn-enclosed (ADR 0017)
 - `agent.abort(reason?)` — abort the in-flight step
 - `agent.session`, `agent.status`, `agent.options`, `agent.id`
 

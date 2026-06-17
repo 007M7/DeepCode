@@ -29,7 +29,7 @@ The serializability invariant is enforced at the same source boundary (`Session.
 
 ## Consequences
 
-The turn is now the *single* durability/replay boundary, so a persistence backend's "last `turn/end` = commit point" rule is complete, not merely sufficient: a backend can discard everything after the last `turn/end` with zero risk of losing between-turn context, because there is no between-turn context. `scanLog` stays simple (no partial-turn boundary walk), and an idle background-task notice survives persist + resume.
+The turn is now the *single* durability/replay boundary, so [ADR 0018](0018-session-persistence.md)'s crash-recovery rule is complete, not merely sufficient: an interrupted final turn is closed (with a synthetic `turn/end {interrupted}`) and its real events preserved, with zero risk of conflating between-turn context into it, because there is no between-turn context. `scanLog` stays simple (one possibly-open final turn, never a loose between-turn event), and an idle background-task notice survives persist + resume.
 
 Costs: `agent.inject()` while idle now writes three log lines instead of one, and the derived history gains a turn that carries only injected context (no assistant output) — `deriveMessages()` already derives purely by event type, so this renders identically. The `injection` trigger is a new on-disk vocabulary value; like every `SessionEventMap`/`TurnTriggerMap` addition it is part of the frozen format. Event ordering within a turn changed (`turn/start` now precedes `user/message`), which is observable to anything that asserted the old order — the loop's own tests were the only such consumers.
 
