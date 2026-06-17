@@ -59,6 +59,16 @@ describe('LocalBashExecutor.run', () => {
     expect(result.timeoutMs).toBe(2_000)
   })
 
+  it('rejects invalid numeric config and timeout overrides', async () => {
+    await expect(setup({ timeoutMs: Number.NaN })).rejects.toThrow(/timeoutMs/)
+    await expect(setup({ maxTimeoutMs: 0 })).rejects.toThrow(/maxTimeoutMs/)
+    await expect(setup({ maxOutputBytes: -1 })).rejects.toThrow(/maxOutputBytes/)
+
+    const { bash } = await setup()
+    expect(() => bash.resolve({ command: 'true', timeoutMs: Number.NaN })).toThrow(/request\.timeoutMs/)
+    expect(() => bash.resolve({ command: 'true', timeoutMs: -1 })).toThrow(/request\.timeoutMs/)
+  })
+
   it('per-call timeout takes precedence under the cap and kills on expiry', async () => {
     const { bash } = await setup({ timeoutMs: 60_000 })
     const result = await bash.run(bash.resolve({ command: 'sleep 60', timeoutMs: 100 }))

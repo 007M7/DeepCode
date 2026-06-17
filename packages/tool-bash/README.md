@@ -12,7 +12,7 @@ Requires a loaded executor implementation (e.g. `@deepseek-ai/dsh-bash-local`); 
 |---|---|---|
 | `command` | string (required) | Run via `bash -c`. No state persists between calls — use `workdir`, not `cd`. |
 | `description` | string (required) | One-line, active-voice summary of the command (5-10 words), for UI/log display only — no effect on execution. |
-| `timeoutMs` | number | Default/max from executor config (120s/600s for bash-local). |
+| `timeoutMs` | number | Timeout override in milliseconds. The executor applies its configured default and cap. |
 | `workdir` | string | Working directory for this call. Defaults to the calling agent's session cwd (`session.header.cwd`) so each session runs in its own workspace; a relative `workdir` is resolved against that session cwd. |
 | `run_in_background` | boolean | Return a task id immediately; no timeout applies. |
 
@@ -26,7 +26,7 @@ Result text: stdout, then a `[stderr]` section, then status markers — `[timed 
 
 ### `bash_kill`
 
-`task_id` → SIGTERM→SIGKILL on the task's process group. Killing an already-finished task is a reported no-op; unknown ids are errors.
+`task_id` → ask the executor to kill the background task. The concrete executor decides how to signal or stop the process; killing an already-finished task is a reported no-op, and unknown ids are errors.
 
 ### Task ownership (cross-session isolation)
 

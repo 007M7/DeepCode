@@ -213,7 +213,7 @@ export function apply(ctx: Context): void {
           + '5-10 words (shown in the UI). Examples: "ls" → "List files in current directory"; '
           + '"git status" → "Show working tree status"; "npm install" → "Install package dependencies".',
       },
-      timeoutMs: { type: 'number', description: 'Timeout in milliseconds (default 120000, max 600000). The command is killed on expiry.' },
+      timeoutMs: { type: 'number', description: 'Timeout in milliseconds. The executor applies its configured default and cap, and kills the command on expiry.' },
       workdir: { type: 'string', description: 'Working directory for this command. Defaults to the session workspace; a relative path is resolved against it.' },
       run_in_background: { type: 'boolean', description: 'Run in the background and return a task id immediately. No timeout applies.' },
     },
@@ -269,7 +269,7 @@ export function apply(ctx: Context): void {
 
   ctx.tools.register(defineTool({
     name: 'bash_kill',
-    description: 'Kill a running background bash task (SIGTERM, then SIGKILL) by task id.',
+    description: 'Ask the executor to kill a running background bash task by task id.',
     parameters: {
       task_id: { type: 'string', required: true, description: 'Task id returned by the bash tool.' },
     },
