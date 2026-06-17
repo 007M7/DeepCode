@@ -247,7 +247,7 @@ export class ReflectService {
     return this.ctx.fiber.effect(function* () {
       const entries = Array.isArray(mixins) ? mixins.map(key => [key, key]) : Object.entries(mixins)
       const getTarget = (ctx: Context, error: Error) => {
-        // XXX enhance error message
+        // TODO enhance error message
         return ctx[source]
       }
       for (const [key, value] of entries) {

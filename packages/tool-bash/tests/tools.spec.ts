@@ -410,7 +410,7 @@ describe('background task ownership (cross-session isolation)', () => {
   })
 
   it('documents the HMR caveat: an independent tool-bash reload resets ownership', async () => {
-    // The ownership map is per-plugin-instance (TODO(tool-bash-owner-hmr)). When
+    // The ownership map is per-plugin-instance (XXX(tool-bash-owner-hmr)). When
     // ONLY tool-bash is reloaded (bash/executor + task survive), the new instance
     // has an empty map, so the previously-owned task becomes unowned (open). This
     // test pins that documented behavior — a regression here (e.g. an accidental
