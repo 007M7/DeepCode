@@ -82,7 +82,7 @@ if (!ctx.fiber.runtime) return ctx.reflect.get(prop, false)   // ← direct glob
 
 `ctx.reflect.get(name, false)` is a direct lookup in the global service store keyed by the isolate symbol — it ignores fiber topology entirely and finds the service. So from a top-level test the read works; from inside a real plugin fiber, reached via a shadow, it throws. The bridge is exactly the latter.
 
-**Fix:** read the optional service the same fiber-independent way the bypass does — `this.ctx.get('sessionPersistence', false)` — instead of `this.ctx.sessionPersistence`. `get(name, false)` performs the direct global-store lookup (the `false` skips the active-state check, since the backend lives on another fiber), so resume resolves the backend regardless of which fiber or shadow the call arrives through. The other reads in the resume path (`this.ctx.sessions`, `this.ctx.agents`) are fine — those *are* in `AgentLoop`'s `static inject`, so they sit in its fiber store and the ancestor walk finds them immediately.
+**Fix:** read the optional service through the same global store the bypass uses, but via the public `ctx.get(name)` — `this.ctx.get('sessionPersistence')` instead of `this.ctx.sessionPersistence`. `ctx.get(name)` is a direct lookup in the global service store keyed by the isolate symbol; it ignores fiber topology, so it resolves the backend regardless of which fiber or shadow the call arrives through. It is strict by default (an inactive/absent backend reads as `undefined`, which the existing guard rejects) — preferable to the `, false` overload, which would additionally skip the active-state check and could hand back a backend mid-teardown. The other reads in the resume path (`this.ctx.sessions`, `this.ctx.agents`) are fine — those *are* in `AgentLoop`'s `static inject`, so they sit in its fiber store and the ancestor walk finds them immediately.
 
 ## Why every test missed it (the real failure)
 
@@ -98,7 +98,7 @@ Both bugs share one root process gap: **no test exercised the plugin through its
 ## Guardrails added
 
 - **Removed `export default apply`** (`packages/acp/src/index.ts`) — the Bug #1 fix.
-- **`AgentLoop.resume` reads `this.ctx.get('sessionPersistence', false)`** (`packages/agent-loop/src/index.ts`) — the Bug #2 fix, with a comment explaining the shadow-walk trap.
+- **`AgentLoop.resume` reads `this.ctx.get('sessionPersistence')`** (`packages/agent-loop/src/index.ts`) — the Bug #2 fix, with a comment explaining the shadow-walk trap.
 - **No-key `session/new` e2e over real stdio** (`examples/acp-agent/tests/acp.e2e.ts`): boots the example as a subprocess through the real Loader and asserts `session/new` resolves. This fails loudly on Bug #1 with no API key. Verified it fails when `export default apply` is restored.
 - **`TSX_TSCONFIG_PATH` in the e2e spawn**: the subprocess runs from a temp cwd, where tsx cannot find the repo-root tsconfig `paths` map by searching upward — so dsh-* imports silently fell back to built `lib/`. Pointing tsx at the repo tsconfig makes resolution cwd-independent and ensures the test runs *source*, not a possibly-stale build.
 - **AGENTS.md defensive pattern**: "Line coverage is not behavior coverage; test the REAL entry path, not a synthetic stand-in" — codifies the lesson for every future plugin.
@@ -106,6 +106,6 @@ Both bugs share one root process gap: **no test exercised the plugin through its
 ## Lessons
 
 - A namespace plugin and a default export are mutually exclusive under the cordis Loader. Pick the namespace form (`name`/`inject`/`Config`/`apply`) and do not add `export default` — `unwrapExports` will discard the namespace.
-- For a service a plugin reads opportunistically but does NOT declare in `static inject`, use `ctx.get(name, false)`, never `ctx.<name>`. The property proxy resolves by an ancestor-only fiber walk that fails through a foreign shadow; `get(…, false)` is the topology-independent lookup.
+- For a service a plugin reads opportunistically but does NOT declare in `static inject`, use `ctx.get(name)`, never `ctx.<name>`. The property proxy resolves by an ancestor-only fiber walk that fails through a foreign shadow; `ctx.get(name)` is the topology-independent lookup (and strict by default — an inactive backend reads as `undefined` rather than being handed back mid-teardown).
 - A test that constructs a plugin by hand cannot validate how the plugin loads. At least one test must drive the real Loader/export path end-to-end. When the headline operation does not call the model, that test needs no API key — so it belongs in CI, not behind a key gate.
 - Trust the trace, not the theory. The elegant shadow explanation was real but was the *second* bug; the *first* was a one-line export mistake that a fiber-walk `console.error` found in minutes after hours of plausible-but-wrong reasoning.

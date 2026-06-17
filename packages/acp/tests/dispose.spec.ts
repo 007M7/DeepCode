@@ -48,6 +48,25 @@ describe('acp bridge — disposal & HMR safety', () => {
     await harness.dispose()
   })
 
+  it('an agent created through the bridge is unregistered when ONLY the bridge fiber is disposed', async () => {
+    // The factory (`ctx.agents.create`) is reached through the bridge's
+    // traceable service proxy, so `AgentLoop.start`'s `this.ctx.effect(...)`
+    // registration binds to the CALLER context — the bridge fiber — not the
+    // AgentLoop fiber. Disposing JUST the bridge fiber (an ACP-only HMR reload)
+    // must therefore reclaim the agent's registry entry, even though agents/
+    // agent-loop stay up. This pins the fiber-ownership the bridge's teardown
+    // doc comment relies on; if a refactor rebinds the registration to the
+    // AgentLoop fiber, the agent would survive bridge dispose and this fails.
+    const harness = await makeBridgeHarness({ storageDir, script: [] })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    expect(harness.ctx.agents.get(sessionId)).toBeDefined()
+
+    await harness.acpFiber.dispose() // tear down ONLY the bridge
+    expect(harness.ctx.agents.get(sessionId)).toBeUndefined()
+    await harness.dispose()
+  })
+
   it('no agent is created by a session/new after the bridge has closed (closed guard)', async () => {
     // After teardown (here a client disconnect sets `closed`), a late
     // `session/new` must NOT create an orphan agent the bridge can no longer

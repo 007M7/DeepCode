@@ -543,14 +543,19 @@ export function apply(ctx: Context, config: AcpConfig): void {
    * the worst case is one short queued turn, since the bridge enforces a single
    * in-flight prompt.
    *
-   * The agent itself is NOT individually disposed/unregistered here — the
-   * factory (`ctx.agents.create`/`resume`) registers it on the AgentLoop fiber
-   * and returns no per-agent disposer, so the registry entry is reclaimed when
-   * the host context disposes. On a bare client disconnect (without a host
-   * dispose) the idled agent therefore lingers in `ctx.agents` until shutdown;
-   * since the MVP is single-session-per-connection and a reconnect spins up a
-   * fresh context, this does not strand work. A per-agent disposal seam is
-   * RFC 011 follow-up (TODO(rfc010-agent-disposal)).
+   * The agent itself is NOT individually disposed/unregistered here. The
+   * factory (`ctx.agents.create`/`resume`) registers it via `AgentLoop.start`'s
+   * `this.ctx.effect(...)`; because the factory is reached through this bridge's
+   * traceable service proxy, that effect's `this.ctx` is the CALLER context (the
+   * bridge fiber), so the registry entry is bound to the bridge fiber and is
+   * reclaimed when the bridge fiber disposes (whole-context dispose, or an
+   * ACP-only HMR `acpFiber.dispose()` — both unregister the agent). What this
+   * teardown path handles is a bare client disconnect, which resolves
+   * `conn.closed` WITHOUT disposing the fiber: the agent is idled+aborted here
+   * but stays in `ctx.agents` until the fiber is disposed. Since the MVP is
+   * single-session-per-connection and a reconnect spins up a fresh context, the
+   * lingering idle agent strands no work. A per-agent disposal seam (unregister
+   * on disconnect) is an RFC 011 follow-up (TODO(rfc010-agent-disposal)).
    */
   let quiescing: Promise<void> | undefined
   const quiesce = (): Promise<void> => {
