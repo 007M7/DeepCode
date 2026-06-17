@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
@@ -404,6 +404,70 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     expect(reasons).toEqual([{ kind: 'max-tokens' }, { kind: 'completed' }])
+  })
+
+  it('does not dispatch tool calls from a max-tokens-truncated step', async () => {
+    const callId = CallId('c1')
+    const adapter = new MockAdapter([[
+      { type: 'block-start', index: 0, blockType: 'tool-call' },
+      { type: 'tool-call-delta', index: 0, id: callId, name: 'echo', argumentsDelta: '{"text":"x"}' },
+      { type: 'block-end', index: 0, block: { type: 'tool-call', id: callId, name: 'echo', arguments: '{"text":"x"}' } },
+      { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } },
+      { type: 'finish', reason: { kind: 'max-tokens' } },
+    ]])
+    const ctx = await harness(adapter)
+    let executions = 0
+    ctx.tools.register(defineTool({
+      name: 'echo',
+      description: '',
+      parameters: { text: { type: 'string' } },
+      async execute() {
+        executions += 1
+        return [{ type: 'text', text: 'should not run' }]
+      },
+    }))
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(executions).toBe(0)
+    expect(agent.session.events.some(e => e.type === 'tool/call')).toBe(false)
+    expect(agent.session.deriveMessages()).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'go' }] },
+    ])
+    expect(reasons).toEqual([{ kind: 'max-tokens' }])
+  })
+
+  it('stops the turn when agent/step-end listener failure has recorded an error', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'echo', { text: 'x' }),
+      textResponse('should not run'),
+    ])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineTool({
+      name: 'echo',
+      description: '',
+      parameters: { text: { type: 'string' } },
+      async execute(args) {
+        return [{ type: 'text', text: String(args.text) }]
+      },
+    }))
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    let threw = false
+    ctx.on('agent/step-end', () => {
+      if (!threw) { threw = true; throw new Error('bad step-end listener') }
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    const turnEnd = agent.session.events.findLast(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('error')
   })
 
   it('chains queued messages into consecutive turns', async () => {

@@ -203,8 +203,8 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
   // agent/step-end emit is contained: a throwing step-end listener must not
   // abort finalization and strand the turn open (turn/end balance > notifying
   // one bad listener). Appended before the emit (ADR 0003 append-before-emit).
-  const closeStep = (): void => {
-    if (!stepOpen) return
+  const closeStep = (): boolean => {
+    if (!stepOpen) return false
     stepOpen = false
     // Session.append pushes step/end BEFORE notifying session/event listeners,
     // so a throwing listener leaves step/end in the log (balance holds) but
@@ -227,6 +227,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     // itself succeeded, AND keeps finalization going when closeStep runs from
     // the outer catch.
     if (failure !== undefined) failTurn(toError(failure))
+    return failure !== undefined
   }
 
   // Record a step/turn failure exactly once: append the single `error` event
@@ -358,7 +359,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
       // Steering that arrived during streaming/tool execution.
       const steered = drainSteering(ctx, agent, turn)
 
-      closeStep()
+      if (closeStep()) break
 
       const defaultDecision = stepOutcome.hadToolCalls || steered
       let shouldContinue: boolean
@@ -502,16 +503,27 @@ async function runStep(
   // tool dispatch actually uses.
   let message: Message = assembler.message()
   message = await ctx.waterfall('agent/step-result', agent, turn, step, message, () => Promise.resolve(message))
+  const finish = assembler.finish
+  const messageForLog: Message = finish.kind === 'max-tokens'
+    ? { ...message, content: message.content.filter(block => block.type !== 'tool-call') }
+    : message
 
-  session.append('assistant/message', { turn, step, content: message.content })
+  if (finish.kind !== 'max-tokens' || messageForLog.content.length > 0) {
+    session.append('assistant/message', { turn, step, content: messageForLog.content })
+  }
   if (assembler.usage) {
     session.append('usage', { turn, step, usage: assembler.usage })
   }
 
   // --- Tool execution (sequential; parallel execution is a TODO) ---
   // ToolRegistry.execute converts tool failures (including aborts) into
-  // isError results, so abort is re-checked around every call here.
-  const toolCalls = message.content.filter(block => block.type === 'tool-call')
+  // isError results, so abort is re-checked around every call here. A
+  // max-tokens step is cut off: any tool-call block in it may be partial, so it
+  // is neither dispatched nor recorded in the derived-history assistant message
+  // above. Raw assistant/chunk events still preserve the exact stream.
+  const toolCalls = finish.kind === 'max-tokens'
+    ? []
+    : message.content.filter(block => block.type === 'tool-call')
   for (const call of toolCalls) {
     /* v8 ignore next -- signal.reason always set by agent.abort() which provides a default */
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
@@ -552,7 +564,7 @@ async function runStep(
     /* v8 ignore stop */
   }
 
-  return { hadToolCalls: toolCalls.length > 0, finish: assembler.finish }
+  return { hadToolCalls: toolCalls.length > 0, finish }
 }
 
 /** The last turn number in a (possibly seeded) session log, or 0. */
