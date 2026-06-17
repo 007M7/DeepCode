@@ -169,6 +169,17 @@ export function apply(ctx: Context, config: AcpConfig): void {
   const agentName = config.agentName ?? 'deepseek-harness-acp'
   const agentVersion = config.agentVersion ?? '0.0.1'
 
+  // Capture the injected services NOW, during apply(), while we are inside this
+  // plugin's fiber (where `inject` grants access). The ACP method handlers run
+  // LATER, from the AgentSideConnection's JSON-RPC read loop — a context that is
+  // NOT this fiber's injection scope — so reading `ctx.agents` / `ctx.logger` /
+  // `ctx.sessionPersistence` lazily inside a handler throws "cannot get property
+  // … without inject". Resolving the references here and closing over them keeps
+  // the handlers working regardless of which fiber later invokes them.
+  const agents = ctx.agents
+  const sessionPersistence = ctx.sessionPersistence
+  const logger = ctx.logger
+
   // Single live session for the MVP. RFC 011 turns this into maps keyed by
   // sessionId plus an agent→sessionId reverse map for the permission gate.
   let record: SessionRecord | undefined
@@ -223,7 +234,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
        failure (closed pipe), which the in-memory test transport never induces;
        the swallow is a defensive best-effort guard like the loop's emit traps */
     void Promise.resolve(conn.sessionUpdate(notification)).catch((error: unknown) => {
-      ctx.logger.warn(`acp: session/update failed: ${String(error)}`)
+      logger.warn(`acp: session/update failed: ${String(error)}`)
     })
   }
 
@@ -374,7 +385,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         }
         validateWorkspaceParams(params)
         const sessionId = randomUUID()
-        const agent = ctx.agents.create({
+        const agent = agents.create({
           agentId: sessionId,
           sessionId,
           meta: { cwd: params.cwd },
@@ -407,13 +418,13 @@ export function apply(ctx: Context, config: AcpConfig): void {
           // launched in workspace B: it would replay A's history while tools run
           // in B. (If the id is unknown to `list()`, fall through to resume,
           // which rejects with the backend's not-found error.)
-          const meta = (await ctx.sessionPersistence.list()).find(m => m.id === params.sessionId)
+          const meta = (await sessionPersistence.list()).find(m => m.id === params.sessionId)
           if (meta?.cwd !== undefined && meta.cwd !== process.cwd()) {
             throw invalidParams(
               `session was created in ${meta.cwd}, but the server's launch directory is ${process.cwd()}; honoring a different cwd is not yet supported — launch the server in the session's workspace`,
             )
           }
-          const agent = await ctx.agents.resume({
+          const agent = await agents.resume({
             agentId: params.sessionId,
             resumeSessionId: params.sessionId,
             agentOptions: agentOptions(config),
@@ -577,7 +588,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
      mid-run), and there is nothing else to act on once the connection is gone —
      the swallow mirrors notify(). */
   void conn.closed.then(quiesce).catch((error: unknown) => {
-    ctx.logger.warn(`acp: connection-close teardown failed: ${String(error)}`)
+    logger.warn(`acp: connection-close teardown failed: ${String(error)}`)
   })
   /* v8 ignore stop */
 
@@ -733,5 +744,3 @@ function toolResultContent(blocks: ContentBlock[]): { type: 'content'; content: 
   }
   return out
 }
-
-export default apply

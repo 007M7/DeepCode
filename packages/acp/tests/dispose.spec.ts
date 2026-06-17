@@ -38,7 +38,7 @@ describe('acp bridge — disposal & HMR safety', () => {
     // stay up and the transport is still live. A late session/new must hit the
     // `closed` guard and reject — NOT create an agent the disposed bridge can no
     // longer stream or settle. Verify the world: no agent appeared.
-    const harness = await makeBridgeHarness({ storageDir, script: [], childFiber: true })
+    const harness = await makeBridgeHarness({ storageDir, script: [] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const before = harness.ctx.agents.list().length
     await harness.acpFiber.dispose() // tear down ONLY the bridge

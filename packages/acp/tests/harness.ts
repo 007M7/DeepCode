@@ -146,8 +146,6 @@ export async function makeBridgeHarness(options: {
   script?: (StreamChunk[] | 'hang')[]
   config?: Partial<AcpConfig>
   storageDir: string
-  /** Mount the bridge in a disposable child fiber (for the ACP-only-HMR test). */
-  childFiber?: boolean
 } = { storageDir: '' }): Promise<BridgeHarness> {
   const adapter = new MockAdapter(options.script ?? [])
 
@@ -220,21 +218,20 @@ export async function makeBridgeHarness(options: {
   // override means "no model at all".
   const cfg: AcpConfig = { stream: agentStream, ...options.config }
   if (!(options.config && 'model' in options.config)) cfg.model = 'mock'
-  // By default apply the bridge directly on the root ctx (services ungated). For
-  // the ACP-only-HMR test, `childFiber: true` mounts it in a CHILD fiber instead
-  // so the test can dispose JUST the bridge while the rest of the harness stays
-  // up — its disposer (`harness.acpFiber.dispose()`) tears down only the
-  // bridge's listeners/effect. (Child-fiber service tracing gates the async
-  // persistence path, so the load-replay tests use the default direct mount.)
-  if (options.childFiber) {
-    harness.acpFiber = await ctx.plugin({
-      name: 'acp-test',
-      inject: ['agents', 'sessions', 'sessionPersistence'],
-      apply: (inner: Context) => { AcpPlugin.apply(inner, cfg) },
-    })
-  } else {
-    AcpPlugin.apply(ctx, cfg)
-  }
+  // Mount the bridge the way production does: as a cordis PLUGIN (via
+  // `ctx.plugin` with the real `inject`), NOT `AcpPlugin.apply(ctx, cfg)`
+  // directly on the root ctx. The plugin fiber is the faithful reproduction —
+  // the bridge's `apply` runs inside the fiber's injection scope, and its ACP
+  // handlers later run from the JSON-RPC read loop OUTSIDE that scope, exactly
+  // as under the example's cordis.yml. (Mounting directly on root made every
+  // service an ungated property and hid the "cannot get property … without
+  // inject" failure that bit a real Zed session.) `harness.acpFiber.dispose()`
+  // tears down JUST the bridge (its listeners + effect) for the HMR test.
+  harness.acpFiber = await ctx.plugin({
+    name: 'acp-test',
+    inject: ['agents', 'sessions', 'sessionPersistence'],
+    apply: (inner: Context) => { AcpPlugin.apply(inner, cfg) },
+  })
   harness.client = new ClientSideConnection(makeClient, clientStream)
 
   return harness
