@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
 import type { GenerateResult, Message, ToolSchema } from '@deepseek-ai/dsh-llm'
@@ -13,13 +13,19 @@ import type { Config } from '@deepseek-ai/dsh-llm-deepseek'
 
 const FLASH = 'deepseek-v4-flash'
 const PRO = 'deepseek-v4-pro'
+const contexts: Context[] = []
 
 async function harness(model: string, config: Partial<Config> = {}) {
   const ctx = new Context()
+  contexts.push(ctx)
   await ctx.plugin(LlmService)
   await ctx.plugin(LlmDeepSeek, { models: [model], ...config })
   return ctx
 }
+
+afterEach(async () => {
+  await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
+})
 
 function ask(text: string): Message[] {
   return [{ role: 'user', content: [{ type: 'text', text }] }]

@@ -14,7 +14,7 @@
 import { stream as piStream } from '@earendil-works/pi-ai'
 import type { Model } from '@earendil-works/pi-ai'
 import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, StreamChunk, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { toPiContext, toStreamChunks } from './convert.ts'
 
 /** Reasoning levels surfaced by this adapter (DeepSeek wire: high|max). */
@@ -59,12 +59,71 @@ export function buildModel(modelId: string, options: PiAiAdapterOptions): Model<
   }
 }
 
+type Payload = {
+  tools?: { function?: { name?: unknown; strict?: unknown } }[]
+  messages?: {
+    role?: unknown
+    tool_calls?: { id?: unknown; function?: { arguments?: unknown } }[]
+  }[]
+  reasoning_effort?: unknown
+  stop?: unknown
+}
+
+function rawToolArguments(options: GenerateOptions): Map<string, string> {
+  const raw = new Map<string, string>()
+  for (const message of options.messages) {
+    if (message.role !== 'assistant') continue
+    for (const block of message.content) {
+      if (block.type === 'tool-call') raw.set(block.id, block.arguments)
+    }
+  }
+  return raw
+}
+
+function strictByToolName(tools: ToolSchema[] | undefined): Map<string, boolean | undefined> {
+  return new Map((tools ?? []).map(tool => [tool.name, tool.strict]))
+}
+
+function patchPayload(payload: unknown, options: GenerateOptions, reasoning: PiAiReasoning | undefined): unknown {
+  if (typeof payload !== 'object' || payload === null) return payload
+  const body = payload as Payload
+
+  if (reasoning === undefined) {
+    delete body.reasoning_effort
+  }
+  if (options.stop !== undefined) {
+    body.stop = options.stop
+  }
+
+  const strictByName = strictByToolName(options.tools)
+  for (const tool of body.tools ?? []) {
+    const name = tool.function?.name
+    if (typeof name !== 'string') continue
+    const strict = strictByName.get(name)
+    if (strict === undefined) delete tool.function?.strict
+    else if (tool.function !== undefined) tool.function.strict = strict
+  }
+
+  const rawById = rawToolArguments(options)
+  for (const message of body.messages ?? []) {
+    if (message.role !== 'assistant') continue
+    for (const call of message.tool_calls ?? []) {
+      if (typeof call.id !== 'string') continue
+      const raw = rawById.get(call.id)
+      if (raw !== undefined && call.function !== undefined) call.function.arguments = raw
+    }
+  }
+
+  return body
+}
+
 /**
  * pi-ai-backed adapter. One instance serves every registered model name.
  *
  * Implementation notes:
- * - `GenerateOptions.stop` is injected via pi-ai's `onPayload` hook (its
- *   public options omit stop sequences).
+ * - `onPayload` patches provider payload details pi-ai cannot express directly:
+ *   stop sequences, per-tool strict, omitted reasoning effort, and raw replayed
+ *   tool-call arguments.
  * - `prefill` throws UNSUPPORTED (same contract as dsh-llm-deepseek).
  * - pi-ai reports request failures as in-stream error events; convert.ts
  *   maps them to `finish {kind:'error'|'aborted'}` chunks rather than
@@ -86,8 +145,9 @@ export class PiAiAdapter extends LlmAdapter {
     const model = buildModel(options.model, this.options)
     // Undefined config means "provider default" (DeepSeek: thinking ENABLED),
     // matching llm-deepseek's omission semantics. pi-ai derives the wire
-    // thinking toggle from whether reasoningEffort is passed, so undefined
-    // maps to 'high' here; only an explicit 'off' disables thinking.
+    // thinking toggle from whether reasoningEffort is passed, so undefined maps
+    // internally to 'high' to get `thinking: enabled`; patchPayload then removes
+    // `reasoning_effort` so the provider chooses its default effort.
     const reasoning = this.options.reasoning ?? 'high'
 
     // pi-ai's event stream has no iterator-return cancellation hook: if our
@@ -106,13 +166,7 @@ export class PiAiAdapter extends LlmAdapter {
         ...options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {},
         signal: controller.signal,
         ...reasoning !== 'off' ? { reasoningEffort: reasoning } : {},
-        ...options.stop !== undefined ? {
-          // pi-ai's options omit stop sequences; inject them into the raw body.
-          onPayload: (payload: unknown) => {
-            (payload as Record<string, unknown>).stop = options.stop
-            return payload
-          },
-        } : {},
+        onPayload: payload => patchPayload(payload, options, this.options.reasoning),
         maxRetries: 0,
       })
 
