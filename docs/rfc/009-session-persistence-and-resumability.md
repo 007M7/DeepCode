@@ -2,6 +2,8 @@
 
 Status: implemented (see [ADR 0018](../adr/0018-session-persistence.md))
 
+> **Historical proposal note:** this RFC is preserved as the design trail. The implemented crash-recovery semantics are the ADR 0018 version: load preserves an interrupted final turn and durably closes it with synthetic boundary events instead of truncating back to the last `turn/end`; both JSONL and SQLite backends now implement that contract.
+
 ## Problem
 
 Sessions live only in memory. The example `session-jsonl.ts` plugin (duplicated byte-for-byte in both `examples/coding-agent` and `examples/echo-agent`) is write-only telemetry: it buffers `session/event` and appends JSON lines, but has no read/replay path, no crash-safety (no fsync, no atomic write, and a fire-and-forget dispose drain), no listing, and no format versioning. [ADR 0003](../adr/0003-event-sourced-sessions.md) and [docs/architecture.md](../architecture.md) both park "real persistence backends (JSONL session dirs, sqlite)" and the session-event-vocabulary review as deferred TODOs "once the loop and the first persistence plugin coexist" — that time is now.

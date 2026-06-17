@@ -8,6 +8,8 @@ Status: proposed
 
 RFC 010 ships ACP support with a single active session per connection: a second `session/new` is rejected. Editors expect to run several conversations over one agent subprocess — a user opens multiple threads, or a client pre-warms sessions. The single-session guard is a deliberate MVP scope cut, not an architectural limit; this RFC lifts it.
 
+This paragraph is historical: the multi-session bridge has landed. The remaining proposed work is per-session permission ownership plus the lifecycle seams now tracked in [RFC 014](014-agent-lifecycle-and-ownership-seams.md).
+
 ## Proposal
 
 The harness core already supports many agents (`AgentRegistry.list()` and `AgentLoop.create` impose no count limit), so multiplexing is a bridge-layer change in `@deepseek-ai/dsh-acp`, not a loop or core change.

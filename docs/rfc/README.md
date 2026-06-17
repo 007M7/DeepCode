@@ -12,8 +12,10 @@ Proposals for substantial future work — reviewed before implementation, unlike
 | [006](006-doc-sync-and-api-reports.md) | Doc-sync enforcement and API extractor reports | implemented (pts 1-2; pt 3 deferred) |
 | [007](007-supply-chain-and-vendor-drift.md) | Supply chain checks and vendor drift verification | proposed |
 | [008](008-immutable-public-surfaces.md) | Deep-readonly public surfaces | implemented (revised) |
-| [009](009-session-persistence-and-resumability.md) | Durable session persistence — abstract, append-only, event-based store | proposed |
+| [009](009-session-persistence-and-resumability.md) | Durable session persistence — abstract, append-only, event-based store | implemented |
 | [010](010-acp-agent-client-protocol.md) | Agent Client Protocol (ACP) support for external editors | proposed |
 | [011](011-acp-multi-session.md) | Multiplex concurrent ACP sessions over one connection | proposed |
 | [012](012-optional-code-mode.md) | Optional Code Mode — model writes TypeScript against an SDK of all tools | proposed |
 | [013](013-typed-event-schemas.md) | Runtime schemas for the event vocabulary (Zod vs the merge-extensible-map pattern) | proposed |
+| [014](014-agent-lifecycle-and-ownership-seams.md) | Agent lifecycle and ownership seams | proposed |
+| [015](015-shared-persistence-write-coordinator.md) | Shared persistence write coordinator | proposed |

@@ -25,7 +25,7 @@ Do NOT write an ADR for: a mechanical or local choice (a variable name, a one-fi
 | [0011](0011-runtime-arg-validation.md) | Runtime arg validation at the model boundary | accepted |
 | [0012](0012-dev-invariants-over-deep-readonly.md) | Dev-mode invariants over compile-time deep-readonly | accepted |
 | [0013](0013-property-based-testing.md) | Property-based testing for protocol-shaped code | accepted |
-| [0014](0014-doc-sync-enforcement.md) | Doc-sync enforcement (doc code blocks + event taxonomy) | accepted |
+| [0014](0014-doc-sync-enforcement.md) | Doc-sync enforcement and markdown wrap verification | accepted |
 | [0015](0015-structured-error-taxonomy.md) | Structured error taxonomy (HarnessError base) | accepted |
 | [0016](0016-pnpm-over-yarn.md) | pnpm as the package manager instead of Yarn 4 | accepted |
 | [0017](0017-turn-enclosure-invariant.md) | Every session event is enclosed in a turn | accepted |
