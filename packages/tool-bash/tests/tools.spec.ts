@@ -119,7 +119,7 @@ describe('bash tool', () => {
   })
 
   // Type and required-key violations are now rejected by the harness
-  // (defineTool validates against the SchemaSpec — ADR 0011) before execute.
+  // (defineTool validates against the SchemaSpec — the arg-validation RFC) before execute.
   it.each([
     [{}, /missing required property "command"/],
     [{ command: 42, description: 'd' }, /"command" must be a string/],

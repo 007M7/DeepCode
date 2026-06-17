@@ -1,8 +1,8 @@
 /**
- * Property-based tests for the tool-schema DSL (RFC 001 → ADR 0013), including
- * the RFC 001 ↔ 005 composition: generated args that satisfy a SchemaSpec must
+ * Property-based tests for the tool-schema DSL (the property-testing RFC), including
+ * the the property-testing ↔ runtime-validation composition composition: generated args that satisfy a SchemaSpec must
  * pass validateArgs, and targeted corruptions must be rejected. This closes the
- * validator/InferArgs drift risk noted in ADR 0011.
+ * validator/InferArgs drift risk noted in the arg-validation RFC.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -108,7 +108,7 @@ describe('schema DSL properties', () => {
     }))
   })
 
-  it('RFC 001↔005: args satisfying the spec pass validateArgs', () => {
+  it('the property-testing ↔ runtime-validation composition: args satisfying the spec pass validateArgs', () => {
     fc.assert(fc.property(
       specArb(2).chain(spec => fc.tuple(fc.constant(spec), validArgsForSpec(spec))),
       ([spec, args]) => {
@@ -117,7 +117,7 @@ describe('schema DSL properties', () => {
     ))
   })
 
-  it('RFC 001↔005: dropping a required key is always rejected', () => {
+  it('the property-testing ↔ runtime-validation composition: dropping a required key is always rejected', () => {
     fc.assert(fc.property(
       specArb(1)
         .filter(spec => requiredKeys(spec).length > 0)
@@ -132,7 +132,7 @@ describe('schema DSL properties', () => {
     ))
   })
 
-  it('RFC 001↔005: a non-object top level is always rejected', () => {
+  it('the property-testing ↔ runtime-validation composition: a non-object top level is always rejected', () => {
     fc.assert(fc.property(
       specArb(1),
       fc.oneof(fc.string(), fc.integer(), fc.boolean(), fc.constant(null), fc.array(fc.anything())),

@@ -1,8 +1,8 @@
 /**
- * Property-based tests for the agent loop's inbox/turn scheduling (RFC 001 →
- * ADR 0013). Deterministic by construction: schedules are driven through the
- * `agent/status` settle signal (no wall-clock sleeps), so a flake is a finding,
- * not timing noise.
+ * Property-based tests for the agent loop's inbox/turn scheduling (the
+ * property-testing RFC). Deterministic by construction: schedules are driven
+ * through the `agent/status` settle signal (no wall-clock sleeps), so a flake
+ * is a finding, not timing noise.
  *
  * Invariants: every sent message appears exactly once in the log (none lost);
  * turn numbers strictly increase; status transitions follow the legal machine
