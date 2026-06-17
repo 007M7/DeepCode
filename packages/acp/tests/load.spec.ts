@@ -85,11 +85,11 @@ describe('acp bridge — session/load replay', () => {
     expect(loader.ctx.agents.get(sessionId)).toBeUndefined()
   })
 
-  it('rejects load when the persisted session cwd differs from the launch dir', async () => {
+  it('loads a session whose persisted cwd differs from the launch dir (honors per-session cwd)', async () => {
     // Seed a session on disk whose header.cwd is a DIFFERENT absolute path than
-    // the server's launch dir, then load it requesting the launch cwd (so the
-    // request-cwd check passes). The bridge must still reject on the persisted
-    // header cwd — else it would replay that session while tools run here.
+    // the server's launch dir. The bridge must LOAD it (per-session cwd is
+    // honored — the resumed session keeps header.cwd, and bash routes there), no
+    // longer reject on a mismatch.
     loader = await makeBridgeHarness({ storageDir, script: [] })
     const otherCwd = '/some/other/workspace'
     await loader.ctx.sessionPersistence.create({
@@ -101,23 +101,41 @@ describe('acp bridge — session/load replay', () => {
     ])
 
     await loader.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
-    await expect(loader.client.loadSession({ sessionId: 'elsewhere', cwd: process.cwd(), mcpServers: [] }))
-      .rejects.toThrow(/created in \/some\/other\/workspace/)
-    // The rejected load must NOT have constructed/registered a live agent (the
-    // cwd is validated from persisted metadata BEFORE resume) — no leak.
-    expect(loader.ctx.agents.get('elsewhere')).toBeUndefined()
-    // And a fresh newSession still works (the connection is not wedged).
-    const ok = await loader.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    expect(ok.sessionId).toBeTruthy()
+    // Load succeeds even though the requested cwd is the launch dir, not otherCwd.
+    const res = await loader.client.loadSession({ sessionId: 'elsewhere', cwd: process.cwd(), mcpServers: [] })
+    expect(res).toBeDefined()
+    // The resumed session retains its ORIGINAL workspace cwd (so bash runs there).
+    expect(loader.ctx.agents.get('elsewhere')!.session.header.cwd).toBe(otherCwd)
   })
 
-  it('rejects load for a non-absolute or mismatched cwd', async () => {
+  it('rejects load for a non-absolute cwd (still required to be absolute)', async () => {
     loader = await makeBridgeHarness({ storageDir, script: [] })
     await loader.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     await expect(loader.client.loadSession({ sessionId: 's', cwd: 'rel', mcpServers: [] }))
       .rejects.toThrow(/absolute/)
-    await expect(loader.client.loadSession({ sessionId: 's', cwd: '/other', mcpServers: [] }))
-      .rejects.toThrow(/launch directory/)
+  })
+
+  it('rejects loading a persisted session that has NO cwd (would silently run in the launch dir)', async () => {
+    // A legacy / externally-created session log with no header.cwd. The bridge
+    // must reject the load rather than accept it and let bash silently fall back
+    // to the server's launch dir (the request cwd does not override the header).
+    loader = await makeBridgeHarness({ storageDir, script: [] })
+    await loader.ctx.sessionPersistence.create({
+      version: 1, id: SessionId('legacy'), createdAt: 1, updatedAt: 1, // no cwd
+    })
+    await loader.ctx.sessionPersistence.append(SessionId('legacy'), [
+      { type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/end', seq: 1, time: 0, data: { turn: 1, reason: { kind: 'completed' } } },
+    ])
+    await loader.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    await expect(loader.client.loadSession({ sessionId: 'legacy', cwd: process.cwd(), mcpServers: [] }))
+      .rejects.toThrow(/no absolute persisted cwd/)
+    // Rejected BEFORE resume (metadata-only check) — no agent was registered, so
+    // the id is not wedged: a later attempt hits the same clean rejection, not a
+    // duplicate-registration error.
+    expect(loader.ctx.agents.get('legacy')).toBeUndefined()
+    await expect(loader.client.loadSession({ sessionId: 'legacy', cwd: process.cwd(), mcpServers: [] }))
+      .rejects.toThrow(/no absolute persisted cwd/)
   })
 
   it('allows loading alongside an existing session but rejects re-loading the SAME id', async () => {

@@ -265,7 +265,7 @@ describe('background tools', () => {
   it('injects a completion notice into the owning agent', async () => {
     const ctx = await setup()
     const inject = vi.fn()
-    const agent = { inject } as unknown as import('@deepseek-ai/dsh-agent').Agent
+    const agent = { inject, session: { header: { version: 1, id: 'bg', createdAt: 0 } } } as unknown as import('@deepseek-ai/dsh-agent').Agent
 
     const started = await ctx.tools.execute({
       callId: CallId('call-bg'),
@@ -290,6 +290,7 @@ describe('background tools', () => {
     const ctx = await setup()
     const agent = {
       inject: () => { throw new Error('agent "x" is disposed') },
+      session: { header: { version: 1, id: 'bg', createdAt: 0 } },
     } as unknown as import('@deepseek-ai/dsh-agent').Agent
 
     const started = await ctx.tools.execute({
@@ -311,6 +312,7 @@ describe('background tools', () => {
     try {
       const agent = {
         inject: () => { throw new Error('unexpected inject bug') },
+        session: { header: { version: 1, id: 'bg', createdAt: 0 } },
       } as unknown as import('@deepseek-ai/dsh-agent').Agent
 
       const started = await ctx.tools.execute({
@@ -344,7 +346,7 @@ describe('background task ownership (cross-session isolation)', () => {
     return ctx.tools.execute({ callId: CallId(`own-${++callCounter}`), name, arguments: args, ...agent ? { agent } : {} })
   }
   // Distinct identities — ownership is by agent object identity, not id.
-  const fakeAgent = () => ({ inject: () => undefined }) as unknown as import('@deepseek-ai/dsh-agent').Agent
+  const fakeAgent = () => ({ inject: () => undefined, session: { header: { version: 1, id: 'bg', createdAt: 0 } } }) as unknown as import('@deepseek-ai/dsh-agent').Agent
 
   it('rejects bash_output/bash_kill for a task owned by a DIFFERENT agent', async () => {
     const ctx = await setup()
@@ -435,6 +437,50 @@ describe('background task ownership (cross-session isolation)', () => {
     // After reload the fresh map has no owner → B can now access it (the caveat).
     expect((await callAs(ctx, b, 'bash_output', { task_id: id })).isError).toBe(false)
     await callAs(ctx, b, 'bash_kill', { task_id: id }) // cleanup
+  })
+})
+
+describe('session-cwd routing (per-session workdir)', () => {
+  function callAs(ctx: Context, agent: import('@deepseek-ai/dsh-agent').Agent | undefined, args: unknown) {
+    return ctx.tools.execute({ callId: CallId(`cwd-${++callCounter}`), name: 'bash', arguments: args, ...agent ? { agent } : {} })
+  }
+  // An agent whose session header carries a cwd (what session/new records).
+  const agentInCwd = (cwd: string) =>
+    ({ inject: () => undefined, session: { header: { version: 1, id: 'c', createdAt: 0, cwd } } }) as unknown as import('@deepseek-ai/dsh-agent').Agent
+
+  it('defaults bash to the agent\'s session cwd (not the server launch dir)', async () => {
+    const ctx = await setup()
+    const result = await callAs(ctx, agentInCwd('/tmp'), { command: 'pwd', description: 'pwd' })
+    expect(text(result).trim()).toMatch(/\/tmp$/)
+  })
+
+  it('an explicit absolute workdir overrides the session cwd', async () => {
+    const ctx = await setup()
+    const result = await callAs(ctx, agentInCwd('/'), { command: 'pwd', description: 'pwd', workdir: '/tmp' })
+    expect(text(result).trim()).toMatch(/\/tmp$/)
+  })
+
+  it('a relative workdir is resolved against the session cwd', async () => {
+    const ctx = await setup()
+    // session cwd /usr + relative 'bin' → /usr/bin
+    const result = await callAs(ctx, agentInCwd('/usr'), { command: 'pwd', description: 'pwd', workdir: 'bin' })
+    expect(text(result).trim()).toMatch(/\/usr\/bin$/)
+  })
+
+  it('two sessions with different cwds each run bash in their own dir', async () => {
+    const ctx = await setup()
+    const inUsr = await callAs(ctx, agentInCwd('/usr'), { command: 'pwd', description: 'pwd' })
+    const inTmp = await callAs(ctx, agentInCwd('/tmp'), { command: 'pwd', description: 'pwd' })
+    expect(text(inUsr).trim()).toMatch(/\/usr$/)
+    expect(text(inTmp).trim()).toMatch(/\/tmp$/)
+  })
+
+  it('falls back to the executor default when the agent has no session cwd', async () => {
+    const ctx = await setup()
+    // No exec.agent at all → executor uses its config/process.cwd() default.
+    const result = await ctx.tools.execute({ callId: CallId('cwd-noagent'), name: 'bash', arguments: { command: 'pwd', description: 'pwd' } })
+    expect(result.isError).toBe(false)
+    expect(text(result).trim().length).toBeGreaterThan(0)
   })
 })
 
