@@ -1,10 +1,10 @@
 import { Formatter } from 'cordis'
 import { inspect } from 'node:util'
 import supportsColor from 'supports-color'
-import { ConsoleExporter as Base } from './shared.js'
+import { ConsoleExporter as Base } from './shared'
 
 /** Re-export shared console exporter config and base implementation. */
-export * from './shared.js'
+export * from './shared'
 
 const inspectFormatter: Formatter = (value, target) => {
   return inspect(value, { colors: !!target.colors, depth: Infinity, compact: true, breakLength: Infinity })

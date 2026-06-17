@@ -1,22 +1,22 @@
 import { Context, Inject, Service } from 'cordis'
 import { defineProperty, Dict, isNullable } from 'cosmokit'
-import { ModuleLoader } from './internal.ts'
-import { Entry, EntryOptions } from './config/entry.ts'
-import isolate from './config/isolate.ts'
-import { EntryTree } from './config/tree.ts'
+import { ModuleLoader } from './internal'
+import { Entry, EntryOptions } from './config/entry'
+import isolate from './config/isolate'
+import { EntryTree } from './config/tree'
 
 /** Re-export entry node APIs. */
-export * from './config/entry.ts'
+export * from './config/entry'
 /** Re-export nested entry group APIs. */
-export * from './config/group.ts'
+export * from './config/group'
 /** Re-export service isolation helpers. */
-export * from './config/isolate.ts'
+export * from './config/isolate'
 /** Re-export entry tree persistence APIs. */
-export * from './config/tree.ts'
+export * from './config/tree'
 /** Re-export loader config expression helpers. */
-export * from './config/utils.ts'
+export * from './config/utils'
 /** Re-export Node internal module loader compatibility types. */
-export * from './internal.ts'
+export * from './internal'
 
 declare module 'cordis' {
   interface Events {

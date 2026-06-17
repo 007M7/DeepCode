@@ -1,6 +1,6 @@
 import { Context, Service } from 'cordis'
-import { Entry, EntryOptions } from './entry.ts'
-import { EntryTree } from './tree.ts'
+import { Entry, EntryOptions } from './entry'
+import { EntryTree } from './tree'
 
 /** Runtime owner for a list of child loader entries. */
 export class EntryGroup {

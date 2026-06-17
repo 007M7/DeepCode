@@ -1,9 +1,9 @@
 import { Context, Fiber, Inject } from 'cordis'
 import { deepEqual, isNullable } from 'cosmokit'
-import { Loader } from '../index.ts'
-import { EntryGroup } from './group.ts'
-import { EntryTree } from './tree.ts'
-import { evaluate, interpolate } from './utils.ts'
+import { Loader } from '../index'
+import { EntryGroup } from './group'
+import { EntryTree } from './tree'
+import { evaluate, interpolate } from './utils'
 
 /** Serialized plugin entry options stored in loader config files. */
 export interface EntryOptions {
