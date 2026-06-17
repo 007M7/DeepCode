@@ -17,11 +17,11 @@ import { Context } from 'cordis'
 import z from 'schemastery'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRead } from '@deepseek-ai/dsh-bash'
-import { runBash } from './run.ts'
-import type { RunInternals, RunningBash } from './run.ts'
+import { runBash } from './run'
+import type { RunInternals, RunningBash } from './run'
 
-export { DEFAULT_GRACE_MS, ENV_OVERRIDES, killGroup, OutputCollector, runBash } from './run.ts'
-export type { RunInternals, RunningBash, SpawnOutcome, SpawnSpec } from './run.ts'
+export { DEFAULT_GRACE_MS, ENV_OVERRIDES, killGroup, OutputCollector, runBash } from './run'
+export type { RunInternals, RunningBash, SpawnOutcome, SpawnSpec } from './run'
 
 /** Plugin config (all optional — `static Config` supplies the defaults). */
 export interface Config {

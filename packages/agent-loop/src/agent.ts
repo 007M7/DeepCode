@@ -11,8 +11,8 @@ import type { AgentId, AgentOptions, AgentStatus, SendOptions } from '@deepseek-
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
-import { Inbox } from './inbox.ts'
-import { isTurnOpen, lastTurnNumber, runLoop } from './loop.ts'
+import { Inbox } from './inbox'
+import { isTurnOpen, lastTurnNumber, runLoop } from './loop'
 
 /**
  * The concrete {@link Agent} implementation owned by the agent-loop plugin.

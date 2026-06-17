@@ -18,11 +18,11 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { ReactLoopAgent } from './agent.ts'
+import { ReactLoopAgent } from './agent'
 
-export { ReactLoopAgent } from './agent.ts'
-export { Inbox, type InboxMessage } from './inbox.ts'
-export { runLoop } from './loop.ts'
+export { ReactLoopAgent } from './agent'
+export { Inbox, type InboxMessage } from './inbox'
+export { runLoop } from './loop'
 
 declare module 'cordis' {
   interface Context {

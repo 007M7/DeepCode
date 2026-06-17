@@ -21,7 +21,7 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
-import type { ToolCallPresentation, ToolDefinition, ToolExecution, ToolResult, ToolResultPresentation } from './index.ts'
+import type { ToolCallPresentation, ToolDefinition, ToolExecution, ToolResult, ToolResultPresentation } from './index'
 
 // ---------------------------------------------------------------------------
 // SchemaSpec — the author-facing per-property type

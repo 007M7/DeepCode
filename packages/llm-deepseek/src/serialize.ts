@@ -18,7 +18,7 @@
 
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
-import type { WireMessage, WireRequest, WireTool } from './types.ts'
+import type { WireMessage, WireRequest, WireTool } from './types'
 
 /** Adapter-level request defaults (from plugin config). */
 export interface RequestDefaults {

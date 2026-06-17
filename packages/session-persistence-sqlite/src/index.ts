@@ -31,9 +31,9 @@ import { interruptedTurnClosers } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
 import {
   openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
-} from './schema.ts'
+} from './schema'
 
-export { SCHEMA_VERSION } from './schema.ts'
+export { SCHEMA_VERSION } from './schema'
 
 /** Plugin configuration. */
 export interface Config {

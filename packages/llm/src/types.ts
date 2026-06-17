@@ -19,7 +19,7 @@
  * ```
  */
 
-import type { CallId } from './brand.ts'
+import type { CallId } from './brand'
 
 /** Cache hint attached to a content block (provider-interpreted). */
 export type CacheHint = 'ephemeral'

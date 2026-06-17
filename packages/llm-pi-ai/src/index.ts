@@ -19,12 +19,12 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-llm'
-import { PiAiAdapter } from './adapter.ts'
-import type { PiAiReasoning } from './adapter.ts'
+import { PiAiAdapter } from './adapter'
+import type { PiAiReasoning } from './adapter'
 
-export { buildModel, PiAiAdapter } from './adapter.ts'
-export type { PiAiAdapterOptions, PiAiReasoning } from './adapter.ts'
-export { mapStopReason, mapUsage, toPiContext, toStreamChunks } from './convert.ts'
+export { buildModel, PiAiAdapter } from './adapter'
+export type { PiAiAdapterOptions, PiAiReasoning } from './adapter'
+export { mapStopReason, mapUsage, toPiContext, toStreamChunks } from './convert'
 
 export const name = 'llm-pi-ai'
 export const inject = ['llm']

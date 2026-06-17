@@ -15,7 +15,7 @@ import { stream as piStream } from '@earendil-works/pi-ai'
 import type { Model } from '@earendil-works/pi-ai'
 import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk, ToolSchema } from '@deepseek-ai/dsh-llm'
-import { toPiContext, toStreamChunks } from './convert.ts'
+import { toPiContext, toStreamChunks } from './convert'
 
 /** Reasoning levels surfaced by this adapter (DeepSeek wire: high|max). */
 export type PiAiReasoning = 'off' | 'high' | 'xhigh'
