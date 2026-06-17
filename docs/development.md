@@ -31,7 +31,7 @@ Run typecheck once after a fresh clone:
 pnpm run typecheck
 ```
 
-That first typecheck builds declaration output used by type-aware linting for vendored packages. Without it, `pnpm run lint` can report unresolved-type `no-unsafe-*` errors even when source code is fine.
+That first typecheck runs the package/vendor build graph and the root no-emit `tsconfig.json` graph for examples, tests, and scripts. The root graph uses the same source `paths` map but relies on project references so vendored code is checked under its own tsconfig settings.
 
 If you are preparing to push from a fresh clone or worktree, also build once:
 
@@ -89,20 +89,21 @@ Use these from the repo root:
 pnpm run test           # unit tests
 pnpm run test:coverage  # unit tests with per-file coverage gates
 pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
-pnpm run typecheck      # build declarations, then typecheck source, tests, and examples
+pnpm run typecheck      # build package/vendor outputs, then typecheck examples, tests, and scripts
 pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
 pnpm run verify-event-taxonomy  # compare docs/architecture.md event names with source
 pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
-pnpm run doc-sync       # doc-typecheck, event taxonomy, and markdown wrap verification
+pnpm run verify-md-links  # fail on broken relative Markdown links in checked docs
+pnpm run doc-sync       # doc-typecheck, event taxonomy, markdown wrap, and link verification
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
 pnpm run build          # emit lib/typings intermediates, then bundle lib/index.* runtime files
 pnpm run hygiene        # knip, publint, and workspace constraints
 ```
 
-When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets, event-taxonomy drift, and hard-wrapped markdown prose, but broader prose/API sync still needs review.
+When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets, event-taxonomy drift, hard-wrapped markdown prose, and broken relative Markdown links, but broader prose/API sync still needs review.
 
 ## Demos
 

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
-import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.ts'
+import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness'
 
 /**
  * The swebench-style smoke test: a real model fixes a real bug in a temp

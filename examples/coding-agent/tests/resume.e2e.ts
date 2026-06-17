@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
 import type { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
-import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.ts'
+import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness'
 
 /**
  * Proves durable conversation continuity end-to-end: run 1 tells the REAL model

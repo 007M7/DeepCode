@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type NormalizeContext, normalizeSessionLog, normalizeStdout } from '../tests/snapshot-normalize.ts'
+import { type NormalizeContext, normalizeSessionLog, normalizeStdout } from '../tests/snapshot-normalize'
 
 /**
  * Unit tests for the pure snapshot normalizers. Live as a *.spec.ts (runs in

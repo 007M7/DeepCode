@@ -84,8 +84,7 @@ pnpm run test:snapshot  # ACP snapshot tests (examples/*/tests/**/*.snapshot.ts)
 pnpm run test:snapshot:record  # re-record fixtures + goldens against the real
                     # API (needs DEEPSEEK_API_KEY); accept-the-diff = re-record
                     # (or `pnpm run test:snapshot -u` to refresh goldens only)
-pnpm run typecheck      # tsc -b tsconfig.build.json (declarations) + tsc -p
-                    # tsconfig.typecheck.json (tests/examples typecheck too)
+pnpm run typecheck      # tsc -b tsconfig.json
 pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix
 pnpm run build          # tsc emits lib/typings, then tsdown bundles runtime lib/index.*
@@ -98,7 +97,8 @@ pnpm run verify-event-taxonomy  # assert the event-taxonomy table in docs/archit
                     # matches the interface Events declarations in source
 pnpm run verify-md-wrap  # assert no hard-wrapped prose paragraphs in README.md,
                     # docs/**/*.md, packages/*/README.md, AGENTS.md (one line per paragraph)
-pnpm run doc-sync       # doc-typecheck + verify-event-taxonomy + verify-md-wrap (CI runs this)
+pnpm run verify-md-links  # assert relative Markdown links resolve in checked docs
+pnpm run doc-sync       # doc-typecheck + verify-event-taxonomy + verify-md-wrap + verify-md-links (CI runs this)
 pnpm run demo:echo      # run examples/echo-agent (no API key; type "echo hi" to
                     # see a tool call) — the mock skeleton
 pnpm run demo:coding    # run examples/coding-agent — the real agent (needs
@@ -121,7 +121,7 @@ cordis.yml configs reference env vars with the `!!js` tag: `apiKey: !!js process
 
 **Lean on with-key e2e tests — we are DeepSeek and model inference is cheap.** A no-key test (mock adapter, or an operation that never reaches the model) is great for determinism and CI, but it can only prove the plumbing, not that the agent actually *works* against a real model. Do not ration real-API tests to save tokens: write many of them, cover the real flows (a real prompt that writes a file, a multi-turn conversation, tool use, cancellation mid-stream), and run them frequently while developing — locally and whenever you have a key in the environment. **Especially smoke tests**: a cheap with-key smoke test that boots the real example, sends one real prompt, and checks the world (a file on disk, a non-empty assistant turn) catches whole classes of "green unit tests, broken product" failures that mocks structurally cannot — the very gap that let the ACP inject bug ship (see [docs/postmortem/0001](docs/postmortem/0001-acp-default-export-drops-inject.md)). The self-skip rule is ONLY so CI (which has no secrets) stays green and so a contributor without a key isn't blocked — it is not a signal that real-API tests are expensive or second-class. When in doubt, add the with-key test AND run it.
 
-Dev/test/demo run **unbuilt** via tsx + the `paths` map in the root `tsconfig.json` (`vitest` resolves through `tsconfig.test.json`). Building is only needed for publishing/consumption outside the repo — with one exception: `pnpm run lint`'s type-aware rules resolve vendor packages through their built declarations (`tsconfig.typecheck.json` → `vendor/*/lib`), so run `pnpm run typecheck` once after a fresh clone (CI does the same) or lint reports unresolved-type `no-unsafe-*` errors.
+Dev/test/demo run **unbuilt** via tsx + the source `paths` map in the root `tsconfig.json` (`vitest` resolves through that same root config). Building is only needed for publishing/consumption outside the repo. Non-published code (`examples`, tests, and scripts) is checked by root `tsconfig.json`, which sets `noEmit` and references the package/vendor graph so those sources stay checked under their own tsconfig boundaries.
 
 ## Conventions
 
