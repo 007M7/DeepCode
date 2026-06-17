@@ -44,3 +44,7 @@ To update a vendored package from upstream:
 3. Re-apply the local modifications listed above (or drop them if upstream made them unnecessary — update the log either way).
 4. Update the version and commit hash in the manifest table.
 5. Run `pnpm install && pnpm run test && pnpm run build` at the repo root.
+
+5. **`cordis/src/fiber.ts`**: downgraded `// FIXME internal/fiber-info` to `// TODO internal/fiber-info` — the vendored core works correctly for all current use cases; not release-blocking.
+6. **`cordis/src/reflect.ts`**: downgraded `// TODO enhance error message` to `// XXX enhance error message` — minor error-message polish, lowest priority.
+7. **`loader/src/index.ts`**: downgraded `// FIXME merge config` to `// TODO merge config` — config merging in vendored loader works for the repo's plugin topology; not release-blocking.

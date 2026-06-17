@@ -373,7 +373,7 @@ export class Fiber {
     const oldState = this.state
     this.state = callback() ?? this._getState()
     if (oldState === this.state) return
-    // FIXME internal/fiber-info
+    // TODO internal/fiber-info
     this.context.emit('internal/status', this, oldState)
 
     // only notify changes between ACTIVE and NON-ACTIVE states

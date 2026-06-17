@@ -245,7 +245,7 @@ export interface RunningBash {
  * RESOLVES with a {@link SpawnOutcome} describing what happened, so callers
  * shape one consistent report for the model.
  *
- * TODO(stateful-shell): per the agent-tool survey there are two proven
+ * XXX(stateful-shell): per the agent-tool survey there are two proven
  * stateful designs worth revisiting — Claude Code persists ONLY cwd between
  * calls (captures `pwd -P` after each command), and Codex keeps whole PTY
  * exec sessions addressable via session ids + stdin writes. We deliberately

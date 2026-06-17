@@ -105,7 +105,7 @@ export class Loader extends EntryTree {
       // 1. set `fiber.entry`
       if (fiber.parent[Entry.key] && !fiber.entry) {
         fiber.entry = fiber.parent[Entry.key]
-        // FIXME merge config
+        // TODO merge config
         Inject.resolve(fiber.entry!.options.inject, fiber.inject)
       }
 
