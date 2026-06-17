@@ -5,9 +5,11 @@
   "private": true,
   "main": "lib/index.cjs",
   "module": "lib/index.mjs",
-  "types": "lib/index.d.ts",
+  "types": "lib/typings/index.d.ts",
   "files": [
-    "lib",
+    "lib/index.mjs",
+    "lib/index.cjs",
+    "lib/typings/**/*.d.ts",
     "src"
   ],
   "author": "Shigma <shigma10826@gmail.com>",
