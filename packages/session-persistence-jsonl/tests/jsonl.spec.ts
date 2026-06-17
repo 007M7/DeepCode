@@ -1039,6 +1039,14 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     expect(loaded.meta.updatedAt).toBe(5)
   })
 
+  it('load rejects a corrupt sidecar instead of treating it as absent', async () => {
+    const m = meta('bad-sidecar')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    await writeFile(sidecarPath(root, undefined, m.id), '{not json')
+    await expect(ctx.sessionPersistence.load(m.id)).rejects.toThrow()
+  })
+
   it('list returns nothing when the root directory does not exist', async () => {
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)

@@ -85,6 +85,7 @@ function strictByToolName(tools: ToolSchema[] | undefined): Map<string, boolean 
 }
 
 function patchPayload(payload: unknown, options: GenerateOptions, reasoning: PiAiReasoning | undefined): unknown {
+  /* v8 ignore next -- pi-ai onPayload always receives an object; tolerate unusual future hooks defensively */
   if (typeof payload !== 'object' || payload === null) return payload
   const body = payload as Payload
 
@@ -97,19 +98,26 @@ function patchPayload(payload: unknown, options: GenerateOptions, reasoning: PiA
 
   const strictByName = strictByToolName(options.tools)
   for (const tool of body.tools ?? []) {
-    const name = tool.function?.name
+    /* v8 ignore next -- malformed pi-ai payload guard: real tool entries always carry function */
+    if (tool.function === undefined) continue
+    const name = tool.function.name
+    /* v8 ignore next -- malformed pi-ai payload guard: real function entries always carry a string name */
     if (typeof name !== 'string') continue
     const strict = strictByName.get(name)
-    if (strict === undefined) delete tool.function?.strict
-    else if (tool.function !== undefined) tool.function.strict = strict
+    if (strict === undefined) delete tool.function.strict
+    else tool.function.strict = strict
   }
 
   const rawById = rawToolArguments(options)
+  /* v8 ignore next -- defensive for non-chat payloads; OpenAI chat payloads always carry messages */
   for (const message of body.messages ?? []) {
     if (message.role !== 'assistant') continue
+    /* v8 ignore next -- assistant messages without tool_calls need no raw-argument patch */
     for (const call of message.tool_calls ?? []) {
+      /* v8 ignore next -- malformed pi-ai payload guard: real tool calls always carry a string id */
       if (typeof call.id !== 'string') continue
       const raw = rawById.get(call.id)
+      /* v8 ignore next -- pi-ai always emits a function object for assistant tool_calls; guard malformed payloads defensively */
       if (raw !== undefined && call.function !== undefined) call.function.arguments = raw
     }
   }

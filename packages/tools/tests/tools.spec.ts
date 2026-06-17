@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from 'cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, {
   defineTool, schemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
@@ -135,6 +135,22 @@ describe('ToolRegistry', () => {
       callId: CallId('c1'),
       content: [{ type: 'text', text: 'Error: permission hook broke' }],
       isError: true,
+    })
+  })
+
+  it('preserves structured error info when a tools/execute listener throws HarnessError', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    ctx.on('tools/execute', async () => {
+      throw new HarnessError('denied', 'DENIED')
+    })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+
+    expect(result).toMatchObject({
+      callId: CallId('c1'),
+      isError: true,
+      error: { name: 'HarnessError', code: 'DENIED' },
     })
   })
 

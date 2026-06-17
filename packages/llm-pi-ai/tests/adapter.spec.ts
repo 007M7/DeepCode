@@ -198,6 +198,7 @@ describe('PiAiAdapter against a mock server', () => {
   })
 
   it.each([
+    [400, 'INVALID_REQUEST'],
     [429, 'RATE_LIMIT'],
     [500, 'SERVER'],
   ] as const)('maps HTTP %s to stable error code %s', async (status, code) => {
