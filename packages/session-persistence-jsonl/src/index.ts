@@ -8,8 +8,7 @@
  *    line, verbatim including `assistant/chunk` so `seq` stays contiguous) plus
  *    a small atomic `.summary.json` sidecar for the mutable `SessionSummary`.
  *    Lazy materialization (no file until the first `append`), atomic first
- *    write, and truncation-repair of a never-committed crash tail on the first
- *    `append` after a `load`.
+ *    write, and load-time repair of a never-committed crash tail.
  *
  * 2. **The write path** — the `session/event` → buffer → `session/flush` drain
  *    that generalizes the example `session-jsonl.ts`: snapshot each event when
@@ -24,7 +23,7 @@
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { open, mkdir, readFile, readdir, rename, link, rm, truncate } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { isJsonValue, interruptedTurnClosers } from '@deepseek-ai/dsh-session'
@@ -109,6 +108,15 @@ function assertSerializable(events: readonly SessionEvent[]): void {
  */
 function isENOENT(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
+}
+
+async function settledErrors(promises: Iterable<Promise<unknown>>): Promise<unknown[]> {
+  const settled = await Promise.allSettled([...promises])
+  const errors: unknown[] = []
+  for (const result of settled) {
+    if (result.status === 'rejected') errors.push(result.reason)
+  }
+  return errors
 }
 
 /**
@@ -397,8 +405,8 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     // sidecar is best-effort) — but if we mutated state.meta first, a later
     // touchSummary() on a successful append would persist the rejected
     // title/firstPrompt, making a failed update durable after the fact.
-    const nextMeta: SessionMeta = { ...state.meta, ...summary }
-    await this.writeSidecar(nextMeta)
+    const nextMeta: SessionMeta = { ...state.meta, ...summary, updatedAt: summary.updatedAt ?? Date.now() }
+    if (state.materialized) await this.writeSidecar(nextMeta)
     state.meta = nextMeta
   }
 
@@ -407,7 +415,10 @@ export class SessionPersistenceJsonl extends SessionPersistence {
   /** Atomically write the header line + first batch (temp-write, fsync, rename). */
   private async materialize(state: SessionState, events: readonly SessionEvent[]): Promise<void> {
     const dir = sessionDir(this.root, state.meta.cwd)
+    await mkdir(this.root, { recursive: true, mode: 0o700 })
+    await this.syncDir(dirname(this.root))
     await mkdir(dir, { recursive: true, mode: 0o700 })
+    await this.syncDir(this.root)
     const finalPath = logPath(this.root, state.meta.cwd, state.meta.id)
     // Never rename over an existing committed log: materialize is the FIRST
     // write of a session the backend believes is new. A file here means a
@@ -571,8 +582,9 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     try {
       const raw = await readFile(sidecarPath(this.root, cwd, id), 'utf8')
       return JSON.parse(raw) as SessionSummary
-    } catch {
-      return undefined
+    } catch (error) {
+      if (isENOENT(error)) return undefined
+      throw error
     }
   }
 
@@ -675,9 +687,14 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     // Dispose must reach quiescence: await every session's init + final drain
     // BEFORE returning, so no write lands after teardown (orphan rename/ENOENT).
     ctx.effect(() => async () => {
-      await Promise.allSettled([...this.inits.values()])
-      await Promise.allSettled([...this.buffers.keys()].map(s => this.flush(s)))
-      await Promise.allSettled([...this.chains.values()])
+      const errors = [
+        ...await settledErrors(this.inits.values()),
+        ...await settledErrors([...this.buffers.keys()].map(s => this.flush(s))),
+        ...await settledErrors(this.chains.values()),
+      ]
+      if (errors.length > 0) {
+        throw new AggregateError(errors, 'session-persistence-jsonl dispose failed')
+      }
     }, 'session-persistence-jsonl write path')
 
     // HMR: a hot reload does not replay session/created, so seed existing live

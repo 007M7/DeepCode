@@ -126,6 +126,28 @@ describe('session-log invariants', () => {
       .toThrow(/no prior tool\/call/)
   })
 
+  it('allows a synthetic interrupted tool/result from crash repair without a prior tool/call event', async () => {
+    const { ctx } = await setup({ freeze: false })
+    const session = ctx.sessions.create()
+    expect(() => {
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('step/start', { turn: 1, step: 1 })
+      session.append('assistant/message', { turn: 1, step: 1, content: [
+        { type: 'tool-call', id: CallId('crashed'), name: 'bash', arguments: '{}' },
+      ] })
+      session.append('tool/result', {
+        turn: 1,
+        step: 1,
+        callId: CallId('crashed'),
+        content: [{ type: 'text', text: 'interrupted' }],
+        isError: true,
+        error: { name: 'InterruptedError', code: 'interrupted' },
+      })
+      session.append('step/end', { turn: 1, step: 1 })
+      session.append('turn/end', { turn: 1, reason: { kind: 'interrupted' } })
+    }).not.toThrow()
+  })
+
   it('allows a tool/call with no matching tool/result (thrown waterfall ends the step)', async () => {
     const { ctx } = await setup({ freeze: false })
     const session = ctx.sessions.create()
@@ -175,6 +197,25 @@ describe('session-log invariants', () => {
       session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
       session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
     }).not.toThrow()
+  })
+
+  it('rejects a skipped turn number', async () => {
+    const { ctx } = await setup({ freeze: false })
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    expect(() => session.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } }))
+      .toThrow(/expected turn 2, got 3/)
+  })
+
+  it('rejects a skipped step number within a turn', async () => {
+    const { ctx } = await setup({ freeze: false })
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('step/end', { turn: 1, step: 1 })
+    expect(() => session.append('step/start', { turn: 1, step: 3 }))
+      .toThrow(/expected step 2 in turn 1, got 3/)
   })
 
   it('rejects a turn/end while a step is still open', async () => {

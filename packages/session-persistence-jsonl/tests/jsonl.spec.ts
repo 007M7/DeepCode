@@ -644,25 +644,40 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     expect(loaded.meta.title).toBeUndefined()
   })
 
-  it('delete removes the sidecar of a lazy session that has no log', async () => {
-    // update() before the first append() writes a .summary.json sidecar but no
-    // .jsonl log (lazy create). delete() must still remove that sidecar.
-    const m = meta('lazy-del', '/a')
+  it('update before the first append keeps summary in memory and writes no orphan sidecar', async () => {
+    const m = meta('lazy-update', '/a')
     await ctx.sessionPersistence.create(m)
     await ctx.sessionPersistence.update(m.id, { title: 'secret', firstPrompt: 'sensitive' })
     const sidecar = sidecarPath(root, '/a', m.id)
-    expect((await stat(sidecar)).isFile()).toBe(true) // sidecar exists, no log
-    await expect(stat(logPath(root, '/a', m.id))).rejects.toThrow() // no log
-    await ctx.sessionPersistence.delete(m.id)
-    await expect(stat(sidecar)).rejects.toThrow() // sidecar gone
+    await expect(stat(sidecar)).rejects.toThrow()
+    await expect(stat(logPath(root, '/a', m.id))).rejects.toThrow()
+
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const loaded = await ctx.sessionPersistence.load(m.id)
+    expect(loaded.meta.title).toBe('secret')
+    expect(loaded.meta.firstPrompt).toBe('sensitive')
+    expect((await stat(sidecar)).isFile()).toBe(true)
   })
 
-  it('delete removes a cwd-bucket sidecar even after a restart loses the in-memory cwd', async () => {
-    // A lazy session writes a sidecar under cwd /a (no log). Restart the backend
-    // (fresh instance, empty state) and delete: the in-memory cwd is gone and
-    // there is no log to recover it from, so delete must scan every bucket for
-    // the sidecar rather than only the _no-cwd bucket.
+  it('a lazy update leaves no sidecar that can leak into a future same-id session after restart', async () => {
+    await ctx.sessionPersistence.create(meta('restart-lazy', '/a'))
+    await ctx.sessionPersistence.update(SessionId('restart-lazy'), { title: 'secret' })
+    await expect(stat(sidecarPath(root, '/a', SessionId('restart-lazy')))).rejects.toThrow()
+
+    const ctx2 = new Context()
+    await ctx2.plugin(SessionStore)
+    await ctx2.plugin(SessionPersistenceJsonl, { root })
+    const m2 = meta('restart-lazy', '/a')
+    await ctx2.sessionPersistence.create(m2)
+    await ctx2.sessionPersistence.append(m2.id, oneTurnLog())
+    const loaded = await ctx2.sessionPersistence.load(m2.id)
+    expect(loaded.meta.title).toBeUndefined()
+    await ctx2.fiber.dispose()
+  })
+
+  it('delete removes a materialized cwd-bucket sidecar after a restart', async () => {
     await ctx.sessionPersistence.create(meta('restart-del', '/a'))
+    await ctx.sessionPersistence.append(SessionId('restart-del'), oneTurnLog())
     await ctx.sessionPersistence.update(SessionId('restart-del'), { title: 'secret' })
     const sidecar = sidecarPath(root, '/a', SessionId('restart-del'))
     expect((await stat(sidecar)).isFile()).toBe(true)
@@ -671,7 +686,8 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     await ctx2.sessionPersistence.delete(SessionId('restart-del'))
-    await expect(stat(sidecar)).rejects.toThrow() // sidecar gone despite no in-memory cwd
+    await expect(stat(sidecar)).rejects.toThrow()
+    await expect(stat(logPath(root, '/a', SessionId('restart-del')))).rejects.toThrow()
     await ctx2.fiber.dispose()
   })
 

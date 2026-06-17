@@ -80,6 +80,15 @@ function assertSerializable(events: readonly SessionEvent[]): void {
   }
 }
 
+async function settledErrors(promises: Iterable<Promise<unknown>>): Promise<unknown[]> {
+  const settled = await Promise.allSettled([...promises])
+  const errors: unknown[] = []
+  for (const result of settled) {
+    if (result.status === 'rejected') errors.push(result.reason)
+  }
+  return errors
+}
+
 /**
  * The SQLite persistence backend. Load as a plugin; it registers as
  * `ctx.sessionPersistence` and installs the write-path listeners.
@@ -314,7 +323,7 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     await this.ready
     let state = this.states.get(id)
     if (state === undefined) state = await this.adopt(id)
-    const nextMeta: SessionMeta = { ...state.meta, ...summary }
+    const nextMeta: SessionMeta = { ...state.meta, ...summary, updatedAt: summary.updatedAt ?? Date.now() }
     // update's only durable effect is the summary fields; the event log is
     // untouched. If the row is not materialized yet (a lazy session updated
     // before its first append) there is nothing to write — keep the pending
@@ -410,11 +419,19 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     // Dispose must reach quiescence: await every init + final drain, then close
     // the database, BEFORE returning, so no write lands after teardown.
     ctx.effect(() => async () => {
-      await Promise.allSettled([...this.inits.values()])
-      await Promise.allSettled([...this.buffers.keys()].map(s => this.flush(s)))
-      await Promise.allSettled([...this.chains.values()])
-      await this.ready
-      this.db.close()
+      try {
+        const errors = [
+          ...await settledErrors(this.inits.values()),
+          ...await settledErrors([...this.buffers.keys()].map(s => this.flush(s))),
+          ...await settledErrors(this.chains.values()),
+        ]
+        if (errors.length > 0) {
+          throw new AggregateError(errors, 'session-persistence-sqlite dispose failed')
+        }
+      } finally {
+        await this.ready
+        this.db.close()
+      }
     }, 'session-persistence-sqlite write path')
 
     // HMR: a hot reload does not replay session/created, so seed existing live

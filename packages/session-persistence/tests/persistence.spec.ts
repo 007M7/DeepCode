@@ -69,7 +69,7 @@ class MemoryPersistence extends SessionPersistence {
 
   async update(id: SessionId, summary: Partial<SessionSummary>): Promise<void> {
     const entry = this.store.get(id)
-    if (entry) Object.assign(entry.meta, summary)
+    if (entry) Object.assign(entry.meta, summary, { updatedAt: summary.updatedAt ?? Date.now() })
   }
 }
 
