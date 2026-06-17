@@ -169,7 +169,7 @@ describe('assertNever', () => {
 
 describe('BlockAssembler regressions (property-test findings)', () => {
   it('first block-end wins: a duplicate block-end for a closed index is ignored', () => {
-    // Found by fast-check (RFC 001): two block-ends at the same index made the
+    // Found by fast-check (the property-testing RFC): two block-ends at the same index made the
     // streamed prefix (first block) disagree with final blocks() (second
     // block). The first close must win — same straggler rule as post-close
     // deltas — so streaming and one-shot assembly stay identical.

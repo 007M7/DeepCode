@@ -33,6 +33,17 @@ const startScript = fileURLToPath(new URL('../start.ts', import.meta.url))
 // test hermetic), where a bare `--import tsx` would not resolve from
 // node_modules. import.meta.resolve gives the worktree's tsx regardless of cwd.
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
+// Absolute path to the repo-root tsconfig. Dev/test/demo run UNBUILT: the
+// `@deepseek-ai/dsh-*` workspace imports resolve through the `paths` map in the
+// root tsconfig (tsx reads it), NOT through built `lib/` output. But tsx finds
+// that tsconfig by searching UP from the child's cwd — and the child's cwd is a
+// temp workdir OUTSIDE the repo, so the search misses and the dsh-* imports fail
+// (the child dies before writing a byte). Point tsx at the repo tsconfig
+// explicitly via TSX_TSCONFIG_PATH so resolution is cwd-independent. (Without
+// this the suite only passed by accident when a stale built `lib/` happened to
+// exist — exactly the contamination that masked the inject bug this suite now
+// guards.) The repo root is four levels up from this file (examples/acp-agent/tests).
+const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
 interface Spawned {
   child: ChildProcessWithoutNullStreams
@@ -41,11 +52,11 @@ interface Spawned {
   stderr: string[]
 }
 
-function spawnAcpAgent(cwd: string): Spawned {
+function spawnAcpAgent(cwd: string, env: NodeJS.ProcessEnv = process.env): Spawned {
   const child = spawn(
     process.execPath,
     ['--import', tsxLoader, startScript],
-    { cwd, env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'] },
+    { cwd, env: { ...env, TSX_TSCONFIG_PATH: repoTsconfig }, stdio: ['pipe', 'pipe', 'pipe'] },
   )
   const stderr: string[] = []
   child.stderr.setEncoding('utf8')
@@ -83,7 +94,7 @@ afterEach(async () => {
   workdir = undefined
 })
 
-describe('acp-agent stdout purity (no key required)', () => {
+describe('acp-agent over real stdio (no key required)', () => {
   it('emits only framed JSON-RPC on stdout', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'acp-e2e-'))
     // Collect raw stdout bytes directly (bypass the SDK framing) to inspect.
@@ -92,7 +103,7 @@ describe('acp-agent stdout purity (no key required)', () => {
     // which this purity test never triggers). So this runs WITHOUT real creds.
     const child = spawn(process.execPath, ['--import', tsxLoader, startScript], {
       cwd: workdir,
-      env: { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot' },
+      env: { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot', TSX_TSCONFIG_PATH: repoTsconfig },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     const out: string[] = []
@@ -115,6 +126,30 @@ describe('acp-agent stdout purity (no key required)', () => {
       expect(() => JSON.parse(line) as unknown).not.toThrow()
     }
   }, 30_000)
+
+  it('session/new succeeds over real stdio (no model call)', async () => {
+    // REGRESSION GUARD (this exact RPC crashed a real Zed session with
+    // "cannot get property \"agents\" without inject"): `session/new` drives the
+    // full bridge → `ctx.agents.create({sessionId, meta:{cwd}})` → AgentLoop →
+    // registry/persistence path, ALL of which run from the JSON-RPC read loop
+    // OUTSIDE the bridge plugin's injection scope. A lazy `ctx.<service>` read
+    // on that path throws and the RPC fails with an Internal error — yet the
+    // call never touches the model, so this reproduces WITHOUT a key. The
+    // key-gated prompt test below never caught it (it needs real creds); the
+    // initialize-only purity test never caught it (initialize does not reach
+    // the factory). This closes that gap: boot the real subprocess and create a
+    // session, asserting the RPC RESOLVES (not rejects with an inject error).
+    workdir = await mkdtemp(join(tmpdir(), 'acp-e2e-'))
+    // A dummy key lets the deepseek adapter boot (it only checks presence, not
+    // validity, at apply time); no model call is made, so the key is never used.
+    spawned = spawnAcpAgent(workdir, { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot' })
+    const { client } = spawned
+
+    await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await client.newSession({ cwd: workdir, mcpServers: [] })
+    expect(typeof sessionId).toBe('string')
+    expect(sessionId.length).toBeGreaterThan(0)
+  }, 60_000)
 })
 
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: real prompt over ACP', () => {

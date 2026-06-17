@@ -43,4 +43,4 @@ Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta
 
 ### Real adapters
 
-Two adapters implement `LlmAdapter` against this vocabulary, deliberately built on different internals to keep the contract honest (see [ADR 0010](../../docs/adr/0010-twin-llm-adapters.md)): [`@deepseek-ai/dsh-llm-deepseek`](../llm-deepseek) (hand-rolled fetch/SSE) and [`@deepseek-ai/dsh-llm-pi-ai`](../llm-pi-ai) (via `@earendil-works/pi-ai`). The pair pinned down the `StreamChunk` conventions now documented in `types.ts` (usage before finish, raw-string tool arguments, the two sanctioned error paths).
+Two adapters implement `LlmAdapter` against this vocabulary, deliberately built on different internals to keep the contract honest (see [the twin LLM adapters](../../docs/rfc/implemented/2026-06-13-twin-llm-adapters.md)): [`@deepseek-ai/dsh-llm-deepseek`](../llm-deepseek) (hand-rolled fetch/SSE) and [`@deepseek-ai/dsh-llm-pi-ai`](../llm-pi-ai) (via `@earendil-works/pi-ai`). The pair pinned down the `StreamChunk` conventions now documented in `types.ts` (usage before finish, raw-string tool arguments, the two sanctioned error paths).

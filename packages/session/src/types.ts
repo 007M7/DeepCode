@@ -102,7 +102,7 @@ export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap]
  * still wins). It is distinct from `completed` so a consumer (e.g. the ACP
  * bridge mapping to `StopReason: 'max_tokens'`) can tell a clean stop from a
  * truncated one. The next variants to add — when an adapter/loop first emits
- * them — are `refusal` and `max_turn_requests` (both named by RFC 010 as ACP
+ * them — are `refusal` and `max_turn_requests` (both named by the ACP RFC as ACP
  * stop reasons); no current adapter produces a `refusal` finish (unknown
  * DeepSeek finish reasons collapse to `error`), so it is deliberately omitted
  * until one does.
@@ -121,7 +121,7 @@ export interface TurnEndReasonMap {
    * the crash) and are PRESERVED, not discarded: a single turn can be huge in a
    * long-horizon task (many steps, large tool output), so truncating it would
    * lose real work. The marker records that the turn was cut short, not that the
-   * model completed it. See ADR 0018.
+   * model completed it. See the session-persistence RFC.
    */
   interrupted: { kind: 'interrupted' }
 }

@@ -10,7 +10,7 @@
  * taxonomy: the assertions below ARE the contract.
  *
  * Why runtime assertions instead of compile-time deep-readonly types? See
- * ADR 0012. Briefly: a `DeepReadonly<SessionEvent>` is high type-noise across
+ * the dev-invariants RFC. Briefly: a `DeepReadonly<SessionEvent>` is high type-noise across
  * every log consumer and a plugin casts straight through it; a dev-mode freeze
  * + assertions catch real corruption at zero production cost and zero type
  * noise. The always-on half of that defense (cloning derived messages) lives
@@ -71,7 +71,7 @@ interface SessionTrace {
  * frozen: `Session.append()` accepts event data from arbitrary plugins/tools,
  * so a caller can hand us a SHALLOW-frozen object whose descendants are still
  * mutable. Skipping an already-frozen node (the obvious idempotence shortcut)
- * would leave exactly the kind of mutable history ADR 0012 means to catch. A
+ * would leave exactly the kind of mutable history the dev-invariants RFC means to catch. A
  * `WeakSet` of visited objects keeps it terminating on cycles and avoids
  * re-walking shared subtrees / already-processed seed events.
  */
@@ -107,7 +107,7 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
 
   // Boundary/step-scoped events have explicit cases; every OTHER event type —
   // including plugin-added (merge-extensible) SessionEventMap keys — is caught
-  // by the `default` and must be turn-enclosed (ADR 0017). No assertNever: an
+  // by the `default` and must be turn-enclosed (the turn-enclosure RFC). No assertNever: an
   // unknown variant is valid, not a compile error.
   switch (event.type) {
     case 'turn/start': {
@@ -168,7 +168,7 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       }
       break
     }
-    // Turn-enclosure (ADR 0017): EVERY session event not handled by a boundary
+    // Turn-enclosure (the turn-enclosure RFC): EVERY session event not handled by a boundary
     // case above must sit inside an open turn. The durable session log uses the
     // turn as its commit/replay boundary (the JSONL backend treats anything
     // after the last turn/end as a crash tail), so a bare event between turns is

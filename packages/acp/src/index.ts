@@ -172,6 +172,17 @@ export function apply(ctx: Context, config: AcpConfig): void {
   const agentName = config.agentName ?? 'deepseek-harness-acp'
   const agentVersion = config.agentVersion ?? '0.0.1'
 
+  // Capture the injected services NOW, during apply(), while we are inside this
+  // plugin's fiber (where `inject` grants access). The ACP method handlers run
+  // LATER, from the AgentSideConnection's JSON-RPC read loop — a context that is
+  // NOT this fiber's injection scope — so reading `ctx.agents` / `ctx.logger` /
+  // `ctx.sessionPersistence` lazily inside a handler throws "cannot get property
+  // … without inject". Resolving the references here and closing over them keeps
+  // the handlers working regardless of which fiber later invokes them.
+  const agents = ctx.agents
+  const sessionPersistence = ctx.sessionPersistence
+  const logger = ctx.logger
+
   // Live sessions keyed by id (RFC 011 multi-session), plus an agent→sessionId
   // reverse map so `agent/*` events (which carry only the Agent) demux in O(1).
   // The two stay in lockstep: a record is added to `sessions` and the agent to
@@ -225,7 +236,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
        failure (closed pipe), which the in-memory test transport never induces;
        the swallow is a defensive best-effort guard like the loop's emit traps */
     void Promise.resolve(conn.sessionUpdate(notification)).catch((error: unknown) => {
-      ctx.logger.warn(`acp: session/update failed: ${String(error)}`)
+      logger.warn(`acp: session/update failed: ${String(error)}`)
     })
   }
 
@@ -377,7 +388,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         assertOpen()
         validateWorkspaceParams(params)
         const sessionId = randomUUID()
-        const agent = ctx.agents.create({
+        const agent = agents.create({
           agentId: sessionId,
           sessionId,
           meta: { cwd: params.cwd },
@@ -413,13 +424,13 @@ export function apply(ctx: Context, config: AcpConfig): void {
           // always has a cwd (session/new requires it); reject the rest loudly.
           // (An id unknown to `list()` falls through to resume, which rejects with
           // the backend's not-found error.)
-          const meta = (await ctx.sessionPersistence.list()).find(m => m.id === params.sessionId)
+          const meta = (await sessionPersistence.list()).find(m => m.id === params.sessionId)
           if (meta !== undefined && (meta.cwd === undefined || !isAbsolute(meta.cwd))) {
             throw invalidParams(
               `session ${params.sessionId} has no absolute persisted cwd; cannot determine its workspace (it predates per-session cwd, or was created without one)`,
             )
           }
-          const agent = await ctx.agents.resume({
+          const agent = await agents.resume({
             agentId: params.sessionId,
             resumeSessionId: params.sessionId,
             agentOptions: agentOptions(config),
@@ -540,13 +551,19 @@ export function apply(ctx: Context, config: AcpConfig): void {
    * loop-level change); the single-in-flight-per-session rule bounds the worst
    * case to one short queued turn per session.
    *
-   * The agents themselves are NOT individually disposed/unregistered here — the
-   * factory (`ctx.agents.create`/`resume`) registers each on the AgentLoop fiber
-   * and returns no per-agent disposer, so registry entries are reclaimed when
-   * the host context disposes. On a bare client disconnect (without a host
-   * dispose) the idled agents linger in `ctx.agents` until shutdown; a reconnect
-   * spins up a fresh context, so this does not strand work. A per-agent disposal
-   * seam is a follow-up (TODO(rfc010-agent-disposal)).
+   * The agents are NOT individually disposed/unregistered here. The factory
+   * (`ctx.agents.create`/`resume`) registers each via `AgentLoop.start`'s
+   * `this.ctx.effect(...)`; because the factory is reached through this bridge's
+   * traceable service proxy, that effect's `this.ctx` is the CALLER context (the
+   * bridge fiber), so every registry entry is bound to the bridge fiber and is
+   * reclaimed when the bridge fiber disposes (whole-context dispose, or an
+   * ACP-only HMR `acpFiber.dispose()` — both unregister all the bridge's
+   * agents). What this teardown path handles is a bare client disconnect, which
+   * resolves `conn.closed` WITHOUT disposing the fiber: each live agent is
+   * idled+aborted here but stays in `ctx.agents` until the fiber is disposed.
+   * Since a reconnect spins up a fresh context, the lingering idle agents strand
+   * no work. A per-agent disposal seam (unregister on disconnect) is a follow-up
+   * (TODO(rfc010-agent-disposal)).
    */
   let quiescing: Promise<void> | undefined
   const quiesce = (): Promise<void> => {
@@ -584,7 +601,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
      mid-run), and there is nothing else to act on once the connection is gone —
      the swallow mirrors notify(). */
   void conn.closed.then(quiesce).catch((error: unknown) => {
-    ctx.logger.warn(`acp: connection-close teardown failed: ${String(error)}`)
+    logger.warn(`acp: connection-close teardown failed: ${String(error)}`)
   })
   /* v8 ignore stop */
 
@@ -734,5 +751,3 @@ function toolResultContent(blocks: ContentBlock[]): { type: 'content'; content: 
   }
   return out
 }
-
-export default apply
