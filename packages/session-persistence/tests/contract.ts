@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionMeta } from '@deepseek-ai/dsh-session'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import type { SessionPersistence } from '../src/index.ts'
+import type { SessionPersistence } from '../src/index'
 
 /** A backend under test plus its teardown. */
 export interface ContractBackend {

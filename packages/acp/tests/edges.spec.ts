@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import { makeBridgeHarness, textResponse, type BridgeHarness } from './harness.ts'
+import { makeBridgeHarness, textResponse, type BridgeHarness } from './harness'
 
 describe('acp bridge — demux & config edges', () => {
   let storageDir: string

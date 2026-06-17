@@ -19,7 +19,7 @@ import fc from 'fast-check'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionNotification } from '@agentclientprotocol/sdk'
-import { streamSessionEventUpdate } from '../src/index.ts'
+import { streamSessionEventUpdate } from '../src/index'
 
 const LEGAL_UPDATE_KINDS = new Set([
   'agent_message_chunk',

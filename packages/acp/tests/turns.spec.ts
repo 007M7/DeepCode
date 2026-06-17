@@ -11,7 +11,7 @@ import {
   textResponse,
   toolCallResponse,
   type BridgeHarness,
-} from './harness.ts'
+} from './harness'
 
 /** Boilerplate: initialize + create one session, returning its id. */
 async function newSession(h: BridgeHarness, clientCapabilities: Record<string, unknown> = {}): Promise<string> {

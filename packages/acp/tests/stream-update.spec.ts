@@ -3,7 +3,7 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionNotification } from '@agentclientprotocol/sdk'
 import type { ToolDefinition, ToolRegistry } from '@deepseek-ai/dsh-tools'
-import { streamSessionEventUpdate, agentOptions, ToolPresenter } from '../src/index.ts'
+import { streamSessionEventUpdate, agentOptions, ToolPresenter } from '../src/index'
 
 /** Collect the updates a single event produces (no presenter → generic fallback). */
 function updatesFor(event: SessionEvent): SessionNotification['update'][] {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { interruptedTurnClosers } from '../src/index.ts'
-import type { SessionEvent } from '../src/index.ts'
+import { interruptedTurnClosers } from '../src/index'
+import type { SessionEvent } from '../src/index'
 
 /**
  * Unit coverage for the crash-recovery closer synthesis. The persistence

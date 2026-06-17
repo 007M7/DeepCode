@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { SessionId, isJsonValue, interruptedTurnClosers } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
-import { SessionPersistence, assertSerializable, seedCoversPrefix } from '../src/index.ts'
-import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
+import { SessionPersistence, assertSerializable, seedCoversPrefix } from '../src/index'
+import { runPersistenceContract, meta, oneTurnLog } from './contract'
 
 /**
  * A minimal in-memory {@link SessionPersistence} used to (a) cover the abstract

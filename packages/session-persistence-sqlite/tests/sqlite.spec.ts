@@ -6,8 +6,8 @@ import { join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionMeta } from '@deepseek-ai/dsh-session'
 import SessionPersistenceSqlite, { SCHEMA_VERSION } from '@deepseek-ai/dsh-session-persistence-sqlite'
-import { openDatabase, scanRows, type EventRow } from '../src/schema.ts'
-import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
+import { openDatabase, scanRows, type EventRow } from '../src/schema'
+import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract'
 
 const dirs: string[] = []
 afterEach(async () => { for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true }) })

@@ -30,8 +30,8 @@ import {
   type SessionNotification,
   type Stream,
 } from '@agentclientprotocol/sdk'
-import * as AcpPlugin from '../src/index.ts'
-import { type AcpConfig } from '../src/index.ts'
+import * as AcpPlugin from '../src/index'
+import { type AcpConfig } from '../src/index'
 
 /** A scripted mock adapter (mirrors the agent-loop test adapter). */
 class MockAdapter extends LlmAdapter {

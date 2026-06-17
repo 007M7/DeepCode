@@ -14,7 +14,7 @@ import {
   loadReplayScript,
   name,
   parseSessionLog,
-} from '../src/index.ts'
+} from '../src/index'
 
 /**
  * Unit tests for the replay llm/stream plugin. These drive the listener through

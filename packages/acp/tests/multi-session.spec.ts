@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import { makeBridgeHarness, textResponse, type BridgeHarness, type CapturedUpdate } from './harness.ts'
+import { makeBridgeHarness, textResponse, type BridgeHarness, type CapturedUpdate } from './harness'
 
 /** Text of the agent_message_chunk updates scoped to one session id. */
 function messageTextFor(updates: { sessionId?: string; update: CapturedUpdate }[], sessionId: string): string {
