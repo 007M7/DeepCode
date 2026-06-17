@@ -7,7 +7,7 @@ The file-by-file checklist for a new `@deepseek-ai/dsh-<name>` package. (Verifie
 ```
 packages/<name>/
   package.json     # copy from packages/tools, adjust name/description/deps
-  tsconfig.json    # extends ../../tsconfig.base.json, rootDir src, outDir lib,
+  tsconfig.json    # extends ../../tsconfig.base.json, rootDir src, outDir lib/typings,
                    # references: vendor/cosmokit, vendor/cordis (+ vendor/schemastery
                    # if you use Config, + ../<dep> for each dsh dependency)
   src/index.ts     # service default export or plugin (name/inject/apply/Config)
@@ -15,14 +15,14 @@ packages/<name>/
   README.md        # service API, events, extension points, design notes
 ```
 
-package.json invariants (enforced by `pnpm run constraints` / `scripts/check-workspace-constraints.ts`): `private: true`, `version: 0.0.1`, `type: module`, `cordis` in BOTH peerDependencies and devDependencies (same range). Mirror every dsh peer dependency in devDependencies. `schemastery` goes in `dependencies` (it is a runtime validator), matching agent-loop.
+package.json invariants (enforced by `pnpm run constraints` / `scripts/check-workspace-constraints.ts`): `private: true`, `version: 0.0.1`, `type: module`, `main: "lib/index.js"`, `types: "lib/typings/index.d.ts"`, `exports["."].types: "./lib/typings/index.d.ts"`, `cordis` in BOTH peerDependencies and devDependencies (same range). Mirror every dsh peer dependency in devDependencies. `schemastery` goes in `dependencies` (it is a runtime validator), matching agent-loop. The `files` list is precise: `lib/index.js`, `lib/typings/**/*.d.ts`, and `src`; do not publish `lib/typings` JS/map intermediates or stale root declaration files.
 
 ## 2. Register it in the root configs
 
 | File | Change |
 |---|---|
 | `tsconfig.base.json` | add `"@deepseek-ai/dsh-<name>": ["./packages/<name>/src"]` to `paths` |
-| `tsconfig.typecheck.json` | same entry (this file overrides the map wholesale) |
+| `tsconfig.json` | add `{ "path": "./packages/<name>" }` to `references` |
 | `tsconfig.build.json` | add `{ "path": "./packages/<name>" }` to `references` |
 | `scripts/publint-all.ts` | add `'packages/<name>'` to the array |
 | `knip.json` | only if the package has non-`*.spec.ts` entries (e.g. `*.e2e.ts` → add a per-workspace override like `packages/llm-deepseek`) |

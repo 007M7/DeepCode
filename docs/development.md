@@ -98,7 +98,7 @@ pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README 
 pnpm run doc-sync       # doc-typecheck, event taxonomy, and markdown wrap verification
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
-pnpm run build          # build declarations and JS bundles
+pnpm run build          # emit lib/typings intermediates, then bundle lib/index.* runtime files
 pnpm run hygiene        # knip, publint, and workspace constraints
 ```
 
