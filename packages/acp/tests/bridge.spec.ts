@@ -105,19 +105,20 @@ describe('acp bridge', () => {
     })).rejects.toThrow(/text/)
   })
 
-  it('rejects a prompt carrying a non-text block alongside text (no silent context loss)', async () => {
-    // A text + resource_link prompt must be rejected, not run text-only with the
-    // resource silently dropped — that would feed the model an incomplete prompt.
-    harness = await makeBridgeHarness({ storageDir, script: [] })
+  it('accepts a resource_link prompt by rendering the link into the text sent to the agent', async () => {
+    harness = await makeBridgeHarness({ storageDir, script: [textResponse('ok')] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    await expect(harness.client.prompt({
+    const result = await harness.client.prompt({
       sessionId,
       prompt: [
         { type: 'text', text: 'fix the bug in' },
         { type: 'resource_link', uri: 'file:///x.ts', name: 'x.ts' },
       ],
-    })).rejects.toThrow(/text/)
+    })
+    expect(result.stopReason).toBe('end_turn')
+    const user = harness.ctx.agents.get(sessionId)!.session.events.find(event => event.type === 'user/message')
+    expect(JSON.stringify(user)).toContain('resource_link')
   })
 
   it('rejects a prompt for an unknown session', async () => {

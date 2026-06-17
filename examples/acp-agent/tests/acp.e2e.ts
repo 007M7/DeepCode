@@ -27,11 +27,11 @@ import {
  */
 
 const startScript = fileURLToPath(new URL('../start.ts', import.meta.url))
-// Resolve tsx's loader to an ABSOLUTE path: the subprocess runs with cwd set to
-// a temp workdir (this test launches there and uses it as the session cwd; the
-// bridge no longer requires cwd === the launch dir, but a temp dir keeps the
-// test hermetic), where a bare `--import tsx` would not resolve from
-// node_modules. import.meta.resolve gives the worktree's tsx regardless of cwd.
+const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
+// Resolve tsx's loader to an ABSOLUTE path. The subprocess launches from the
+// harness repo (so pnpm/package resolution is stable) while each ACP session's
+// request cwd points at the temp workspace; import.meta.resolve gives the
+// worktree's tsx regardless of launch cwd.
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 
 interface Spawned {
@@ -41,11 +41,11 @@ interface Spawned {
   stderr: string[]
 }
 
-function spawnAcpAgent(cwd: string): Spawned {
+function spawnAcpAgent(): Spawned {
   const child = spawn(
     process.execPath,
     ['--import', tsxLoader, startScript],
-    { cwd, env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'] },
+    { cwd: repoRoot, env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'] },
   )
   const stderr: string[] = []
   child.stderr.setEncoding('utf8')
@@ -91,13 +91,16 @@ describe('acp-agent stdout purity (no key required)', () => {
     // present at boot, not valid — the key is used only on a real model call,
     // which this purity test never triggers). So this runs WITHOUT real creds.
     const child = spawn(process.execPath, ['--import', tsxLoader, startScript], {
-      cwd: workdir,
+      cwd: repoRoot,
       env: { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot' },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     const out: string[] = []
+    const stderr: string[] = []
     child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
     child.stdout.on('data', (c: string) => out.push(c))
+    child.stderr.on('data', (c: string) => stderr.push(c))
 
     // Send a single initialize request as a newline-delimited JSON-RPC frame.
     const req = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} } })
@@ -108,7 +111,7 @@ describe('acp-agent stdout purity (no key required)', () => {
     child.kill('SIGKILL')
 
     const lines = out.join('').split('\n').filter(l => l.trim().length > 0)
-    expect(lines.length).toBeGreaterThan(0)
+    expect(lines.length, stderr.join('')).toBeGreaterThan(0)
     for (const line of lines) {
       // Every stdout line MUST parse as JSON (a JSON-RPC frame). A non-JSON
       // line means a logger/print leaked onto the protocol channel.
@@ -120,7 +123,7 @@ describe('acp-agent stdout purity (no key required)', () => {
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: real prompt over ACP', () => {
   it('runs a real turn and the agent writes the requested file (verified on disk)', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'acp-e2e-'))
-    spawned = spawnAcpAgent(workdir)
+    spawned = spawnAcpAgent()
     const { client, updates } = spawned
 
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })

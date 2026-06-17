@@ -8,7 +8,7 @@
  * the existing `agent/*` event taxonomy, the `dsh-agent` create/resume factory,
  * and `dsh-session-persistence` (for `session/load`). It maps:
  *
- * - `initialize`     → protocol-version negotiation, text-only capabilities
+ * - `initialize`     → protocol-version negotiation, baseline prompt capabilities
  * - `session/new`    → `ctx.agents.create({ sessionId, meta:{cwd} })`
  * - `session/load`   → `ctx.agents.resume(...)` then replay the event log
  * - `session/prompt` → `agent.send()`, settle on the owning turn's end (a turn
@@ -259,7 +259,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
   ctx.on('session/event', (session, event: SessionEvent) => {
     const rec = sessions.get(session.header.id)
     if (rec === undefined) return
-    streamSessionEventUpdate(rec.sessionId, event, notify)
+    streamSessionEventUpdate(rec.sessionId, event, notify, { includeUserMessages: false })
     const inflight = rec.inflight
     if (inflight === undefined) return
     if (event.type === 'turn/start') {
@@ -360,7 +360,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           agentInfo: { name: agentName, version: agentVersion },
           agentCapabilities: {
             loadSession: true,
-            // text-only: no image/audio/embeddedContext, no mcpCapabilities
+            // Baseline text/resource_link only: no image/audio/embedded resource, no mcpCapabilities.
             promptCapabilities: { image: false, audio: false, embeddedContext: false },
           },
           authMethods: [],
@@ -419,6 +419,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
               `session ${params.sessionId} has no absolute persisted cwd; cannot determine its workspace (it predates per-session cwd, or was created without one)`,
             )
           }
+          if (meta !== undefined && meta.cwd !== params.cwd) {
+            throw invalidParams(`session ${params.sessionId} cwd mismatch: persisted ${meta.cwd}, requested ${params.cwd}`)
+          }
           const agent = await ctx.agents.resume({
             agentId: params.sessionId,
             resumeSessionId: params.sessionId,
@@ -459,7 +462,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           throw invalidParams('a prompt is already in flight for this session')
         }
         if (promptHasUnsupportedContent(params.prompt)) {
-          throw invalidParams('only text prompt content is supported (text-only promptCapabilities); image/audio/resource blocks are rejected rather than silently dropped')
+          throw invalidParams('only text and resource_link prompt content is supported; image/audio/resource blocks are rejected rather than silently dropped')
         }
         const text = acpPromptToText(params.prompt)
         if (text.trim().length === 0) {
@@ -615,18 +618,21 @@ export function agentOptions(config: AcpConfig): { model?: string; systemPrompt?
  *    bash workdir — the request cwd does not override it.
  * Any absolute path is accepted (the per-session cwd flows to the bash executor
  * — see `dsh-tool-bash`), so the server no longer has to launch in the
- * workspace. `additionalDirectories` must still be empty: widening the
- * tool/filesystem scope beyond the single cwd is a separate, unimplemented
- * concern (a sandbox seam), and silently ignoring extra roots would desync the
- * client's filesystem-scope UI. Both request shapes carry `cwd: string` and
- * `additionalDirectories?: string[]`, so one validator covers both.
+ * workspace. `additionalDirectories` and `mcpServers` must still be empty:
+ * widening tool/filesystem/protocol scope is separate, unimplemented work, and
+ * silently ignoring requested roots/servers would desync the client's UI. Both
+ * request shapes carry the same workspace/scope fields, so one validator covers
+ * both.
  */
-function validateWorkspaceParams(params: { cwd: string; additionalDirectories?: string[] }): void {
+function validateWorkspaceParams(params: { cwd: string; additionalDirectories?: string[]; mcpServers?: unknown[] }): void {
   if (!isAbsolute(params.cwd)) {
     throw invalidParams(`cwd must be an absolute path: ${params.cwd}`)
   }
   if (params.additionalDirectories !== undefined && params.additionalDirectories.length > 0) {
     throw invalidParams('additionalDirectories is not supported in this MVP')
+  }
+  if (params.mcpServers !== undefined && params.mcpServers.length > 0) {
+    throw invalidParams('mcpServers is not supported in this MVP')
   }
 }
 
@@ -637,8 +643,9 @@ function validateWorkspaceParams(params: { cwd: string; additionalDirectories?: 
  * identical update stream from the same event log.
  *
  * - `assistant/chunk` text-delta/reasoning-delta → message/thought chunks
- * - `user/message` → `user_message_chunk` (text blocks) — so a `session/load`
- *   replay reconstructs the USER side of each turn, not just the agent's
+ * - `user/message` → `user_message_chunk` during load replay only — so a
+ *   loaded transcript reconstructs the USER side of each turn without echoing
+ *   a live `session/prompt` back to the client
  * - `tool/call`   → `tool_call` (pending)
  * - `tool/result` → `tool_call_update` (completed/failed)
  *
@@ -649,7 +656,9 @@ export function streamSessionEventUpdate(
   sessionId: string,
   event: SessionEvent,
   notify: (notification: SessionNotification) => void,
+  options: { includeUserMessages?: boolean } = {},
 ): void {
+  const includeUserMessages = options.includeUserMessages ?? true
   switch (event.type) {
     case 'assistant/chunk': {
       const chunk = event.data.chunk
@@ -661,9 +670,10 @@ export function streamSessionEventUpdate(
       return
     }
     case 'user/message': {
+      if (!includeUserMessages) return
       // Replay the user's prompt so a loaded session shows both sides of each
-      // turn. Only text blocks carry inline content the bridge surfaces (the
-      // prompt path is text-only); other block kinds produce no chunk.
+      // turn. Live prompt turns suppress this path to avoid duplicating what
+      // the client just sent.
       for (const block of event.data.content) {
         const content = harnessBlockToAcpContent(block)
         if (content !== undefined) {

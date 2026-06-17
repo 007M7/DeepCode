@@ -85,7 +85,7 @@ describe('acp bridge — session/load replay', () => {
     expect(loader.ctx.agents.get(sessionId)).toBeUndefined()
   })
 
-  it('loads a session whose persisted cwd differs from the launch dir (honors per-session cwd)', async () => {
+  it('rejects load when the requested cwd does not match the persisted session cwd', async () => {
     // Seed a session on disk whose header.cwd is a DIFFERENT absolute path than
     // the server's launch dir. The bridge must LOAD it (per-session cwd is
     // honored — the resumed session keeps header.cwd, and bash routes there), no
@@ -101,10 +101,12 @@ describe('acp bridge — session/load replay', () => {
     ])
 
     await loader.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
-    // Load succeeds even though the requested cwd is the launch dir, not otherCwd.
-    const res = await loader.client.loadSession({ sessionId: 'elsewhere', cwd: process.cwd(), mcpServers: [] })
+    await expect(loader.client.loadSession({ sessionId: 'elsewhere', cwd: process.cwd(), mcpServers: [] }))
+      .rejects.toThrow(/cwd mismatch/)
+    expect(loader.ctx.agents.get('elsewhere')).toBeUndefined()
+
+    const res = await loader.client.loadSession({ sessionId: 'elsewhere', cwd: otherCwd, mcpServers: [] })
     expect(res).toBeDefined()
-    // The resumed session retains its ORIGINAL workspace cwd (so bash runs there).
     expect(loader.ctx.agents.get('elsewhere')!.session.header.cwd).toBe(otherCwd)
   })
 

@@ -1,4 +1,4 @@
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 
@@ -17,6 +17,8 @@ try {
   }
   // ENOENT (no .env) is fine — rely on the ambient environment.
 }
+
+process.chdir(fileURLToPath(new URL('../..', import.meta.url)))
 
 const ctx = new Context()
 ctx.baseUrl = pathToFileURL(import.meta.dirname).href + '/'
