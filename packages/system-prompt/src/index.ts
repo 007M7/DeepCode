@@ -123,8 +123,11 @@ export class SystemPrompt extends Service {
    */
   assemble(): Promise<PromptAssembly> {
     const assembly: PromptAssembly = {
-      sections: [...this.sections].sort((a, b) => a.order - b.order),
-      tools: this.toolProviders.flatMap(provider => provider()),
+      sections: this.sections
+        .map(section => ({ ...section }))
+        .sort((a, b) => a.order - b.order),
+      tools: this.toolProviders.flatMap(provider =>
+        provider().map(tool => ({ ...tool, parameters: structuredClone(tool.parameters) }))),
     }
     return this.ctx.waterfall(this, 'system-prompt/assemble', assembly, () => Promise.resolve(assembly))
   }

@@ -173,7 +173,10 @@ export class ToolRegistry extends Service {
   schemas(): ToolSchema[] {
     // Rest-destructure to drop `execute`; the unused binding is the idiom.
     // eslint-disable-next-line @typescript-eslint/unbound-method, @typescript-eslint/no-unused-vars
-    return [...this.store.values()].map(({ execute, ...schema }) => schema)
+    return [...this.store.values()].map(({ execute, ...schema }) => ({
+      ...schema,
+      parameters: structuredClone(schema.parameters),
+    }))
   }
 
   /**
@@ -200,6 +203,14 @@ export class ToolRegistry extends Service {
           isError: true,
           ...info ? { error: info } : {},
         }
+      }
+    }).catch((error: unknown): ToolExecutionResult => {
+      const info = errorInfo(error)
+      return {
+        callId: exec.callId,
+        content: [{ type: 'text', text: `Error: ${errorMessage(error)}` }],
+        isError: true,
+        ...info ? { error: info } : {},
       }
     })
   }

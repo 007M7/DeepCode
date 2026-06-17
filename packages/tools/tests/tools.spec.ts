@@ -122,6 +122,38 @@ describe('ToolRegistry', () => {
     expect(order).toEqual(['first:before', 'second:before', 'second:after', 'first:after'])
   })
 
+  it('returns an isError result when a tools/execute listener throws', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    ctx.on('tools/execute', async () => {
+      throw new Error('permission hook broke')
+    })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+
+    expect(result).toEqual({
+      callId: CallId('c1'),
+      content: [{ type: 'text', text: 'Error: permission hook broke' }],
+      isError: true,
+    })
+  })
+
+  it('schemas() snapshots tool schemas instead of exposing registry objects', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+
+    const first = ctx.tools.schemas()
+    const firstParameters = first[0]!.parameters as { properties: Record<string, unknown> }
+    firstParameters.properties['mutated'] = { type: 'string' }
+    first[0]!.description = 'mutated'
+
+    expect(ctx.tools.schemas()).toEqual([{
+      name: 'echo',
+      description: 'echo arguments back',
+      parameters: { type: 'object', properties: { text: { type: 'string' } } },
+    }])
+  })
+
   it('rejects duplicate names and unregisters on fiber dispose (HMR safety)', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
