@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
+import { DatabaseSync } from 'node:sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionMeta } from '@deepseek-ai/dsh-session'
 import SessionPersistenceSqlite, { SCHEMA_VERSION } from '@deepseek-ai/dsh-session-persistence-sqlite'
-import { openDatabase, scanRows, type EventRow } from '../src/schema.ts'
+import { openDatabase, rowToEvent, scanRows, type EventRow } from '../src/schema.ts'
 import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
 
 const dirs: string[] = []
@@ -42,7 +43,7 @@ describe('scanRows', () => {
   // scanRows works off EventRows (data is a JSON string column); build them from
   // SessionEvents so the unit tests read in terms of the event vocabulary.
   const rows = (events: SessionEvent[]): EventRow[] =>
-    events.map(e => ({ seq: e.seq, type: e.type, time: e.time, data: JSON.stringify(e.data) }))
+    events.map(e => ({ seq: e.seq, type: e.type, time: e.time, data: JSON.stringify(e.data), source_event_seqs: null, surface_op: null }))
 
   it('preserves the full log when it ends exactly on a turn/end (no torn tail)', () => {
     const { preserved, tornFrom } = scanRows(rows(oneTurnLog()))
@@ -91,8 +92,8 @@ describe('scanRows', () => {
 
   it('throws on an unparsable row inside the committed region', () => {
     const withCorruptCommitted: EventRow[] = [
-      { seq: 0, type: 'turn/start', time: 1, data: '{not json' }, // corrupt, sits before a turn/end
-      { seq: 1, type: 'turn/end', time: 2, data: JSON.stringify({ turn: 1, reason: { kind: 'completed' } }) },
+      { seq: 0, type: 'turn/start', time: 1, data: '{not json', source_event_seqs: null, surface_op: null }, // corrupt, sits before a turn/end
+      { seq: 1, type: 'turn/end', time: 2, data: JSON.stringify({ turn: 1, reason: { kind: 'completed' } }), source_event_seqs: null, surface_op: null },
     ]
     expect(() => scanRows(withCorruptCommitted)).toThrow(/unparsable committed event/)
   })
@@ -100,7 +101,7 @@ describe('scanRows', () => {
   it('tolerates an unparsable torn-tail row after the last turn/end', () => {
     const withCorruptTail: EventRow[] = [
       ...rows(oneTurnLog()),
-      { seq: 6, type: 'turn/start', time: 7, data: '{not json' }, // torn fragment, no committed turn/end after
+      { seq: 6, type: 'turn/start', time: 7, data: '{not json', source_event_seqs: null, surface_op: null }, // torn fragment, no committed turn/end after
     ]
     const { preserved, tornFrom } = scanRows(withCorruptTail)
     expect(preserved).toEqual(oneTurnLog())
@@ -343,7 +344,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   })
 
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(1)
+    expect(SCHEMA_VERSION).toBe(2)
   })
 })
 
@@ -748,5 +749,122 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     await ctx.plugin(SessionPersistenceSqlite, { path })
     await expect(ctx.parallel('session/flush', session)).rejects.toThrow(/id collision/)
     await ctx.fiber.dispose()
+  })
+
+  it('migrates a v1 database to v2 (adds surface columns)', async () => {
+    const path = await freshDbPath()
+    // Manually create a v1 database with the OLD schema (no surface columns).
+    const db = new DatabaseSync(path)
+    db.exec('PRAGMA user_version = 1')
+    db.exec(`
+      CREATE TABLE sessions (
+        id             TEXT PRIMARY KEY,
+        version        INTEGER NOT NULL,
+        created_at     INTEGER NOT NULL,
+        cwd            TEXT,
+        parent_session TEXT,
+        updated_at     INTEGER NOT NULL,
+        title          TEXT,
+        first_prompt   TEXT
+      ) STRICT
+    `)
+    db.exec(`
+      CREATE TABLE events (
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        seq        INTEGER NOT NULL,
+        type       TEXT NOT NULL,
+        time       INTEGER NOT NULL,
+        data       TEXT NOT NULL,
+        PRIMARY KEY (session_id, seq)
+      ) STRICT
+    `)
+    db.close()
+    // Re-open with v2 code: migration adds the surface columns and stamps v2.
+    const db2 = openDatabase(path)
+    const version = (db2.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
+    expect(version).toBe(2)
+    const info = db2.prepare("PRAGMA table_info('events')").all() as Array<{ name: string }>
+    const names = info.map(c => c.name)
+    expect(names).toContain('source_event_seqs')
+    expect(names).toContain('surface_op')
+    db2.close()
+  })
+})
+
+describe('surface field round-trip', () => {
+  it('rowToEvent parses surface fields from EventRow columns', () => {
+    const row: EventRow = {
+      seq: 0, type: 'assistant/message', time: 1,
+      data: JSON.stringify({ turn: 1, step: 1, content: [] }),
+      source_event_seqs: JSON.stringify([3, 5]),
+      surface_op: JSON.stringify('append'),
+    }
+    const event = rowToEvent(row)
+    expect(event.sourceEventSeqs).toEqual([3, 5])
+    expect(event.surfaceOp).toBe('append')
+  })
+
+  it('rowToEvent handles replace surfaceOp object', () => {
+    const row: EventRow = {
+      seq: 0, type: 'assistant/message', time: 1,
+      data: JSON.stringify({ turn: 1, step: 1, content: [] }),
+      source_event_seqs: JSON.stringify([0, 1]),
+      surface_op: JSON.stringify({ op: 'replace', start: 0, end: 1 }),
+    }
+    const event = rowToEvent(row)
+    expect(event.sourceEventSeqs).toEqual([0, 1])
+    expect(event.surfaceOp).toEqual({ op: 'replace', start: 0, end: 1 })
+  })
+
+  it('scanRows with surface columns reconstructs events with surface fields', () => {
+    const rows: EventRow[] = [
+      { seq: 0, type: 'user/message', time: 1,
+        data: JSON.stringify({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }),
+        source_event_seqs: null, surface_op: '{"op":"replace","start":0,"end":0}' },
+      { seq: 1, type: 'turn/end', time: 2,
+        data: JSON.stringify({ turn: 1, reason: { kind: 'completed' } }),
+        source_event_seqs: null, surface_op: null },
+    ]
+    const { preserved } = scanRows(rows)
+    expect(preserved).toHaveLength(2)
+    expect(preserved[0]!.surfaceOp).toEqual({ op: 'replace', start: 0, end: 0 })
+    expect(preserved[0]!.sourceEventSeqs).toBeUndefined()
+    expect(preserved[1]!.surfaceOp).toBeUndefined()
+  })
+
+  it('append and load round-trips surface fields through SQLite', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceSqlite, { path: ':memory:' })
+    const session = ctx.sessions.create('roundtrip-surface')
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [0] })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    await ctx.parallel('session/flush', session)
+    const loaded = await ctx.sessionPersistence.load(SessionId('roundtrip-surface'))
+    expect(loaded.events).toHaveLength(4)
+    const um = loaded.events[1]!
+    expect(um.surfaceOp).toBe('append')
+    expect(um.sourceEventSeqs).toBeUndefined()
+    const am = loaded.events[2]!
+    expect(am.surfaceOp).toBe('append')
+    expect(am.sourceEventSeqs).toEqual([0])
+    await fiber.dispose()
+  })
+
+  it('persists events with surfaceOp but no sourceEventSeqs (covers null branch in surfaceBindings)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceSqlite, { path: ':memory:' })
+    const session = ctx.sessions.create('surface-noseq')
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('steering/message', { turn: 1, content: [], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    await ctx.parallel('session/flush', session)
+    const loaded = await ctx.sessionPersistence.load(SessionId('surface-noseq'))
+    expect(loaded.events[1]!.surfaceOp).toBe('append')
+    expect(loaded.events[1]!.sourceEventSeqs).toBeUndefined()
+    await fiber.dispose()
   })
 })

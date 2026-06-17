@@ -33,6 +33,18 @@ import {
 
 export { SCHEMA_VERSION } from './schema.ts'
 
+/**
+ * Serialize an event's surface-metadata fields for SQL binding. Both fields are
+ * nullable TEXT columns — null when the event has no surface metadata (non-surface
+ * events, events written before surface support).
+ */
+function surfaceBindings(event: SessionEvent): [string | null, string | null] {
+  return [
+    event.sourceEventSeqs ? JSON.stringify(event.sourceEventSeqs) : null,
+    event.surfaceOp !== undefined ? JSON.stringify(event.surfaceOp) : null,
+  ]
+}
+
 /** Plugin configuration. */
 export interface Config {
   /**
@@ -180,13 +192,14 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     // durably closes the interrupted turn before returning, so by the time any
     // append runs the stored log is balanced and contiguous.)
     const insertEvent = this.db.prepare(
-      'INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO events (session_id, seq, type, time, data, source_event_seqs, surface_op) VALUES (?, ?, ?, ?, ?, ?, ?)',
     )
     this.db.exec('BEGIN')
     try {
       if (!state.materialized) this.writeRow(state.meta)
       for (const event of events) {
-        insertEvent.run(id, event.seq, event.type, event.time, JSON.stringify(event.data))
+        const [surfaceSeqs, surfaceOp] = surfaceBindings(event)
+        insertEvent.run(id, event.seq, event.type, event.time, JSON.stringify(event.data), surfaceSeqs, surfaceOp)
       }
       // Bump updatedAt on every append (the mutable summary lives in the row).
       const updatedAt = Date.now()
@@ -220,7 +233,7 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     // discarded (not unloadable); only a parse error / seq gap in the COMMITTED
     // region (at or before the last turn/end) throws (genuine corruption).
     const eventRows = this.db
-      .prepare('SELECT seq, type, time, data FROM events WHERE session_id = ? ORDER BY seq')
+      .prepare('SELECT seq, type, time, data, source_event_seqs, surface_op FROM events WHERE session_id = ? ORDER BY seq')
       .all(id) as unknown as EventRow[]
     const { preserved, tornFrom } = scanRows(eventRows)
 
@@ -248,9 +261,12 @@ export class SessionPersistenceSqlite extends SessionPersistence {
           this.db.prepare('DELETE FROM events WHERE session_id = ? AND seq >= ?').run(id, tornFrom)
         }
         if (closers.length > 0) {
-          const insertEvent = this.db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
+          const insertEvent = this.db.prepare(
+            'INSERT INTO events (session_id, seq, type, time, data, source_event_seqs, surface_op) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          )
           for (const event of closers) {
-            insertEvent.run(id, event.seq, event.type, event.time, JSON.stringify(event.data))
+            const [surfaceSeqs, surfaceOp] = surfaceBindings(event)
+            insertEvent.run(id, event.seq, event.type, event.time, JSON.stringify(event.data), surfaceSeqs, surfaceOp)
           }
         }
         this.db.exec('COMMIT')
@@ -497,7 +513,7 @@ export class SessionPersistenceSqlite extends SessionPersistence {
   /** The preserved events for a session id (torn tail excluded, turn NOT yet closed). */
   private eventsFor(id: SessionId): SessionEvent[] {
     const rows = this.db
-      .prepare('SELECT seq, type, time, data FROM events WHERE session_id = ? ORDER BY seq')
+      .prepare('SELECT seq, type, time, data, source_event_seqs, surface_op FROM events WHERE session_id = ? ORDER BY seq')
       .all(id) as unknown as EventRow[]
     // Scan on seq+type columns, parsing `data` only for the preserved prefix (a
     // malformed torn tail must not throw here — same as loadCore). Returns the

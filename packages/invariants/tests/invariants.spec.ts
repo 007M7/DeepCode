@@ -387,3 +387,115 @@ describe('HMR safety', () => {
     expect(Object.isFrozen(session.events[0])).toBe(false)
   })
 })
+
+describe('surface invariants', () => {
+  it('accepts well-formed surface metadata', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    // Events must be turn-enclosed and step-scoped events need an open step.
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    expect(() => {
+      session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [1] })
+    }).not.toThrow()
+  })
+
+  it('accepts replace surface op', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [2] })
+    // no throw — well-formed replace op
+  })
+
+  it('rejects empty sourceEventSeqs', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    expect(() => {
+      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [] })
+    }).toThrow(InvariantError)
+  })
+
+  it('rejects duplicate sourceEventSeqs', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    expect(() => {
+      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [1, 1] })
+    }).toThrow(/must not contain duplicates/)
+  })
+
+  it('rejects sourceEventSeqs referencing the event itself (self-reference)', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } }) // seq 0
+    // The next event is seq 1. Referencing its own seq fails on "must reference
+    // earlier events" (the check order is: earlier first, then unknown).
+    expect(() => {
+      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [1] })
+    }).toThrow(/must reference earlier/)
+  })
+
+  it('accepts sourceEventSeqs referencing a valid earlier event', async () => {
+    // Positive test: ref < current seq and ref is in knownSeqs → passes.
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    // seqs so far: 0, 1. The next event at seq 2 references seq 1 → valid.
+    expect(() => {
+      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [1] })
+    }).not.toThrow()
+  })
+
+  it('rejects sourceEventSeqs referencing a far-future seq', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    expect(() => {
+      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [99] })
+    }).toThrow(/must reference earlier/)
+  })
+
+  it('rejects sourceEventSeqs referencing unknown seq (gap in event log)', async () => {
+    // The unknown-seq check fires when a ref passes the "earlier" test but is
+    // not in knownSeqs — only possible with a gap in seqs. We create a gap by
+    // directly manipulating the private log array to skip a seq.
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    // Push a fake event at seq 3 into the internal log, creating a gap at seq 2.
+    // The invariants plugin replays session.events on every append, so it sees
+    // this gap during trace reconstruction.
+    ;(session as unknown as { log: unknown[] }).log.push({
+      type: 'assistant/chunk',
+      seq: 3,
+      time: Date.now(),
+      data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'x' } },
+    })
+    // Now the log has seqs 0, 1, 3 (gap at 2). Append at what session believes
+    // is seq 3 (log.length). Reference seq 2: passes earlier (2 < 3) but not
+    // in knownSeqs ({0, 1, 3} — gap at 2).
+    expect(() => {
+      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [2] })
+    }).toThrow(/unknown seq 2/)
+  })
+
+  it('rejects replace op with start > end', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 2
+    // start > end is invalid (reversed order).
+    expect(() => {
+      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 2, end: 1 }, sourceEventSeqs: [2] })
+    }).toThrow(/must be <= end/)
+  })
+})

@@ -1,6 +1,6 @@
 # dsh-session
 
-Event-sourced session log and in-memory store. A `Session` is the append-only source of truth for an agent's whole interaction history — the LLM message history is *derived* from it.
+Event-sourced session log and in-memory store. A `Session` is the append-only source of truth for an agent's whole interaction history — the LLM message history is *derived* from it. A **surface** layer (a linked list of message-producing events) is maintained on top of the raw log for efficient derivation and compaction.
 
 ## Service: `SessionStore` (ctx key: `sessions`)
 
@@ -24,16 +24,17 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 
 Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 
-- `session.append(type, data): SessionEvent` — synchronous, never blocks on I/O. **Throws** if `data` is not losslessly JSON-serializable (BigInt, function, symbol, undefined, non-finite number, circular ref, or an exotic object like Map/Set/Date) — the event log is the durable source of truth, so this invariant is enforced at the source (exported as `isJsonValue` for backends to reuse on their replay/fork entry points).
-- `session.deriveMessages(): Message[]` — derive the LLM message history from the event log. Raw `assistant/chunk` events are skipped; `context/message` and `steering/message` render as tagged synthetic user messages.
+- `session.append(type, data, opts?): SessionEvent` — synchronous, never blocks on I/O. **Throws** if `data` is not losslessly JSON-serializable (BigInt, function, symbol, undefined, non-finite number, circular ref, or an exotic object like Map/Set/Date) — the event log is the durable source of truth, so this invariant is enforced at the source (exported as `isJsonValue` for backends to reuse on their replay/fork entry points). An optional third parameter `opts: SurfaceAppendOpts` carries surface metadata: `surfaceOp` controls how the event enters the surface linked list, and `sourceEventSeqs` records provenance (the seq numbers of events this one derives from).
+- `session.deriveMessages(): Message[]` — derive the LLM message history. If any event in the log carries `surfaceOp`, derivation walks the surface linked list (skipping non-surface events). Otherwise, falls back to a linear scan of the raw log (legacy sessions without surface markers).
+- `session.surface: SurfaceManager` — the derived surface, lazily rebuilt from `surfaceOp` markers in the log. Processes only new events (delta) on each access — the log is append-only, so prior events never change.
 - `session.events`, `session.seq`, `session.id`
 - `session.header: SessionHeader` — immutable creation metadata (`version`, `id`, `createdAt`, optional `cwd`/`parentSession`). Kept out of the event log (a storage concern, not replayable state); a minimal v1 header is synthesized for bare `Session` construction.
 
-### Metadata types (`types.ts`)
+### Surface types
 
-- `SessionHeader` — immutable, written once: `{ version, id, createdAt, cwd?, parentSession? }`.
-- `SessionSummary` — mutable, updateable without touching the log: `{ updatedAt, title?, firstPrompt? }`.
-- `SessionMeta = SessionHeader & SessionSummary` — owned here (beside `SessionId`) because `Session.header` is typed by it; persistence backends re-export these rather than own them (which would force a package cycle).
+- `SurfaceOp` — how a surface node entered the linked list: `'append'` (normal tail append) or `{ op: 'replace', start, end }` (replace nodes from `start` through `end` inclusive — both must be valid surface node seqs; `start === end` replaces a single node). Used by compaction to shadow old nodes without deleting them.
+- `SurfaceAppendOpts` — `{ surfaceOp?: SurfaceOp; sourceEventSeqs?: number[] }`, the optional third parameter to `session.append()`.
+- `SurfaceNode` — `{ seq: number; prev: number | null; next: number | null }`, one node in the surface linked list.
 
 ### Session event vocabulary (`types.ts`)
 
@@ -43,11 +44,23 @@ Merge-extensible via `SessionEventMap` — a compaction plugin adds `compaction/
 
 Also defines `TurnTriggerMap` and `TurnEndReasonMap` (merge-extensible sum types for typed turn boundaries — `kind`-tagged instead of strings).
 
+Every `SessionEvent` carries two optional top-level fields (structural metadata):
+
+- `sourceEventSeqs?: number[]` — seq numbers of provenance sources (e.g., the `assistant/chunk` seqs behind an `assistant/message`, or the shadowed nodes behind a compaction marker).
+- `surfaceOp?: SurfaceOp` — how this event entered the surface. Absent for non-surface events (boundaries, chunks, usage, errors).
+
+### Metadata types (`types.ts`)
+
+- `SessionHeader` — immutable, written once: `{ version, id, createdAt, cwd?, parentSession? }`.
+- `SessionSummary` — mutable, updateable without touching the log: `{ updatedAt, title?, firstPrompt? }`.
+- `SessionMeta = SessionHeader & SessionSummary` — owned here (beside `SessionId`) because `Session.header` is typed by it; persistence backends re-export these rather than own them (which would force a package cycle).
+
 ### Extension points
 
 - Persistence plugins: subscribe to `session/event` (write-behind) and drain on `session/flush` (awaited) and fiber dispose. A durable backend reads the log and reloads it into a live session; the metadata seam (`SessionHeader`/`SessionSummary`/`SessionMeta`, `session.header`) is what such a backend stores beside the log.
-- Replay/fork: `ctx.sessions.create(id, { seed })` seeds a new session with an existing event log.
+- Replay/fork: `ctx.sessions.create(id, { seed })` seeds a new session with an existing event log. The surface rebuilds deterministically from `surfaceOp` markers in the seeded events.
+- Compaction: a future plugin appends a new event with `surfaceOp: { op: 'replace', start, end }` to shadow old surface nodes.
 
 ### What is NOT here (TODO)
 
-- **Session branching/tree** (pi-style entry tree) — defered unless needed beyond seed-based forking.
+- **Session branching/tree** (pi-style entry tree) — deferred unless needed beyond seed-based forking.

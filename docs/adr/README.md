@@ -30,3 +30,4 @@ Do NOT write an ADR for: a mechanical or local choice (a variable name, a one-fi
 | [0016](0016-pnpm-over-yarn.md) | pnpm as the package manager instead of Yarn 4 | accepted |
 | [0017](0017-turn-enclosure-invariant.md) | Every session event is enclosed in a turn | accepted |
 | [0018](0018-session-persistence.md) | Session persistence as an abstract service over `SessionEvent` | accepted |
+| [0019](0019-session-surface.md) | Session surface — a linked list over the event log for LLM message derivation | accepted |

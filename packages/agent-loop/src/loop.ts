@@ -276,7 +276,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     // every event in the log is turn-enclosed. turn/end is now owed, so a throw
     // while appending these is caught below and the turn is still closed.
     for (const message of queued) {
-      session.append('user/message', { content: message.content, source: message.source })
+      session.append('user/message', { content: message.content, source: message.source }, { surfaceOp: 'append' })
     }
     ctx.emit('agent/turn-start', agent, turn)
 
@@ -410,7 +410,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
 function drainSteering(ctx: Context, agent: LoopAgent, turn: number): boolean {
   const messages = agent.inbox.drainSteering()
   for (const message of messages) {
-    agent.session.append('steering/message', { turn, content: message.content, source: message.source })
+    agent.session.append('steering/message', { turn, content: message.content, source: message.source }, { surfaceOp: 'append' })
     ctx.emit('agent/steering', agent, turn, message.content, message.source)
   }
   return messages.length > 0
@@ -446,10 +446,12 @@ async function runStep(
 
   // --- Model call (streaming-first; raw chunks are the replay record) ---
   const assembler = new BlockAssembler()
+  const chunkSeqs: number[] = []
   for await (const chunk of ctx.llm.stream(request)) {
     /* v8 ignore next -- signal.reason always set by agent.abort() which provides a default */
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-    session.append('assistant/chunk', { turn, step, chunk })
+    const chunkEvent = session.append('assistant/chunk', { turn, step, chunk })
+    chunkSeqs.push(chunkEvent.seq)
     ctx.emit('agent/stream-chunk', agent, turn, step, chunk)
     assembler.push(chunk)
   }
@@ -468,7 +470,7 @@ async function runStep(
   let message: Message = assembler.message()
   message = await ctx.waterfall('agent/step-result', agent, turn, step, message, () => Promise.resolve(message))
 
-  session.append('assistant/message', { turn, step, content: message.content })
+  session.append('assistant/message', { turn, step, content: message.content }, { surfaceOp: 'append', sourceEventSeqs: chunkSeqs })
   if (assembler.usage) {
     session.append('usage', { turn, step, usage: assembler.usage })
   }
@@ -480,7 +482,7 @@ async function runStep(
   for (const call of toolCalls) {
     /* v8 ignore next -- signal.reason always set by agent.abort() which provides a default */
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-    session.append('tool/call', { turn, step, callId: call.id, name: call.name, arguments: call.arguments })
+    const callEvent = session.append('tool/call', { turn, step, callId: call.id, name: call.name, arguments: call.arguments })
     let parsedArguments: unknown
     try {
       parsedArguments = call.arguments ? JSON.parse(call.arguments) : {}
@@ -506,7 +508,7 @@ async function runStep(
       content: result.content,
       isError: result.isError,
       ...result.error ? { error: result.error } : {},
-    })
+    }, { surfaceOp: 'append', sourceEventSeqs: [callEvent.seq] })
     // signal CAN flip during the await above (abort() inside a tool);
     // the analyzer can't see through the await boundary.
     // signal can flip during the await above (abort() inside a tool);

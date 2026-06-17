@@ -10,12 +10,14 @@ import { Context, Service } from 'cordis'
 import { isAbsolute } from 'node:path'
 import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionId } from './types.ts'
-import type { CreateSessionOptions, SessionEvent, SessionEventMap, SessionEventType, SessionHeader } from './types.ts'
+import type { CreateSessionOptions, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceAppendOpts } from './types.ts'
 import { isJsonValue } from './json.ts'
+import { SurfaceManager } from './surface.ts'
 
 export * from './types.ts'
 export { isJsonValue } from './json.ts'
 export { interruptedTurnClosers } from './repair.ts'
+export type { SurfaceNode } from './surface.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -64,6 +66,21 @@ export class Session {
   private log: SessionEvent[] = []
   /** Set by the store so appends are observable; undefined when detached. */
   onAppend: ((event: SessionEvent) => void) | undefined
+
+  /**
+   * Derived surface — a cached linked list of message-producing events.
+   * Lazily rebuilt from `surfaceOp` markers in the log; processes only new
+   * events (delta) on each access — the log is append-only, so prior events
+   * never change.
+   * `append`. Undefined until first accessed (including after fork/seed).
+   */
+  private _surface: SurfaceManager | undefined
+
+  /** The surface linked list over this session's event log. */
+  get surface(): SurfaceManager {
+    if (!this._surface) this._surface = new SurfaceManager(this.log)
+    return this._surface
+  }
 
   /**
    * Immutable creation metadata (format version, cwd, lineage). Supplied by
@@ -117,6 +134,11 @@ export class Session {
    * `onAppend`. The hot path never blocks on I/O — persistence plugins buffer
    * asynchronously.
    *
+   * @param type - The event type (key of {@link SessionEventMap}).
+   * @param data - The event payload; must be JSON-serializable.
+   * @param opts - Optional surface metadata: `surfaceOp` controls how the
+   *   event enters the surface linked list; `sourceEventSeqs` records
+   *   provenance (the seq numbers of events this one derives from).
    * @throws if `data` is not losslessly JSON-serializable (BigInt, function,
    *   symbol, undefined, non-finite number, circular ref, or an exotic object
    *   like Map/Set/Date). The event log is the durable source of truth, so this
@@ -125,7 +147,7 @@ export class Session {
    *   throw surfaces at the buggy caller's append site, not asynchronously in a
    *   backend flush.
    */
-  append<T extends SessionEventType>(type: T, data: SessionEventMap[T]): SessionEvent<T> {
+  append<T extends SessionEventType>(type: T, data: SessionEventMap[T], opts?: SurfaceAppendOpts): SessionEvent<T> {
     if (!isJsonValue(data)) {
       throw new Error(`session event "${type}" carries non-JSON-serializable data`)
     }
@@ -138,14 +160,29 @@ export class Session {
     // validated. structuredClone is safe because serializability was just
     // checked. The returned event carries the SAME snapshot, so a caller reading
     // back `event.data` sees the logged value, not its own mutable input.
-    const event = { type, seq: this.log.length, time: Date.now(), data: structuredClone(data) } as SessionEvent<T>
+    //
+    // Surface metadata is snapshot separately: sourceEventSeqs (number[] —
+    // primitives, so array spread is a complete copy) and surfaceOp (a string
+    // primitive, or cloned if it's a replace object).
+    const event = {
+      type,
+      seq: this.log.length,
+      time: Date.now(),
+      data: structuredClone(data),
+      ...opts?.sourceEventSeqs !== undefined ? { sourceEventSeqs: [...opts.sourceEventSeqs] } : {},
+      ...opts?.surfaceOp !== undefined ? {
+        surfaceOp: typeof opts.surfaceOp === 'string' ? opts.surfaceOp : structuredClone(opts.surfaceOp),
+      } : {},
+    } as SessionEvent<T>
     this.log.push(event)
     this.onAppend?.(event)
     return event
   }
 
   /**
-   * Derive the LLM message history from the event log.
+   * Derive the LLM message history from the session surface (when surface
+   * markers exist) or from a linear scan of the raw event log (legacy sessions
+   * without surface markers).
    *
    * - `user/message` → user message
    * - `assistant/message` → assistant message (chunks are skipped — they are
@@ -163,42 +200,61 @@ export class Session {
    * negligible next to a model call.
    */
   deriveMessages(): Message[] {
+    if (this.surface.hasSurface) {
+      const messages: Message[] = []
+      for (const node of this.surface.nodes) {
+        // Surface nodes are built from this.log — node.seq is always a valid
+        // index by construction. The non-null assertion expresses that invariant.
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        const msg = this._deriveOneMessage(this.log[node.seq]!)
+        if (msg) messages.push(msg)
+      }
+      return messages
+    }
+    // Legacy path: linear scan for sessions without surface markers.
     const messages: Message[] = []
     for (const event of this.log) {
-      // Intentionally non-exhaustive: only message-producing events derive
-      // history; turn/step boundaries, chunks, usage, and errors are
-      // trace/replay data.
-      // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
-      switch (event.type) {
-        case 'user/message': {
-          messages.push({ role: 'user', content: structuredClone(event.data.content) })
-          break
-        }
-        case 'assistant/message': {
-          messages.push({ role: 'assistant', content: structuredClone(event.data.content) })
-          break
-        }
-        case 'tool/result': {
-          const { callId, content, isError } = event.data
-          messages.push({
-            role: 'user',
-            content: [{ type: 'tool-result', toolCallId: callId, content: structuredClone(content), isError }],
-          })
-          break
-        }
-        case 'context/message': {
-          const { content, source } = event.data
-          messages.push({ role: 'user', content: renderTagged('context', structuredClone(content), source) })
-          break
-        }
-        case 'steering/message': {
-          const { content, source } = event.data
-          messages.push({ role: 'user', content: renderTagged('steering', structuredClone(content), source) })
-          break
-        }
-      }
+      const msg = this._deriveOneMessage(event)
+      if (msg) messages.push(msg)
     }
     return messages
+  }
+
+  /**
+   * Derive a single LLM message from one event, or null if the event type
+   * does not produce a message. Extracted so both the surface path and the
+   * legacy linear-scan path share the same derivation rules.
+   */
+  private _deriveOneMessage(event: SessionEvent): Message | null {
+    // Intentionally non-exhaustive: only message-producing events derive
+    // history; turn/step boundaries, chunks, usage, and errors are
+    // trace/replay data.
+
+    switch (event.type) {
+      case 'user/message': {
+        return { role: 'user', content: structuredClone(event.data.content) }
+      }
+      case 'assistant/message': {
+        return { role: 'assistant', content: structuredClone(event.data.content) }
+      }
+      case 'tool/result': {
+        const { callId, content, isError } = event.data
+        return {
+          role: 'user',
+          content: [{ type: 'tool-result', toolCallId: callId, content: structuredClone(content), isError }],
+        }
+      }
+      case 'context/message': {
+        const { content, source } = event.data
+        return { role: 'user', content: renderTagged('context', structuredClone(content), source) }
+      }
+      case 'steering/message': {
+        const { content, source } = event.data
+        return { role: 'user', content: renderTagged('steering', structuredClone(content), source) }
+      }
+      default:
+        return null
+    }
   }
 }
 

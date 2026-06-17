@@ -62,6 +62,8 @@ interface SessionTrace {
    * `step/end` — a result must arrive in the same step as its call.
    */
   pendingCalls: Set<string>
+  /** Every seq seen so far — validates `sourceEventSeqs` references. */
+  knownSeqs: Set<number>
 }
 
 /**
@@ -104,6 +106,30 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
     throw new InvariantError(`seq must strictly increase: saw ${event.seq} after ${trace.lastSeq}`)
   }
   trace.lastSeq = event.seq
+
+  // --- Surface invariants ---
+  if (event.sourceEventSeqs !== undefined) {
+    if (event.sourceEventSeqs.length === 0) {
+      throw new InvariantError('sourceEventSeqs must not be empty when present')
+    }
+    const unique = new Set(event.sourceEventSeqs)
+    if (unique.size !== event.sourceEventSeqs.length) {
+      throw new InvariantError('sourceEventSeqs must not contain duplicates')
+    }
+    for (const ref of event.sourceEventSeqs) {
+      if (ref >= event.seq) {
+        throw new InvariantError(`sourceEventSeqs must reference earlier events: ${ref} >= current seq ${event.seq}`)
+      }
+      if (!trace.knownSeqs.has(ref)) {
+        throw new InvariantError(`sourceEventSeqs references unknown seq ${ref}`)
+      }
+    }
+  }
+  if (event.surfaceOp !== undefined && typeof event.surfaceOp !== 'string') {
+    if (event.surfaceOp.start > event.surfaceOp.end) {
+      throw new InvariantError(`surface replace: start ${event.surfaceOp.start} must be <= end ${event.surfaceOp.end}`)
+    }
+  }
 
   // Boundary/step-scoped events have explicit cases; every OTHER event type —
   // including plugin-added (merge-extensible) SessionEventMap keys — is caught
@@ -185,6 +211,8 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       break
     }
   }
+  // Track every seq seen — used above to validate sourceEventSeqs references.
+  trace.knownSeqs.add(event.seq)
 }
 
 /** Legal agent status transitions (the only state machine the loop guarantees). */
@@ -216,7 +244,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   // (re-)apply seeds the baseline, so a reload never produces a false positive.
   const lastStatus = new WeakMap<Agent, AgentStatus>()
 
-  const freshTrace = (): SessionTrace => ({ lastSeq: -1, openTurn: null, openStep: null, pendingCalls: new Set() })
+  const freshTrace = (): SessionTrace => ({ lastSeq: -1, openTurn: null, openStep: null, pendingCalls: new Set(), knownSeqs: new Set() })
 
   /** Build (or rebuild) a session's trace by replaying its whole log; freeze it. */
   const seedSession = (session: Session): SessionTrace => {

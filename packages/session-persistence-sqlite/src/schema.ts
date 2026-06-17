@@ -8,14 +8,14 @@
  */
 
 import { DatabaseSync } from 'node:sqlite'
-import type { SessionEvent, SessionId, SessionMeta } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId, SessionMeta, SurfaceOp } from '@deepseek-ai/dsh-session'
 
 /**
  * The on-disk schema version. Bumped only on a breaking change to the table
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 
 /**
  * A row of the `sessions` table — the out-of-log metadata (`SessionMeta`). The
@@ -41,6 +41,10 @@ export interface EventRow {
   type: string
   time: number
   data: string
+  /** JSON-encoded `number[]` — the event's sourceEventSeqs, or null. */
+  source_event_seqs: string | null
+  /** JSON-encoded `SurfaceOp` — how the event entered the surface, or null. */
+  surface_op: string | null
 }
 
 /**
@@ -72,6 +76,13 @@ export function openDatabase(path: string): DatabaseSync {
     // constant (SCHEMA_VERSION is a trusted in-code number, not user input).
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
   }
+  if (onDisk === 1) {
+    // Migrate from v1 to v2: add surface-metadata columns (nullable — existing
+    // rows get NULL, which is correct for events written before surface existed).
+    db.exec('ALTER TABLE events ADD COLUMN source_event_seqs TEXT')
+    db.exec('ALTER TABLE events ADD COLUMN surface_op TEXT')
+    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
       id             TEXT PRIMARY KEY,
@@ -86,11 +97,13 @@ export function openDatabase(path: string): DatabaseSync {
   `)
   db.exec(`
     CREATE TABLE IF NOT EXISTS events (
-      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-      seq        INTEGER NOT NULL,
-      type       TEXT NOT NULL,
-      time       INTEGER NOT NULL,
-      data       TEXT NOT NULL,
+      session_id        TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      seq               INTEGER NOT NULL,
+      type              TEXT NOT NULL,
+      time              INTEGER NOT NULL,
+      data              TEXT NOT NULL,
+      source_event_seqs TEXT,
+      surface_op        TEXT,
       PRIMARY KEY (session_id, seq)
     ) STRICT
   `)
@@ -113,12 +126,19 @@ export function rowToMeta(row: SessionRow): SessionMeta {
 
 /** Reconstruct a {@link SessionEvent} from an `events` row (parses `data`). */
 export function rowToEvent(row: EventRow): SessionEvent {
-  return {
-    type: row.type,
+  const event = {
+    type: row.type as SessionEvent['type'],
     seq: row.seq,
     time: row.time,
     data: JSON.parse(row.data) as SessionEvent['data'],
   } as SessionEvent
+  if (row.source_event_seqs !== null) {
+    event.sourceEventSeqs = JSON.parse(row.source_event_seqs) as number[]
+  }
+  if (row.surface_op !== null) {
+    event.surfaceOp = JSON.parse(row.surface_op) as SurfaceOp
+  }
+  return event
 }
 
 /**

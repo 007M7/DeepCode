@@ -78,7 +78,7 @@ export class LoopAgent implements Agent {
       // A turn is open in the LOG (decided from the log, not agent status —
       // status can be `running` with no turn open): the context/message is
       // turn-enclosed by that turn, so append it directly.
-      this.session.append('context/message', { content, source })
+      this.session.append('context/message', { content, source }, { surfaceOp: 'append' })
       return
     }
     // No turn open: wrap the injection in a one-shot turn so every event stays
@@ -95,7 +95,7 @@ export class LoopAgent implements Agent {
     // can't happen for our fixed trigger — no turn was opened and none is owed.)
     try {
       this.session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-      this.session.append('context/message', { content, source })
+      this.session.append('context/message', { content, source }, { surfaceOp: 'append' })
     } finally {
       // Close the turn if turn/start made it into the log. Contain a throwing
       // turn/end listener: Session.append pushes before notifying, so a throw

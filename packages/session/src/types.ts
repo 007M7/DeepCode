@@ -161,6 +161,34 @@ export interface SessionEventMap {
 export type SessionEventType = keyof SessionEventMap
 
 /**
+ * How a session event entered the surface linked list. Absent for non-surface
+ * events (boundaries, chunks, usage, errors).
+ *
+ * - `'append'`: added to the tail — normal path for user/assistant/tool/context
+ *   messages.
+ * - `{ op: 'replace', start, end }`: replaces surface nodes from `start`
+ *   (inclusive) through `end` (inclusive) with this node. Both must exist as
+ *   surface nodes in the current surface. `start === end` replaces a single
+ *   node. The node's {@link SessionEvent.sourceEventSeqs} must include every
+ *   shadowed surface node. Used by compaction and possible other manipulations.
+ */
+export type SurfaceOp =
+  | 'append'
+  | { op: 'replace'; start: number; end: number }
+
+/**
+ * Optional surface metadata passed to {@link Session.append}.
+ * `surfaceOp` controls how the event enters the surface linked list;
+ * `sourceEventSeqs` records the seq numbers of events that are provenance
+ * sources of this one (e.g. the `assistant/chunk` seqs behind an
+ * `assistant/message`, or the shadowed nodes behind a compaction replacement).
+ */
+export interface SurfaceAppendOpts {
+  surfaceOp?: SurfaceOp
+  sourceEventSeqs?: number[]
+}
+
+/**
  * One immutable entry in the session log.
  *
  * A proper discriminated union over `type` (not independent `type`/`data`
@@ -174,5 +202,13 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /** Unix epoch milliseconds. */
     time: number
     data: SessionEventMap[K]
+    /**
+     * Seq numbers of events that are provenance sources of this event
+     * (e.g. the `assistant/chunk` seqs that built an `assistant/message`,
+     * or the surface nodes shadowed by a compaction marker).
+     */
+    sourceEventSeqs?: number[]
+    /** How this event entered the surface; absent for non-surface events. */
+    surfaceOp?: SurfaceOp
   }
 }[T]
