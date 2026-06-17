@@ -36,6 +36,8 @@
       "@cordisjs/plugin-logger-console": ["./vendor/logger-console/src"],
       "@deepseek-ai/dsh-llm": ["./packages/llm/src"],
       "@deepseek-ai/dsh-session": ["./packages/session/src"],
+      "@deepseek-ai/dsh-session-persistence": ["./packages/session-persistence/src"],
+      "@deepseek-ai/dsh-session-persistence-jsonl": ["./packages/session-persistence-jsonl/src"],
       "@deepseek-ai/dsh-system-prompt": ["./packages/system-prompt/src"],
       "@deepseek-ai/dsh-tools": ["./packages/tools/src"],
       "@deepseek-ai/dsh-agent": ["./packages/agent/src"],

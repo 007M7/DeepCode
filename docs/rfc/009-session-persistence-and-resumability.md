@@ -1,6 +1,6 @@
 # RFC 009: Durable session persistence — an abstract, append-only, event-based store
 
-Status: proposed
+Status: implemented (see [ADR 0018](../adr/0018-session-persistence.md))
 
 ## Problem
 

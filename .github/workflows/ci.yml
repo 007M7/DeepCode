@@ -75,5 +75,7 @@ jobs:
           echo "$out"
           echo "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
           echo "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
-          test -f examples/echo-agent/main-session.jsonl
-          rm -f examples/echo-agent/*.jsonl
+          # The JSONL backend (root ./.sessions, no cwd → _no-cwd bucket) writes a
+          # per-run session log named main-session-<uuid>.jsonl. Assert one exists.
+          ls .sessions/_no-cwd/main-session-*.jsonl >/dev/null
+          rm -rf .sessions

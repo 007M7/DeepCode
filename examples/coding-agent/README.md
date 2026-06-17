@@ -29,7 +29,7 @@ Type a coding task. The agent's only tools are `bash` (+ `bash_output` / `bash_k
 | `llm-deepseek` | real `LlmAdapter` via config (`!!js process.env.…` secrets); swap one line to `@deepseek-ai/dsh-llm-pi-ai` for the library-backed twin |
 | `bash` (`dsh-bash-local`) + `tool-bash` | the executor seam + tool schemas as separate plugins |
 | `agent-loop` | agent created from config with a coding system prompt |
-| `src/session-jsonl.ts` | write-behind persistence on `session/event` + `session/flush` (copied from echo-agent) |
+| `session-persistence` (`dsh-session-persistence-jsonl`) | durable JSONL persistence (`root: ./.sessions`): append-only event log per session, crash-safe atomic writes — the shared backend, no per-example file |
 | `src/stdio-chat.ts` | UI as a plugin; copied from echo-agent with reasoning-dimming and an exit-on-idle close handler for piped stdin. Example-local on purpose — extract a shared UI package when a third example needs it |
 
 ## End-to-end tests (`pnpm run test:e2e`, key-gated)

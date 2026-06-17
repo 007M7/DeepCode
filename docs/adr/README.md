@@ -29,3 +29,4 @@ Do NOT write an ADR for: a mechanical or local choice (a variable name, a one-fi
 | [0015](0015-structured-error-taxonomy.md) | Structured error taxonomy (HarnessError base) | accepted |
 | [0016](0016-pnpm-over-yarn.md) | pnpm as the package manager instead of Yarn 4 | accepted |
 | [0017](0017-turn-enclosure-invariant.md) | Every session event is enclosed in a turn | accepted |
+| [0018](0018-session-persistence.md) | Session persistence as an abstract service over `SessionEvent` | accepted |

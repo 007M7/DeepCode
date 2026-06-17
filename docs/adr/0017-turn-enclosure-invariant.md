@@ -4,7 +4,7 @@ Status: accepted (2026-06-15)
 
 ## Context
 
-A durable session-persistence backend (added in a companion change) uses the **turn** as its crash-recovery boundary: `load` returns events only up to the last complete `turn/end`, and the first post-load `append` truncates whatever follows as a never-committed crash tail. This is safe only if nothing *legitimately* durable can sit after the last `turn/end`.
+A durable session-persistence backend (added in a companion change) uses the **turn** as its crash-recovery boundary: a crash can leave an unclosed final turn, which `load` closes with a synthetic `turn/end {kind:'interrupted'}` while preserving the turn's real events (see [ADR 0018](0018-session-persistence.md)). This recovery is only well-defined if nothing *legitimately* durable sits OUTSIDE a turn — between the last `turn/end` and the next `turn/start` — since such an event would be swept into the next turn's interrupted close.
 
 That assumption did not hold. Two paths recorded events outside any turn:
 

@@ -14,9 +14,12 @@ graph TD
   system-prompt --> llm
   agent --> llm
   agent --> session
+  session-persistence --> session
   invariants --> agent
   invariants --> llm
   invariants --> session
+  session-persistence-jsonl --> session
+  session-persistence-jsonl --> session-persistence
   tools --> agent
   tools --> llm
   tools --> system-prompt
@@ -41,7 +44,9 @@ graph TD
 | `session` | `llm` |
 | `system-prompt` | `llm` |
 | `agent` | `llm`, `session` |
+| `session-persistence` | `session` |
 | `invariants` | `agent`, `llm`, `session` |
+| `session-persistence-jsonl` | `session`, `session-persistence` |
 | `tools` | `agent`, `llm`, `system-prompt` |
 | `agent-loop` | `agent`, `llm`, `session`, `system-prompt`, `tools` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |

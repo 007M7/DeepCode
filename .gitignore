@@ -6,6 +6,8 @@ lib/
 pnpm-debug.log
 .pnpm-store/
 examples/*/*.jsonl
+.sessions/
+examples/*/.sessions/
 coverage/
 .doc-typecheck-*/
 .vscode/

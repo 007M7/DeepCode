@@ -22,11 +22,13 @@ Requirement context: [Coding Harness MVP 需求分析][mvp-doc].
 │  @deepseek-ai/dsh-agent-loop      (the ONE concrete plugin)  │
 │  @deepseek-ai/dsh-bash-local      (bash impl)                │
 │  @deepseek-ai/dsh-tool-bash       (bash tool schemas)        │
+│  @deepseek-ai/dsh-session-persistence-jsonl (persistence impl)│
 ├─────────────────────────────────────────────────────────────┤
 │  @deepseek-ai/dsh-agent           (vocabulary + registry)    │
 │  @deepseek-ai/dsh-tools           (registry + exec waterfall)│
 │  @deepseek-ai/dsh-system-prompt   (assembly registry)        │
 │  @deepseek-ai/dsh-session         (event-sourced log)        │
+│  @deepseek-ai/dsh-session-persistence (persistence seam)     │
 │  @deepseek-ai/dsh-llm             (abstract model service)   │
 │  @deepseek-ai/dsh-bash            (abstract bash executor)   │
 ├─────────────────────────────────────────────────────────────┤
@@ -43,6 +45,7 @@ Dependency rule: plugins depend on interface packages, never on `dsh-agent-loop`
 |---|---|---|---|
 | `ctx.llm` | `LlmService` | dsh-llm | adapter registry; `stream()` / `streamBlocks()` / `generate()` |
 | `ctx.sessions` | `SessionStore` | dsh-session | creates/holds event-sourced `Session`s |
+| `ctx.sessionPersistence` | `SessionPersistence` (abstract) | dsh-session-persistence | durable persistence seam: create/append/load/list/update sessions |
 | `ctx.systemPrompt` | `SystemPrompt` | dsh-system-prompt | ordered sections + tool schemas → `assemble()` |
 | `ctx.tools` | `ToolRegistry` | dsh-tools | tool definitions; `execute()` through waterfall |
 | `ctx.agents` | `AgentRegistry` | dsh-agent | live `Agent` handles |
@@ -82,7 +85,7 @@ A `Session` is an append-only log of typed `SessionEvent`s — the single source
 
 Replay/fork = `ctx.sessions.create(id, { seed: seedEvents })`. Trace/telemetry = listen to `session/event`.
 
-**Durability seam**: `session/event` is a synchronous notification; persistence plugins buffer (write-behind) and drain at the awaited `session/flush` checkpoint the loop fires at every turn end (see `examples/echo-agent/src/session-jsonl.ts` for the pattern). **TODO**: real persistence backends (JSONL per session dir, sqlite) are a future phase.
+**Durability seam**: `session/event` is a synchronous notification; persistence plugins buffer (write-behind) and drain at the awaited `session/flush` checkpoint the loop fires at every turn end. The durable backend is a real **capability seam**: the abstract `SessionPersistence` service (`dsh-session-persistence`, `ctx.sessionPersistence`) defines create/append/load/list/update over the existing `SessionEvent` (no parallel persisted type), and `dsh-session-persistence-jsonl` is the first implementation — an append-only JSONL log per session with crash-safe atomic writes, crash recovery that PRESERVES an interrupted turn (closing it with a synthetic `turn/end {interrupted}` rather than truncating — a turn can be huge), and a read/replay path. Session metadata (format version, cwd, lineage) travels separately as `SessionMeta`, attached to a `Session` via `session.header`. `ctx.sessionPersistence.load(sessionId)` returns the committed event log so a caller can reconstruct a live session and continue it. A SQLite/WAL backend is a future drop-in `SessionPersistence` subclass (the row shape `(session_id, seq, type, time, data)` maps 1:1 onto `SessionEvent`).
 
 ## Prompt assembly (dsh-system-prompt)
 
@@ -152,7 +155,7 @@ forever:
 
 Error containment: a throwing `agent/turn-continuation` listener or a broken step ends the **turn** with an `error` event (appended INSIDE the turn, before `turn/end`) — never the driver loop. An adapter that ends its stream with a `finish {kind:'error'}` or `{kind:'aborted'}` chunk (the in-band error path, for adapters that can't throw mid-stream) is likewise translated into a step error, so the turn ends `error`/`aborted` instead of logging a normal `completed` assistant message. `abort()` is honored mid-stream **and** between tool calls; disposal mid-turn ends the turn with reason `disposed` and emits `agent/status('disposed')`.
 
-A failure that happens once the turn is already closed has no in-turn position for a session `error` event (appending one after `turn/end` would put it past a persistence backend's commit boundary, where it is dropped as a crash tail — ADR 0017). So a rejecting `session/flush` (the post-`turn/end` durability checkpoint) and a throwing `agent/turn-end` listener are reported via `agent/error` + the logger only, NOT as a session event; the turn stays balanced and the backend keeps its buffered events for the next flush.
+A failure that happens once the turn is already closed has no in-turn position for a session `error` event (appending one after `turn/end` would put it past the persistence commit boundary, where it is dropped as a crash tail — ADR 0017). So a rejecting `session/flush` (the post-`turn/end` durability checkpoint) and a throwing `agent/turn-end` listener are reported via `agent/error` + the logger only, NOT as a session event; the turn stays balanced and the persistence backend keeps its buffered events for the next flush.
 
 **Turn-enclosure invariant**: every session event lives inside a turn (between a `turn/start` and its `turn/end`). The loop appends queued `user/message` events *after* `turn/start`, and an idle `agent.inject()` wraps its `context/message` in a one-shot `injection` turn. This makes the turn the single durability/replay boundary: a persistence backend can treat anything after the last `turn/end` as an interrupted-crash tail without risking the loss of legitimately-recorded between-turn context. The `dsh-invariants` plugin enforces it in dev (a message event outside an open turn throws). See ADR 0017.
 
@@ -228,8 +231,7 @@ Code skeletons for the three plugin shapes (tool, hook/permission-gate, UI) and 
 Tracked here deliberately — each is designed-for but not implemented:
 
 - **Sub-agent spawn/fork semantics** (seam: `AgentLoop.create()`); inter-agent channels beyond `send`/`steer`/events.
-- **Persistence backends** (JSONL session dirs, sqlite) on the `session/event` + `session/flush` seam.
+- **SQLite/WAL persistence backend** — a drop-in `SessionPersistence` subclass (the abstract seam + the JSONL backend landed; see the durability-seam paragraph).
 - **Compaction implementation** (auto thresholds, summarization prompts) on the `agent/request` seam, with its session-event types added by declaration merging.
 - **Parallel tool execution** (concurrency-safety hints on ToolDefinition).
 - **Session branching/tree** (pi-style entry tree) if needed beyond seed-based forking.
-- **Session event vocabulary review** once the loop and a persistence plugin coexist (`TODO(review)` in dsh-session).
