@@ -15,9 +15,11 @@ Two gates, mirroring the existing `scripts/` style (tsx ESM, one job each):
 
 Both run via a shared `doc-sync` package.json script that the lefthook pre-push hook and CI both invoke (ADR 0007: hooks and CI call the same scripts, so the gate fires locally before a push — not only after it). They run after `pnpm run typecheck` (which emits the vendor `lib/` that doc-typecheck resolves against). API-extractor golden reports (RFC 006 part 3) were deliberately **deferred** — low value for an internal monorepo where reviewers already see the source diff, and a heavy, finicky dependency.
 
+**Amendment (2026-06-17):** a third gate, **`verify-md-wrap`**, was later folded into `doc-sync`. It parses each in-scope Markdown file (`README.md`, `docs/**`, `packages/*/README.md`, plus `AGENTS.md` / `packages/AGENTS.md`) with `mdast-util-from-markdown` + GFM and fails on any `paragraph` node spanning more than one source line, enforcing the AGENTS.md "Markdown is not hard-wrapped" convention. Same verify-don't-generate principle: it reports hard-wraps and never rewrites, so it adds no formatting churn. `doc-sync` is now three gates.
+
 ## Consequences
 
-- Doc drift in the two checkable classes now fails the pre-push hook and CI instead of waiting for a reviewer to notice. This is an instance of ADR 0007's "mechanical gates over prose."
+- Doc drift in the checkable classes now fails the pre-push hook and CI instead of waiting for a reviewer to notice. This is an instance of ADR 0007's "mechanical gates over prose."
 - Making doc snippets compile costs a few stub imports/`declare`s; the `ignore-check` ratio must stay low or the gate is theater (the ratio guard enforces this).
 - The taxonomy check is name-only — a wrong Mode or Purpose column still needs human review. Generating the table from source was considered and rejected as more machinery than the problem warrants.
 - API reports remain available to revisit if the packages are ever published externally.

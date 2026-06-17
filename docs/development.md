@@ -93,14 +93,15 @@ pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
 pnpm run verify-event-taxonomy  # compare docs/architecture.md event names with source
-pnpm run doc-sync       # doc-typecheck plus event taxonomy verification
+pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
+pnpm run doc-sync       # doc-typecheck, event taxonomy, and markdown wrap verification
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
 pnpm run build          # build declarations and JS bundles
 pnpm run hygiene        # knip, publint, and workspace constraints
 ```
 
-When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets and event-taxonomy drift, but broader prose/API sync still needs review.
+When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets, event-taxonomy drift, and hard-wrapped markdown prose, but broader prose/API sync still needs review.
 
 ## Demos
 
@@ -115,6 +116,16 @@ The coding-agent demo uses the real DeepSeek adapter and needs `DEEPSEEK_API_KEY
 ```sh
 pnpm run demo:coding
 ```
+
+## TODO markers
+
+Use one of three comment tags to flag known issues in the code, ordered by urgency:
+
+- `FIXME` — an issue that should block a new release. A release should not ship with an open `FIXME` unless reviewers explicitly agree the change can be merged anyway.
+- `TODO` — an issue that should be fixed soon, once we have the resources.
+- `XXX` — an issue that we may fix someday; lowest priority, no commitment.
+
+Pick the tag that matches the urgency so anyone scanning the code can tell a release blocker from a someday-maybe.
 
 ## Architecture context
 
