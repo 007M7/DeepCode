@@ -4,7 +4,7 @@ Status: proposed
 
 ## Problem
 
-`dsh-session-persistence-jsonl` and `dsh-session-persistence-sqlite` intentionally prove the same `SessionPersistence` contract over different storage media, but their write-path orchestration is now duplicated: per-session state, `session/created` adoption, seed-prefix collision checks, write-behind buffers, serialized flush chains, HMR seeding, and dispose drains. That code is correctness-heavy and already receives the same fixes twice.
+`dsh-session-persistence-jsonl` and `dsh-session-persistence-sqlite` intentionally prove the same `SessionPersistence` contract over different storage media, but their write-path orchestration is now duplicated: per-session state, `session/created` adoption, backend-specific prefix reads, write-behind buffers, serialized flush chains, HMR seeding, and dispose drains. The pure seed-prefix collision and serializability guards have already moved into the seam package; the remaining orchestration is still correctness-heavy and already receives the same fixes twice.
 
 ## Proposal
 
