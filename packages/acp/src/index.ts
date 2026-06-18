@@ -60,7 +60,7 @@ import {
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { ToolCallKind, ToolRegistry } from '@deepseek-ai/dsh-tools'
+import type { ToolCallKind, ToolCallPresentation, ToolRegistry, ToolResultPresentation } from '@deepseek-ai/dsh-tools'
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -193,6 +193,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
   const sessionPersistence = ctx.sessionPersistence
   const logger = ctx.logger
   const tools = ctx.tools
+  // A new ToolPresenter per session (and a throwaway per load replay), each given
+  // this warn sink so a throwing tool presenter is logged, not propagated.
+  const makePresenter = (): ToolPresenter => new ToolPresenter(tools, (message) => { logger.warn(message) })
 
   // Live sessions keyed by id (RFC 011 multi-session), plus an agent→sessionId
   // reverse map so `agent/*` events (which carry only the Agent) demux in O(1).
@@ -406,7 +409,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           agentOptions: agentOptions(config),
         })
         bySession.set(agent, sessionId)
-        sessions.set(sessionId, { sessionId, agent, presenter: new ToolPresenter(tools), inflight: undefined })
+        sessions.set(sessionId, { sessionId, agent, presenter: makePresenter(), inflight: undefined })
         return Promise.resolve({ sessionId })
       },
 
@@ -459,18 +462,24 @@ export function apply(ctx: Context, config: AcpConfig): void {
             throw invalidParams('connection closed during session/load')
           }
           bySession.set(agent, params.sessionId)
-          const record: SessionRecord = { sessionId: params.sessionId, agent, presenter: new ToolPresenter(tools), inflight: undefined }
+          const record: SessionRecord = { sessionId: params.sessionId, agent, presenter: makePresenter(), inflight: undefined }
           sessions.set(params.sessionId, record)
           // Replay the persisted event log to the client as session/update. Use
           // the raw event log (NOT deriveMessages, which drops assistant/chunk
           // and trace events): RFC 010's load contract reconstructs the streamed
           // turns — user prompts (user/message → user_message_chunk), assistant
-          // text and reasoning (assistant/chunk), and tool calls/results. The
-          // record's presenter pairs each tool/call with its tool/result as the
-          // log replays in order, so the replayed tool cards render identically
-          // to the live ones.
+          // text and reasoning (assistant/chunk), and tool calls/results.
+          //
+          // Replay through a THROWAWAY presenter, NOT `record.presenter`: a
+          // historical turn that was interrupted mid-tool (a `tool/call` with no
+          // matching `tool/result` in the persisted log) would otherwise leave a
+          // stale in-flight entry on the live presenter, which then serves all
+          // future live events for this session. The throwaway pairs call→result
+          // as the log replays in order (same as live) and is discarded after,
+          // so the record's presenter starts clean for the post-load live stream.
+          const replayPresenter = makePresenter()
           for (const event of agent.session.events) {
-            streamSessionEventUpdate(params.sessionId, event, notify, record.presenter)
+            streamSessionEventUpdate(params.sessionId, event, notify, replayPresenter)
           }
           return {}
         } finally {
@@ -785,13 +794,31 @@ interface ResolvedResultPresentation {
 export class ToolPresenter {
   private readonly pending = new Map<string, { name: string; args: unknown }>()
 
-  constructor(private readonly tools: Pick<ToolRegistry, 'get'>) {}
+  /**
+   * @param tools the registry to resolve tool definitions by name.
+   * @param onError invoked when a tool's `presentCall`/`presentResult` THROWS;
+   *   the presenter swallows the error and falls back to the generic
+   *   presentation so a buggy display callback can never fail a live turn or a
+   *   `session/load` replay (AGENTS.md "contain callback exceptions at the
+   *   boundary"). Defaults to a no-op for callers that don't supply a logger.
+   */
+  constructor(
+    private readonly tools: Pick<ToolRegistry, 'get'>,
+    private readonly onError: (message: string) => void = () => {},
+  ) {}
 
   /** Pending-state presentation for a `tool/call`; remembers `(name, args)` for the matching result. */
   call(callId: string, name: string, argsJson: string): ResolvedCallPresentation {
     const args = parseToolArguments(argsJson)
     this.pending.set(callId, { name, args })
-    const present = this.tools.get(name)?.presentCall?.(args)
+    let present: ToolCallPresentation | undefined
+    try {
+      present = this.tools.get(name)?.presentCall?.(args)
+    } catch (error: unknown) {
+      // A throwing presentCall must not break streaming: log and fall back.
+      this.onError(`acp: tool "${name}" presentCall threw, using generic presentation: ${String(error)}`)
+      present = undefined
+    }
     if (present === undefined) {
       // No tool-owned presentation: fall back to the tool name as the title and
       // the full parsed args as the raw input (the pre-seam behavior).
@@ -804,9 +831,16 @@ export class ToolPresenter {
   result(callId: string, content: ContentBlock[], isError: boolean): ResolvedResultPresentation {
     const call = this.pending.get(callId)
     this.pending.delete(callId)
-    const present = call !== undefined
-      ? this.tools.get(call.name)?.presentResult?.(call.args, { content, isError })
-      : undefined
+    // No remembered call (unknown/late callId) → nothing to present from; raw content.
+    if (call === undefined) return { content }
+    let present: ToolResultPresentation | undefined
+    try {
+      present = this.tools.get(call.name)?.presentResult?.(call.args, { content, isError })
+    } catch (error: unknown) {
+      // A throwing presentResult must not break streaming/replay: log + fall back.
+      this.onError(`acp: tool "${call.name}" presentResult threw, using raw result: ${String(error)}`)
+      present = undefined
+    }
     if (present === undefined) return { content }
     return {
       content: present.content ?? content,

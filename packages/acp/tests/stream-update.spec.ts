@@ -227,6 +227,58 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
     }))
     expect(late).toMatchObject({ content: [{ type: 'content', content: { type: 'text', text: 'late' } }] })
   })
+
+  it('a THROWING presentCall/presentResult is contained: generic fallback + onError, never propagates', () => {
+    // A buggy tool whose display callbacks throw must NOT fail a live turn or a
+    // session/load replay (AGENTS.md "contain callback exceptions at the
+    // boundary"). The presenter swallows the throw, reports via onError, and
+    // falls back to the generic presentation.
+    const boom: ToolDefinition = {
+      name: 'boom',
+      description: 'b',
+      parameters: {},
+      execute: async () => [],
+      presentCall: () => { throw new Error('call boom') },
+      presentResult: () => { throw new Error('result boom') },
+    }
+    const errors: string[] = []
+    const presenter = new ToolPresenter(registryOf(boom), msg => errors.push(msg))
+    const updates = updatesWith(
+      presenter,
+      evt('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'boom', arguments: '{"a":1}' }),
+      evt('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'raw' }], isError: false }),
+    )
+    // tool/call fell back to title=name, raw args as rawInput.
+    expect(updates[0]).toMatchObject({ sessionUpdate: 'tool_call', title: 'boom', kind: 'other', rawInput: { a: 1 } })
+    // tool/result fell back to the raw content.
+    expect(updates[1]).toMatchObject({ sessionUpdate: 'tool_call_update', content: [{ type: 'content', content: { type: 'text', text: 'raw' } }] })
+    // Both throws were reported, not propagated.
+    expect(errors).toHaveLength(2)
+    expect(errors[0]).toContain('presentCall threw')
+    expect(errors[1]).toContain('presentResult threw')
+  })
+
+  it('contains a throwing presenter even with the DEFAULT (no-op) onError sink', () => {
+    // Constructed without an onError sink (the default `() => {}`): a throwing
+    // presenter is still swallowed and falls back generically — the absence of a
+    // logger must not turn a display bug into a propagated exception.
+    const boom: ToolDefinition = {
+      name: 'boom',
+      description: 'b',
+      parameters: {},
+      execute: async () => [],
+      presentCall: () => { throw new Error('call boom') },
+      presentResult: () => { throw new Error('result boom') },
+    }
+    const presenter = new ToolPresenter(registryOf(boom))
+    const updates = updatesWith(
+      presenter,
+      evt('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'boom', arguments: '{}' }),
+      evt('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'raw' }], isError: false }),
+    )
+    expect(updates[0]).toMatchObject({ sessionUpdate: 'tool_call', title: 'boom' })
+    expect(updates[1]).toMatchObject({ sessionUpdate: 'tool_call_update', content: [{ type: 'content', content: { type: 'text', text: 'raw' } }] })
+  })
 })
 
 describe('agentOptions', () => {

@@ -41,6 +41,39 @@ describe('ToolRegistry', () => {
     expect(assembly.tools.map(t => t.name)).toEqual(['echo'])
   })
 
+  it('schemas() drops the UI presentation callbacks — they must never reach the model', async () => {
+    const ctx = await setup()
+    // A tool that declares presentCall/presentResult (functions). schemas() feeds
+    // the system-prompt assembly → the model request, so those callbacks (and
+    // `execute`) must be stripped: a function in the JSON tool schema would
+    // corrupt the request. schemas() is an explicit allowlist, so it can't leak.
+    ctx.tools.register(defineTool({
+      name: 'present',
+      description: 'has presenters',
+      parameters: { x: { type: 'string', required: true } },
+      async execute() { return [] },
+      presentCall: args => ({ title: args.x }),
+      presentResult: (args, result) => ({ title: args.x, content: result.content }),
+    }))
+    const schema = ctx.tools.schemas()[0] as unknown as Record<string, unknown>
+    expect(Object.keys(schema).sort()).toEqual(['description', 'name', 'parameters'])
+    expect(schema.presentCall).toBeUndefined()
+    expect(schema.presentResult).toBeUndefined()
+    expect(schema.execute).toBeUndefined()
+  })
+
+  it('schemas() preserves `strict` when set (allowlist keeps the model-facing fields)', async () => {
+    const ctx = await setup()
+    ctx.tools.register(defineTool({
+      name: 'strict-tool',
+      description: 'd',
+      parameters: { x: { type: 'string', required: true } },
+      strict: true,
+      async execute() { return [] },
+    }))
+    expect(ctx.tools.schemas()[0]).toMatchObject({ name: 'strict-tool', strict: true })
+  })
+
   it('executes a tool and returns its content', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
@@ -864,4 +897,3 @@ describe('defineTool presentation (presentCall / presentResult)', () => {
     expect(tool.presentResult?.({ wrong: 1 }, { content: [], isError: false })).toBeUndefined()
   })
 })
-

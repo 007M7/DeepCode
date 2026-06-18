@@ -111,6 +111,33 @@ describe('acp bridge — turn outcomes', () => {
     })
   })
 
+  it('a throwing tool presenter does not break the turn: the bridge falls back generically', async () => {
+    // A buggy tool whose presentCall throws must not fail the live turn — the
+    // bridge's presenter contains the throw (logging via its onError sink) and
+    // falls back to the generic title=name presentation. Exercises the real
+    // bridge wiring of the per-session presenter's error sink.
+    harness = await makeBridgeHarness({
+      storageDir,
+      script: [toolCallResponse('c1', 'kaboom', { x: 1 }), textResponse('done')],
+    })
+    harness.ctx.tools.register(defineTool({
+      name: 'kaboom',
+      description: 'explodes when presented',
+      parameters: { x: { type: 'number' } },
+      async execute() { return [{ type: 'text', text: 'ok' }] },
+      presentCall: () => { throw new Error('present boom') },
+    }))
+    const sessionId = await newSession(harness)
+    const res = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
+    expect(res.stopReason).toBe('end_turn') // the turn completed despite the throw
+
+    const call = harness.updates.find(u => u.sessionUpdate === 'tool_call')
+    // Generic fallback: title is the tool name, raw args as rawInput.
+    expect(call).toMatchObject({ toolCallId: 'c1', title: 'kaboom', kind: 'other', rawInput: { x: 1 } })
+    const update = harness.updates.find(u => u.sessionUpdate === 'tool_call_update')
+    expect(update).toMatchObject({ toolCallId: 'c1', status: 'completed' })
+  })
+
   it('a failing tool yields a failed tool_call_update', async () => {
     harness = await makeBridgeHarness({
       storageDir,

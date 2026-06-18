@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { makeBridgeHarness, textResponse, type BridgeHarness, type CapturedUpdate } from './harness.ts'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import { makeBridgeHarness, textResponse, toolCallResponse, type BridgeHarness, type CapturedUpdate } from './harness.ts'
 
 /** Concatenate the text of all agent_message_chunk updates. */
 function messageText(updates: CapturedUpdate[]): string {
@@ -54,6 +55,67 @@ describe('acp bridge — session/load replay', () => {
       .map(u => (u.content.type === 'text' ? u.content.text : ''))
       .join('')
     expect(userText).toBe('remember this')
+  })
+
+  it('replays a persisted tool call with the TOOL-OWNED presentation (title/rawInput/console output)', async () => {
+    // A turn with a tool call is persisted, then loaded by a fresh bridge. The
+    // replayed tool_call/tool_call_update must carry the tool's OWN presentation
+    // (presentCall/presentResult) — identical to how they streamed live — using
+    // a throwaway presenter that pairs call→result as the log replays in order.
+    live = await makeBridgeHarness({
+      storageDir,
+      script: [toolCallResponse('c1', 'bash', { command: 'ls -la', description: 'List files' }), textResponse('done')],
+    })
+    live.ctx.tools.register(defineTool({
+      name: 'bash',
+      description: 'run a command',
+      parameters: {
+        command: { type: 'string', required: true },
+        description: { type: 'string', required: true },
+      },
+      async execute() { return [{ type: 'text', text: 'a.txt\nb.txt\n' }] },
+      presentCall: args => ({ title: args.description, kind: 'execute', rawInput: args.command }),
+      presentResult: (_args, result) => {
+        const block = result.content.length === 1 ? result.content[0] : undefined
+        if (block === undefined || block.type !== 'text') return undefined
+        return { content: [{ type: 'text', text: `\`\`\`console\n${block.text.trimEnd()}\n\`\`\`` }] }
+      },
+    }))
+    await live.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await live.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await live.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'list' }] })
+    await live.dispose()
+    live = undefined
+
+    // A fresh bridge — which must ALSO have the tool registered, since the
+    // presentation is resolved from the live registry at replay time — loads it.
+    loader = await makeBridgeHarness({ storageDir, script: [] })
+    loader.ctx.tools.register(defineTool({
+      name: 'bash',
+      description: 'run a command',
+      parameters: {
+        command: { type: 'string', required: true },
+        description: { type: 'string', required: true },
+      },
+      async execute() { return [] },
+      presentCall: args => ({ title: args.description, kind: 'execute', rawInput: args.command }),
+      presentResult: (_args, result) => {
+        const block = result.content.length === 1 ? result.content[0] : undefined
+        if (block === undefined || block.type !== 'text') return undefined
+        return { content: [{ type: 'text', text: `\`\`\`console\n${block.text.trimEnd()}\n\`\`\`` }] }
+      },
+    }))
+    await loader.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    await loader.client.loadSession({ sessionId, cwd: process.cwd(), mcpServers: [] })
+
+    const call = loader.updates.find(u => u.sessionUpdate === 'tool_call')
+    expect(call).toMatchObject({ toolCallId: 'c1', title: 'List files', kind: 'execute', rawInput: 'ls -la' })
+    const update = loader.updates.find(u => u.sessionUpdate === 'tool_call_update')
+    expect(update).toMatchObject({
+      toolCallId: 'c1',
+      status: 'completed',
+      content: [{ type: 'content', content: { type: 'text', text: '```console\na.txt\nb.txt\n```' } }],
+    })
   })
 
   it('a load whose resume finishes after a client disconnect leaks no live session', async () => {

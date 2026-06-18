@@ -8,7 +8,7 @@ It is a **client-driver / UI plugin**, the structured analogue of the readline `
 
 `apply(ctx, config)` — wires an `AgentSideConnection` (from `@agentclientprotocol/sdk`) to `process.stdin`/`process.stdout` and implements the ACP `Agent` method surface.
 
-`inject: ['agents', 'sessions', 'sessionPersistence']` — programs against the interface packages only (never `dsh-agent-loop`). `sessionPersistence` is required because `initialize` advertises `loadSession: true`.
+`inject: ['agents', 'sessions', 'sessionPersistence', 'tools']` — programs against the interface packages only (never `dsh-agent-loop`). `sessionPersistence` is required because `initialize` advertises `loadSession: true`; `tools` lets a tool own how its calls render (`presentCall`/`presentResult`) — the bridge looks the definition up by name and falls back to a generic presentation when a tool declares none (see Tool-call presentation).
 
 ### Config
 
