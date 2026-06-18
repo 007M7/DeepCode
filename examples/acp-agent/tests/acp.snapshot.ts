@@ -20,20 +20,35 @@ import { type NormalizeContext, normalizeSessionLog, normalizeStdout } from './s
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const RECORDING = process.env.DSH_SNAPSHOT === 'record'
 
-/** A scenario and whether it makes any model call (→ has a behavioral JSONL golden). */
+/** A snapshot scenario and how its fixtures are produced. */
 interface Scenario {
   name: string
   /** Whether the scenario drives at least one model turn (so a JSONL golden applies). */
   hasModelTurn: boolean
+  /**
+   * Whether `test:snapshot:record` regenerates this scenario's `session.jsonl`
+   * from the LIVE API. `recorded` scenarios are model-driven and reproducible;
+   * `authored` scenarios (a hand-written `replay.override.json` sidecar drives
+   * replay — e.g. a provider error or a cancel, which the live API can't be
+   * coaxed into deterministically) are NEVER re-recorded.
+   */
+  recorded: boolean
 }
 
 const SCENARIOS: Scenario[] = [
-  { name: 'handshake', hasModelTurn: false },
+  { name: 'handshake', hasModelTurn: false, recorded: false },
+  { name: 'text-turn', hasModelTurn: true, recorded: true },
+  { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
+  { name: 'multi-turn', hasModelTurn: true, recorded: true },
+  { name: 'error-finish', hasModelTurn: true, recorded: false },
+  { name: 'cancel', hasModelTurn: true, recorded: false },
 ]
 
 for (const scenario of SCENARIOS) {
   describe(`snapshot: ${scenario.name}`, () => {
-    it('matches the stdout transcript golden', async () => {
+    // In RECORD mode, only re-run the `recorded` (live-API) scenarios; the
+    // `authored` ones (sidecar-driven errors/cancel) are never re-recorded.
+    it.skipIf(RECORDING && !scenario.recorded)('matches the goldens', async () => {
       const dir = join(SNAPSHOTS_DIR, scenario.name)
       const input = JSON.parse(await readFile(join(dir, 'input.json'), 'utf8')) as InputScript
       const overrideFile = join(dir, 'replay.override.json')
@@ -48,10 +63,10 @@ for (const scenario of SCENARIOS) {
         cwd: result.cwd,
       }
 
-      // RECORD mode: persist the freshly-harvested log back to the scenario's
-      // session.jsonl fixture (a model scenario must produce one). `--update`
-      // refreshes the Vitest goldens but NOT this fixture, so write it here.
-      if (RECORDING && scenario.hasModelTurn) {
+      // RECORD mode (recorded scenarios only): persist the freshly-harvested log
+      // back to the scenario's session.jsonl fixture. `--update` refreshes the
+      // Vitest goldens but NOT this fixture, so write it here.
+      if (RECORDING && scenario.recorded && scenario.hasModelTurn) {
         expect(result.sessionLog, 'record produced no session log to harvest').toBeDefined()
         await writeFile(join(dir, 'session.jsonl'), result.sessionLog as string)
       }

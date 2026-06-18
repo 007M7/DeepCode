@@ -44,11 +44,19 @@ const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta
  * harness interprets these in order. `newSession` captures the server-issued
  * (random) session id into a `{{sessionId}}` variable that later steps
  * reference, since a committed file cannot know the id in advance.
+ *
+ * `promptAndCancel` sends a prompt WITHOUT awaiting its response, waits until
+ * the client observes the first streamed `agent_message_chunk` (so the emitted
+ * frames deterministically precede the cancellation), then cancels the turn —
+ * the only way to exercise a cancel deterministically (a plain `prompt` step
+ * awaits the response, which a cancel/hang scenario would block on forever).
  */
 type InputStep =
   | { op: 'initialize'; terminalOutput?: boolean }
   | { op: 'newSession' }
   | { op: 'prompt'; text: string }
+  | { op: 'promptExpectError'; text: string }
+  | { op: 'promptAndCancel'; text: string }
   | { op: 'cancel' }
 
 /** A scenario's `input.json`: an ordered list of input steps. */
@@ -122,8 +130,23 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
     Readable.toWeb(passthrough) as ReadableStream<Uint8Array>,
   )
+  // Watcher so a step can block until the client OBSERVES a particular
+  // session/update — used by promptAndCancel to pin frame order (send cancel
+  // only after the streamed agent_message_chunk has arrived, so those frames
+  // deterministically precede the cancelled prompt response).
+  const updateWaiters: { match: (u: SessionNotification['update']) => boolean; resolve: () => void }[] = []
+  const waitForUpdate = (match: (u: SessionNotification['update']) => boolean): Promise<void> =>
+    new Promise<void>(resolve => updateWaiters.push({ match, resolve }))
+
   const makeClient = (_agent: AcpAgent): Client => ({
-    sessionUpdate(_params: SessionNotification): Promise<void> {
+    sessionUpdate(params: SessionNotification): Promise<void> {
+      for (let i = updateWaiters.length - 1; i >= 0; i--) {
+        const waiter = updateWaiters[i]
+        if (waiter !== undefined && waiter.match(params.update)) {
+          updateWaiters.splice(i, 1)
+          waiter.resolve()
+        }
+      }
       return Promise.resolve()
     },
     requestPermission(_params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -136,7 +159,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   let sessionLog: string | undefined
   try {
     for (const step of input.steps) {
-      await runStep(client, step, cwd, () => sessionId, (id) => { sessionId = id })
+      await runStep(client, step, cwd, waitForUpdate, () => sessionId, (id) => { sessionId = id })
     }
     // Done driving: close stdin so the server disposes gracefully (flushing
     // persistence) and exits. Then await exit so the harvested log is complete.
@@ -170,6 +193,7 @@ async function runStep(
   client: ClientSideConnection,
   step: InputStep,
   cwd: string,
+  waitForUpdate: (match: (u: SessionNotification['update']) => boolean) => Promise<void>,
   getSessionId: () => string | undefined,
   setSessionId: (id: string) => void,
 ): Promise<void> {
@@ -189,6 +213,34 @@ async function runStep(
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: prompt before newSession')
       await client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
+      return
+    }
+    case 'promptExpectError': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: promptExpectError before newSession')
+      // The model fails this turn (a recorded provider error), so the bridge
+      // answers the prompt with a JSON-RPC error and the SDK rejects. That
+      // rejection IS the expected editor experience — swallow it so the run
+      // completes and the stdout transcript (the error frame) is captured.
+      await client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
+        .then(() => { throw new Error('snapshot-harness: expected the prompt to fail but it succeeded') },
+          () => { /* expected: the turn failed and the bridge returned an error */ })
+      return
+    }
+    case 'promptAndCancel': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: promptAndCancel before newSession')
+      // Dispatch the prompt WITHOUT awaiting (a hang fixture never resolves on
+      // its own). To pin frame order deterministically, wait until the client
+      // has OBSERVED the hang's streamed agent_message_chunk before cancelling —
+      // so those update frames always precede the cancelled prompt response in
+      // the transcript (without this, the late chunk and the response race; see
+      // the Codex review of commit 5). Then cancel and await the prompt, which
+      // the bridge settles as `cancelled` once the abort propagates.
+      const promptDone = client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
+      await waitForUpdate(u => u.sessionUpdate === 'agent_message_chunk')
+      await client.cancel({ sessionId })
+      await promptDone
       return
     }
     case 'cancel': {
