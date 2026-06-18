@@ -75,40 +75,41 @@ describe('acp bridge — turn outcomes', () => {
     expect(callIdx).toBeLessThan(updIdx)
   })
 
-  it('a tool-owned presentation flows end-to-end: presentCall sets title/rawInput, presentResult reformats output', async () => {
+  it('the REAL bash tool drives the tool-call UI end-to-end: description—command title + console output', async () => {
+    // Use the SHIPPING tool (dsh-tool-bash + dsh-bash-local), not an inline
+    // stand-in, so this verifies the actual presentCall/presentResult the editor
+    // sees (AGENTS.md "prefer the real implementation over a mock in tests").
+    // The mock MODEL still scripts the tool call (no real LLM needed), but the
+    // tool and executor are real: a real `echo` runs and its real output flows
+    // back through the bridge.
     harness = await makeBridgeHarness({
       storageDir,
-      script: [toolCallResponse('c1', 'bash', { command: 'ls -la', description: 'List files' }), textResponse('done')],
+      withBash: true,
+      script: [
+        toolCallResponse('c1', 'bash', { command: 'echo hello', description: 'Print a greeting' }),
+        textResponse('done'),
+      ],
     })
-    // A tool that declares its OWN presentation (like the real tool-bash). The
-    // bridge must use it — NOT the generic title=name fallback — proving the
-    // tool-owns-its-rendering seam works through the real session-event path.
-    harness.ctx.tools.register(defineTool({
-      name: 'bash',
-      description: 'run a command',
-      parameters: {
-        command: { type: 'string', required: true },
-        description: { type: 'string', required: true },
-      },
-      async execute() { return [{ type: 'text', text: 'a.txt\nb.txt\n' }] },
-      presentCall: args => ({ title: args.description, kind: 'execute', rawInput: args.command }),
-      presentResult: (_args, result) => {
-        const block = result.content.length === 1 ? result.content[0] : undefined
-        if (block === undefined || block.type !== 'text') return undefined
-        return { content: [{ type: 'text', text: `\`\`\`console\n${block.text.trimEnd()}\n\`\`\`` }] }
-      },
-    }))
     const sessionId = await newSession(harness)
-    await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'list' }] })
+    await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'greet' }] })
 
+    // presentCall: execute kind, title is "description — command" (an execute
+    // card hides rawInput, so the command rides in the title), command in rawInput.
     const call = harness.updates.find(u => u.sessionUpdate === 'tool_call')
-    expect(call).toMatchObject({ toolCallId: 'c1', title: 'List files', kind: 'execute', rawInput: 'ls -la', status: 'in_progress' })
-    const update = harness.updates.find(u => u.sessionUpdate === 'tool_call_update')
-    expect(update).toMatchObject({
+    expect(call).toMatchObject({
       toolCallId: 'c1',
-      status: 'completed',
-      content: [{ type: 'content', content: { type: 'text', text: '```console\na.txt\nb.txt\n```' } }],
+      title: 'Print a greeting — echo hello',
+      kind: 'execute',
+      rawInput: 'echo hello',
+      status: 'in_progress',
     })
+    // presentResult: the REAL command output, wrapped in a fenced console block.
+    const update = harness.updates.find(u => u.sessionUpdate === 'tool_call_update')
+    expect(update?.sessionUpdate).toBe('tool_call_update')
+    if (update?.sessionUpdate !== 'tool_call_update') throw new Error('expected a tool_call_update')
+    expect(update).toMatchObject({ toolCallId: 'c1', status: 'completed' })
+    const content = update.content as { content: { type: string; text: string } }[]
+    expect(content[0]?.content.text).toBe('```console\nhello\n```')
   })
 
   it('a throwing tool presenter does not break the turn: the bridge falls back generically', async () => {

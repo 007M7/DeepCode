@@ -133,15 +133,18 @@ export function renderResult(result: BashRunResult): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Pending-state presentation for a `bash` call: the model-written `description`
- * is the always-visible title (the schema requires it precisely so a UI has a
- * readable summary — "List files in the current directory"), `kind: 'execute'`
- * (a terminal/run treatment), and the exact `command` is the `rawInput` so the
- * verbatim command stays visible in a UI's detail view without crowding the
- * title. Mirrors how Zed / the reference ACP adapters render execute tools.
+ * Pending-state presentation for a `bash` call. The title is the model-written
+ * `description` followed by the exact `command` ("List files — ls -la src"):
+ * `kind: 'execute'` gets a terminal/run treatment in a UI, but an execute-kind
+ * card HIDES `rawInput` (Zed: `should_show_raw_input = !is_terminal_tool`), so
+ * the command MUST ride in the always-visible title to be seen — the reference
+ * ACP adapters (claude-agent-acp, codex-acp) likewise put the command in the
+ * title for execute tools. The description leads (a readable summary the schema
+ * requires); the command follows so the verbatim text is still there. `rawInput`
+ * still carries the bare command for non-execute UIs that DO render it.
  */
 function presentBashCall(args: { command: string; description: string }): ToolCallPresentation {
-  return { title: args.description, kind: 'execute', rawInput: args.command }
+  return { title: `${args.description} — ${args.command}`, kind: 'execute', rawInput: args.command }
 }
 
 /**

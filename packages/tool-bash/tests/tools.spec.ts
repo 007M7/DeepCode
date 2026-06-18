@@ -564,10 +564,10 @@ describe('status lines', () => {
 })
 
 describe('tool-owned UI presentation (presentCall / presentResult)', () => {
-  it('bash presentCall: the model description is the title, the command is the rawInput, kind execute', async () => {
+  it('bash presentCall: title is "description — command" (execute cards hide rawInput), command also in rawInput', async () => {
     const ctx = await setup()
-    const present = ctx.tools.get('bash')!.presentCall!({ command: 'ls -la src', description: 'List files in src' })
-    expect(present).toEqual({ title: 'List files in src', kind: 'execute', rawInput: 'ls -la src' })
+    const present = ctx.tools.get('bash')?.presentCall?.({ command: 'ls -la src', description: 'List files in src' })
+    expect(present).toEqual({ title: 'List files in src — ls -la src', kind: 'execute', rawInput: 'ls -la src' })
   })
 
   it('bash presentResult: wraps the model-facing text in a fenced console block', async () => {

@@ -788,8 +788,15 @@ interface ResolvedResultPresentation {
  * both), the presenter remembers each `tool/call`'s `{ name, args }` keyed by
  * callId and looks it up on the matching result. The map is bridge-LOCAL (not a
  * change to the event schema or a core service): one presenter per live session
- * (and a throwaway per `session/load` replay), entries removed as each result
- * arrives, so it holds only the currently-in-flight calls.
+ * (and a throwaway per `session/load` replay), and each entry is removed when
+ * its result arrives. In the normal loop a `tool/call` is always followed by a
+ * `tool/result` (the registry turns even a thrown tool into an isError result),
+ * so the map holds only currently-in-flight calls. The one exception is a step
+ * torn down mid-tool (an abort between `tool/call` and `tool/result`), which can
+ * leave a single stale entry per such call; this is bounded by the session
+ * lifetime (the whole presenter is dropped on teardown) and never affects
+ * correctness — a later result for a different callId is unaffected, and the
+ * stale entry's only cost is one map slot until the session ends.
  */
 export class ToolPresenter {
   private readonly pending = new Map<string, { name: string; args: unknown }>()
