@@ -20,7 +20,7 @@
  * ownership check is the fence that stops one session's agent from reading or
  * killing another session's background task.
  *
- * TODO(tool-bash-owner-hmr): the ownership map is per-plugin-instance, so an
+ * XXX(tool-bash-owner-hmr): the ownership map is per-plugin-instance, so an
  * independent HMR reload of `tool-bash` (without reloading `dsh-bash`) starts a
  * fresh map and a task spawned before the reload becomes un-owned (open to any
  * caller). This is acceptable today — HMR is dev-only, the ACP session boundary
@@ -276,7 +276,7 @@ export function apply(ctx: Context): void {
   // another session's background task. A task with no recorded owner (started by
   // a non-loop caller, `exec.agent` absent) is unowned and accessible to anyone.
   // An independent `tool-bash` HMR reload resets this map — see the
-  // TODO(tool-bash-owner-hmr) note in the module doc.
+  // XXX(tool-bash-owner-hmr) note in the module doc.
   const taskOwner = new Map<string, Agent>()
 
   /**
