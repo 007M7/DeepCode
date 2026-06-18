@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { makeBridgeHarness, textResponse, type BridgeHarness, type CapturedUpdate } from './harness.ts'
+import { makeBridgeHarness, textResponse, toolCallResponse, type BridgeHarness, type CapturedUpdate } from './harness.ts'
 
 /** Concatenate the text of all agent_message_chunk updates. */
 function messageText(updates: CapturedUpdate[]): string {
@@ -54,6 +54,40 @@ describe('acp bridge — session/load replay', () => {
       .map(u => (u.content.type === 'text' ? u.content.text : ''))
       .join('')
     expect(userText).toBe('remember this')
+  })
+
+  it('replays a persisted tool call with the TOOL-OWNED presentation (title/rawInput/console output)', async () => {
+    // A turn with a REAL bash tool call is persisted, then loaded by a fresh
+    // bridge. The replayed tool_call/tool_call_update must carry the tool's OWN
+    // presentation — identical to how it streamed live — via a throwaway
+    // presenter that pairs call→result as the log replays in order. Uses the
+    // shipping tool (withBash), not a stand-in (AGENTS.md "prefer the real
+    // implementation over a mock in tests").
+    live = await makeBridgeHarness({
+      storageDir,
+      withBash: true,
+      script: [toolCallResponse('c1', 'bash', { command: 'echo hello', description: 'Print a greeting' }), textResponse('done')],
+    })
+    await live.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await live.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await live.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'greet' }] })
+    await live.dispose()
+    live = undefined
+
+    // A fresh bridge — also with the real bash tool, since the presentation is
+    // resolved from the live registry at replay time — loads the session.
+    loader = await makeBridgeHarness({ storageDir, withBash: true, script: [] })
+    await loader.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    await loader.client.loadSession({ sessionId, cwd: process.cwd(), mcpServers: [] })
+
+    const call = loader.updates.find(u => u.sessionUpdate === 'tool_call')
+    expect(call).toMatchObject({ toolCallId: 'c1', title: 'Print a greeting — echo hello', kind: 'execute', rawInput: 'echo hello' })
+    const update = loader.updates.find(u => u.sessionUpdate === 'tool_call_update')
+    expect(update?.sessionUpdate).toBe('tool_call_update')
+    if (update?.sessionUpdate !== 'tool_call_update') throw new Error('expected a tool_call_update')
+    expect(update).toMatchObject({ toolCallId: 'c1', status: 'completed' })
+    const content = update.content as { content: { text: string } }[]
+    expect(content[0]?.content.text).toBe('```console\nhello\n```')
   })
 
   it('a load whose resume finishes after a client disconnect leaks no live session', async () => {

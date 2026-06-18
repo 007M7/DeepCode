@@ -75,6 +75,70 @@ describe('acp bridge — turn outcomes', () => {
     expect(callIdx).toBeLessThan(updIdx)
   })
 
+  it('the REAL bash tool drives the tool-call UI end-to-end: description—command title + console output', async () => {
+    // Use the SHIPPING tool (dsh-tool-bash + dsh-bash-local), not an inline
+    // stand-in, so this verifies the actual presentCall/presentResult the editor
+    // sees (AGENTS.md "prefer the real implementation over a mock in tests").
+    // The mock MODEL still scripts the tool call (no real LLM needed), but the
+    // tool and executor are real: a real `echo` runs and its real output flows
+    // back through the bridge.
+    harness = await makeBridgeHarness({
+      storageDir,
+      withBash: true,
+      script: [
+        toolCallResponse('c1', 'bash', { command: 'echo hello', description: 'Print a greeting' }),
+        textResponse('done'),
+      ],
+    })
+    const sessionId = await newSession(harness)
+    await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'greet' }] })
+
+    // presentCall: execute kind, title is "description — command" (an execute
+    // card hides rawInput, so the command rides in the title), command in rawInput.
+    const call = harness.updates.find(u => u.sessionUpdate === 'tool_call')
+    expect(call).toMatchObject({
+      toolCallId: 'c1',
+      title: 'Print a greeting — echo hello',
+      kind: 'execute',
+      rawInput: 'echo hello',
+      status: 'in_progress',
+    })
+    // presentResult: the REAL command output, wrapped in a fenced console block.
+    const update = harness.updates.find(u => u.sessionUpdate === 'tool_call_update')
+    expect(update?.sessionUpdate).toBe('tool_call_update')
+    if (update?.sessionUpdate !== 'tool_call_update') throw new Error('expected a tool_call_update')
+    expect(update).toMatchObject({ toolCallId: 'c1', status: 'completed' })
+    const content = update.content as { content: { type: string; text: string } }[]
+    expect(content[0]?.content.text).toBe('```console\nhello\n```')
+  })
+
+  it('a throwing tool presenter does not break the turn: the bridge falls back generically', async () => {
+    // A buggy tool whose presentCall throws must not fail the live turn — the
+    // bridge's presenter contains the throw (logging via its onError sink) and
+    // falls back to the generic title=name presentation. Exercises the real
+    // bridge wiring of the per-session presenter's error sink.
+    harness = await makeBridgeHarness({
+      storageDir,
+      script: [toolCallResponse('c1', 'kaboom', { x: 1 }), textResponse('done')],
+    })
+    harness.ctx.tools.register(defineTool({
+      name: 'kaboom',
+      description: 'explodes when presented',
+      parameters: { x: { type: 'number' } },
+      async execute() { return [{ type: 'text', text: 'ok' }] },
+      presentCall: () => { throw new Error('present boom') },
+    }))
+    const sessionId = await newSession(harness)
+    const res = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
+    expect(res.stopReason).toBe('end_turn') // the turn completed despite the throw
+
+    const call = harness.updates.find(u => u.sessionUpdate === 'tool_call')
+    // Generic fallback: title is the tool name, raw args as rawInput.
+    expect(call).toMatchObject({ toolCallId: 'c1', title: 'kaboom', kind: 'other', rawInput: { x: 1 } })
+    const update = harness.updates.find(u => u.sessionUpdate === 'tool_call_update')
+    expect(update).toMatchObject({ toolCallId: 'c1', status: 'completed' })
+  })
+
   it('a failing tool yields a failed tool_call_update', async () => {
     harness = await makeBridgeHarness({
       storageDir,

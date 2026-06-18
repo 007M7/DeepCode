@@ -31,6 +31,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Multiplex concurrent ACP sessions over one connection](proposed/2026-06-14-acp-multi-session.md) | 2026-06-14 |
 | [Optional Code Mode — model writes TypeScript against an SDK of all tools](proposed/2026-06-15-optional-code-mode.md) | 2026-06-15 |
 | [Runtime schemas for the event vocabulary (Zod vs the merge-extensible-map pattern)](proposed/2026-06-16-typed-event-schemas.md) | 2026-06-16 |
+| [Rich ACP bash rendering — the terminal sub-protocol and command classification](proposed/2026-06-18-acp-terminal-and-tool-rendering.md) | 2026-06-18 |
 
 ## Implemented
 

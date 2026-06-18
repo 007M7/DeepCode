@@ -18,6 +18,8 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import {
   ClientSideConnection,
   ndJsonStream,
@@ -148,6 +150,14 @@ export async function makeBridgeHarness(options: {
   script?: (StreamChunk[] | 'hang')[]
   config?: Partial<AcpConfig>
   storageDir: string
+  /**
+   * Plug the REAL `dsh-bash-local` executor + `dsh-tool-bash` tools (instead of
+   * a test's own inline tool). Lets a test drive the actual `bash` tool — its
+   * real `presentCall`/`presentResult` — through the bridge, so tool-call UI
+   * tests verify the SHIPPING tool, not a stand-in (AGENTS.md "prefer the real
+   * implementation over a mock in tests").
+   */
+  withBash?: boolean
 } = { storageDir: '' }): Promise<BridgeHarness> {
   const adapter = new MockAdapter(options.script ?? [])
 
@@ -159,6 +169,10 @@ export async function makeBridgeHarness(options: {
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SessionPersistenceJsonl, { root: options.storageDir })
+  if (options.withBash) {
+    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
+    await ctx.plugin(ToolBash)
+  }
   ctx.llm.registerAdapter(['mock'], adapter)
 
   // Two identity byte pipes cross-wired into the two ndJsonStreams: bytes the
@@ -234,7 +248,11 @@ export async function makeBridgeHarness(options: {
   // tears down JUST the bridge (its listeners + effect) for the HMR test.
   harness.acpFiber = await ctx.plugin({
     name: 'acp-test',
-    inject: ['agents', 'sessions', 'sessionPersistence'],
+    // Use the bridge's REAL exported `inject` so this never drifts from the
+    // plugin's actual dependency list (adding a service to the bridge must not
+    // require editing the harness — a hardcoded list silently broke when `tools`
+    // was added). The bridge programs against the interface packages only.
+    inject: [...AcpPlugin.inject],
     apply: (inner: Context) => { AcpPlugin.apply(inner, cfg) },
   })
   harness.client = new ClientSideConnection(makeClient, clientStream)

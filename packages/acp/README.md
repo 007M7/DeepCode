@@ -8,7 +8,7 @@ It is a **client-driver / UI plugin**, the structured analogue of the readline `
 
 `apply(ctx, config)` — wires an `AgentSideConnection` (from `@agentclientprotocol/sdk`) to `process.stdin`/`process.stdout` and implements the ACP `Agent` method surface.
 
-`inject: ['agents', 'sessions', 'sessionPersistence']` — programs against the interface packages only (never `dsh-agent-loop`). `sessionPersistence` is required because `initialize` advertises `loadSession: true`.
+`inject: ['agents', 'sessions', 'sessionPersistence', 'tools']` — programs against the interface packages only (never `dsh-agent-loop`). `sessionPersistence` is required because `initialize` advertises `loadSession: true`; `tools` lets a tool own how its calls render (`presentCall`/`presentResult`) — the bridge looks the definition up by name and falls back to a generic presentation when a tool declares none (see Tool-call presentation).
 
 ### Config
 
@@ -28,7 +28,7 @@ It is a **client-driver / UI plugin**, the structured analogue of the readline `
 | `session/load` | `ctx.agents.resume(...)` | replays the persisted event log to the client as `session/update` — the USER side (`user/message` → `user_message_chunk`), assistant text/reasoning (`assistant/chunk`), and tool calls/results (`tool/call` + `tool/result`). Re-loading an already-live id is rejected; the id's load slot is reserved (`loadingIds`) BEFORE the async resume so a pipelined load of the SAME id can't leak a second agent (distinct ids load concurrently). The resumed session keeps its PERSISTED header `cwd`, so its bash tools run in the original workspace; the requested `cwd` only needs to be absolute. After the async resume a `closed` re-check refuses to install a record if the bridge tore down mid-load |
 | `session/prompt` | `agent.send()` | text-only; rejects image/audio and empty prompts; one in-flight prompt PER session (independent); settles on the OWNING turn's end (a turn that ends in `error` rejects the RPC) |
 | `session/cancel` | `agent.abort()` | aborts a running step + settles the prompt `cancelled` for ONLY that session — a cancel never touches another session's stream or prompt (see limitation below) |
-| `session/update` | `session/event` | `agent_message_chunk` (text-delta), `agent_thought_chunk` (reasoning-delta), `user_message_chunk` (load replay), `tool_call`/`tool_call_update` |
+| `session/update` | `session/event` | `agent_message_chunk` (text-delta), `agent_thought_chunk` (reasoning-delta), `user_message_chunk` (load replay), `tool_call`/`tool_call_update` (title/kind/rawInput/content owned by the TOOL via `presentCall`/`presentResult` — see Tool-call presentation) |
 
 ## Multi-session (RFC 011)
 
@@ -39,6 +39,14 @@ Background-task isolation rides on `dsh-tool-bash`: bash task ids are global and
 ## Per-session cwd
 
 Each session runs in its own workspace, recorded as the session's `SessionHeader.cwd`. On `session/new` the (absolute) request `cwd` becomes that header cwd; on `session/load` the resumed session keeps its PERSISTED header cwd (the request `cwd` is only shape-checked — it does not override the stored one), and a load whose persisted session has no absolute cwd is REJECTED up front via a metadata-only `list()` check, BEFORE resume constructs an agent (else bash would silently fall back to the server's launch dir, and a post-resume reject would leak the registered agent). `dsh-tool-bash` then defaults the bash workdir to the calling agent's `session.header.cwd` (an explicit model `workdir` still wins; a relative one resolves against the session cwd; with no session cwd the executor falls back to its own config / `process.cwd()`). So the server no longer has to be launched in the workspace — an editor can open any project folder, and N sessions over one connection can each target a different directory. (`additionalDirectories` is still rejected: widening the tool/filesystem scope beyond the single cwd is a separate sandbox concern.)
+
+## Tool-call presentation
+
+How a tool call renders in the editor is owned by the TOOL, not the bridge — the bridge never special-cases tool names. Each tool may declare `presentCall(args)` (pending state: a human-readable `title`, a `kind` for the icon, and the salient `rawInput` to show in a detail view) and `presentResult(args, result)` (completed state: an optional replacement `title` and reformatted `content`) on its `dsh-tools` definition. The bridge looks the definition up by name in `ctx.tools` and maps the neutral `ToolCallPresentation`/`ToolResultPresentation` to the ACP `tool_call`/`tool_call_update` wire shapes. A tool that declares neither gets a generic fallback (title = tool name, raw parsed args as `rawInput`, kind inferred from the name). For example `dsh-tool-bash` sets the title to the model `description` + the exact `command` ("List files in src — ls -la src"), `kind: 'execute'`, the `command` as `rawInput`, and wraps the completed output in a fenced ` ```console ` block. (The command goes in the title because an editor hides `rawInput` for execute-kind cards — Zed renders it only for non-terminal tools.)
+
+The `tool/result` session event carries only `{ callId, content, isError }` — not the tool name or args — so to call a tool's `presentResult` the bridge keeps a small per-session map from `callId` to the in-flight call's `(name, args)`, populated on `tool/call` and removed as each result is presented (it holds only currently-in-flight calls, never finished ones). This is bridge-local state — NOT a change to the event schema or a core service. The map lives on the `SessionRecord`, so two concurrent sessions never cross their in-flight tool state; a `session/load` replay uses a throwaway presenter that pairs each `tool/call` with its `tool/result` as the log replays in order, so replayed tool cards render identically to live ones.
+
+A richer rendering — the ACP **terminal** content type (a live cwd-header terminal card with streaming output) and command classification (a `cat` shown as a `read`, a `grep` as a `search`) — is a capability-gated follow-up; the ` ```console ` text block here is the guaranteed baseline for clients without the terminal capability. See [the terminal-rendering RFC](../../docs/rfc/proposed/2026-06-18-acp-terminal-and-tool-rendering.md).
 
 ## Settle-exactly-once
 

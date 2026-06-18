@@ -50,9 +50,87 @@ declare module 'cordis' {
 // parallel execution — Claude Code partitions read-only tools; phase 1
 // executes sequentially).
 
+/**
+ * Category of a tool call, used by a UI to pick an icon / treatment. A neutral
+ * vocabulary owned here (NOT an ACP type) so tools describe themselves without
+ * depending on any client protocol; a UI bridge maps it to its own enum. The
+ * member set mirrors the common ACP `ToolKind` values; `other` is the default.
+ */
+export type ToolCallKind = 'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'
+
+/**
+ * How a tool wants ONE of its calls shown in a UI (an editor's tool-call card,
+ * a CLI log line) BEFORE the result is known — the *pending* state. Provider-
+ * neutral: a tool returns this from {@link ToolDefinition.presentCall} and a UI
+ * plugin (e.g. the ACP bridge) maps it to its own wire shape. The tool owns its
+ * own presentation — the UI must not special-case tool names.
+ */
+export interface ToolCallPresentation {
+  /**
+   * Human-readable, always-visible label describing what THIS call does (e.g.
+   * the model-written one-line summary of a bash command). Keep it short — a UI
+   * shows it as a card header / log line. Required: a presentation must have a
+   * title (a UI falls back to the tool name only when `presentCall` is absent).
+   */
+  title: string
+  /** Category for icon/treatment; defaults to `other` when omitted. */
+  kind?: ToolCallKind
+  /**
+   * The salient input to surface in a detail/expanded view — e.g. the bash
+   * COMMAND itself (as a string), so the title can stay a readable summary
+   * while the exact command is still visible. Omit to show nothing; a string is
+   * rendered as-is, an object as pretty JSON. NOT the full raw args object
+   * unless that is genuinely what a reader wants.
+   */
+  rawInput?: unknown
+}
+
+/**
+ * How a tool wants the COMPLETED call shown — the *result* state, after
+ * `execute` returns. Lets the tool reformat its result for a UI distinctly from
+ * the model-facing text it returned from `execute` (e.g. wrap command output in
+ * a fenced ```console block for monospace rendering, which the model-facing
+ * result must NOT carry). All fields optional: a UI keeps the pending-state
+ * title and renders the raw result content for anything left unset.
+ */
+export interface ToolResultPresentation {
+  /** Replacement title for the completed call (e.g. append an exit status). Omit to keep the pending-state title. */
+  title?: string
+  /**
+   * UI-facing result content (harness {@link ContentBlock}s), reformatted from
+   * the model-facing result. Omit to let the UI render the raw result content.
+   * Stays in harness vocabulary; the UI maps these to its own content blocks.
+   */
+  content?: ContentBlock[]
+}
+
 /** A registered tool: its schema plus the execution function. */
 export interface ToolDefinition extends ToolSchema {
   execute(args: unknown, exec: ToolExecution): Promise<ContentBlock[]>
+  /**
+   * Optional: how to present the PENDING state of one call in a UI, derived
+   * from the call's `args` (parsed arguments, `unknown` — the tool validates/
+   * narrows its own input). Returning `undefined` (or omitting the method) tells
+   * a UI to fall back to a generic presentation (title = tool name, raw args as
+   * input). Pure and side-effect-free: a UI may call it during live streaming
+   * AND a session-log replay, so it must depend only on `args`.
+   */
+  presentCall?(args: unknown): ToolCallPresentation | undefined
+  /**
+   * Optional: how to present the COMPLETED state, given the same `args` and the
+   * `result` (`execute`'s content + whether it errored). Returning `undefined`
+   * (or omitting the method) tells a UI to keep the pending title and render the
+   * raw result content. Pure and side-effect-free for the same replay reason.
+   */
+  presentResult?(args: unknown, result: ToolResult): ToolResultPresentation | undefined
+}
+
+/** The completed outcome handed to {@link ToolDefinition.presentResult}. */
+export interface ToolResult {
+  /** The model-facing content `execute` returned (or the error text on failure). */
+  content: ContentBlock[]
+  /** Whether the call failed. */
+  isError: boolean
 }
 
 /** One pending tool call, as it flows through the execution waterfall. */
@@ -166,14 +244,22 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * Return all registered tool schemas, stripped of their `execute` functions.
-   * These are exactly what gets sent to the model via the system-prompt
-   * assembly.
+   * Return all registered tool schemas — exactly the model-facing fields
+   * (`name`, `description`, `parameters`, and `strict` when set), as sent to the
+   * model via the system-prompt assembly. Constructed EXPLICITLY rather than by
+   * stripping known non-schema members: a `ToolDefinition` also carries
+   * `execute` and the optional `presentCall`/`presentResult` UI callbacks, and
+   * those (especially the functions) must never leak into a model request. An
+   * allowlist can't drift when a new non-schema member is added to the
+   * definition; a denylist (rest-destructure) would silently leak it.
    */
   schemas(): ToolSchema[] {
-    // Rest-destructure to drop `execute`; the unused binding is the idiom.
-    // eslint-disable-next-line @typescript-eslint/unbound-method, @typescript-eslint/no-unused-vars
-    return [...this.store.values()].map(({ execute, ...schema }) => schema)
+    return [...this.store.values()].map(({ name, description, parameters, strict }): ToolSchema => ({
+      name,
+      description,
+      parameters,
+      ...strict !== undefined ? { strict } : {},
+    }))
   }
 
   /**

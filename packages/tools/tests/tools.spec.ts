@@ -41,6 +41,39 @@ describe('ToolRegistry', () => {
     expect(assembly.tools.map(t => t.name)).toEqual(['echo'])
   })
 
+  it('schemas() drops the UI presentation callbacks — they must never reach the model', async () => {
+    const ctx = await setup()
+    // A tool that declares presentCall/presentResult (functions). schemas() feeds
+    // the system-prompt assembly → the model request, so those callbacks (and
+    // `execute`) must be stripped: a function in the JSON tool schema would
+    // corrupt the request. schemas() is an explicit allowlist, so it can't leak.
+    ctx.tools.register(defineTool({
+      name: 'present',
+      description: 'has presenters',
+      parameters: { x: { type: 'string', required: true } },
+      async execute() { return [] },
+      presentCall: args => ({ title: args.x }),
+      presentResult: (args, result) => ({ title: args.x, content: result.content }),
+    }))
+    const schema = ctx.tools.schemas()[0] as unknown as Record<string, unknown>
+    expect(Object.keys(schema).sort()).toEqual(['description', 'name', 'parameters'])
+    expect(schema.presentCall).toBeUndefined()
+    expect(schema.presentResult).toBeUndefined()
+    expect(schema.execute).toBeUndefined()
+  })
+
+  it('schemas() preserves `strict` when set (allowlist keeps the model-facing fields)', async () => {
+    const ctx = await setup()
+    ctx.tools.register(defineTool({
+      name: 'strict-tool',
+      description: 'd',
+      parameters: { x: { type: 'string', required: true } },
+      strict: true,
+      async execute() { return [] },
+    }))
+    expect(ctx.tools.schemas()[0]).toMatchObject({ name: 'strict-tool', strict: true })
+  })
+
   it('executes a tool and returns its content', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
@@ -812,5 +845,55 @@ describe('defineTool validation (the runtime-validation RFC, part 1)', () => {
     // this reaches execute rather than being rejected by the harness.
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'raw', arguments: {} })
     expect(result.isError).toBe(false)
+  })
+})
+
+describe('defineTool presentation (presentCall / presentResult)', () => {
+  it('threads presentCall/presentResult onto the ToolDefinition with typed args', () => {
+    const tool = defineTool({
+      name: 'demo',
+      description: 'demo',
+      parameters: { path: { type: 'string', required: true }, n: { type: 'number' } },
+      async execute() { return [{ type: 'text', text: 'ok' }] },
+      presentCall(args) {
+        // args is typed { path: string; n?: number } — zero casts.
+        expectTypeOf(args).toEqualTypeOf<{ path: string; n?: number }>()
+        return { title: `Open ${args.path}`, kind: 'read', rawInput: args.path }
+      },
+      presentResult(args, result) {
+        return { title: `Opened ${args.path}`, content: result.content }
+      },
+    })
+    expect(tool.presentCall!({ path: '/a', n: 2 })).toEqual({ title: 'Open /a', kind: 'read', rawInput: '/a' })
+    expect(tool.presentResult!({ path: '/a' }, { content: [{ type: 'text', text: 'x' }], isError: false }))
+      .toEqual({ title: 'Opened /a', content: [{ type: 'text', text: 'x' }] })
+  })
+
+  it('a tool without presentCall/presentResult leaves them undefined (UI falls back generically)', () => {
+    const tool = defineTool({
+      name: 'plain',
+      description: 'plain',
+      parameters: { x: { type: 'string', required: true } },
+      async execute() { return [] },
+    })
+    expect(typeof tool.presentCall).toBe('undefined')
+    expect(typeof tool.presentResult).toBe('undefined')
+  })
+
+  it('presentCall/presentResult validate softly: malformed args return undefined, never throw (display runs on replay)', () => {
+    const tool = defineTool({
+      name: 'demo',
+      description: 'demo',
+      parameters: { path: { type: 'string', required: true } },
+      async execute() { return [] },
+      presentCall: args => ({ title: args.path }),
+      presentResult: (args, result) => ({ title: args.path, content: result.content }),
+    })
+    // Unlike execute (which throws ToolArgsError on a mismatch), the display
+    // methods soft-validate and fall back to undefined so a UI never crashes
+    // replaying an old/foreign log entry. The ToolDefinition methods take
+    // `unknown`, so malformed shapes pass without a cast.
+    expect(tool.presentCall?.({})).toBeUndefined()
+    expect(tool.presentResult?.({ wrong: 1 }, { content: [], isError: false })).toBeUndefined()
   })
 })

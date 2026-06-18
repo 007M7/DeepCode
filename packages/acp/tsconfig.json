@@ -12,6 +12,7 @@
     { "path": "../llm" },
     { "path": "../session" },
     { "path": "../agent" },
+    { "path": "../tools" },
     { "path": "../session-persistence" }
   ]
 }

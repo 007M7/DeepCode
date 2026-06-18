@@ -562,3 +562,58 @@ describe('status lines', () => {
     expect(text(read)).toContain('[status: completed, exit code: 0]')
   })
 })
+
+describe('tool-owned UI presentation (presentCall / presentResult)', () => {
+  it('bash presentCall: title is "description — command" (execute cards hide rawInput), command also in rawInput', async () => {
+    const ctx = await setup()
+    const present = ctx.tools.get('bash')?.presentCall?.({ command: 'ls -la src', description: 'List files in src' })
+    expect(present).toEqual({ title: 'List files in src — ls -la src', kind: 'execute', rawInput: 'ls -la src' })
+  })
+
+  it('bash presentResult: wraps the model-facing text in a fenced console block', async () => {
+    const ctx = await setup()
+    const present = ctx.tools.get('bash')!.presentResult!(
+      { command: 'echo hi', description: 'echo' },
+      { content: [{ type: 'text', text: 'hi\n[exit code: 0]\n\n' }], isError: false },
+    )
+    // Trailing blank lines are trimmed; the body is fenced as ```console.
+    expect(present).toEqual({ content: [{ type: 'text', text: '```console\nhi\n[exit code: 0]\n```' }] })
+  })
+
+  it('bash presentResult: leaves a non-text (unexpected) result untouched → undefined (UI keeps raw content)', async () => {
+    const ctx = await setup()
+    const present = ctx.tools.get('bash')!.presentResult!(
+      { command: 'x', description: 'x' },
+      { content: [{ type: 'image', url: 'https://x/y.png' }], isError: false },
+    )
+    expect(present).toBeUndefined()
+  })
+
+  it('bash presentResult: a result that is not exactly one block → undefined (no single text to fence)', async () => {
+    const ctx = await setup()
+    const args = { command: 'x', description: 'x' }
+    // Empty content (no block) and multi-block content both fall through.
+    expect(ctx.tools.get('bash')!.presentResult!(args, { content: [], isError: false })).toBeUndefined()
+    expect(ctx.tools.get('bash')!.presentResult!(args, {
+      content: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }],
+      isError: false,
+    })).toBeUndefined()
+  })
+
+  it('bash_output / bash_kill presentCall: a readable task-scoped title, task id as rawInput', async () => {
+    const ctx = await setup()
+    expect(ctx.tools.get('bash_output')!.presentCall!({ task_id: 'bash-3' }))
+      .toEqual({ title: 'Read output from background task bash-3', kind: 'execute', rawInput: 'bash-3' })
+    expect(ctx.tools.get('bash_kill')!.presentCall!({ task_id: 'bash-3' }))
+      .toEqual({ title: 'Kill background task bash-3', kind: 'execute', rawInput: 'bash-3' })
+  })
+
+  it('presentCall validates softly: malformed args (missing required description) return undefined, never throw', async () => {
+    const ctx = await setup()
+    // defineTool wraps presentCall to soft-validate against the schema and fall
+    // back to undefined (a generic UI presentation) rather than throwing on the
+    // display path — it may run on replay of arbitrary logged args. The
+    // ToolDefinition.presentCall takes `unknown`, so a malformed shape needs no cast.
+    expect(ctx.tools.get('bash')?.presentCall?.({ command: 'ls' })).toBeUndefined()
+  })
+})
