@@ -39,6 +39,8 @@
 import type { Context } from 'cordis'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolCallPresentation, ToolResult, ToolResultPresentation } from '@deepseek-ai/dsh-tools'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { BashRunResult, BashTask, CollectedOutput } from '@deepseek-ai/dsh-bash'
 
@@ -122,6 +124,44 @@ export function renderResult(result: BashRunResult): string {
 
   if (!body.endsWith('\n')) body += '\n'
   return body + markers.join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// UI presentation (tool-owned). These shape how a UI (e.g. the ACP bridge)
+// renders a bash call's pending and completed states. They are display-only and
+// pure — a UI may call them during live streaming AND a session-log replay.
+// ---------------------------------------------------------------------------
+
+/**
+ * Pending-state presentation for a `bash` call: the model-written `description`
+ * is the always-visible title (the schema requires it precisely so a UI has a
+ * readable summary — "List files in the current directory"), `kind: 'execute'`
+ * (a terminal/run treatment), and the exact `command` is the `rawInput` so the
+ * verbatim command stays visible in a UI's detail view without crowding the
+ * title. Mirrors how Zed / the reference ACP adapters render execute tools.
+ */
+function presentBashCall(args: { command: string; description: string }): ToolCallPresentation {
+  return { title: args.description, kind: 'execute', rawInput: args.command }
+}
+
+/**
+ * Completed-state presentation for a `bash` call: wrap the model-facing result
+ * text in a fenced ```console block so a UI renders the output monospaced as a
+ * terminal transcript. The model-facing `content` (what `execute` returned) is
+ * intentionally NOT fenced — the fences are a UI-only affordance, so they live
+ * here, not in `renderResult`. A non-text result (unexpected for bash) is left
+ * untouched by falling back to `undefined`.
+ */
+function presentBashResult(_args: unknown, result: ToolResult): ToolResultPresentation | undefined {
+  const block = result.content.length === 1 ? result.content[0] : undefined
+  if (block === undefined || block.type !== 'text') return undefined
+  const fenced: ContentBlock = { type: 'text', text: `\`\`\`console\n${block.text.replace(/\n+$/, '')}\n\`\`\`` }
+  return { content: [fenced] }
+}
+
+/** Pending-state presentation for `bash_output`/`bash_kill` (background-task tools). */
+function presentTaskCall(verb: string, args: { task_id: string }): ToolCallPresentation {
+  return { title: `${verb} background task ${args.task_id}`, kind: 'execute', rawInput: args.task_id }
 }
 
 /**
@@ -242,6 +282,8 @@ export function apply(ctx: Context): void {
       if (result.aborted) throw new Error('command aborted')
       return [{ type: 'text', text: renderResult(result) }]
     },
+    presentCall: presentBashCall,
+    presentResult: presentBashResult,
   }))
 
   ctx.tools.register(defineTool({
@@ -266,6 +308,7 @@ export function apply(ctx: Context): void {
       text += `\n${statusLine(read.task)}`
       return Promise.resolve([{ type: 'text', text }])
     },
+    presentCall: args => presentTaskCall('Read output from', args),
   }))
 
   ctx.tools.register(defineTool({
@@ -283,5 +326,6 @@ export function apply(ctx: Context): void {
         text: killed ? `killed background task ${id}` : `task ${id} had already finished`,
       }])
     },
+    presentCall: args => presentTaskCall('Kill', args),
   }))
 }

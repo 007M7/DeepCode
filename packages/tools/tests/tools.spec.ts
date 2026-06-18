@@ -814,3 +814,54 @@ describe('defineTool validation (the runtime-validation RFC, part 1)', () => {
     expect(result.isError).toBe(false)
   })
 })
+
+describe('defineTool presentation (presentCall / presentResult)', () => {
+  it('threads presentCall/presentResult onto the ToolDefinition with typed args', () => {
+    const tool = defineTool({
+      name: 'demo',
+      description: 'demo',
+      parameters: { path: { type: 'string', required: true }, n: { type: 'number' } },
+      async execute() { return [{ type: 'text', text: 'ok' }] },
+      presentCall(args) {
+        // args is typed { path: string; n?: number } — zero casts.
+        expectTypeOf(args).toEqualTypeOf<{ path: string; n?: number }>()
+        return { title: `Open ${args.path}`, kind: 'read', rawInput: args.path }
+      },
+      presentResult(args, result) {
+        return { title: `Opened ${args.path}`, content: result.content }
+      },
+    })
+    expect(tool.presentCall!({ path: '/a', n: 2 })).toEqual({ title: 'Open /a', kind: 'read', rawInput: '/a' })
+    expect(tool.presentResult!({ path: '/a' }, { content: [{ type: 'text', text: 'x' }], isError: false }))
+      .toEqual({ title: 'Opened /a', content: [{ type: 'text', text: 'x' }] })
+  })
+
+  it('a tool without presentCall/presentResult leaves them undefined (UI falls back generically)', () => {
+    const tool = defineTool({
+      name: 'plain',
+      description: 'plain',
+      parameters: { x: { type: 'string', required: true } },
+      async execute() { return [] },
+    })
+    expect(typeof tool.presentCall).toBe('undefined')
+    expect(typeof tool.presentResult).toBe('undefined')
+  })
+
+  it('presentCall/presentResult validate softly: malformed args return undefined, never throw (display runs on replay)', () => {
+    const tool = defineTool({
+      name: 'demo',
+      description: 'demo',
+      parameters: { path: { type: 'string', required: true } },
+      async execute() { return [] },
+      presentCall: args => ({ title: args.path }),
+      presentResult: (args, result) => ({ title: args.path, content: result.content }),
+    })
+    // Unlike execute (which throws ToolArgsError on a mismatch), the display
+    // methods soft-validate and fall back to undefined so a UI never crashes
+    // replaying an old/foreign log entry. The ToolDefinition methods take
+    // `unknown`, so malformed shapes pass without a cast.
+    expect(tool.presentCall?.({})).toBeUndefined()
+    expect(tool.presentResult?.({ wrong: 1 }, { content: [], isError: false })).toBeUndefined()
+  })
+})
+

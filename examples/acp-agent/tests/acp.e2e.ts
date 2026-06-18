@@ -174,6 +174,21 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: real prompt over 
     expect(proof).toContain('ACP_OK')
 
     // And the client saw tool-call activity stream through.
-    expect(updates.some(u => u.sessionUpdate === 'tool_call')).toBe(true)
+    const toolCalls = updates.filter(u => u.sessionUpdate === 'tool_call')
+    expect(toolCalls.length).toBeGreaterThan(0)
+
+    // Tool-call UI quality (the tool owns its presentation): the bash tool's
+    // `presentCall` sets the title to the model's human-readable `description`
+    // and the `rawInput` to the exact command — NOT the bare tool name "bash".
+    // A `bash` call must therefore carry an execute kind, a non-"bash" title,
+    // and a string rawInput (the command). `toolCalls` is already narrowed to
+    // the `tool_call` shape by the filter above, so these fields are reachable.
+    const bashCall = toolCalls.find(u => u.kind === 'execute')
+    expect(bashCall).toBeDefined()
+    if (bashCall === undefined) throw new Error('expected an execute tool_call')
+    expect(typeof bashCall.title).toBe('string')
+    expect(bashCall.title.length).toBeGreaterThan(0)
+    expect(bashCall.title).not.toBe('bash') // the old, unhelpful title
+    expect(typeof bashCall.rawInput).toBe('string') // the exact command
   }, 180_000)
 })

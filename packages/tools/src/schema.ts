@@ -21,7 +21,7 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
-import type { ToolDefinition, ToolExecution } from './index.ts'
+import type { ToolCallPresentation, ToolDefinition, ToolExecution, ToolResult, ToolResultPresentation } from './index.ts'
 
 // ---------------------------------------------------------------------------
 // SchemaSpec — the author-facing per-property type
@@ -287,6 +287,22 @@ export interface DefineToolOptions<S extends SchemaSpec> {
    * casts needed.
    */
   execute(args: InferArgs<S>, exec: ToolExecution): Promise<ContentBlock[]>
+  /**
+   * Optional: how to present the PENDING state of one call in a UI (an editor
+   * tool-call card, a CLI log line). `args` is the typed, schema-validated
+   * argument shape — zero casts. Pure and side-effect-free: a UI may call it
+   * during live streaming AND a session-log replay, so depend only on `args`.
+   * The tool owns its presentation so a UI never special-cases tool names. See
+   * {@link ToolCallPresentation}.
+   */
+  presentCall?(args: InferArgs<S>): ToolCallPresentation | undefined
+  /**
+   * Optional: how to present the COMPLETED state, given the typed `args` and the
+   * `result`. Use it to reformat result content for a UI distinctly from the
+   * model-facing text (e.g. a fenced ```console block). Pure and side-effect-
+   * free for the same replay reason. See {@link ToolResultPresentation}.
+   */
+  presentResult?(args: InferArgs<S>, result: ToolResult): ToolResultPresentation | undefined
   /** Whether the tool requires structured output (default false). */
   strict?: boolean
 }
@@ -322,7 +338,11 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
   // Object-literal execute methods don't use `this`; the reference is safe.
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const userExecute = options.execute
-  return {
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const userPresentCall = options.presentCall
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const userPresentResult = options.presentResult
+  const tool: ToolDefinition = {
     name: options.name,
     description: options.description,
     parameters: schemaSpecToJsonSchema(options.parameters) as unknown as Record<string, unknown>,
@@ -337,4 +357,21 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
       return userExecute(args as InferArgs<S>, exec)
     },
   }
+  // Presentation is display-only and may run on REPLAY of arbitrary logged args
+  // (possibly from an older schema), so it must never throw: validate softly and
+  // fall back to `undefined` (a generic UI presentation) on any mismatch, rather
+  // than the hard `ToolArgsError` the execute path raises.
+  if (userPresentCall) {
+    tool.presentCall = (args: unknown): ToolCallPresentation | undefined => {
+      if (validateArgs(options.parameters, args).length > 0) return undefined
+      return userPresentCall(args as InferArgs<S>)
+    }
+  }
+  if (userPresentResult) {
+    tool.presentResult = (args: unknown, result: ToolResult): ToolResultPresentation | undefined => {
+      if (validateArgs(options.parameters, args).length > 0) return undefined
+      return userPresentResult(args as InferArgs<S>, result)
+    }
+  }
+  return tool
 }

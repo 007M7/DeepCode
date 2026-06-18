@@ -234,7 +234,11 @@ export async function makeBridgeHarness(options: {
   // tears down JUST the bridge (its listeners + effect) for the HMR test.
   harness.acpFiber = await ctx.plugin({
     name: 'acp-test',
-    inject: ['agents', 'sessions', 'sessionPersistence'],
+    // Use the bridge's REAL exported `inject` so this never drifts from the
+    // plugin's actual dependency list (adding a service to the bridge must not
+    // require editing the harness — a hardcoded list silently broke when `tools`
+    // was added). The bridge programs against the interface packages only.
+    inject: [...AcpPlugin.inject],
     apply: (inner: Context) => { AcpPlugin.apply(inner, cfg) },
   })
   harness.client = new ClientSideConnection(makeClient, clientStream)

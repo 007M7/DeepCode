@@ -75,6 +75,42 @@ describe('acp bridge — turn outcomes', () => {
     expect(callIdx).toBeLessThan(updIdx)
   })
 
+  it('a tool-owned presentation flows end-to-end: presentCall sets title/rawInput, presentResult reformats output', async () => {
+    harness = await makeBridgeHarness({
+      storageDir,
+      script: [toolCallResponse('c1', 'bash', { command: 'ls -la', description: 'List files' }), textResponse('done')],
+    })
+    // A tool that declares its OWN presentation (like the real tool-bash). The
+    // bridge must use it — NOT the generic title=name fallback — proving the
+    // tool-owns-its-rendering seam works through the real session-event path.
+    harness.ctx.tools.register(defineTool({
+      name: 'bash',
+      description: 'run a command',
+      parameters: {
+        command: { type: 'string', required: true },
+        description: { type: 'string', required: true },
+      },
+      async execute() { return [{ type: 'text', text: 'a.txt\nb.txt\n' }] },
+      presentCall: args => ({ title: args.description, kind: 'execute', rawInput: args.command }),
+      presentResult: (_args, result) => {
+        const block = result.content.length === 1 ? result.content[0] : undefined
+        if (block === undefined || block.type !== 'text') return undefined
+        return { content: [{ type: 'text', text: `\`\`\`console\n${block.text.trimEnd()}\n\`\`\`` }] }
+      },
+    }))
+    const sessionId = await newSession(harness)
+    await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'list' }] })
+
+    const call = harness.updates.find(u => u.sessionUpdate === 'tool_call')
+    expect(call).toMatchObject({ toolCallId: 'c1', title: 'List files', kind: 'execute', rawInput: 'ls -la', status: 'in_progress' })
+    const update = harness.updates.find(u => u.sessionUpdate === 'tool_call_update')
+    expect(update).toMatchObject({
+      toolCallId: 'c1',
+      status: 'completed',
+      content: [{ type: 'content', content: { type: 'text', text: '```console\na.txt\nb.txt\n```' } }],
+    })
+  })
+
   it('a failing tool yields a failed tool_call_update', async () => {
     harness = await makeBridgeHarness({
       storageDir,
