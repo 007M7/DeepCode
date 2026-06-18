@@ -58,6 +58,18 @@ declare module 'cordis' {
  */
 export type ToolCallKind = 'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'
 
+// FIXME(tool-presentation): the ToolCallPresentation / ToolResultPresentation /
+// ToolTerminal shapes need a rethink. They grew incrementally (title/kind/
+// rawInput, then a `content` block, then a `terminal` sub-shape carrying cwd/
+// output/exit) and the split of responsibility is now muddy: the call vs result
+// terminal fields overlap, the bridge has to reconcile a `content` block AND a
+// `terminal` block AND `rawInput` per call, and the "pending vs completed"
+// boundary doesn't cleanly map to how editors actually render (terminal card,
+// diff, generic card). Before more tools/UIs depend on this, redesign the type
+// so a tool declares its render INTENT once (e.g. a tagged union over card
+// kinds) rather than a bag of optional fields the bridge stitches together.
+// Pin the design in an RFC and migrate dsh-tool-bash + the ACP bridge together.
+
 /**
  * How a tool wants ONE of its calls shown in a UI (an editor's tool-call card,
  * a CLI log line) BEFORE the result is known — the *pending* state. Provider-
