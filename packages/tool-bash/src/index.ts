@@ -40,7 +40,6 @@ import type { Context } from 'cordis'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolCallPresentation, ToolResult, ToolResultPresentation } from '@deepseek-ai/dsh-tools'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { BashRunResult, BashTask, CollectedOutput } from '@deepseek-ai/dsh-bash'
 
@@ -133,33 +132,105 @@ export function renderResult(result: BashRunResult): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Pending-state presentation for a `bash` call. The title is the model-written
- * `description` followed by the exact `command` ("List files — ls -la src"):
- * `kind: 'execute'` gets a terminal/run treatment in a UI, but an execute-kind
- * card HIDES `rawInput` (Zed: `should_show_raw_input = !is_terminal_tool`), so
- * the command MUST ride in the always-visible title to be seen — the reference
- * ACP adapters (claude-agent-acp, codex-acp) likewise put the command in the
- * title for execute tools. The description leads (a readable summary the schema
- * requires); the command follows so the verbatim text is still there. `rawInput`
- * still carries the bare command for non-execute UIs that DO render it.
+ * Pending-state presentation for a `bash` call. The TITLE is the exact `command`
+ * — a `kind: 'execute'` card is rendered as a terminal whose header label IS the
+ * title, and an execute-kind card HIDES `rawInput` (Zed: `should_show_raw_input
+ * = !is_terminal_tool`), so the command must BE the title to be seen. This
+ * mirrors the reference ACP adapters (claude-agent-acp, codex-acp), which both
+ * use the bare command as an execute tool's title. The model-written
+ * `description` (a readable summary) rides as a `content` text block shown ABOVE
+ * the card. (Note: claude-agent-acp DROPS the description in terminal mode and
+ * shows only the card; surfacing it as a content block is a deliberate
+ * divergence here — we keep the human summary visible alongside the card.)
+ * `rawInput` still carries the bare command for non-execute UIs that DO render it.
+ *
+ * `terminal` marks the call so a capable UI renders a TERMINAL card — but ONLY a
+ * FOREGROUND run is a terminal: a `run_in_background` call returns a task id
+ * immediately (it never streams a terminal; its output is polled via
+ * `bash_output`), so it is NOT marked terminal and renders as an ordinary
+ * execute card. For a foreground run the `terminal.cwd` (header) is the model
+ * `workdir` when given — ABSOLUTE as-is, RELATIVE for the UI bridge to resolve
+ * against the session cwd; when omitted the bridge fills the session workspace
+ * cwd (this PURE presenter, args only, can't see it).
  */
-function presentBashCall(args: { command: string; description: string }): ToolCallPresentation {
-  return { title: `${args.description} — ${args.command}`, kind: 'execute', rawInput: args.command }
+type BashCallArgs = { command: string; description: string; workdir?: string; run_in_background?: boolean }
+
+function presentBashCall(args: BashCallArgs): ToolCallPresentation {
+  const base = {
+    title: args.command,
+    kind: 'execute' as const,
+    rawInput: args.command,
+    content: [{ type: 'text' as const, text: args.description }],
+  }
+  // A background start is not an interactive terminal — no terminal card.
+  if (args.run_in_background === true) return base
+  return { ...base, terminal: args.workdir !== undefined ? { cwd: args.workdir } : {} }
 }
 
 /**
- * Completed-state presentation for a `bash` call: wrap the model-facing result
- * text in a fenced ```console block so a UI renders the output monospaced as a
- * terminal transcript. The model-facing `content` (what `execute` returned) is
- * intentionally NOT fenced — the fences are a UI-only affordance, so they live
- * here, not in `renderResult`. A non-text result (unexpected for bash) is left
- * untouched by falling back to `undefined`.
+ * Completed-state presentation for a `bash` call. Two parallel renderings of the
+ * same output: `terminal.output` for a UI that shows a terminal card (the run's
+ * stdout/stderr + status markers, exactly as the model sees them — the RAW text,
+ * newlines preserved, since a terminal renderer relies on exact bytes), and a
+ * fenced ```console `content` block as the fallback for a UI without terminal
+ * support (the fences are a UI-only affordance, so they live here, not in the
+ * model-facing result; the fenced body is trimmed of trailing blank lines for a
+ * tidy block). A capable UI also gets an exit-status pill from `terminal.exitCode`
+ * / `terminal.signal`, parsed from the status markers `renderResult` appended.
+ *
+ * Terminal output/exit is suppressed for results that are NOT a finished
+ * foreground run: a `run_in_background` start (`isBackground` — the text is a
+ * task-id ack, not a streamed run) and an `isError` result (a spawn failure or
+ * abort — there is no real process exit to pill, and the body is an error
+ * message, not `renderResult` output, so parsing it would be meaningless). Those
+ * fall back to the fenced `content` block with no terminal metadata. The bridge's
+ * orphan guard also drops a result terminal when the call wasn't terminal, so a
+ * background call (not marked terminal in `presentBashCall`) is doubly safe.
+ * A non-text result (unexpected for bash) falls through to `undefined`.
  */
-function presentBashResult(_args: unknown, result: ToolResult): ToolResultPresentation | undefined {
+function presentBashResult(args: unknown, result: ToolResult): ToolResultPresentation | undefined {
   const block = result.content.length === 1 ? result.content[0] : undefined
   if (block === undefined || block.type !== 'text') return undefined
-  const fenced: ContentBlock = { type: 'text', text: `\`\`\`console\n${block.text.replace(/\n+$/, '')}\n\`\`\`` }
-  return { content: [fenced] }
+  const raw = block.text
+  const fenced = raw.replace(/\n+$/, '')
+  const content = [{ type: 'text' as const, text: `\`\`\`console\n${fenced}\n\`\`\`` }]
+  const isBackground = typeof args === 'object' && args !== null && (args as { run_in_background?: unknown }).run_in_background === true
+  // No exit pill / terminal output for a background ack or an errored run.
+  if (isBackground || result.isError) return { content }
+  return { content, terminal: { output: raw, ...parseExitStatus(raw) } }
+}
+
+/**
+ * Recover the structured exit status from a rendered `renderResult` string — the
+ * inverse of the status markers it appends. A `[killed by signal: SIG]` marker
+ * yields `{signal}`; otherwise an `[exit code: N]` marker yields `{exitCode:N}`;
+ * absent both we report `{exitCode:0}` (a clean run appends no marker — and a
+ * trapped-timeout run that exits 0 also has none and is accurately exit 0).
+ *
+ * Why parse rendered text at all: `presentResult` is replay-safe and on a
+ * `session/load` the ONLY thing persisted is this content text — the structured
+ * `BashRunResult` is long gone — so unless the exit were added to the persisted
+ * event schema (deliberately NOT done; see the terminal-rendering RFC), parsing
+ * is the only channel. The match is anchored to a LEADING newline + end-of-string
+ * because `renderResult` always inserts a `\n` before the marker (line ~124) onto
+ * a non-empty body: a real marker is therefore always its own final line. That
+ * defeats the common spoof (program output that simply ENDS in `[exit code: 5]`
+ * with no trailing newline — a clean exit 0 — no longer reads as a failure).
+ *
+ * KNOWN RESIDUAL (inherent to the replay-only-sees-text design): a clean exit 0
+ * whose body's FINAL line is itself exactly the marker text — `[exit code: N]`
+ * or `[killed by signal: SIG]`, printed by the program with nothing after — is
+ * still indistinguishable from a real marker and would show a wrong pill. This is
+ * display-only (execution and the model-facing text are unaffected) and narrow;
+ * the complete fix is to persist a structured exit on the result event, which the
+ * RFC names as the escape hatch.
+ */
+function parseExitStatus(text: string): { exitCode: number } | { signal: string } {
+  const signal = /\n\[killed by signal: ([^\]\n]+)\]$/.exec(text)
+  if (signal?.[1] !== undefined) return { signal: signal[1] }
+  const exit = /\n\[exit code: (\d+)\]$/.exec(text)
+  if (exit?.[1] !== undefined) return { exitCode: Number(exit[1]) }
+  return { exitCode: 0 }
 }
 
 /** Pending-state presentation for `bash_output`/`bash_kill` (background-task tools). */

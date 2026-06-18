@@ -564,20 +564,114 @@ describe('status lines', () => {
 })
 
 describe('tool-owned UI presentation (presentCall / presentResult)', () => {
-  it('bash presentCall: title is "description — command" (execute cards hide rawInput), command also in rawInput', async () => {
+  it('bash presentCall: title is the command, description as a content block, marks a terminal; workdir → cwd (absolute or relative, bridge resolves)', async () => {
     const ctx = await setup()
-    const present = ctx.tools.get('bash')?.presentCall?.({ command: 'ls -la src', description: 'List files in src' })
-    expect(present).toEqual({ title: 'List files in src — ls -la src', kind: 'execute', rawInput: 'ls -la src' })
+    // No explicit workdir → the call still flags a terminal, but with no cwd (the
+    // UI bridge fills the session cwd it owns; the pure presenter can't see it).
+    // The command is the title (an execute card hides rawInput); the description
+    // rides as a content text block (shown above the terminal card).
+    expect(ctx.tools.get('bash')?.presentCall?.({ command: 'ls -la src', description: 'List files in src' }))
+      .toEqual({ title: 'ls -la src', kind: 'execute', rawInput: 'ls -la src', content: [{ type: 'text', text: 'List files in src' }], terminal: {} })
+    // An ABSOLUTE workdir is surfaced verbatim as the terminal cwd header.
+    expect(ctx.tools.get('bash')?.presentCall?.({ command: 'pwd', description: 'Print dir', workdir: '/tmp/x' }))
+      .toEqual({ title: 'pwd', kind: 'execute', rawInput: 'pwd', content: [{ type: 'text', text: 'Print dir' }], terminal: { cwd: '/tmp/x' } })
+    // A RELATIVE workdir is passed through AS-IS (the bridge resolves it against
+    // the session cwd, matching where execution runs) — not dropped.
+    expect(ctx.tools.get('bash')?.presentCall?.({ command: 'pwd', description: 'Print dir', workdir: 'sub' }))
+      .toEqual({ title: 'pwd', kind: 'execute', rawInput: 'pwd', content: [{ type: 'text', text: 'Print dir' }], terminal: { cwd: 'sub' } })
   })
 
-  it('bash presentResult: wraps the model-facing text in a fenced console block', async () => {
+  it('bash presentResult: console-block content AND terminal.output (RAW newlines) + parsed exit code', async () => {
     const ctx = await setup()
     const present = ctx.tools.get('bash')!.presentResult!(
       { command: 'echo hi', description: 'echo' },
       { content: [{ type: 'text', text: 'hi\n[exit code: 0]\n\n' }], isError: false },
     )
-    // Trailing blank lines are trimmed; the body is fenced as ```console.
-    expect(present).toEqual({ content: [{ type: 'text', text: '```console\nhi\n[exit code: 0]\n```' }] })
+    // The fenced ```console content trims trailing blank lines for a tidy block;
+    // terminal.output keeps the RAW bytes (newlines intact) a terminal renderer
+    // needs; exitCode is parsed back from the [exit code: N] marker.
+    expect(present).toEqual({
+      content: [{ type: 'text', text: '```console\nhi\n[exit code: 0]\n```' }],
+      terminal: { output: 'hi\n[exit code: 0]\n\n', exitCode: 0 },
+    })
+  })
+
+  it('bash presentResult: a non-zero exit and a signal kill parse into exitCode / signal', async () => {
+    const ctx = await setup()
+    const args = { command: 'x', description: 'x' }
+    const nonzero = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: 'oops\n[exit code: 3]' }], isError: false })
+    expect(nonzero?.terminal).toEqual({ output: 'oops\n[exit code: 3]', exitCode: 3 })
+    const killed = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: 'gone\n[killed by signal: SIGKILL]' }], isError: false })
+    expect(killed?.terminal).toEqual({ output: 'gone\n[killed by signal: SIGKILL]', signal: 'SIGKILL' })
+  })
+
+  it('bash presentResult exit parse is the inverse of renderResult markers (round-trip)', async () => {
+    const ctx = await setup()
+    const present = ctx.tools.get('bash')!
+    // For each renderResult outcome, the rendered text fed back through
+    // presentResult recovers the matching structured exit — the parse and the
+    // marker emission co-evolve in one file, so this pins the pair.
+    const base = {
+      aborted: false,
+      timeoutMs: 1000,
+      stdout: { text: 'out', truncated: false },
+      stderr: { text: '', truncated: false },
+    }
+    const cases = [
+      { result: { ...base, exitCode: 0, signal: null, timedOut: false }, expect: { exitCode: 0 } },
+      { result: { ...base, exitCode: 7, signal: null, timedOut: false }, expect: { exitCode: 7 } },
+      { result: { ...base, exitCode: null, signal: 'SIGTERM' as const, timedOut: false }, expect: { signal: 'SIGTERM' } },
+      // A trapped-timeout run that exits 0 has no signal/exit marker → reads as exit 0 (it did exit 0).
+      { result: { ...base, exitCode: 0, signal: null, timedOut: true }, expect: { exitCode: 0 } },
+    ]
+    for (const c of cases) {
+      const rendered = renderResult(c.result)
+      const out = present.presentResult!({ command: 'x', description: 'x' }, { content: [{ type: 'text', text: rendered }], isError: false })
+      const { output: _o, ...exit } = out?.terminal ?? {}
+      expect(exit).toEqual(c.expect)
+    }
+  })
+
+  it('bash presentResult: a clean exit-0 whose output ENDS in marker-like text is NOT read as a failure', async () => {
+    const ctx = await setup()
+    const args = { command: 'printf "[exit code: 5]"', description: 'print' }
+    // A successful command can print text that looks like a marker. renderResult
+    // for a clean exit 0 appends NOTHING (and no trailing newline), so the body's
+    // own tail is `[exit code: 5]`. The parse requires a LEADING newline before
+    // the marker (renderResult always inserts one before a REAL marker), so this
+    // no-trailing-newline body is NOT mistaken for a failure → exitCode 0.
+    const out = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: '[exit code: 5]' }], isError: false })
+    expect(out?.terminal).toEqual({ output: '[exit code: 5]', exitCode: 0 })
+    // Same for a fake signal marker with no leading newline.
+    const sig = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: '[killed by signal: SIGKILL]' }], isError: false })
+    expect(sig?.terminal).toEqual({ output: '[killed by signal: SIGKILL]', exitCode: 0 })
+  })
+
+  it('bash presentCall/presentResult: a run_in_background call is NOT a terminal and its ack carries no exit pill', async () => {
+    const ctx = await setup()
+    // The background start returns a task-id ack, not a streamed run — no terminal.
+    const call = ctx.tools.get('bash')!.presentCall!({ command: 'sleep 100', description: 'wait', run_in_background: true })
+    expect(call).toEqual({ title: 'sleep 100', kind: 'execute', rawInput: 'sleep 100', content: [{ type: 'text', text: 'wait' }] })
+    expect((call as { terminal?: unknown }).terminal).toBeUndefined()
+    // The ack result is fenced text only — no terminal output / exit pill.
+    const result = ctx.tools.get('bash')!.presentResult!(
+      { command: 'sleep 100', description: 'wait', run_in_background: true },
+      { content: [{ type: 'text', text: 'started background task bash-1' }], isError: false },
+    )
+    expect(result?.terminal).toBeUndefined()
+    expect(result?.content).toEqual([{ type: 'text', text: '```console\nstarted background task bash-1\n```' }])
+  })
+
+  it('bash presentResult: an isError result carries no exit pill (no real process exit to report)', async () => {
+    const ctx = await setup()
+    // A spawn failure / abort has no process exit — the body is an error message,
+    // not renderResult output, so no terminal output/exit is emitted.
+    const out = ctx.tools.get('bash')!.presentResult!(
+      { command: 'x', description: 'x' },
+      { content: [{ type: 'text', text: 'command aborted' }], isError: true },
+    )
+    expect(out?.terminal).toBeUndefined()
+    expect(out?.content).toEqual([{ type: 'text', text: '```console\ncommand aborted\n```' }])
   })
 
   it('bash presentResult: leaves a non-text (unexpected) result untouched → undefined (UI keeps raw content)', async () => {

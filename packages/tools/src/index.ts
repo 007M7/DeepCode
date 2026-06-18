@@ -58,6 +58,18 @@ declare module 'cordis' {
  */
 export type ToolCallKind = 'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'
 
+// FIXME(tool-presentation): the ToolCallPresentation / ToolResultPresentation /
+// ToolTerminal shapes need a rethink. They grew incrementally (title/kind/
+// rawInput, then a `content` block, then a `terminal` sub-shape carrying cwd/
+// output/exit) and the split of responsibility is now muddy: the call vs result
+// terminal fields overlap, the bridge has to reconcile a `content` block AND a
+// `terminal` block AND `rawInput` per call, and the "pending vs completed"
+// boundary doesn't cleanly map to how editors actually render (terminal card,
+// diff, generic card). Before more tools/UIs depend on this, redesign the type
+// so a tool declares its render INTENT once (e.g. a tagged union over card
+// kinds) rather than a bag of optional fields the bridge stitches together.
+// Pin the design in an RFC and migrate dsh-tool-bash + the ACP bridge together.
+
 /**
  * How a tool wants ONE of its calls shown in a UI (an editor's tool-call card,
  * a CLI log line) BEFORE the result is known — the *pending* state. Provider-
@@ -83,6 +95,56 @@ export interface ToolCallPresentation {
    * unless that is genuinely what a reader wants.
    */
   rawInput?: unknown
+  /**
+   * UI-facing content to show on the PENDING call alongside the title/card —
+   * harness {@link ContentBlock}s, in render order. A terminal tool uses this to
+   * surface its human-readable `description` as a text block ABOVE the terminal
+   * card (the card itself is requested via {@link terminal} and labelled by the
+   * command in `title`), since the card has no description slot. Omit to show no
+   * extra content. A UI maps these to its own content blocks and renders a
+   * {@link terminal} block (if any) as a terminal card.
+   */
+  content?: ContentBlock[]
+  /**
+   * Ask a capable UI to render this call as a TERMINAL (a command running in a
+   * working directory), not a generic tool card — set by a tool whose call IS a
+   * shell command (e.g. `bash`). Provider-neutral; a UI bridge maps it to its
+   * own terminal affordance and a UI that can't falls back to the normal card.
+   * Pair with {@link ToolResultPresentation.terminal} for the output/exit.
+   */
+  terminal?: ToolTerminal
+}
+
+/**
+ * A request to render a tool call as a terminal. The pending presentation
+ * supplies the working directory; the result presentation (see
+ * {@link ToolResultPresentation.terminal}) supplies the captured output and exit
+ * status. Provider-neutral — no client-protocol types. A UI that supports
+ * terminals shows a cwd-headed terminal card with the command, its output, and
+ * an exit-status pill; a UI that does not ignores this and renders the ordinary
+ * card/content.
+ */
+export interface ToolTerminal {
+  /**
+   * Working directory the command ran in, shown as the terminal header. An
+   * ABSOLUTE path is used as-is; a RELATIVE path is resolved by the UI bridge
+   * against the session workspace (the pure tool presenter can't see the
+   * session cwd). Omit entirely to let the bridge use the session workspace.
+   */
+  cwd?: string
+  /** Captured command output (stdout+stderr as the tool chooses to combine them). Result-state only. */
+  output?: string
+  /**
+   * Process exit code, when the run ended by exiting (not a signal). Result-state
+   * only; lets a capable UI show an exit-status pill on the terminal card. Omit
+   * when the command was killed by a signal or the exit code is unknown.
+   */
+  exitCode?: number
+  /**
+   * Signal name that killed the process (e.g. `SIGTERM`), when it died by signal
+   * rather than exiting. Result-state only; mutually exclusive with `exitCode`.
+   */
+  signal?: string
 }
 
 /**
@@ -102,6 +164,13 @@ export interface ToolResultPresentation {
    * Stays in harness vocabulary; the UI maps these to its own content blocks.
    */
   content?: ContentBlock[]
+  /**
+   * Terminal output/exit for a call the pending presentation marked as a
+   * terminal (see {@link ToolCallPresentation.terminal}). A capable UI renders
+   * `output` in the terminal card and shows the exit status; an incapable UI
+   * uses `content` (the tool should supply a text fallback there too).
+   */
+  terminal?: ToolTerminal
 }
 
 /** A registered tool: its schema plus the execution function. */

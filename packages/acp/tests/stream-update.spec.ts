@@ -281,6 +281,116 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
   })
 })
 
+describe('terminal-card mapping (capability-gated)', () => {
+  // A tool that asks to render as a terminal — a stand-in for tool-bash's shape,
+  // letting us drive the bridge's terminal mapping without the real executor.
+  type CallTerm = { cwd?: string } | undefined
+  type ResultTerm = { output?: string; exitCode?: number; signal?: string } | undefined
+  const termTool = (callTerminal: CallTerm, resultTerminal: ResultTerm): ToolDefinition => ({
+    name: 'bash',
+    description: 'run a command',
+    parameters: {},
+    execute: async () => [],
+    presentCall: (args: unknown) => ({
+      title: (args as { command: string }).command,
+      kind: 'execute',
+      rawInput: (args as { command: string }).command,
+      content: [{ type: 'text', text: (args as { description: string }).description }],
+      ...callTerminal !== undefined ? { terminal: callTerminal } : {},
+    }),
+    presentResult: () => ({
+      content: [{ type: 'text', text: 'fallback' }],
+      ...resultTerminal !== undefined ? { terminal: resultTerminal } : {},
+    }),
+  })
+
+  const callEvent = evt('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'bash', arguments: JSON.stringify({ command: 'echo hi', description: 'Greet' }) })
+  const resultEvent = evt('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'hi\n' }], isError: false })
+
+  function termUpdates(tool: ToolDefinition, enabled: boolean, cwd: string | undefined, ...events: SessionEvent[]): SessionNotification['update'][] {
+    const presenter = new ToolPresenter(registryOf(tool))
+    const out: SessionNotification['update'][] = []
+    for (const event of events) streamSessionEventUpdate('s1', event, n => out.push(n.update), presenter, { enabled, cwd })
+    return out
+  }
+
+  it('capability ON: description content THEN terminal block; cwd from the session header when the tool gives none', () => {
+    const [call, update] = termUpdates(termTool({}, { output: 'hi\n', exitCode: 0 }), true, '/work/proj', callEvent, resultEvent)
+    expect(call).toMatchObject({
+      sessionUpdate: 'tool_call',
+      content: [
+        { type: 'content', content: { type: 'text', text: 'Greet' } },
+        { type: 'terminal', terminalId: 'c1' },
+      ],
+      _meta: { terminal_info: { terminal_id: 'c1', cwd: '/work/proj' } },
+    })
+    // The update OMITS content (it would clobber the terminal block) and carries output + exit.
+    expect(update).toEqual({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'c1',
+      status: 'completed',
+      _meta: { terminal_output: { terminal_id: 'c1', data: 'hi\n' }, terminal_exit: { terminal_id: 'c1', exit_code: 0 } },
+    })
+  })
+
+  it('capability ON: an ABSOLUTE tool cwd wins; a RELATIVE one resolves against the session cwd', () => {
+    const [absCall] = termUpdates(termTool({ cwd: '/explicit/abs' }, { output: 'x' }), true, '/work/proj', callEvent)
+    expect((absCall as unknown as { _meta: { terminal_info: { cwd: string } } })._meta.terminal_info.cwd).toBe('/explicit/abs')
+    const [relCall] = termUpdates(termTool({ cwd: 'sub/dir' }, { output: 'x' }), true, '/work/proj', callEvent)
+    // Relative workdir resolved against the session cwd — the card header matches
+    // where execution actually ran (tool-bash resolves the same way).
+    expect((relCall as unknown as { _meta: { terminal_info: { cwd: string } } })._meta.terminal_info.cwd).toBe('/work/proj/sub/dir')
+    // No session cwd to resolve against → the relative tool cwd is passed through as-is.
+    const [noSessionCwd] = termUpdates(termTool({ cwd: 'rel/only' }, { output: 'x' }), true, undefined, callEvent)
+    expect((noSessionCwd as unknown as { _meta: { terminal_info: { cwd: string } } })._meta.terminal_info.cwd).toBe('rel/only')
+  })
+
+  it('capability ON: a signal kill maps to terminal_exit.signal', () => {
+    const [, update] = termUpdates(termTool({}, { output: 'gone', signal: 'SIGKILL' }), true, '/w', callEvent, resultEvent)
+    expect((update as unknown as { _meta: { terminal_exit: unknown } })._meta.terminal_exit).toEqual({ terminal_id: 'c1', signal: 'SIGKILL' })
+  })
+
+  it('capability ON: a terminal result with output but NO exit/signal emits terminal_output and NO exit pill', () => {
+    // A terminal-rendering tool that reports no structured exit (neither exitCode
+    // nor signal) — the card shows output but no exit pill.
+    const [, update] = termUpdates(termTool({}, { output: 'partial' }), true, '/w', callEvent, resultEvent)
+    const meta = (update as unknown as { _meta: { terminal_output?: unknown; terminal_exit?: unknown } })._meta
+    expect(meta.terminal_output).toEqual({ terminal_id: 'c1', data: 'partial' })
+    expect(meta.terminal_exit).toBeUndefined()
+  })
+
+  it('capability OFF: no terminal block or _meta; the description content and fenced result still render', () => {
+    const [call, update] = termUpdates(termTool({}, { output: 'hi\n' }), false, '/work/proj', callEvent, resultEvent)
+    expect(call).toEqual({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'c1',
+      title: 'echo hi',
+      kind: 'execute',
+      status: 'in_progress',
+      rawInput: 'echo hi',
+      content: [{ type: 'content', content: { type: 'text', text: 'Greet' } }],
+    })
+    expect(update).toEqual({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'c1',
+      status: 'completed',
+      content: [{ type: 'content', content: { type: 'text', text: 'fallback' } }],
+    })
+  })
+
+  it('orphan guard: a result-side terminal with NO call-side terminal is dropped (no orphan terminal_output)', () => {
+    // presentCall declares NO terminal, but presentResult returns one — the
+    // bridge must not emit _meta.terminal_output for a terminal Zed never made.
+    const [call, update] = termUpdates(termTool(undefined, { output: 'hi\n', exitCode: 0 }), true, '/w', callEvent, resultEvent)
+    // The call had no terminal → ordinary tool_call (description content, no _meta).
+    expect((call as { _meta?: unknown })._meta).toBeUndefined()
+    expect((call as { content: unknown }).content).toEqual([{ type: 'content', content: { type: 'text', text: 'Greet' } }])
+    // The result falls back to text content; NO terminal _meta.
+    expect((update as { _meta?: unknown })._meta).toBeUndefined()
+    expect((update as { content: unknown }).content).toEqual([{ type: 'content', content: { type: 'text', text: 'fallback' } }])
+  })
+})
+
 describe('agentOptions', () => {
   it('includes only the fields present in config', () => {
     expect(agentOptions({})).toEqual({})

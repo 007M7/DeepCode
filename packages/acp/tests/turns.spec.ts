@@ -14,8 +14,8 @@ import {
 } from './harness.ts'
 
 /** Boilerplate: initialize + create one session, returning its id. */
-async function newSession(h: BridgeHarness): Promise<string> {
-  await h.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+async function newSession(h: BridgeHarness, clientCapabilities: Record<string, unknown> = {}): Promise<string> {
+  await h.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities })
   const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
   return sessionId
 }
@@ -75,7 +75,7 @@ describe('acp bridge — turn outcomes', () => {
     expect(callIdx).toBeLessThan(updIdx)
   })
 
-  it('the REAL bash tool drives the tool-call UI end-to-end: description—command title + console output', async () => {
+  it('the REAL bash tool drives the tool-call UI end-to-end: command title + description block + console output', async () => {
     // Use the SHIPPING tool (dsh-tool-bash + dsh-bash-local), not an inline
     // stand-in, so this verifies the actual presentCall/presentResult the editor
     // sees (AGENTS.md "prefer the real implementation over a mock in tests").
@@ -93,16 +93,20 @@ describe('acp bridge — turn outcomes', () => {
     const sessionId = await newSession(harness)
     await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'greet' }] })
 
-    // presentCall: execute kind, title is "description — command" (an execute
-    // card hides rawInput, so the command rides in the title), command in rawInput.
+    // presentCall: execute kind, title IS the command (an execute card hides
+    // rawInput, so the command is the title), the description rides as a content
+    // text block, the command is also rawInput for non-terminal UIs.
     const call = harness.updates.find(u => u.sessionUpdate === 'tool_call')
     expect(call).toMatchObject({
       toolCallId: 'c1',
-      title: 'Print a greeting — echo hello',
+      title: 'echo hello',
       kind: 'execute',
       rawInput: 'echo hello',
       status: 'in_progress',
     })
+    if (call?.sessionUpdate !== 'tool_call') throw new Error('expected a tool_call')
+    // Capability OFF: the description renders as the only content block (no terminal block).
+    expect(call.content).toEqual([{ type: 'content', content: { type: 'text', text: 'Print a greeting' } }])
     // presentResult: the REAL command output, wrapped in a fenced console block.
     const update = harness.updates.find(u => u.sessionUpdate === 'tool_call_update')
     expect(update?.sessionUpdate).toBe('tool_call_update')
@@ -110,6 +114,77 @@ describe('acp bridge — turn outcomes', () => {
     expect(update).toMatchObject({ toolCallId: 'c1', status: 'completed' })
     const content = update.content as { content: { type: string; text: string } }[]
     expect(content[0]?.content.text).toBe('```console\nhello\n```')
+    // Capability OFF (the default newSession): NO terminal _meta on either update.
+    expect((call as { _meta?: unknown })._meta).toBeUndefined()
+    expect((update as { _meta?: unknown })._meta).toBeUndefined()
+  })
+
+  it('with the terminal_output capability ON, a real bash call renders as a TERMINAL card (content + _meta + exit)', async () => {
+    // Drive the REAL bash tool, and advertise the Zed `_meta.terminal_output`
+    // capability in initialize. The bridge must then emit the terminal CARD: the
+    // description content block THEN a terminal content block + `_meta.terminal_info`
+    // (cwd header) on the call, and `_meta.terminal_output`/`terminal_exit` on the
+    // result — and OMIT the update's text content (it would clobber the card).
+    harness = await makeBridgeHarness({
+      storageDir,
+      withBash: true,
+      script: [toolCallResponse('c1', 'bash', { command: 'echo hi', description: 'Greet' }), textResponse('done')],
+    })
+    // Capability lives under clientCapabilities._meta.terminal_output.
+    const sessionId = await newSession(harness, { _meta: { terminal_output: true } })
+    await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'greet' }] })
+
+    const call = harness.updates.find(u => u.sessionUpdate === 'tool_call')
+    if (call?.sessionUpdate !== 'tool_call') throw new Error('expected a tool_call')
+    // The description content block FIRST (renders above the card), then a
+    // terminal content block keyed by the callId; terminal_info carries the
+    // session cwd (the bridge fills it from the session header).
+    expect(call.content).toEqual([
+      { type: 'content', content: { type: 'text', text: 'Greet' } },
+      { type: 'terminal', terminalId: 'c1' },
+    ])
+    expect((call._meta as { terminal_info?: unknown }).terminal_info).toEqual({ terminal_id: 'c1', cwd: process.cwd() })
+
+    const update = harness.updates.find(u => u.sessionUpdate === 'tool_call_update')
+    if (update?.sessionUpdate !== 'tool_call_update') throw new Error('expected a tool_call_update')
+    // In terminal mode the text content is OMITTED (a tool_call_update.content
+    // REPLACES the call's content — it would clobber the terminal block).
+    expect(update.content).toBeUndefined()
+    // Output rides on _meta.terminal_output; the parsed exit on _meta.terminal_exit.
+    const meta = update._meta as {
+      terminal_output?: { terminal_id: string; data: string }
+      terminal_exit?: { terminal_id: string; exit_code?: number; signal?: string }
+    }
+    expect(meta.terminal_output).toEqual({ terminal_id: 'c1', data: 'hi\n' })
+    expect(meta.terminal_exit).toEqual({ terminal_id: 'c1', exit_code: 0 })
+  })
+
+  it('the terminal capability is snapshotted per-session: a later initialize cannot desync a call/result', async () => {
+    // The session is created with the capability ON. A SECOND initialize then
+    // turns it OFF at the connection level — but this session keeps its snapshot,
+    // so its bash call STILL renders as a terminal card (call + result agree).
+    // Without the snapshot, the result path would re-read the now-OFF capability
+    // and either clobber the card (content sent) or be inconsistent with the call.
+    harness = await makeBridgeHarness({
+      storageDir,
+      withBash: true,
+      script: [toolCallResponse('c1', 'bash', { command: 'echo hi', description: 'Greet' }), textResponse('done')],
+    })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: { _meta: { terminal_output: true } } })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    // A re-initialize that DROPS the capability after the session exists.
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'greet' }] })
+
+    const call = harness.updates.find(u => u.sessionUpdate === 'tool_call')
+    if (call?.sessionUpdate !== 'tool_call') throw new Error('expected a tool_call')
+    // Still a terminal card (the session's snapshot, not the mutated connection cap).
+    expect((call._meta as { terminal_info?: unknown }).terminal_info).toBeDefined()
+    const update = harness.updates.find(u => u.sessionUpdate === 'tool_call_update')
+    if (update?.sessionUpdate !== 'tool_call_update') throw new Error('expected a tool_call_update')
+    // The result AGREES with the call: terminal output present, content omitted.
+    expect(update.content).toBeUndefined()
+    expect((update._meta as { terminal_output?: unknown }).terminal_output).toBeDefined()
   })
 
   it('a throwing tool presenter does not break the turn: the bridge falls back generically', async () => {

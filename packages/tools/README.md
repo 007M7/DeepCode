@@ -72,8 +72,8 @@ See `defineTool`, `validateArgs`, `ToolArgsError`, `SchemaSpec`, `InferArgs`, an
 
 A tool owns how ITS calls render in a UI (an editor's tool-call card, a CLI log line) — a UI plugin must NOT special-case tool names. A `ToolDefinition` may declare two optional, pure, display-only methods:
 
-- `presentCall(args): ToolCallPresentation | undefined` — the PENDING state: a human-readable `title` (always-visible label), an optional `kind` (`read`/`edit`/`execute`/… for icon/treatment, default `other`), and an optional `rawInput` (the salient input to show in a detail view — e.g. a shell command as a string, NOT the whole args object).
-- `presentResult(args, result): ToolResultPresentation | undefined` — the COMPLETED state, given the same `args` and the `{ content, isError }` result: an optional replacement `title` and reformatted `content` (e.g. wrap command output in a fenced ` ```console ` block — a UI-only affordance that must NOT appear in the model-facing `execute` result).
+- `presentCall(args): ToolCallPresentation | undefined` — the PENDING state: a human-readable `title` (always-visible label), an optional `kind` (`read`/`edit`/`execute`/… for icon/treatment, default `other`), an optional `rawInput` (the salient input to show in a detail view — e.g. a shell command as a string, NOT the whole args object), an optional `content` (UI content shown alongside the title/card — e.g. a bash `description` as a text block above the terminal card), and an optional `terminal` (a neutral `{ cwd? }` asking a capable UI to render this call as a TERMINAL, e.g. for `bash`).
+- `presentResult(args, result): ToolResultPresentation | undefined` — the COMPLETED state, given the same `args` and the `{ content, isError }` result: an optional replacement `title`, reformatted `content` (e.g. wrap command output in a fenced ` ```console ` block — a UI-only affordance that must NOT appear in the model-facing `execute` result), and an optional `terminal` (the `{ output?, exitCode?, signal? }` for a terminal-rendered call). The `ToolTerminal` shape is provider-neutral; a UI bridge (the ACP bridge) maps it to a terminal card (with an exit-status pill) and a UI that can't ignores it and uses `content`.
 
 Returning `undefined` (or omitting a method) tells a UI to fall back to a generic presentation (title = tool name, raw args as input, raw result content). Both methods must be **pure and side-effect-free**: a UI may call them during live streaming AND during a session-log replay, so they depend only on their arguments. With `defineTool`, `args` is the typed `InferArgs<S>` shape; the helper soft-validates before calling (a malformed/older logged arg shape yields `undefined` rather than throwing, since display must never crash a replay). The shapes are provider-neutral — the ACP bridge (`dsh-acp`) maps them to ACP `tool_call`/`tool_call_update` wire fields, and `dsh-tool-bash` is the reference implementation.
 
@@ -90,8 +90,8 @@ const bash = defineTool({
   async execute(args) {
     return [{ type: 'text', text: `ran: ${args.command}` }]
   },
-  // The model-written description is the readable title; the command is the detail.
-  presentCall: args => ({ title: args.description, kind: 'execute', rawInput: args.command }),
+  // The command is the readable title; the description rides as a content block.
+  presentCall: args => ({ title: args.command, kind: 'execute', rawInput: args.command, content: [{ type: 'text', text: args.description }] }),
   // Wrap the output as a console block for the UI (not in the model-facing result).
   presentResult: (_args, result) => {
     const block = result.content.length === 1 ? result.content[0] : undefined
