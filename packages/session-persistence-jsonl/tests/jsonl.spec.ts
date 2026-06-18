@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
+import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -835,6 +835,30 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     // 6 original + 2 new, contiguous, no duplicated seed.
     expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
     await ctx2.fiber.dispose()
+  })
+
+  it('HMR adoption does not crash-repair an active open turn as interrupted', async () => {
+    const dir = await freshRoot()
+    const hmr = new Context()
+    await hmr.plugin(SessionStore)
+    const first = await hmr.plugin(SessionPersistenceJsonl, { root: dir })
+    const session = hmr.sessions.create('hmr-open', { meta: { cwd: '/hmr' } })
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    await hmr.parallel('session/flush', session)
+
+    await first.dispose()
+    await appendFile(logPath(dir, '/hmr', SessionId('hmr-open')), '{"torn":')
+    const second = await hmr.plugin(SessionPersistenceJsonl, { root: dir })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    await hmr.parallel('session/flush', session)
+
+    const loaded = await hmr.sessionPersistence.load(SessionId('hmr-open'))
+    expect(loaded.events.map(e => e.type)).toEqual(['turn/start', 'step/start', 'step/end', 'turn/end'])
+    expect(loaded.events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
+    await second.dispose()
+    await hmr.fiber.dispose()
   })
 
   it('a NEW live session whose id collides with an on-disk log is rejected, not silently adopted', async () => {

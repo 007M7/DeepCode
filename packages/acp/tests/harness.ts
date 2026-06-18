@@ -18,6 +18,8 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import {
   ClientSideConnection,
   ndJsonStream,
@@ -148,8 +150,14 @@ export async function makeBridgeHarness(options: {
   script?: (StreamChunk[] | 'hang')[]
   config?: Partial<AcpConfig>
   storageDir: string
-  /** Mount the bridge in a disposable child fiber (for the ACP-only-HMR test). */
-  childFiber?: boolean
+  /**
+   * Plug the REAL `dsh-bash-local` executor + `dsh-tool-bash` tools (instead of
+   * a test's own inline tool). Lets a test drive the actual `bash` tool — its
+   * real `presentCall`/`presentResult` — through the bridge, so tool-call UI
+   * tests verify the SHIPPING tool, not a stand-in (AGENTS.md "prefer the real
+   * implementation over a mock in tests").
+   */
+  withBash?: boolean
 } = { storageDir: '' }): Promise<BridgeHarness> {
   const adapter = new MockAdapter(options.script ?? [])
 
@@ -161,6 +169,10 @@ export async function makeBridgeHarness(options: {
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SessionPersistenceJsonl, { root: options.storageDir })
+  if (options.withBash) {
+    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
+    await ctx.plugin(ToolBash)
+  }
   ctx.llm.registerAdapter(['mock'], adapter)
 
   // Two identity byte pipes cross-wired into the two ndJsonStreams: bytes the
@@ -225,21 +237,24 @@ export async function makeBridgeHarness(options: {
   // override means "no model at all".
   const cfg: AcpConfig = { stream: agentStream, ...options.config }
   if (!(options.config && 'model' in options.config)) cfg.model = 'mock'
-  // By default apply the bridge directly on the root ctx (services ungated). For
-  // the ACP-only-HMR test, `childFiber: true` mounts it in a CHILD fiber instead
-  // so the test can dispose JUST the bridge while the rest of the harness stays
-  // up — its disposer (`harness.acpFiber.dispose()`) tears down only the
-  // bridge's listeners/effect. (Child-fiber service tracing gates the async
-  // persistence path, so the load-replay tests use the default direct mount.)
-  if (options.childFiber) {
-    harness.acpFiber = await ctx.plugin({
-      name: 'acp-test',
-      inject: ['agents', 'sessions', 'sessionPersistence'],
-      apply: (inner: Context) => { AcpPlugin.apply(inner, cfg) },
-    })
-  } else {
-    AcpPlugin.apply(ctx, cfg)
-  }
+  // Mount the bridge the way production does: as a cordis PLUGIN (via
+  // `ctx.plugin` with the real `inject`), NOT `AcpPlugin.apply(ctx, cfg)`
+  // directly on the root ctx. The plugin fiber is the faithful reproduction —
+  // the bridge's `apply` runs inside the fiber's injection scope, and its ACP
+  // handlers later run from the JSON-RPC read loop OUTSIDE that scope, exactly
+  // as under the example's cordis.yml. (Mounting directly on root made every
+  // service an ungated property and hid the "cannot get property … without
+  // inject" failure that bit a real Zed session.) `harness.acpFiber.dispose()`
+  // tears down JUST the bridge (its listeners + effect) for the HMR test.
+  harness.acpFiber = await ctx.plugin({
+    name: 'acp-test',
+    // Use the bridge's REAL exported `inject` so this never drifts from the
+    // plugin's actual dependency list (adding a service to the bridge must not
+    // require editing the harness — a hardcoded list silently broke when `tools`
+    // was added). The bridge programs against the interface packages only.
+    inject: [...AcpPlugin.inject],
+    apply: (inner: Context) => { AcpPlugin.apply(inner, cfg) },
+  })
   harness.client = new ClientSideConnection(makeClient, clientStream)
 
   return harness

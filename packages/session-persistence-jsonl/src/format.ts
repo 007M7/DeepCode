@@ -128,7 +128,7 @@ export function eventLine(event: SessionEvent): string {
  * fully-written events sit after the last `turn/end`. Those are PRESERVED (a
  * single turn can be huge in a long-horizon task — truncating it would destroy
  * real work); the backend closes the orphaned open turn with a synthetic
- * `turn/end {kind:'interrupted'}` on reload (ADR 0018). Only a TORN trailing
+ * `turn/end {kind:'interrupted'}` on reload (the session-persistence RFC). Only a TORN trailing
  * fragment — a final line never fully flushed (no newline, unparseable, or a
  * seq gap) — is excluded; it bounds the preserved region. A parse error or seq
  * gap AT OR BEFORE the last committed `turn/end` is committed-data corruption
@@ -208,7 +208,7 @@ export function scanLog(buffer: Buffer): { meta: SessionMeta; events: SessionEve
   // last turn/end — those are real, durably-written work and must NOT be
   // truncated (a single turn can be huge in a long-horizon task; the orphaned
   // open turn is closed with a synthetic turn/end on reload, not discarded —
-  // ADR 0018). The walk stops at the first hole (unparseable line or seq gap):
+  // the session-persistence RFC). The walk stops at the first hole (unparseable line or seq gap):
   //   - if that hole is AT OR BEFORE the last committed turn/end, committed data
   //     was damaged → the session is unloadable (throw);
   //   - if it is AFTER (or there is no committed turn/end yet), it is the

@@ -238,7 +238,7 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     // agree — both append routes then continue with no special-casing. Synthesize
     // the boundary events (a step/end if a step was open, then a
     // turn/end {kind:'interrupted'}); the interrupted turn's real events are
-    // preserved, never truncated (ADR 0018).
+    // preserved, never truncated (the session-persistence RFC).
     const closers = interruptedTurnClosers(preserved)
     const balanced = [...preserved, ...closers]
 
@@ -283,6 +283,35 @@ export class SessionPersistenceSqlite extends SessionPersistence {
       materialized: true,
     })
     return { meta, events: balanced }
+  }
+
+  private async adoptLiveStoredPrefix(session: Session, seed: readonly SessionEvent[]): Promise<void> {
+    await this.ready
+    const row = this.rowFor(session.header.id)
+    /* v8 ignore next -- caller checked row existence */
+    if (row === undefined) throw new Error(`session "${session.header.id}" not found`)
+    const meta = rowToMeta(row)
+    this.assertVersion(meta)
+
+    const rows = this.db
+      .prepare('SELECT seq, type, time, data FROM events WHERE session_id = ? ORDER BY seq')
+      .all(session.header.id) as unknown as EventRow[]
+    const { preserved, tornFrom } = scanRows(rows)
+    if (!seedCoversPrefix(seed, preserved)) {
+      throw new Error(`session "${session.header.id}" already has a persisted log that does not match this live session (id collision)`)
+    }
+
+    if (tornFrom !== undefined) {
+      this.db.prepare('DELETE FROM events WHERE session_id = ? AND seq >= ?').run(session.header.id, tornFrom)
+    }
+    this.states.set(session.header.id, {
+      meta: { ...meta },
+      cursor: preserved.length,
+      materialized: true,
+      owner: session,
+    })
+    const suffix = seed.slice(preserved.length)
+    if (suffix.length > 0) await this.appendCore(session.header.id, suffix)
   }
 
   async list(): Promise<SessionMeta[]> {
@@ -489,16 +518,9 @@ export class SessionPersistenceSqlite extends SessionPersistence {
 
     const row = this.rowFor(id)
     if (row !== undefined) {
-      const stored = this.eventsFor(id)
-      if (!seedCoversPrefix(seed, stored)) {
-        throw new Error(`session "${id}" already has a persisted log that does not match this live session (id collision)`)
-      }
-      await this.serialize(id, () => this.loadCore(id))
-      const adopted = this.states.get(id)
-      /* v8 ignore next -- loadCore always sets the state for the id */
-      if (adopted !== undefined) adopted.owner = session
-      const suffix = seed.slice(stored.length)
-      if (suffix.length > 0) await this.append(id, suffix)
+      // Adopt a LIVE prefix without crash-repairing an open turn as interrupted;
+      // HMR may still append the real completion from the live Session.
+      await this.serialize(id, () => this.adoptLiveStoredPrefix(session, seed))
       return
     }
 

@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-session-persistence
 
-The abstract durable session-persistence seam (`ctx.sessionPersistence`). Defines WHAT a persistence backend does — durably store, reload, list, and update sessions — without saying HOW. Mirrors the `dsh-bash` capability-seam template ([ADR 0009](../../docs/adr/0009-capability-seams.md)): an abstract service here, a concrete implementation in a sibling package, consumers that inject the interface.
+The abstract durable session-persistence seam (`ctx.sessionPersistence`). Defines WHAT a persistence backend does — durably store, reload, list, and update sessions — without saying HOW. Mirrors the `dsh-bash` capability-seam template ([capability seams](../../docs/rfc/implemented/2026-06-13-capability-seams.md)): an abstract service here, a concrete implementation in a sibling package, consumers that inject the interface.
 
 The persisted unit IS the existing `SessionEvent` (event-sourced model — the log is the single source of truth), so there is no parallel "persisted message" type. Metadata that is NOT replayable conversation state (format version, cwd, lineage) travels separately as `SessionMeta`, owned by `dsh-session` and re-exported here.
 

@@ -64,7 +64,7 @@ export interface Agent {
    * request sees at its chronological position, rendered as tagged synthetic
    * context rather than a user prompt. Does not run the model.
    *
-   * Turn-enclosure (ADR 0017): an inject while a turn is open joins that turn;
+   * Turn-enclosure (the turn-enclosure RFC): an inject while a turn is open joins that turn;
    * an inject while idle wraps its `context/message` in a one-shot `injection`
    * turn (`turn/start` → `context/message` → `turn/end`) and checkpoints it for
    * durability, so every event stays inside a turn and a persistence backend

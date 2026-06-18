@@ -108,6 +108,35 @@ describe('scanRows', () => {
   })
 })
 
+describe('SessionPersistenceSqlite: HMR adoption', () => {
+  it('does not crash-repair an active open turn as interrupted', async () => {
+    const path = await freshDbPath()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const first = await ctx.plugin(SessionPersistenceSqlite, { path })
+    const session = ctx.sessions.create('hmr-open', { meta: { cwd: '/hmr' } })
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    await ctx.parallel('session/flush', session)
+
+    await first.dispose()
+    const db = openDatabase(path)
+    db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
+      .run('hmr-open', 2, 'step/end', 2, '{"torn":')
+    db.close()
+    const second = await ctx.plugin(SessionPersistenceSqlite, { path })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    await ctx.parallel('session/flush', session)
+
+    const loaded = await ctx.sessionPersistence.load(SessionId('hmr-open'))
+    expect(loaded.events.map(e => e.type)).toEqual(['turn/start', 'step/start', 'step/end', 'turn/end'])
+    expect(loaded.events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
+    await second.dispose()
+    await ctx.fiber.dispose()
+  })
+})
+
 describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   it('an interrupted turn (rows after the last turn/end) is PRESERVED and closed during load', async () => {
     const path = await freshDbPath()

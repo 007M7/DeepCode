@@ -84,6 +84,9 @@ importers:
       '@deepseek-ai/dsh-agent-loop':
         specifier: workspace:^
         version: link:../agent-loop
+      '@deepseek-ai/dsh-bash-local':
+        specifier: workspace:^
+        version: link:../bash-local
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../llm
@@ -99,6 +102,9 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../system-prompt
+      '@deepseek-ai/dsh-tool-bash':
+        specifier: workspace:^
+        version: link:../tool-bash
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../tools

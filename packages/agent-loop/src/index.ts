@@ -152,12 +152,22 @@ export class AgentLoop extends Service implements AgentFactory {
    * by the time this runs the service exists.
    */
   async resume(options: ResumeAgentOptions): Promise<Agent> {
-    const persistence = this.ctx.sessionPersistence
-    // `sessionPersistence` is declaration-merged onto Context as non-optional,
-    // but the service is only present when a backend plugin is loaded — and
-    // AgentLoop deliberately does NOT inject it (that would pend non-persistent
-    // demos forever). So the runtime value can be undefined; the type cannot.
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    // Read the service through `ctx.get('sessionPersistence')` — a direct
+    // global-store lookup keyed by the isolate symbol — NOT
+    // `this.ctx.sessionPersistence`. AgentLoop deliberately does NOT inject
+    // `sessionPersistence` (injecting it would pend non-persistent demos
+    // forever). The `ctx.<name>` property proxy resolves a service by an
+    // ancestor-only walk of the current fiber's parent chain; from AgentLoop's
+    // own fiber (which lacks the inject) that walk never reaches the sibling
+    // backend fiber and throws "cannot get property … without inject". Worse,
+    // when the call arrives via a traceable shadow (e.g. the ACP bridge child
+    // fiber → `ctx.agents.resume()` → `this.factory.resume()`), the walk starts
+    // at the shadow's origin fiber and fails the same way. `ctx.get(name)`
+    // sidesteps the fiber walk entirely (a store lookup by the global isolate
+    // key), so resume works from any caller fiber. It is strict by default: a
+    // backend that is not ACTIVE (absent, or mid-teardown) reads as undefined
+    // and we reject below, rather than handing back an unusable handle.
+    const persistence = this.ctx.get('sessionPersistence')
     if (persistence === undefined) {
       throw new Error('cannot resume: session persistence is not configured (load a dsh-session-persistence backend)')
     }

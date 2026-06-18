@@ -6,7 +6,7 @@
  * event so retry/sandbox plugins and replay can distinguish failure classes.
  *
  * Lives in dsh-llm (the leaf package every other imports) so a single base is
- * shared without a new dependency edge. See ADR 0015.
+ * shared without a new dependency edge. See the error-taxonomy RFC.
  *
  * @module @deepseek-ai/dsh-llm/error
  */

@@ -282,7 +282,7 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     // continue with no special-casing. Synthesize the boundary events (a
     // step/end if a step was open, then a turn/end {kind:'interrupted'}); the
     // interrupted turn's real events are preserved, never truncated (a turn can
-    // be huge — ADR 0018).
+    // be huge — the session-persistence RFC).
     const closers = interruptedTurnClosers(events)
     const balanced = [...events, ...closers]
 
@@ -312,6 +312,34 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     }
 
     return { meta: fullMeta, events: balanced }
+  }
+
+  private async adoptLiveDiskPrefix(
+    session: Session,
+    seed: readonly SessionEvent[],
+    file: { path: string; cwd: string | undefined },
+  ): Promise<void> {
+    const buffer = await readFile(file.path)
+    const { meta, events, committedBytes } = scanLog(buffer)
+    this.assertVersion(meta)
+    if (!seedCoversPrefix(seed, events)) {
+      throw new Error(`session "${session.header.id}" already has a persisted log on disk that does not match this live session (id collision)`)
+    }
+
+    const summary = await this.readSidecar(session.header.id, meta.cwd)
+    const state: SessionState = {
+      meta: { ...meta, ...summary },
+      cursor: events.length,
+      materialized: true,
+      owner: session,
+    }
+    this.states.set(session.header.id, state)
+
+    if (committedBytes < buffer.byteLength) {
+      await this.repair(state, committedBytes)
+    }
+    const suffix = seed.slice(events.length)
+    if (suffix.length > 0) await this.appendCore(session.header.id, suffix)
   }
 
   async list(): Promise<SessionMeta[]> {
@@ -814,28 +842,11 @@ export class SessionPersistenceJsonl extends SessionPersistence {
 
     const onDisk = await this.findLog(id, session.header.cwd)
     if (onDisk !== undefined) {
-      // Read the committed on-disk events and check they are a seq-aligned
-      // prefix of the live session (HMR re-seeing its own session) vs. an
-      // unrelated session colliding on the id.
-      const { events: diskEvents } = scanLog(await readFile(onDisk.path))
-      if (!seedCoversPrefix(seed, diskEvents)) {
-        // case 3: genuine collision — fail loudly rather than clobber.
-        throw new Error(`session "${id}" already has a persisted log on disk that does not match this live session (id collision)`)
-      }
-      // case 2: adopt. loadCore sets the state (cursor = committed length,
-      // repair offset if a crash tail exists).
-      await this.serialize(id, () => this.loadCore(id))
-      const adopted = this.states.get(id)
-      /* v8 ignore next -- loadCore always sets the state for the id */
-      if (adopted !== undefined) adopted.owner = session
-      // Persist the live SUFFIX beyond the on-disk prefix. These events live
-      // ONLY in `seed` (the live session was ahead of disk — mid-turn at
-      // reload, or events appended while the previous backend was disposed);
-      // this backend never buffered them via session/event, so without this
-      // they would be lost and the next flush (starting at a later seq) would
-      // mismatch or skip them.
-      const suffix = seed.slice(diskEvents.length)
-      if (suffix.length > 0) await this.append(id, suffix)
+      // case 2: adopt a LIVE prefix. Do NOT route through loadCore(): loadCore
+      // crash-repairs open turns as interrupted, which is right for a true load
+      // after a crash but wrong for HMR while the live Session is still the
+      // authority and may append the real step/turn end later.
+      await this.serialize(id, () => this.adoptLiveDiskPrefix(session, seed, onDisk))
       return
     }
 

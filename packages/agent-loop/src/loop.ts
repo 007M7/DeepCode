@@ -119,7 +119,7 @@ export interface LoopHandle {
  *     drain queued → 'turn/start' → session('user/message'…) → emit agent/turn-start
  *     STEP loop:
  *       drain steering → session('steering/message')  ⟵ catches late steering
- *       session('step/start'); emit agent/step-start    ⟵ append before emit (ADR 0003)
+ *       session('step/start'); emit agent/step-start    ⟵ append before emit (the event-sourcing RFC)
  *       assembly = ctx.systemPrompt.assemble()        ⟵ waterfall system-prompt/assemble
  *       req = {model, system, tools, messages: session.deriveMessages(), signal}
  *       req = waterfall agent/request                 ⟵ hooks/compaction/model-switch
@@ -161,7 +161,7 @@ export async function runLoop(ctx: Context, agent: LoopAgent, handle: LoopHandle
       // before turn/start) — no turn/start was appended, so no turn is open and
       // none is owed. A session `error` here would land outside any turn (after
       // the previous turn/end), where the persistence backend drops it as a
-      // crash tail (ADR 0017). Report via agent/error + the logger only; the
+      // crash tail (the turn-enclosure RFC). Report via agent/error + the logger only; the
       // driver survives and moves on.
       const err = toError(error)
       ctx.logger.warn(`agent "${agent.id}": turn ${turn} failed before it started: ${err.message}`)
@@ -202,7 +202,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
   // Close the open step exactly once (idempotent via stepOpen). The
   // agent/step-end emit is contained: a throwing step-end listener must not
   // abort finalization and strand the turn open (turn/end balance > notifying
-  // one bad listener). Appended before the emit (ADR 0003 append-before-emit).
+  // one bad listener). Appended before the emit (the event-sourcing RFC append-before-emit).
   const closeStep = (): boolean => {
     if (!stepOpen) return false
     stepOpen = false
@@ -226,8 +226,11 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     // a throwing listener from producing a silent "completed" turn when the step
     // itself succeeded, AND keeps finalization going when closeStep runs from
     // the outer catch.
-    if (failure !== undefined) failTurn(toError(failure))
-    return failure !== undefined
+    if (failure !== undefined) {
+      failTurn(toError(failure))
+      return true
+    }
+    return false
   }
 
   // Record a step/turn failure exactly once: append the single `error` event
@@ -242,7 +245,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     // turn has already ended — the only way here is a throwing agent/turn-end
     // listener after closeTurn(true) already appended turn/end — appending now
     // would land the error AFTER the last turn/end, where the persistence
-    // backend treats it as a crash tail and drops it on resume (ADR 0017). In
+    // backend treats it as a crash tail and drops it on resume (the turn-enclosure RFC). In
     // that case report via agent/error + the logger only; the turn is balanced.
     if (!turnEnded) {
       // Set `reason` BEFORE the append: Session.append pushes the error event
@@ -347,7 +350,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
       }
 
       // The successful step's finish reason carries forward: a `max-tokens`
-      // step makes the whole turn end `max-tokens` (RFC 010's rule "any
+      // step makes the whole turn end `max-tokens` (the ACP RFC's rule "any
       // max-tokens step surfaces as max-tokens"). `stepFinishReason` returns
       // `max-tokens` or `undefined`, so a later ordinary step never resets a
       // max-tokens turn back to completed, and a never-truncated turn keeps the
@@ -394,7 +397,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     // so a throwing listener on the `turn/start` append leaves turn/start in the
     // log even though execution never reached the lines after that append.
     // Gating on a "turn started" boolean would skip turn/end and leave a
-    // permanently OPEN turn that poisons the next turn/replay (ADR 0017). We
+    // permanently OPEN turn that poisons the next turn/replay (the turn-enclosure RFC). We
     // check the log for THIS turn's turn/start: present means a turn/end is owed
     // (or was already appended — closeTurn/failTurn are idempotent, so running
     // them again is a safe no-op that still preserves the disposed/error reason
@@ -429,7 +432,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     // AFTER turn/end to be a checkpoint — so there is no in-turn position left
     // for a session `error` event. Appending one here would land it after the
     // last turn/end, where the persistence backend treats it as a crash tail
-    // and drops it on resume (ADR 0017: every event is turn-enclosed). Report
+    // and drops it on resume (the turn-enclosure RFC: every event is turn-enclosed). Report
     // the failure via agent/error + the logger only; persistence keeps the
     // buffered events for the next flush/dispose, so nothing is lost.
     const err = toError(error)
@@ -498,32 +501,28 @@ async function runStep(
   const stepError = finishError(assembler.finish)
   if (stepError) throw stepError
 
+  if (assembler.finish.kind === 'max-tokens') {
+    if (assembler.usage) {
+      session.append('usage', { turn, step, usage: assembler.usage })
+    }
+    return { hadToolCalls: false, finish: assembler.finish }
+  }
+
   // The step-result waterfall runs BEFORE the session append so the log (the
   // source of truth for derived history and replay) records the message that
   // tool dispatch actually uses.
   let message: Message = assembler.message()
   message = await ctx.waterfall('agent/step-result', agent, turn, step, message, () => Promise.resolve(message))
-  const finish = assembler.finish
-  const messageForLog: Message = finish.kind === 'max-tokens'
-    ? { ...message, content: message.content.filter(block => block.type !== 'tool-call') }
-    : message
 
-  if (finish.kind !== 'max-tokens' || messageForLog.content.length > 0) {
-    session.append('assistant/message', { turn, step, content: messageForLog.content })
-  }
+  session.append('assistant/message', { turn, step, content: message.content })
   if (assembler.usage) {
     session.append('usage', { turn, step, usage: assembler.usage })
   }
 
   // --- Tool execution (sequential; parallel execution is a TODO) ---
   // ToolRegistry.execute converts tool failures (including aborts) into
-  // isError results, so abort is re-checked around every call here. A
-  // max-tokens step is cut off: any tool-call block in it may be partial, so it
-  // is neither dispatched nor recorded in the derived-history assistant message
-  // above. Raw assistant/chunk events still preserve the exact stream.
-  const toolCalls = finish.kind === 'max-tokens'
-    ? []
-    : message.content.filter(block => block.type === 'tool-call')
+  // isError results, so abort is re-checked around every call here.
+  const toolCalls = message.content.filter(block => block.type === 'tool-call')
   for (const call of toolCalls) {
     /* v8 ignore next -- signal.reason always set by agent.abort() which provides a default */
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
@@ -564,7 +563,7 @@ async function runStep(
     /* v8 ignore stop */
   }
 
-  return { hadToolCalls: toolCalls.length > 0, finish }
+  return { hadToolCalls: toolCalls.length > 0, finish: assembler.finish }
 }
 
 /** The last turn number in a (possibly seeded) session log, or 0. */
@@ -580,7 +579,7 @@ export function lastTurnNumber(session: Session): number {
  * before `turn/start`, or the post-`turn/end` flush window before status
  * returns to idle), so status is not a reliable open-turn signal. Used by
  * `inject()` to choose between appending into an open turn vs. wrapping the
- * injection in its own one-shot turn (ADR 0017).
+ * injection in its own one-shot turn (the turn-enclosure RFC).
  */
 export function isTurnOpen(session: Session): boolean {
   const last = session.events.findLast(e => e.type === 'turn/start' || e.type === 'turn/end')
