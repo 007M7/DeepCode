@@ -632,6 +632,48 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
     }
   })
 
+  it('bash presentResult: a clean exit-0 whose output ENDS in marker-like text is NOT read as a failure', async () => {
+    const ctx = await setup()
+    const args = { command: 'printf "[exit code: 5]"', description: 'print' }
+    // A successful command can print text that looks like a marker. renderResult
+    // for a clean exit 0 appends NOTHING (and no trailing newline), so the body's
+    // own tail is `[exit code: 5]`. The parse requires a LEADING newline before
+    // the marker (renderResult always inserts one before a REAL marker), so this
+    // no-trailing-newline body is NOT mistaken for a failure → exitCode 0.
+    const out = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: '[exit code: 5]' }], isError: false })
+    expect(out?.terminal).toEqual({ output: '[exit code: 5]', exitCode: 0 })
+    // Same for a fake signal marker with no leading newline.
+    const sig = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: '[killed by signal: SIGKILL]' }], isError: false })
+    expect(sig?.terminal).toEqual({ output: '[killed by signal: SIGKILL]', exitCode: 0 })
+  })
+
+  it('bash presentCall/presentResult: a run_in_background call is NOT a terminal and its ack carries no exit pill', async () => {
+    const ctx = await setup()
+    // The background start returns a task-id ack, not a streamed run — no terminal.
+    const call = ctx.tools.get('bash')!.presentCall!({ command: 'sleep 100', description: 'wait', run_in_background: true })
+    expect(call).toEqual({ title: 'sleep 100', kind: 'execute', rawInput: 'sleep 100', content: [{ type: 'text', text: 'wait' }] })
+    expect((call as { terminal?: unknown }).terminal).toBeUndefined()
+    // The ack result is fenced text only — no terminal output / exit pill.
+    const result = ctx.tools.get('bash')!.presentResult!(
+      { command: 'sleep 100', description: 'wait', run_in_background: true },
+      { content: [{ type: 'text', text: 'started background task bash-1' }], isError: false },
+    )
+    expect(result?.terminal).toBeUndefined()
+    expect(result?.content).toEqual([{ type: 'text', text: '```console\nstarted background task bash-1\n```' }])
+  })
+
+  it('bash presentResult: an isError result carries no exit pill (no real process exit to report)', async () => {
+    const ctx = await setup()
+    // A spawn failure / abort has no process exit — the body is an error message,
+    // not renderResult output, so no terminal output/exit is emitted.
+    const out = ctx.tools.get('bash')!.presentResult!(
+      { command: 'x', description: 'x' },
+      { content: [{ type: 'text', text: 'command aborted' }], isError: true },
+    )
+    expect(out?.terminal).toBeUndefined()
+    expect(out?.content).toEqual([{ type: 'text', text: '```console\ncommand aborted\n```' }])
+  })
+
   it('bash presentResult: leaves a non-text (unexpected) result untouched → undefined (UI keeps raw content)', async () => {
     const ctx = await setup()
     const present = ctx.tools.get('bash')!.presentResult!(

@@ -159,6 +159,34 @@ describe('acp bridge — turn outcomes', () => {
     expect(meta.terminal_exit).toEqual({ terminal_id: 'c1', exit_code: 0 })
   })
 
+  it('the terminal capability is snapshotted per-session: a later initialize cannot desync a call/result', async () => {
+    // The session is created with the capability ON. A SECOND initialize then
+    // turns it OFF at the connection level — but this session keeps its snapshot,
+    // so its bash call STILL renders as a terminal card (call + result agree).
+    // Without the snapshot, the result path would re-read the now-OFF capability
+    // and either clobber the card (content sent) or be inconsistent with the call.
+    harness = await makeBridgeHarness({
+      storageDir,
+      withBash: true,
+      script: [toolCallResponse('c1', 'bash', { command: 'echo hi', description: 'Greet' }), textResponse('done')],
+    })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: { _meta: { terminal_output: true } } })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    // A re-initialize that DROPS the capability after the session exists.
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'greet' }] })
+
+    const call = harness.updates.find(u => u.sessionUpdate === 'tool_call')
+    if (call?.sessionUpdate !== 'tool_call') throw new Error('expected a tool_call')
+    // Still a terminal card (the session's snapshot, not the mutated connection cap).
+    expect((call._meta as { terminal_info?: unknown }).terminal_info).toBeDefined()
+    const update = harness.updates.find(u => u.sessionUpdate === 'tool_call_update')
+    if (update?.sessionUpdate !== 'tool_call_update') throw new Error('expected a tool_call_update')
+    // The result AGREES with the call: terminal output present, content omitted.
+    expect(update.content).toBeUndefined()
+    expect((update._meta as { terminal_output?: unknown }).terminal_output).toBeDefined()
+  })
+
   it('a throwing tool presenter does not break the turn: the bridge falls back generically', async () => {
     // A buggy tool whose presentCall throws must not fail the live turn — the
     // bridge's presenter contains the throw (logging via its onError sink) and

@@ -142,6 +142,17 @@ interface SessionRecord {
    */
   presenter: ToolPresenter
   /**
+   * Whether THIS session renders shell tools as terminal cards — snapshotted
+   * from the client's `_meta.terminal_output` capability at session creation
+   * (`session/new`/`session/load`), NOT re-read live. A capability snapshot per
+   * session means the `tool_call` (which registers the terminal) and the matching
+   * `tool_call_update` (which streams its output) ALWAYS agree, even if a later
+   * `initialize` mutates the connection-level capability between them — otherwise
+   * a re-`initialize` mid-call could orphan a `terminal_output` (call non-terminal,
+   * result terminal) or clobber the card (call terminal, result non-terminal).
+   */
+  terminalEnabled: boolean
+  /**
    * The in-flight `session/prompt`, or `undefined` when none is pending. A
    * prompt resolves with a {@link StopReason} or rejects with an Error (a
    * turn that ended in failure). Settled exactly once via {@link settlePrompt}.
@@ -290,7 +301,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     const rec = sessions.get(session.header.id)
     if (rec === undefined) return
     streamSessionEventUpdate(rec.sessionId, event, notify, rec.presenter, {
-      enabled: terminalOutputCap,
+      enabled: rec.terminalEnabled,
       cwd: session.header.cwd,
     })
     const inflight = rec.inflight
@@ -422,7 +433,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           agentOptions: agentOptions(config),
         })
         bySession.set(agent, sessionId)
-        sessions.set(sessionId, { sessionId, agent, presenter: makePresenter(), inflight: undefined })
+        sessions.set(sessionId, { sessionId, agent, presenter: makePresenter(), terminalEnabled: terminalOutputCap, inflight: undefined })
         return Promise.resolve({ sessionId })
       },
 
@@ -475,7 +486,13 @@ export function apply(ctx: Context, config: AcpConfig): void {
             throw invalidParams('connection closed during session/load')
           }
           bySession.set(agent, params.sessionId)
-          const record: SessionRecord = { sessionId: params.sessionId, agent, presenter: makePresenter(), inflight: undefined }
+          // Snapshot the terminal capability ONCE for this session (used by both
+          // the replay below and the post-load live stream) so a later
+          // `initialize` can't desync the call/result of a tool card.
+          const terminalEnabled = terminalOutputCap
+          const record: SessionRecord = {
+            sessionId: params.sessionId, agent, presenter: makePresenter(), terminalEnabled, inflight: undefined,
+          }
           sessions.set(params.sessionId, record)
           // Replay the persisted event log to the client as session/update. Use
           // the raw event log (NOT deriveMessages, which drops assistant/chunk
@@ -492,7 +509,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           // so the record's presenter starts clean for the post-load live stream.
           const replayPresenter = makePresenter()
           const replayTerminal: TerminalRendering = {
-            enabled: terminalOutputCap,
+            enabled: terminalEnabled,
             cwd: agent.session.header.cwd,
           }
           for (const event of agent.session.events) {
