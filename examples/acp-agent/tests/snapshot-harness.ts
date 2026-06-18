@@ -1,0 +1,231 @@
+/**
+ * Shared harness for the ACP snapshot tests. A plain module (NOT a *.spec.ts /
+ * *.snapshot.ts) so importing it never re-registers another file's tests.
+ *
+ * It boots the REAL examples/acp-agent subprocess via the cordis Loader (so the
+ * export-shape bug class stays guarded — see docs/postmortem/0001), drives it
+ * over real ACP JSON-RPC stdio with a deterministic input script, tees raw
+ * stdout (for the golden + a purity check) into an SDK `ClientSideConnection`,
+ * and — in record mode — harvests the persisted session JSONL after a graceful
+ * shutdown flush. Two pure normalizers turn the captured stdout frames and the
+ * session-log events into stable, snapshot-able text.
+ *
+ * See docs/rfc/implemented/2026-06-19-acp-snapshot-tests.md.
+ */
+
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { Readable, Writable } from 'node:stream'
+import {
+  ClientSideConnection,
+  ndJsonStream,
+  PROTOCOL_VERSION,
+  type Agent as AcpAgent,
+  type Client,
+  type RequestPermissionRequest,
+  type RequestPermissionResponse,
+  type SessionNotification,
+} from '@agentclientprotocol/sdk'
+
+const startScript = fileURLToPath(new URL('../start.ts', import.meta.url))
+const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
+// The repo-root tsconfig: dev/test run UNBUILT and the `@deepseek-ai/dsh-*`
+// imports resolve through its `paths` map. The child's cwd is a temp dir
+// OUTSIDE the repo, so tsx's upward search would miss it — point tsx at the
+// repo tsconfig explicitly (same fix the e2e harness uses). Repo root is four
+// levels up from this file (examples/acp-agent/tests).
+const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
+
+/**
+ * One step of a scenario's deterministic input script (`input.json`). The
+ * harness interprets these in order. `newSession` captures the server-issued
+ * (random) session id into a `{{sessionId}}` variable that later steps
+ * reference, since a committed file cannot know the id in advance.
+ */
+type InputStep =
+  | { op: 'initialize'; terminalOutput?: boolean }
+  | { op: 'newSession' }
+  | { op: 'prompt'; text: string }
+  | { op: 'cancel' }
+
+/** A scenario's `input.json`: an ordered list of input steps. */
+export interface InputScript {
+  steps: InputStep[]
+}
+
+/** The result of running a scenario: raw stdout + the harvested session log. */
+export interface RunResult {
+  /** Raw stdout bytes (decoded utf8), every newline-delimited JSON-RPC frame. */
+  rawStdout: string
+  /** stderr (for diagnostics on failure). */
+  stderr: string
+  /** The session id the server issued (undefined if no session was created). */
+  sessionId?: string
+  /** The temp cwd the session ran in (the bash workspace). */
+  cwd: string
+  /** The persisted session log's content, if one was produced. */
+  sessionLog?: string
+}
+
+interface RunOptions {
+  /** `replay` (default, keyless) or `record` (real API, harvests the log). */
+  mode: 'replay' | 'record'
+  /** The recorded session JSONL fixture path (replay reads it; record writes near it). */
+  fixtureFile: string
+  /** Optional sidecar override path (replay). */
+  overrideFile?: string
+}
+
+/**
+ * Run a scenario end-to-end against a freshly-spawned subprocess. Owns the
+ * child and its temp dirs; always tears them down. Returns the captured stdout
+ * and (record mode) the harvested session-log path.
+ */
+export async function runScenario(input: InputScript, opts: RunOptions): Promise<RunResult> {
+  const cwd = await mkdtemp(join(tmpdir(), 'acp-snap-cwd-'))
+  const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-snap-sessions-'))
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    TSX_TSCONFIG_PATH: repoTsconfig,
+    DSH_SNAPSHOT: opts.mode,
+    DSH_SNAPSHOT_FILE: opts.fixtureFile,
+    DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
+    ...opts.overrideFile !== undefined ? { DSH_SNAPSHOT_OVERRIDE: opts.overrideFile } : {},
+  }
+
+  const child: ChildProcessWithoutNullStreams = spawn(
+    process.execPath,
+    ['--import', tsxLoader, startScript],
+    { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] },
+  )
+
+  const rawBuffers: Buffer[] = []
+  const stderrChunks: string[] = []
+  child.stderr.setEncoding('utf8')
+  child.stderr.on('data', (c: string) => stderrChunks.push(c))
+
+  // Tee raw stdout: accumulate the bytes for the golden + purity check, and ALSO
+  // feed the same bytes to the SDK client through a passthrough. Buffer the raw
+  // bytes (not per-chunk utf8 strings) and decode once at the end, so a
+  // multibyte sequence split across two 'data' events can't corrupt the golden.
+  const passthrough = new Readable({ read() {} })
+  child.stdout.on('data', (buf: Buffer) => {
+    rawBuffers.push(buf)
+    passthrough.push(buf)
+  })
+  child.stdout.on('end', () => passthrough.push(null))
+
+  const stream = ndJsonStream(
+    Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
+    Readable.toWeb(passthrough) as ReadableStream<Uint8Array>,
+  )
+  const makeClient = (_agent: AcpAgent): Client => ({
+    sessionUpdate(_params: SessionNotification): Promise<void> {
+      return Promise.resolve()
+    },
+    requestPermission(_params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+      return Promise.resolve({ outcome: { outcome: 'cancelled' } })
+    },
+  })
+  const client = new ClientSideConnection(makeClient, stream)
+
+  let sessionId: string | undefined
+  let sessionLog: string | undefined
+  try {
+    for (const step of input.steps) {
+      await runStep(client, step, cwd, () => sessionId, (id) => { sessionId = id })
+    }
+    // Done driving: close stdin so the server disposes gracefully (flushing
+    // persistence) and exits. Then await exit so the harvested log is complete.
+    child.stdin.end()
+    await waitForExit(child)
+    // Harvest the persisted log (if any) while the temp dirs still exist.
+    const sessionLogPath = await findSessionLog(sessionsRoot)
+    if (sessionLogPath !== undefined) sessionLog = await readFile(sessionLogPath, 'utf8')
+  } finally {
+    // Failure-safe teardown: kill a still-running child and drop the temp dirs
+    // even if a step/harvest threw, so a flaky run never leaks a process or dir.
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGKILL')
+      await waitForExit(child)
+    }
+    await rm(cwd, { recursive: true, force: true })
+    await rm(sessionsRoot, { recursive: true, force: true })
+  }
+
+  return {
+    rawStdout: Buffer.concat(rawBuffers).toString('utf8'),
+    stderr: stderrChunks.join(''),
+    cwd,
+    ...sessionId !== undefined ? { sessionId } : {},
+    ...sessionLog !== undefined ? { sessionLog } : {},
+  }
+}
+
+/** Drive one input step over the client connection. */
+async function runStep(
+  client: ClientSideConnection,
+  step: InputStep,
+  cwd: string,
+  getSessionId: () => string | undefined,
+  setSessionId: (id: string) => void,
+): Promise<void> {
+  switch (step.op) {
+    case 'initialize':
+      await client.initialize({
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: step.terminalOutput === true ? { _meta: { terminal_output: true } } : {},
+      })
+      return
+    case 'newSession': {
+      const { sessionId } = await client.newSession({ cwd, mcpServers: [] })
+      setSessionId(sessionId)
+      return
+    }
+    case 'prompt': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: prompt before newSession')
+      await client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
+      return
+    }
+    case 'cancel': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: cancel before newSession')
+      await client.cancel({ sessionId })
+      return
+    }
+    default:
+      throw new Error(`snapshot-harness: unknown input op ${JSON.stringify(step)}`)
+  }
+}
+
+/** Resolve once the child process exits (any code/signal). */
+function waitForExit(child: ChildProcessWithoutNullStreams): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
+  return new Promise<void>(resolve => child.once('exit', () => { resolve() }))
+}
+
+/** Find the single produced `.jsonl` session log under a sessions root, if any. */
+async function findSessionLog(root: string): Promise<string | undefined> {
+  let cwdDirs: string[]
+  try {
+    cwdDirs = await readdir(root)
+  } catch {
+    return undefined
+  }
+  for (const dir of cwdDirs) {
+    const sub = join(root, dir)
+    let files: string[]
+    try {
+      files = await readdir(sub)
+    } catch {
+      continue
+    }
+    const jsonl = files.find(f => f.endsWith('.jsonl'))
+    if (jsonl !== undefined) return join(sub, jsonl)
+  }
+  return undefined
+}
