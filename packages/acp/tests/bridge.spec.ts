@@ -52,12 +52,17 @@ describe('acp bridge', () => {
     expect(text).toBe('hello there')
   })
 
-  it('rejects a second session/new (single-session MVP)', async () => {
+  it('allows multiple concurrent sessions, each with a distinct id', async () => {
     harness = await makeBridgeHarness({ storageDir, script: [] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
-    await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    await expect(harness.client.newSession({ cwd: process.cwd(), mcpServers: [] }))
-      .rejects.toThrow(/single session/)
+    const a = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    const b = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    expect(a.sessionId).toBeTruthy()
+    expect(b.sessionId).toBeTruthy()
+    expect(a.sessionId).not.toBe(b.sessionId)
+    // Both agents are live and independently registered.
+    expect(harness.ctx.agents.get(a.sessionId)).toBeDefined()
+    expect(harness.ctx.agents.get(b.sessionId)).toBeDefined()
   })
 
   it('rejects a non-absolute cwd and a cwd that differs from the launch dir', async () => {

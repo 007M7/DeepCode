@@ -32,4 +32,4 @@ Run from the repo root (the MVP requires the server's launch directory to be the
 
 ## MVP limitations
 
-The bridge is the RFC 010 MVP: single session per connection (RFC 011 lifts this), text-only prompts, `cwd` must equal the launch directory, and the tool-permission gate is deferred (`TODO(rfc010-permission-gate)` — tools run with the executor's full authority). See `packages/acp/README.md` for the full contract.
+The bridge supports N concurrent sessions per connection (RFC 011). Remaining limits: text-only prompts, `cwd` must equal the launch directory, and the tool-permission gate is deferred (`TODO(rfc010-permission-gate)` — tools run with the executor's full authority). See `packages/acp/README.md` for the full contract.

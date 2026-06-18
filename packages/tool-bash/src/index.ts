@@ -11,6 +11,23 @@
  * message, which is why the tool descriptions tell the model to poll with
  * `bash_output`.
  *
+ * Task ownership: the owning agent is recorded per task id at spawn and kept
+ * for the lifetime of THIS plugin instance (it is NOT cleared on task
+ * completion — a finished task must stay un-readable / un-killable by a
+ * different agent). `bash_output`/`bash_kill` reject a task owned by a DIFFERENT
+ * agent (a task with no recorded owner is open to anyone). Task ids are global
+ * and predictable (`bash-1`, …); under multi-session ACP (RFC 011) this
+ * ownership check is the fence that stops one session's agent from reading or
+ * killing another session's background task.
+ *
+ * TODO(tool-bash-owner-hmr): the ownership map is per-plugin-instance, so an
+ * independent HMR reload of `tool-bash` (without reloading `dsh-bash`) starts a
+ * fresh map and a task spawned before the reload becomes un-owned (open to any
+ * caller). This is acceptable today — HMR is dev-only, the ACP session boundary
+ * is one user's cooperative editor (not an adversarial trust boundary), and the
+ * executor's own disposal kills its tasks — but a durable fix would attach
+ * ownership to the executor/task lifetime via a `dsh-bash` seam.
+ *
  * TODO(permissions): commands run with the executor's full authority. The
  * permission/sandbox seam is the `tools/execute` waterfall (veto/ask) plus
  * sandboxing `BashExecutor` implementations — see docs/architecture.md
@@ -116,12 +133,33 @@ function statusLine(task: BashTask): string {
 }
 
 export function apply(ctx: Context): void {
+  // Owning agent per background task id, recorded at spawn. Kept for the
+  // lifetime of THIS plugin instance (NOT cleared on completion): a completed
+  // task must stay un-readable / un-killable by a DIFFERENT agent, so the
+  // ownership record outlives the task. Under multi-session ACP (RFC 011) this
+  // is the isolation fence — one session's agent must never read or kill
+  // another session's background task. A task with no recorded owner (started by
+  // a non-loop caller, `exec.agent` absent) is unowned and accessible to anyone.
+  // An independent `tool-bash` HMR reload resets this map — see the
+  // TODO(tool-bash-owner-hmr) note in the module doc.
+  const taskOwner = new Map<string, Agent>()
+
+  /**
+   * Authorize a `bash_output`/`bash_kill` call against a task's owner. Rejects
+   * when the task has a recorded owner and the caller is not that exact agent —
+   * including the conservative no-agent case (`exec.agent` absent cannot prove
+   * ownership of an owned task). An unowned task (no record) is allowed.
+   */
+  const assertTaskAccess = (taskId: string, exec: { agent?: Agent }): void => {
+    const owner = taskOwner.get(taskId)
+    if (owner !== undefined && owner !== exec.agent) {
+      throw new Error(`task ${taskId} belongs to another session`)
+    }
+  }
+
   // Background completion → inject a notice into the owning agent's session.
-  // Tracks the agent per task id; entries drop once notified.
-  const owners = new Map<string, Agent>()
   ctx.bash.onTaskDone((task) => {
-    const agent = owners.get(task.id)
-    owners.delete(task.id)
+    const agent = taskOwner.get(task.id)
     if (!agent) return
     try {
       agent.inject(
@@ -172,7 +210,7 @@ export function apply(ctx: Context): void {
       }
       if (args.run_in_background === true) {
         const task = ctx.bash.start(ctx.bash.resolve(request))
-        if (exec.agent) owners.set(task.id, exec.agent)
+        if (exec.agent) taskOwner.set(task.id, exec.agent)
         return [{ type: 'text', text: `started background task ${task.id}` }]
       }
       const result = await ctx.bash.run(ctx.bash.resolve(request))
@@ -191,8 +229,10 @@ export function apply(ctx: Context): void {
     },
     // execute is synchronous (registry reads + string shaping) but the
     // ToolDefinition contract wants a Promise — hence resolve(), not async.
-    execute(args) {
-      const read = ctx.bash.readOutput(validateTaskId(args.task_id))
+    execute(args, exec) {
+      const id = validateTaskId(args.task_id)
+      assertTaskAccess(id, exec)
+      const read = ctx.bash.readOutput(id)
       let text = read.delta.length > 0 ? read.delta : '(no new output)'
       if (read.lossy) {
         const paths = [read.stdoutSpillPath, read.stderrSpillPath].filter((p): p is string => p !== undefined)
@@ -209,8 +249,9 @@ export function apply(ctx: Context): void {
     parameters: {
       task_id: { type: 'string', required: true, description: 'Task id returned by the bash tool.' },
     },
-    execute(args) {
+    execute(args, exec) {
       const id = validateTaskId(args.task_id)
+      assertTaskAccess(id, exec)
       const killed = ctx.bash.kill(id)
       return Promise.resolve([{
         type: 'text',

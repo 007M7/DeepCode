@@ -107,8 +107,10 @@ export interface BridgeHarness {
   ctx: Context
   client: ClientSideConnection
   adapter: MockAdapter
-  /** Every `session/update` the bridge pushed, in order. */
+  /** Every `session/update` the bridge pushed, in order (payload only). */
   updates: CapturedUpdate[]
+  /** Same, but tagged with each update's `sessionId` (for multi-session demux assertions). */
+  sessionUpdates: { sessionId: string; update: CapturedUpdate }[]
   /** Permission requests the bridge issued (none until the gate lands). */
   permissionRequests: RequestPermissionRequest[]
   /** Decide each permission request's outcome (default: cancelled). */
@@ -179,11 +181,13 @@ export async function makeBridgeHarness(options: {
   const clientStream: Stream = ndJsonStream(clientOutput, a2c.readable)
 
   const updates: CapturedUpdate[] = []
+  const sessionUpdates: { sessionId: string; update: CapturedUpdate }[] = []
   const permissionRequests: RequestPermissionRequest[] = []
   const harness: BridgeHarness = {
     ctx,
     adapter,
     updates,
+    sessionUpdates,
     permissionRequests,
     onPermission: () => ({ outcome: { outcome: 'cancelled' } }),
     onSessionUpdateError: undefined,
@@ -202,6 +206,7 @@ export async function makeBridgeHarness(options: {
   const makeClient = (_agent: AcpAgent): Client => ({
     sessionUpdate(params: SessionNotification): Promise<void> {
       updates.push(params.update)
+      sessionUpdates.push({ sessionId: params.sessionId, update: params.update })
       // Let a test force the bridge's notify() error path.
       if (harness.onSessionUpdateError) return Promise.reject(new Error('client update rejected'))
       return Promise.resolve()
