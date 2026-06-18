@@ -22,7 +22,7 @@
 import type { Context } from 'cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
 
 export const name = 'invariants'
 export const inject = ['sessions']
@@ -108,15 +108,32 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
   trace.lastSeq = event.seq
 
   // --- Surface invariants ---
-  if (event.sourceEventSeqs !== undefined) {
-    if (event.sourceEventSeqs.length === 0) {
+  // Surface metadata (sourceEventSeqs, surfaceOp) is only valid on
+  // surface-eligible event types. The compiler enforces this at append()
+  // call sites; this runtime check catches casts and persisted data.
+  const SURFACE_TYPES = new Set<string>(['user/message', 'assistant/message', 'tool/result', 'context/message', 'steering/message'])
+  // Cast to surface-eligible event type so we can access surfaceOp and
+  // sourceEventSeqs (optional on SessionEvent, mandatory on SurfaceEvent).
+  // SurfaceEvent's mandatory surfaceOp is too strict here — we need to
+  // CHECK whether surface metadata is present, not assume it.
+  const se = event as SessionEvent<SurfaceEventType>
+  if (!SURFACE_TYPES.has(event.type)) {
+    if (se.sourceEventSeqs !== undefined) {
+      throw new InvariantError(`${event.type} cannot carry sourceEventSeqs (non-surface event)`)
+    }
+    if (se.surfaceOp !== undefined) {
+      throw new InvariantError(`${event.type} cannot carry surfaceOp (non-surface event)`)
+    }
+  }
+  if (se.sourceEventSeqs !== undefined) {
+    if (se.sourceEventSeqs.length === 0) {
       throw new InvariantError('sourceEventSeqs must not be empty when present')
     }
-    const unique = new Set(event.sourceEventSeqs)
-    if (unique.size !== event.sourceEventSeqs.length) {
+    const unique = new Set(se.sourceEventSeqs)
+    if (unique.size !== se.sourceEventSeqs.length) {
       throw new InvariantError('sourceEventSeqs must not contain duplicates')
     }
-    for (const ref of event.sourceEventSeqs) {
+    for (const ref of se.sourceEventSeqs) {
       if (ref >= event.seq) {
         throw new InvariantError(`sourceEventSeqs must reference earlier events: ${ref} >= current seq ${event.seq}`)
       }
@@ -125,9 +142,9 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       }
     }
   }
-  if (event.surfaceOp !== undefined && typeof event.surfaceOp !== 'string') {
-    if (event.surfaceOp.start > event.surfaceOp.end) {
-      throw new InvariantError(`surface replace: start ${event.surfaceOp.start} must be <= end ${event.surfaceOp.end}`)
+  if (se.surfaceOp !== undefined && typeof se.surfaceOp !== 'string') {
+    if (se.surfaceOp.start > se.surfaceOp.end) {
+      throw new InvariantError(`surface replace: start ${se.surfaceOp.start} must be <= end ${se.surfaceOp.end}`)
     }
   }
 

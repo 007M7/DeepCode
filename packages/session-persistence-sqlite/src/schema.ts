@@ -126,19 +126,19 @@ export function rowToMeta(row: SessionRow): SessionMeta {
 
 /** Reconstruct a {@link SessionEvent} from an `events` row (parses `data`). */
 export function rowToEvent(row: EventRow): SessionEvent {
-  const event = {
+  // Surface-metadata fields are conditional on the event type in the type
+  // system; spread them so each variant gets only the fields it declares.
+  const surfaceFields = {
+    ...row.source_event_seqs !== null ? { sourceEventSeqs: JSON.parse(row.source_event_seqs) as number[] } : {},
+    ...row.surface_op !== null ? { surfaceOp: JSON.parse(row.surface_op) as SurfaceOp } : {},
+  }
+  return {
     type: row.type as SessionEvent['type'],
     seq: row.seq,
     time: row.time,
     data: JSON.parse(row.data) as SessionEvent['data'],
+    ...surfaceFields,
   } as SessionEvent
-  if (row.source_event_seqs !== null) {
-    event.sourceEventSeqs = JSON.parse(row.source_event_seqs) as number[]
-  }
-  if (row.surface_op !== null) {
-    event.surfaceOp = JSON.parse(row.surface_op) as SurfaceOp
-  }
-  return event
 }
 
 /**

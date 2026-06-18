@@ -7,7 +7,33 @@
  * @module @deepseek-ai/dsh-session/surface
  */
 
-import type { SessionEvent, SurfaceOp } from './types.ts'
+import type { SessionEvent, SurfaceEvent, SurfaceEventType, SurfaceOp } from './types.ts'
+
+/**
+ * The set of event type strings that are eligible for the surface linked list.
+ * Mirrors the {@link SurfaceEventType} union; kept as a runtime set so the
+ * type guard can check membership without a chain of string comparisons.
+ */
+const SURFACE_EVENT_TYPES = new Set<string>([
+  'user/message',
+  'assistant/message',
+  'tool/result',
+  'context/message',
+  'steering/message',
+])
+
+/**
+ * Narrow a {@link SessionEvent} to {@link SurfaceEvent}: checks that the
+ * event's `type` is surface-eligible AND that `surfaceOp` is present.
+ * The narrowed type has mandatory {@link SurfaceOp}.
+ */
+export function isSurfaceEvent(event: SessionEvent): event is SurfaceEvent {
+  if (!SURFACE_EVENT_TYPES.has(event.type)) return false
+  // surfaceOp is optional on SessionEvent (even for surface-eligible types)
+  // but mandatory on SurfaceEvent — this check is the narrowing gate.
+  if ((event as SessionEvent<SurfaceEventType>).surfaceOp === undefined) return false
+  return true
+}
 
 /** One node in the surface linked list. */
 export interface SurfaceNode {
@@ -57,11 +83,12 @@ export class SurfaceManager {
   get hasSurface(): boolean {
     if (this._nodes.length > 0) return true
     // Never processed anything — scan the whole log.
-    if (this._lastProcessedSeq === -1) return this.log.some(e => e.surfaceOp !== undefined)
+    if (this._lastProcessedSeq === -1) return this.log.some(e => isSurfaceEvent(e))
     // Processed up to _lastProcessedSeq without finding surface nodes; check
     // only new events.
     for (let i = this._lastProcessedSeq + 1; i < this.log.length; i++) {
-      if (this.log[i]?.surfaceOp !== undefined) return true
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      if (isSurfaceEvent(this.log[i]!)) return true
     }
     return false
   }
@@ -72,8 +99,13 @@ export class SurfaceManager {
    */
   private _processDelta(): void {
     for (let i = this._lastProcessedSeq + 1; i < this.log.length; i++) {
-      const event = this.log[i]
-      if (event === undefined || event.surfaceOp === undefined) continue
+      // Index is bounded by i < this.log.length — never undefined.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const event = this.log[i]!
+      // isSurfaceEvent checks event.type first (is it a surface-eligible type?)
+      // then checks that surfaceOp is present. Only after both pass do we treat
+      // it as a SurfaceEvent with mandatory surfaceOp.
+      if (!isSurfaceEvent(event)) continue
 
       if (event.surfaceOp === 'append') {
         const tail = this._nodes.length > 0 ? this._nodes[this._nodes.length - 1] : undefined

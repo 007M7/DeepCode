@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { CallId } from '@deepseek-ai/dsh-llm'
 
@@ -188,7 +188,7 @@ describe('SurfaceManager', () => {
     // Mutate caller's array after append.
     sources.push(30)
     sources[0] = 99
-    const logged = s.events[0]!
+    const logged = s.events[0]! as SurfaceEvent
     expect(logged.sourceEventSeqs).toEqual([10, 20])
   })
 
@@ -219,7 +219,7 @@ describe('SurfaceManager', () => {
     s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 's' }] }, { surfaceOp: op, sourceEventSeqs: [0] })
     // Mutate caller's object after append.
     op.start = 99
-    const logged = s.events[1]!
+    const logged = s.events[1]! as SurfaceEvent
     expect(logged.surfaceOp).toEqual({ op: 'replace', start: 0, end: 0 })
   })
 })
@@ -288,8 +288,8 @@ describe('Session.append surface opts', () => {
     expect(event.sourceEventSeqs).toEqual([3, 5, 7])
     expect(event.surfaceOp).toBe('append')
     // The logged event matches the returned event.
-    expect(s.events[0]!.sourceEventSeqs).toEqual([3, 5, 7])
-    expect(s.events[0]!.surfaceOp).toBe('append')
+    expect((s.events[0]! as SurfaceEvent).sourceEventSeqs).toEqual([3, 5, 7])
+    expect((s.events[0]! as SurfaceEvent).surfaceOp).toBe('append')
   })
 
   it('deriveMessages skips surface nodes whose event type is not message-producing', () => {
@@ -299,7 +299,7 @@ describe('Session.append surface opts', () => {
     const seed: SessionEvent[] = [
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
       { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
-      { type: 'usage', seq: 2, time: 3, data: { turn: 1, step: 1, usage: { inputTokens: 0, outputTokens: 0 } }, surfaceOp: 'append' as const },
+      { type: 'usage', seq: 2, time: 3, data: { turn: 1, step: 1, usage: { inputTokens: 0, outputTokens: 0 } }, surfaceOp: 'append' as const } as SessionEvent,
       { type: 'step/end', seq: 3, time: 4, data: { turn: 1, step: 1 } },
       { type: 'turn/end', seq: 4, time: 5, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
@@ -311,8 +311,8 @@ describe('Session.append surface opts', () => {
   it('append without surface opts produces an event without surface fields', () => {
     const s = new Session(SessionId('noopts'))
     s.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } })
-    expect(s.events[0]!.sourceEventSeqs).toBeUndefined()
-    expect(s.events[0]!.surfaceOp).toBeUndefined()
+    expect((s.events[0] as SessionEvent<SurfaceEventType>).sourceEventSeqs).toBeUndefined()
+    expect((s.events[0] as SessionEvent<SurfaceEventType>).surfaceOp).toBeUndefined()
   })
 
   it('surfaceOp primitives are not cloned (they are immutable)', () => {

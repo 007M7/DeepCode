@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { interruptedTurnClosers } from '../src/index.ts'
-import type { SessionEvent } from '../src/index.ts'
+import type { SessionEvent, SurfaceEvent } from '../src/index.ts'
 
 /**
  * Unit coverage for the crash-recovery closer synthesis. The persistence
@@ -135,8 +135,8 @@ describe('interruptedTurnClosers', () => {
     const closers = interruptedTurnClosers(events)
     expect(closers.map(e => e.type)).toEqual(['tool/result', 'step/end', 'turn/end'])
     const result = closers[0]!
-    expect(result.surfaceOp).toBe('append')
-    expect(result.sourceEventSeqs).toEqual([3])
+    expect((result as SurfaceEvent).surfaceOp).toBe('append')
+    expect((result as SurfaceEvent).sourceEventSeqs).toEqual([3])
   })
 
   it('handles tool/call without a matching assistant/message entry gracefully', () => {

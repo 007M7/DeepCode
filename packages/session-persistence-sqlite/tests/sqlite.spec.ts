@@ -5,7 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionMeta } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SurfaceEvent, SurfaceEventType, SessionMeta } from '@deepseek-ai/dsh-session'
 import SessionPersistenceSqlite, { SCHEMA_VERSION } from '@deepseek-ai/dsh-session-persistence-sqlite'
 import { openDatabase, rowToEvent, scanRows, type EventRow } from '../src/schema.ts'
 import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
@@ -800,8 +800,8 @@ describe('surface field round-trip', () => {
       surface_op: JSON.stringify('append'),
     }
     const event = rowToEvent(row)
-    expect(event.sourceEventSeqs).toEqual([3, 5])
-    expect(event.surfaceOp).toBe('append')
+    expect((event as SurfaceEvent).sourceEventSeqs).toEqual([3, 5])
+    expect((event as SurfaceEvent).surfaceOp).toBe('append')
   })
 
   it('rowToEvent handles replace surfaceOp object', () => {
@@ -812,8 +812,8 @@ describe('surface field round-trip', () => {
       surface_op: JSON.stringify({ op: 'replace', start: 0, end: 1 }),
     }
     const event = rowToEvent(row)
-    expect(event.sourceEventSeqs).toEqual([0, 1])
-    expect(event.surfaceOp).toEqual({ op: 'replace', start: 0, end: 1 })
+    expect((event as SurfaceEvent).sourceEventSeqs).toEqual([0, 1])
+    expect((event as SurfaceEvent).surfaceOp).toEqual({ op: 'replace', start: 0, end: 1 })
   })
 
   it('scanRows with surface columns reconstructs events with surface fields', () => {
@@ -827,9 +827,9 @@ describe('surface field round-trip', () => {
     ]
     const { preserved } = scanRows(rows)
     expect(preserved).toHaveLength(2)
-    expect(preserved[0]!.surfaceOp).toEqual({ op: 'replace', start: 0, end: 0 })
-    expect(preserved[0]!.sourceEventSeqs).toBeUndefined()
-    expect(preserved[1]!.surfaceOp).toBeUndefined()
+    expect((preserved[0]! as SurfaceEvent).surfaceOp).toEqual({ op: 'replace', start: 0, end: 0 })
+    expect((preserved[0]! as SurfaceEvent).sourceEventSeqs).toBeUndefined()
+    expect((preserved[1] as SessionEvent<SurfaceEventType>).surfaceOp).toBeUndefined()
   })
 
   it('append and load round-trips surface fields through SQLite', async () => {
@@ -845,11 +845,11 @@ describe('surface field round-trip', () => {
     const loaded = await ctx.sessionPersistence.load(SessionId('roundtrip-surface'))
     expect(loaded.events).toHaveLength(4)
     const um = loaded.events[1]!
-    expect(um.surfaceOp).toBe('append')
-    expect(um.sourceEventSeqs).toBeUndefined()
+    expect((um as SurfaceEvent).surfaceOp).toBe('append')
+    expect((um as SurfaceEvent).sourceEventSeqs).toBeUndefined()
     const am = loaded.events[2]!
-    expect(am.surfaceOp).toBe('append')
-    expect(am.sourceEventSeqs).toEqual([0])
+    expect((am as SurfaceEvent).surfaceOp).toBe('append')
+    expect((am as SurfaceEvent).sourceEventSeqs).toEqual([0])
     await fiber.dispose()
   })
 
@@ -863,8 +863,8 @@ describe('surface field round-trip', () => {
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await ctx.parallel('session/flush', session)
     const loaded = await ctx.sessionPersistence.load(SessionId('surface-noseq'))
-    expect(loaded.events[1]!.surfaceOp).toBe('append')
-    expect(loaded.events[1]!.sourceEventSeqs).toBeUndefined()
+    expect((loaded.events[1]! as SurfaceEvent).surfaceOp).toBe('append')
+    expect((loaded.events[1]! as SurfaceEvent).sourceEventSeqs).toBeUndefined()
     await fiber.dispose()
   })
 })

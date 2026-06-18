@@ -26,7 +26,7 @@ import { mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { isJsonValue, interruptedTurnClosers } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionId, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SurfaceEventType, SessionId, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
 import {
   openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
 } from './schema.ts'
@@ -39,9 +39,10 @@ export { SCHEMA_VERSION } from './schema.ts'
  * events, events written before surface support).
  */
 function surfaceBindings(event: SessionEvent): [string | null, string | null] {
+  const se = event as SessionEvent<SurfaceEventType>
   return [
-    event.sourceEventSeqs ? JSON.stringify(event.sourceEventSeqs) : null,
-    event.surfaceOp !== undefined ? JSON.stringify(event.surfaceOp) : null,
+    se.sourceEventSeqs ? JSON.stringify(se.sourceEventSeqs) : null,
+    se.surfaceOp !== undefined ? JSON.stringify(se.surfaceOp) : null,
   ]
 }
 

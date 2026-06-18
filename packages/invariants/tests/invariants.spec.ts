@@ -105,7 +105,11 @@ describe('session-log invariants', () => {
     expect(() => session.append('error', { turn: 1, step: 1, message: 'boom' }))
       .toThrow(/outside any open turn/)
     // A PLUGIN-added (merge-extensible) event type is caught by the default too.
-    expect(() => session.append('compaction/marker' as never, { foo: 'bar' } as never))
+    // Cast through `any`: 'compaction/marker' is not in SessionEventType (it's
+    // merge-extensible), so the typed append() won't accept it. The test verifies
+    // the runtime default-branch turn-enclosure check.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return
+    expect(() => (session.append as any)('compaction/marker', { foo: 'bar' }))
       .toThrow(/outside any open turn/)
   })
 
@@ -497,5 +501,25 @@ describe('surface invariants', () => {
     expect(() => {
       session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 2, end: 1 }, sourceEventSeqs: [2] })
     }).toThrow(/must be <= end/)
+  })
+
+  it('rejects sourceEventSeqs on a non-surface event', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    // Type system prevents surface metadata on non-surface events; this test
+    // exercises the runtime guard against casts or persisted-data bypass.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return
+    expect(() => (session.append as any)('turn/end', { turn: 1, reason: { kind: 'completed' } }, { sourceEventSeqs: [0] }))
+      .toThrow(/cannot carry sourceEventSeqs/)
+  })
+
+  it('rejects surfaceOp on a non-surface event', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return
+    expect(() => (session.append as any)('turn/end', { turn: 1, reason: { kind: 'completed' } }, { surfaceOp: 'append' }))
+      .toThrow(/cannot carry surfaceOp/)
   })
 })
