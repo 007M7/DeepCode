@@ -195,7 +195,15 @@ export class OutputCollector {
   /** Close the spill file (if any) and return the final output. */
   finalize(): CollectedOutput {
     if (this.spillFd !== undefined) {
-      closeSync(this.spillFd)
+      try {
+        closeSync(this.spillFd)
+      } catch {
+        // close can surface delayed writeback failures (for example EIO/ENOSPC)
+        // after writeSync appeared to succeed. Keep finalize total so runBash's
+        // close handler still resolves, but stop advertising a spill file that
+        // may be missing its tail.
+        this.spillFile = undefined
+      }
       this.spillFd = undefined
     }
     return this.snapshot()

@@ -4,6 +4,21 @@ import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { killGroup, OutputCollector, runBash } from '@deepseek-ai/dsh-bash-local'
 
+const { failNextClose } = vi.hoisted(() => ({ failNextClose: { value: false } }))
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return {
+    ...actual,
+    closeSync(fd: number): void {
+      if (failNextClose.value) {
+        failNextClose.value = false
+        throw Object.assign(new Error('simulated EIO on close'), { code: 'EIO' })
+      }
+      actual.closeSync(fd)
+    },
+  }
+})
+
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-bash-spec-'))
 
 function spec(command: string, overrides: Partial<Parameters<typeof runBash>[0]> = {}) {
@@ -160,6 +175,19 @@ describe('output truncation and spill', () => {
     expect(result.stdout.text.length).toBe(500)
     expect(result.stdout.spillPath).toBeUndefined()
   })
+
+  it('settles with the tail and no spill path when final spill close fails', async () => {
+    failNextClose.value = true
+    const result = await runBash(
+      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { maxOutputBytes: 500 }),
+      { spillDir },
+    ).done
+    expect(failNextClose.value).toBe(false)
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.truncated).toBe(true)
+    expect(result.stdout.text).toContain('line-0200')
+    expect(result.stdout.spillPath).toBeUndefined()
+  })
 })
 
 describe('OutputCollector', () => {
@@ -199,6 +227,22 @@ describe('OutputCollector', () => {
     collector.push(Buffer.from('bbbb'))
     expect(collector.totalBytes).toBe(8)
     expect(collector.finalize().text).toBe('bbbb')
+  })
+
+  it('contains close failures and drops the spill path', () => {
+    const collector = new OutputCollector(4, 'closefail', spillDir)
+    collector.push(Buffer.from('aaaa'))
+    collector.push(Buffer.from('bbbb'))
+    expect(collector.snapshot().spillPath).toBeDefined()
+
+    failNextClose.value = true
+    let out: ReturnType<typeof collector.finalize>
+    expect(() => { out = collector.finalize() }).not.toThrow()
+
+    expect(failNextClose.value).toBe(false)
+    expect(out!.text).toBe('bbbb')
+    expect(out!.truncated).toBe(true)
+    expect(out!.spillPath).toBeUndefined()
   })
 })
 
