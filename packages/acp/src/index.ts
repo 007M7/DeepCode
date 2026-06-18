@@ -59,7 +59,7 @@ import {
 } from '@agentclientprotocol/sdk'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ToolCallKind, ToolCallPresentation, ToolRegistry, ToolResultPresentation, ToolTerminal } from '@deepseek-ai/dsh-tools'
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
@@ -282,6 +282,18 @@ export function apply(ctx: Context, config: AcpConfig): void {
     inflight.resolve(reason)
   }
 
+  /** Apply the single ACP prompt-settlement mapping for a completed turn. */
+  const settleFromTurnEnd = (
+    inflight: NonNullable<SessionRecord['inflight']>,
+    reason: TurnEndReason,
+  ): void => {
+    if (reason.kind === 'error') {
+      inflight.reject(internalError(`turn failed: ${reason.message}`))
+    } else {
+      inflight.resolve(turnEndToStopReason(reason))
+    }
+  }
+
   // --- Stream the harness event taxonomy to ACP session/update --------------
 
   // All content streaming AND the prompt settle flow through `session/event`,
@@ -327,12 +339,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     // Settle only on the OWNING turn's end.
     if (event.type !== 'turn/end' || inflight.turn !== event.data.turn) return
     rec.inflight = undefined
-    const reason = event.data.reason
-    if (reason.kind === 'error') {
-      inflight.reject(internalError(`turn failed: ${reason.message}`))
-    } else {
-      inflight.resolve(turnEndToStopReason(reason))
-    }
+    settleFromTurnEnd(inflight, event.data.reason)
   })
 
   // Settle fallback: a `session/event` listener registered BEFORE ACP that
@@ -373,12 +380,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
       inflight.resolve('cancelled')
       return
     }
-    const reason = end.data.reason
-    if (reason.kind === 'error') {
-      inflight.reject(internalError(`turn failed: ${reason.message}`))
-    } else {
-      inflight.resolve(turnEndToStopReason(reason))
-    }
+    settleFromTurnEnd(inflight, end.data.reason)
   }
 
   // On a settle to idle/disposed, reconcile any still-pending prompt from the
