@@ -502,6 +502,11 @@ async function runStep(
   if (stepError) throw stepError
 
   if (assembler.finish.kind === 'max-tokens') {
+    let message: Message = withoutToolCalls(assembler.message())
+    message = withoutToolCalls(await ctx.waterfall('agent/step-result', agent, turn, step, message, () => Promise.resolve(message)))
+    if (message.content.length > 0) {
+      session.append('assistant/message', { turn, step, content: message.content })
+    }
     if (assembler.usage) {
       session.append('usage', { turn, step, usage: assembler.usage })
     }
@@ -564,6 +569,10 @@ async function runStep(
   }
 
   return { hadToolCalls: toolCalls.length > 0, finish: assembler.finish }
+}
+
+function withoutToolCalls(message: Message): Message {
+  return { ...message, content: message.content.filter(block => block.type !== 'tool-call') }
 }
 
 /** The last turn number in a (possibly seeded) session log, or 0. */

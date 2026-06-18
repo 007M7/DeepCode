@@ -332,11 +332,12 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * Execute one tool call through the `tools/execute` waterfall. If the tool
-   * is not registered, the result is an `isError` carrying a `UNKNOWN_TOOL`
-   * structured error. If the tool throws, the error is caught and returned as
-   * an `isError` result so the loop never sees an uncaught exception; a thrown
-   * {@link HarnessError} surfaces its `{ name, code }` on the result.
+   * Execute one tool call through the `tools/execute` waterfall. If the tool is
+   * not registered, the result is an `isError` carrying a `UNKNOWN_TOOL`
+   * structured error. If the tool or a waterfall listener throws, the error is
+   * caught and returned as an `isError` result so the loop records a failed tool
+   * call instead of failing the whole turn; a thrown {@link HarnessError}
+   * surfaces its `{ name, code }` on the result.
    */
   async execute(exec: ToolExecution): Promise<ToolExecutionResult> {
     try {

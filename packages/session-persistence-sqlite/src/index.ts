@@ -448,6 +448,7 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     // Dispose must reach quiescence: await every init + final drain, then close
     // the database, BEFORE returning, so no write lands after teardown.
     ctx.effect(() => async () => {
+      let disposeError: unknown
       try {
         const errors = [
           ...await settledErrors(this.inits.values()),
@@ -457,9 +458,20 @@ export class SessionPersistenceSqlite extends SessionPersistence {
         if (errors.length > 0) {
           throw new AggregateError(errors, 'session-persistence-sqlite dispose failed')
         }
+      } catch (error: unknown) {
+        disposeError = error
+        throw error
       } finally {
-        await this.ready
-        this.db.close()
+        try {
+          await this.ready
+          this.db.close()
+        } catch (error: unknown) {
+          /* v8 ignore next -- open/close failure racing disposal is a defensive teardown edge */
+          if (disposeError === undefined) throw error
+          // Opening/closing the database can only add teardown context here; keep
+          // the already-captured init/flush/chain AggregateError as the primary
+          // disposal failure instead of masking it from callers.
+        }
       }
     }, 'session-persistence-sqlite write path')
 

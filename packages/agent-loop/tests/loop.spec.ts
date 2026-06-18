@@ -385,6 +385,10 @@ describe('agent loop', () => {
 
     expect(steps).toBe(2)
     expect(adapter.requests).toHaveLength(2)
+    expect(adapter.requests[1]!.messages).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'go' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'first half' }] },
+    ])
     expect(reasons).toEqual([{ kind: 'max-tokens' }])
   })
 
@@ -436,10 +440,38 @@ describe('agent loop', () => {
 
     expect(executions).toBe(0)
     expect(agent.session.events.some(e => e.type === 'tool/call')).toBe(false)
+    expect(agent.session.deriveMessages()).toEqual([{ role: 'user', content: [{ type: 'text', text: 'go' }] }])
+    expect(reasons).toEqual([{ kind: 'max-tokens' }])
+  })
+
+  it('keeps safe max-tokens assistant content while dropping truncated tool calls', async () => {
+    const callId = CallId('c1')
+    const adapter = new MockAdapter([[
+      { type: 'block-start', index: 0, blockType: 'text' },
+      { type: 'text-delta', index: 0, text: 'partial text' },
+      { type: 'block-end', index: 0, block: { type: 'text', text: 'partial text' } },
+      { type: 'block-start', index: 1, blockType: 'tool-call' },
+      { type: 'tool-call-delta', index: 1, id: callId, name: 'echo', argumentsDelta: '{"text"' },
+      { type: 'finish', reason: { kind: 'max-tokens' } },
+    ]])
+    const ctx = await harness(adapter)
+    let stepResults = 0
+    ctx.on('agent/step-result', async (_agent, _turn, _step, message, next) => {
+      stepResults += 1
+      expect(message.content).toEqual([{ type: 'text', text: 'partial text' }])
+      return next()
+    })
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(stepResults).toBe(1)
+    expect(agent.session.events.some(e => e.type === 'tool/call')).toBe(false)
     expect(agent.session.deriveMessages()).toEqual([
       { role: 'user', content: [{ type: 'text', text: 'go' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'partial text' }] },
     ])
-    expect(reasons).toEqual([{ kind: 'max-tokens' }])
   })
 
   it('stops the turn when agent/step-end listener failure has recorded an error', async () => {

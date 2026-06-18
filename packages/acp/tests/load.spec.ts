@@ -178,7 +178,7 @@ describe('acp bridge — session/load replay', () => {
       .rejects.toThrow(/cwd mismatch/)
     expect(loader.ctx.agents.get('elsewhere')).toBeUndefined()
 
-    const res = await loader.client.loadSession({ sessionId: 'elsewhere', cwd: otherCwd, mcpServers: [] })
+    const res = await loader.client.loadSession({ sessionId: 'elsewhere', cwd: `${otherCwd}/.`, mcpServers: [] })
     expect(res).toBeDefined()
     expect(loader.ctx.agents.get('elsewhere')!.session.header.cwd).toBe(otherCwd)
   })
@@ -188,6 +188,13 @@ describe('acp bridge — session/load replay', () => {
     await loader.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     await expect(loader.client.loadSession({ sessionId: 's', cwd: 'rel', mcpServers: [] }))
       .rejects.toThrow(/absolute/)
+  })
+
+  it('lets persistence reject a load for an unknown id after metadata lookup misses', async () => {
+    loader = await makeBridgeHarness({ storageDir, script: [] })
+    await loader.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    await expect(loader.client.loadSession({ sessionId: 'missing', cwd: process.cwd(), mcpServers: [] }))
+      .rejects.toThrow(/Internal error/)
   })
 
   it('rejects loading a persisted session that has NO cwd (would silently run in the launch dir)', async () => {

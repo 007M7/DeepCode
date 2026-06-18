@@ -100,6 +100,10 @@ function internalError(detail: string): RequestError {
   return RequestError.internalError(undefined, detail)
 }
 
+function sameWorkspaceCwd(left: string, right: string): boolean {
+  return resolvePath(left) === resolvePath(right)
+}
+
 /** Plugin config: the agent template ACP sessions are created from. */
 export interface AcpConfig {
   /** Model name for created agents (must have a registered adapter). */
@@ -466,13 +470,16 @@ export function apply(ctx: Context, config: AcpConfig): void {
           // (An id unknown to `list()` falls through to resume, which rejects with
           // the backend's not-found error.)
           const meta = (await sessionPersistence.list()).find(m => m.id === params.sessionId)
-          if (meta !== undefined && (meta.cwd === undefined || !isAbsolute(meta.cwd))) {
-            throw invalidParams(
-              `session ${params.sessionId} has no absolute persisted cwd; cannot determine its workspace (it predates per-session cwd, or was created without one)`,
-            )
-          }
-          if (meta !== undefined && meta.cwd !== params.cwd) {
-            throw invalidParams(`session ${params.sessionId} cwd mismatch: persisted ${meta.cwd}, requested ${params.cwd}`)
+          if (meta !== undefined) {
+            const persistedCwd = meta.cwd
+            if (persistedCwd === undefined || !isAbsolute(persistedCwd)) {
+              throw invalidParams(
+                `session ${params.sessionId} has no absolute persisted cwd; cannot determine its workspace (it predates per-session cwd, or was created without one)`,
+              )
+            }
+            if (!sameWorkspaceCwd(persistedCwd, params.cwd)) {
+              throw invalidParams(`session ${params.sessionId} cwd mismatch: persisted ${persistedCwd}, requested ${params.cwd}`)
+            }
           }
           const agent = await agents.resume({
             agentId: params.sessionId,

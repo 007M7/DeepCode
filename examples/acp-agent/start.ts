@@ -18,6 +18,8 @@ try {
   // ENOENT (no .env) is fine — rely on the ambient environment.
 }
 
+// Resolve relative cordis.yml paths from the repo root no matter where the
+// editor launches this demo command.
 process.chdir(fileURLToPath(new URL('../..', import.meta.url)))
 
 const ctx = new Context()
