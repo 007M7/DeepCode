@@ -72,8 +72,9 @@ export interface Agent {
    * (inject is synchronous): a failing flush is reported via `agent/error`
    * (step `0`) and the logger, never thrown into the caller.
    *
-   * TODO(review): exact envelope/rendering rules live in dsh-session and need
-   * review once a real adapter exists.
+   * TODO(review): verify the tagged-envelope rendering against live model
+   * behavior; the real adapters that were the original precondition now exist
+   * (see the twin-adapter RFC).
    */
   inject(content: ContentBlock[], options?: SendOptions): void
 

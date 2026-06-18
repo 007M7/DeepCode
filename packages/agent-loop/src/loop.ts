@@ -560,8 +560,6 @@ async function runStep(
     })
     // signal CAN flip during the await above (abort() inside a tool);
     // the analyzer can't see through the await boundary.
-    // signal can flip during the await above (abort() inside a tool);
-    // the analyzer can't see through the await boundary.
     /* v8 ignore start -- signal.reason default unreachable via agent.abort() */
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))

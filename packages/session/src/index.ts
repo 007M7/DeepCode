@@ -42,7 +42,9 @@ declare module 'cordis' {
  * synthetic user-role message (the system-reminder pattern: zero adapter
  * burden, models distinguish it from real user prompts by the envelope).
  *
- * TODO(review): revisit the envelope once a real adapter exists.
+ * TODO(review): verify the tagged-envelope rendering against live model
+ * behavior; the real adapters that were the original precondition now exist
+ * (see the twin-adapter RFC).
  */
 function renderTagged(tag: string, content: ContentBlock[], source: MessageSource): ContentBlock[] {
   const open = `<${tag} source=${JSON.stringify(source.kind)}>`
