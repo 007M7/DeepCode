@@ -93,12 +93,26 @@ export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap]
 /**
  * Why a turn ended.
  * Merge-extensible sum type.
+ *
+ * `max-tokens` mirrors the model-call `FinishReasonMap` variant (DeepSeek's
+ * `length`): the turn ended because a step hit the output-token ceiling, not
+ * because the model chose to stop. The agent-loop surfaces it via the rule
+ * "any `max-tokens` step in the turn makes the turn end `max-tokens`" (a
+ * continuation plugin can run further steps after one, but the cut-short fact
+ * still wins). It is distinct from `completed` so a consumer (e.g. the ACP
+ * bridge mapping to `StopReason: 'max_tokens'`) can tell a clean stop from a
+ * truncated one. The next variants to add — when an adapter/loop first emits
+ * them — are `refusal` and `max_turn_requests` (both named by the ACP RFC as ACP
+ * stop reasons); no current adapter produces a `refusal` finish (unknown
+ * DeepSeek finish reasons collapse to `error`), so it is deliberately omitted
+ * until one does.
  */
 export interface TurnEndReasonMap {
   completed: { kind: 'completed' }
   aborted: { kind: 'aborted'; reason?: string }
   error: { kind: 'error'; message: string; code?: string }
   disposed: { kind: 'disposed' }
+  'max-tokens': { kind: 'max-tokens' }
   /**
    * The turn never ended on its own: the process crashed mid-turn and a
    * persistence backend later closed the orphaned (open) turn on reload so the
@@ -107,7 +121,7 @@ export interface TurnEndReasonMap {
    * the crash) and are PRESERVED, not discarded: a single turn can be huge in a
    * long-horizon task (many steps, large tool output), so truncating it would
    * lose real work. The marker records that the turn was cut short, not that the
-   * model completed it. See ADR 0018.
+   * model completed it. See the session-persistence RFC.
    */
   interrupted: { kind: 'interrupted' }
 }

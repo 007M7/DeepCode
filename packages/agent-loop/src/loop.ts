@@ -72,6 +72,31 @@ function errorData(err: CodedError): { message: string; code?: string } {
 }
 
 /**
+ * The turn-end contribution of a step's *successful* finish, or `undefined`
+ * when the step finished ordinarily (a plain `completed`).
+ *
+ * {@link finishError} has already converted `error`/`aborted` finishes into
+ * thrown step errors, so the finishes that reach here are `stop`,
+ * `tool-calls`, `max-tokens`, or a future merge-extensible kind. Only
+ * `max-tokens` carries forward as a distinct {@link TurnEndReason}: a step that
+ * hit the output-token ceiling ended the turn cut-short rather than by the
+ * model's choice. `stop`/`tool-calls`/unknown kinds contribute nothing beyond
+ * the default `completed`. {@link runTurn} applies this with the rule "any
+ * `max-tokens` step in the turn makes the turn end `max-tokens`".
+ */
+function stepFinishReason(finish: FinishReason): TurnEndReason | undefined {
+  switch (finish.kind) {
+    case 'max-tokens':
+      return { kind: 'max-tokens' }
+    // stop / tool-calls / plugin-added kinds → no turn-end contribution
+    // beyond the default `completed`. FinishReason is merge-extensible, so a
+    // default (not assertNever) handles unknown kinds as ordinary success.
+    default:
+      return undefined
+  }
+}
+
+/**
  * Ambient handles the loop driver receives from the agent. Decouples the
  * pure function `runLoop` from the mutable LoopAgent fields, making the
  * loop testable without a real agent.
@@ -94,7 +119,7 @@ export interface LoopHandle {
  *     drain queued → 'turn/start' → session('user/message'…) → emit agent/turn-start
  *     STEP loop:
  *       drain steering → session('steering/message')  ⟵ catches late steering
- *       session('step/start'); emit agent/step-start    ⟵ append before emit (ADR 0003)
+ *       session('step/start'); emit agent/step-start    ⟵ append before emit (the event-sourcing RFC)
  *       assembly = ctx.systemPrompt.assemble()        ⟵ waterfall system-prompt/assemble
  *       req = {model, system, tools, messages: session.deriveMessages(), signal}
  *       req = waterfall agent/request                 ⟵ hooks/compaction/model-switch
@@ -136,7 +161,7 @@ export async function runLoop(ctx: Context, agent: LoopAgent, handle: LoopHandle
       // before turn/start) — no turn/start was appended, so no turn is open and
       // none is owed. A session `error` here would land outside any turn (after
       // the previous turn/end), where the persistence backend drops it as a
-      // crash tail (ADR 0017). Report via agent/error + the logger only; the
+      // crash tail (the turn-enclosure RFC). Report via agent/error + the logger only; the
       // driver survives and moves on.
       const err = toError(error)
       ctx.logger.warn(`agent "${agent.id}": turn ${turn} failed before it started: ${err.message}`)
@@ -177,7 +202,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
   // Close the open step exactly once (idempotent via stepOpen). The
   // agent/step-end emit is contained: a throwing step-end listener must not
   // abort finalization and strand the turn open (turn/end balance > notifying
-  // one bad listener). Appended before the emit (ADR 0003 append-before-emit).
+  // one bad listener). Appended before the emit (the event-sourcing RFC append-before-emit).
   const closeStep = (): void => {
     if (!stepOpen) return
     stepOpen = false
@@ -216,7 +241,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     // turn has already ended — the only way here is a throwing agent/turn-end
     // listener after closeTurn(true) already appended turn/end — appending now
     // would land the error AFTER the last turn/end, where the persistence
-    // backend treats it as a crash tail and drops it on resume (ADR 0017). In
+    // backend treats it as a crash tail and drops it on resume (the turn-enclosure RFC). In
     // that case report via agent/error + the logger only; the turn is balanced.
     if (!turnEnded) {
       // Set `reason` BEFORE the append: Session.append pushes the error event
@@ -294,7 +319,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
       const abort = new AbortController()
       handle.setAbort(abort)
 
-      let stepOutcome: { hadToolCalls: boolean } | { error: Error }
+      let stepOutcome: { hadToolCalls: boolean; finish: FinishReason } | { error: Error }
       try {
         stepOutcome = await runStep(ctx, agent, turn, step, abort.signal)
       } catch (error: unknown) {
@@ -319,6 +344,16 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
         }
         break
       }
+
+      // The successful step's finish reason carries forward: a `max-tokens`
+      // step makes the whole turn end `max-tokens` (the ACP RFC's rule "any
+      // max-tokens step surfaces as max-tokens"). `stepFinishReason` returns
+      // `max-tokens` or `undefined`, so a later ordinary step never resets a
+      // max-tokens turn back to completed, and a never-truncated turn keeps the
+      // default `completed`. The disposal/abort/error branches above and the
+      // continuation-window disposal check below override this — they win.
+      const stepReason = stepFinishReason(stepOutcome.finish)
+      if (stepReason) reason = stepReason
 
       // Steering that arrived during streaming/tool execution.
       const steered = drainSteering(ctx, agent, turn)
@@ -358,7 +393,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     // so a throwing listener on the `turn/start` append leaves turn/start in the
     // log even though execution never reached the lines after that append.
     // Gating on a "turn started" boolean would skip turn/end and leave a
-    // permanently OPEN turn that poisons the next turn/replay (ADR 0017). We
+    // permanently OPEN turn that poisons the next turn/replay (the turn-enclosure RFC). We
     // check the log for THIS turn's turn/start: present means a turn/end is owed
     // (or was already appended — closeTurn/failTurn are idempotent, so running
     // them again is a safe no-op that still preserves the disposed/error reason
@@ -393,7 +428,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     // AFTER turn/end to be a checkpoint — so there is no in-turn position left
     // for a session `error` event. Appending one here would land it after the
     // last turn/end, where the persistence backend treats it as a crash tail
-    // and drops it on resume (ADR 0017: every event is turn-enclosed). Report
+    // and drops it on resume (the turn-enclosure RFC: every event is turn-enclosed). Report
     // the failure via agent/error + the logger only; persistence keeps the
     // buffered events for the next flush/dispose, so nothing is lost.
     const err = toError(error)
@@ -423,7 +458,7 @@ async function runStep(
   turn: number,
   step: number,
   signal: AbortSignal,
-): Promise<{ hadToolCalls: boolean }> {
+): Promise<{ hadToolCalls: boolean; finish: FinishReason }> {
   const { session, options } = agent
 
   // --- Request assembly ---
@@ -519,7 +554,7 @@ async function runStep(
     /* v8 ignore stop */
   }
 
-  return { hadToolCalls: toolCalls.length > 0 }
+  return { hadToolCalls: toolCalls.length > 0, finish: assembler.finish }
 }
 
 /** The last turn number in a (possibly seeded) session log, or 0. */
@@ -535,7 +570,7 @@ export function lastTurnNumber(session: Session): number {
  * before `turn/start`, or the post-`turn/end` flush window before status
  * returns to idle), so status is not a reliable open-turn signal. Used by
  * `inject()` to choose between appending into an open turn vs. wrapping the
- * injection in its own one-shot turn (ADR 0017).
+ * injection in its own one-shot turn (the turn-enclosure RFC).
  */
 export function isTurnOpen(session: Session): boolean {
   const last = session.events.findLast(e => e.type === 'turn/start' || e.type === 'turn/end')

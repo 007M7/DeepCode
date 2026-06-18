@@ -13,7 +13,7 @@ This is the only package in the harness that contains concrete loop logic. Every
 `AgentLoop` also implements the `AgentFactory` seam and registers itself via `ctx.agents.setFactory(this)`, so plugins create/resume agents through `ctx.agents` (the interface):
 
 - `ctx.agents.create({ agentId, sessionId, meta?, agentOptions? })` — programmatic create on a caller-supplied `sessionId` (e.g. an ACP-generated id), NOT `${id}-session`.
-- `ctx.agents.resume({ agentId, resumeSessionId, agentOptions? })` — load a persisted session via `ctx.sessionPersistence` (RFC 009) and resume an agent on it. The live session id is the resumed id; turn numbering and derived history continue from the loaded log. Requires a session-persistence backend (NOT hard-injected — non-persistent demos still work; `resume` rejects with a clear error when persistence is absent).
+- `ctx.agents.resume({ agentId, resumeSessionId, agentOptions? })` — load a persisted session via `ctx.sessionPersistence` ([session persistence](../../docs/rfc/implemented/2026-06-14-session-persistence.md)) and resume an agent on it. The live session id is the resumed id; turn numbering and derived history continue from the loaded log. Requires a session-persistence backend (NOT hard-injected — non-persistent demos still work; `resume` rejects with a clear error when persistence is absent).
 
 ### Injected services
 
@@ -64,7 +64,7 @@ forever:
   idle unless more queued
 ```
 
-Error containment: a throwing plugin ends the **turn**, never the loop. Dispose mid-turn emits `agent/status('disposed')` and ends with reason `disposed`.
+Error containment: a throwing plugin ends the **turn**, never the loop. Dispose mid-turn emits `agent/status('disposed')` and ends with reason `disposed`. A step that hits the model's output-token ceiling makes the turn end `max-tokens` (the rule: any `max-tokens` step in the turn surfaces as `max-tokens`; `disposed`/`aborted`/`error` still take precedence) — distinct from a clean `completed` stop.
 
 ### What is NOT here
 

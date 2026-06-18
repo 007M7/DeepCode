@@ -88,7 +88,7 @@ describe('session-log invariants', () => {
   it('rejects a message event appended outside any open turn (turn-enclosure)', async () => {
     const { ctx } = await setup({ freeze: false })
     const session = ctx.sessions.create()
-    // No turn open: every message-bearing event must be turn-enclosed (ADR 0017).
+    // No turn open: every message-bearing event must be turn-enclosed (the turn-enclosure RFC).
     expect(() => session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       .toThrow(/outside any open turn/)
     expect(() => session.append('context/message', { content: [{ type: 'text', text: 'ctx' }], source: { kind: 'user' } }))
@@ -99,7 +99,7 @@ describe('session-log invariants', () => {
     const { ctx } = await setup({ freeze: false })
     const session = ctx.sessions.create()
     // usage and error are turn-scoped: outside a turn they would land past the
-    // commit boundary and be dropped on resume (ADR 0017).
+    // commit boundary and be dropped on resume (the turn-enclosure RFC).
     expect(() => session.append('usage', { turn: 1, step: 1, usage: { inputTokens: 1, outputTokens: 1 } }))
       .toThrow(/outside any open turn/)
     expect(() => session.append('error', { turn: 1, step: 1, message: 'boom' }))
@@ -276,7 +276,7 @@ describe('dev-freeze', () => {
     // A caller hands in a SHALLOW-frozen block whose nested array is still
     // mutable. deepFreeze must descend into the already-frozen object and
     // freeze the descendant, not short-circuit on the frozen container —
-    // otherwise dev-mode misses exactly the history mutation ADR 0012 catches.
+    // otherwise dev-mode misses exactly the history mutation the dev-invariants RFC catches.
     // `append` snapshots `data`, so the freeze applies to the LOGGED clone, not
     // the caller's input — read the event back and assert on its data.
     const innerContent: { type: 'text'; text: string }[] = [{ type: 'text', text: 'inner' }]
