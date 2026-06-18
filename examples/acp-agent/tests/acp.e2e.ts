@@ -28,9 +28,10 @@ import {
 
 const startScript = fileURLToPath(new URL('../start.ts', import.meta.url))
 // Resolve tsx's loader to an ABSOLUTE path: the subprocess runs with cwd set to
-// a temp workdir (the MVP requires session cwd === process.cwd()), where a bare
-// `--import tsx` would not resolve from node_modules. import.meta.resolve gives
-// the worktree's tsx regardless of the child's cwd.
+// a temp workdir (this test launches there and uses it as the session cwd; the
+// bridge no longer requires cwd === the launch dir, but a temp dir keeps the
+// test hermetic), where a bare `--import tsx` would not resolve from
+// node_modules. import.meta.resolve gives the worktree's tsx regardless of cwd.
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // Absolute path to the repo-root tsconfig. Dev/test/demo run UNBUILT: the
 // `@deepseek-ai/dsh-*` workspace imports resolve through the `paths` map in the
@@ -158,7 +159,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: real prompt over 
     const { client, updates } = spawned
 
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
-    // The MVP requires cwd === the server's launch dir (its cwd is `workdir`).
+    // Any absolute cwd is honored now; use the temp `workdir` as this session's
+    // workspace (the bash tool will run there) — it need not equal the launch dir.
     const { sessionId } = await client.newSession({ cwd: workdir, mcpServers: [] })
 
     const res = await client.prompt({

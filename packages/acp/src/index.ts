@@ -413,17 +413,21 @@ export function apply(ctx: Context, config: AcpConfig): void {
         loadingIds.add(params.sessionId)
         try {
           // Validate the PERSISTED cwd BEFORE resuming — `list()` is a
-          // metadata-only read (no full-log parse) — so a mismatch rejects
-          // without ever constructing/registering a live agent (which would
-          // then leak in `ctx.agents`/`ctx.sessions` with no disposer here).
-          // A session persisted in workspace A must not be loaded by a server
-          // launched in workspace B: it would replay A's history while tools run
-          // in B. (If the id is unknown to `list()`, fall through to resume,
-          // which rejects with the backend's not-found error.)
+          // metadata-only read (no full-log parse), so this rejects a session we
+          // can't honor WITHOUT ever constructing/registering an agent (a
+          // post-resume reject would leak the registered agent — abort() does not
+          // unregister it — and wedge the id against re-load). The session's bash
+          // workdir is derived from its persisted `header.cwd` and the request
+          // `cwd` does NOT override it (resume takes no cwd), so a session with no
+          // absolute persisted cwd would silently run bash in the SERVER's launch
+          // dir, not the client's workspace. A session created by this bridge
+          // always has a cwd (session/new requires it); reject the rest loudly.
+          // (An id unknown to `list()` falls through to resume, which rejects with
+          // the backend's not-found error.)
           const meta = (await sessionPersistence.list()).find(m => m.id === params.sessionId)
-          if (meta?.cwd !== undefined && meta.cwd !== process.cwd()) {
+          if (meta !== undefined && (meta.cwd === undefined || !isAbsolute(meta.cwd))) {
             throw invalidParams(
-              `session was created in ${meta.cwd}, but the server's launch directory is ${process.cwd()}; honoring a different cwd is not yet supported — launch the server in the session's workspace`,
+              `session ${params.sessionId} has no absolute persisted cwd; cannot determine its workspace (it predates per-session cwd, or was created without one)`,
             )
           }
           const agent = await agents.resume({
@@ -617,32 +621,26 @@ export function agentOptions(config: AcpConfig): { model?: string; systemPrompt?
 }
 
 /**
- * Validate `session/new` params per the MVP contract: `cwd` absolute AND equal
- * to the server's launch directory (there is no path from session cwd to the
- * bash workdir yet — RFC 010 § Deferred — so the server must be launched in the
- * workspace root, and we error loudly rather than silently run tools in the
- * wrong directory); `additionalDirectories` empty (we cannot widen filesystem
- * scope yet, and silently ignoring them would desync the client's scope UI).
- */
-/**
- * Validate the MVP `cwd`/`additionalDirectories` contract shared by
- * `session/new` and `session/load`: `cwd` must be absolute AND equal the
- * server's launch directory (there is no path from session cwd to the bash
- * workdir yet — RFC 010 § Deferred — so the server must be launched in the
- * workspace root, and we error loudly rather than silently run tools in the
- * wrong directory); `additionalDirectories` must be empty (we cannot widen
- * filesystem scope yet, and silently ignoring it would desync the client's
- * scope UI). Both request shapes carry `cwd: string` and
+ * Validate the `cwd`/`additionalDirectories` contract shared by `session/new`
+ * and `session/load`: `cwd` must be absolute (a relative path would be ambiguous
+ * as a workspace root). What the cwd is USED for differs by method, and this
+ * validator only enforces shape:
+ *  - `session/new`: the validated `cwd` becomes the session's `SessionHeader.cwd`
+ *    (via `agents.create({meta:{cwd}})`) and thus the default bash workdir.
+ *  - `session/load`: the request `cwd` is shape-checked only; the RESUMED
+ *    session keeps its PERSISTED `header.cwd`, which stays authoritative for the
+ *    bash workdir — the request cwd does not override it.
+ * Any absolute path is accepted (the per-session cwd flows to the bash executor
+ * — see `dsh-tool-bash`), so the server no longer has to launch in the
+ * workspace. `additionalDirectories` must still be empty: widening the
+ * tool/filesystem scope beyond the single cwd is a separate, unimplemented
+ * concern (a sandbox seam), and silently ignoring extra roots would desync the
+ * client's filesystem-scope UI. Both request shapes carry `cwd: string` and
  * `additionalDirectories?: string[]`, so one validator covers both.
  */
 function validateWorkspaceParams(params: { cwd: string; additionalDirectories?: string[] }): void {
   if (!isAbsolute(params.cwd)) {
     throw invalidParams(`cwd must be an absolute path: ${params.cwd}`)
-  }
-  if (params.cwd !== process.cwd()) {
-    throw invalidParams(
-      `cwd must equal the server's launch directory (${process.cwd()}); honoring an arbitrary cwd is not yet supported — launch the server in the workspace root`,
-    )
   }
   if (params.additionalDirectories !== undefined && params.additionalDirectories.length > 0) {
     throw invalidParams('additionalDirectories is not supported in this MVP')

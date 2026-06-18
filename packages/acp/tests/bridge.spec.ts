@@ -65,13 +65,19 @@ describe('acp bridge', () => {
     expect(harness.ctx.agents.get(b.sessionId)).toBeDefined()
   })
 
-  it('rejects a non-absolute cwd and a cwd that differs from the launch dir', async () => {
+  it('rejects a non-absolute cwd but accepts any absolute cwd (per-session workspace)', async () => {
     harness = await makeBridgeHarness({ storageDir })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    // Relative cwd is still rejected (it becomes the session header / bash workdir).
     await expect(harness.client.newSession({ cwd: 'relative/path', mcpServers: [] }))
       .rejects.toThrow(/absolute/)
-    await expect(harness.client.newSession({ cwd: '/some/other/dir', mcpServers: [] }))
-      .rejects.toThrow(/launch directory/)
+    // An absolute cwd that differs from the server launch dir is now ACCEPTED —
+    // the per-session cwd is honored (routed to the bash workdir), so the server
+    // no longer has to launch in the workspace.
+    const res = await harness.client.newSession({ cwd: '/tmp', mcpServers: [] })
+    expect(res.sessionId).toBeTruthy()
+    // The session header records that cwd, so its bash tools run there.
+    expect(harness.ctx.agents.get(res.sessionId)!.session.header.cwd).toBe('/tmp')
   })
 
   it('rejects non-empty additionalDirectories', async () => {

@@ -37,6 +37,7 @@
  */
 
 import type { Context } from 'cordis'
+import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { BashRunResult, BashTask, CollectedOutput } from '@deepseek-ai/dsh-bash'
@@ -123,6 +124,26 @@ export function renderResult(result: BashRunResult): string {
   return body + markers.join('\n')
 }
 
+/**
+ * Resolve the working directory for a bash call. Precedence: an explicit model
+ * `workdir` wins; otherwise default to the calling agent's session cwd
+ * (`session.header.cwd`) so each ACP session's commands run in ITS workspace,
+ * not the server's launch dir. A RELATIVE model `workdir` is resolved against
+ * the session cwd (the tool tells the model to pass `workdir` instead of `cd`,
+ * so a relative one should be relative to the session's root, not `process.cwd()`).
+ * Returns `undefined` when neither is available (no agent / headerless session /
+ * no session cwd) — the executor then applies its own config/`process.cwd()`
+ * default, preserving today's non-ACP behavior.
+ */
+function resolveWorkdir(modelWorkdir: string | undefined, exec: { agent?: Agent }): string | undefined {
+  const sessionCwd = exec.agent?.session.header.cwd
+  if (modelWorkdir === undefined) return sessionCwd
+  if (sessionCwd !== undefined && !isAbsolute(modelWorkdir)) {
+    return resolvePath(sessionCwd, modelWorkdir)
+  }
+  return modelWorkdir
+}
+
 /** Status line for background task reads. */
 function statusLine(task: BashTask): string {
   switch (task.status) {
@@ -194,7 +215,7 @@ export function apply(ctx: Context): void {
           + '"git status" → "Show working tree status"; "npm install" → "Install package dependencies".',
       },
       timeoutMs: { type: 'number', description: 'Timeout in milliseconds (default 120000, max 600000). The command is killed on expiry.' },
-      workdir: { type: 'string', description: 'Working directory for this command.' },
+      workdir: { type: 'string', description: 'Working directory for this command. Defaults to the session workspace; a relative path is resolved against it.' },
       run_in_background: { type: 'boolean', description: 'Run in the background and return a task id immediately. No timeout applies.' },
     },
     async execute(args, exec) {
@@ -202,9 +223,13 @@ export function apply(ctx: Context): void {
       // `description` is display/logging metadata only (surfaced to UIs via
       // the tool/call session event); it is intentionally NOT forwarded to
       // ctx.bash and has no effect on execution.
+      // Default the workdir to the calling agent's session cwd so each ACP
+      // session runs in its own workspace (see resolveWorkdir); an explicit
+      // model workdir still wins.
+      const workdir = resolveWorkdir(args.workdir, exec)
       const request = {
         command: args.command,
-        ...args.workdir !== undefined ? { workdir: args.workdir } : {},
+        ...workdir !== undefined ? { workdir } : {},
         ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
         ...exec.signal ? { signal: exec.signal } : {},
       }

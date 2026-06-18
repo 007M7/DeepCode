@@ -28,8 +28,8 @@ Add to your Zed `settings.json` under `agent_servers`:
 }
 ```
 
-Run from the repo root (the MVP requires the server's launch directory to be the workspace — see the `cwd` note in `packages/acp`).
+The editor sets each session's `cwd` to the project it opens; the agent's bash tools run there (see the per-session `cwd` note in `packages/acp`), so the server does not need to be launched in the workspace.
 
 ## MVP limitations
 
-The bridge supports N concurrent sessions per connection (RFC 011). Remaining limits: text-only prompts, `cwd` must equal the launch directory, and the tool-permission gate is deferred (`TODO(rfc010-permission-gate)` — tools run with the executor's full authority). See `packages/acp/README.md` for the full contract.
+The bridge supports N concurrent sessions per connection, each in its own workspace `cwd` (RFC 011). Remaining limits: text-only prompts, `additionalDirectories` rejected (a session operates in its single `cwd`), and the tool-permission gate is deferred (`TODO(rfc010-permission-gate)` — tools run with the executor's full authority). See `packages/acp/README.md` for the full contract.
