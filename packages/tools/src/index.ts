@@ -83,6 +83,29 @@ export interface ToolCallPresentation {
    * unless that is genuinely what a reader wants.
    */
   rawInput?: unknown
+  /**
+   * Ask a capable UI to render this call as a TERMINAL (a command running in a
+   * working directory), not a generic tool card — set by a tool whose call IS a
+   * shell command (e.g. `bash`). Provider-neutral; a UI bridge maps it to its
+   * own terminal affordance and a UI that can't falls back to the normal card.
+   * Pair with {@link ToolResultPresentation.terminal} for the output/exit.
+   */
+  terminal?: ToolTerminal
+}
+
+/**
+ * A request to render a tool call as a terminal. The pending presentation
+ * supplies the working directory; the result presentation (see
+ * {@link ToolResultPresentation.terminal}) supplies the captured output.
+ * Provider-neutral — no client-protocol types. A UI that supports terminals
+ * shows a cwd-headed terminal card with the command and its output; a UI that
+ * does not ignores this and renders the ordinary card/content.
+ */
+export interface ToolTerminal {
+  /** Absolute working directory the command ran in, shown as the terminal header. Omit if unknown. */
+  cwd?: string
+  /** Captured command output (stdout+stderr as the tool chooses to combine them). Result-state only. */
+  output?: string
 }
 
 /**
@@ -102,6 +125,13 @@ export interface ToolResultPresentation {
    * Stays in harness vocabulary; the UI maps these to its own content blocks.
    */
   content?: ContentBlock[]
+  /**
+   * Terminal output/exit for a call the pending presentation marked as a
+   * terminal (see {@link ToolCallPresentation.terminal}). A capable UI renders
+   * `output` in the terminal card and shows the exit status; an incapable UI
+   * uses `content` (the tool should supply a text fallback there too).
+   */
+  terminal?: ToolTerminal
 }
 
 /** A registered tool: its schema plus the execution function. */

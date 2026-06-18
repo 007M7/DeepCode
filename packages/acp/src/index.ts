@@ -60,7 +60,7 @@ import {
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { ToolCallKind, ToolCallPresentation, ToolRegistry, ToolResultPresentation } from '@deepseek-ai/dsh-tools'
+import type { ToolCallKind, ToolCallPresentation, ToolRegistry, ToolResultPresentation, ToolTerminal } from '@deepseek-ai/dsh-tools'
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -212,6 +212,11 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // await and NOT install a record (which would resurrect a live agent/listeners
   // after the bridge closed). Checked after every load await.
   let closed = false
+  // Whether the client advertised the Zed `_meta.terminal_output` capability in
+  // `initialize`. When true, a tool's terminal presentation is rendered as a
+  // terminal card (content + `_meta.terminal_*`); when false, the bridge uses
+  // the tool's text fallback. Set once in `initialize`, read on every tool event.
+  let terminalOutputCap = false
 
   // Assigned at the bottom, before any agent event can fire (a session only
   // exists after `newSession`, which the client calls after construction), so
@@ -284,7 +289,10 @@ export function apply(ctx: Context, config: AcpConfig): void {
   ctx.on('session/event', (session, event: SessionEvent) => {
     const rec = sessions.get(session.header.id)
     if (rec === undefined) return
-    streamSessionEventUpdate(rec.sessionId, event, notify, rec.presenter)
+    streamSessionEventUpdate(rec.sessionId, event, notify, rec.presenter, {
+      enabled: terminalOutputCap,
+      cwd: session.header.cwd,
+    })
     const inflight = rec.inflight
     if (inflight === undefined) return
     if (event.type === 'turn/start') {
@@ -380,6 +388,11 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // exactly PROTOCOL_VERSION; any other requested version negotiates
         // down to ours (the client disconnects if it can't speak it).
         const protocolVersion = params.protocolVersion === PROTOCOL_VERSION ? params.protocolVersion : PROTOCOL_VERSION
+        // Remember the Zed terminal-output `_meta` capability: when set, bash and
+        // other shell tools render as a terminal card (see streamSessionEventUpdate
+        // + the terminal-rendering RFC). `_meta` is `{[k]: unknown} | null`, so
+        // narrow defensively to a strict boolean true.
+        terminalOutputCap = params.clientCapabilities?._meta?.['terminal_output'] === true
         return Promise.resolve({
           protocolVersion,
           agentInfo: { name: agentName, version: agentVersion },
@@ -478,8 +491,12 @@ export function apply(ctx: Context, config: AcpConfig): void {
           // as the log replays in order (same as live) and is discarded after,
           // so the record's presenter starts clean for the post-load live stream.
           const replayPresenter = makePresenter()
+          const replayTerminal: TerminalRendering = {
+            enabled: terminalOutputCap,
+            cwd: agent.session.header.cwd,
+          }
           for (const event of agent.session.events) {
-            streamSessionEventUpdate(params.sessionId, event, notify, replayPresenter)
+            streamSessionEventUpdate(params.sessionId, event, notify, replayPresenter, replayTerminal)
           }
           return {}
         } finally {
@@ -699,6 +716,7 @@ export function streamSessionEventUpdate(
   event: SessionEvent,
   notify: (notification: SessionNotification) => void,
   presenter: Pick<ToolPresenter, 'call' | 'result'> = nullToolPresenter,
+  terminal: TerminalRendering = noTerminalRendering,
 ): void {
   switch (event.type) {
     case 'assistant/chunk': {
@@ -724,6 +742,11 @@ export function streamSessionEventUpdate(
     }
     case 'tool/call': {
       const present = presenter.call(event.data.callId, event.data.name, event.data.arguments)
+      // A terminal-rendered call (a shell command) gets a terminal CARD when the
+      // client supports it: a `terminal` content block plus `_meta.terminal_info`
+      // (the cwd header). Otherwise it is an ordinary tool_call and the output
+      // arrives as text on the result. See the terminal-rendering RFC.
+      const asTerminal = present.terminal !== undefined && terminal.enabled
       notify({
         sessionId,
         update: {
@@ -733,12 +756,27 @@ export function streamSessionEventUpdate(
           kind: present.kind,
           status: 'in_progress',
           ...present.rawInput !== undefined ? { rawInput: present.rawInput } : {},
+          ...asTerminal
+            ? {
+              content: [{ type: 'terminal', terminalId: event.data.callId }],
+              _meta: { terminal_info: { terminal_id: event.data.callId, cwd: present.terminal?.cwd ?? terminal.cwd } },
+            }
+            : {},
         },
       })
       return
     }
     case 'tool/result': {
       const present = presenter.result(event.data.callId, event.data.content, event.data.isError)
+      const term = present.terminal
+      // When the call rendered as a terminal AND the client is capable, stream
+      // the output on the update's `_meta.terminal_output` (the terminal card
+      // consumes it). The text `content` is still sent as the record/fallback;
+      // a capable UI shows the terminal card, an incapable one shows the text.
+      // (The exit-status pill via `_meta.terminal_exit` needs a structured exit
+      // code the tool doesn't surface yet — see the RFC follow-up; the exit is
+      // already visible in the output text's `[exit code: N]` marker.)
+      const asTerminal = term?.output !== undefined && terminal.enabled
       notify({
         sessionId,
         update: {
@@ -747,6 +785,7 @@ export function streamSessionEventUpdate(
           status: event.data.isError ? 'failed' : 'completed',
           content: toolResultContent(present.content),
           ...present.title !== undefined ? { title: present.title } : {},
+          ...asTerminal ? { _meta: { terminal_output: { terminal_id: event.data.callId, data: term.output } } } : {},
         },
       })
       return
@@ -759,6 +798,23 @@ export function streamSessionEventUpdate(
 }
 
 /**
+ * Per-connection terminal-rendering context threaded into
+ * {@link streamSessionEventUpdate}: whether the client advertised the
+ * `_meta.terminal_output` capability, and the session's workspace cwd (the
+ * default terminal-card header when a tool doesn't supply its own). Kept out of
+ * the pure translator's required params so the no-capability / no-presenter
+ * tests stay terse.
+ */
+export interface TerminalRendering {
+  enabled: boolean
+  /** The session workspace cwd (terminal-card header default); `undefined` when the session has none. */
+  cwd: string | undefined
+}
+
+/** Default: terminal rendering off (the ` ```console ` text fallback path). */
+const noTerminalRendering: TerminalRendering = { enabled: false, cwd: undefined }
+
+/**
  * Resolved pending-state presentation the bridge feeds into a `tool_call`
  * update: a title is always present (tool name when the tool gives none), `kind`
  * and `rawInput` are optional.
@@ -767,6 +823,8 @@ interface ResolvedCallPresentation {
   title: string
   kind: ToolCallKind
   rawInput?: unknown
+  /** Tool's request to render as a terminal (the pending side carries the cwd). */
+  terminal?: ToolTerminal
 }
 
 /** Resolved completed-state presentation fed into a `tool_call_update`. */
@@ -775,6 +833,8 @@ interface ResolvedResultPresentation {
   content: ContentBlock[]
   /** Optional replacement title for the completed call. */
   title?: string
+  /** Tool's terminal output/exit for a terminal-rendered call (the result side). */
+  terminal?: ToolTerminal
 }
 
 /**
@@ -831,7 +891,12 @@ export class ToolPresenter {
       // the full parsed args as the raw input (the pre-seam behavior).
       return { title: name, kind: toolKindFor(name), rawInput: args }
     }
-    return { title: present.title, kind: present.kind ?? 'other', rawInput: present.rawInput }
+    return {
+      title: present.title,
+      kind: present.kind ?? 'other',
+      rawInput: present.rawInput,
+      ...present.terminal !== undefined ? { terminal: present.terminal } : {},
+    }
   }
 
   /** Completed-state presentation for a `tool/result`; consumes the remembered `(name, args)`. */
@@ -852,6 +917,7 @@ export class ToolPresenter {
     return {
       content: present.content ?? content,
       ...present.title !== undefined ? { title: present.title } : {},
+      ...present.terminal !== undefined ? { terminal: present.terminal } : {},
     }
   }
 }

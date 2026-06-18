@@ -46,7 +46,14 @@ How a tool call renders in the editor is owned by the TOOL, not the bridge — t
 
 The `tool/result` session event carries only `{ callId, content, isError }` — not the tool name or args — so to call a tool's `presentResult` the bridge keeps a small per-session map from `callId` to the in-flight call's `(name, args)`, populated on `tool/call` and removed as each result is presented (it holds only currently-in-flight calls, never finished ones). This is bridge-local state — NOT a change to the event schema or a core service. The map lives on the `SessionRecord`, so two concurrent sessions never cross their in-flight tool state; a `session/load` replay uses a throwaway presenter that pairs each `tool/call` with its `tool/result` as the log replays in order, so replayed tool cards render identically to live ones.
 
-A richer rendering — the ACP **terminal** content type (a live cwd-header terminal card with streaming output) and command classification (a `cat` shown as a `read`, a `grep` as a `search`) — is a capability-gated follow-up; the ` ```console ` text block here is the guaranteed baseline for clients without the terminal capability. See [the terminal-rendering RFC](../../docs/rfc/implemented/2026-06-18-acp-terminal-and-tool-rendering.md).
+## Terminal card (capability-gated)
+
+A tool whose call IS a shell command (`bash`) can render as a real **terminal card** — a working-directory header with the command's output — rather than a plain text block. The tool asks for this with the neutral `terminal` field on its presentation (`dsh-tools`: a `{ cwd?, output? }` shape on `ToolCallPresentation`/`ToolResultPresentation`); the bridge maps it to the Zed `_meta` convention, gated on the client advertising `clientCapabilities._meta.terminal_output` in `initialize`:
+
+- `tool_call`: `content:[{type:'terminal', terminalId}]` + `_meta.terminal_info.{terminal_id, cwd}` — the terminal id is the harness `callId`; the cwd is the tool's explicit `terminal.cwd` if it has one, else the session's workspace cwd (the bridge fills that, since the pure tool presenter can't see it).
+- `tool_call_update`: `_meta.terminal_output.{terminal_id, data}` — the captured output, attached at completion.
+
+When the client does NOT advertise the capability, none of the `_meta`/terminal content is emitted and the ` ```console ` text block (above) is the rendering — so a non-Zed client is never worse off. This is an off-spec Zed `_meta` extension, not the ACP `terminal/create` sub-protocol: that would make the editor execute the command, bypassing `dsh-bash`'s sandbox/env-scrub/ownership/cwd. The exit-status pill, live streaming, and command classification are follow-ups. See [the terminal-rendering RFC](../../docs/rfc/implemented/2026-06-18-acp-terminal-and-tool-rendering.md).
 
 ## Settle-exactly-once
 

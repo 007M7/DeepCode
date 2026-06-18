@@ -190,5 +190,36 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: real prompt over 
     expect(bashCall.title.length).toBeGreaterThan(0)
     expect(bashCall.title).not.toBe('bash') // the old, unhelpful title
     expect(typeof bashCall.rawInput).toBe('string') // the exact command
+    // Capability OFF: no terminal _meta — the ```console text path renders.
+    expect((bashCall as { _meta?: unknown })._meta).toBeUndefined()
+  }, 180_000)
+
+  it('with the terminal_output capability, a real bash call renders as a terminal card (content + _meta)', async () => {
+    workdir = await mkdtemp(join(tmpdir(), 'acp-e2e-'))
+    spawned = spawnAcpAgent(workdir)
+    const { client, updates } = spawned
+
+    // Advertise the Zed `_meta.terminal_output` capability so the bridge emits
+    // the terminal card for the real bash tool.
+    await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: { _meta: { terminal_output: true } } })
+    const { sessionId } = await client.newSession({ cwd: workdir, mcpServers: [] })
+    const res = await client.prompt({
+      sessionId,
+      prompt: [{ type: 'text', text: 'Use the bash tool to run: echo ACP_TERMINAL_OK. Then stop.' }],
+    })
+    expect(['end_turn', 'max_tokens']).toContain(res.stopReason)
+
+    // A bash tool_call now carries a terminal content block + _meta.terminal_info
+    // with the session cwd as the header; the matching update streams the output
+    // on _meta.terminal_output.
+    const bashCall = updates.find(u => u.sessionUpdate === 'tool_call' && u.kind === 'execute')
+    if (bashCall?.sessionUpdate !== 'tool_call') throw new Error('expected an execute tool_call')
+    const block = bashCall.content?.[0] as { type: string; terminalId?: string } | undefined
+    expect(block?.type).toBe('terminal')
+    expect(typeof block?.terminalId).toBe('string')
+    const info = (bashCall._meta as { terminal_info?: { terminal_id: string; cwd?: string } }).terminal_info
+    expect(info?.cwd).toBe(workdir)
+    const updatesForTerminal = updates.filter(u => u.sessionUpdate === 'tool_call_update' && (u._meta as { terminal_output?: unknown } | undefined)?.terminal_output !== undefined)
+    expect(updatesForTerminal.length).toBeGreaterThan(0)
   }, 180_000)
 })

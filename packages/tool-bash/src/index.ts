@@ -40,7 +40,6 @@ import type { Context } from 'cordis'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolCallPresentation, ToolResult, ToolResultPresentation } from '@deepseek-ai/dsh-tools'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { BashRunResult, BashTask, CollectedOutput } from '@deepseek-ai/dsh-bash'
 
@@ -142,24 +141,40 @@ export function renderResult(result: BashRunResult): string {
  * title for execute tools. The description leads (a readable summary the schema
  * requires); the command follows so the verbatim text is still there. `rawInput`
  * still carries the bare command for non-execute UIs that DO render it.
+ *
+ * `terminal` marks the call so a capable UI renders a TERMINAL card. The cwd
+ * header comes from an explicit absolute model `workdir` when given; otherwise
+ * the call ran in the session workspace, which this PURE presenter (args only,
+ * no `exec`) can't see — the UI bridge fills that default from the session's own
+ * cwd. An empty `terminal: {}` still flags "this is a terminal".
  */
-function presentBashCall(args: { command: string; description: string }): ToolCallPresentation {
-  return { title: `${args.description} — ${args.command}`, kind: 'execute', rawInput: args.command }
+function presentBashCall(args: { command: string; description: string; workdir?: string }): ToolCallPresentation {
+  const cwd = args.workdir !== undefined && isAbsolute(args.workdir) ? args.workdir : undefined
+  return {
+    title: `${args.description} — ${args.command}`,
+    kind: 'execute',
+    rawInput: args.command,
+    terminal: cwd !== undefined ? { cwd } : {},
+  }
 }
 
 /**
- * Completed-state presentation for a `bash` call: wrap the model-facing result
- * text in a fenced ```console block so a UI renders the output monospaced as a
- * terminal transcript. The model-facing `content` (what `execute` returned) is
- * intentionally NOT fenced — the fences are a UI-only affordance, so they live
- * here, not in `renderResult`. A non-text result (unexpected for bash) is left
- * untouched by falling back to `undefined`.
+ * Completed-state presentation for a `bash` call. Two parallel renderings of the
+ * same output: `terminal.output` for a UI that shows a terminal card (the run's
+ * stdout/stderr + status markers, exactly as the model sees them — it already
+ * carries the `[exit code: N]` marker), and a fenced ```console `content` block
+ * as the fallback for a UI without terminal support (the fences are a UI-only
+ * affordance, so they live here, not in `renderResult`). A non-text result
+ * (unexpected for bash) falls through to `undefined` (UI keeps the raw result).
  */
 function presentBashResult(_args: unknown, result: ToolResult): ToolResultPresentation | undefined {
   const block = result.content.length === 1 ? result.content[0] : undefined
   if (block === undefined || block.type !== 'text') return undefined
-  const fenced: ContentBlock = { type: 'text', text: `\`\`\`console\n${block.text.replace(/\n+$/, '')}\n\`\`\`` }
-  return { content: [fenced] }
+  const text = block.text.replace(/\n+$/, '')
+  return {
+    content: [{ type: 'text', text: `\`\`\`console\n${text}\n\`\`\`` }],
+    terminal: { output: text },
+  }
 }
 
 /** Pending-state presentation for `bash_output`/`bash_kill` (background-task tools). */

@@ -564,20 +564,32 @@ describe('status lines', () => {
 })
 
 describe('tool-owned UI presentation (presentCall / presentResult)', () => {
-  it('bash presentCall: title is "description — command" (execute cards hide rawInput), command also in rawInput', async () => {
+  it('bash presentCall: title is "description — command", marks a terminal; explicit absolute workdir → cwd header', async () => {
     const ctx = await setup()
-    const present = ctx.tools.get('bash')?.presentCall?.({ command: 'ls -la src', description: 'List files in src' })
-    expect(present).toEqual({ title: 'List files in src — ls -la src', kind: 'execute', rawInput: 'ls -la src' })
+    // No explicit workdir → the call still flags a terminal, but with no cwd (the
+    // UI bridge fills the session cwd it owns; the pure presenter can't see it).
+    expect(ctx.tools.get('bash')?.presentCall?.({ command: 'ls -la src', description: 'List files in src' }))
+      .toEqual({ title: 'List files in src — ls -la src', kind: 'execute', rawInput: 'ls -la src', terminal: {} })
+    // An explicit ABSOLUTE workdir is surfaced as the terminal cwd header.
+    expect(ctx.tools.get('bash')?.presentCall?.({ command: 'pwd', description: 'Print dir', workdir: '/tmp/x' }))
+      .toEqual({ title: 'Print dir — pwd', kind: 'execute', rawInput: 'pwd', terminal: { cwd: '/tmp/x' } })
+    // A RELATIVE workdir is not an absolute cwd → omitted (terminal still flagged).
+    expect(ctx.tools.get('bash')?.presentCall?.({ command: 'pwd', description: 'Print dir', workdir: 'sub' }))
+      .toEqual({ title: 'Print dir — pwd', kind: 'execute', rawInput: 'pwd', terminal: {} })
   })
 
-  it('bash presentResult: wraps the model-facing text in a fenced console block', async () => {
+  it('bash presentResult: console-block content AND terminal.output (both renderings of the run)', async () => {
     const ctx = await setup()
     const present = ctx.tools.get('bash')!.presentResult!(
       { command: 'echo hi', description: 'echo' },
       { content: [{ type: 'text', text: 'hi\n[exit code: 0]\n\n' }], isError: false },
     )
-    // Trailing blank lines are trimmed; the body is fenced as ```console.
-    expect(present).toEqual({ content: [{ type: 'text', text: '```console\nhi\n[exit code: 0]\n```' }] })
+    // Trailing blank lines trimmed; content is the fenced ```console fallback,
+    // terminal.output is the same text for a capable terminal card.
+    expect(present).toEqual({
+      content: [{ type: 'text', text: '```console\nhi\n[exit code: 0]\n```' }],
+      terminal: { output: 'hi\n[exit code: 0]' },
+    })
   })
 
   it('bash presentResult: leaves a non-text (unexpected) result untouched → undefined (UI keeps raw content)', async () => {
