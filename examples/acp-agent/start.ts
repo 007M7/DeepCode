@@ -45,12 +45,14 @@ await ctx.loader.create({
   },
 })
 
-// Graceful shutdown for snapshot RECORD runs: when the client closes our stdin
-// (it is done driving the session), dispose the whole context. Disposal awaits
-// the agent-loop teardown and the persistence backend's final `session/flush`,
-// so the recorded `.jsonl` is fully written before the process exits and the
-// harness harvests it. (In a normal editor session stdin stays open for the
-// connection's lifetime; the editor kills the process, so this never fires.)
+// Graceful shutdown for snapshot runs (both replay and record): when the client
+// closes our stdin (it is done driving the session), dispose the whole context.
+// Disposal awaits the agent-loop teardown and the persistence backend's final
+// `session/flush`, so the session `.jsonl` is fully written before the process
+// exits and the harness harvests it (and the subprocess exits cleanly so the
+// harness's waitForExit resolves). (In a normal editor session stdin stays open
+// for the connection's lifetime; the editor kills the process, so this never
+// fires.)
 if (snapshotMode !== undefined) {
   process.stdin.on('end', () => {
     void ctx.fiber.dispose().then(() => { process.exit(0) })

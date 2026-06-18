@@ -8,13 +8,17 @@ import { defineConfig } from 'vitest/config'
 // `pnpm run test:snapshot:record` (DSH_SNAPSHOT=record + -u) re-records the
 // fixtures against the real API and refreshes the goldens.
 //
-// Replay loads no .env; record reads DEEPSEEK_API_KEY from the env or a
-// gitignored repo-root .env (loaded here, mirroring the e2e config), so a
-// contributor with a key only in .env can still record.
-try {
-  process.loadEnvFile(new URL('.env', import.meta.url).pathname)
-} catch {
-  // No .env — fine; replay needs no key and record reads it from the env.
+// Replay loads no .env (it must never reach the network — a recorded fixture
+// drives the model). Record reads DEEPSEEK_API_KEY from the env or a gitignored
+// repo-root .env, so a contributor with a key only in .env can still record.
+if (process.env.DSH_SNAPSHOT === 'record') {
+  try {
+    process.loadEnvFile(new URL('.env', import.meta.url).pathname)
+  } catch (error) {
+    // ENOENT (no .env) is fine — the key may already be in the environment.
+    // Surface any other failure rather than silently recording with wrong env.
+    if ((error as NodeJS.ErrnoException | null)?.code !== 'ENOENT') throw error
+  }
 }
 
 export default defineConfig({
