@@ -30,6 +30,10 @@ Add to your Zed `settings.json` under `agent_servers`:
 
 The editor sets each session's `cwd` to the project it opens; the agent's bash tools run there (see the per-session `cwd` note in `packages/acp`), so the server does not need to be launched in the workspace.
 
+## Snapshot tests (record-once / replay-deterministic)
+
+This example is the home of the harness's **snapshot tests** — they boot this server as a real subprocess, drive it with a deterministic input script, and diff its normalized stdout transcript against a committed golden file. The model is made deterministic by `src/llm-replay.ts`, a function/namespace plugin that installs an `llm/stream` waterfall listener: in `record` mode it tees the real model's `StreamChunk`s into a per-scenario `llm.json` (flushed atomically after each call); in `replay` mode it short-circuits the waterfall and serves those chunks back, so replay needs no API key. Each fixture entry is a discriminated record — `{ kind: 'chunks' | 'throw' | 'hang' }` — so both LLM failure branches (throw vs. finish-error) and cancellation replay faithfully. See [docs/rfc/implemented/2026-06-19-acp-snapshot-tests.md](../../docs/rfc/implemented/2026-06-19-acp-snapshot-tests.md) for the full design.
+
 ## MVP limitations
 
 The bridge supports N concurrent sessions per connection, each in its own workspace `cwd` (RFC 011). Remaining limits: text-only prompts, `additionalDirectories` rejected (a session operates in its single `cwd`), and the tool-permission gate is deferred (`TODO(rfc010-permission-gate)` — tools run with the executor's full authority). See `packages/acp/README.md` for the full contract.
