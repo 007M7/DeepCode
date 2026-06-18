@@ -46,7 +46,7 @@ How a tool call renders in the editor is owned by the TOOL, not the bridge — t
 
 The `tool/result` session event carries only `{ callId, content, isError }` — not the tool name or args — so to call a tool's `presentResult` the bridge keeps a small per-session map from `callId` to the in-flight call's `(name, args)`, populated on `tool/call` and removed as each result is presented (it holds only currently-in-flight calls, never finished ones). This is bridge-local state — NOT a change to the event schema or a core service. The map lives on the `SessionRecord`, so two concurrent sessions never cross their in-flight tool state; a `session/load` replay uses a throwaway presenter that pairs each `tool/call` with its `tool/result` as the log replays in order, so replayed tool cards render identically to live ones.
 
-A richer rendering — the ACP **terminal** content type (a live cwd-header terminal card with streaming output) and command classification (a `cat` shown as a `read`, a `grep` as a `search`) — is a capability-gated follow-up; the ` ```console ` text block here is the guaranteed baseline for clients without the terminal capability. See [the terminal-rendering RFC](../../docs/rfc/proposed/2026-06-18-acp-terminal-and-tool-rendering.md).
+A richer rendering — the ACP **terminal** content type (a live cwd-header terminal card with streaming output) and command classification (a `cat` shown as a `read`, a `grep` as a `search`) — is a capability-gated follow-up; the ` ```console ` text block here is the guaranteed baseline for clients without the terminal capability. See [the terminal-rendering RFC](../../docs/rfc/implemented/2026-06-18-acp-terminal-and-tool-rendering.md).
 
 ## Settle-exactly-once
 
