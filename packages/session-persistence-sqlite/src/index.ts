@@ -24,8 +24,10 @@ import z from 'schemastery'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
-import { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { isJsonValue, interruptedTurnClosers } from '@deepseek-ai/dsh-session'
+import {
+  SessionPersistence, assertSerializable, seedCoversPrefix,
+} from '@deepseek-ai/dsh-session-persistence'
+import { interruptedTurnClosers } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
 import {
   openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
@@ -52,32 +54,6 @@ interface SessionState {
   materialized: boolean
   /** The live Session that owns this state (collision detection); see onCreated. */
   owner?: Session
-}
-
-/**
- * Whether a live session's `seed` reproduces a persisted `prefix` exactly (the
- * prefix is no longer than the seed and each event DEEP-equals the seed event
- * at the same index). Distinguishes a session legitimately continuing a
- * persisted log (HMR re-seeing its own session, or a resume) from a different
- * session that merely reuses the id. Mirrors the JSONL backend's check; both
- * sides are JSON-serializable by contract, so `JSON.stringify` is a sound
- * canonical form.
- */
-function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly SessionEvent[]): boolean {
-  return prefix.length <= seed.length
-    && prefix.every((e, i) => {
-      const s = seed[i]
-      return s !== undefined && JSON.stringify(s) === JSON.stringify(e)
-    })
-}
-
-/** Reject non-JSON-serializable `event.data`, naming the offending type. */
-function assertSerializable(events: readonly SessionEvent[]): void {
-  for (const event of events) {
-    if (!isJsonValue(event.data)) {
-      throw new Error(`event "${event.type}" carries non-JSON-serializable data (seq ${event.seq})`)
-    }
-  }
 }
 
 async function settledErrors(promises: Iterable<Promise<unknown>>): Promise<unknown[]> {

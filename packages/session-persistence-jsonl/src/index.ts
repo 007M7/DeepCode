@@ -25,8 +25,10 @@ import z from 'schemastery'
 import { open, mkdir, readFile, readdir, rename, link, rm, truncate } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
-import { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { isJsonValue, interruptedTurnClosers } from '@deepseek-ai/dsh-session'
+import {
+  SessionPersistence, assertSerializable, seedCoversPrefix,
+} from '@deepseek-ai/dsh-session-persistence'
+import { interruptedTurnClosers } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
 import {
   encodeSegment, eventLine, logPath, parseHeaderMeta, scanLog, sessionDir, sidecarPath, toHeaderLine,
@@ -57,44 +59,6 @@ interface SessionState {
    * new session's events to be dropped against the old cursor).
    */
   owner?: Session
-}
-
-/**
- * Whether a live session's `seed` reproduces a persisted `prefix` exactly — the
- * prefix is no longer than the seed, and each prefix event DEEP-equals the seed
- * event at the same index. Used to tell a session legitimately continuing a
- * persisted log (HMR re-seeing its own session, or a resume) from a different
- * session that merely reuses the id: the latter would have its already-counted
- * seq 0..prefix-1 events filtered out on flush and its conversation silently
- * grafted onto the old log.
- *
- * The comparison is a full structural equality (via canonical JSON) of each
- * event INCLUDING its `data` payload, not just `seq`/`type`/`time` — a session
- * built from loaded events but with mutated message/tool payloads (same seq/
- * type/time) must NOT be accepted, or the live history and durable log diverge.
- * Both sides are JSON-serializable by contract (Session.append enforces it), so
- * JSON.stringify is a sound canonical form here.
- */
-function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly SessionEvent[]): boolean {
-  return prefix.length <= seed.length
-    && prefix.every((e, i) => {
-      const s = seed[i]
-      return s !== undefined && JSON.stringify(s) === JSON.stringify(e)
-    })
-}
-
-/**
- * Reject non-JSON-serializable `event.data`, naming the offending type. Used on
- * the backend's `append(events)` entry point (replay/fork paths that bypass a
- * live `Session`); events that flow through `Session.append` are already
- * validated at the source, so the live write path never needs this.
- */
-function assertSerializable(events: readonly SessionEvent[]): void {
-  for (const event of events) {
-    if (!isJsonValue(event.data)) {
-      throw new Error(`event "${event.type}" carries non-JSON-serializable data (seq ${event.seq})`)
-    }
-  }
 }
 
 /**
