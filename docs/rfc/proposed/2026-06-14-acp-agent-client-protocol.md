@@ -3,6 +3,7 @@
 Status: proposed
 
 <!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
+> **Implementation status (MVP landed):** steps 1, 2, 3, 4, 6, 7, 8 are implemented in `packages/acp` + `examples/acp-agent`. **Step 5 (the `session/request_permission` permission gate) is deferred** — the bridge ships a pass-through (tools run with the executor's full authority) marked `TODO(rfc010-permission-gate)`, and lays down only the `WeakMap<Agent, sessionId>` ownership seam the gate will build on. Status stays `proposed` until the gate lands. One further best-effort limitation is tracked as `TODO(rfc010-cancel-prestep)`: `session/cancel` aborts a running step and settles the RPC as `cancelled`, but a turn still queued (not yet started) when the cancel arrives may execute before the abort takes effect, pending a loop-level pre-step cancel.
 
 ## Problem
 

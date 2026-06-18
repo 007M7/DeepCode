@@ -53,6 +53,33 @@ export function apply(ctx: Context) {
 }
 ```
 
+## A client-driver plugin (external protocol bridge)
+
+A *client driver* is a UI plugin whose "user" is another program speaking a wire protocol rather than a human at a terminal. It owns the process's stdio (so it must run with **no stdout logger** — every non-protocol byte corrupts the stream), creates/resumes agents on demand through the `dsh-agent` factory seam, translates harness events (`session/event`, `agent/*`) into outbound protocol messages, and translates inbound requests back into `agent.send()` / `agent.abort()`. Two harness-specific contracts make it correct: resolve each request exactly once off a settle signal (the turn can end without its `agent/turn-end` event firing — fall back through the logged `turn/end` record), and on disposal reach quiescence (`await agent.whenIdle()` after `abort()`), not just request it.
+
+`packages/acp` is the worked example: it bridges the agent to the Agent Client Protocol (JSON-RPC over stdio) so Zed and other ACP editors can drive it. See its README for the full method surface and the deferred-permission-gate note.
+
+```ts
+import type { Context } from 'cordis'
+
+export const name = 'my-protocol-bridge'
+export const inject = ['agents', 'sessions', 'sessionPersistence']
+
+export function apply(ctx: Context) {
+  // Stream every logged assistant text/reasoning delta out to the client.
+  ctx.on('session/event', (_session, event) => {
+    if (event.type === 'assistant/chunk') {
+      const chunk = event.data.chunk
+      if (chunk.type === 'text-delta') {
+        // sendToClient({ kind: 'message_chunk', text: chunk.text })
+      }
+    }
+  })
+  // Inbound "prompt": create/resume an agent and feed it; settle on turn end.
+  // Disposal awaits quiescence: agent.abort() then await agent.whenIdle().
+}
+```
+
 ## Runnable wirings
 
-Two complete examples load their plugin trees from `cordis.yml` with HMR: [`examples/echo-agent`](../../examples/echo-agent) (mock model + echo tool — the all-mock skeleton check, `pnpm run demo:echo`) and [`examples/coding-agent`](../../examples/coding-agent) (DeepSeek V4 + the bash tool suite — the real thing, `pnpm run demo:coding`).
+Three complete examples load their plugin trees from `cordis.yml` with HMR: [`examples/echo-agent`](../../examples/echo-agent) (mock model + echo tool — the all-mock skeleton check, `pnpm run demo:echo`), [`examples/coding-agent`](../../examples/coding-agent) (DeepSeek V4 + the bash tool suite — the real thing, `pnpm run demo:coding`), and [`examples/acp-agent`](../../examples/acp-agent) (the same coding agent exposed as an ACP server over JSON-RPC stdio — the client-driver shape, `pnpm run demo:acp`). The two real demos share their provider/tool core via [`examples/base.yml`](../../examples/base.yml).

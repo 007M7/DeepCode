@@ -254,6 +254,118 @@ describe('LoopAgent', () => {
     expect(idleTransitionCount).toBe(1) // only the final transition from running
   })
 
+  it('whenIdle() resolves immediately when the agent is not running', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+
+    // Fresh agent is idle — whenIdle() takes the not-running fast path and
+    // resolves without subscribing. await must not hang.
+    await agent.whenIdle()
+    expect(agent.status).not.toBe('running')
+  })
+
+  it('whenIdle() awaits the running→idle transition, ignoring other subjects/running events', async () => {
+    const adapter = new MockAdapter([textResponse('ok'), textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const other = ctx.agentLoop.create('a2', { model: 'mock' })
+
+    // Drive `agent` into `running`, then await whenIdle() — it subscribes to
+    // agent/status and resolves on the first transition out of running.
+    const running = new Promise<void>((resolve) => {
+      const dispose = ctx.on('agent/status', (subject, status) => {
+        if (subject === agent && status === 'running') { dispose(); resolve() }
+      })
+    })
+    send(agent, 'go')
+    await running
+    expect(agent.status).toBe('running')
+
+    // While `agent`'s whenIdle is pending, churn `other` through running→idle:
+    // every status event it emits hits whenIdle's guard with `subject !== this`,
+    // so the wait must ignore them and only resolve on `agent`'s own idle.
+    send(other, 'go')
+
+    await agent.whenIdle()
+    expect(agent.status).toBe('idle')
+  })
+
+  it('whenIdle() subscribed while running resolves via done when the agent is then disposed', async () => {
+    // Covers the waiter's disposed arm: whenIdle() queues an internal waiter
+    // while running (not the fast path), then the disposer settles it and chains
+    // `done` (loop exit), not an eager resolve. A bare LoopAgent + direct
+    // start() disposer keeps the emit synchronous.
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    const adapter = new MockAdapter(['hang'])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const session = ctx.sessions.create('bare')
+    const agent = new LoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
+    const dispose = agent.start()
+    agent.send([{ type: 'text', text: 'go' }])
+    await new Promise(r => setTimeout(r, 30))
+    expect(agent.status).toBe('running')
+
+    const idle = agent.whenIdle() // queues an internal waiter (running)
+    dispose() // settles the waiter synchronously; whenIdle chains done
+    await idle
+    expect(agent.status).toBe('disposed')
+    await agent.done
+  })
+
+  it('whenIdle() subscribed while running survives a FIBER dispose (no hung promise)', async () => {
+    // The waiter is internal agent state, NOT an effect-scoped ctx.on listener:
+    // disposing the OWNING fiber runs the agent's listener disposers, which would
+    // have dropped a ctx.on-based waiter before the 'disposed' transition and
+    // hung the promise. With internal waiters, the fiber disposer still settles
+    // it. Regression for the round-3 whenIdle finding.
+    const adapter = new MockAdapter(['hang'])
+    const ctx = await harness(adapter)
+    let agent!: LoopAgent
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      agent = inner.agentLoop.create('scoped', { model: 'mock' })
+    }, { inject: ['agentLoop'] }))
+    send(agent, 'go')
+    await new Promise(r => setTimeout(r, 30))
+    expect(agent.status).toBe('running')
+
+    const idle = agent.whenIdle() // queued while running
+    await fiber.dispose()         // tears the fiber down (drops agent listeners)
+    await idle                    // must resolve, not hang
+    expect(agent.status).toBe('disposed')
+  })
+
+  it('whenIdle() on a disposed agent awaits the loop exit (done), not just the status flip', async () => {
+    // The disposer emits agent/status('disposed') BEFORE the driver loop
+    // unwinds, so whenIdle() must chain `done` (true quiescence) on the
+    // disposed path. Dispose a running agent, then assert whenIdle() resolves
+    // only after `done` — i.e. the loop has actually exited.
+    const adapter = new MockAdapter(['hang'])
+    const ctx = await harness(adapter)
+    let agent!: LoopAgent
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      agent = inner.agentLoop.create('scoped', { model: 'mock' })
+    }, { inject: ['agentLoop'] }))
+    send(agent, 'go')
+    await new Promise(r => setTimeout(r, 30))
+
+    let doneResolved = false
+    void agent.done.then(() => { doneResolved = true })
+    await fiber.dispose() // sets status disposed, aborts, drains the loop
+    expect(agent.status).toBe('disposed')
+
+    // whenIdle() must not resolve before `done` has — chaining `done` is the
+    // quiescence guarantee. By here dispose() awaited the loop, so done is
+    // settled; whenIdle resolves and done is observed resolved.
+    await agent.whenIdle()
+    expect(doneResolved).toBe(true)
+  })
+
   it('abort() resolves reason to "aborted" when no reason provided', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)

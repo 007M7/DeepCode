@@ -1,0 +1,49 @@
+# The acp-agent plugin tree, loaded via @cordisjs/plugin-include.
+#
+# CRITICAL: this example loads NO stdout logger (no @cordisjs/plugin-logger-
+# console, no stdio-chat). stdout is reserved for the ACP JSON-RPC protocol —
+# anything else written there corrupts the frames (see packages/acp, RFC 010 §
+# Risks). Use a stderr exporter if you need logging. The timer plugin is loaded
+# (no stdout writes); hmr is omitted (an editor manages the subprocess).
+#
+# Requires DEEPSEEK_API_KEY (and optionally DEEPSEEK_BASE_URL) in the
+# environment — start.ts loads the gitignored repo-root .env first.
+
+- id: timer
+  name: '@cordisjs/plugin-timer'
+
+# Shared provider/tool core (llm, sessions, system-prompt, tools, agents,
+# invariants, llm-deepseek, bash-local, tool-bash). Nested include resolved
+# relative to THIS file's directory.
+- id: base
+  name: '@cordisjs/plugin-include'
+  config:
+    path: '../base.yml'
+
+# agent-loop with NO pre-created agents: ACP `session/new` creates them on
+# demand (unlike coding-agent, which pre-creates `main`).
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'
+  config:
+    agents: []
+
+# Durable session persistence — required by the ACP bridge for `session/load`.
+- id: session-persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'
+
+# The ACP bridge: wires AgentSideConnection to stdin/stdout.
+- id: acp
+  name: '@deepseek-ai/dsh-acp'
+  config:
+    model: deepseek-v4-flash
+    systemPrompt: |
+      You are a coding assistant driven over the Agent Client Protocol.
+
+      Your only tools are bash (plus bash_output/bash_kill for background
+      tasks). Do ALL file operations through bash: read with cat/sed/head,
+      search with grep, write with heredocs (cat <<'EOF' > file), edit with
+      sed or a rewrite. Each bash call runs in a fresh shell — pass workdir
+      instead of cd. Check the [exit code: N] marker; verify your work. Keep
+      answers brief and factual.

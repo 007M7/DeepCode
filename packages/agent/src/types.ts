@@ -80,6 +80,27 @@ export interface Agent {
   /** Abort the in-flight step (if any); the turn ends with reason 'aborted'. */
   abort(reason?: string): void
 
+  /**
+   * Resolve once the agent has reached quiescence after settling out of
+   * `running`, or immediately if it is already idle. The quiescence signal a
+   * teardown awaits: `agent.abort()` then `await agent.whenIdle()` guarantees
+   * the in-flight turn has fully stopped before the caller proceeds (a closing
+   * ACP connection, a disposing UI plugin), rather than returning while the
+   * driver is still streaming.
+   *
+   * "Quiescence", not merely "status changed": a disposed agent emits
+   * `agent/status('disposed')` from inside its disposer, BEFORE the driver loop
+   * has unwound — so `whenIdle()` resolving on `disposed` must wait for the loop
+   * to actually exit (the implementation chains the loop-exit promise), not just
+   * observe the status flip. A mid-step disposal that never reaches `idle` still
+   * unblocks the await this way.
+   *
+   * Distinct from disposal: `whenIdle()` observes the transition WITHOUT tearing
+   * the agent down. A consumer that owns the agent's lifecycle disposes it
+   * separately.
+   */
+  whenIdle(): Promise<void>
+
   // TODO(sub-agents): spawn/fork seams — semantics deliberately deferred.
   // The intended shape: a creation option referencing a parent agent
   // (fork = seed the child Session with the parent's event log; spawn =

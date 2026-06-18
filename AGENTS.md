@@ -33,15 +33,22 @@ packages/    Harness packages, all named @deepseek-ai/dsh-<name>:
   bash/           abstract bash executor seam (ctx.bash) — interface only
   bash-local/     local-subprocess BashExecutor implementation
   tool-bash/      model-facing bash/bash_output/bash_kill tool schemas
+  acp/            Agent Client Protocol bridge: drive the agent from an ACP
+                  editor (Zed) over JSON-RPC stdio
 examples/    Runnable demos (not workspaces). echo-agent = mock model + echo
              tool + stdio UI + JSONL persistence, wired via cordis.yml.
              coding-agent = the real thing: DeepSeek V4 + bash tools
              (pnpm run demo:coding, needs DEEPSEEK_API_KEY).
+             acp-agent = the coding agent exposed as an ACP server over
+             JSON-RPC stdio (pnpm run demo:acp, needs DEEPSEEK_API_KEY).
+             base.yml = shared provider/tool core both real demos include.
 docs/        architecture.md — the design doc. module-graph.md — generated
              inter-package dependency graph (Mermaid; `pnpm run gen-module-graph`).
              rfc/ — design decisions and proposals, one kind of doc grouped by
              lifecycle into proposed/ implemented/ rejected/ (the why behind
              vendoring, event-sourcing, the schema DSL, …). See rfc/README.md.
+             postmortem/ — incident write-ups: a bug that escaped to a
+             user/merge/release, why the safety nets missed it, the guardrails added.
              cookbook/ — step-by-step guides: adding a package, a tool,
              an LLM adapter.
 scripts/     repo maintenance scripts (vendor-manifest guard, publint runner).
@@ -76,6 +83,9 @@ pnpm run demo:echo      # run examples/echo-agent (no API key; type "echo hi" to
                     # see a tool call) — the mock skeleton
 pnpm run demo:coding    # run examples/coding-agent — the real agent (needs
                     # DEEPSEEK_API_KEY; give it a coding task)
+pnpm run demo:acp   # run examples/acp-agent — the coding agent as an ACP
+                    # server over JSON-RPC stdio (needs DEEPSEEK_API_KEY;
+                    # drive it from Zed or another ACP client)
 ```
 
 ## Secrets / .env
@@ -88,6 +98,8 @@ DEEPSEEK_BASE_URL=https://…   # optional; defaults to the public API
 ```
 
 cordis.yml configs reference env vars with the `!!js` tag: `apiKey: !!js process.env.DEEPSEEK_API_KEY`. Never commit real credentials; CI has no secrets and e2e suites must self-skip without them.
+
+**Lean on with-key e2e tests — we are DeepSeek and model inference is cheap.** A no-key test (mock adapter, or an operation that never reaches the model) is great for determinism and CI, but it can only prove the plumbing, not that the agent actually *works* against a real model. Do not ration real-API tests to save tokens: write many of them, cover the real flows (a real prompt that writes a file, a multi-turn conversation, tool use, cancellation mid-stream), and run them frequently while developing — locally and whenever you have a key in the environment. **Especially smoke tests**: a cheap with-key smoke test that boots the real example, sends one real prompt, and checks the world (a file on disk, a non-empty assistant turn) catches whole classes of "green unit tests, broken product" failures that mocks structurally cannot — the very gap that let the ACP inject bug ship (see [docs/postmortem/0001](docs/postmortem/0001-acp-default-export-drops-inject.md)). The self-skip rule is ONLY so CI (which has no secrets) stays green and so a contributor without a key isn't blocked — it is not a signal that real-API tests are expensive or second-class. When in doubt, add the with-key test AND run it.
 
 Dev/test/demo run **unbuilt** via tsx + the `paths` map in the root `tsconfig.json` (`vitest` resolves through `tsconfig.test.json`). Building is only needed for publishing/consumption outside the repo — with one exception: `pnpm run lint`'s type-aware rules resolve vendor packages through their built declarations (`tsconfig.typecheck.json` → `vendor/*/lib`), so run `pnpm run typecheck` once after a fresh clone (CI does the same) or lint reports unresolved-type `no-unsafe-*` errors.
 
@@ -108,7 +120,7 @@ Dev/test/demo run **unbuilt** via tsx + the `paths` map in the root `tsconfig.js
 - **Symmetry is usually more correct**: when two related values play parallel roles (a test fixture and its expected output, a request shape and its response shape, a buggy input and the test that checks the fix), give them parallel form — both named consts, or both inline, not one each way. Asymmetry is a smell that usually points at a missed extraction.
 - **Merging PRs**: always merge with a **merge commit** (`gh pr merge --merge`), never squash or rebase. The per-PR commit history is intentional — review-fix commits, regression-test commits, and the reasoning in each message are part of the record — and squashing flattens it away.
 - **TODO markers**: use `FIXME`/`TODO`/`XXX` to flag known issues by urgency — see [docs/development.md](docs/development.md) for the semantics of each.
-- **Tests**: vitest, colocated under `packages/<name>/tests/*.spec.ts`. Every registry needs an HMR-safety test (dispose the contributing fiber, assert cleanup). **Excessive tests are welcome** — when in doubt, write the test; err on the side of covering edge cases, error paths, event ordering, and concurrency races even if they seem unlikely. Review findings get regression tests (see `packages/agent-loop/tests/review-fixes.spec.ts`).
+- **Tests**: vitest, colocated under `packages/<name>/tests/*.spec.ts`. Every registry needs an HMR-safety test (dispose the contributing fiber, assert cleanup). **Excessive tests are welcome** — when in doubt, write the test; err on the side of covering edge cases, error paths, event ordering, and concurrency races even if they seem unlikely. Review findings get regression tests (see `packages/agent-loop/tests/review-fixes.spec.ts`). The same generosity applies to **real-API (with-key) e2e tests — inference is cheap here (we are DeepSeek), so do not ration them**: cover the agent's real flows (a real prompt that writes a file, multi-turn, tool use, cancellation) and run them frequently while developing, especially cheap **smoke tests** that boot the real example and check the world. A green mock/no-key suite proves the plumbing, not the product — the with-key smoke test is what catches "green units, broken product". See § Secrets / .env for the with-key policy and why self-skip is a CI accommodation, not a verdict that real-API tests are expensive.
 
 ## Defensive patterns (hard-won)
 
@@ -121,6 +133,7 @@ Each bullet is a bug class that bit us; the rule prevents the reoccurrence.
 - **Contain callback exceptions at the boundary.** A user-supplied listener (`onTaskDone`, event handlers) that throws must not reject the promise it runs inside or starve the listeners after it. Wrap the dispatch loop in try/catch and log; never let one bad subscriber break core lifecycle.
 - **Never hand untrusted/model output the ambient environment or predictable paths.** Spawned commands get a scrubbed env (drop `*KEY*`/`*SECRET*`/ `*TOKEN*`) so the harness's own credentials can't leak into output, `env`, or spill files. Temp/spill files use a private (0700) dir, random names, and exclusive owner-only (`'wx'`, `0o600`) opens — predictable world-readable paths invite symlink races and disclosure.
 - **e2e tests own their resources.** Real-API/integration tests must create the harness in the test and dispose it in `afterEach` (even on failure/retry/timeout), so a flaky run doesn't leak processes or contexts. Shared fixtures live in a plain `tests/harness.ts` module, NOT another `*.e2e.ts` file — importing a spec file re-registers its `describe` and duplicates real API calls. Verify the WORLD, not the agent's self-report: re-run the command/check externally and assert files are byte-identical where they should be unchanged (a keyword probe lets a cheating agent pass).
+- **Line coverage is not behavior coverage; test the REAL entry path, not a synthetic stand-in.** 100% per-file coverage and a green suite are necessary, not sufficient — they prove lines ran, not that the feature works the way it ships. A plugin shipped via `cordis.yml` is loaded by the cordis Loader, which calls `Loader.unwrapExports` (`exports.default ?? exports`) and then constructs a fiber from the module's `inject`/`name`/`Config` namespace exports. A test that mounts the plugin by hand-building `ctx.plugin({ name, inject, apply })` (or even `ctx.plugin(NamespaceImport)`) BYPASSES `unwrapExports` entirely, so it cannot catch a broken export shape. This bit us hard: a stray `export default apply` made `unwrapExports` collapse the module to the bare function, dropping `inject` — so every service read threw `cannot get property … without inject` the instant a real editor connected, while 178 hand-mounted tests stayed green. The guard is at least one test that drives the plugin through its REAL load path (a subprocess booting the example via the Loader, or the Loader API directly), exercising the headline operations end-to-end. It runs WITHOUT a key when the operation doesn't call the model (`session/new`/`session/load` reach the factory but never the LLM), so there is no excuse to skip it. Corollary: when an `*.e2e.ts` spawns the example from a temp cwd, set `TSX_TSCONFIG_PATH` to the repo-root tsconfig — the unbuilt `paths` map is found by searching UP from cwd, so a temp cwd outside the repo silently falls back to built `lib/`, which both hides source changes and only "works" when a stale build happens to exist.
 - **Tag spelling and EOF hygiene.** cordis.yml interpolates env via the `!!js` tag (js-yaml resolves custom tags under `tag:yaml.org,2002:js`), not `!js` — keep code, comments, and docs consistent. Files end with exactly one trailing newline; `git diff --check` (a pre-push gate) rejects new blank lines at EOF.
 
 ## Type Safety and Documentation

@@ -24,6 +24,7 @@
     { "path": "./packages/llm-pi-ai" },
     { "path": "./packages/bash-local" },
     { "path": "./packages/tool-bash" },
-    { "path": "./packages/invariants" }
+    { "path": "./packages/invariants" },
+    { "path": "./packages/acp" }
   ]
 }

@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@agentclientprotocol/sdk':
+        specifier: 0.25.1
+        version: 0.25.1(zod@4.4.3)
       '@stylistic/eslint-plugin':
         specifier: ^5.10.0
         version: 5.10.0(eslint@10.5.0(jiti@2.7.0))
@@ -62,6 +65,46 @@ importers:
       vitest:
         specifier: ^4.1.8
         version: 4.1.8(@types/node@25.9.3)(@vitest/coverage-v8@4.1.8)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+
+  packages/acp:
+    dependencies:
+      '@agentclientprotocol/sdk':
+        specifier: 0.25.1
+        version: 0.25.1(zod@4.4.3)
+      schemastery:
+        specifier: ^3.17.0
+        version: 3.18.0
+      zod:
+        specifier: ^4.0.0
+        version: 4.4.3
+    devDependencies:
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../agent
+      '@deepseek-ai/dsh-agent-loop':
+        specifier: workspace:^
+        version: link:../agent-loop
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../session
+      '@deepseek-ai/dsh-session-persistence':
+        specifier: workspace:^
+        version: link:../session-persistence
+      '@deepseek-ai/dsh-session-persistence-jsonl':
+        specifier: workspace:^
+        version: link:../session-persistence-jsonl
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../tools
+      cordis:
+        specifier: ^4.0.0-rc.6
+        version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
 
   packages/agent:
     devDependencies:
@@ -403,6 +446,11 @@ importers:
         version: 1.8.1
 
 packages:
+
+  '@agentclientprotocol/sdk@0.25.1':
+    resolution: {integrity: sha512-jx2rF3bdpGwZ75Q/meyEDLLbYmbtxk82Uh9hDCdxDvcEedBnNSF5hZAnL/kJR5VNz56JqwOmqnAqasC84MwwkQ==}
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
 
   '@anthropic-ai/sdk@0.91.1':
     resolution: {integrity: sha512-LAmu761tSN9r66ixvmciswUj/ZC+1Q4iAfpedTfSVLeswRwnY3n2Nb6Tsk+cLPP28aLOPWeMgIuTuCcMC6W/iw==}
@@ -2686,6 +2734,10 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
+
+  '@agentclientprotocol/sdk@0.25.1(zod@4.4.3)':
+    dependencies:
+      zod: 4.4.3
 
   '@anthropic-ai/sdk@0.91.1(zod@4.4.3)':
     dependencies:

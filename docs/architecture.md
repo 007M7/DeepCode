@@ -109,6 +109,7 @@ Tool schemas are deliberately **part of the assembly**: "what the model is told 
 - `steer(content)` — mid-turn injection, drained **between steps**; behaves like `send` when idle
 - `inject(content)` — in-session context (`context/message` event); the next request sees it (Claude Code attachment / system-reminder analog). An inject made while the agent is *running* joins the open turn; an inject while *idle* is wrapped in a one-shot turn (`turn/start{trigger:injection}` → `context/message` → `turn/end`) so every event stays turn-enclosed (see [the turn-enclosure invariant](rfc/implemented/2026-06-15-turn-enclosure-invariant.md)).
 - `abort(reason)` — aborts the in-flight step via `AbortSignal`
+- `whenIdle()` — resolves once the agent reaches quiescence after settling out of `running` (resolves immediately when already idle; awaits the loop exit when disposed). The teardown signal: `abort()` then `await whenIdle()` guarantees the in-flight turn has fully stopped. Observes the transition without disposing the agent.
 - `session`, `status`, `options`
 
 **TODO(sub-agents)**: `spawn`/`fork` land on `AgentLoop.create()` — fork seeds the child Session with the parent's event log, spawn starts fresh; children are ordinary `Agent` handles so `steer()` and event subscription work uniformly. Inter-agent channels beyond these primitives are deliberately deferred.

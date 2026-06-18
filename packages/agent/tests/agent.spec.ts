@@ -14,6 +14,7 @@ function stubAgent(rawId: string): Agent {
     steer() {},
     inject() {},
     abort() {},
+    whenIdle() { return Promise.resolve() },
   }
 }
 
