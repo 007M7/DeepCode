@@ -84,6 +84,16 @@ export interface ToolCallPresentation {
    */
   rawInput?: unknown
   /**
+   * UI-facing content to show on the PENDING call alongside the title/card —
+   * harness {@link ContentBlock}s, in render order. A terminal tool uses this to
+   * surface its human-readable `description` as a text block ABOVE the terminal
+   * card (the card itself is requested via {@link terminal} and labelled by the
+   * command in `title`), since the card has no description slot. Omit to show no
+   * extra content. A UI maps these to its own content blocks and renders a
+   * {@link terminal} block (if any) as a terminal card.
+   */
+  content?: ContentBlock[]
+  /**
    * Ask a capable UI to render this call as a TERMINAL (a command running in a
    * working directory), not a generic tool card — set by a tool whose call IS a
    * shell command (e.g. `bash`). Provider-neutral; a UI bridge maps it to its
@@ -96,16 +106,33 @@ export interface ToolCallPresentation {
 /**
  * A request to render a tool call as a terminal. The pending presentation
  * supplies the working directory; the result presentation (see
- * {@link ToolResultPresentation.terminal}) supplies the captured output.
- * Provider-neutral — no client-protocol types. A UI that supports terminals
- * shows a cwd-headed terminal card with the command and its output; a UI that
- * does not ignores this and renders the ordinary card/content.
+ * {@link ToolResultPresentation.terminal}) supplies the captured output and exit
+ * status. Provider-neutral — no client-protocol types. A UI that supports
+ * terminals shows a cwd-headed terminal card with the command, its output, and
+ * an exit-status pill; a UI that does not ignores this and renders the ordinary
+ * card/content.
  */
 export interface ToolTerminal {
-  /** Absolute working directory the command ran in, shown as the terminal header. Omit if unknown. */
+  /**
+   * Working directory the command ran in, shown as the terminal header. An
+   * ABSOLUTE path is used as-is; a RELATIVE path is resolved by the UI bridge
+   * against the session workspace (the pure tool presenter can't see the
+   * session cwd). Omit entirely to let the bridge use the session workspace.
+   */
   cwd?: string
   /** Captured command output (stdout+stderr as the tool chooses to combine them). Result-state only. */
   output?: string
+  /**
+   * Process exit code, when the run ended by exiting (not a signal). Result-state
+   * only; lets a capable UI show an exit-status pill on the terminal card. Omit
+   * when the command was killed by a signal or the exit code is unknown.
+   */
+  exitCode?: number
+  /**
+   * Signal name that killed the process (e.g. `SIGTERM`), when it died by signal
+   * rather than exiting. Result-state only; mutually exclusive with `exitCode`.
+   */
+  signal?: string
 }
 
 /**

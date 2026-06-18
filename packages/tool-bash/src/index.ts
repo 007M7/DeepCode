@@ -132,49 +132,74 @@ export function renderResult(result: BashRunResult): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Pending-state presentation for a `bash` call. The title is the model-written
- * `description` followed by the exact `command` ("List files — ls -la src"):
- * `kind: 'execute'` gets a terminal/run treatment in a UI, but an execute-kind
- * card HIDES `rawInput` (Zed: `should_show_raw_input = !is_terminal_tool`), so
- * the command MUST ride in the always-visible title to be seen — the reference
- * ACP adapters (claude-agent-acp, codex-acp) likewise put the command in the
- * title for execute tools. The description leads (a readable summary the schema
- * requires); the command follows so the verbatim text is still there. `rawInput`
- * still carries the bare command for non-execute UIs that DO render it.
+ * Pending-state presentation for a `bash` call. The TITLE is the exact `command`
+ * — a `kind: 'execute'` card is rendered as a terminal whose header label IS the
+ * title, and an execute-kind card HIDES `rawInput` (Zed: `should_show_raw_input
+ * = !is_terminal_tool`), so the command must BE the title to be seen. This
+ * mirrors the reference ACP adapters (claude-agent-acp, codex-acp), which both
+ * use the bare command as an execute tool's title. The model-written
+ * `description` (a readable summary) rides as a `content` text block shown ABOVE
+ * the card, since a terminal card has no description slot — claude-agent-acp
+ * likewise surfaces its description as a separate content block. `rawInput` still
+ * carries the bare command for non-execute UIs that DO render it.
  *
- * `terminal` marks the call so a capable UI renders a TERMINAL card. The cwd
- * header comes from an explicit absolute model `workdir` when given; otherwise
- * the call ran in the session workspace, which this PURE presenter (args only,
- * no `exec`) can't see — the UI bridge fills that default from the session's own
- * cwd. An empty `terminal: {}` still flags "this is a terminal".
+ * `terminal` marks the call so a capable UI renders a TERMINAL card. Its `cwd`
+ * (header) is the model `workdir` when given — ABSOLUTE as-is, RELATIVE for the
+ * UI bridge to resolve against the session cwd; when omitted entirely the bridge
+ * fills the session workspace cwd (this PURE presenter, args only, can't see it).
  */
 function presentBashCall(args: { command: string; description: string; workdir?: string }): ToolCallPresentation {
-  const cwd = args.workdir !== undefined && isAbsolute(args.workdir) ? args.workdir : undefined
   return {
-    title: `${args.description} — ${args.command}`,
+    title: args.command,
     kind: 'execute',
     rawInput: args.command,
-    terminal: cwd !== undefined ? { cwd } : {},
+    content: [{ type: 'text', text: args.description }],
+    terminal: args.workdir !== undefined ? { cwd: args.workdir } : {},
   }
 }
 
 /**
  * Completed-state presentation for a `bash` call. Two parallel renderings of the
  * same output: `terminal.output` for a UI that shows a terminal card (the run's
- * stdout/stderr + status markers, exactly as the model sees them — it already
- * carries the `[exit code: N]` marker), and a fenced ```console `content` block
- * as the fallback for a UI without terminal support (the fences are a UI-only
- * affordance, so they live here, not in `renderResult`). A non-text result
- * (unexpected for bash) falls through to `undefined` (UI keeps the raw result).
+ * stdout/stderr + status markers, exactly as the model sees them — the RAW text,
+ * newlines preserved, since a terminal renderer relies on exact bytes), and a
+ * fenced ```console `content` block as the fallback for a UI without terminal
+ * support (the fences are a UI-only affordance, so they live here, not in the
+ * model-facing result; the fenced body is trimmed of trailing blank lines for a
+ * tidy block). A capable UI also gets an exit-status pill from `terminal.exitCode`
+ * / `terminal.signal`, parsed from the status markers `renderResult` appended
+ * (this parse is the exact inverse of those markers — they co-evolve in this
+ * file and a round-trip test guards the pair). A non-text result (unexpected for
+ * bash) falls through to `undefined` (UI keeps the raw result).
  */
 function presentBashResult(_args: unknown, result: ToolResult): ToolResultPresentation | undefined {
   const block = result.content.length === 1 ? result.content[0] : undefined
   if (block === undefined || block.type !== 'text') return undefined
-  const text = block.text.replace(/\n+$/, '')
+  const raw = block.text
+  const fenced = raw.replace(/\n+$/, '')
   return {
-    content: [{ type: 'text', text: `\`\`\`console\n${text}\n\`\`\`` }],
-    terminal: { output: text },
+    content: [{ type: 'text', text: `\`\`\`console\n${fenced}\n\`\`\`` }],
+    terminal: { output: raw, ...parseExitStatus(raw) },
   }
+}
+
+/**
+ * Recover the structured exit status from a rendered `renderResult` string — the
+ * inverse of the status markers it appends. A `[killed by signal: SIG]` marker
+ * yields `{signal}`; otherwise an `[exit code: N]` marker yields `{exitCode:N}`;
+ * a clean run appends neither, so absent both we report `{exitCode:0}`. (A
+ * trapped-timeout run that exits 0 has no signal/exit marker either and reads as
+ * exitCode 0, which is accurate — it did exit 0.) `renderResult` always appends
+ * the exit/signal marker LAST (after any timeout marker) onto a non-empty body,
+ * so the marker is anchored at end-of-string here — output that merely CONTAINS
+ * such text earlier is not mistaken for it.
+ */
+function parseExitStatus(text: string): { exitCode: number } | { signal: string } {
+  const signal = /\[killed by signal: ([^\]\n]+)\]$/.exec(text)
+  if (signal?.[1] !== undefined) return { signal: signal[1] }
+  const exit = /\[exit code: (\d+)\]$/.exec(text)
+  if (exit?.[1] !== undefined) return { exitCode: Number(exit[1]) }
+  return { exitCode: 0 }
 }
 
 /** Pending-state presentation for `bash_output`/`bash_kill` (background-task tools). */

@@ -178,8 +178,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: real prompt over 
     expect(toolCalls.length).toBeGreaterThan(0)
 
     // Tool-call UI quality (the tool owns its presentation): the bash tool's
-    // `presentCall` sets the title to the model's human-readable `description`
-    // and the `rawInput` to the exact command — NOT the bare tool name "bash".
+    // `presentCall` sets the title to the exact command (an execute card hides
+    // rawInput, so the command IS the title) — NOT the bare tool name "bash".
     // A `bash` call must therefore carry an execute kind, a non-"bash" title,
     // and a string rawInput (the command). `toolCalls` is already narrowed to
     // the `tool_call` shape by the filter above, so these fields are reachable.
@@ -194,7 +194,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: real prompt over 
     expect((bashCall as { _meta?: unknown })._meta).toBeUndefined()
   }, 180_000)
 
-  it('with the terminal_output capability, a real bash call renders as a terminal card (content + _meta)', async () => {
+  it('with the terminal_output capability, a real bash call renders as a terminal card (content + _meta + exit)', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'acp-e2e-'))
     spawned = spawnAcpAgent(workdir)
     const { client, updates } = spawned
@@ -214,12 +214,19 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: real prompt over 
     // on _meta.terminal_output.
     const bashCall = updates.find(u => u.sessionUpdate === 'tool_call' && u.kind === 'execute')
     if (bashCall?.sessionUpdate !== 'tool_call') throw new Error('expected an execute tool_call')
-    const block = bashCall.content?.[0] as { type: string; terminalId?: string } | undefined
-    expect(block?.type).toBe('terminal')
-    expect(typeof block?.terminalId).toBe('string')
+    // The content carries the description text block AND a terminal block (the
+    // description renders above the card) — find the terminal block by type, not
+    // by position.
+    const blocks = (bashCall.content ?? []) as { type: string; terminalId?: string }[]
+    const terminalBlock = blocks.find(b => b.type === 'terminal')
+    expect(terminalBlock).toBeDefined()
+    expect(typeof terminalBlock?.terminalId).toBe('string')
     const info = (bashCall._meta as { terminal_info?: { terminal_id: string; cwd?: string } }).terminal_info
     expect(info?.cwd).toBe(workdir)
     const updatesForTerminal = updates.filter(u => u.sessionUpdate === 'tool_call_update' && (u._meta as { terminal_output?: unknown } | undefined)?.terminal_output !== undefined)
     expect(updatesForTerminal.length).toBeGreaterThan(0)
+    // The completed update also carries the parsed exit on _meta.terminal_exit.
+    const exitUpdate = updates.find(u => u.sessionUpdate === 'tool_call_update' && (u._meta as { terminal_exit?: unknown } | undefined)?.terminal_exit !== undefined)
+    expect(exitUpdate).toBeDefined()
   }, 180_000)
 })

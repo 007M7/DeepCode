@@ -75,7 +75,7 @@ describe('acp bridge — turn outcomes', () => {
     expect(callIdx).toBeLessThan(updIdx)
   })
 
-  it('the REAL bash tool drives the tool-call UI end-to-end: description—command title + console output', async () => {
+  it('the REAL bash tool drives the tool-call UI end-to-end: command title + description block + console output', async () => {
     // Use the SHIPPING tool (dsh-tool-bash + dsh-bash-local), not an inline
     // stand-in, so this verifies the actual presentCall/presentResult the editor
     // sees (AGENTS.md "prefer the real implementation over a mock in tests").
@@ -93,16 +93,20 @@ describe('acp bridge — turn outcomes', () => {
     const sessionId = await newSession(harness)
     await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'greet' }] })
 
-    // presentCall: execute kind, title is "description — command" (an execute
-    // card hides rawInput, so the command rides in the title), command in rawInput.
+    // presentCall: execute kind, title IS the command (an execute card hides
+    // rawInput, so the command is the title), the description rides as a content
+    // text block, the command is also rawInput for non-terminal UIs.
     const call = harness.updates.find(u => u.sessionUpdate === 'tool_call')
     expect(call).toMatchObject({
       toolCallId: 'c1',
-      title: 'Print a greeting — echo hello',
+      title: 'echo hello',
       kind: 'execute',
       rawInput: 'echo hello',
       status: 'in_progress',
     })
+    if (call?.sessionUpdate !== 'tool_call') throw new Error('expected a tool_call')
+    // Capability OFF: the description renders as the only content block (no terminal block).
+    expect(call.content).toEqual([{ type: 'content', content: { type: 'text', text: 'Print a greeting' } }])
     // presentResult: the REAL command output, wrapped in a fenced console block.
     const update = harness.updates.find(u => u.sessionUpdate === 'tool_call_update')
     expect(update?.sessionUpdate).toBe('tool_call_update')
@@ -115,11 +119,12 @@ describe('acp bridge — turn outcomes', () => {
     expect((update as { _meta?: unknown })._meta).toBeUndefined()
   })
 
-  it('with the terminal_output capability ON, a real bash call renders as a TERMINAL card (content + _meta)', async () => {
+  it('with the terminal_output capability ON, a real bash call renders as a TERMINAL card (content + _meta + exit)', async () => {
     // Drive the REAL bash tool, and advertise the Zed `_meta.terminal_output`
-    // capability in initialize. The bridge must then emit the terminal CARD: a
-    // terminal content block + `_meta.terminal_info` (cwd header) on the call,
-    // and `_meta.terminal_output`/`terminal_exit` on the result.
+    // capability in initialize. The bridge must then emit the terminal CARD: the
+    // description content block THEN a terminal content block + `_meta.terminal_info`
+    // (cwd header) on the call, and `_meta.terminal_output`/`terminal_exit` on the
+    // result — and OMIT the update's text content (it would clobber the card).
     harness = await makeBridgeHarness({
       storageDir,
       withBash: true,
@@ -131,18 +136,27 @@ describe('acp bridge — turn outcomes', () => {
 
     const call = harness.updates.find(u => u.sessionUpdate === 'tool_call')
     if (call?.sessionUpdate !== 'tool_call') throw new Error('expected a tool_call')
-    // A terminal content block keyed by the callId, and terminal_info with the
+    // The description content block FIRST (renders above the card), then a
+    // terminal content block keyed by the callId; terminal_info carries the
     // session cwd (the bridge fills it from the session header).
-    expect(call.content).toEqual([{ type: 'terminal', terminalId: 'c1' }])
+    expect(call.content).toEqual([
+      { type: 'content', content: { type: 'text', text: 'Greet' } },
+      { type: 'terminal', terminalId: 'c1' },
+    ])
     expect((call._meta as { terminal_info?: unknown }).terminal_info).toEqual({ terminal_id: 'c1', cwd: process.cwd() })
 
     const update = harness.updates.find(u => u.sessionUpdate === 'tool_call_update')
     if (update?.sessionUpdate !== 'tool_call_update') throw new Error('expected a tool_call_update')
-    // Output rides on _meta.terminal_output; the text content is still present
-    // as the fallback for a UI that ignores the _meta.
-    const meta = update._meta as { terminal_output?: { terminal_id: string; data: string } }
-    expect(meta.terminal_output?.terminal_id).toBe('c1')
-    expect(meta.terminal_output?.data).toBe('hi')
+    // In terminal mode the text content is OMITTED (a tool_call_update.content
+    // REPLACES the call's content — it would clobber the terminal block).
+    expect(update.content).toBeUndefined()
+    // Output rides on _meta.terminal_output; the parsed exit on _meta.terminal_exit.
+    const meta = update._meta as {
+      terminal_output?: { terminal_id: string; data: string }
+      terminal_exit?: { terminal_id: string; exit_code?: number; signal?: string }
+    }
+    expect(meta.terminal_output).toEqual({ terminal_id: 'c1', data: 'hi\n' })
+    expect(meta.terminal_exit).toEqual({ terminal_id: 'c1', exit_code: 0 })
   })
 
   it('a throwing tool presenter does not break the turn: the bridge falls back generically', async () => {
