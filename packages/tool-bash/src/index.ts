@@ -218,11 +218,12 @@ function presentBashResult(args: unknown, result: ToolResult): ToolResultPresent
  * with no trailing newline — a clean exit 0 — no longer reads as a failure).
  *
  * KNOWN RESIDUAL (inherent to the replay-only-sees-text design): a clean exit 0
- * whose body's FINAL line is itself exactly `\n[exit code: N]` (the program
- * printed that line and nothing after) is still indistinguishable from a real
- * marker and would show a wrong pill. This is display-only (execution and the
- * model-facing text are unaffected) and narrow; the complete fix is to persist a
- * structured exit on the result event, which the RFC names as the escape hatch.
+ * whose body's FINAL line is itself exactly the marker text — `[exit code: N]`
+ * or `[killed by signal: SIG]`, printed by the program with nothing after — is
+ * still indistinguishable from a real marker and would show a wrong pill. This is
+ * display-only (execution and the model-facing text are unaffected) and narrow;
+ * the complete fix is to persist a structured exit on the result event, which the
+ * RFC names as the escape hatch.
  */
 function parseExitStatus(text: string): { exitCode: number } | { signal: string } {
   const signal = /\n\[killed by signal: ([^\]\n]+)\]$/.exec(text)
