@@ -765,6 +765,27 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     expect(ids).toEqual(['p1', 'p2', 'p3'])
   })
 
+  it('list tolerates one corrupt sidecar and still returns other sessions', async () => {
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const bad = meta('bad-list-summary', '/proj')
+    await ctx.sessionPersistence.create(bad)
+    await ctx.sessionPersistence.append(bad.id, oneTurnLog())
+    await ctx.sessionPersistence.update(bad.id, { title: 'hidden by corrupt sidecar' })
+    await writeFile(sidecarPath(root, '/proj', bad.id), '{not json')
+    const good = meta('good-list-summary', '/proj')
+    await ctx.sessionPersistence.create(good)
+    await ctx.sessionPersistence.append(good.id, oneTurnLog())
+    await ctx.sessionPersistence.update(good.id, { title: 'visible' })
+
+    const listed = await ctx.sessionPersistence.list()
+
+    const badListed = listed.find(m => m.id === bad.id)
+    expect(badListed).toMatchObject({ id: bad.id })
+    expect(badListed).not.toHaveProperty('title')
+    expect(listed.find(m => m.id === good.id)).toMatchObject({ id: good.id, title: 'visible' })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('bad-list-summary'))
+  })
+
   it('list on an empty root returns nothing', async () => {
     expect(await ctx.sessionPersistence.list()).toEqual([])
   })

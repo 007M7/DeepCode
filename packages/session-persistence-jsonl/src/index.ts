@@ -354,7 +354,7 @@ export class SessionPersistenceJsonl extends SessionPersistence {
         if (first === undefined) continue // empty/half-written file
         const meta = parseHeaderMeta(first)
         if (meta === undefined) continue // not a session header
-        const summary = await this.readSidecar(meta.id, meta.cwd)
+        const summary = await this.readSidecarForList(meta.id, meta.cwd)
         metas.push({ ...meta, ...summary })
       }
     }
@@ -600,11 +600,9 @@ export class SessionPersistenceJsonl extends SessionPersistence {
   }
 
   /**
-   * Read the mutable-summary sidecar, or `undefined` if it is absent/unreadable
-   * (a session that has never been `update()`d, or a failed sidecar write). The
-   * caller keeps the header-derived `updatedAt` (the session's createdAt) in
-   * that case rather than overlaying `0` — reporting an active session as
-   * updated at the Unix epoch would be wrong.
+   * Read the mutable-summary sidecar, or `undefined` if it is absent (a session
+   * that has never been `update()`d). Non-ENOENT failures surface on strict
+   * load/adopt paths so corrupt metadata does not masquerade as a clean default.
    */
   private async readSidecar(id: SessionId, cwd: string | undefined): Promise<SessionSummary | undefined> {
     try {
@@ -613,6 +611,19 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     } catch (error) {
       if (isENOENT(error)) return undefined
       throw error
+    }
+  }
+
+  /**
+   * Best-effort summary read for list(): a corrupt sidecar should degrade one
+   * row to header metadata, not hide every session from a picker.
+   */
+  private async readSidecarForList(id: SessionId, cwd: string | undefined): Promise<SessionSummary | undefined> {
+    try {
+      return await this.readSidecar(id, cwd)
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`session-persistence-jsonl: ignoring unreadable summary for session "${id}" while listing: ${String(error)}`)
+      return undefined
     }
   }
 

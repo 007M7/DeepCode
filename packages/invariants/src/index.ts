@@ -118,6 +118,9 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       if (trace.openTurn !== null) {
         throw new InvariantError(`turn/start ${event.data.turn} while turn ${trace.openTurn} is still open`)
       }
+      // Current sessions replay full logs, so numbering starts at 1 and remains
+      // contiguous. If a future compaction/fork stores a partial log, it must
+      // seed `nextTurn` from retained metadata before this check runs.
       if (event.data.turn !== trace.nextTurn) {
         throw new InvariantError(`turn/start expected turn ${trace.nextTurn}, got ${event.data.turn}`)
       }
@@ -143,6 +146,7 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       if (trace.openStep !== null) {
         throw new InvariantError(`step/start ${event.data.step} while step ${trace.openStep} is still open`)
       }
+      // Steps are checked under the same full-log assumption as turns above.
       if (event.data.step !== trace.nextStep) {
         throw new InvariantError(`step/start expected step ${trace.nextStep} in turn ${event.data.turn}, got ${event.data.step}`)
       }
