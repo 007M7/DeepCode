@@ -1,10 +1,10 @@
-# ADR 0019: Session surface — a linked list over the event log for LLM message derivation
+# RFC: Session surface — a linked list over the event log for LLM message derivation
 
-Status: accepted (2026-06-17)
+Status: implemented (accepted 2026-06-18)
 
 ## Context
 
-The `Session` event log is the single source of truth ([ADR 0003](0003-event-sourced-sessions.md)), but the only view over it was `deriveMessages()` — a linear scan that filtered and transformed raw events into `Message[]`. This creates problems for session-history-manipulating plugins (compaction, tool-call result pruning, etc.). Without a central mechanism, each plugin would need to wrap `agent/request` to rewrite the message list — a pattern that suffers from listener-ordering fragility, provides no durable record of what was changed, and forces repeated changes to the core `deriveMessages()` whenever a new manipulation is added. A central hub in the `session` package, with a provenance-recording mechanism and enough flexibility for future plugins to manipulate session history through a stable API, lays a solid foundation for plugin development.
+The `Session` event log is the single source of truth ([event-sourced sessions](../implemented/2026-06-11-event-sourced-sessions.md)), but the only view over it was `deriveMessages()` — a linear scan that filtered and transformed raw events into `Message[]`. This creates problems for session-history-manipulating plugins (compaction, tool-call result pruning, etc.). Without a central mechanism, each plugin would need to wrap `agent/request` to rewrite the message list — a pattern that suffers from listener-ordering fragility, provides no durable record of what was changed, and forces repeated changes to the core `deriveMessages()` whenever a new manipulation is added. A central hub in the `session` package, with a provenance-recording mechanism and enough flexibility for future plugins to manipulate session history through a stable API, lays a solid foundation for plugin development.
 
 ## Decision
 
