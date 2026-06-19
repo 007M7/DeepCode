@@ -18,7 +18,7 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentLoop, { type LoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import fc from 'fast-check'
 
 /** A never-exhausting adapter: every model call returns the same short reply. */
@@ -47,7 +47,7 @@ async function harness() {
 }
 
 /** Resolve on the agent's next transition to idle (event-based, not polled). */
-function nextIdle(ctx: Context, agent: LoopAgent): Promise<void> {
+function nextIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -60,7 +60,7 @@ function nextIdle(ctx: Context, agent: LoopAgent): Promise<void> {
 
 /** Record every status transition for the legal-machine assertion. Returns
  * the seen list plus a disposer for the listener (per the registry convention). */
-function recordStatus(ctx: Context, agent: LoopAgent): { seen: string[]; dispose: () => void } {
+function recordStatus(ctx: Context, agent: ReactLoopAgent): { seen: string[]; dispose: () => void } {
   const seen: string[] = []
   const dispose = ctx.on('agent/status', (subject, status) => {
     if (subject === agent) seen.push(status)
@@ -68,13 +68,13 @@ function recordStatus(ctx: Context, agent: LoopAgent): { seen: string[]; dispose
   return { seen, dispose }
 }
 
-function userMessageTexts(agent: LoopAgent): string[] {
+function userMessageTexts(agent: ReactLoopAgent): string[] {
   return agent.session.events
     .filter(e => e.type === 'user/message')
     .map(e => (e.data as { content: { type: string; text?: string }[] }).content.map(b => b.text ?? '').join(''))
 }
 
-function turnNumbers(agent: LoopAgent): number[] {
+function turnNumbers(agent: ReactLoopAgent): number[] {
   return agent.session.events
     .filter(e => e.type === 'turn/start')
     .map(e => (e.data as { turn: number }).turn)

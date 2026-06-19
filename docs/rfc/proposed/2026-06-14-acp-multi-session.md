@@ -15,7 +15,7 @@ This paragraph is historical: the multi-session bridge has landed. The remaining
 
 The harness core already supports many agents (`AgentRegistry.list()` and `AgentLoop.create` impose no count limit), so multiplexing is a bridge-layer change in `@deepseek-ai/dsh-acp`, not a loop or core change.
 
-- Lift the single-session guard in `session/new`; allow N live sessions, each mapped to its own `LoopAgent`.
+- Lift the single-session guard in `session/new`; allow N live sessions, each mapped to its own `ReactLoopAgent`.
 - The bridge's `sessionId→agent` and `Session→sessionId` maps (introduced single-entry by [the ACP support RFC](2026-06-14-acp-agent-client-protocol.md)) become true multi-entry, plus a third `agent→sessionId` reverse map: the `tools/execute` permission gate receives only `exec.agent` (no sessionId), so it needs an O(1) reverse lookup to find the owning session. Every `agent/*` event and every `session/event` is demuxed strictly by id, so two sessions streaming at once never interleave their `session/update` notifications.
 - Per-session prompt queues: [the ACP support RFC](2026-06-14-acp-agent-client-protocol.md)'s single-entry in-flight-prompt state becomes multi-entry — one in-flight prompt *per session*, tracked per `sessionId`.
 - Per-session cancel routing: `session/cancel` aborts only its own session's agent and settles only that session's in-flight prompt. `agent.abort()` drives a per-agent `AbortController`, so the per-session `exec.signal` is the natural isolation fence.

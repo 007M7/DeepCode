@@ -16,7 +16,7 @@
  * - `session/cancel` → `agent.abort()` + settle the in-flight prompt
  *
  * Multi-session (RFC 011): N concurrent sessions per connection, each mapped to
- * its own `LoopAgent`. Sessions are keyed by id in `sessions` (forward) with an
+ * its own `ReactLoopAgent`. Sessions are keyed by id in `sessions` (forward) with an
  * `agent→sessionId` reverse map for O(1) demux of `agent/*` events; every
  * `session/event` and `agent/*` event is routed strictly to its owning session
  * record, so two sessions streaming at once never interleave their

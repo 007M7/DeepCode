@@ -40,7 +40,7 @@ export type AgentStatus = 'idle' | 'running' | 'disposed'
 /**
  * The agent handle — the surface every plugin (UI, hooks, orchestrators)
  * programs against. The concrete implementation lives in
- * `@deepseek-ai/dsh-agent-loop` (class `LoopAgent`); nothing outside the loop
+ * `@deepseek-ai/dsh-agent-loop` (class `ReactLoopAgent`); nothing outside the loop
  * package should depend on the implementation.
  */
 export interface Agent {

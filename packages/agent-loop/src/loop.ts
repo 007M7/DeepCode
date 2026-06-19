@@ -13,7 +13,7 @@ import { BlockAssembler, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
-import type { LoopAgent } from './agent.ts'
+import type { ReactLoopAgent } from './agent.ts'
 
 /** An Error with an optional machine-readable code (e.g., from LlmError or a throwing plugin). */
 type CodedError = Error & { code?: string }
@@ -98,7 +98,7 @@ function stepFinishReason(finish: FinishReason): TurnEndReason | undefined {
 
 /**
  * Ambient handles the loop driver receives from the agent. Decouples the
- * pure function `runLoop` from the mutable LoopAgent fields, making the
+ * pure function `runLoop` from the mutable ReactLoopAgent fields, making the
  * loop testable without a real agent.
  */
 export interface LoopHandle {
@@ -141,7 +141,7 @@ export interface LoopHandle {
  *   idle (emit agent/status) unless more queued
  * ```
  */
-export async function runLoop(ctx: Context, agent: LoopAgent, handle: LoopHandle): Promise<void> {
+export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle): Promise<void> {
   const { session } = agent
 
   while (!handle.isDisposed()) {
@@ -180,7 +180,7 @@ export async function runLoop(ctx: Context, agent: LoopAgent, handle: LoopHandle
   }
 }
 
-async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn: number): Promise<void> {
+async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, turn: number): Promise<void> {
   const { session } = agent
 
   // --- Pre-turn. A throw here (the invariant guard) is owed NO turn/end —
@@ -446,7 +446,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
 }
 
 /** Drain the steering queue into the session. Returns whether any arrived. */
-function drainSteering(ctx: Context, agent: LoopAgent, turn: number): boolean {
+function drainSteering(ctx: Context, agent: ReactLoopAgent, turn: number): boolean {
   const messages = agent.inbox.drainSteering()
   for (const message of messages) {
     agent.session.append('steering/message', { turn, content: message.content, source: message.source })
@@ -458,7 +458,7 @@ function drainSteering(ctx: Context, agent: LoopAgent, turn: number): boolean {
 /** One step: assemble request → stream model → record → execute tools. */
 async function runStep(
   ctx: Context,
-  agent: LoopAgent,
+  agent: ReactLoopAgent,
   turn: number,
   step: number,
   signal: AbortSignal,

@@ -303,7 +303,7 @@ export function apply(ctx: Context): void {
       )
     } catch (error: unknown) {
       // The ONE expected failure: the agent was disposed between task
-      // completion and this injection (LoopAgent.inject throws
+      // completion and this injection (ReactLoopAgent.inject throws
       // `agent "<id>" is disposed`). That race is benign — drop the notice.
       // Anything else is a real bug and must surface, not be swallowed.
       if (error instanceof Error && error.message.includes('is disposed')) return

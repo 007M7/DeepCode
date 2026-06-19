@@ -6,7 +6,7 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentLoop, { LoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
 async function harness(adapter: MockAdapter) {
@@ -21,7 +21,7 @@ async function harness(adapter: MockAdapter) {
   return ctx
 }
 
-function waitForIdle(ctx: Context, agent: LoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -32,7 +32,7 @@ function waitForIdle(ctx: Context, agent: LoopAgent): Promise<void> {
   })
 }
 
-function waitForStatus(ctx: Context, agent: LoopAgent, expected: LoopAgent['status']): Promise<void> {
+function waitForStatus(ctx: Context, agent: ReactLoopAgent, expected: ReactLoopAgent['status']): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === expected) {
@@ -43,15 +43,15 @@ function waitForStatus(ctx: Context, agent: LoopAgent, expected: LoopAgent['stat
   })
 }
 
-function send(agent: LoopAgent, text: string) {
+function send(agent: ReactLoopAgent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
-describe('LoopAgent', () => {
+describe('ReactLoopAgent', () => {
   it('send() throws after disposal', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    let agent!: LoopAgent
+    let agent!: ReactLoopAgent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create('scoped', { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -66,7 +66,7 @@ describe('LoopAgent', () => {
   it('steer() throws after disposal', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    let agent!: LoopAgent
+    let agent!: ReactLoopAgent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create('scoped', { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -81,7 +81,7 @@ describe('LoopAgent', () => {
   it('inject() throws after disposal', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    let agent!: LoopAgent
+    let agent!: ReactLoopAgent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create('scoped', { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -226,12 +226,12 @@ describe('LoopAgent', () => {
   })
 
   it('disposer is idempotent (double-stop)', async () => {
-    // Create a bare LoopAgent and call start() directly to get the disposer.
+    // Create a bare ReactLoopAgent and call start() directly to get the disposer.
     // Then call it twice — the second call hits the early-return branch.
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create('test')
-    const agent = new LoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
+    const agent = new ReactLoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
 
     // Start the loop to get the disposer; the agent waits for messages
     // (idle, never-resolving cancel), so it will stay idle.
@@ -323,7 +323,7 @@ describe('LoopAgent', () => {
   it('whenIdle() subscribed while running resolves via done when the agent is then disposed', async () => {
     // Covers the waiter's disposed arm: whenIdle() queues an internal waiter
     // while running (not the fast path), then the disposer settles it and chains
-    // `done` (loop exit), not an eager resolve. A bare LoopAgent + direct
+    // `done` (loop exit), not an eager resolve. A bare ReactLoopAgent + direct
     // start() disposer keeps the emit synchronous.
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -334,7 +334,7 @@ describe('LoopAgent', () => {
     const adapter = new MockAdapter(['hang'])
     ctx.llm.registerAdapter(['mock'], adapter)
     const session = ctx.sessions.create('bare')
-    const agent = new LoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
+    const agent = new ReactLoopAgent(ctx, AgentId('bare'), { model: 'mock' }, session)
     const dispose = agent.start()
     agent.send([{ type: 'text', text: 'go' }])
     await new Promise(r => setTimeout(r, 30))
@@ -355,7 +355,7 @@ describe('LoopAgent', () => {
     // it. Regression for the round-3 whenIdle finding.
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    let agent!: LoopAgent
+    let agent!: ReactLoopAgent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create('scoped', { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -376,7 +376,7 @@ describe('LoopAgent', () => {
     // only after `done` — i.e. the loop has actually exited.
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    let agent!: LoopAgent
+    let agent!: ReactLoopAgent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create('scoped', { model: 'mock' })
     }, { inject: ['agentLoop'] }))

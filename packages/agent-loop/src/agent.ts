@@ -1,5 +1,5 @@
 /**
- * The concrete Agent implementation: LoopAgent plus its inbox. Everything
+ * The concrete Agent implementation: ReactLoopAgent plus its inbox. Everything
  * observable happens through session events and the agent/* event taxonomy —
  * plugins never need this class.
  *
@@ -21,7 +21,7 @@ import { isTurnOpen, lastTurnNumber, runLoop } from './loop.ts'
  * the loop driver. Everything observable happens through session events and
  * the agent/* event taxonomy — plugins never need this class.
  */
-export class LoopAgent implements Agent {
+export class ReactLoopAgent implements Agent {
   readonly inbox = new Inbox()
 
   private _status: AgentStatus = 'idle'
