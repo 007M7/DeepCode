@@ -1,0 +1,32 @@
+# Snapshot-test REPLAY config: the acp-agent plugin tree with the model replaced
+# by llm-replay (serves a recorded session JSONL — no API key, no network).
+#
+# It reuses ../base-core.yml (the providerless core) + ./acp-tail.yml (agent-
+# loop + persistence + the ACP bridge), the SAME pieces cordis.yml shares — only
+# the LLM adapter differs: llm-replay here, llm-deepseek there. It can't reuse
+# ../base.yml because that loads llm-deepseek, whose apply() throws without
+# DEEPSEEK_API_KEY, killing a keyless replay run at boot.
+#
+# stdout is reserved for the ACP JSON-RPC protocol — no stdout logger (see
+# cordis.yml). The replay fixture path comes from $DSH_SNAPSHOT_FILE (and an
+# optional $DSH_SNAPSHOT_OVERRIDE sidecar), set by the snapshot harness.
+
+- id: timer
+  name: '@cordisjs/plugin-timer'
+
+# Providerless core (everything base.yml has EXCEPT the llm-deepseek adapter).
+- id: base-core
+  name: '@cordisjs/plugin-include'
+  config:
+    path: '../base-core.yml'
+
+# The replay adapter: short-circuits llm/stream with the recorded log's chunks,
+# in place of llm-deepseek.
+- id: llm-replay
+  name: './src/llm-replay.ts'
+
+# agent-loop + persistence + the ACP bridge — shared with cordis.yml.
+- id: acp-tail
+  name: '@cordisjs/plugin-include'
+  config:
+    path: './acp-tail.yml'

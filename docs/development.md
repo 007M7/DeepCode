@@ -57,7 +57,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 lefthook is configured in `lefthook.yml` as an early local checkpoint before review:
 
 - `pre-commit` runs staged-file ESLint fixes, `pnpm run typecheck`, and the vendor manifest guard.
-- `pre-push` runs `pnpm run test`, `pnpm run hygiene`, `pnpm run doc-sync`, and `pnpm run verify-module-graph`.
+- `pre-push` runs `pnpm run test`, `pnpm run test:snapshot`, `pnpm run hygiene`, `pnpm run doc-sync`, and `pnpm run verify-module-graph`.
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 
@@ -74,6 +74,7 @@ The GitHub workflow runs these gates on each pull request:
 - `pnpm run doc-sync`
 - `pnpm run verify-module-graph`
 - `pnpm run test:coverage`
+- `pnpm run test:snapshot`
 - `pnpm run build`
 - `pnpm run knip && pnpm run publint`
 - an echo-agent smoke test that checks the demo's tool call, tool result, and JSONL output

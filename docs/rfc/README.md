@@ -58,6 +58,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Every session event is enclosed in a turn](implemented/2026-06-15-turn-enclosure-invariant.md) | 2026-06-15 |
 | [pnpm as the package manager instead of Yarn 4](implemented/2026-06-16-pnpm-over-yarn.md) | 2026-06-16 |
 | [Rich ACP bash rendering — the terminal card (`_meta`) and command classification](implemented/2026-06-18-acp-terminal-and-tool-rendering.md) | 2026-06-18 |
+| [ACP snapshot tests — record-once / replay-deterministic](implemented/2026-06-19-acp-snapshot-tests.md) | 2026-06-19 |
 
 ## Rejected
 

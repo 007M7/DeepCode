@@ -1,0 +1,106 @@
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentInfo":{"name":"deepseek-harness-acp","version":"0.0.1"},"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false}},"authMethods":[]}}
+{"jsonrpc":"2.0","id":2,"result":{"sessionId":"{{sessionId}}"}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"The"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" user"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" wants"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" me"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" to"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":":\n"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"1"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"."}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" Append"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" a"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" second"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" line"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" containing"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" \""}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"WOR"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"LD"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"\""}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" to"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" greeting"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":".txt"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"\n"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"2"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"."}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" Read"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" the"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" file"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" back"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" with"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" `"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"cat"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" greeting"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":".txt"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"`"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" to"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" confirm"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"\n"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"3"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"."}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" Reply"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" with"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" \""}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"D"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"ONE"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"\"\n\n"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"But"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" they"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" want"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" \""}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"a"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" single"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" bash"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" call"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" per"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" action"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"\""}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" -"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" so"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" I"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"'ll"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" do"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" two"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" separate"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" bash"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" calls"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":":"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" one"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" for"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" app"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"ending"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":","}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" one"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" for"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" reading"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"."}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"tool_call","toolCallId":"call_00_r3tvHl3fD0tmV0GKQt032338","title":"echo 'WORLD' >> greeting.txt","kind":"execute","status":"in_progress","rawInput":"echo 'WORLD' >> greeting.txt","content":[{"type":"content","content":{"type":"text","text":"Append WORLD line to greeting.txt"}}]}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_00_r3tvHl3fD0tmV0GKQt032338","status":"completed","content":[{"type":"content","content":{"type":"text","text":"```console\n(no output)\n```"}}]}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"App"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"ended"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" successfully"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"."}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" Now"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" read"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" the"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" file"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"."}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"tool_call","toolCallId":"call_00_SkCP8dgN8aCbLiZDcYa68316","title":"cat greeting.txt","kind":"execute","status":"in_progress","rawInput":"cat greeting.txt","content":[{"type":"content","content":{"type":"text","text":"Read greeting.txt to confirm"}}]}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_00_SkCP8dgN8aCbLiZDcYa68316","status":"completed","content":[{"type":"content","content":{"type":"text","text":"```console\nhello\nWORLD\n```"}}]}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"The"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" file"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" now"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" has"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" two"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" lines"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"."}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" I"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"'ll"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" reply"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" with"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" D"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"ONE"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"."}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"D"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ONE"}}}}
+{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}

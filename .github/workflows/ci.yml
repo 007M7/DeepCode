@@ -60,6 +60,15 @@ jobs:
       - name: Tests with coverage gate (per-file 100%)
         run: pnpm run test:coverage
 
+      # ACP snapshot tests (acp-snapshot-tests RFC): boot the real acp-agent
+      # subprocess and replay recorded session-log fixtures, diffing the
+      # normalized stdout transcript + re-persisted log against committed
+      # goldens. KEYLESS by design — the same `test:snapshot` script the pre-push
+      # hook runs (one source of truth), so the full-transcript regression net
+      # is part of every PR gate, not just local pre-push.
+      - name: Snapshot tests (ACP transcript replay)
+        run: pnpm run test:snapshot
+
       # Before hygiene: publint validates the packed artifacts (lib/index.js),
       # which only the tsdown bundling step emits.
       - name: Build (tsc -b + tsdown bundles)

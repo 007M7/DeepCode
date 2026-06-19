@@ -41,7 +41,9 @@ examples/    Runnable demos (not workspaces). echo-agent = mock model + echo
              (pnpm run demo:coding, needs DEEPSEEK_API_KEY).
              acp-agent = the coding agent exposed as an ACP server over
              JSON-RPC stdio (pnpm run demo:acp, needs DEEPSEEK_API_KEY).
-             base.yml = shared provider/tool core both real demos include.
+             base.yml = shared provider/tool core both real demos include
+             (= base-core.yml, the providerless core, + the llm-deepseek adapter;
+             base-core.yml is reused by the acp-agent snapshot-replay config).
 docs/        architecture.md — the design doc. module-graph.md — generated
              inter-package dependency graph (Mermaid; `pnpm run gen-module-graph`).
              rfc/ — design decisions and proposals, one kind of doc grouped by
@@ -60,10 +62,20 @@ scripts/     repo maintenance scripts (vendor-manifest guard, publint runner).
 
 ```sh
 pnpm install        # pnpm workspaces, node >= 24
-pnpm run test           # vitest run (packages/*/tests/**/*.spec.ts)
+pnpm run test           # vitest run (packages|examples/*/tests/**/*.spec.ts)
 pnpm run test:coverage  # vitest run --coverage (per-file 100% gate on packages/*/src)
 pnpm run test:e2e       # real-API tests (packages|examples/*/tests/**/*.e2e.ts);
                     # self-skips without DEEPSEEK_API_KEY — see Secrets below
+pnpm run test:snapshot  # ACP snapshot tests (examples/*/tests/**/*.snapshot.ts):
+                    # boot the real acp-agent subprocess, replay a recorded
+                    # session JSONL, diff the normalized stdout + re-persisted
+                    # log against committed goldens. KEYLESS — runs in the
+                    # default gate. Filter one by scenario name (no `--`, which
+                    # vitest treats as a positional file filter): `pnpm run
+                    # test:snapshot -t <name>`.
+pnpm run test:snapshot:record  # re-record fixtures + goldens against the real
+                    # API (needs DEEPSEEK_API_KEY); accept-the-diff = re-record
+                    # (or `pnpm run test:snapshot -u` to refresh goldens only)
 pnpm run typecheck      # tsc -b tsconfig.build.json (declarations) + tsc -p
                     # tsconfig.typecheck.json (tests/examples typecheck too)
 pnpm run lint           # eslint .
@@ -122,6 +134,7 @@ Dev/test/demo run **unbuilt** via tsx + the `paths` map in the root `tsconfig.js
 - **TODO markers**: use `FIXME`/`TODO`/`XXX` to flag known issues by urgency — see [docs/development.md](docs/development.md) for the semantics of each.
 - **Tests**: vitest, colocated under `packages/<name>/tests/*.spec.ts`. Every registry needs an HMR-safety test (dispose the contributing fiber, assert cleanup). **Excessive tests are welcome** — when in doubt, write the test; err on the side of covering edge cases, error paths, event ordering, and concurrency races even if they seem unlikely. Review findings get regression tests (see `packages/agent-loop/tests/review-fixes.spec.ts`). The same generosity applies to **real-API (with-key) e2e tests — inference is cheap here (we are DeepSeek), so do not ration them**: cover the agent's real flows (a real prompt that writes a file, multi-turn, tool use, cancellation) and run them frequently while developing, especially cheap **smoke tests** that boot the real example and check the world. A green mock/no-key suite proves the plumbing, not the product — the with-key smoke test is what catches "green units, broken product". See § Secrets / .env for the with-key policy and why self-skip is a CI accommodation, not a verdict that real-API tests are expensive.
 - **Prefer the REAL implementation over a mock/stand-in in tests.** When the genuine collaborator is available in the repo, wire it up instead of hand-rolling a fake — a test that registers an inline `defineTool({ name: 'bash', … })` to stand in for `dsh-tool-bash` proves the *bridge* moves bytes but not that the *shipping tool* renders the way the test asserts; the two drift and the test passes while the product is wrong. Mock only the genuinely expensive/non-deterministic boundary (the LLM adapter, the network, the clock) and keep everything downstream real: a bridge tool-call test runs the scripted mock MODEL but the REAL tool + REAL executor (e.g. `makeBridgeHarness({ withBash: true })` plugs `dsh-bash-local` + `dsh-tool-bash` and runs an actual `echo`), so it verifies the actual `presentCall`/`presentResult` an editor sees. This is the unit-test echo of "verify the world, not a synthetic stand-in" (see § Defensive patterns) — a fake you wrote will agree with whatever you assumed; the real thing won't.
+- **A change that affects the editor-facing transcript or end-to-end agent UX needs a snapshot test (or an explicit note in the PR why none applies).** The snapshot tier (`examples/*/tests/**/*.snapshot.ts`, `pnpm run test:snapshot`) boots the real example subprocess, replays a recorded session JSONL deterministically (keyless), and diffs the normalized stdout transcript + re-persisted session log against committed goldens — the full-transcript regression net that mock-level unit tests structurally cannot be (it is what catches a bridge-translation or loop-structure regression that leaves every unit green). When you change the ACP bridge, the agent loop's observable output, tool presentation, or anything an editor renders, add or update a scenario under `examples/acp-agent/tests/snapshots/` and re-record with `pnpm run test:snapshot:record`. Reviewing the golden diff is part of the review. The rule is scoped to transcript/UX-affecting changes — a pure internal refactor with no observable-output change does not need one, but say so. See [docs/rfc/implemented/2026-06-19-acp-snapshot-tests.md](docs/rfc/implemented/2026-06-19-acp-snapshot-tests.md).
 
 ## Defensive patterns (hard-won)
 
