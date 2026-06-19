@@ -25,8 +25,8 @@ on:
     branches: [main, master]
   pull_request:
   schedule:
-    # 09:17 UTC nightly — off-peak and off the top-of-hour cron stampede.
-    - cron: '17 9 * * *'
+    # 00:17 UTC nightly = 08:17 Asia/Shanghai — off the top-of-hour cron stampede.
+    - cron: '17 0 * * *'
 
 # Cancel a superseded PR run (it is on a stale commit); never cancel a
 # push/schedule run — it is already producing the post-merge/nightly signal.
