@@ -20,6 +20,8 @@ const packages = [
   'packages/tool-bash',
   'packages/invariants',
   'packages/acp',
+  'packages/ui-stdio',
+  'packages/llm-replay',
 ]
 
 const root = resolve(import.meta.dirname, '..')

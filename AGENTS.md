@@ -2,6 +2,10 @@
 
 This is the monorepo for the DeepSeek Harness group. It currently hosts the code for **DeepSeek Code**, DeepSeek's coding agent product.
 
+## Pre-release stance: foundation over blast radius
+
+**This applies only while the harness is unreleased — remove this section at the first tagged/published release.** There are no external consumers yet, so optimize for the *correct foundation*, not for a small diff. When the right structure means moving a file across package boundaries, renaming a public symbol, or repackaging a plugin, do it — and update every reference in the same change. Do **not** add backward-compat shims, deprecation aliases, re-export stubs, or "keep it where it is to avoid churn" hedges; those are debts you take on to protect callers you do not have. Churn now is cheap; a wrong foundation set in stone is not. (Once released, this inverts — backward compatibility becomes a real constraint and this section comes out.)
+
 ## Architecture
 
 This codebase is based on the **Cordis** framework, built microkernel-style: **everything is a plugin**. All necessary Cordis dependencies are copied into this monorepo as vendored source (under `vendor/`) instead of being depended on via npm.
@@ -35,9 +39,13 @@ packages/    Harness packages, all named @deepseek-ai/dsh-<name>:
   tool-bash/      model-facing bash/bash_output/bash_kill tool schemas
   acp/            Agent Client Protocol bridge: drive the agent from an ACP
                   editor (Zed) over JSON-RPC stdio
-examples/    Runnable demos (not workspaces). echo-agent = mock model + echo
-             tool + stdio UI + JSONL persistence, wired via cordis.yml.
-             coding-agent = the real thing: DeepSeek V4 + bash tools
+  ui-stdio/       minimal stdio (readline) UI plugin: renders agent/* events,
+                  feeds stdin lines to the agent (shared by the demos)
+  llm-replay/     record/replay adapter: short-circuits llm/stream from a
+                  recorded session JSONL (keyless snapshot tests)
+examples/    Runnable demos (not workspaces; see examples/AGENTS.md). echo-agent
+             = mock model + echo tool + stdio UI + JSONL persistence, wired via
+             cordis.yml. coding-agent = the real thing: DeepSeek V4 + bash tools
              (pnpm run demo:coding, needs DEEPSEEK_API_KEY).
              acp-agent = the coding agent exposed as an ACP server over
              JSON-RPC stdio (pnpm run demo:acp, needs DEEPSEEK_API_KEY).

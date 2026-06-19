@@ -49,7 +49,9 @@
       "@deepseek-ai/dsh-bash-local": ["./packages/bash-local/src"],
       "@deepseek-ai/dsh-tool-bash": ["./packages/tool-bash/src"],
       "@deepseek-ai/dsh-invariants": ["./packages/invariants/src"],
-      "@deepseek-ai/dsh-acp": ["./packages/acp/src"]
+      "@deepseek-ai/dsh-acp": ["./packages/acp/src"],
+      "@deepseek-ai/dsh-ui-stdio": ["./packages/ui-stdio/src"],
+      "@deepseek-ai/dsh-llm-replay": ["./packages/llm-replay/src"]
     }
   }
 }

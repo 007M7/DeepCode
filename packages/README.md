@@ -2,6 +2,14 @@
 
 Harness packages, all under the `@deepseek-ai/dsh-*` scope. Each package is a Cordis plugin (microkernel-style): it exports either a default `Service` subclass or a functional plugin that gets registered via `ctx.plugin()`, declares its ctx key/events where applicable through declaration merging, and exposes extension points through `ctx.effect()`, `ctx.on()`, and `ctx.waterfall()`.
 
+<!-- FIXME(package-hierarchy): packages/ is currently FLAT, mixing product
+     packages (llm, session, agent, agent-loop, …) with example-coupled support
+     packages (ui-stdio, llm-replay — extracted from examples/ for the coverage
+     gate). ALL packages should eventually be regrouped into a deliberate
+     hierarchy, e.g. packages/{core,examples,…}/, so the workspace-glob and
+     tsconfig-paths churn happens ONCE rather than per extraction. Deferred to a
+     dedicated restructure PR; do not add new top-level subgroups piecemeal. -->
+
 ## Dependency graph
 
 ```
@@ -18,6 +26,8 @@ dsh-llm-pi-ai     ← dsh-llm                        (pi-ai-backed adapter)
 dsh-agent-loop    ← dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent
 dsh-invariants    ← dsh-llm, dsh-session, dsh-agent (dev-mode contract checks)
 dsh-acp           ← dsh-agent, dsh-llm, dsh-session, dsh-session-persistence  (ACP JSON-RPC bridge)
+dsh-ui-stdio      ← dsh-agent, dsh-llm, dsh-session (stdio readline UI plugin)
+dsh-llm-replay    ← dsh-llm, dsh-session            (record/replay adapter for keyless snapshot tests)
 ```
 
 The rule: plugins depend on interfaces, never on the concrete loop. `dsh-agent-loop` is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced. A swappable capability splits into interface / implementation / consumer packages (the bash trio is the template — see [capability seams](../docs/rfc/implemented/2026-06-13-capability-seams.md)).
@@ -39,6 +49,8 @@ The rule: plugins depend on interfaces, never on the concrete loop. `dsh-agent-l
 | `llm-pi-ai/` | DeepSeek adapter via `@earendil-works/pi-ai` (design twin) | (registers on `ctx.llm`) |
 | `invariants/` | Dev-mode event-contract invariants + session-log freeze | (listens on `session/*`, `agent/*`) |
 | `acp/` | Agent Client Protocol bridge: serves the agent to an ACP editor over JSON-RPC stdio | (drives `ctx.agents`/`ctx.sessions`) |
+| `ui-stdio/` | Minimal stdio (readline) UI plugin: renders `agent/*` events, feeds stdin lines to the agent | (drives `ctx.agents`) |
+| `llm-replay/` | Record/replay adapter: short-circuits `llm/stream` with chunks from a recorded session JSONL (keyless snapshot tests) | (listens on `llm/stream`) |
 
 Each package has its own `README.md` with purpose, service API, events, extension points, and deliberate non-goals (TODOs).
 

@@ -52,4 +52,6 @@
     root: './.sessions'
 
 - id: stdio-chat
-  name: './src/stdio-chat.ts'
+  name: '@deepseek-ai/dsh-ui-stdio'
+  config:
+    welcome: 'echo-agent ready. Type a message ("echo <text>" triggers the tool).'

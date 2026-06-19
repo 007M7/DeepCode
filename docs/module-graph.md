@@ -14,6 +14,8 @@ graph TD
   system-prompt --> llm
   agent --> llm
   agent --> session
+  llm-replay --> llm
+  llm-replay --> session
   session-persistence --> session
   invariants --> agent
   invariants --> llm
@@ -25,6 +27,9 @@ graph TD
   tools --> agent
   tools --> llm
   tools --> system-prompt
+  ui-stdio --> agent
+  ui-stdio --> llm
+  ui-stdio --> session
   acp --> agent
   acp --> llm
   acp --> session
@@ -52,11 +57,13 @@ graph TD
 | `session` | `llm` |
 | `system-prompt` | `llm` |
 | `agent` | `llm`, `session` |
+| `llm-replay` | `llm`, `session` |
 | `session-persistence` | `session` |
 | `invariants` | `agent`, `llm`, `session` |
 | `session-persistence-jsonl` | `session`, `session-persistence` |
 | `session-persistence-sqlite` | `session`, `session-persistence` |
 | `tools` | `agent`, `llm`, `system-prompt` |
+| `ui-stdio` | `agent`, `llm`, `session` |
 | `acp` | `agent`, `llm`, `session`, `session-persistence`, `tools` |
 | `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |

@@ -54,4 +54,6 @@
     root: './.sessions'
 
 - id: stdio-chat
-  name: './src/stdio-chat.ts'
+  name: '@deepseek-ai/dsh-ui-stdio'
+  config:
+    welcome: 'coding-agent ready. Give it a coding task (bash is its only tool).'

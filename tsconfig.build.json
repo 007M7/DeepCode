@@ -25,6 +25,8 @@
     { "path": "./packages/bash-local" },
     { "path": "./packages/tool-bash" },
     { "path": "./packages/invariants" },
-    { "path": "./packages/acp" }
+    { "path": "./packages/acp" },
+    { "path": "./packages/ui-stdio" },
+    { "path": "./packages/llm-replay" }
   ]
 }

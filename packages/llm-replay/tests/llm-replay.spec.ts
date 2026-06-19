@@ -7,11 +7,14 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import LlmService, { GenerateOptions, LlmAdapter, StreamChunk } from '@deepseek-ai/dsh-llm'
 import {
   type ReplayEntry,
+  apply,
   deriveReplayScript,
+  inject,
   installLlmReplay,
   loadReplayScript,
+  name,
   parseSessionLog,
-} from '../src/llm-replay.ts'
+} from '../src/index.ts'
 
 /**
  * Unit tests for the replay llm/stream plugin. These drive the listener through
@@ -289,5 +292,130 @@ describe('installLlmReplay (through the real waterfall)', () => {
     // After dispose the listener is gone; the call reaches the real adapter.
     expect(await drain(ctx.llm.stream({ model: 'm', messages: [] })))
       .toEqual([{ type: 'finish', reason: { kind: 'stop' } }])
+  })
+
+  it('throws on a malformed sidecar entry kind (the assertNever guard)', async () => {
+    writeFileSync(file, sessionJsonl([]), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    // A kind the union does not know — hand-edited/drifted sidecar data.
+    writeFileSync(overrideFile, JSON.stringify([{ kind: 'bogus' }]), 'utf8')
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    installLlmReplay(ctx, { file, overrideFile })
+    await expect(drain(ctx.llm.stream({ model: 'm', messages: [] })))
+      .rejects.toThrow(/llm-replay replay entry/)
+  })
+
+  it('rejects a hang entry when the signal fires DURING the wait (abort listener path)', async () => {
+    writeFileSync(file, sessionJsonl([]), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify([{ kind: 'hang' }]), 'utf8')
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    installLlmReplay(ctx, { file, overrideFile })
+    const controller = new AbortController()
+    const iterator = ctx.llm.stream({ model: 'm', messages: [], signal: controller.signal })[Symbol.asyncIterator]()
+    // Consume the two pre-hang chunks, then start the third pull so the generator
+    // is parked inside the await (signal NOT yet aborted — exercises the
+    // addEventListener('abort') registration), and only THEN abort.
+    expect((await iterator.next()).value).toMatchObject({ type: 'block-start' })
+    expect((await iterator.next()).value).toMatchObject({ type: 'text-delta' })
+    const pending = iterator.next()
+    await new Promise(r => setImmediate(r))
+    controller.abort()
+    await expect(pending).rejects.toThrow('aborted')
+  })
+
+  it('aborts mid-replay of a throw-entry prefix when the signal is set', async () => {
+    writeFileSync(file, sessionJsonl([]), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    const partial: StreamChunk[] = [{ type: 'block-start', index: 0, blockType: 'text' }]
+    writeFileSync(overrideFile, JSON.stringify([
+      { kind: 'throw', chunks: partial, message: 'unauthorized', code: 'AUTH', status: 401 },
+    ]), 'utf8')
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    installLlmReplay(ctx, { file, overrideFile })
+    const controller = new AbortController()
+    controller.abort()
+    // Already aborted: the throw-entry's prefix loop surfaces 'aborted' before
+    // it can reach the recorded LlmError.
+    await expect(drain(ctx.llm.stream({ model: 'm', messages: [], signal: controller.signal })))
+      .rejects.toThrow('aborted')
+  })
+
+  it('surfaces an already-aborted signal on a hang entry before waiting', async () => {
+    writeFileSync(file, sessionJsonl([]), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify([{ kind: 'hang' }]), 'utf8')
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    installLlmReplay(ctx, { file, overrideFile })
+    const controller = new AbortController()
+    controller.abort()
+    // The two pre-hang chunks still flow; the abort surfaces at the await.
+    const iterator = ctx.llm.stream({ model: 'm', messages: [], signal: controller.signal })[Symbol.asyncIterator]()
+    await iterator.next()
+    await iterator.next()
+    await expect(iterator.next()).rejects.toThrow('aborted')
+  })
+})
+
+describe('apply (the plugin entry)', () => {
+  const ORIG = { file: process.env.DSH_SNAPSHOT_FILE, override: process.env.DSH_SNAPSHOT_OVERRIDE }
+  afterEach(() => {
+    if (ORIG.file === undefined) delete process.env.DSH_SNAPSHOT_FILE
+    else process.env.DSH_SNAPSHOT_FILE = ORIG.file
+    if (ORIG.override === undefined) delete process.env.DSH_SNAPSHOT_OVERRIDE
+    else process.env.DSH_SNAPSHOT_OVERRIDE = ORIG.override
+  })
+
+  it('exposes the namespace plugin shape (name/inject, no default export)', () => {
+    expect(name).toBe('llm-replay')
+    expect(inject).toEqual(['llm'])
+  })
+
+  it('installs replay from an explicit config.file', async () => {
+    writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    apply(ctx, { file })
+    expect(await drain(ctx.llm.stream({ model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+  })
+
+  it('falls back to $DSH_SNAPSHOT_FILE / $DSH_SNAPSHOT_OVERRIDE when config is empty', async () => {
+    writeFileSync(file, sessionJsonl([]), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify([{ kind: 'chunks', chunks: TEXT_CHUNKS }]), 'utf8')
+    process.env.DSH_SNAPSHOT_FILE = file
+    process.env.DSH_SNAPSHOT_OVERRIDE = overrideFile
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    apply(ctx)
+    expect(await drain(ctx.llm.stream({ model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+  })
+
+  it('uses only the file when no override path is configured or in the env', async () => {
+    writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
+    process.env.DSH_SNAPSHOT_FILE = file
+    delete process.env.DSH_SNAPSHOT_OVERRIDE
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    apply(ctx)
+    expect(await drain(ctx.llm.stream({ model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+  })
+
+  it('throws when no fixture path is given by config or env', async () => {
+    delete process.env.DSH_SNAPSHOT_FILE
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    expect(() => { apply(ctx, {}) }).toThrow(/a fixture path is required/)
+  })
+
+  it('treats an empty-string fixture path as missing', async () => {
+    delete process.env.DSH_SNAPSHOT_FILE
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    expect(() => { apply(ctx, { file: '' }) }).toThrow(/a fixture path is required/)
   })
 })
