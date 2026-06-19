@@ -39,6 +39,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'handshake', hasModelTurn: false, recorded: false },
   { name: 'text-turn', hasModelTurn: true, recorded: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
+  { name: 'workspace-edit', hasModelTurn: true, recorded: true },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
   { name: 'error-finish', hasModelTurn: true, recorded: false },
   { name: 'cancel', hasModelTurn: true, recorded: false },
@@ -52,10 +53,12 @@ for (const scenario of SCENARIOS) {
       const dir = join(SNAPSHOTS_DIR, scenario.name)
       const input = JSON.parse(await readFile(join(dir, 'input.json'), 'utf8')) as InputScript
       const overrideFile = join(dir, 'replay.override.json')
+      const workspaceDir = join(dir, 'workspace')
       const result = await runScenario(input, {
         mode: RECORDING ? 'record' : 'replay',
         fixtureFile: join(dir, 'session.jsonl'),
         ...existsSync(overrideFile) ? { overrideFile } : {},
+        ...existsSync(workspaceDir) ? { workspaceDir } : {},
       })
 
       const ctx: NormalizeContext = {

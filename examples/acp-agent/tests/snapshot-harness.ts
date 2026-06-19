@@ -14,7 +14,8 @@
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { cp, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -85,6 +86,13 @@ interface RunOptions {
   fixtureFile: string
   /** Optional sidecar override path (replay). */
   overrideFile?: string
+  /**
+   * Optional `<scenario>/workspace/` directory whose contents are copied into
+   * the temp cwd BEFORE the run — the standard way to seed files the agent
+   * operates on (a file to read, edit, or grep). Absent for scenarios that
+   * start from an empty workspace.
+   */
+  workspaceDir?: string
 }
 
 /**
@@ -95,69 +103,79 @@ interface RunOptions {
 export async function runScenario(input: InputScript, opts: RunOptions): Promise<RunResult> {
   const cwd = await mkdtemp(join(tmpdir(), 'acp-snap-cwd-'))
   const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-snap-sessions-'))
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    TSX_TSCONFIG_PATH: repoTsconfig,
-    DSH_SNAPSHOT: opts.mode,
-    DSH_SNAPSHOT_FILE: opts.fixtureFile,
-    DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
-    ...opts.overrideFile !== undefined ? { DSH_SNAPSHOT_OVERRIDE: opts.overrideFile } : {},
-  }
-
-  const child: ChildProcessWithoutNullStreams = spawn(
-    process.execPath,
-    ['--import', tsxLoader, startScript],
-    { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] },
-  )
-
-  const rawBuffers: Buffer[] = []
-  const stderrChunks: string[] = []
-  child.stderr.setEncoding('utf8')
-  child.stderr.on('data', (c: string) => stderrChunks.push(c))
-
-  // Tee raw stdout: accumulate the bytes for the golden + purity check, and ALSO
-  // feed the same bytes to the SDK client through a passthrough. Buffer the raw
-  // bytes (not per-chunk utf8 strings) and decode once at the end, so a
-  // multibyte sequence split across two 'data' events can't corrupt the golden.
-  const passthrough = new Readable({ read() {} })
-  child.stdout.on('data', (buf: Buffer) => {
-    rawBuffers.push(buf)
-    passthrough.push(buf)
-  })
-  child.stdout.on('end', () => passthrough.push(null))
-
-  const stream = ndJsonStream(
-    Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
-    Readable.toWeb(passthrough) as ReadableStream<Uint8Array>,
-  )
-  // Watcher so a step can block until the client OBSERVES a particular
-  // session/update — used by promptAndCancel to pin frame order (send cancel
-  // only after the streamed agent_message_chunk has arrived, so those frames
-  // deterministically precede the cancelled prompt response).
-  const updateWaiters: { match: (u: SessionNotification['update']) => boolean; resolve: () => void }[] = []
-  const waitForUpdate = (match: (u: SessionNotification['update']) => boolean): Promise<void> =>
-    new Promise<void>(resolve => updateWaiters.push({ match, resolve }))
-
-  const makeClient = (_agent: AcpAgent): Client => ({
-    sessionUpdate(params: SessionNotification): Promise<void> {
-      for (let i = updateWaiters.length - 1; i >= 0; i--) {
-        const waiter = updateWaiters[i]
-        if (waiter !== undefined && waiter.match(params.update)) {
-          updateWaiters.splice(i, 1)
-          waiter.resolve()
-        }
-      }
-      return Promise.resolve()
-    },
-    requestPermission(_params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-      return Promise.resolve({ outcome: { outcome: 'cancelled' } })
-    },
-  })
-  const client = new ClientSideConnection(makeClient, stream)
-
+  // Everything past the temp-dir creation runs under a try/finally that always
+  // removes both dirs — so a failure in workspace seeding, spawn, or any step
+  // never leaks them (the "e2e tests own their resources" rule).
+  let child: ChildProcessWithoutNullStreams | undefined
   let sessionId: string | undefined
   let sessionLog: string | undefined
+  const rawBuffers: Buffer[] = []
+  const stderrChunks: string[] = []
   try {
+    // Seed the workspace if the scenario ships one (a file the agent reads/edits).
+    // Copied into the temp cwd so the agent's bash tools see it; the goldens
+    // normalize the cwd, so the seeded paths stay stable across runs.
+    if (opts.workspaceDir !== undefined && existsSync(opts.workspaceDir)) {
+      await cp(opts.workspaceDir, cwd, { recursive: true })
+    }
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      TSX_TSCONFIG_PATH: repoTsconfig,
+      DSH_SNAPSHOT: opts.mode,
+      DSH_SNAPSHOT_FILE: opts.fixtureFile,
+      DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
+      ...opts.overrideFile !== undefined ? { DSH_SNAPSHOT_OVERRIDE: opts.overrideFile } : {},
+    }
+
+    child = spawn(
+      process.execPath,
+      ['--import', tsxLoader, startScript],
+      { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] },
+    )
+
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (c: string) => stderrChunks.push(c))
+
+    // Tee raw stdout: accumulate the bytes for the golden + purity check, and ALSO
+    // feed the same bytes to the SDK client through a passthrough. Buffer the raw
+    // bytes (not per-chunk utf8 strings) and decode once at the end, so a
+    // multibyte sequence split across two 'data' events can't corrupt the golden.
+    const passthrough = new Readable({ read() {} })
+    child.stdout.on('data', (buf: Buffer) => {
+      rawBuffers.push(buf)
+      passthrough.push(buf)
+    })
+    child.stdout.on('end', () => passthrough.push(null))
+
+    const stream = ndJsonStream(
+      Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
+      Readable.toWeb(passthrough) as ReadableStream<Uint8Array>,
+    )
+    // Watcher so a step can block until the client OBSERVES a particular
+    // session/update — used by promptAndCancel to pin frame order (send cancel
+    // only after the streamed agent_message_chunk has arrived, so those frames
+    // deterministically precede the cancelled prompt response).
+    const updateWaiters: { match: (u: SessionNotification['update']) => boolean; resolve: () => void }[] = []
+    const waitForUpdate = (match: (u: SessionNotification['update']) => boolean): Promise<void> =>
+      new Promise<void>(resolve => updateWaiters.push({ match, resolve }))
+
+    const makeClient = (_agent: AcpAgent): Client => ({
+      sessionUpdate(params: SessionNotification): Promise<void> {
+        for (let i = updateWaiters.length - 1; i >= 0; i--) {
+          const waiter = updateWaiters[i]
+          if (waiter !== undefined && waiter.match(params.update)) {
+            updateWaiters.splice(i, 1)
+            waiter.resolve()
+          }
+        }
+        return Promise.resolve()
+      },
+      requestPermission(_params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+        return Promise.resolve({ outcome: { outcome: 'cancelled' } })
+      },
+    })
+    const client = new ClientSideConnection(makeClient, stream)
+
     for (const step of input.steps) {
       await runStep(client, step, cwd, waitForUpdate, () => sessionId, (id) => { sessionId = id })
     }
@@ -170,8 +188,9 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     if (sessionLogPath !== undefined) sessionLog = await readFile(sessionLogPath, 'utf8')
   } finally {
     // Failure-safe teardown: kill a still-running child and drop the temp dirs
-    // even if a step/harvest threw, so a flaky run never leaks a process or dir.
-    if (child.exitCode === null && child.signalCode === null) {
+    // even if seeding/spawn/a step/harvest threw, so a flaky run never leaks a
+    // process or dir. `child` is undefined only if spawn itself threw.
+    if (child !== undefined && child.exitCode === null && child.signalCode === null) {
       child.kill('SIGKILL')
       await waitForExit(child)
     }
