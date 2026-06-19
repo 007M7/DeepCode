@@ -5,7 +5,7 @@ import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
-import AgentLoop, { LoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
@@ -26,7 +26,7 @@ async function harness(adapter: MockAdapter) {
   return ctx
 }
 
-function waitForIdle(ctx: Context, agent: LoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -37,7 +37,7 @@ function waitForIdle(ctx: Context, agent: LoopAgent): Promise<void> {
   })
 }
 
-function send(agent: LoopAgent, text: string) {
+function send(agent: ReactLoopAgent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
@@ -297,7 +297,7 @@ describe('MEDIUM: disposed status is part of the agent/status contract', () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
 
-    let agent!: LoopAgent
+    let agent!: ReactLoopAgent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create('scoped', { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -320,7 +320,7 @@ describe('MEDIUM: disposed status is part of the agent/status contract', () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
 
-    let agent!: LoopAgent
+    let agent!: ReactLoopAgent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create('scoped', { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -430,7 +430,7 @@ describe('MEDIUM: turn numbering continues across seeded (forked) sessions', () 
     ctx2.llm.registerAdapter(['mock'], second)
 
     const seeded = ctx2.sessions.create('forked', { seed: [...agent.session.events] })
-    const forked = new LoopAgent(ctx2, AgentId('forked-agent'), { model: 'mock' }, seeded)
+    const forked = new ReactLoopAgent(ctx2, AgentId('forked-agent'), { model: 'mock' }, seeded)
     ctx2.effect(() => forked.start())
 
     const turns: number[] = []
@@ -660,7 +660,7 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
   }
 
   /** Count turn/step boundary events for balance assertions. */
-  function boundaryCounts(agent: LoopAgent) {
+  function boundaryCounts(agent: ReactLoopAgent) {
     const e = [...agent.session.events]
     return {
       turnStart: e.filter(x => x.type === 'turn/start').length,
@@ -757,7 +757,7 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     // balanced with reason disposed (no error event for a disposal).
     const adapter = new MockAdapter(['hang'])
     const ctx = await balancedHarness(adapter)
-    let agent!: LoopAgent
+    let agent!: ReactLoopAgent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create('a-dispose', { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -788,7 +788,7 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     // throw. This is the only path that exercises that catch sub-branch.
     const adapter = new MockAdapter(['hang'])
     const ctx = await balancedHarness(adapter)
-    let agent!: LoopAgent
+    let agent!: ReactLoopAgent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create('a-dispose-emit-throw', { model: 'mock' })
     }, { inject: ['agentLoop'] }))

@@ -1,6 +1,6 @@
 # dsh-agent-loop
 
-THE concrete agent plugin: `LoopAgent` and the loop driver. Implements the `Agent` interface and drives the session/turn/step lifecycle.
+THE concrete agent plugin: `ReactLoopAgent` and the loop driver. Implements the `Agent` interface and drives the session/turn/step lifecycle.
 
 This is the only package in the harness that contains concrete loop logic. Everything else is an abstract service or a plugin against extension seams — new behavior goes into plugins, not here.
 
@@ -8,7 +8,7 @@ This is the only package in the harness that contains concrete loop logic. Every
 
 ### Public API
 
-- `ctx.agentLoop.create(id: string, options?: AgentOptions): LoopAgent` — config-driven create: an agent on a fresh per-run session id `${id}-session-<uuid>` (no cwd). Used for `cordis.yml`-configured agents. The per-run uuid avoids colliding with the on-disk log a prior run materialized once a durable persistence backend is loaded; each run is a new session (a deliberate demo simplification — a real resume-or-create policy is a TODO). Disposed with the calling fiber.
+- `ctx.agentLoop.create(id: string, options?: AgentOptions): ReactLoopAgent` — config-driven create: an agent on a fresh per-run session id `${id}-session-<uuid>` (no cwd). Used for `cordis.yml`-configured agents. The per-run uuid avoids colliding with the on-disk log a prior run materialized once a durable persistence backend is loaded; each run is a new session (a deliberate demo simplification — a real resume-or-create policy is a TODO). Disposed with the calling fiber.
 
 `AgentLoop` also implements the `AgentFactory` seam and registers itself via `ctx.agents.setFactory(this)`, so plugins create/resume agents through `ctx.agents` (the interface):
 
@@ -35,7 +35,7 @@ Agents listed in config are auto-created at startup.
 
 ### Classes
 
-- `LoopAgent` — the concrete `Agent` implementation. Owns the inbox (`Inbox`), the per-step `AbortController`, and the loop driver. Everything observable happens through session events and the `agent/*` event taxonomy.
+- `ReactLoopAgent` — the concrete `Agent` implementation. Owns the inbox (`Inbox`), the per-step `AbortController`, and the loop driver. Everything observable happens through session events and the `agent/*` event taxonomy.
 - `Inbox` — per-agent queued + steering FIFOs (`enqueue`, `steer`, `drainQueued`, `drainSteering`, `waitForQueued`).
 
 ### Loop lifecycle (`loop.ts`)

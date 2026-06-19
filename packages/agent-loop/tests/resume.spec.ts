@@ -10,7 +10,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import AgentLoop, { LoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
 const dirs: string[] = []
@@ -31,7 +31,7 @@ async function persistentHarness(adapter: MockAdapter): Promise<{ ctx: Context; 
   return { ctx, root }
 }
 
-function waitForIdle(ctx: Context, agent: LoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') { dispose(); resolve() }
@@ -73,7 +73,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     // Lifecycle 1: create a no-cwd session and run a turn.
     const adapter1 = new MockAdapter([textResponse('a')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
-    const a1 = ctx1.agents.create({ agentId: 'm', sessionId: 'nocwd-sess' }) as LoopAgent
+    const a1 = ctx1.agents.create({ agentId: 'm', sessionId: 'nocwd-sess' }) as ReactLoopAgent
     a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
@@ -89,7 +89,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.plugin(AgentLoop, { agents: [] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
-    const a2 = await ctx2.agents.resume({ agentId: 'm', resumeSessionId: 'nocwd-sess' }) as LoopAgent
+    const a2 = await ctx2.agents.resume({ agentId: 'm', resumeSessionId: 'nocwd-sess' }) as ReactLoopAgent
     expect(a2.session.header.cwd).toBeUndefined()
     await ctx2.fiber.dispose()
   })
@@ -120,7 +120,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.plugin(AgentLoop, { agents: [] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
-    const a2 = await ctx2.agents.resume({ agentId: 'm', resumeSessionId: 'forked-sess' }) as LoopAgent
+    const a2 = await ctx2.agents.resume({ agentId: 'm', resumeSessionId: 'forked-sess' }) as ReactLoopAgent
     expect(a2.session.header.parentSession).toBe('parent-sess')
     expect(a2.session.header.cwd).toBe('/w')
     await ctx2.fiber.dispose()
@@ -133,7 +133,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     // disk, since a crash before the next turn would otherwise lose it.
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
-    const a1 = ctx1.agents.create({ agentId: 'm', sessionId: 'inject-sess', meta: { cwd: '/w' } }) as LoopAgent
+    const a1 = ctx1.agents.create({ agentId: 'm', sessionId: 'inject-sess', meta: { cwd: '/w' } }) as ReactLoopAgent
     a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     a1.inject([{ type: 'text', text: 'background task 42 finished' }], { source: { kind: 'plugin', plugin: 'tool-bash' } })
@@ -158,7 +158,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     // drop it on reload (the bug this guards).
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
-    const a1 = ctx1.agents.create({ agentId: 'm', sessionId: 'inject-sess', meta: { cwd: '/w' } }) as LoopAgent
+    const a1 = ctx1.agents.create({ agentId: 'm', sessionId: 'inject-sess', meta: { cwd: '/w' } }) as ReactLoopAgent
     a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     a1.inject([{ type: 'text', text: 'background task 42 finished' }], { source: { kind: 'plugin', plugin: 'tool-bash' } })
@@ -176,7 +176,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.plugin(AgentLoop, { agents: [] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
-    const a2 = await ctx2.agents.resume({ agentId: 'm', resumeSessionId: 'inject-sess' }) as LoopAgent
+    const a2 = await ctx2.agents.resume({ agentId: 'm', resumeSessionId: 'inject-sess' }) as ReactLoopAgent
     const flat = JSON.stringify(a2.session.deriveMessages())
     expect(flat).toContain('background task 42 finished')
     await ctx2.fiber.dispose()
@@ -186,7 +186,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     // Lifecycle 1: run one full turn, persisting it.
     const adapter1 = new MockAdapter([textResponse('first answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
-    const a1 = ctx1.agents.create({ agentId: 'main', sessionId: 'sess-resume', meta: { cwd: '/w' } }) as LoopAgent
+    const a1 = ctx1.agents.create({ agentId: 'main', sessionId: 'sess-resume', meta: { cwd: '/w' } }) as ReactLoopAgent
     a1.send([{ type: 'text', text: 'first question' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     const events1 = [...a1.session.events]
@@ -206,7 +206,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
 
-    const a2 = await ctx2.agents.resume({ agentId: 'main', resumeSessionId: 'sess-resume' }) as LoopAgent
+    const a2 = await ctx2.agents.resume({ agentId: 'main', resumeSessionId: 'sess-resume' }) as ReactLoopAgent
     // The resumed session carries the prior history…
     expect(a2.session.id).toBe('sess-resume')
     expect(a2.session.events.length).toBe(events1.length)

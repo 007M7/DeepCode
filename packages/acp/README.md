@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-acp
 
-The **Agent Client Protocol (ACP)** bridge: exposes the DeepSeek Harness coding agent as an ACP server over JSON-RPC stdio, so editors (Zed and other ACP clients) can drive it — streaming render, tool-call display, and resumable sessions. **N concurrent sessions per connection** (see [ACP multi-session](../../docs/rfc/proposed/2026-06-14-acp-multi-session.md)): each maps to its own `LoopAgent`, and every event is demuxed strictly by session id so two sessions streaming at once never interleave.
+The **Agent Client Protocol (ACP)** bridge: exposes the DeepSeek Harness coding agent as an ACP server over JSON-RPC stdio, so editors (Zed and other ACP clients) can drive it — streaming render, tool-call display, and resumable sessions. **N concurrent sessions per connection** (see [ACP multi-session](../../docs/rfc/proposed/2026-06-14-acp-multi-session.md)): each maps to its own `ReactLoopAgent`, and every event is demuxed strictly by session id so two sessions streaming at once never interleave.
 
 It is a **client-driver / UI plugin**, the structured analogue of the readline `stdio-chat` plugin — NOT a loop change and NOT a [capability seam](../../docs/rfc/implemented/2026-06-13-capability-seams.md). It consumes the existing `agent/*` event taxonomy, the `dsh-agent` create/resume factory, and `dsh-session-persistence`.
 

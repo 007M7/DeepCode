@@ -5,7 +5,7 @@ import SessionStore, { TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentLoop, { LoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 async function harness(adapter: MockAdapter) {
@@ -25,7 +25,7 @@ async function harness(adapter: MockAdapter) {
  * invoke this right after send(), when the loop hasn't woken yet (status is
  * still 'idle' synchronously), so polling the current status would lie.
  */
-function waitForIdle(ctx: Context, agent: LoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -36,7 +36,7 @@ function waitForIdle(ctx: Context, agent: LoopAgent): Promise<void> {
   })
 }
 
-function send(agent: LoopAgent, text: string) {
+function send(agent: ReactLoopAgent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
@@ -570,7 +570,7 @@ describe('agent loop', () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
 
-    let agent!: LoopAgent
+    let agent!: ReactLoopAgent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       agent = inner.agentLoop.create('scoped', { model: 'mock' })
     }, { inject: ['agentLoop'] }))
@@ -601,7 +601,7 @@ describe('agent loop', () => {
     })
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    const agent = ctx.agents.get('config-agent')! as LoopAgent
+    const agent = ctx.agents.get('config-agent')! as ReactLoopAgent
     expect(agent).toBeDefined()
     expect(agent.id).toBe('config-agent')
     expect(agent.options.model).toBe('mock')

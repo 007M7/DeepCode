@@ -31,7 +31,7 @@ The rule: plugins depend on interfaces, never on the concrete loop. `dsh-agent-l
 | `system-prompt/` | Prompt-section + tool-schema assembly registry | `ctx.systemPrompt` |
 | `tools/` | Tool registry + `tools/execute` waterfall | `ctx.tools` |
 | `agent/` | Agent interface, registry, `agent/*` event vocabulary | `ctx.agents` |
-| `agent-loop/` | THE concrete loop plugin: `LoopAgent` + the loop driver | `ctx.agentLoop` |
+| `agent-loop/` | THE concrete loop plugin: `ReactLoopAgent` + the loop driver | `ctx.agentLoop` |
 | `bash/` | Abstract bash executor seam (interface + vocabulary) | `ctx.bash` |
 | `bash-local/` | Local-subprocess `BashExecutor` implementation | (registers `ctx.bash`) |
 | `tool-bash/` | Model-facing `bash`/`bash_output`/`bash_kill` tool schemas | (registers on `ctx.tools`) |

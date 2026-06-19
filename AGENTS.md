@@ -28,7 +28,7 @@ packages/    Harness packages, all named @deepseek-ai/dsh-<name>:
   system-prompt/  prompt-section + tool-schema assembly registry
   tools/          tool registry + tools/execute waterfall
   agent/          Agent interface, registry, agent/* event vocabulary
-  agent-loop/     THE concrete plugin: LoopAgent + the loop driver
+  agent-loop/     THE concrete plugin: ReactLoopAgent + the loop driver
   invariants/     dev-mode event-contract invariants + session-log freeze
   bash/           abstract bash executor seam (ctx.bash) — interface only
   bash-local/     local-subprocess BashExecutor implementation

@@ -1,5 +1,5 @@
 /**
- * THE concrete agent plugin: creates LoopAgents, runs their loops, and
+ * THE concrete agent plugin: creates ReactLoopAgents, runs their loops, and
  * registers them in ctx.agents. Deliberately thin — every behavior beyond
  * "call the model, run the tools, repeat" belongs to plugins on the event
  * taxonomy.
@@ -18,9 +18,9 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { LoopAgent } from './agent.ts'
+import { ReactLoopAgent } from './agent.ts'
 
-export { LoopAgent } from './agent.ts'
+export { ReactLoopAgent } from './agent.ts'
 export { Inbox, type InboxMessage } from './inbox.ts'
 export { runLoop } from './loop.ts'
 
@@ -48,7 +48,7 @@ export interface Config {
 }
 
 /**
- * The agent-loop plugin (`ctx.agentLoop`): creates {@link LoopAgent}s, runs
+ * The agent-loop plugin (`ctx.agentLoop`): creates {@link ReactLoopAgent}s, runs
  * their loops, and registers them in `ctx.agents`. Also implements the
  * {@link AgentFactory} seam, so plugins create/resume agents through
  * `ctx.agents` (the interface) without depending on this concrete package.
@@ -118,7 +118,7 @@ export class AgentLoop extends Service implements AgentFactory {
    * fork seeds the new Session with the parent's event log, spawn starts
    * fresh; the child is returned as a regular Agent handle.
    */
-  create(id: string, options: AgentOptions = {}): LoopAgent {
+  create(id: string, options: AgentOptions = {}): ReactLoopAgent {
     this.assertAgentIdFree(id)
     const session = this.ctx.sessions.create(`${id}-session-${randomUUID()}`, { meta: {} })
     return this.start(AgentId(id), options, session)
@@ -219,9 +219,9 @@ export class AgentLoop extends Service implements AgentFactory {
     }
   }
 
-  /** Shared: construct a LoopAgent, register it, and start its loop (LIFO). */
-  private start(id: AgentId, options: AgentOptions, session: Session): LoopAgent {
-    const agent = new LoopAgent(this.ctx, id, options, session)
+  /** Shared: construct a ReactLoopAgent, register it, and start its loop (LIFO). */
+  private start(id: AgentId, options: AgentOptions, session: Session): ReactLoopAgent {
+    const agent = new ReactLoopAgent(this.ctx, id, options, session)
     // Generator effect: stop and unregister are independent disposables
     // (LIFO), so a throwing stop() cannot leak the registry entry.
     this.ctx.effect(function* (this: AgentLoop) {

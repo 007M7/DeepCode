@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
-import type { LoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import type { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.ts'
 
 /**
@@ -41,7 +41,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('resume: continue a persisted ses
       agentId: 'resume-1',
       sessionId: SESSION_ID,
       agentOptions: { model: 'deepseek-v4-flash', systemPrompt: SYSTEM_PROMPT },
-    }) as LoopAgent
+    }) as ReactLoopAgent
     first.send([{ type: 'text', text: `Remember this code for later: ${SECRET}. Just acknowledge it.` }])
     await waitForIdle(ctx, first)
     await ctx.fiber.dispose()
@@ -55,7 +55,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('resume: continue a persisted ses
       agentId: 'resume-2',
       resumeSessionId: SESSION_ID,
       agentOptions: { model: 'deepseek-v4-flash', systemPrompt: SYSTEM_PROMPT },
-    }) as LoopAgent
+    }) as ReactLoopAgent
     expect(resumed.session.id).toBe(SESSION_ID)
     // The prior user turn is in the rehydrated log before the model is asked.
     expect(JSON.stringify(resumed.session.deriveMessages())).toContain(SECRET)
