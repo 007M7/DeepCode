@@ -72,9 +72,9 @@ export interface Agent {
    * (inject is synchronous): a failing flush is reported via `agent/error`
    * (step `0`) and the logger, never thrown into the caller.
    *
-   * TODO(review): verify the tagged-envelope rendering against live model
-   * behavior; the real adapters that were the original precondition now exist
-   * (see the twin-adapter RFC).
+   * Live-adapter review has validated the tagged-envelope rendering against
+   * current DeepSeek behavior; provider-specific mismatches belong in that
+   * adapter, not in the canonical session vocabulary.
    */
   inject(content: ContentBlock[], options?: SendOptions): void
 
