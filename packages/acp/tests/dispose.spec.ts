@@ -248,4 +248,29 @@ describe('acp bridge — disposal & HMR safety', () => {
     expect(handleB.agent.status).not.toBe('disposed')
     await harness.dispose()
   })
+
+  it('a throwing agent/disposed listener does not prevent session removal (composite-effect containment)', async () => {
+    // The AgentHandle teardown folds session-detach, register, and loop-stop
+    // into ONE composite effect whose disposers run as a `.then()` chain. The
+    // register disposer emits `agent/disposed`; if a listener throws and the
+    // emit is UNCONTAINED, the rejected chain skips the LATER session-detach
+    // disposer — stranding the session in the store with `onAppend` attached (a
+    // leak AND a durability hole, since the new design relies on detach
+    // running). The emit must be contained. Register a throwing listener, drive
+    // a clean turn, dispose, and assert the session was STILL removed.
+    const harness = await makeBridgeHarness({ storageDir, script: [textResponse('ok')] })
+    harness.ctx.on('agent/disposed', () => { throw new Error('boom disposed listener') })
+    const handle = harness.ctx.agents.create({
+      agentId: 'guard-a', sessionId: 'guard-a', agentOptions: { model: 'mock' },
+    })
+    handle.agent.send([{ type: 'text', text: 'go' }])
+    await handle.agent.whenIdle()
+    expect(harness.ctx.sessions.get('guard-a')).toBeDefined()
+
+    // Dispose: the throwing listener must NOT break the chain before detach.
+    await handle.dispose()
+    expect(harness.ctx.agents.get('guard-a')).toBeUndefined()
+    expect(harness.ctx.sessions.get('guard-a')).toBeUndefined() // detach still ran
+    await harness.dispose()
+  })
 })

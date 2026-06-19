@@ -164,7 +164,22 @@ export class AgentRegistry extends Service {
       // The duplicate throw above fires before any mutation — it leaks nothing.
       yield () => {
         this.store.delete(agent.id)
-        this.ctx.emit('agent/disposed', agent)
+        // CONTAIN a throwing `agent/disposed` listener: this disposer runs as
+        // one link in the owning fiber/effect's disposal chain, and Cordis
+        // chains later disposers with `task.then(next)` — so an UNCAUGHT throw
+        // here rejects the chain and SKIPS every later disposer. When this
+        // registration shares a composite effect with a session (the agent
+        // factory's `AgentLoop.start`, where the session-detach disposer runs
+        // AFTER this one), a swallowed-less throw would strand the session in
+        // the store with `onAppend` attached — a leak AND a durability hole.
+        // The store entry is already removed above (the useful state), so
+        // logging the listener bug and continuing is correct (mirrors the
+        // guarded `agent/status` emit in dsh-agent-loop's ReactLoopAgent).
+        try {
+          this.ctx.emit('agent/disposed', agent)
+        } catch (error: unknown) {
+          this.ctx.logger.warn(`agent "${agent.id}": agent/disposed listener threw: ${String(error)}`)
+        }
       }
       this.ctx.emit('agent/created', agent)
     }.bind(this), 'agents.register()')
