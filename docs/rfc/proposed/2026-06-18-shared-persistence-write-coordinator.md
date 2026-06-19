@@ -8,7 +8,7 @@ Status: proposed
 
 ## Proposal
 
-Extract a backend-agnostic coordinator into `dsh-session-persistence`. The coordinator owns live-session adoption, buffering, cursor filtering, per-id serialization, and disposal quiescence. Concrete backends provide small hooks for durable operations: create lazy state, find/load stored prefix, append a contiguous batch, update summary, delete, and list.
+Extract a backend-agnostic coordinator into `dsh-session-persistence`. The coordinator owns live-session adoption, buffering, cursor filtering, per-id serialization, and disposal quiescence. Concrete backends provide small hooks for durable operations: create lazy state, find/load stored prefix, append a contiguous batch, delete, and list.
 
 The public `SessionPersistence` service shape can stay the same. The coordinator can be an internal exported helper or protected base class used by first-party backends; third-party backends may still implement the abstract service directly if their write path is different.
 
@@ -16,7 +16,7 @@ The public `SessionPersistence` service shape can stay the same. The coordinator
 
 - JSONL and SQLite keep passing the existing shared `runPersistenceContract`.
 - HMR/adoption/collision tests move to a shared coordinator test suite and run once for each backend through hook-driven fixtures.
-- Backend-specific tests focus on storage mechanics only: JSONL path safety/fsync/sidecar behavior and SQLite schema/WAL/transaction behavior.
+- Backend-specific tests focus on storage mechanics only: JSONL path safety/fsync behavior and SQLite schema/WAL/transaction behavior.
 - A future backend does not need to copy the current `session/event` → buffer → flush orchestration.
 
 ## Risks

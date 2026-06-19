@@ -490,7 +490,8 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     for (const dir of await this.listCwdDirs()) {
       const path = `${dir}/${target}`
       if (await this.exists(path)) {
-        // Recover cwd from the header for accurate sidecar pathing.
+        // Recover the cwd from the header so the caller has the session's
+        // bucket location (which `findLog` was given an unknown cwd for).
         const { meta } = scanLog(await readFile(path))
         return { path, cwd: meta.cwd }
       }
