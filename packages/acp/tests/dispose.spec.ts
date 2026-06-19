@@ -184,6 +184,43 @@ describe('acp bridge — disposal & HMR safety', () => {
     await harness.dispose()
   })
 
+  it('a turn aborted BY the dispose still flushes its closing turn/end to disk (durability, mid-turn)', async () => {
+    // The teardown-order contract only earns its keep when the closing events are
+    // produced BY the dispose itself. Here the model stream HANGS, so the turn is
+    // still open when teardown runs: the composite agent effect stops the loop,
+    // the loop unwinds and appends `turn/end {disposed}` + runs its final
+    // `session/flush` — all while `onAppend` is still attached (the session
+    // detach is the LAST disposer in the same effect's LIFO chain) — and only
+    // THEN is the session detached. If the order were inverted (or the session
+    // were a racing SIBLING effect), the abort-produced `turn/end` would never
+    // reach disk and a re-load would instead show crash-recovery's synthetic
+    // `interrupted` closer. Re-load from disk and assert the REAL `disposed`
+    // reason landed — proving the loop's own closing event was captured, not a
+    // recovered substitute.
+    const harness = await makeBridgeHarness({ storageDir, script: ['hang'] })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    const agent = harness.ctx.agents.get(sessionId)!
+    void harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }).catch(() => {})
+    await new Promise(r => setTimeout(r, 30))
+    expect(agent.status).toBe('running')
+    // The turn is OPEN in the log (turn/start appended, no turn/end yet).
+    const openTurnEnds = agent.session.events.filter(e => e.type === 'turn/end').length
+
+    // Dispose JUST the bridge: a fiber unload that must STILL honor the ordered
+    // teardown (the composite effect runs its disposer chain as a unit).
+    await harness.acpFiber.dispose()
+    expect(harness.ctx.agents.get(sessionId)).toBeUndefined()
+
+    // The loop's own `turn/end {disposed}` is on disk (re-load: the world, not
+    // self-report) — NOT a crash-recovery `interrupted` substitute.
+    const reloaded = await harness.ctx.sessionPersistence.load(SessionId(sessionId))
+    const persistedTurnEnds = reloaded.events.filter(e => e.type === 'turn/end')
+    expect(persistedTurnEnds.length).toBe(openTurnEnds + 1)
+    expect(persistedTurnEnds.at(-1)!.data.reason).toMatchObject({ kind: 'disposed' })
+    await harness.dispose()
+  })
+
   it('per-session AgentHandle dispose leaves sibling agents untouched', async () => {
     // The factory returns a per-agent AgentHandle whose dispose() tears down
     // EXACTLY that agent + its session — RFC 011 isolation. Create two agents
