@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionMeta } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceSqlite, { SCHEMA_VERSION } from '@deepseek-ai/dsh-session-persistence-sqlite'
 import { openDatabase, scanRows, type EventRow } from '../src/schema.ts'
 import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
@@ -232,14 +232,23 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await b2.dispose()
   })
 
-  it('rejects opening a database whose schema version is newer than this build', async () => {
+  it('rejects opening a database whose schema version is not the current build (newer OR older)', async () => {
     const path = await freshDbPath()
     openDatabase(path).close() // stamp user_version = SCHEMA_VERSION
     // Bump user_version past what this build supports.
-    const db = openDatabase(path)
-    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`)
-    db.close()
-    expect(() => openDatabase(path)).toThrow(/newer than this build/)
+    const dbNewer = openDatabase(path)
+    dbNewer.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`)
+    dbNewer.close()
+    expect(() => openDatabase(path)).toThrow(/incompatible with this build/)
+
+    // A stale OLDER version (e.g. a pre-summary-drop v1 DB) is also rejected —
+    // we do not migrate (unreleased software, no backward-compat).
+    const olderPath = await freshDbPath()
+    openDatabase(olderPath).close()
+    const dbOlder = openDatabase(olderPath)
+    dbOlder.exec('PRAGMA user_version = 1')
+    dbOlder.close()
+    expect(() => openDatabase(olderPath)).toThrow(/incompatible with this build/)
   })
 
   it('append snapshots the batch: mutating an event after the call does not corrupt the persisted copy', async () => {
@@ -323,7 +332,6 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     const fiber1 = await ctx1.plugin(SessionPersistenceSqlite, { path })
     await ctx1.sessionPersistence.create(m)
     await ctx1.sessionPersistence.append(m.id, oneTurnLog())
-    await ctx1.sessionPersistence.update(m.id, { title: 'T', firstPrompt: 'hi' })
     await fiber1.dispose()
 
     const ctx2 = new Context()
@@ -331,7 +339,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     const fiber2 = await ctx2.plugin(SessionPersistenceSqlite, { path })
     expect((await ctx2.sessionPersistence.list()).map(x => x.id)).toContain(m.id)
     const loaded = await ctx2.sessionPersistence.load(m.id)
-    expect(loaded.meta).toMatchObject({ id: m.id, cwd: '/proj', title: 'T', firstPrompt: 'hi' })
+    expect(loaded.meta).toMatchObject({ id: m.id, cwd: '/proj' })
     expect(loaded.events).toEqual(oneTurnLog())
     await fiber2.dispose()
   })
@@ -340,8 +348,8 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     const path = await freshDbPath()
     // Materialize a row with version 2 directly via the real schema.
     const db = openDatabase(path)
-    db.prepare('INSERT INTO sessions (id, version, created_at, updated_at) VALUES (?, ?, ?, ?)')
-      .run('v2', 2, 1, 1)
+    db.prepare('INSERT INTO sessions (id, version, created_at) VALUES (?, ?, ?)')
+      .run('v2', 2, 1)
     db.close()
 
     const ctx = new Context()
@@ -372,7 +380,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   })
 
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(1)
+    expect(SCHEMA_VERSION).toBe(2)
   })
 })
 
@@ -468,22 +476,6 @@ describe('SessionPersistenceSqlite: write path (session/event → flush)', () =>
     await expect(ctx2.parallel('session/flush', s2)).rejects.toThrow(/id collision/)
     await fiber2.dispose()
   })
-
-  it('update before the first append keeps the summary in memory and the session lazy', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const fiber = await ctx.plugin(SessionPersistenceSqlite, { path: ':memory:' })
-    const m = meta('lazy-update')
-    await ctx.sessionPersistence.create(m)
-    await ctx.sessionPersistence.update(m.id, { title: 'pending' })
-    // Still lazy: no materialized row yet.
-    expect(await ctx.sessionPersistence.has(m.id)).toBe(false)
-    // The first append materializes and carries the pending title.
-    await ctx.sessionPersistence.append(m.id, oneTurnLog())
-    const loaded = await ctx.sessionPersistence.load(m.id)
-    expect(loaded.meta.title).toBe('pending')
-    await fiber.dispose()
-  })
 })
 
 describe('SessionPersistenceSqlite: edge cases', () => {
@@ -529,21 +521,6 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     await b2.dispose()
   })
 
-  it('update adopts a session that exists only in the DB (fresh instance)', async () => {
-    const path = await freshDbPath()
-    const m = meta('adopt-update')
-    const b1 = await backend(path)
-    await b1.ctx.sessionPersistence.create(m)
-    await b1.ctx.sessionPersistence.append(m.id, oneTurnLog())
-    await b1.dispose()
-
-    const b2 = await backend(path)
-    await b2.ctx.sessionPersistence.update(m.id, { title: 'after restart' })
-    const loaded = await b2.ctx.sessionPersistence.load(m.id)
-    expect(loaded.meta.title).toBe('after restart')
-    await b2.dispose()
-  })
-
   it('append rolls back and rethrows when an event INSERT fails inside the transaction', async () => {
     const path = await freshDbPath()
     const m = meta('rollback-insert')
@@ -574,7 +551,7 @@ describe('SessionPersistenceSqlite: edge cases', () => {
 
   it('round-trips a header with parentSession (fork lineage)', async () => {
     const { ctx, dispose } = await backend()
-    const m: SessionMeta = { ...meta('child'), parentSession: SessionId('parent') }
+    const m: SessionHeader = { ...meta('child'), parentSession: SessionId('parent') }
     await ctx.sessionPersistence.create(m)
     await ctx.sessionPersistence.append(m.id, oneTurnLog())
     const loaded = await ctx.sessionPersistence.load(m.id)

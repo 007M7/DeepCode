@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-session-persistence-jsonl
 
-The JSONL durable session-persistence backend — a concrete `SessionPersistence` (the `dsh-session-persistence` seam). One append-only `.jsonl` event log per session plus a small atomic `.summary.json` sidecar for mutable metadata.
+The JSONL durable session-persistence backend — a concrete `SessionPersistence` (the `dsh-session-persistence` seam). One append-only `.jsonl` event log per session.
 
 ## On-disk layout
 
@@ -8,7 +8,6 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
 <root>/
   cwd-<sha256(cwd)[:12]>/        # per-project bucket (or _no-cwd/ when no cwd)
     <encoded-id>.jsonl           # header line + one SessionEvent per line (verbatim)
-    <encoded-id>.summary.json    # mutable SessionSummary (atomic temp-write + rename)
 ```
 
 - The first `.jsonl` line is the immutable `SessionHeader` tagged `{ type: 'session', version, id, cwd?, createdAt, parentSession? }`; every subsequent line is one `SessionEvent` JSON, **verbatim including `assistant/chunk`** so `seq` stays contiguous (`events[i].seq === i`).

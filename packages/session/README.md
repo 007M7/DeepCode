@@ -31,9 +31,7 @@ Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 
 ### Metadata types (`types.ts`)
 
-- `SessionHeader` — immutable, written once: `{ version, id, createdAt, cwd?, parentSession? }`.
-- `SessionSummary` — mutable, updateable without touching the log: `{ updatedAt, title?, firstPrompt? }`.
-- `SessionMeta = SessionHeader & SessionSummary` — owned here (beside `SessionId`) because `Session.header` is typed by it; persistence backends re-export these rather than own them (which would force a package cycle).
+- `SessionHeader` — immutable session metadata, written once: `{ version, id, createdAt, cwd?, parentSession? }`. Owned here (beside `SessionId`) because `Session.header` is typed by it; persistence backends re-export it rather than own it (which would force a package cycle).
 
 ### Session event vocabulary (`types.ts`)
 
@@ -45,7 +43,7 @@ Also defines `TurnTriggerMap` and `TurnEndReasonMap` (merge-extensible sum types
 
 ### Extension points
 
-- Persistence plugins: subscribe to `session/event` (write-behind) and drain on `session/flush` (awaited) and fiber dispose. A durable backend reads the log and reloads it into a live session; the metadata seam (`SessionHeader`/`SessionSummary`/`SessionMeta`, `session.header`) is what such a backend stores beside the log.
+- Persistence plugins: subscribe to `session/event` (write-behind) and drain on `session/flush` (awaited) and fiber dispose. A durable backend reads the log and reloads it into a live session; the metadata seam (`SessionHeader`, `session.header`) is what such a backend stores beside the log.
 - Replay/fork: `ctx.sessions.create(id, { seed })` seeds a new session with an existing event log.
 
 ### What is NOT here (TODO)

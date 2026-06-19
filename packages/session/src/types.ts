@@ -31,29 +31,6 @@ export interface SessionHeader {
 }
 
 /**
- * Mutable session metadata — updateable without touching the append-only log.
- * A persistence backend stores this beside the log (a sidecar file, a header
- * row) and rewrites only it on update.
- */
-export interface SessionSummary {
-  /** Unix epoch milliseconds of the last mutation (event append or update). */
-  updatedAt: number
-  /** Human-facing title (derived/edited), if any. */
-  title?: string
-  /** The first user prompt, cached for listing previews. */
-  firstPrompt?: string
-}
-
-/**
- * Full session metadata: the immutable {@link SessionHeader} merged with the
- * mutable {@link SessionSummary}. Owned here in `dsh-session` (beside
- * {@link SessionId}) because `Session.header` is typed by it; the persistence
- * package imports/re-exports these rather than owning them, which would force
- * a package cycle.
- */
-export type SessionMeta = SessionHeader & SessionSummary
-
-/**
  * Options for creating a {@link Session} via the store. `seed` replays/forks
  * an existing event log; `meta` carries the caller-supplied storage fields the
  * store folds into a {@link SessionHeader}.

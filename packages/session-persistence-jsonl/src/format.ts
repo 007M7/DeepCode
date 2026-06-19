@@ -2,15 +2,15 @@
  * On-disk format helpers for the JSONL session-persistence backend: path
  * sanitization (a {@link SessionId} is an unvalidated branded string, so it
  * MUST be encoded before use in a path — no traversal, no collision), the
- * per-cwd directory layout, header-line (de)serialization, the atomic sidecar
- * for mutable summary fields, and the truncation-repair offset computation.
+ * per-cwd directory layout, header-line (de)serialization, and the
+ * truncation-repair offset computation.
  *
  * @module dsh-session-persistence-jsonl/format
  */
 
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
-import type { SessionEvent, SessionHeader, SessionId, SessionMeta } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 
 /**
  * The first line of a session's `.jsonl` file: the immutable
@@ -109,11 +109,6 @@ export function logPath(root: string, cwd: string | undefined, id: SessionId): s
   return join(sessionDir(root, cwd), `${encodeSegment(id)}.jsonl`)
 }
 
-/** The mutable-summary sidecar path for a session (beside its log). */
-export function sidecarPath(root: string, cwd: string | undefined, id: SessionId): string {
-  return join(sessionDir(root, cwd), `${encodeSegment(id)}.summary.json`)
-}
-
 /** Serialize one event as a JSONL line (no trailing newline). */
 export function eventLine(event: SessionEvent): string {
   return JSON.stringify(event)
@@ -138,7 +133,7 @@ export function eventLine(event: SessionEvent): string {
  * (`Session.append` enforces it): only the final turn can be open, so the
  * preserved tail is at most one unclosed turn.
  */
-export function scanLog(buffer: Buffer): { meta: SessionMeta; events: SessionEvent[]; committedBytes: number } {
+export function scanLog(buffer: Buffer): { meta: SessionHeader; events: SessionEvent[]; committedBytes: number } {
   const text = buffer.toString('utf8')
   // Split into complete (newline-terminated) lines, tracking the byte offset of
   // each line's end so the truncation point is exact (multi-byte chars make the
@@ -233,26 +228,16 @@ export function scanLog(buffer: Buffer): { meta: SessionMeta; events: SessionEve
   // synthetic closers + new events.
   const lastPreserved = parsed[preserved.length - 1]
   const committedBytes = preserved.length > 0 && lastPreserved ? lastPreserved.endByte : headerEntry.endByte
-  return { meta: metaFrom(headerLine), events: preserved, committedBytes }
-}
-
-/** Build the load-time {@link SessionMeta} from a header line (summary overlaid later). */
-function metaFrom(headerLine: HeaderLine): SessionMeta {
-  return {
-    ...fromHeaderLine(headerLine),
-    updatedAt: headerLine.createdAt, // overlaid by the sidecar in load()
-  }
+  return { meta: fromHeaderLine(headerLine), events: preserved, committedBytes }
 }
 
 /**
- * Parse just the header line of a log into load-time {@link SessionMeta}, or
+ * Parse just the header line of a log into a {@link SessionHeader}, or
  * `undefined` if it is missing/not a header. Used by `list()` to read session
  * metadata WITHOUT parsing the whole log: a session picker scales with the
- * number of sessions, not the total size of every conversation. The summary
- * sidecar is overlaid by the caller; `updatedAt` here mirrors `createdAt` until
- * then (same as {@link scanLog}'s load-time meta).
+ * number of sessions, not the total size of every conversation.
  */
-export function parseHeaderMeta(firstLine: string): SessionMeta | undefined {
+export function parseHeaderMeta(firstLine: string): SessionHeader | undefined {
   let parsed: unknown
   try {
     parsed = JSON.parse(firstLine)
@@ -260,5 +245,5 @@ export function parseHeaderMeta(firstLine: string): SessionMeta | undefined {
     return undefined
   }
   if (!isHeaderLine(parsed)) return undefined
-  return metaFrom(parsed)
+  return fromHeaderLine(parsed)
 }

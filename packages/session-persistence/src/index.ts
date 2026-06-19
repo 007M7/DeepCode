@@ -1,7 +1,7 @@
 /**
  * The durable session-persistence seam (`ctx.sessionPersistence`): an abstract
  * service defining WHAT a persistence backend does — durably store, reload,
- * list, and update sessions — without saying HOW. Implementations subclass
+ * and list sessions — without saying HOW. Implementations subclass
  * {@link SessionPersistence} and register themselves as the
  * `sessionPersistence` service; `@deepseek-ai/dsh-session-persistence-jsonl`
  * (an append-only JSONL log per session) is the first and
@@ -15,7 +15,7 @@
  * parallel "persisted message" type the log must be converted to and from
  * (faithful to the event-sourced model: the log is the single source of
  * truth). Metadata that is NOT replayable conversation state (format version,
- * cwd, lineage) travels separately as {@link SessionMeta}, which is owned by
+ * cwd, lineage) travels separately as {@link SessionHeader}, which is owned by
  * `dsh-session` and re-exported here.
  *
  * @module @deepseek-ai/dsh-session-persistence
@@ -23,10 +23,10 @@
 
 import { Context, Service } from 'cordis'
 import { isJsonValue } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SessionId, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 
 // Re-export the metadata vocabulary so consumers import it from the seam.
-export type { SessionHeader, SessionSummary, SessionMeta } from '@deepseek-ai/dsh-session'
+export type { SessionHeader } from '@deepseek-ai/dsh-session'
 
 declare module 'cordis' {
   interface Context {
@@ -102,7 +102,7 @@ export abstract class SessionPersistence extends Service {
    * created-but-never-appended session is absent from {@link has}/{@link list}
    * — abandoned sessions leave nothing behind.
    */
-  abstract create(meta: SessionMeta): Promise<void>
+  abstract create(meta: SessionHeader): Promise<void>
 
   /**
    * Durably persist a batch of events (called from the write-behind drain at
@@ -114,7 +114,7 @@ export abstract class SessionPersistence extends Service {
   abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 
   /**
-   * Reload a session: its {@link SessionMeta} plus the event log up to the last
+   * Reload a session: its {@link SessionHeader} plus the event log up to the last
    * durable checkpoint. Returns `meta` AND `events` so the live session is
    * reconstructed with its `cwd`/lineage, not just its log.
    *
@@ -135,24 +135,16 @@ export abstract class SessionPersistence extends Service {
    * unloadable (reject). Rejects an unknown format `version`. See the session-persistence RFC for
    * the crash-recovery contract.
    */
-  abstract load(id: SessionId): Promise<{ meta: SessionMeta; events: SessionEvent[] }>
+  abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
 
   /** Lightweight listing from metadata, without a full-log parse. */
-  abstract list(): Promise<SessionMeta[]>
+  abstract list(): Promise<SessionHeader[]>
 
   /** Whether a session is durably present (materialized). */
   abstract has(id: SessionId): Promise<boolean>
 
   /** Remove a session and all its persisted artifacts. */
   abstract delete(id: SessionId): Promise<void>
-
-  /**
-   * Update mutable metadata ({@link SessionSummary}: `updatedAt`, `title`,
-   * `firstPrompt`) WITHOUT touching the append-only event log. A backend
-   * stores the summary beside the log (a sidecar file, a header row) and
-   * rewrites only it.
-   */
-  abstract update(id: SessionId, summary: Partial<SessionSummary>): Promise<void>
 }
 
 export default SessionPersistence

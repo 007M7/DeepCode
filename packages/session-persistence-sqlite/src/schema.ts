@@ -8,18 +8,18 @@
  */
 
 import { DatabaseSync } from 'node:sqlite'
-import type { SessionEvent, SessionId, SessionMeta } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 
 /**
  * The on-disk schema version. Bumped only on a breaking change to the table
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 
 /**
- * A row of the `sessions` table — the out-of-log metadata (`SessionMeta`). The
- * row's EXISTENCE is the materialization signal: it is written only by the
+ * A row of the `sessions` table — the out-of-log metadata ({@link SessionHeader}).
+ * The row's EXISTENCE is the materialization signal: it is written only by the
  * first `append` (lazy materialization), so a created-but-never-appended
  * session has no row and is absent from `has`/`list`, mirroring the JSONL
  * backend's "no file until first append".
@@ -30,9 +30,6 @@ export interface SessionRow {
   created_at: number
   cwd: string | null
   parent_session: string | null
-  updated_at: number
-  title: string | null
-  first_prompt: string | null
 }
 
 /** An `events` table row: one `SessionEvent` mapped 1:1 (`data` is JSON text). */
@@ -51,10 +48,11 @@ export interface EventRow {
  *
  * The table-layout version is persisted in SQLite's `PRAGMA user_version` and
  * checked on open: a fresh database (user_version 0) is stamped with the
- * current {@link SCHEMA_VERSION}; an existing database with a NEWER version
- * (written by a future, incompatible build) is rejected rather than opened
- * against a layout this build does not understand. (An older-but-compatible
- * version would be migrated here when migrations exist; v1 has none.)
+ * current {@link SCHEMA_VERSION}; an existing database whose version is NOT the
+ * current one (written by a different, incompatible build — older or newer) is
+ * REJECTED rather than opened against a layout this build does not understand.
+ * There are no migrations: v1 had a different `sessions` layout and is not
+ * upgraded in place.
  */
 export function openDatabase(path: string): DatabaseSync {
   const db = new DatabaseSync(path)
@@ -62,9 +60,9 @@ export function openDatabase(path: string): DatabaseSync {
   db.exec('PRAGMA journal_mode = WAL')
   // `PRAGMA user_version` always returns exactly one row { user_version }.
   const { user_version: onDisk } = db.prepare('PRAGMA user_version').get() as { user_version: number }
-  if (onDisk > SCHEMA_VERSION) {
+  if (onDisk !== 0 && onDisk !== SCHEMA_VERSION) {
     db.close()
-    throw new Error(`session database at "${path}" has schema version ${onDisk}, newer than this build supports (${SCHEMA_VERSION})`)
+    throw new Error(`session database at "${path}" has schema version ${onDisk}, incompatible with this build (${SCHEMA_VERSION})`)
   }
   if (onDisk === 0) {
     // Fresh (or pre-versioning) database: stamp the current layout version.
@@ -78,10 +76,7 @@ export function openDatabase(path: string): DatabaseSync {
       version        INTEGER NOT NULL,
       created_at     INTEGER NOT NULL,
       cwd            TEXT,
-      parent_session TEXT,
-      updated_at     INTEGER NOT NULL,
-      title          TEXT,
-      first_prompt   TEXT
+      parent_session TEXT
     ) STRICT
   `)
   db.exec(`
@@ -97,17 +92,14 @@ export function openDatabase(path: string): DatabaseSync {
   return db
 }
 
-/** Reconstruct the full {@link SessionMeta} from a `sessions` row. */
-export function rowToMeta(row: SessionRow): SessionMeta {
+/** Reconstruct the {@link SessionHeader} from a `sessions` row. */
+export function rowToMeta(row: SessionRow): SessionHeader {
   return {
     version: row.version,
     id: row.id as SessionId,
     createdAt: row.created_at,
-    updatedAt: row.updated_at,
     ...row.cwd !== null ? { cwd: row.cwd } : {},
     ...row.parent_session !== null ? { parentSession: row.parent_session as SessionId } : {},
-    ...row.title !== null ? { title: row.title } : {},
-    ...row.first_prompt !== null ? { firstPrompt: row.first_prompt } : {},
   }
 }
 
