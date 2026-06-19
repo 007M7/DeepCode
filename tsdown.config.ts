@@ -3,7 +3,7 @@ import { defineConfig } from 'tsdown'
 /**
  * Runtime bundling for all workspace packages (vendor/* + packages/*).
  * TypeScript source is compiled first by `tsc -b tsconfig.build.json`; tsdown
- * reads only the emitted JS under lib/typings and writes lib/index.* runtime
+ * reads only the emitted JS under lib/types and writes lib/index.* runtime
  * bundles. Declarations are NOT produced here, hence `dts: false`.
  *
  * Per-package shape overrides live in `<package>/tsdown.config.ts`
@@ -13,7 +13,7 @@ export default defineConfig({
   // Explicit globs: `workspace: true` would also discover examples/* (any
   // package.json), but only vendor/* and packages/* are pnpm workspaces.
   workspace: ['vendor/*', 'packages/*'],
-  entry: ['lib/typings/index.js'],
+  entry: ['lib/types/index.js'],
   outDir: 'lib',
   format: ['esm'],
   platform: 'node',

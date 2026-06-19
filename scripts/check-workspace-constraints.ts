@@ -69,8 +69,8 @@ function workspaceManifests(): WorkspaceManifest[] {
 
 const dshPackageFiles = [
   'lib/index.js',
-  'lib/typings/**/*.d.ts',
-  'lib/typings/**/*.d.ts.map',
+  'lib/types/**/*.d.ts',
+  'lib/types/**/*.d.ts.map',
   'src',
 ] as const
 
@@ -108,11 +108,11 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     if (manifest.main !== 'lib/index.js') {
       errors.push(`${label}: package.json must set "main": "lib/index.js"`)
     }
-    if (manifest.types !== 'lib/typings/index.d.ts') {
-      errors.push(`${label}: package.json must set "types": "lib/typings/index.d.ts"`)
+    if (manifest.types !== 'lib/types/index.d.ts') {
+      errors.push(`${label}: package.json must set "types": "lib/types/index.d.ts"`)
     }
-    if (manifest.exports?.['.']?.types !== './lib/typings/index.d.ts') {
-      errors.push(`${label}: package.json exports["."].types must be "./lib/typings/index.d.ts"`)
+    if (manifest.exports?.['.']?.types !== './lib/types/index.d.ts') {
+      errors.push(`${label}: package.json exports["."].types must be "./lib/types/index.d.ts"`)
     }
     if (manifest.exports?.['.']?.default !== './lib/index.js') {
       errors.push(`${label}: package.json exports["."].default must be "./lib/index.js"`)

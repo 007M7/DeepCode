@@ -87,7 +87,7 @@ pnpm run test:snapshot:record  # re-record fixtures + goldens against the real
 pnpm run typecheck      # tsc -b tsconfig.json
 pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix
-pnpm run build          # tsc emits lib/typings, then tsdown bundles runtime lib/index.*
+pnpm run build          # tsc emits lib/types, then tsdown bundles runtime lib/index.*
 pnpm run knip           # dead-code / unused-dependency check
 pnpm run publint        # package.json publish-correctness check (publishable packages/*)
 pnpm run hygiene        # knip + publint + workspace constraints
@@ -126,7 +126,7 @@ Dev/test/demo run **unbuilt** via tsx + the source `paths` map in the root `tsco
 ## Conventions
 
 - **Package naming**: every npm package in this repo is `@deepseek-ai/dsh-<name>` (vendored packages keep their upstream names and are `private: true`).
-- **ESM everywhere** (`"type": "module"`); imports between workspace packages use package names, never relative paths across package boundaries. In-package relative imports are extensionless so generated `.d.ts` files stay extensionless; `lib/typings/**/*.js` is a bundler-only intermediate, not a Node ESM entrypoint.
+- **ESM everywhere** (`"type": "module"`); imports between workspace packages use package names, never relative paths across package boundaries. In-package relative imports are extensionless so generated `.d.ts` files stay extensionless; `lib/types/**/*.js` is a bundler-only intermediate, not a Node ESM entrypoint.
 - **`cordis` is a peerDependency** (+ devDependency) of every harness package, mirroring upstream convention.
 - **Registrations are effects**: anything a plugin contributes (adapter, tool, section, agent, event listener) goes through `ctx.effect()` / `ctx.on()` so disposal and HMR work. If you write a registry, `register()` must return the disposer.
 - **Typed events via declaration merging**: services declare their events in `declare module 'cordis' { interface Events { … } }`, and their ctx key in `interface Context`. Extensible unions use the merge-extensible-map pattern (see `ContentBlockMap`, `MessageSourceMap`).

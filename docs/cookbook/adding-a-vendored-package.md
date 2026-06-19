@@ -12,13 +12,13 @@ vendor/<dir>/
   README.md LICENSE # if upstream ships them
 ```
 
-`tsconfig.json` mirrors the other vendored packages — `rootDir: src`, `outDir: lib/typings`, the strictness relaxations upstream code needs, and a `references` entry for every other vendored package it imports:
+`tsconfig.json` mirrors the other vendored packages — `rootDir: src`, `outDir: lib/types`, the strictness relaxations upstream code needs, and a `references` entry for every other vendored package it imports:
 
 ```jsonc
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src", "outDir": "lib/typings",
+    "rootDir": "src", "outDir": "lib/types",
     "noUncheckedIndexedAccess": false, "exactOptionalPropertyTypes": false,
     "noImplicitOverride": false, "noUnusedLocals": false, "noUnusedParameters": false
   },
@@ -27,7 +27,7 @@ vendor/<dir>/
 }
 ```
 
-`package.json` invariants: `"private": true` (vendored packages are never published), keep upstream's `name`/`version`/`exports`/`type`, point declaration metadata at `lib/typings`, publish `.d.ts` and `.d.ts.map` declaration outputs, and list its cordis deps in `peerDependencies` (matching the upstream manifest). Transitive upstream deps must themselves be vendored or already present — vendoring one package often means vendoring its dependency tree (e.g. `@cordisjs/plugin-http` pulls `@cordisjs/fetch-file`).
+`package.json` invariants: `"private": true` (vendored packages are never published), keep upstream's `name`/`version`/`exports`/`type`, point declaration metadata at `lib/types`, publish `.d.ts` and `.d.ts.map` declaration outputs, and list its cordis deps in `peerDependencies` (matching the upstream manifest). Transitive upstream deps must themselves be vendored or already present — vendoring one package often means vendoring its dependency tree (e.g. `@cordisjs/plugin-http` pulls `@cordisjs/fetch-file`).
 
 ## 2. Register it in the root configs
 
@@ -39,7 +39,7 @@ vendor/<dir>/
 | `vendor/README.md` | add a manifest table row (dir, npm name, version, upstream repo, commit SHA) and log any local modifications |
 | `scripts/publint-all.ts` | only if the vendored package is itself published from here (vendored deps normally are not — skip) |
 
-Covered automatically by globs — no edits needed: root `package.json` workspaces (`vendor/*`), `tsdown.config.ts`, `vitest.config.ts`, `eslint.config.mjs`. A per-package `vendor/<dir>/tsdown.config.ts` is needed ONLY if the build shape diverges from the root default (dual ESM/CJS or multiple entries — see `vendor/schemastery` and `vendor/logger-console`); its entry should read the JS emitted under `lib/typings`.
+Covered automatically by globs — no edits needed: root `package.json` workspaces (`vendor/*`), `tsdown.config.ts`, `vitest.config.ts`, `eslint.config.mjs`. A per-package `vendor/<dir>/tsdown.config.ts` is needed ONLY if the build shape diverges from the root default (dual ESM/CJS or multiple entries — see `vendor/schemastery` and `vendor/logger-console`); its entry should read the JS emitted under `lib/types`.
 
 ## 3. Mind the manifest guard
 

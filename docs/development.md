@@ -99,7 +99,7 @@ pnpm run verify-md-links  # fail on broken relative Markdown links in checked do
 pnpm run doc-sync       # doc-typecheck, event taxonomy, markdown wrap, and link verification
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
-pnpm run build          # emit lib/typings intermediates, then bundle lib/index.* runtime files
+pnpm run build          # emit lib/types intermediates, then bundle lib/index.* runtime files
 pnpm run hygiene        # knip, publint, and workspace constraints
 ```
 
