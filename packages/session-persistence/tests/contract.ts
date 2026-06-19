@@ -8,7 +8,7 @@
  * @module @deepseek-ai/dsh-session-persistence/tests/contract
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionMeta } from '@deepseek-ai/dsh-session'
 import { CallId } from '@deepseek-ai/dsh-llm'
@@ -250,11 +250,19 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         const log = oneTurnLog()
         await persistence.create(m)
         await persistence.append(m.id, log)
-        await persistence.update(m.id, { title: 'My session', firstPrompt: 'hi' })
+        const beforeUpdate = (await persistence.load(m.id)).meta.updatedAt
+        vi.useFakeTimers()
+        vi.setSystemTime(beforeUpdate + 1_000)
+        try {
+          await persistence.update(m.id, { title: 'My session', firstPrompt: 'hi' })
+        } finally {
+          vi.useRealTimers()
+        }
 
         const loaded = await persistence.load(m.id)
         expect(loaded.meta.title).toBe('My session')
         expect(loaded.meta.firstPrompt).toBe('hi')
+        expect(loaded.meta.updatedAt).toBe(beforeUpdate + 1_000)
         expect(loaded.events).toEqual(log) // log untouched
       } finally {
         await dispose()

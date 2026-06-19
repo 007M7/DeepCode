@@ -116,15 +116,21 @@ export class SystemPrompt extends Service {
 
   /**
    * Assemble the current prompt (sections sorted by order, tools collected
-   * from all providers). Runs through the `system-prompt/assemble` waterfall,
-   * giving listeners the opportunity to mutate or replace the assembly before
-   * it reaches the model. Await the result before reading the assembly values —
+   * from all providers). Section records are top-level clones (the `text`
+   * provider may be a function and is intentionally shared); tool schemas are
+   * deep-cloned because adapters and request waterfalls may mutate schema
+   * objects. Runs through the `system-prompt/assemble` waterfall, giving
+   * listeners the opportunity to mutate or replace the assembly before it
+   * reaches the model. Await the result before reading the assembly values —
    * waterfall listeners may be async.
    */
   assemble(): Promise<PromptAssembly> {
     const assembly: PromptAssembly = {
-      sections: [...this.sections].sort((a, b) => a.order - b.order),
-      tools: this.toolProviders.flatMap(provider => provider()),
+      sections: this.sections
+        .map(section => ({ ...section }))
+        .sort((a, b) => a.order - b.order),
+      tools: this.toolProviders.flatMap(provider =>
+        provider().map(tool => ({ ...tool, parameters: structuredClone(tool.parameters) }))),
     }
     return this.ctx.waterfall(this, 'system-prompt/assemble', assembly, () => Promise.resolve(assembly))
   }

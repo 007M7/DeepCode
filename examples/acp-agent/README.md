@@ -21,15 +21,15 @@ Add to your Zed `settings.json` under `agent_servers`:
   "agent_servers": {
     "DeepSeek Harness": {
       "command": "pnpm",
-      "args": ["run", "demo:acp"],
+      "args": ["--dir", "/path/to/deepseek-harness", "run", "demo:acp"],
       "env": { "DEEPSEEK_API_KEY": "sk-…" }
     }
   }
 }
 ```
 
-The editor sets each session's `cwd` to the project it opens; the agent's bash tools run there (see the per-session `cwd` note in `packages/acp`), so the server does not need to be launched in the workspace.
+The editor sets each session's `cwd` to the project it opens; the agent's bash tools run there (see the per-session `cwd` note in `packages/acp`), so launch the server from the harness repo with `pnpm --dir …` and let ACP carry the workspace path per session.
 
 ## MVP limitations
 
-The bridge supports N concurrent sessions per connection, each in its own workspace `cwd` (RFC 011). Remaining limits: text-only prompts, `additionalDirectories` rejected (a session operates in its single `cwd`), and the tool-permission gate is deferred (`TODO(rfc010-permission-gate)` — tools run with the executor's full authority). See `packages/acp/README.md` for the full contract.
+The bridge supports N concurrent sessions per connection, each in its own workspace `cwd` (RFC 011). Remaining limits: prompts support ACP's baseline `text` and `resource_link` blocks only, `additionalDirectories` and `mcpServers` are rejected, and the tool-permission gate is deferred (`TODO(rfc010-permission-gate)` — tools run with the executor's full authority). See `packages/acp/README.md` for the full contract.

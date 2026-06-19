@@ -33,7 +33,7 @@
     "demo:echo": "node --expose-internals --import tsx examples/echo-agent/start.ts",
     "demo:coding": "node --expose-internals --import tsx examples/coding-agent/start.ts",
     "demo:acp": "node --expose-internals --import tsx examples/acp-agent/start.ts",
-    "postinstall": "lefthook install"
+    "postinstall": "node scripts/install-lefthook.mjs"
   },
   "devDependencies": {
     "@agentclientprotocol/sdk": "0.25.1",

@@ -31,6 +31,8 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Multiplex concurrent ACP sessions over one connection](proposed/2026-06-14-acp-multi-session.md) | 2026-06-14 |
 | [Optional Code Mode — model writes TypeScript against an SDK of all tools](proposed/2026-06-15-optional-code-mode.md) | 2026-06-15 |
 | [Runtime schemas for the event vocabulary (Zod vs the merge-extensible-map pattern)](proposed/2026-06-16-typed-event-schemas.md) | 2026-06-16 |
+| [Agent lifecycle and ownership seams](proposed/2026-06-18-agent-lifecycle-and-ownership-seams.md) | 2026-06-18 |
+| [Shared persistence write coordinator](proposed/2026-06-18-shared-persistence-write-coordinator.md) | 2026-06-18 |
 
 ## Implemented
 

@@ -8,8 +8,7 @@
  *    line, verbatim including `assistant/chunk` so `seq` stays contiguous) plus
  *    a small atomic `.summary.json` sidecar for the mutable `SessionSummary`.
  *    Lazy materialization (no file until the first `append`), atomic first
- *    write, and truncation-repair of a never-committed crash tail on the first
- *    `append` after a `load`.
+ *    write, and load-time repair of a never-committed crash tail.
  *
  * 2. **The write path** — the `session/event` → buffer → `session/flush` drain
  *    that generalizes the example `session-jsonl.ts`: snapshot each event when
@@ -24,10 +23,12 @@
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { open, mkdir, readFile, readdir, rename, link, rm, truncate } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
-import { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { isJsonValue, interruptedTurnClosers } from '@deepseek-ai/dsh-session'
+import {
+  SessionPersistence, assertSerializable, seedCoversPrefix,
+} from '@deepseek-ai/dsh-session-persistence'
+import { interruptedTurnClosers } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
 import {
   encodeSegment, eventLine, logPath, parseHeaderMeta, scanLog, sessionDir, sidecarPath, toHeaderLine,
@@ -61,44 +62,6 @@ interface SessionState {
 }
 
 /**
- * Whether a live session's `seed` reproduces a persisted `prefix` exactly — the
- * prefix is no longer than the seed, and each prefix event DEEP-equals the seed
- * event at the same index. Used to tell a session legitimately continuing a
- * persisted log (HMR re-seeing its own session, or a resume) from a different
- * session that merely reuses the id: the latter would have its already-counted
- * seq 0..prefix-1 events filtered out on flush and its conversation silently
- * grafted onto the old log.
- *
- * The comparison is a full structural equality (via canonical JSON) of each
- * event INCLUDING its `data` payload, not just `seq`/`type`/`time` — a session
- * built from loaded events but with mutated message/tool payloads (same seq/
- * type/time) must NOT be accepted, or the live history and durable log diverge.
- * Both sides are JSON-serializable by contract (Session.append enforces it), so
- * JSON.stringify is a sound canonical form here.
- */
-function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly SessionEvent[]): boolean {
-  return prefix.length <= seed.length
-    && prefix.every((e, i) => {
-      const s = seed[i]
-      return s !== undefined && JSON.stringify(s) === JSON.stringify(e)
-    })
-}
-
-/**
- * Reject non-JSON-serializable `event.data`, naming the offending type. Used on
- * the backend's `append(events)` entry point (replay/fork paths that bypass a
- * live `Session`); events that flow through `Session.append` are already
- * validated at the source, so the live write path never needs this.
- */
-function assertSerializable(events: readonly SessionEvent[]): void {
-  for (const event of events) {
-    if (!isJsonValue(event.data)) {
-      throw new Error(`event "${event.type}" carries non-JSON-serializable data (seq ${event.seq})`)
-    }
-  }
-}
-
-/**
  * Whether `error` is a "no such file/directory" (`ENOENT`) failure — the ONLY
  * filesystem error that legitimately means "this session/root is absent" for a
  * durable backend. Any OTHER error (`EACCES`, `ENOTDIR`, transient I/O) must
@@ -109,6 +72,15 @@ function assertSerializable(events: readonly SessionEvent[]): void {
  */
 function isENOENT(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
+}
+
+async function settledErrors(promises: Iterable<Promise<unknown>>): Promise<unknown[]> {
+  const settled = await Promise.allSettled([...promises])
+  const errors: unknown[] = []
+  for (const result of settled) {
+    if (result.status === 'rejected') errors.push(result.reason)
+  }
+  return errors
 }
 
 /**
@@ -306,6 +278,34 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     return { meta: fullMeta, events: balanced }
   }
 
+  private async adoptLiveDiskPrefix(
+    session: Session,
+    seed: readonly SessionEvent[],
+    file: { path: string; cwd: string | undefined },
+  ): Promise<void> {
+    const buffer = await readFile(file.path)
+    const { meta, events, committedBytes } = scanLog(buffer)
+    this.assertVersion(meta)
+    if (!seedCoversPrefix(seed, events)) {
+      throw new Error(`session "${session.header.id}" already has a persisted log on disk that does not match this live session (id collision)`)
+    }
+
+    const summary = await this.readSidecar(session.header.id, meta.cwd)
+    const state: SessionState = {
+      meta: { ...meta, ...summary },
+      cursor: events.length,
+      materialized: true,
+      owner: session,
+    }
+    this.states.set(session.header.id, state)
+
+    if (committedBytes < buffer.byteLength) {
+      await this.repair(state, committedBytes)
+    }
+    const suffix = seed.slice(events.length)
+    if (suffix.length > 0) await this.appendCore(session.header.id, suffix)
+  }
+
   async list(): Promise<SessionMeta[]> {
     const metas: SessionMeta[] = []
     for (const dir of await this.listCwdDirs()) {
@@ -318,7 +318,7 @@ export class SessionPersistenceJsonl extends SessionPersistence {
         if (first === undefined) continue // empty/half-written file
         const meta = parseHeaderMeta(first)
         if (meta === undefined) continue // not a session header
-        const summary = await this.readSidecar(meta.id, meta.cwd)
+        const summary = await this.readSidecarForList(meta.id, meta.cwd)
         metas.push({ ...meta, ...summary })
       }
     }
@@ -397,8 +397,8 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     // sidecar is best-effort) — but if we mutated state.meta first, a later
     // touchSummary() on a successful append would persist the rejected
     // title/firstPrompt, making a failed update durable after the fact.
-    const nextMeta: SessionMeta = { ...state.meta, ...summary }
-    await this.writeSidecar(nextMeta)
+    const nextMeta: SessionMeta = { ...state.meta, ...summary, updatedAt: summary.updatedAt ?? Date.now() }
+    if (state.materialized) await this.writeSidecar(nextMeta)
     state.meta = nextMeta
   }
 
@@ -407,7 +407,10 @@ export class SessionPersistenceJsonl extends SessionPersistence {
   /** Atomically write the header line + first batch (temp-write, fsync, rename). */
   private async materialize(state: SessionState, events: readonly SessionEvent[]): Promise<void> {
     const dir = sessionDir(this.root, state.meta.cwd)
+    await mkdir(this.root, { recursive: true, mode: 0o700 })
+    await this.syncDir(dirname(this.root))
     await mkdir(dir, { recursive: true, mode: 0o700 })
+    await this.syncDir(this.root)
     const finalPath = logPath(this.root, state.meta.cwd, state.meta.id)
     // Never rename over an existing committed log: materialize is the FIRST
     // write of a session the backend believes is new. A file here means a
@@ -561,17 +564,29 @@ export class SessionPersistenceJsonl extends SessionPersistence {
   }
 
   /**
-   * Read the mutable-summary sidecar, or `undefined` if it is absent/unreadable
-   * (a session that has never been `update()`d, or a failed sidecar write). The
-   * caller keeps the header-derived `updatedAt` (the session's createdAt) in
-   * that case rather than overlaying `0` — reporting an active session as
-   * updated at the Unix epoch would be wrong.
+   * Read the mutable-summary sidecar, or `undefined` if it is absent (a session
+   * that has never been `update()`d). Non-ENOENT failures surface on strict
+   * load/adopt paths so corrupt metadata does not masquerade as a clean default.
    */
   private async readSidecar(id: SessionId, cwd: string | undefined): Promise<SessionSummary | undefined> {
     try {
       const raw = await readFile(sidecarPath(this.root, cwd, id), 'utf8')
       return JSON.parse(raw) as SessionSummary
-    } catch {
+    } catch (error) {
+      if (isENOENT(error)) return undefined
+      throw error
+    }
+  }
+
+  /**
+   * Best-effort summary read for list(): a corrupt sidecar should degrade one
+   * row to header metadata, not hide every session from a picker.
+   */
+  private async readSidecarForList(id: SessionId, cwd: string | undefined): Promise<SessionSummary | undefined> {
+    try {
+      return await this.readSidecar(id, cwd)
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`session-persistence-jsonl: ignoring unreadable summary for session "${id}" while listing: ${String(error)}`)
       return undefined
     }
   }
@@ -675,9 +690,14 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     // Dispose must reach quiescence: await every session's init + final drain
     // BEFORE returning, so no write lands after teardown (orphan rename/ENOENT).
     ctx.effect(() => async () => {
-      await Promise.allSettled([...this.inits.values()])
-      await Promise.allSettled([...this.buffers.keys()].map(s => this.flush(s)))
-      await Promise.allSettled([...this.chains.values()])
+      const errors = [
+        ...await settledErrors(this.inits.values()),
+        ...await settledErrors([...this.buffers.keys()].map(s => this.flush(s))),
+        ...await settledErrors(this.chains.values()),
+      ]
+      if (errors.length > 0) {
+        throw new AggregateError(errors, 'session-persistence-jsonl dispose failed')
+      }
     }, 'session-persistence-jsonl write path')
 
     // HMR: a hot reload does not replay session/created, so seed existing live
@@ -797,28 +817,11 @@ export class SessionPersistenceJsonl extends SessionPersistence {
 
     const onDisk = await this.findLog(id, session.header.cwd)
     if (onDisk !== undefined) {
-      // Read the committed on-disk events and check they are a seq-aligned
-      // prefix of the live session (HMR re-seeing its own session) vs. an
-      // unrelated session colliding on the id.
-      const { events: diskEvents } = scanLog(await readFile(onDisk.path))
-      if (!seedCoversPrefix(seed, diskEvents)) {
-        // case 3: genuine collision — fail loudly rather than clobber.
-        throw new Error(`session "${id}" already has a persisted log on disk that does not match this live session (id collision)`)
-      }
-      // case 2: adopt. loadCore sets the state (cursor = committed length,
-      // repair offset if a crash tail exists).
-      await this.serialize(id, () => this.loadCore(id))
-      const adopted = this.states.get(id)
-      /* v8 ignore next -- loadCore always sets the state for the id */
-      if (adopted !== undefined) adopted.owner = session
-      // Persist the live SUFFIX beyond the on-disk prefix. These events live
-      // ONLY in `seed` (the live session was ahead of disk — mid-turn at
-      // reload, or events appended while the previous backend was disposed);
-      // this backend never buffered them via session/event, so without this
-      // they would be lost and the next flush (starting at a later seq) would
-      // mismatch or skip them.
-      const suffix = seed.slice(diskEvents.length)
-      if (suffix.length > 0) await this.append(id, suffix)
+      // case 2: adopt a LIVE prefix. Do NOT route through loadCore(): loadCore
+      // crash-repairs open turns as interrupted, which is right for a true load
+      // after a crash but wrong for HMR while the live Session is still the
+      // authority and may append the real step/turn end later.
+      await this.serialize(id, () => this.adoptLiveDiskPrefix(session, seed, onDisk))
       return
     }
 

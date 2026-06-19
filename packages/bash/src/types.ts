@@ -44,7 +44,7 @@ export interface CollectedOutput {
   text: string
   /** True when bytes were dropped from `text`. */
   truncated: boolean
-  /** Path to a file holding the COMPLETE stream, when truncated. */
+  /** Path to a file holding the COMPLETE stream, when truncated and available. */
   spillPath?: string
 }
 
@@ -87,9 +87,9 @@ export interface BashTaskRead {
   delta: string
   /** True when truncation dropped unread bytes the delta cannot include. */
   lossy: boolean
-  /** Full stdout spill file, when stdout truncation occurred. */
+  /** Full stdout spill file, when stdout truncation occurred and a safe path is available. */
   stdoutSpillPath?: string
-  /** Full stderr spill file, when stderr truncation occurred. */
+  /** Full stderr spill file, when stderr truncation occurred and a safe path is available. */
   stderrSpillPath?: string
 }
 

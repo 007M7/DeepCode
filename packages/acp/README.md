@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-acp
 
-The **Agent Client Protocol (ACP)** bridge: exposes the DeepSeek Harness coding agent as an ACP server over JSON-RPC stdio, so editors (Zed and other ACP clients) can drive it — streaming render, tool-call display, and resumable sessions. **N concurrent sessions per connection** (RFC 011): each maps to its own `LoopAgent`, and every event is demuxed strictly by session id so two sessions streaming at once never interleave.
+The **Agent Client Protocol (ACP)** bridge: exposes the DeepSeek Harness coding agent as an ACP server over JSON-RPC stdio, so editors (Zed and other ACP clients) can drive it — streaming render, tool-call display, and resumable sessions. **N concurrent sessions per connection** (see [ACP multi-session](../../docs/rfc/proposed/2026-06-14-acp-multi-session.md)): each maps to its own `LoopAgent`, and every event is demuxed strictly by session id so two sessions streaming at once never interleave.
 
 It is a **client-driver / UI plugin**, the structured analogue of the readline `stdio-chat` plugin — NOT a loop change and NOT a [capability seam](../../docs/rfc/implemented/2026-06-13-capability-seams.md). It consumes the existing `agent/*` event taxonomy, the `dsh-agent` create/resume factory, and `dsh-session-persistence`.
 
@@ -23,14 +23,14 @@ It is a **client-driver / UI plugin**, the structured analogue of the readline `
 
 | ACP method | Harness seam | Notes |
 |---|---|---|
-| `initialize` | static | negotiate `protocolVersion`; advertise text-only `promptCapabilities` and `loadSession: true` |
-| `session/new` | `ctx.agents.create({ sessionId, meta:{cwd} })` | creates a new session/agent; N concurrent sessions are allowed (RFC 011), keyed by id; `cwd` must be absolute (it becomes the session's workspace — see Per-session cwd); `additionalDirectories` rejected; `mcpServers` ignored |
-| `session/load` | `ctx.agents.resume(...)` | replays the persisted event log to the client as `session/update` — the USER side (`user/message` → `user_message_chunk`), assistant text/reasoning (`assistant/chunk`), and tool calls/results (`tool/call` + `tool/result`). Re-loading an already-live id is rejected; the id's load slot is reserved (`loadingIds`) BEFORE the async resume so a pipelined load of the SAME id can't leak a second agent (distinct ids load concurrently). The resumed session keeps its PERSISTED header `cwd`, so its bash tools run in the original workspace; the requested `cwd` only needs to be absolute. After the async resume a `closed` re-check refuses to install a record if the bridge tore down mid-load |
-| `session/prompt` | `agent.send()` | text-only; rejects image/audio and empty prompts; one in-flight prompt PER session (independent); settles on the OWNING turn's end (a turn that ends in `error` rejects the RPC) |
+| `initialize` | static | negotiate `protocolVersion`; advertise baseline prompt capabilities (`text`, plus `resource_link` rendered as text) and `loadSession: true` |
+| `session/new` | `ctx.agents.create({ sessionId, meta:{cwd} })` | creates a new session/agent; N concurrent sessions are allowed, keyed by id; `cwd` must be absolute (it becomes the session's workspace — see Per-session cwd); non-empty `additionalDirectories` and `mcpServers` rejected |
+| `session/load` | `ctx.agents.resume(...)` | replays the persisted event log to the client as `session/update` — the USER side (`user/message` → `user_message_chunk`), assistant text/reasoning (`assistant/chunk`), and tool calls/results (`tool/call` + `tool/result`). Re-loading an already-live id is rejected; the id's load slot is reserved (`loadingIds`) BEFORE the async resume so a pipelined load of the SAME id can't leak a second agent (distinct ids load concurrently). The resumed session keeps its PERSISTED header `cwd`, so its bash tools run in the original workspace; the requested `cwd` must be absolute and match the persisted `cwd`. After the async resume a `closed` re-check refuses to install a record if the bridge tore down mid-load |
+| `session/prompt` | `agent.send()` | supports ACP `text` and `resource_link` blocks; rejects image/audio/embedded resource and empty prompts; one in-flight prompt PER session (independent); settles on the OWNING turn's end (a turn that ends in `error` rejects the RPC) |
 | `session/cancel` | `agent.abort()` | aborts a running step + settles the prompt `cancelled` for ONLY that session — a cancel never touches another session's stream or prompt (see limitation below) |
 | `session/update` | `session/event` | `agent_message_chunk` (text-delta), `agent_thought_chunk` (reasoning-delta), `user_message_chunk` (load replay), `tool_call`/`tool_call_update` (title/kind/rawInput/content owned by the TOOL via `presentCall`/`presentResult` — see Tool-call presentation) |
 
-## Multi-session (RFC 011)
+## Multi-session
 
 The bridge multiplexes N sessions over one connection. Live sessions are held in a `Map<sessionId, SessionRecord>` (forward) with a `WeakMap<Agent, sessionId>` reverse map so `agent/*` events — which carry only the `Agent` — demux in O(1). Every `session/event` and `agent/status` is routed strictly to its owning record, so concurrent sessions never cross-settle or interleave their `session/update` notifications. State is per session: one in-flight prompt each, `session/cancel` aborts and settles only its own agent/prompt, and disposal drains every live session in parallel to quiescence. (Per-session *permission* ownership is reserved for the deferred permission gate — `TODO(rfc010-permission-gate)`.)
 
@@ -38,7 +38,7 @@ Background-task isolation rides on `dsh-tool-bash`: bash task ids are global and
 
 ## Per-session cwd
 
-Each session runs in its own workspace, recorded as the session's `SessionHeader.cwd`. On `session/new` the (absolute) request `cwd` becomes that header cwd; on `session/load` the resumed session keeps its PERSISTED header cwd (the request `cwd` is only shape-checked — it does not override the stored one), and a load whose persisted session has no absolute cwd is REJECTED up front via a metadata-only `list()` check, BEFORE resume constructs an agent (else bash would silently fall back to the server's launch dir, and a post-resume reject would leak the registered agent). `dsh-tool-bash` then defaults the bash workdir to the calling agent's `session.header.cwd` (an explicit model `workdir` still wins; a relative one resolves against the session cwd; with no session cwd the executor falls back to its own config / `process.cwd()`). So the server no longer has to be launched in the workspace — an editor can open any project folder, and N sessions over one connection can each target a different directory. (`additionalDirectories` is still rejected: widening the tool/filesystem scope beyond the single cwd is a separate sandbox concern.)
+Each session runs in its own workspace, recorded as the session's `SessionHeader.cwd`. On `session/new` the (absolute) request `cwd` becomes that header cwd; on `session/load` the resumed session keeps its PERSISTED header cwd and the request `cwd` must be absolute and equal to it, so the editor and bash executor agree on the workspace before an agent is constructed. A load whose persisted session has no absolute cwd is REJECTED up front via a metadata-only `list()` check, BEFORE resume constructs an agent (else bash would silently fall back to the server's launch dir, and a post-resume reject would leak the registered agent). `dsh-tool-bash` then defaults the bash workdir to the calling agent's `session.header.cwd` (an explicit model `workdir` still wins; a relative one resolves against the session cwd; with no session cwd the executor falls back to its own config / `process.cwd()`). So the server no longer has to be launched in the workspace — an editor can open any project folder, and N sessions over one connection can each target a different directory. (`additionalDirectories` is still rejected: widening the tool/filesystem scope beyond the single cwd is a separate sandbox concern.)
 
 ## Tool-call presentation
 
@@ -65,25 +65,25 @@ Teardown reaches quiescence: for EVERY live session settle any pending prompt as
 
 ## Known limitations (tracked TODOs)
 
-- **`TODO(rfc010-permission-gate)`** — the `tools/execute` permission gate (`session/request_permission`) is NOT implemented; tools run with the executor's full authority. The `agent→sessionId` reverse map is in place so the gate can route a permission request (which receives only `exec.agent`) back to its originating session. RFC 010/011 stay `proposed` until the gate (and per-session permission ownership) land.
+- **`TODO(rfc010-permission-gate)`** — the `tools/execute` permission gate (`session/request_permission`) is NOT implemented; tools run with the executor's full authority. The `agent→sessionId` reverse map is in place so the gate can route a permission request (which receives only `exec.agent`) back to its originating session. [ACP support](../../docs/rfc/proposed/2026-06-14-acp-agent-client-protocol.md) and [ACP multi-session](../../docs/rfc/proposed/2026-06-14-acp-multi-session.md) stay `proposed` until the gate (and per-session permission ownership) land.
 - **`TODO(rfc010-cancel-prestep)`** — `session/cancel` (and teardown/disconnect) is honest RPC/UI cancellation plus best-effort abort: a *running* step is aborted, but a turn that is queued-but-not-yet-started (the gap before `agent.abort()` has an `AbortController` to signal) may still run to completion. This same window means disposal/disconnect can return while one short queued turn per session still runs, and a prompt accepted right after a pre-step cancel can be batched into the cancelled turn (the loop merges queued messages into one turn). A loop-level queue-aware cancel will close this; the single-in-flight-per-session rule bounds the worst case to one extra prompt per session.
 - **`TODO(rfc010-agent-disposal)`** — the factory (`ctx.agents.create`/`resume`) returns no per-agent disposer, so teardown aborts+drains each agent but cannot individually unregister it; on a bare client disconnect (no host dispose) the idled agents linger in `ctx.agents` until the host context disposes. A reconnect spins up a fresh context, so this strands no work; a per-agent disposal seam is the follow-up.
 - **`additionalDirectories`** — rejected. A session operates in its single `cwd` (see Per-session cwd); widening the tool/filesystem scope to extra roots is a separate sandbox concern, not yet implemented.
 
 ## stdout is the protocol
 
-The JSON-RPC frames go on stdout, so this plugin MUST run in an example that loads **no stdout logger** (the console logger writes to stdout and would corrupt the frames). The guarantee is config-only — see `examples/acp-agent` (no console logger) and RFC 010 § Risks. A stderr exporter is fine for logging.
+The JSON-RPC frames go on stdout, so this plugin MUST run in an example that loads **no stdout logger** (the console logger writes to stdout and would corrupt the frames). The guarantee is config-only — see `examples/acp-agent` (no console logger) and [ACP support risks](../../docs/rfc/proposed/2026-06-14-acp-agent-client-protocol.md#risks). A stderr exporter is fine for logging.
 
 ## Running
 
-`pnpm run demo:acp` boots `examples/acp-agent` (needs `DEEPSEEK_API_KEY`). Point an ACP client at it; for Zed, add to `agent_servers`:
+`pnpm --dir /path/to/deepseek-harness run demo:acp` boots `examples/acp-agent` (needs `DEEPSEEK_API_KEY`). Point an ACP client at it; for Zed, add to `agent_servers`:
 
 ```json
 {
   "agent_servers": {
     "DeepSeek Harness": {
       "command": "pnpm",
-      "args": ["run", "demo:acp"]
+      "args": ["--dir", "/path/to/deepseek-harness", "run", "demo:acp"]
     }
   }
 }

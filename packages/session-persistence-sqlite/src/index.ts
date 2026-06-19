@@ -24,8 +24,10 @@ import z from 'schemastery'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
-import { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { isJsonValue, interruptedTurnClosers } from '@deepseek-ai/dsh-session'
+import {
+  SessionPersistence, assertSerializable, seedCoversPrefix,
+} from '@deepseek-ai/dsh-session-persistence'
+import { interruptedTurnClosers } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
 import {
   openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
@@ -54,30 +56,13 @@ interface SessionState {
   owner?: Session
 }
 
-/**
- * Whether a live session's `seed` reproduces a persisted `prefix` exactly (the
- * prefix is no longer than the seed and each event DEEP-equals the seed event
- * at the same index). Distinguishes a session legitimately continuing a
- * persisted log (HMR re-seeing its own session, or a resume) from a different
- * session that merely reuses the id. Mirrors the JSONL backend's check; both
- * sides are JSON-serializable by contract, so `JSON.stringify` is a sound
- * canonical form.
- */
-function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly SessionEvent[]): boolean {
-  return prefix.length <= seed.length
-    && prefix.every((e, i) => {
-      const s = seed[i]
-      return s !== undefined && JSON.stringify(s) === JSON.stringify(e)
-    })
-}
-
-/** Reject non-JSON-serializable `event.data`, naming the offending type. */
-function assertSerializable(events: readonly SessionEvent[]): void {
-  for (const event of events) {
-    if (!isJsonValue(event.data)) {
-      throw new Error(`event "${event.type}" carries non-JSON-serializable data (seq ${event.seq})`)
-    }
+async function settledErrors(promises: Iterable<Promise<unknown>>): Promise<unknown[]> {
+  const settled = await Promise.allSettled([...promises])
+  const errors: unknown[] = []
+  for (const result of settled) {
+    if (result.status === 'rejected') errors.push(result.reason)
   }
+  return errors
 }
 
 /**
@@ -276,6 +261,35 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     return { meta, events: balanced }
   }
 
+  private async adoptLiveStoredPrefix(session: Session, seed: readonly SessionEvent[]): Promise<void> {
+    await this.ready
+    const row = this.rowFor(session.header.id)
+    /* v8 ignore next -- caller checked row existence */
+    if (row === undefined) throw new Error(`session "${session.header.id}" not found`)
+    const meta = rowToMeta(row)
+    this.assertVersion(meta)
+
+    const rows = this.db
+      .prepare('SELECT seq, type, time, data FROM events WHERE session_id = ? ORDER BY seq')
+      .all(session.header.id) as unknown as EventRow[]
+    const { preserved, tornFrom } = scanRows(rows)
+    if (!seedCoversPrefix(seed, preserved)) {
+      throw new Error(`session "${session.header.id}" already has a persisted log that does not match this live session (id collision)`)
+    }
+
+    if (tornFrom !== undefined) {
+      this.db.prepare('DELETE FROM events WHERE session_id = ? AND seq >= ?').run(session.header.id, tornFrom)
+    }
+    this.states.set(session.header.id, {
+      meta: { ...meta },
+      cursor: preserved.length,
+      materialized: true,
+      owner: session,
+    })
+    const suffix = seed.slice(preserved.length)
+    if (suffix.length > 0) await this.appendCore(session.header.id, suffix)
+  }
+
   async list(): Promise<SessionMeta[]> {
     await this.ready
     // Every metadata row is a materialized session: the row is written only by
@@ -314,7 +328,7 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     await this.ready
     let state = this.states.get(id)
     if (state === undefined) state = await this.adopt(id)
-    const nextMeta: SessionMeta = { ...state.meta, ...summary }
+    const nextMeta: SessionMeta = { ...state.meta, ...summary, updatedAt: summary.updatedAt ?? Date.now() }
     // update's only durable effect is the summary fields; the event log is
     // untouched. If the row is not materialized yet (a lazy session updated
     // before its first append) there is nothing to write — keep the pending
@@ -410,11 +424,31 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     // Dispose must reach quiescence: await every init + final drain, then close
     // the database, BEFORE returning, so no write lands after teardown.
     ctx.effect(() => async () => {
-      await Promise.allSettled([...this.inits.values()])
-      await Promise.allSettled([...this.buffers.keys()].map(s => this.flush(s)))
-      await Promise.allSettled([...this.chains.values()])
-      await this.ready
-      this.db.close()
+      let disposeError: unknown
+      try {
+        const errors = [
+          ...await settledErrors(this.inits.values()),
+          ...await settledErrors([...this.buffers.keys()].map(s => this.flush(s))),
+          ...await settledErrors(this.chains.values()),
+        ]
+        if (errors.length > 0) {
+          throw new AggregateError(errors, 'session-persistence-sqlite dispose failed')
+        }
+      } catch (error: unknown) {
+        disposeError = error
+        throw error
+      } finally {
+        try {
+          await this.ready
+          this.db.close()
+        } catch (error: unknown) {
+          /* v8 ignore next -- open/close failure racing disposal is a defensive teardown edge */
+          if (disposeError === undefined) throw error
+          // Opening/closing the database can only add teardown context here; keep
+          // the already-captured init/flush/chain AggregateError as the primary
+          // disposal failure instead of masking it from callers.
+        }
+      }
     }, 'session-persistence-sqlite write path')
 
     // HMR: a hot reload does not replay session/created, so seed existing live
@@ -472,16 +506,9 @@ export class SessionPersistenceSqlite extends SessionPersistence {
 
     const row = this.rowFor(id)
     if (row !== undefined) {
-      const stored = this.eventsFor(id)
-      if (!seedCoversPrefix(seed, stored)) {
-        throw new Error(`session "${id}" already has a persisted log that does not match this live session (id collision)`)
-      }
-      await this.serialize(id, () => this.loadCore(id))
-      const adopted = this.states.get(id)
-      /* v8 ignore next -- loadCore always sets the state for the id */
-      if (adopted !== undefined) adopted.owner = session
-      const suffix = seed.slice(stored.length)
-      if (suffix.length > 0) await this.append(id, suffix)
+      // Adopt a LIVE prefix without crash-repairing an open turn as interrupted;
+      // HMR may still append the real completion from the live Session.
+      await this.serialize(id, () => this.adoptLiveStoredPrefix(session, seed))
       return
     }
 

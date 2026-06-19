@@ -12,6 +12,13 @@ function updatesFor(event: SessionEvent): SessionNotification['update'][] {
   return out
 }
 
+/** Collect the updates emitted by the live prompt stream (user echo suppressed). */
+function liveUpdatesFor(event: SessionEvent): SessionNotification['update'][] {
+  const out: SessionNotification['update'][] = []
+  streamSessionEventUpdate('s1', event, n => out.push(n.update), undefined, undefined, { includeUserMessages: false })
+  return out
+}
+
 /** A tiny tool registry stub exposing just `get` for {@link ToolPresenter}. */
 function registryOf(...tools: ToolDefinition[]): Pick<ToolRegistry, 'get'> {
   const map = new Map(tools.map(t => [t.name, t]))
@@ -97,6 +104,13 @@ describe('streamSessionEventUpdate', () => {
     }))).toEqual([{ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'hi' } }])
     // A user/message with no text-bearing blocks produces no chunk.
     expect(updatesFor(evt('user/message', { content: [], source: { kind: 'user' } }))).toEqual([])
+  })
+
+  it('can suppress user/message chunks for live prompt turns', () => {
+    expect(liveUpdatesFor(evt('user/message', {
+      content: [{ type: 'text', text: 'hi' }],
+      source: { kind: 'user' },
+    }))).toEqual([])
   })
 
   it('produces no update for boundary/other event types', () => {

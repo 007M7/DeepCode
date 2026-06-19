@@ -16,7 +16,7 @@ Pure Cordis event taxonomy. The loop's extension seams are typed events with del
 - **emit** (sync fire-and-forget) for notifications: turn/step boundaries, stream chunks, lifecycle, errors.
 - **parallel** (awaited) for the one durability checkpoint: `session/flush`.
 
-The event vocabulary lives in interface packages (dsh-agent declares the agent/* events); `@deepseek-ai/dsh-agent-loop` is the only concrete plugin and is itself swappable — nothing outside it may depend on it.
+The event vocabulary lives in interface packages (dsh-agent declares the agent/* events); `@deepseek-ai/dsh-agent-loop` is the only concrete loop plugin and is itself swappable — nothing outside it may depend on it.
 
 ## Consequences
 

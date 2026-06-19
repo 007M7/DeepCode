@@ -148,6 +148,44 @@ describe('PiAiAdapter against a mock server', () => {
     expect(server.requests[0]).toMatchObject({ stop: ['END'] })
   })
 
+  it('preserves per-tool strict exactly through onPayload', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await harness(server.url)
+    await ctx.llm.generate({
+      model: 'deepseek-v4-flash',
+      messages: [],
+      tools: [
+        { name: 'strict_true', description: 'true', parameters: {}, strict: true },
+        { name: 'strict_false', description: 'false', parameters: {}, strict: false },
+        { name: 'strict_omitted', description: 'omitted', parameters: {} },
+      ],
+    })
+
+    const request = server.requests[0] as { tools: { function: { name: string; strict?: boolean } }[] }
+    expect(request.tools.map(tool => [tool.function.name, tool.function.strict])).toEqual([
+      ['strict_true', true],
+      ['strict_false', false],
+      ['strict_omitted', undefined],
+    ])
+    expect('strict' in request.tools[2]!.function).toBe(false)
+  })
+
+  it('preserves raw replayed tool-call arguments in the provider payload', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await harness(server.url)
+    await ctx.llm.generate({
+      model: 'deepseek-v4-flash',
+      messages: [{
+        role: 'assistant',
+        content: [{ type: 'tool-call', id: CallId('broken'), name: 'f', arguments: '{broken' }],
+      }],
+    })
+
+    const request = server.requests[0] as { messages: { role: string; tool_calls?: { id: string; function: { arguments: string } }[] }[] }
+    const assistant = request.messages.find(message => message.role === 'assistant')
+    expect(assistant?.tool_calls?.[0]?.function.arguments).toBe('{broken')
+  })
+
   it('maps HTTP errors to error finish chunks (pi-ai in-stream style)', async () => {
     const server = await mockServer([{
       status: 401,
@@ -155,8 +193,19 @@ describe('PiAiAdapter against a mock server', () => {
     }])
     const ctx = await harness(server.url)
     const result = await ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [] })
-    expect(result.finish.kind).toBe('error')
+    expect(result.finish).toMatchObject({ kind: 'error', code: 'AUTH' })
     expect((result.finish as { message: string }).message).toMatch(/bad key|401/)
+  })
+
+  it.each([
+    [400, 'INVALID_REQUEST'],
+    [429, 'RATE_LIMIT'],
+    [500, 'SERVER'],
+  ] as const)('maps HTTP %s to stable error code %s', async (status, code) => {
+    const server = await mockServer([{ status, body: JSON.stringify({ error: { message: `provider ${status}` } }) }])
+    const ctx = await harness(server.url)
+    const result = await ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [] })
+    expect(result.finish).toMatchObject({ kind: 'error', code })
   })
 
   it('rejects prefill with UNSUPPORTED', async () => {
@@ -263,10 +312,9 @@ describe('review fixes', () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url) // no reasoning key at all
     await ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [] })
-    expect(server.requests[0]).toMatchObject({
-      thinking: { type: 'enabled' },
-      reasoning_effort: 'high',
-    })
+    const request = server.requests[0] as Record<string, unknown>
+    expect(request.thinking).toEqual({ type: 'enabled' })
+    expect('reasoning_effort' in request).toBe(false)
   })
 
   it('replays reasoning_content on assistant tool-call turns (passback rule)', async () => {

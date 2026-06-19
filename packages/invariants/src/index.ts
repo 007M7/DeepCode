@@ -57,6 +57,10 @@ interface SessionTrace {
   openTurn: number | null
   /** Open step within the current turn, or null between steps. */
   openStep: number | null
+  /** The next turn number expected in this session log. */
+  nextTurn: number
+  /** The next step number expected within the open turn. */
+  nextStep: number
   /**
    * Tool-call ids issued in the OPEN step awaiting a result. Cleared at
    * `step/end` — a result must arrive in the same step as its call.
@@ -114,7 +118,14 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       if (trace.openTurn !== null) {
         throw new InvariantError(`turn/start ${event.data.turn} while turn ${trace.openTurn} is still open`)
       }
+      // Current sessions replay full logs, so numbering starts at 1 and remains
+      // contiguous. If a future compaction/fork stores a partial log, it must
+      // seed `nextTurn` from retained metadata before this check runs.
+      if (event.data.turn !== trace.nextTurn) {
+        throw new InvariantError(`turn/start expected turn ${trace.nextTurn}, got ${event.data.turn}`)
+      }
       trace.openTurn = event.data.turn
+      trace.nextStep = 1
       break
     }
     case 'turn/end': {
@@ -125,6 +136,7 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
         throw new InvariantError(`turn/end ${event.data.turn} while step ${trace.openStep} is still open`)
       }
       trace.openTurn = null
+      trace.nextTurn += 1
       break
     }
     case 'step/start': {
@@ -133,6 +145,10 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       }
       if (trace.openStep !== null) {
         throw new InvariantError(`step/start ${event.data.step} while step ${trace.openStep} is still open`)
+      }
+      // Steps are checked under the same full-log assumption as turns above.
+      if (event.data.step !== trace.nextStep) {
+        throw new InvariantError(`step/start expected step ${trace.nextStep} in turn ${event.data.turn}, got ${event.data.step}`)
       }
       trace.openStep = event.data.step
       break
@@ -143,6 +159,7 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       // (a step that errored before its result) do not carry to the next step.
       trace.pendingCalls.clear()
       trace.openStep = null
+      trace.nextStep += 1
       break
     }
     case 'assistant/chunk': {
@@ -163,7 +180,8 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       // A result needs a prior matching call in the same step. (The converse
       // does NOT hold: a call may have no result — a throwing tools/execute
       // waterfall ends the step with no tool/result, which is legal.)
-      if (!trace.pendingCalls.delete(event.data.callId)) {
+      const syntheticInterrupted = event.data.isError && event.data.error?.code === 'interrupted'
+      if (!trace.pendingCalls.delete(event.data.callId) && !syntheticInterrupted) {
         throw new InvariantError(`tool/result for ${event.data.callId} with no prior tool/call in this step`)
       }
       break
@@ -216,7 +234,14 @@ export function apply(ctx: Context, config: Config = {}): void {
   // (re-)apply seeds the baseline, so a reload never produces a false positive.
   const lastStatus = new WeakMap<Agent, AgentStatus>()
 
-  const freshTrace = (): SessionTrace => ({ lastSeq: -1, openTurn: null, openStep: null, pendingCalls: new Set() })
+  const freshTrace = (): SessionTrace => ({
+    lastSeq: -1,
+    openTurn: null,
+    openStep: null,
+    nextTurn: 1,
+    nextStep: 1,
+    pendingCalls: new Set(),
+  })
 
   /** Build (or rebuild) a session's trace by replaying its whole log; freeze it. */
   const seedSession = (session: Session): SessionTrace => {

@@ -22,6 +22,7 @@
  */
 
 import { Context, Service } from 'cordis'
+import { isJsonValue } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
 
 // Re-export the metadata vocabulary so consumers import it from the seam.
@@ -30,6 +31,35 @@ export type { SessionHeader, SessionSummary, SessionMeta } from '@deepseek-ai/ds
 declare module 'cordis' {
   interface Context {
     sessionPersistence: SessionPersistence
+  }
+}
+
+/**
+ * Whether a live session's seed reproduces a persisted prefix exactly. Backends
+ * use this collision check to distinguish a legitimate resume/HMR rebind from a
+ * different live session reusing an existing session id.
+ *
+ * The comparison includes the full event payload, not just seq/type/time, so a
+ * mutated seed cannot be grafted onto a durable log with the same envelope.
+ */
+export function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly SessionEvent[]): boolean {
+  return prefix.length <= seed.length
+    && prefix.every((event, index) => {
+      const seedEvent = seed[index]
+      return seedEvent !== undefined && JSON.stringify(seedEvent) === JSON.stringify(event)
+    })
+}
+
+/**
+ * Reject non-JSON-serializable event data before a backend serializes a batch.
+ * Live session appends already enforce this; persistence append paths also
+ * accept replay/fork batches that may bypass a live session instance.
+ */
+export function assertSerializable(events: readonly SessionEvent[]): void {
+  for (const event of events) {
+    if (!isJsonValue(event.data)) {
+      throw new Error(`event "${event.type}" carries non-JSON-serializable data (seq ${event.seq})`)
+    }
   }
 }
 

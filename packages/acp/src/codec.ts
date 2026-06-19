@@ -59,8 +59,9 @@ export function turnEndToStopReason(reason: TurnEndReason): StopReason {
 /**
  * Translate a harness {@link ContentBlock} from a prompt into ACP content for
  * replay, or `undefined` for block kinds the bridge does not surface to the
- * client as message content. Today only `text` maps (text-only
- * `promptCapabilities`); `reasoning` is surfaced via `agent_thought_chunk`
+ * client as message content. Today only `text` maps; `resource_link` is an
+ * ACP prompt-only input rendered into text by {@link acpPromptToText};
+ * `reasoning` is surfaced via `agent_thought_chunk`
  * streaming rather than as a message block, and `tool-call`/`tool-result`/
  * `image` are handled by the tool-call update path or not advertised.
  */
@@ -70,34 +71,38 @@ export function harnessBlockToAcpContent(block: ContentBlock): AcpContentBlock |
       return { type: 'text', text: block.text }
     // reasoning → streamed as agent_thought_chunk, not a message block
     // tool-call / tool-result → the tool_call / tool_call_update path
-    // image → not advertised (text-only promptCapabilities)
+    // image → not advertised
     default:
       return undefined
   }
 }
 
 /**
- * Extract plain text from an ACP prompt's content blocks, concatenating every
- * `text` block. Non-text blocks are ignored here; the caller rejects a prompt
- * carrying image/audio per the advertised text-only capabilities BEFORE
- * calling this, so dropping them here only affects `resource`/`resource_link`
- * (which carry no inline text to forward in the MVP).
+ * Extract plain text from an ACP prompt's content blocks. Text blocks are
+ * concatenated verbatim; resource links become explicit textual references so
+ * baseline ACP clients can point at files without the bridge silently dropping
+ * that context.
  */
 export function acpPromptToText(prompt: readonly AcpContentBlock[]): string {
   return prompt
-    .filter((block): block is AcpContentBlock & { type: 'text'; text: string } => block.type === 'text')
-    .map(block => block.text)
+    .flatMap((block): string[] => {
+      switch (block.type) {
+        case 'text':
+          return [block.text]
+        case 'resource_link':
+          return [`\n[resource_link name=${JSON.stringify(block.name)} uri=${JSON.stringify(block.uri)}]\n`]
+        default:
+          return []
+      }
+    })
     .join('')
 }
 
 /**
- * Whether an ACP prompt contains any content the text-only bridge cannot
- * accept — i.e. ANY non-`text` block (image, audio, `resource`, `resource_link`,
- * …). The caller rejects such a prompt up front rather than silently dropping
- * the unsupported parts: a prompt like `[text, resource_link]` carries context
- * the model would otherwise never see, so running it text-only would be silent
- * data loss. When richer block kinds are supported, narrow this.
+ * Whether an ACP prompt contains content the bridge cannot accept. Baseline ACP
+ * requires `text` and `resource_link`; richer inline payloads (`resource`,
+ * image, audio, …) are rejected rather than silently dropped.
  */
 export function promptHasUnsupportedContent(prompt: readonly AcpContentBlock[]): boolean {
-  return prompt.some(block => block.type !== 'text')
+  return prompt.some(block => block.type !== 'text' && block.type !== 'resource_link')
 }

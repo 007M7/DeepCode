@@ -32,6 +32,17 @@ function waitForIdle(ctx: Context, agent: LoopAgent): Promise<void> {
   })
 }
 
+function waitForStatus(ctx: Context, agent: LoopAgent, expected: LoopAgent['status']): Promise<void> {
+  return new Promise((resolve) => {
+    const dispose = ctx.on('agent/status', (subject, status) => {
+      if (subject === agent && status === expected) {
+        dispose()
+        resolve()
+      }
+    })
+  })
+}
+
 function send(agent: LoopAgent, text: string) {
   agent.send([{ type: 'text', text }])
 }
@@ -265,6 +276,24 @@ describe('LoopAgent', () => {
     expect(agent.status).not.toBe('running')
   })
 
+  it('whenIdle() waits for queued work that has not flipped status yet', async () => {
+    const adapter = new MockAdapter(['hang'])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+
+    send(agent, 'queued')
+    let settled = false
+    const idle = agent.whenIdle().then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    await waitForStatus(ctx, agent, 'running')
+    agent.abort('done')
+    await idle
+    expect(settled).toBe(true)
+    expect(agent.status).toBe('idle')
+  })
+
   it('whenIdle() awaits the running→idle transition, ignoring other subjects/running events', async () => {
     const adapter = new MockAdapter([textResponse('ok'), textResponse('ok')])
     const ctx = await harness(adapter)
@@ -364,6 +393,42 @@ describe('LoopAgent', () => {
     // settled; whenIdle resolves and done is observed resolved.
     await agent.whenIdle()
     expect(doneResolved).toBe(true)
+  })
+
+  it('contains a throwing agent/status listener on the running transition', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    ctx.on('agent/status', (_subject, status) => {
+      if (status === 'running') throw new Error('bad running listener')
+    })
+
+    send(agent, 'go')
+    await agent.whenIdle()
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(agent.status).toBe('idle')
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent/status listener threw on running'))
+    warn.mockRestore()
+  })
+
+  it('contains a throwing agent/status listener on the idle transition', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    ctx.on('agent/status', (_subject, status) => {
+      if (status === 'idle') throw new Error('bad idle listener')
+    })
+
+    send(agent, 'go')
+    await agent.whenIdle()
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(agent.status).toBe('idle')
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent/status listener threw on idle'))
+    warn.mockRestore()
   })
 
   it('abort() resolves reason to "aborted" when no reason provided', async () => {

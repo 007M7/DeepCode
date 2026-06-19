@@ -13,6 +13,6 @@ Naming notes:
 - A *service* `src/index.ts` exports the service class as `export default` + all public types; a *function/namespace plugin* `src/index.ts` exports `name`/`inject`/`Config`/`apply` as named exports and NO default (see the plugin-export-shape rule above)
 - `src/types.ts` contain only types — no runtime code
 - Tests live at package level under `tests/`, not `src/__tests__/`
-- A package's README and module/JSDoc comments are part of the change: when you alter behavior (config keys, defaults, error codes, wire fields), update them in the same commit. CI runs `pnpm run doc-sync`, which typechecks fenced `ts` blocks in `packages/*/README.md` and verifies the event-taxonomy table — but it does NOT cover this file or prose drift (config keys, defaults, error codes), so those stay on the author.
+- A package's README and module/JSDoc comments are part of the change: when you alter behavior (config keys, defaults, error codes, wire fields), update them in the same commit. CI runs `pnpm run doc-sync`, which typechecks fenced `ts` blocks in `packages/*/README.md`, verifies the event-taxonomy table, and checks markdown wrapping across this file too — but it does NOT catch prose drift (config keys, defaults, error codes), so those stay on the author.
 
 Read the per-package README.md for package-specific details: service API, events, extension points, TODOs.
