@@ -1,0 +1,192 @@
+{"type":"session","version":1,"id":"06bd4899-ec95-43e3-82ca-42c719d8b19b","createdAt":1781834683850,"cwd":"/tmp/acp-snap-cwd-Jsq2M2"}
+{"type":"turn/start","seq":0,"time":1781834683853,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
+{"type":"user/message","seq":1,"time":1781834683854,"data":{"content":[{"type":"text","text":"A file named greeting.txt in the current directory contains one word. Use the bash tool to append a second line containing the word WORLD to it (so it has two lines), then read the file back with `cat greeting.txt` to confirm, and reply with the single word DONE. Use a single bash call per action."}],"source":{"kind":"user"}}}
+{"type":"step/start","seq":2,"time":1781834683854,"data":{"turn":1,"step":1}}
+{"type":"assistant/chunk","seq":3,"time":1781834684260,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
+{"type":"assistant/chunk","seq":4,"time":1781834684260,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"The"}}}
+{"type":"assistant/chunk","seq":5,"time":1781834684370,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" user"}}}
+{"type":"assistant/chunk","seq":6,"time":1781834684399,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" wants"}}}
+{"type":"assistant/chunk","seq":7,"time":1781834684399,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" me"}}}
+{"type":"assistant/chunk","seq":8,"time":1781834684400,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" to"}}}
+{"type":"assistant/chunk","seq":9,"time":1781834684400,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":":\n"}}}
+{"type":"assistant/chunk","seq":10,"time":1781834684400,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"1"}}}
+{"type":"assistant/chunk","seq":11,"time":1781834684400,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"assistant/chunk","seq":12,"time":1781834684428,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" Append"}}}
+{"type":"assistant/chunk","seq":13,"time":1781834684429,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" a"}}}
+{"type":"assistant/chunk","seq":14,"time":1781834684430,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" second"}}}
+{"type":"assistant/chunk","seq":15,"time":1781834684430,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" line"}}}
+{"type":"assistant/chunk","seq":16,"time":1781834684430,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" containing"}}}
+{"type":"assistant/chunk","seq":17,"time":1781834684458,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" \""}}}
+{"type":"assistant/chunk","seq":18,"time":1781834684458,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"WOR"}}}
+{"type":"assistant/chunk","seq":19,"time":1781834684458,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"LD"}}}
+{"type":"assistant/chunk","seq":20,"time":1781834684459,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"\""}}}
+{"type":"assistant/chunk","seq":21,"time":1781834684459,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" to"}}}
+{"type":"assistant/chunk","seq":22,"time":1781834684459,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" greeting"}}}
+{"type":"assistant/chunk","seq":23,"time":1781834684486,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":".txt"}}}
+{"type":"assistant/chunk","seq":24,"time":1781834684487,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"\n"}}}
+{"type":"assistant/chunk","seq":25,"time":1781834684487,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"2"}}}
+{"type":"assistant/chunk","seq":26,"time":1781834684487,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"assistant/chunk","seq":27,"time":1781834684487,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" Read"}}}
+{"type":"assistant/chunk","seq":28,"time":1781834684516,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" the"}}}
+{"type":"assistant/chunk","seq":29,"time":1781834684516,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" file"}}}
+{"type":"assistant/chunk","seq":30,"time":1781834684516,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" back"}}}
+{"type":"assistant/chunk","seq":31,"time":1781834684545,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" with"}}}
+{"type":"assistant/chunk","seq":32,"time":1781834684545,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" `"}}}
+{"type":"assistant/chunk","seq":33,"time":1781834684545,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"cat"}}}
+{"type":"assistant/chunk","seq":34,"time":1781834684545,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" greeting"}}}
+{"type":"assistant/chunk","seq":35,"time":1781834684574,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":".txt"}}}
+{"type":"assistant/chunk","seq":36,"time":1781834684574,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"`"}}}
+{"type":"assistant/chunk","seq":37,"time":1781834684574,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" to"}}}
+{"type":"assistant/chunk","seq":38,"time":1781834684574,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" confirm"}}}
+{"type":"assistant/chunk","seq":39,"time":1781834684603,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"\n"}}}
+{"type":"assistant/chunk","seq":40,"time":1781834684604,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"3"}}}
+{"type":"assistant/chunk","seq":41,"time":1781834684604,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"assistant/chunk","seq":42,"time":1781834684604,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" Reply"}}}
+{"type":"assistant/chunk","seq":43,"time":1781834684604,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" with"}}}
+{"type":"assistant/chunk","seq":44,"time":1781834684632,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" \""}}}
+{"type":"assistant/chunk","seq":45,"time":1781834684633,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"D"}}}
+{"type":"assistant/chunk","seq":46,"time":1781834684633,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"ONE"}}}
+{"type":"assistant/chunk","seq":47,"time":1781834684662,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"\"\n\n"}}}
+{"type":"assistant/chunk","seq":48,"time":1781834684663,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"But"}}}
+{"type":"assistant/chunk","seq":49,"time":1781834684663,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" they"}}}
+{"type":"assistant/chunk","seq":50,"time":1781834684663,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" want"}}}
+{"type":"assistant/chunk","seq":51,"time":1781834684695,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" \""}}}
+{"type":"assistant/chunk","seq":52,"time":1781834684695,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"a"}}}
+{"type":"assistant/chunk","seq":53,"time":1781834684724,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" single"}}}
+{"type":"assistant/chunk","seq":54,"time":1781834684724,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" bash"}}}
+{"type":"assistant/chunk","seq":55,"time":1781834684724,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" call"}}}
+{"type":"assistant/chunk","seq":56,"time":1781834684724,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" per"}}}
+{"type":"assistant/chunk","seq":57,"time":1781834684725,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" action"}}}
+{"type":"assistant/chunk","seq":58,"time":1781834684725,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"\""}}}
+{"type":"assistant/chunk","seq":59,"time":1781834684753,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" -"}}}
+{"type":"assistant/chunk","seq":60,"time":1781834684782,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" so"}}}
+{"type":"assistant/chunk","seq":61,"time":1781834684783,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" I"}}}
+{"type":"assistant/chunk","seq":62,"time":1781834684783,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"'ll"}}}
+{"type":"assistant/chunk","seq":63,"time":1781834684811,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" do"}}}
+{"type":"assistant/chunk","seq":64,"time":1781834684840,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" two"}}}
+{"type":"assistant/chunk","seq":65,"time":1781834684873,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" separate"}}}
+{"type":"assistant/chunk","seq":66,"time":1781834684873,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" bash"}}}
+{"type":"assistant/chunk","seq":67,"time":1781834684873,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" calls"}}}
+{"type":"assistant/chunk","seq":68,"time":1781834684902,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":":"}}}
+{"type":"assistant/chunk","seq":69,"time":1781834684903,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" one"}}}
+{"type":"assistant/chunk","seq":70,"time":1781834684934,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" for"}}}
+{"type":"assistant/chunk","seq":71,"time":1781834684935,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" app"}}}
+{"type":"assistant/chunk","seq":72,"time":1781834684966,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"ending"}}}
+{"type":"assistant/chunk","seq":73,"time":1781834684966,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":","}}}
+{"type":"assistant/chunk","seq":74,"time":1781834684967,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" one"}}}
+{"type":"assistant/chunk","seq":75,"time":1781834684967,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" for"}}}
+{"type":"assistant/chunk","seq":76,"time":1781834684967,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" reading"}}}
+{"type":"assistant/chunk","seq":77,"time":1781834684967,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"assistant/chunk","seq":78,"time":1781834685092,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":1,"blockType":"tool-call"}}}
+{"type":"assistant/chunk","seq":79,"time":1781834685092,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":""}}}
+{"type":"assistant/chunk","seq":80,"time":1781834685120,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"{"}}}
+{"type":"assistant/chunk","seq":81,"time":1781834685120,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":82,"time":1781834685120,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"command"}}}
+{"type":"assistant/chunk","seq":83,"time":1781834685120,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":84,"time":1781834685120,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":": "}}}
+{"type":"assistant/chunk","seq":85,"time":1781834685149,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":86,"time":1781834685149,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"echo"}}}
+{"type":"assistant/chunk","seq":87,"time":1781834685149,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":" '"}}}
+{"type":"assistant/chunk","seq":88,"time":1781834685149,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"WOR"}}}
+{"type":"assistant/chunk","seq":89,"time":1781834685149,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"LD"}}}
+{"type":"assistant/chunk","seq":90,"time":1781834685149,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"'"}}}
+{"type":"assistant/chunk","seq":91,"time":1781834685178,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":" >>"}}}
+{"type":"assistant/chunk","seq":92,"time":1781834685179,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":" greeting"}}}
+{"type":"assistant/chunk","seq":93,"time":1781834685179,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":".txt"}}}
+{"type":"assistant/chunk","seq":94,"time":1781834685179,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":95,"time":1781834685207,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":", "}}}
+{"type":"assistant/chunk","seq":96,"time":1781834685207,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":97,"time":1781834685236,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"description"}}}
+{"type":"assistant/chunk","seq":98,"time":1781834685237,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":99,"time":1781834685237,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":": "}}}
+{"type":"assistant/chunk","seq":100,"time":1781834685237,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":101,"time":1781834685265,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"App"}}}
+{"type":"assistant/chunk","seq":102,"time":1781834685266,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"end"}}}
+{"type":"assistant/chunk","seq":103,"time":1781834685266,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":" WORLD"}}}
+{"type":"assistant/chunk","seq":104,"time":1781834685266,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":" line"}}}
+{"type":"assistant/chunk","seq":105,"time":1781834685309,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":" to"}}}
+{"type":"assistant/chunk","seq":106,"time":1781834685310,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":" greeting"}}}
+{"type":"assistant/chunk","seq":107,"time":1781834685310,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":".txt"}}}
+{"type":"assistant/chunk","seq":108,"time":1781834685310,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":109,"time":1781834685326,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","argumentsDelta":"}"}}}
+{"type":"assistant/chunk","seq":110,"time":1781834685385,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"reasoning","text":"The user wants me to:\n1. Append a second line containing \"WORLD\" to greeting.txt\n2. Read the file back with `cat greeting.txt` to confirm\n3. Reply with \"DONE\"\n\nBut they want \"a single bash call per action\" - so I'll do two separate bash calls: one for appending, one for reading."}}}}
+{"type":"assistant/chunk","seq":111,"time":1781834685385,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":1,"block":{"type":"tool-call","id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","arguments":"{\"command\": \"echo 'WORLD' >> greeting.txt\", \"description\": \"Append WORLD line to greeting.txt\"}"}}}}
+{"type":"assistant/chunk","seq":112,"time":1781834685386,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":161,"outputTokens":146,"cacheReadTokens":768,"reasoningTokens":74}}}}
+{"type":"assistant/chunk","seq":113,"time":1781834685386,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"tool-calls"}}}}
+{"type":"assistant/message","seq":114,"time":1781834685387,"data":{"turn":1,"step":1,"content":[{"type":"reasoning","text":"The user wants me to:\n1. Append a second line containing \"WORLD\" to greeting.txt\n2. Read the file back with `cat greeting.txt` to confirm\n3. Reply with \"DONE\"\n\nBut they want \"a single bash call per action\" - so I'll do two separate bash calls: one for appending, one for reading."},{"type":"tool-call","id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","arguments":"{\"command\": \"echo 'WORLD' >> greeting.txt\", \"description\": \"Append WORLD line to greeting.txt\"}"}]}}
+{"type":"usage","seq":115,"time":1781834685387,"data":{"turn":1,"step":1,"usage":{"inputTokens":161,"outputTokens":146,"cacheReadTokens":768,"reasoningTokens":74}}}
+{"type":"tool/call","seq":116,"time":1781834685387,"data":{"turn":1,"step":1,"callId":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","arguments":"{\"command\": \"echo 'WORLD' >> greeting.txt\", \"description\": \"Append WORLD line to greeting.txt\"}"}}
+{"type":"tool/result","seq":117,"time":1781834685400,"data":{"turn":1,"step":1,"callId":"call_00_r3tvHl3fD0tmV0GKQt032338","content":[{"type":"text","text":"(no output)"}],"isError":false}}
+{"type":"step/end","seq":118,"time":1781834685400,"data":{"turn":1,"step":1}}
+{"type":"step/start","seq":119,"time":1781834685400,"data":{"turn":1,"step":2}}
+{"type":"assistant/chunk","seq":120,"time":1781834686163,"data":{"turn":1,"step":2,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
+{"type":"assistant/chunk","seq":121,"time":1781834686163,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":"App"}}}
+{"type":"assistant/chunk","seq":122,"time":1781834686261,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":"ended"}}}
+{"type":"assistant/chunk","seq":123,"time":1781834686290,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" successfully"}}}
+{"type":"assistant/chunk","seq":124,"time":1781834686318,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"assistant/chunk","seq":125,"time":1781834686319,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" Now"}}}
+{"type":"assistant/chunk","seq":126,"time":1781834686319,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" read"}}}
+{"type":"assistant/chunk","seq":127,"time":1781834686352,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" the"}}}
+{"type":"assistant/chunk","seq":128,"time":1781834686352,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" file"}}}
+{"type":"assistant/chunk","seq":129,"time":1781834686381,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"assistant/chunk","seq":130,"time":1781834686469,"data":{"turn":1,"step":2,"chunk":{"type":"block-start","index":1,"blockType":"tool-call"}}}
+{"type":"assistant/chunk","seq":131,"time":1781834686469,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":""}}}
+{"type":"assistant/chunk","seq":132,"time":1781834686497,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"{"}}}
+{"type":"assistant/chunk","seq":133,"time":1781834686498,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":134,"time":1781834686498,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"command"}}}
+{"type":"assistant/chunk","seq":135,"time":1781834686498,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":136,"time":1781834686498,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":": "}}}
+{"type":"assistant/chunk","seq":137,"time":1781834686530,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":138,"time":1781834686530,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"cat"}}}
+{"type":"assistant/chunk","seq":139,"time":1781834686530,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":" greeting"}}}
+{"type":"assistant/chunk","seq":140,"time":1781834686530,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":".txt"}}}
+{"type":"assistant/chunk","seq":141,"time":1781834686559,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":142,"time":1781834686591,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":", "}}}
+{"type":"assistant/chunk","seq":143,"time":1781834686591,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":144,"time":1781834686591,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"description"}}}
+{"type":"assistant/chunk","seq":145,"time":1781834686591,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":146,"time":1781834686591,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":": "}}}
+{"type":"assistant/chunk","seq":147,"time":1781834686623,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":148,"time":1781834686623,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"Read"}}}
+{"type":"assistant/chunk","seq":149,"time":1781834686623,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":" greeting"}}}
+{"type":"assistant/chunk","seq":150,"time":1781834686655,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":".txt"}}}
+{"type":"assistant/chunk","seq":151,"time":1781834686655,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":" to"}}}
+{"type":"assistant/chunk","seq":152,"time":1781834686684,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":" confirm"}}}
+{"type":"assistant/chunk","seq":153,"time":1781834686684,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":154,"time":1781834686713,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"}"}}}
+{"type":"assistant/chunk","seq":155,"time":1781834686745,"data":{"turn":1,"step":2,"chunk":{"type":"block-end","index":0,"block":{"type":"reasoning","text":"Appended successfully. Now read the file."}}}}
+{"type":"assistant/chunk","seq":156,"time":1781834686745,"data":{"turn":1,"step":2,"chunk":{"type":"block-end","index":1,"block":{"type":"tool-call","id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","arguments":"{\"command\": \"cat greeting.txt\", \"description\": \"Read greeting.txt to confirm\"}"}}}}
+{"type":"assistant/chunk","seq":157,"time":1781834686745,"data":{"turn":1,"step":2,"chunk":{"type":"usage","usage":{"inputTokens":193,"outputTokens":74,"cacheReadTokens":896,"reasoningTokens":9}}}}
+{"type":"assistant/chunk","seq":158,"time":1781834686745,"data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"tool-calls"}}}}
+{"type":"assistant/message","seq":159,"time":1781834686745,"data":{"turn":1,"step":2,"content":[{"type":"reasoning","text":"Appended successfully. Now read the file."},{"type":"tool-call","id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","arguments":"{\"command\": \"cat greeting.txt\", \"description\": \"Read greeting.txt to confirm\"}"}]}}
+{"type":"usage","seq":160,"time":1781834686745,"data":{"turn":1,"step":2,"usage":{"inputTokens":193,"outputTokens":74,"cacheReadTokens":896,"reasoningTokens":9}}}
+{"type":"tool/call","seq":161,"time":1781834686745,"data":{"turn":1,"step":2,"callId":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","arguments":"{\"command\": \"cat greeting.txt\", \"description\": \"Read greeting.txt to confirm\"}"}}
+{"type":"tool/result","seq":162,"time":1781834686758,"data":{"turn":1,"step":2,"callId":"call_00_SkCP8dgN8aCbLiZDcYa68316","content":[{"type":"text","text":"hello\nWORLD\n"}],"isError":false}}
+{"type":"step/end","seq":163,"time":1781834686758,"data":{"turn":1,"step":2}}
+{"type":"step/start","seq":164,"time":1781834686758,"data":{"turn":1,"step":3}}
+{"type":"assistant/chunk","seq":165,"time":1781834687255,"data":{"turn":1,"step":3,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
+{"type":"assistant/chunk","seq":166,"time":1781834687255,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":"The"}}}
+{"type":"assistant/chunk","seq":167,"time":1781834687336,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" file"}}}
+{"type":"assistant/chunk","seq":168,"time":1781834687365,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" now"}}}
+{"type":"assistant/chunk","seq":169,"time":1781834687365,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" has"}}}
+{"type":"assistant/chunk","seq":170,"time":1781834687365,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" two"}}}
+{"type":"assistant/chunk","seq":171,"time":1781834687366,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" lines"}}}
+{"type":"assistant/chunk","seq":172,"time":1781834687396,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"assistant/chunk","seq":173,"time":1781834687425,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" I"}}}
+{"type":"assistant/chunk","seq":174,"time":1781834687426,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":"'ll"}}}
+{"type":"assistant/chunk","seq":175,"time":1781834687455,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" reply"}}}
+{"type":"assistant/chunk","seq":176,"time":1781834687455,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" with"}}}
+{"type":"assistant/chunk","seq":177,"time":1781834687455,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" D"}}}
+{"type":"assistant/chunk","seq":178,"time":1781834687455,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":"ONE"}}}
+{"type":"assistant/chunk","seq":179,"time":1781834687455,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"assistant/chunk","seq":180,"time":1781834687484,"data":{"turn":1,"step":3,"chunk":{"type":"block-start","index":1,"blockType":"text"}}}
+{"type":"assistant/chunk","seq":181,"time":1781834687484,"data":{"turn":1,"step":3,"chunk":{"type":"text-delta","index":1,"text":"D"}}}
+{"type":"assistant/chunk","seq":182,"time":1781834687484,"data":{"turn":1,"step":3,"chunk":{"type":"text-delta","index":1,"text":"ONE"}}}
+{"type":"assistant/chunk","seq":183,"time":1781834687488,"data":{"turn":1,"step":3,"chunk":{"type":"block-end","index":0,"block":{"type":"reasoning","text":"The file now has two lines. I'll reply with DONE."}}}}
+{"type":"assistant/chunk","seq":184,"time":1781834687488,"data":{"turn":1,"step":3,"chunk":{"type":"block-end","index":1,"block":{"type":"text","text":"DONE"}}}}
+{"type":"assistant/chunk","seq":185,"time":1781834687488,"data":{"turn":1,"step":3,"chunk":{"type":"usage","usage":{"inputTokens":156,"outputTokens":17,"cacheReadTokens":1024,"reasoningTokens":14}}}}
+{"type":"assistant/chunk","seq":186,"time":1781834687488,"data":{"turn":1,"step":3,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
+{"type":"assistant/message","seq":187,"time":1781834687489,"data":{"turn":1,"step":3,"content":[{"type":"reasoning","text":"The file now has two lines. I'll reply with DONE."},{"type":"text","text":"DONE"}]}}
+{"type":"usage","seq":188,"time":1781834687489,"data":{"turn":1,"step":3,"usage":{"inputTokens":156,"outputTokens":17,"cacheReadTokens":1024,"reasoningTokens":14}}}
+{"type":"step/end","seq":189,"time":1781834687489,"data":{"turn":1,"step":3}}
+{"type":"turn/end","seq":190,"time":1781834687489,"data":{"turn":1,"reason":{"kind":"completed"}}}

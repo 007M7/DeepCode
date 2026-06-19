@@ -1,0 +1,66 @@
+{"type":"session","version":1,"id":"{{sessionId}}","createdAt":0,"cwd":"{{cwd}}"}
+{"type":"turn/start","seq":0,"time":0,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
+{"type":"user/message","seq":1,"time":0,"data":{"content":[{"type":"text","text":"Reply with exactly the word: ONE. No tools."}],"source":{"kind":"user"}}}
+{"type":"step/start","seq":2,"time":0,"data":{"turn":1,"step":1}}
+{"type":"assistant/chunk","seq":3,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
+{"type":"assistant/chunk","seq":4,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"The"}}}
+{"type":"assistant/chunk","seq":5,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" user"}}}
+{"type":"assistant/chunk","seq":6,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" wants"}}}
+{"type":"assistant/chunk","seq":7,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" me"}}}
+{"type":"assistant/chunk","seq":8,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" to"}}}
+{"type":"assistant/chunk","seq":9,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" reply"}}}
+{"type":"assistant/chunk","seq":10,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" with"}}}
+{"type":"assistant/chunk","seq":11,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" exactly"}}}
+{"type":"assistant/chunk","seq":12,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" the"}}}
+{"type":"assistant/chunk","seq":13,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" word"}}}
+{"type":"assistant/chunk","seq":14,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" \""}}}
+{"type":"assistant/chunk","seq":15,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"ONE"}}}
+{"type":"assistant/chunk","seq":16,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"\""}}}
+{"type":"assistant/chunk","seq":17,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" and"}}}
+{"type":"assistant/chunk","seq":18,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" use"}}}
+{"type":"assistant/chunk","seq":19,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" no"}}}
+{"type":"assistant/chunk","seq":20,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" tools"}}}
+{"type":"assistant/chunk","seq":21,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"assistant/chunk","seq":22,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":1,"blockType":"text"}}}
+{"type":"assistant/chunk","seq":23,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"text-delta","index":1,"text":"ONE"}}}
+{"type":"assistant/chunk","seq":24,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"reasoning","text":"The user wants me to reply with exactly the word \"ONE\" and use no tools."}}}}
+{"type":"assistant/chunk","seq":25,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":1,"block":{"type":"text","text":"ONE"}}}}
+{"type":"assistant/chunk","seq":26,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":106,"outputTokens":20,"cacheReadTokens":768,"reasoningTokens":18}}}}
+{"type":"assistant/chunk","seq":27,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
+{"type":"assistant/message","seq":28,"time":0,"data":{"turn":1,"step":1,"content":[{"type":"reasoning","text":"The user wants me to reply with exactly the word \"ONE\" and use no tools."},{"type":"text","text":"ONE"}]}}
+{"type":"usage","seq":29,"time":0,"data":{"turn":1,"step":1,"usage":{"inputTokens":106,"outputTokens":20,"cacheReadTokens":768,"reasoningTokens":18}}}
+{"type":"step/end","seq":30,"time":0,"data":{"turn":1,"step":1}}
+{"type":"turn/end","seq":31,"time":0,"data":{"turn":1,"reason":{"kind":"completed"}}}
+{"type":"turn/start","seq":32,"time":0,"data":{"turn":2,"trigger":{"kind":"message","source":{"kind":"user"}}}}
+{"type":"user/message","seq":33,"time":0,"data":{"content":[{"type":"text","text":"Reply with exactly the word: TWO. No tools."}],"source":{"kind":"user"}}}
+{"type":"step/start","seq":34,"time":0,"data":{"turn":2,"step":1}}
+{"type":"assistant/chunk","seq":35,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
+{"type":"assistant/chunk","seq":36,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"The"}}}
+{"type":"assistant/chunk","seq":37,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" user"}}}
+{"type":"assistant/chunk","seq":38,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" wants"}}}
+{"type":"assistant/chunk","seq":39,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" me"}}}
+{"type":"assistant/chunk","seq":40,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" to"}}}
+{"type":"assistant/chunk","seq":41,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" reply"}}}
+{"type":"assistant/chunk","seq":42,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" with"}}}
+{"type":"assistant/chunk","seq":43,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" exactly"}}}
+{"type":"assistant/chunk","seq":44,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" the"}}}
+{"type":"assistant/chunk","seq":45,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" word"}}}
+{"type":"assistant/chunk","seq":46,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" \""}}}
+{"type":"assistant/chunk","seq":47,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"T"}}}
+{"type":"assistant/chunk","seq":48,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"WO"}}}
+{"type":"assistant/chunk","seq":49,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"\""}}}
+{"type":"assistant/chunk","seq":50,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" and"}}}
+{"type":"assistant/chunk","seq":51,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" no"}}}
+{"type":"assistant/chunk","seq":52,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" tools"}}}
+{"type":"assistant/chunk","seq":53,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"assistant/chunk","seq":54,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"block-start","index":1,"blockType":"text"}}}
+{"type":"assistant/chunk","seq":55,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"text-delta","index":1,"text":"T"}}}
+{"type":"assistant/chunk","seq":56,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"text-delta","index":1,"text":"WO"}}}
+{"type":"assistant/chunk","seq":57,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"reasoning","text":"The user wants me to reply with exactly the word \"TWO\" and no tools."}}}}
+{"type":"assistant/chunk","seq":58,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"block-end","index":1,"block":{"type":"text","text":"TWO"}}}}
+{"type":"assistant/chunk","seq":59,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":122,"outputTokens":21,"cacheReadTokens":768,"reasoningTokens":18}}}}
+{"type":"assistant/chunk","seq":60,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
+{"type":"assistant/message","seq":61,"time":0,"data":{"turn":2,"step":1,"content":[{"type":"reasoning","text":"The user wants me to reply with exactly the word \"TWO\" and no tools."},{"type":"text","text":"TWO"}]}}
+{"type":"usage","seq":62,"time":0,"data":{"turn":2,"step":1,"usage":{"inputTokens":122,"outputTokens":21,"cacheReadTokens":768,"reasoningTokens":18}}}
+{"type":"step/end","seq":63,"time":0,"data":{"turn":2,"step":1}}
+{"type":"turn/end","seq":64,"time":0,"data":{"turn":2,"reason":{"kind":"completed"}}}

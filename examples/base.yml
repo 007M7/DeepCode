@@ -1,7 +1,12 @@
 # Shared provider/tool core for the example agents, loaded via a nested
-# @cordisjs/plugin-include from each example's cordis.yml. Contains everything
-# the model and tools need; each example adds its own infra (logger/timer/hmr),
-# its agent-loop config (the examples disagree — see below), and its UI plugin.
+# @cordisjs/plugin-include from each example's cordis.yml. This is
+# base-core.yml (the providerless core: llm, sessions, system-prompt, tools,
+# agents, invariants, bash-local, tool-bash) PLUS the real llm-deepseek adapter.
+#
+# The providerless core lives in base-core.yml so the keyless snapshot-replay
+# config (acp-agent/cordis.snapshot.yml) can reuse it with llm-replay in place
+# of the adapter — it can't reuse THIS file, because llm-deepseek's apply()
+# throws without DEEPSEEK_API_KEY.
 #
 # Deliberately EXCLUDES:
 #  - the console logger: it writes to stdout, which the acp-agent reserves for
@@ -12,28 +17,13 @@
 #    pre-create NONE (ACP session/new creates agents on demand). So each example
 #    declares agent-loop with its own `agents` list.
 #
-# Plugin entries here use package names (resolved from node_modules), so they
-# are insensitive to the baseUrl reset that plugin-include performs per file.
 # Requires DEEPSEEK_API_KEY (and optionally DEEPSEEK_BASE_URL) in the env.
 
-- id: llm
-  name: '@deepseek-ai/dsh-llm'
-
-- id: sessions
-  name: '@deepseek-ai/dsh-session'
-
-- id: system-prompt
-  name: '@deepseek-ai/dsh-system-prompt'
-
-- id: tools
-  name: '@deepseek-ai/dsh-tools'
-
-- id: agents
-  name: '@deepseek-ai/dsh-agent'
-
-# Dev-mode event-contract assertions + session-log freeze (off in prod).
-- id: invariants
-  name: '@deepseek-ai/dsh-invariants'
+# The providerless core (resolved relative to THIS file's directory).
+- id: base-core
+  name: '@cordisjs/plugin-include'
+  config:
+    path: './base-core.yml'
 
 # The DeepSeek adapter. Swap to '@deepseek-ai/dsh-llm-pi-ai' for the pi-ai-backed
 # twin (same config shape; `reasoning: high` replaces thinking/reasoningEffort).
@@ -45,12 +35,3 @@
     models:
       - deepseek-v4-flash
       - deepseek-v4-pro
-
-# Bash execution: the local executor implementation + the tool schemas.
-- id: bash
-  name: '@deepseek-ai/dsh-bash-local'
-  config:
-    timeoutMs: 60000
-
-- id: tool-bash
-  name: '@deepseek-ai/dsh-tool-bash'
