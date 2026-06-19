@@ -1,76 +1,132 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { SessionId, isJsonValue, interruptedTurnClosers } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
-import { SessionPersistence, assertSerializable, seedCoversPrefix } from '../src/index.ts'
+import SessionStore, { SessionId, isJsonValue } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
+import {
+  SessionPersistence, PersistenceCoordinator, assertSerializable, seedCoversPrefix,
+  type PersistenceBackend, type StoredPrefix,
+} from '../src/index.ts'
 import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
+import { runCoordinatorContract, type CoordinatorFixture } from './coordinator-contract.ts'
+
+/** The durable store shape: materialized sessions only (no lazy entries). */
+type MemoryStore = Map<string, { meta: SessionHeader; events: SessionEvent[] }>
+
+/** Optional plugin config: an EXTERNAL store shared across backend instances. */
+interface MemoryConfig { store?: MemoryStore }
 
 /**
- * A minimal in-memory {@link SessionPersistence} used to (a) cover the abstract
- * base's constructor + service registration and (b) validate the reusable
- * contract suite itself. The real durable backend is
- * `@deepseek-ai/dsh-session-persistence-jsonl`.
+ * A trivial in-memory {@link SessionPersistence} that composes a
+ * {@link PersistenceCoordinator} over a dependency-free `Map`-backed
+ * {@link PersistenceBackend}. It is BOTH the coordinator's reference vehicle
+ * (the simplest possible storage — a `Map<id, {meta, events}>` with no torn
+ * tails, so `tornMarker` is always undefined) and the cover for the abstract
+ * base's constructor + service registration. The real durable backends are
+ * `@deepseek-ai/dsh-session-persistence-jsonl` / `-sqlite`.
+ *
+ * The store can be supplied via config so two backend instances share one Map —
+ * the in-RAM analogue of two backends over the same file/db, which the
+ * coordinator orchestration suite's HMR/reload tests need (a fresh instance with
+ * an empty in-memory states map adopting an already-materialized session).
  */
-class MemoryPersistence extends SessionPersistence {
-  private store = new Map<string, { meta: SessionHeader; events: SessionEvent[] }>()
-  private pending = new Map<string, SessionHeader>()
+class MemoryPersistence extends SessionPersistence implements PersistenceBackend<never> {
+  static inject = ['sessions']
 
-  async create(m: SessionHeader): Promise<void> {
-    // Lazy: record the intended meta, but stay absent from has/list until the
-    // first append materializes the session.
-    this.pending.set(m.id, m)
+  override readonly name = 'session-persistence-memory'
+
+  /** The whole durable store: materialized sessions only (no lazy entries). */
+  private store: MemoryStore
+  private coordinator: PersistenceCoordinator<never>
+
+  constructor(ctx: Context, config?: MemoryConfig) {
+    super(ctx)
+    // Assign the store BEFORE constructing the coordinator: the coordinator's
+    // constructor installs the write path and synchronously seeds existing live
+    // sessions (onCreated → loadLive → this.store), so store must exist first.
+    this.store = config?.store ?? new Map<string, { meta: SessionHeader; events: SessionEvent[] }>()
+    this.coordinator = new PersistenceCoordinator<never>(this.ctx, this)
   }
 
-  async append(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
-    const existing = this.store.get(id)
-    const nextSeq = existing ? existing.events.length : 0
-    if (events.length > 0 && events[0]!.seq !== nextSeq) {
-      throw new Error(`append seq mismatch for "${id}": expected ${nextSeq}, got ${events[0]!.seq}`)
+  // --- service surface (delegated to the coordinator) ---
+
+  create(m: SessionHeader): Promise<void> {
+    return this.coordinator.create(m)
+  }
+
+  append(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
+    return this.coordinator.append(id, events)
+  }
+
+  load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    return this.coordinator.load(id)
+  }
+
+  has(id: SessionId): Promise<boolean> {
+    return this.coordinator.has(id)
+  }
+
+  delete(id: SessionId): Promise<void> {
+    return this.coordinator.delete(id)
+  }
+
+  /** White-box accessor: await a specific session's onCreated init. */
+  get inits(): Map<Session, Promise<void>> {
+    return this.coordinator.inits
+  }
+
+  // --- PersistenceBackend hooks (the Map storage primitives) ---
+
+  // A Map-backed store has no torn tails, so `tornMarker` is never set. Ids are
+  // globally unique, so loadStored and loadLive are identical (cwd is ignored).
+  async loadStored(id: SessionId): Promise<StoredPrefix<never> | undefined> {
+    const entry = this.store.get(id)
+    if (!entry) return undefined
+    return { meta: structuredClone(entry.meta), events: structuredClone(entry.events) }
+  }
+
+  loadLive(id: SessionId, _cwd: string | undefined): Promise<StoredPrefix<never> | undefined> {
+    return this.loadStored(id)
+  }
+
+  async appendBatch(m: SessionHeader, events: readonly SessionEvent[], _isMaterialized: boolean): Promise<void> {
+    // Defense-in-depth: the coordinator already validates serializability, but a
+    // durable store must reject non-JSON data at its own boundary too.
+    for (const e of events) {
+      if (!isJsonValue(e.data)) throw new Error(`event "${e.type}" carries non-JSON-serializable data`)
     }
-    for (let i = 0; i < events.length; i++) {
-      const e = events[i]!
-      if (e.seq !== nextSeq + i) throw new Error(`non-contiguous seq in batch for "${id}" at index ${i}`)
-      if (!isJsonValue(e.data)) {
-        throw new Error(`event "${e.type}" carries non-JSON-serializable data`)
-      }
-    }
+    const existing = this.store.get(m.id)
     if (!existing) {
-      const m = this.pending.get(id)
-      if (!m) throw new Error(`append before create for "${id}"`)
-      this.store.set(id, { meta: m, events: structuredClone(events) as SessionEvent[] })
+      // First batch: `_isMaterialized` is false (the coordinator only omits
+      // materialization on the first batch); writing the entry IS the materialization.
+      this.store.set(m.id, { meta: structuredClone(m), events: structuredClone(events) as SessionEvent[] })
     } else {
       existing.events.push(...structuredClone(events) as SessionEvent[])
     }
   }
 
-  async load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    const entry = this.store.get(id)
-    if (!entry) throw new Error(`session "${id}" not found`)
-    // Honor the crash-recovery contract: if the stored log ends mid-turn, close
-    // the orphaned turn durably with synthetic boundary events and continue from
-    // the balanced length.
-    const closers = interruptedTurnClosers(entry.events)
-    if (closers.length > 0) entry.events.push(...structuredClone(closers))
-    return { meta: structuredClone(entry.meta), events: structuredClone(entry.events) }
+  async commitRepair(m: SessionHeader, _tornMarker: undefined, closers: readonly SessionEvent[]): Promise<void> {
+    // No torn tails in a Map store, so `_tornMarker` is always undefined; only the
+    // synthetic closers are appended (the same DELETE+INSERT a DB backend does,
+    // minus the truncate).
+    const entry = this.store.get(m.id)
+    /* v8 ignore next -- commitRepair only runs for a materialized (stored) session */
+    if (!entry) return
+    if (closers.length > 0) entry.events.push(...structuredClone(closers) as SessionEvent[])
+  }
+
+  async deleteStored(id: SessionId): Promise<void> {
+    this.store.delete(id)
   }
 
   async list(): Promise<SessionHeader[]> {
     return [...this.store.values()].map(e => structuredClone(e.meta))
-  }
-
-  async has(id: SessionId): Promise<boolean> {
-    return this.store.has(id)
-  }
-
-  async delete(id: SessionId): Promise<void> {
-    this.store.delete(id)
-    this.pending.delete(id)
   }
 }
 
 // Run the shared contract against the in-memory backend.
 runPersistenceContract('memory', async () => {
   const ctx = new Context()
+  await ctx.plugin(SessionStore)
   const fiber = await ctx.plugin(MemoryPersistence)
   return {
     persistence: ctx.sessionPersistence,
@@ -78,9 +134,24 @@ runPersistenceContract('memory', async () => {
   }
 })
 
+// Run the shared coordinator orchestration suite against the in-memory backend.
+// A per-fixture Map is the shared "storage", so two mounted instances see the
+// same materialized sessions (HMR/reload). `corruptTail` is OMITTED: a Map store
+// writes atomically in RAM and has no torn tails, so the suite's torn-tail test
+// self-skips (and asserts the omission). The real torn-tail repair branch is
+// covered by the jsonl/sqlite fixtures, which CAN inject one.
+runCoordinatorContract('memory', async (): Promise<CoordinatorFixture> => {
+  const store: MemoryStore = new Map()
+  return {
+    mount: async ctx => ctx.plugin(MemoryPersistence, { store }),
+    cleanup: async () => { store.clear() },
+  }
+})
+
 describe('SessionPersistence service registration', () => {
   it('registers as ctx.sessionPersistence and is removed on fiber dispose (HMR safety)', async () => {
     const ctx = new Context()
+    await ctx.plugin(SessionStore)
     const fiber = await ctx.plugin(MemoryPersistence)
     expect(ctx.sessionPersistence).toBeInstanceOf(SessionPersistence)
 
@@ -90,6 +161,7 @@ describe('SessionPersistence service registration', () => {
 
   it('round-trips through the registered service instance', async () => {
     const ctx = new Context()
+    await ctx.plugin(SessionStore)
     const fiber = await ctx.plugin(MemoryPersistence)
     const m = meta('reg')
     await ctx.sessionPersistence.create(m)

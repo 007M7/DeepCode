@@ -28,6 +28,10 @@ import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-se
 // Re-export the metadata vocabulary so consumers import it from the seam.
 export type { SessionHeader } from '@deepseek-ai/dsh-session'
 
+// The backend-agnostic write-path orchestration first-party backends compose.
+export { PersistenceCoordinator } from './coordinator.ts'
+export type { PersistenceBackend, StoredPrefix } from './coordinator.ts'
+
 declare module 'cordis' {
   interface Context {
     sessionPersistence: SessionPersistence
