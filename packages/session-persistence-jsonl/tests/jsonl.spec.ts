@@ -484,6 +484,41 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await expect(backend.inits.get(b)).rejects.toThrow(/already bound to a different live session|already has a persisted log on disk/)
   })
 
+  it('a NO-CWD live session does NOT cross-cwd-adopt a same-id log from a real cwd bucket (loadLive is scope-exact)', async () => {
+    // Backend 1: materialize a log under id "x" in the cwd "/w" bucket, then
+    // dispose the WHOLE backend (so backend 2 mounts with an EMPTY states map —
+    // the HMR/reload path where onCreated goes through loadLive, not a tracked
+    // collision).
+    await ctx.sessionPersistence.create(meta('x', '/w'))
+    await ctx.sessionPersistence.append(SessionId('x'), oneTurnLog())
+    await ctx.fiber.dispose()
+
+    // Backend 2 over the SAME root. A live no-cwd session reuses id "x". Because
+    // loadLive(id, undefined) is the DEFINITE no-cwd bucket (NOT an all-buckets
+    // scan), case-2 adoption does NOT match the "/w" log — so it would NOT
+    // silently graft the no-cwd events onto the "/w" log with a mismatched cwd
+    // (the bug a non-scope-exact loadLive caused). It falls through to the
+    // new-session path, where createCore's any-cwd collision probe (loadStored)
+    // catches the duplicate id and REJECTS — the id is taken in another bucket.
+    const ctx2 = new Context()
+    await ctx2.plugin(SessionStore)
+    await ctx2.plugin(SessionPersistenceJsonl, { root })
+    const backend = ctx2.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
+    let b!: Session
+    await ctx2.plugin(Object.assign((inner: Context) => {
+      b = inner.sessions.create('x') // no cwd
+    }, { inject: ['sessions'] }))
+    await expect(backend.inits.get(b)).rejects.toThrow(/already has a persisted log on disk/)
+
+    // The "/w" log is untouched — no no-cwd events were grafted onto it, and no
+    // `_no-cwd` log for "x" was created.
+    const inW = scanLog(await readFile(logPath(root, '/w', SessionId('x'))))
+    expect(inW.meta.cwd).toBe('/w')
+    expect(inW.events).toHaveLength(6)
+    await expect(stat(logPath(root, undefined, SessionId('x')))).rejects.toThrow()
+    await ctx2.fiber.dispose()
+  })
+
   it('a seed with matching seq/type/time but DIFFERENT data is rejected (deep prefix compare)', async () => {
     // Materialize and load (ownerless, cursor = 6).
     await ctx.sessionPersistence.create(meta('divergent', '/a'))
@@ -549,7 +584,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     // open() must surface, not be collapsed to "not found" (which would let a
     // collision check proceed under a false absence assumption). A LAZY session
     // (created, never appended) keeps its cwd in state, so has() reaches
-    // findLog(id, cwd) → exists(logPath). Make that cwd's bucket DIRECTORY a
+    // loadLive(id, cwd) → exists(logPath). Make that cwd's bucket DIRECTORY a
     // regular file: open()ing `bucket/<id>.jsonl` under it then fails ENOTDIR.
     const cwd = '/x'
     const ctx2 = new Context()

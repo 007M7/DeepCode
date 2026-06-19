@@ -127,24 +127,32 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   /** Read a stored prefix by id across ALL cwd buckets (cwd unknown). */
   async loadStored(id: SessionId): Promise<StoredPrefix<number> | undefined> {
-    return this.readPrefix(id, undefined)
-  }
-
-  /** Read a stored prefix SCOPED to `cwd` (HMR live-adoption must not cross cwd). */
-  async loadLive(id: SessionId, cwd: string | undefined): Promise<StoredPrefix<number> | undefined> {
-    return this.readPrefix(id, cwd)
+    const file = await this.findLog(id)
+    if (file === undefined) return undefined
+    return this.readPrefix(file.path)
   }
 
   /**
-   * Read and scan a session's log into a {@link StoredPrefix}. Folds the
+   * Read a stored prefix SCOPED to `cwd` (HMR live-adoption must not cross cwd).
+   * `undefined` is the DEFINITE "no-cwd" bucket, NOT "unknown" — a live session
+   * with no cwd may only adopt a persisted no-cwd log, never a same-id log that
+   * lives in some other cwd bucket. So this looks at exactly `logPath(cwd)`
+   * (which maps `undefined` → the `_no-cwd` bucket), never the all-buckets scan.
+   */
+  async loadLive(id: SessionId, cwd: string | undefined): Promise<StoredPrefix<number> | undefined> {
+    const path = logPath(this.root, cwd, id)
+    if (!await this.exists(path)) return undefined
+    return this.readPrefix(path)
+  }
+
+  /**
+   * Read and scan a session's log file into a {@link StoredPrefix}. Folds the
    * torn-tail comparison HERE so the `tornMarker` is the byte offset to truncate
    * to (or `undefined` when nothing is torn) — the coordinator never sees the
    * raw byteLength.
    */
-  private async readPrefix(id: SessionId, cwd: string | undefined): Promise<StoredPrefix<number> | undefined> {
-    const file = await this.findLog(id, cwd)
-    if (file === undefined) return undefined
-    const buffer = await readFile(file.path)
+  private async readPrefix(path: string): Promise<StoredPrefix<number>> {
+    const buffer = await readFile(path)
     const { meta, events, committedBytes } = scanLog(buffer)
     return {
       meta,
@@ -174,7 +182,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   /** Remove a session's log file (the coordinator clears its in-memory state). */
   async deleteStored(id: SessionId): Promise<void> {
-    const file = await this.findLog(id, undefined)
+    const file = await this.findLog(id)
     if (file) await rm(file.path, { force: true })
   }
 
@@ -331,13 +339,13 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     }
   }
 
-  /** Find a session's log file across cwd buckets (when cwd is unknown). */
-  private async findLog(id: SessionId, cwd: string | undefined): Promise<{ path: string; cwd: string | undefined } | undefined> {
-    if (cwd !== undefined) {
-      const path = logPath(this.root, cwd, id)
-      return (await this.exists(path)) ? { path, cwd } : undefined
-    }
-    // Unknown cwd: scan buckets for a matching file name.
+  /**
+   * Find a session's log file by id across ALL cwd buckets — the any-cwd scan
+   * for `loadStored`/`deleteStored` (resume and removal identify a session by id
+   * alone). The cwd-scoped lookup (`loadLive`) does NOT use this; it goes
+   * straight to `logPath(cwd)` so a no-cwd session can't match a real-cwd bucket.
+   */
+  private async findLog(id: SessionId): Promise<{ path: string; cwd: string | undefined } | undefined> {
     const target = encodeSegment(id) + '.jsonl'
     for (const dir of await this.listCwdDirs()) {
       const path = `${dir}/${target}`

@@ -35,7 +35,7 @@ The `PersistenceBackend<TornMarker>` hooks (the only seam between the coordinato
 | `loadStored(id)` | Read a stored prefix by id, scanning ANY storage scope. Used by resume/load and, via `!== undefined`, the create-collision probe. Returns an opaque `tornMarker` iff a torn tail must be truncated. |
 | `loadLive(id, cwd)` | Read a stored prefix SCOPED to `cwd` (HMR live-adoption must only adopt a log at the SAME cwd; a same-id log elsewhere is a collision, not a resume). A globally-unique-id backend ignores `cwd`. |
 | `appendBatch(meta, events, isMaterialized)` | Durably append a contiguous batch, lazily materializing ATOMICALLY when not yet materialized. |
-| `commitRepair(meta, tornMarker, closers)` | Make a crash repair durable: truncate the torn tail (iff `tornMarker`) and append `closers`. NOT required to be atomic. Used by load (truncate + closers) and live-adoption (truncate only). |
+| `commitRepair(meta, tornMarker, closers)` | Make a crash repair durable: truncate the torn tail (iff `tornMarker !== undefined` — a marker may be falsy, e.g. seq/offset `0`) and append `closers`. NOT required to be atomic. Used by load (truncate + closers) and live-adoption (truncate only). |
 | `deleteStored(id)` / `list()` | Remove a stored artifact / list all stored metadata. |
 | `close?()` | Optional lifecycle teardown (e.g. close a db handle), awaited after the dispose drain. |
 

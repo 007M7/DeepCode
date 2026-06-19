@@ -287,13 +287,15 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   async has(id: SessionId): Promise<boolean> {
     const state = this.states.get(id)
     if (state?.materialized) return true
-    // Probe storage scoped to the tracked cwd if known, else any scope. A tracked
-    // lazy session has a known cwd, so loadLive(id, cwd) hits the exact artifact
-    // path — a storage fault there (e.g. a non-ENOENT lookup error) must surface,
-    // not be masked by an any-scope scan that filters a non-directory bucket out.
-    // For an untracked id `cwd` is undefined, where loadLive scans any scope (=
-    // loadStored), so this single call covers both.
-    return (await this.backend.loadLive(id, state?.meta.cwd)) !== undefined
+    // A TRACKED lazy session has a known cwd: probe that exact bucket via
+    // loadLive(id, cwd) — including the no-cwd bucket when its cwd is undefined.
+    // An UNTRACKED id has a genuinely UNKNOWN cwd, so it must scan ANY scope via
+    // loadStored — loadLive(id, undefined) would (correctly) look ONLY in the
+    // no-cwd bucket and miss a materialized session that lives in a real cwd.
+    const probe = state !== undefined
+      ? await this.backend.loadLive(id, state.meta.cwd)
+      : await this.backend.loadStored(id)
+    return probe !== undefined
   }
 
   /** Remove a session and all its persisted artifacts. */
