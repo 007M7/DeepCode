@@ -66,6 +66,8 @@ Determinism of the tool environment comes from a per-test `mkdtemp` cwd, the exe
 
 ### Example-local plugin, not a new package
 
+> **Superseded (2026-06-19, same day):** the replay plugin was subsequently promoted to its own package, `@deepseek-ai/dsh-llm-replay` (`packages/llm-replay/`), and the snapshot config now references it by package name. The reason was not a second consumer but the per-file 100% coverage gate: logic under `examples/` is not measured, so the derive/parse/replay branches were unguarded — packaging them subjects all branches to the gate. The paragraph below records the original (now-outdated) decision.
+
 The replay plugin lives at `examples/acp-agent/src/llm-replay.ts`, referenced from the snapshot config by relative path — exactly how echo-agent wires its [mock-llm.ts](../../../examples/echo-agent/src/mock-llm.ts). It is test/example infrastructure with one consumer; the capability-seams rule says not to split into a published `packages/` trio preemptively. It is promoted to a package only when a second example needs it.
 
 ### Two subcommands, replay in the default gate

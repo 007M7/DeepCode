@@ -31,7 +31,7 @@ export const inject = ['agents']
 export interface Config {
   /** Banner printed once on start, before the first `> ` prompt. */
   welcome?: string
-  /** Id of the agent to drive and render. Defaults to `'main'`. */
+  /** Id of the agent stdin drives (`send`/`steer`) and whose status gates the EOF exit; rendering is global. Defaults to `'main'`. */
   agent?: string
 }
 
@@ -64,9 +64,12 @@ export interface StdioRuntime {
  * interface down.
  */
 export function createStdioChat(ctx: Context, config: Config, runtime: StdioRuntime): void {
-  // schemastery `.default()` guarantees these are set after validation.
-  const welcome = config.welcome as string
-  const agentId = config.agent as string
+  // Default here too (not just via schemastery's `.default()`): this helper is
+  // exported and called directly by tests / programmatic consumers that bypass
+  // Loader validation, so it must be self-contained rather than trusting the
+  // cast — `config.welcome as string` would otherwise be `undefined` on `{}`.
+  const welcome = config.welcome ?? 'ready.'
+  const agentId = config.agent ?? 'main'
   const { input, output, exit } = runtime
 
   let inReasoning = false
@@ -122,6 +125,7 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
     let disposed = false
     let submittedWork = false
     let sawRunning = false
+    let exitTimer: ReturnType<typeof setTimeout> | undefined
 
     const maybeExit = (): void => {
       if (disposed || !stdinClosed) return
@@ -132,8 +136,14 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
         const agent = ctx.agents.get(agentId)
         if (agent && agent.status !== 'idle') return // a turn is still running
       }
-      // Let any final output flush, then exit.
-      setTimeout(() => { exit(0) }, 200)
+      // Let any final output flush, then exit. The handle is tracked so the
+      // disposer can cancel it — a dispose within the flush window must not let
+      // the process exit out from under HMR. Re-entrant `maybeExit` calls (e.g.
+      // repeated idle signals) coalesce onto the one pending timer.
+      if (exitTimer !== undefined) {
+        return // exit already scheduled — coalesce re-entrant calls
+      }
+      exitTimer = setTimeout(() => { exit(0) }, 200)
     }
 
     const disposeStatusListener = ctx.on('agent/status', (subject, status) => {
@@ -166,6 +176,7 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
     output.write(`${welcome}\n> `)
     return () => {
       disposed = true
+      if (exitTimer !== undefined) clearTimeout(exitTimer)
       disposeStatusListener()
       reader.close()
     }

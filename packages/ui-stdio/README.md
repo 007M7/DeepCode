@@ -9,7 +9,7 @@ This package consolidates what were two near-identical copies under `examples/ec
 | Key | Type | Default | Notes |
 |---|---|---|---|
 | `welcome` | string | `'ready.'` | Banner printed once on start, before the first `> ` prompt. |
-| `agent` | string | `'main'` | Id of the agent to drive and render. |
+| `agent` | string | `'main'` | Id of the agent that stdin **drives** (`send`/`steer`) and whose `agent/status` gates the EOF exit. Rendering is **not** scoped by it — see below. |
 
 ```yaml
 - id: ui-stdio
@@ -19,6 +19,8 @@ This package consolidates what were two near-identical copies under `examples/ec
 ```
 
 ## Rendering
+
+Rendering is **global** — every agent's events are written to stdout, not just `config.agent`'s. `config.agent` scopes only *input* (which agent stdin drives) and the EOF-exit gate; the single-agent demos this serves have just one agent, so the distinction is moot for them. (A multi-agent UI that needs per-agent panes would filter these handlers by the agent argument — deliberately out of scope here.)
 
 - `agent/stream-chunk` — `text-delta` is written verbatim; `reasoning-delta` is wrapped in the dim SGR (`\x1B[2m … \x1B[0m`) so the chain-of-thought is visually subordinate to the answer. Reasoning rendering is inert when no `reasoning-delta` chunks arrive (e.g. a mock model), so it is always on.
 - `agent/turn-start` / `agent/turn-end` — a `[<agent> turn N]` header and a trailing `> ` prompt.

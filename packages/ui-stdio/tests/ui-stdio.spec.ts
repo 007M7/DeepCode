@@ -84,6 +84,14 @@ describe('createStdioChat rendering', () => {
     expect(out.text()).toBe('hi there\n> ')
   })
 
+  it('falls back to default welcome/agent when called with empty config', async () => {
+    // createStdioChat is exported and may be driven directly (bypassing the
+    // Loader's schemastery validation), so it must default welcome/agent itself.
+    const { out } = await setup({})
+    expect(out.text()).toBe('ready.\n> ')
+    // And it drives the default agent id 'main'.
+  })
+
   it('renders text-delta chunks verbatim', async () => {
     const { ctx, out } = await setup()
     const agent = makeAgent('main')
@@ -239,6 +247,24 @@ describe('createStdioChat EOF exit', () => {
     expect(exit).toHaveBeenCalledWith(0)
   })
 
+  it('schedules the exit only once when idle fires repeatedly', async () => {
+    const { ctx, input, exit } = await setup()
+    const agent = makeAgent('main', 'running')
+    ctx.agents.register(agent)
+    input.feed('work')
+    await new Promise(r => setImmediate(r))
+    ctx.emit('agent/status', agent, 'running') // sawRunning = true
+    input.finish()
+    await new Promise(r => setImmediate(r)) // let readline 'close' set stdinClosed
+    ;(agent as { status: AgentStatus }).status = 'idle'
+    // Two idle signals while stdin is already closed: the first arms the timer,
+    // the second must hit the already-scheduled guard, not arm a second.
+    ctx.emit('agent/status', agent, 'idle')
+    ctx.emit('agent/status', agent, 'idle')
+    await flushExit()
+    expect(exit).toHaveBeenCalledTimes(1)
+  })
+
   it('does not exit on an idle transition for a different agent', async () => {
     const { ctx, input, exit } = await setup()
     const agent = makeAgent('main', 'idle')
@@ -275,6 +301,18 @@ describe('createStdioChat disposal (HMR safety)', () => {
     await fiber.dispose()
     // A late EOF after disposal (reader.close() also fires 'close') must not exit.
     input.finish()
+    await flushExit()
+    expect(exit).not.toHaveBeenCalled()
+  })
+
+  it('cancels a scheduled exit if disposed within the flush window', async () => {
+    const { fiber, input, exit } = await setup()
+    // EOF with no work submitted schedules the 200ms flush-then-exit timer.
+    input.finish()
+    await new Promise(r => setImmediate(r))
+    expect(exit).not.toHaveBeenCalled() // not yet — still inside the window
+    // Dispose BEFORE the timer fires: the tracked handle must be cleared.
+    await fiber.dispose()
     await flushExit()
     expect(exit).not.toHaveBeenCalled()
   })

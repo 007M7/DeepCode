@@ -10,5 +10,6 @@ examples/*/*.jsonl
 examples/*/.sessions/
 coverage/
 .doc-typecheck-*/
+.humanize/
 .vscode/
 .DS_Store
