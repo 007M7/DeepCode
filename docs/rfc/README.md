@@ -7,7 +7,7 @@ One kind of design doc lives here. An **RFC** records a decision or proposal tha
 Files are grouped by lifecycle into three folders, and an RFC moves between them as its status changes:
 
 - **`proposed/`** — proposals reviewed before implementation; not yet built (or only partly).
-- **`implemented/`** — the decision shipped. The file records what was decided and what was rejected.
+- **`implemented/`** — the decision shipped. The file records what was decided and what was rejected, and is **kept current with what actually shipped**: when the code later moves a file, renames a package, or changes a key/default, the RFC is updated in the same change to match (facts only — paths, names, structure — not the decision itself). See [implemented/AGENTS.md](implemented/AGENTS.md).
 - **`rejected/`** — the proposal was considered and declined. Kept for the record so the rejection isn't re-litigated.
 
 Each file is named `yyyy-mm-dd-topic-title.md`, where the date is when the topic was **first proposed** (per git history). Cross-references between RFCs use relative markdown links (`[topic](../implemented/2026-…-….md)`) — never bare prose or numbers — so they are mechanically checkable and survive moves between folders.
@@ -16,7 +16,7 @@ Each file is named `yyyy-mm-dd-topic-title.md`, where the date is when the topic
 
 Write an RFC when a decision is **durable** (it shapes the codebase beyond a single function or package), **contested** (there was a real alternative a reasonable engineer might have chosen), and **surprising** (a future reader would otherwise ask "why on earth is it done this way?"). A proposal for substantial future work starts in `proposed/`; a decision already made starts in `implemented/`.
 
-Do NOT write one for a mechanical or local choice (a variable name, a one-file refactor), for anything already enforced and explained by a gate or a convention in AGENTS.md, or for a still-provisional decision tagged `TODO(...)` in the code — record those as TODOs and promote to an RFC only once they settle. An RFC is never edited into a different decision: supersede it with a new one and cross-link.
+Do NOT write one for a mechanical or local choice (a variable name, a one-file refactor), for anything already enforced and explained by a gate or a convention in AGENTS.md, or for a still-provisional decision tagged `TODO(...)` in the code — record those as TODOs and promote to an RFC only once they settle. An RFC is never edited into a *different decision*: supersede it with a new one and cross-link. (Editing an `implemented/` RFC to track where its already-made decision now *lives* — a moved file, a renamed package — is not a different decision and is required, not forbidden; see [implemented/AGENTS.md](implemented/AGENTS.md).)
 
 ## Proposed
 
