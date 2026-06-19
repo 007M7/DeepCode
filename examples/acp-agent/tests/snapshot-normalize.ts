@@ -53,10 +53,11 @@ function scrubValue(value: unknown, ctx: NormalizeContext): unknown {
 
 /**
  * Normalize a raw stdout transcript (newline-delimited JSON-RPC frames) into a
- * stable, line-diffable golden: one pretty-printed frame per block, with the
- * JSON-RPC `id` rewritten to a per-transcript sequence (1, 2, 3, …) and all
- * volatile strings scrubbed. Throws if any non-empty line is not valid JSON —
- * that doubles as the stdout-purity check (no logger leaked onto the protocol).
+ * stable golden in the SAME shape as the wire: one compact JSON frame per line
+ * (NDJSON), with the JSON-RPC `id` rewritten to a per-transcript sequence
+ * (1, 2, 3, …) and all volatile strings scrubbed. Throws if any non-empty line
+ * is not valid JSON — that doubles as the stdout-purity check (no logger leaked
+ * onto the protocol).
  */
 export function normalizeStdout(rawStdout: string, ctx: NormalizeContext): string {
   const lines = rawStdout.split('\n').filter(line => line.trim().length > 0)
@@ -76,14 +77,15 @@ export function normalizeStdout(rawStdout: string, ctx: NormalizeContext): strin
     }
     return scrubValue(frame, ctx) as Record<string, unknown>
   })
-  return frames.map(f => JSON.stringify(f, null, 2)).join('\n') + '\n'
+  return frames.map(f => JSON.stringify(f)).join('\n') + '\n'
 }
 
 /**
  * Normalize a session JSONL log into a stable golden: the header line's
  * volatile fields (`createdAt`, `id`, `cwd`) and every event's `time` are
  * zeroed/scrubbed, all volatile strings scrubbed, and `seq` is LEFT INTACT
- * (deterministic by contract). One pretty-printed record per block.
+ * (deterministic by contract). Output is JSONL in the same shape as the input —
+ * one compact record per line.
  */
 export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): string {
   const lines = rawLog.split('\n').filter(line => line.trim().length > 0)
@@ -98,5 +100,5 @@ export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): stri
     }
     return scrubValue(record, ctx) as Record<string, unknown>
   })
-  return records.map(r => JSON.stringify(r, null, 2)).join('\n') + '\n'
+  return records.map(r => JSON.stringify(r)).join('\n') + '\n'
 }

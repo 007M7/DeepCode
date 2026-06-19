@@ -19,8 +19,8 @@ describe('normalizeStdout', () => {
       JSON.stringify({ jsonrpc: '2.0', id: 99, method: 'session/new' }),
     ].join('\n')
     const out = normalizeStdout(raw, ctx)
-    expect(out).toContain('"id": 1')
-    expect(out).toContain('"id": 2')
+    expect(out).toContain('"id":1')
+    expect(out).toContain('"id":2')
     expect(out).not.toContain('42')
     expect(out).not.toContain('99')
   })
@@ -65,14 +65,14 @@ describe('normalizeSessionLog', () => {
 
   it('zeroes the header createdAt', () => {
     const out = normalizeSessionLog(`${header({})}\n`, ctx)
-    expect(out).toContain('"createdAt": 0')
+    expect(out).toContain('"createdAt":0')
     expect(out).not.toContain('123')
   })
 
   it('zeroes each event time but keeps seq', () => {
     const out = normalizeSessionLog(`${header({})}\n${event({ seq: 7, time: 999 })}\n`, ctx)
-    expect(out).toContain('"time": 0')
-    expect(out).toContain('"seq": 7') // seq is deterministic — NOT scrubbed
+    expect(out).toContain('"time":0')
+    expect(out).toContain('"seq":7') // seq is deterministic — NOT scrubbed
     expect(out).not.toContain('999')
   })
 

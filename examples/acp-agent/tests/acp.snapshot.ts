@@ -72,12 +72,12 @@ for (const scenario of SCENARIOS) {
       }
 
       await expect(normalizeStdout(result.rawStdout, ctx))
-        .toMatchFileSnapshot(join(dir, 'stdout.golden.txt'))
+        .toMatchFileSnapshot(join(dir, 'stdout.golden.jsonl'))
 
       if (scenario.hasModelTurn) {
         expect(result.sessionLog, 'a model scenario must persist a session log').toBeDefined()
         await expect(normalizeSessionLog(result.sessionLog as string, ctx))
-          .toMatchFileSnapshot(join(dir, 'session.golden.txt'))
+          .toMatchFileSnapshot(join(dir, 'session.golden.jsonl'))
       }
     })
   })
@@ -99,7 +99,7 @@ describe('snapshot fixtures', () => {
       const dir = join(SNAPSHOTS_DIR, name)
       expect(existsSync(join(dir, 'input.json')), `${name}/input.json`).toBe(true)
       expect(existsSync(join(dir, 'session.jsonl')), `${name}/session.jsonl`).toBe(true)
-      expect(existsSync(join(dir, 'stdout.golden.txt')), `${name}/stdout.golden.txt`).toBe(true)
+      expect(existsSync(join(dir, 'stdout.golden.jsonl')), `${name}/stdout.golden.jsonl`).toBe(true)
     }
   })
 })
