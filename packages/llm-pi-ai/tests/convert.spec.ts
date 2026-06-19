@@ -271,6 +271,11 @@ describe('toStreamChunks', () => {
     const chunks = await collect(toStreamChunks(feed({ type: 'error', reason: 'aborted', error })))
     expect(chunks.at(-1)).toEqual({ type: 'finish', reason: { kind: 'aborted' } })
   })
+
+  it('rejects a stream that ends without done or error', async () => {
+    await expect(collect(toStreamChunks(feed({ type: 'start', partial: assistant() }))))
+      .rejects.toThrow(/without done\/error/)
+  })
 })
 
 describe('mapStopReason / mapUsage', () => {
@@ -286,6 +291,15 @@ describe('mapStopReason / mapUsage', () => {
   it('defaults the error message when pi-ai omits it', () => {
     expect(mapStopReason(assistant({ stopReason: 'error' })))
       .toEqual({ kind: 'error', message: 'pi-ai stream error', code: 'PI_AI_ERROR' })
+  })
+
+  it('maps routable HTTP-ish error messages to stable codes', () => {
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 401: bad key' })))
+      .toMatchObject({ kind: 'error', code: 'AUTH' })
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 429: rate limit' })))
+      .toMatchObject({ kind: 'error', code: 'RATE_LIMIT' })
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 500: backend down' })))
+      .toMatchObject({ kind: 'error', code: 'SERVER' })
   })
 
   it('maps cache fields only when nonzero', () => {

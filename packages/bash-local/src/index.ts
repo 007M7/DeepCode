@@ -38,6 +38,12 @@ export interface Config {
 /** The shape after schemastery applied the defaults (cwd has none). */
 type ResolvedConfig = Required<Omit<Config, 'cwd'>> & Pick<Config, 'cwd'>
 
+function assertPositiveFinite(name: string, value: number): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`bash-local: ${name} must be a positive finite number`)
+  }
+}
+
 interface TrackedTask extends BashTask {
   running: RunningBash
   /** Whole-stream byte offsets already delivered via {@link LocalBashExecutor.readOutput}. */
@@ -72,6 +78,9 @@ export class LocalBashExecutor extends BashExecutor {
     // schemastery (static Config) has already filled the defaulted fields;
     // the cast records that runtime fact for exactOptionalPropertyTypes.
     this.config = config as ResolvedConfig
+    assertPositiveFinite('timeoutMs', this.config.timeoutMs)
+    assertPositiveFinite('maxTimeoutMs', this.config.maxTimeoutMs)
+    assertPositiveFinite('maxOutputBytes', this.config.maxOutputBytes)
     ctx.effect(() => async () => {
       // Kill every live process group and WAIT for the processes to close so
       // nothing outlives the fiber (HMR safety) — a TERM-trapping child is
@@ -98,6 +107,7 @@ export class LocalBashExecutor extends BashExecutor {
    * values and never re-default.
    */
   resolve(request: BashExecRequest): BashExecSpec {
+    if (request.timeoutMs !== undefined) assertPositiveFinite('request.timeoutMs', request.timeoutMs)
     const timeoutMs = Math.min(request.timeoutMs ?? this.config.timeoutMs, this.config.maxTimeoutMs)
     return {
       command: request.command,

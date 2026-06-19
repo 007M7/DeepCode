@@ -82,6 +82,21 @@ describe('interruptedTurnClosers', () => {
     expect(closers.map(e => e.type)).toEqual(['step/end', 'turn/end'])
   })
 
+  it('does NOT synthesize a result after the owning step already closed', () => {
+    const events: SessionEvent[] = [
+      userTurnStart(2, 0),
+      { type: 'step/start', seq: 1, time: 1, data: { turn: 2, step: 1 } },
+      { type: 'assistant/message', seq: 2, time: 2, data: { turn: 2, step: 1, content: [
+        { type: 'tool-call', id: CallId('call-1'), name: 'bash', arguments: '{}' },
+      ] } },
+      { type: 'step/end', seq: 3, time: 3, data: { turn: 2, step: 1 } },
+    ]
+
+    const closers = interruptedTurnClosers(events)
+    expect(closers.map(e => e.type)).toEqual(['turn/end'])
+    expect(closers[0]?.seq).toBe(4)
+  })
+
   it('synthesizes results only for the still-open turn, not a committed earlier turn', () => {
     // Turn 1 completed with its own tool call+result (balanced). Turn 2 crashed
     // with an unanswered call. Only turn 2's call must get a synthetic result.

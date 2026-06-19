@@ -3,11 +3,13 @@
 Status: proposed
 
 <!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-> **Implementation status:** the multi-session bridge (steps 1, 3, 4) and the bash task-ownership isolation are implemented in `packages/acp` + `packages/tool-bash`. **Per-session *permission* ownership is deferred** — it depends on the RFC 010 permission gate (`TODO(rfc010-permission-gate)`), which is itself deferred; the `agent→sessionId` reverse map the gate will route through is in place. Step 2's "real per-session disposer scope" is also deferred (`TODO(rfc010-agent-disposal)`): the bridge demuxes via id-keyed maps and global `ctx.on` listeners (correct and leak-free — disposal drains every session in parallel to quiescence), and a per-agent disposer seam is the follow-up. Status stays `proposed` until per-session permission ownership lands.
+> **Implementation status:** the multi-session bridge (steps 1, 3, 4) and the bash task-ownership isolation are implemented in `packages/acp` + `packages/tool-bash`. **Per-session *permission* ownership is deferred** — it depends on [the ACP support permission gate](2026-06-14-acp-agent-client-protocol.md) (`TODO(rfc010-permission-gate)`), which is itself deferred; the `agent→sessionId` reverse map the gate will route through is in place. Step 2's "real per-session disposer scope" is also deferred (`TODO(rfc010-agent-disposal)`): the bridge demuxes via id-keyed maps and global `ctx.on` listeners (correct and leak-free — disposal drains every session in parallel to quiescence), and a per-agent disposer seam is the follow-up. Status stays `proposed` until per-session permission ownership lands.
 
 ## Problem
 
 [ACP support](2026-06-14-acp-agent-client-protocol.md) ships with a single active session per connection: a second `session/new` is rejected. Editors expect to run several conversations over one agent subprocess — a user opens multiple threads, or a client pre-warms sessions. The single-session guard is a deliberate MVP scope cut, not an architectural limit; this RFC lifts it.
+
+This paragraph is historical: the multi-session bridge has landed. The remaining proposed work is per-session permission ownership plus the lifecycle seams now tracked in [agent lifecycle and ownership seams](2026-06-18-agent-lifecycle-and-ownership-seams.md).
 
 ## Proposal
 

@@ -316,7 +316,7 @@ export function apply(ctx: Context): void {
     description: 'Execute a bash command (`bash -c`) and return its stdout/stderr. '
       + 'Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — '
       + 'pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. '
-      + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported. '
+      + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. '
       + 'Set `run_in_background: true` for long-running commands: the call returns a task id immediately; '
       + 'poll it with `bash_output` and stop it with `bash_kill`.',
     parameters: {
@@ -328,7 +328,7 @@ export function apply(ctx: Context): void {
           + '5-10 words (shown in the UI). Examples: "ls" → "List files in current directory"; '
           + '"git status" → "Show working tree status"; "npm install" → "Install package dependencies".',
       },
-      timeoutMs: { type: 'number', description: 'Timeout in milliseconds (default 120000, max 600000). The command is killed on expiry.' },
+      timeoutMs: { type: 'number', description: 'Timeout in milliseconds. The executor applies its configured default and cap, and kills the command on expiry.' },
       workdir: { type: 'string', description: 'Working directory for this command. Defaults to the session workspace; a relative path is resolved against it.' },
       run_in_background: { type: 'boolean', description: 'Run in the background and return a task id immediately. No timeout applies.' },
     },
@@ -377,7 +377,8 @@ export function apply(ctx: Context): void {
       let text = read.delta.length > 0 ? read.delta : '(no new output)'
       if (read.lossy) {
         const paths = [read.stdoutSpillPath, read.stderrSpillPath].filter((p): p is string => p !== undefined)
-        text += `\n[some output was dropped from memory; full output: ${paths.join(', ')}]`
+        const fullOutput = paths.length > 0 ? paths.join(', ') : '(unavailable)'
+        text += `\n[some output was dropped from memory; full output: ${fullOutput}]`
       }
       text += `\n${statusLine(read.task)}`
       return Promise.resolve([{ type: 'text', text }])
@@ -387,7 +388,7 @@ export function apply(ctx: Context): void {
 
   ctx.tools.register(defineTool({
     name: 'bash_kill',
-    description: 'Kill a running background bash task (SIGTERM, then SIGKILL) by task id.',
+    description: 'Ask the executor to kill a running background bash task by task id.',
     parameters: {
       task_id: { type: 'string', required: true, description: 'Task id returned by the bash tool.' },
     },

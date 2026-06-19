@@ -39,27 +39,29 @@ describe('harnessBlockToAcpContent', () => {
 })
 
 describe('acpPromptToText', () => {
-  it('concatenates text blocks and ignores non-text', () => {
+  it('concatenates text blocks and renders resource links explicitly', () => {
     const prompt: AcpContentBlock[] = [
       { type: 'text', text: 'hello ' },
       { type: 'resource_link', uri: 'file:///x', name: 'x' },
       { type: 'text', text: 'world' },
     ]
-    expect(acpPromptToText(prompt)).toBe('hello world')
+    expect(acpPromptToText(prompt)).toBe('hello \n[resource_link name="x" uri="file:///x"]\nworld')
   })
 
   it('returns empty string for a prompt with no text blocks', () => {
-    expect(acpPromptToText([{ type: 'resource_link', uri: 'file:///x', name: 'x' }])).toBe('')
+    expect(acpPromptToText([{ type: 'image', mimeType: 'image/png', data: 'AA==' }])).toBe('')
   })
 })
 
 describe('promptHasUnsupportedContent', () => {
-  it('detects image and audio blocks', () => {
+  it('detects image, audio, and embedded resource blocks', () => {
     expect(promptHasUnsupportedContent([{ type: 'image', mimeType: 'image/png', data: 'AA==' }])).toBe(true)
     expect(promptHasUnsupportedContent([{ type: 'audio', mimeType: 'audio/wav', data: 'AA==' }])).toBe(true)
+    expect(promptHasUnsupportedContent([{ type: 'resource', resource: { uri: 'file:///x', text: 'x' } }])).toBe(true)
   })
 
-  it('passes a text-only prompt', () => {
+  it('passes baseline text and resource_link prompt blocks', () => {
     expect(promptHasUnsupportedContent([{ type: 'text', text: 'hi' }])).toBe(false)
+    expect(promptHasUnsupportedContent([{ type: 'resource_link', uri: 'file:///x', name: 'x' }])).toBe(false)
   })
 })

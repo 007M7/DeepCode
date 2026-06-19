@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
 import type { GenerateResult, Message, ToolSchema } from '@deepseek-ai/dsh-llm'
@@ -15,13 +15,19 @@ import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 
 const FLASH = 'deepseek-v4-flash'
 const PRO = 'deepseek-v4-pro'
+const contexts: Context[] = []
 
 async function harness(model: string, config: Partial<Config> = {}) {
   const ctx = new Context()
+  contexts.push(ctx)
   await ctx.plugin(LlmService)
   await ctx.plugin(LlmPiAi, { models: [model], ...config })
   return ctx
 }
+
+afterEach(async () => {
+  await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
+})
 
 function ask(text: string): Message[] {
   return [{ role: 'user', content: [{ type: 'text', text }] }]
@@ -114,6 +120,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-pi-ai e2e (real API)', () =>
     // same block KINDS in the same order for a deterministic prompt — the
     // cross-implementation check that the StreamChunk design holds.
     const deepseekCtx = new Context()
+    contexts.push(deepseekCtx)
     await deepseekCtx.plugin(LlmService)
     await deepseekCtx.plugin(LlmDeepSeek, { models: [FLASH], thinking: 'disabled' })
 

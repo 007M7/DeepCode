@@ -4,6 +4,8 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import { BashExecutor } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRead } from '@deepseek-ai/dsh-bash'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
@@ -29,6 +31,51 @@ function call(ctx: Context, name: string, args: unknown) {
 
 function text(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(block => block.type === 'text').map(block => block.text).join('')
+}
+
+class LossyReadBashExecutor extends BashExecutor {
+  private readonly task: BashTask = {
+    id: 'bash-lossy',
+    command: 'fake',
+    status: 'running',
+    exitCode: null,
+    signal: null,
+    done: Promise.resolve(),
+  }
+
+  resolve(request: BashExecRequest): BashExecSpec {
+    return {
+      command: request.command,
+      workdir: request.workdir ?? process.cwd(),
+      timeoutMs: request.timeoutMs ?? 0,
+      ...request.signal ? { signal: request.signal } : {},
+    }
+  }
+
+  run(): Promise<BashRunResult> {
+    return Promise.reject(new Error('not used'))
+  }
+
+  start(): BashTask {
+    return this.task
+  }
+
+  get(id: string): BashTask | undefined {
+    return id === this.task.id ? this.task : undefined
+  }
+
+  list(): BashTask[] {
+    return [this.task]
+  }
+
+  readOutput(id: string): BashTaskRead {
+    if (id !== this.task.id) throw new Error(`unknown bash task "${id}"`)
+    return { task: this.task, delta: 'tail', lossy: true }
+  }
+
+  kill(): boolean {
+    return false
+  }
 }
 
 describe('bash tool', () => {
@@ -224,6 +271,17 @@ describe('background tools', () => {
     await ctx.bash.get(id)!.done
     const read = await call(ctx, 'bash_output', { task_id: id })
     expect(text(read)).toContain('[some output was dropped from memory; full output: ')
+  })
+
+  it('bash_output reports unavailable when a lossy read has no safe spill path', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(LossyReadBashExecutor)
+    await ctx.plugin(ToolBash)
+
+    const read = await call(ctx, 'bash_output', { task_id: 'bash-lossy' })
+    expect(text(read)).toBe('tail\n[some output was dropped from memory; full output: (unavailable)]\n[status: running]')
   })
 
   it('bash_kill stops a running task; repeat reports already-finished', async () => {

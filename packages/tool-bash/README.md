@@ -12,21 +12,21 @@ Requires a loaded executor implementation (e.g. `@deepseek-ai/dsh-bash-local`); 
 |---|---|---|
 | `command` | string (required) | Run via `bash -c`. No state persists between calls — use `workdir`, not `cd`. |
 | `description` | string (required) | One-line, active-voice summary of the command (5-10 words), for UI/log display only — no effect on execution. |
-| `timeoutMs` | number | Default/max from executor config (120s/600s for bash-local). |
+| `timeoutMs` | number | Timeout override in milliseconds. The executor applies its configured default and cap. |
 | `workdir` | string | Working directory for this call. Defaults to the calling agent's session cwd (`session.header.cwd`) so each session runs in its own workspace; a relative `workdir` is resolved against that session cwd. |
 | `run_in_background` | boolean | Return a task id immediately; no timeout applies. |
 
 `command`, `workdir`, and `timeoutMs` are resolved against the executor's config defaults via `ctx.bash.resolve()` before execution, so the executor seam (`BashExecSpec`) receives explicit `workdir`/`timeoutMs` values. The workdir default is applied in the tool layer (from the calling agent's `session.header.cwd`) BEFORE `resolve()` — the per-session cwd must come from `exec.agent`, since N sessions share one executor; only when no session cwd is available does the executor fall back to its own config / `process.cwd()`.
 
-Result text: stdout, then a `[stderr]` section, then status markers — `[timed out after Nms]` whenever the executor's timer fired (reported independently of how the process ended, so a command that traps SIGTERM and exits 0 still shows it), `[killed by signal: …]` for a signal death, `[exit code: N]` for a non-zero exit (reported, **not** `isError`: the model decides how to react), and `[output truncated; full output: <path>]` when the tail was kept. Only infrastructure failures (spawn errors, aborts) surface as `isError` results.
+Result text: stdout, then a `[stderr]` section, then status markers — `[timed out after Nms]` whenever the executor's timer fired (reported independently of how the process ended, so a command that traps SIGTERM and exits 0 still shows it), `[killed by signal: …]` for a signal death, `[exit code: N]` for a non-zero exit (reported, **not** `isError`: the model decides how to react), and `[output truncated; full output: <path>]` when the tail was kept and a safe spill file is available. If the executor knows output was dropped but cannot safely advertise a complete spill file, the path is reported as `(unavailable)`. Only infrastructure failures (spawn errors, aborts) surface as `isError` results.
 
 ### `bash_output`
 
-`task_id` → output produced **since the previous `bash_output` call** plus a status line (`running` / `completed, exit code: N` / `killed`). Reads that lost data to buffer bounds say so and point at the full-output spill file.
+`task_id` → output produced **since the previous `bash_output` call** plus a status line (`running` / `completed, exit code: N` / `killed`). Reads that lost data to buffer bounds say so and point at the full-output spill file when one is safely available, otherwise `(unavailable)`.
 
 ### `bash_kill`
 
-`task_id` → SIGTERM→SIGKILL on the task's process group. Killing an already-finished task is a reported no-op; unknown ids are errors.
+`task_id` → ask the executor to kill the background task. The concrete executor decides how to signal or stop the process; killing an already-finished task is a reported no-op, and unknown ids are errors.
 
 ### Task ownership (cross-session isolation)
 

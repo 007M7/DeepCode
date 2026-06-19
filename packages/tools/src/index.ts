@@ -326,37 +326,46 @@ export class ToolRegistry extends Service {
     return [...this.store.values()].map(({ name, description, parameters, strict }): ToolSchema => ({
       name,
       description,
-      parameters,
+      parameters: structuredClone(parameters),
       ...strict !== undefined ? { strict } : {},
     }))
   }
 
   /**
-   * Execute one tool call through the `tools/execute` waterfall. If the tool
-   * is not registered, the result is an `isError` carrying a `UNKNOWN_TOOL`
-   * structured error. If the tool throws, the error is caught and returned as
-   * an `isError` result so the loop never sees an uncaught exception; a thrown
-   * {@link HarnessError} surfaces its `{ name, code }` on the result.
+   * Execute one tool call through the `tools/execute` waterfall. If the tool is
+   * not registered, the result is an `isError` carrying a `UNKNOWN_TOOL`
+   * structured error. If the tool or a waterfall listener throws, the error is
+   * caught and returned as an `isError` result so the loop records a failed tool
+   * call instead of failing the whole turn; a thrown {@link HarnessError}
+   * surfaces its `{ name, code }` on the result.
    */
-  execute(exec: ToolExecution): Promise<ToolExecutionResult> {
-    return this.ctx.waterfall(this, 'tools/execute', exec, async (): Promise<ToolExecutionResult> => {
-      try {
-        const tool = this.store.get(exec.name)
-        // Unknown tool routes through the same catch as a tool-thrown error, so
-        // both failure classes get structured `{ name, code }` from one path.
-        if (!tool) throw new ToolNotFoundError(exec.name)
-        const content = await tool.execute(exec.arguments, exec)
-        return { callId: exec.callId, content, isError: false }
-      } catch (error: unknown) {
-        const info = errorInfo(error)
-        return {
-          callId: exec.callId,
-          content: [{ type: 'text', text: `Error: ${errorMessage(error)}` }],
-          isError: true,
-          ...info ? { error: info } : {},
+  async execute(exec: ToolExecution): Promise<ToolExecutionResult> {
+    try {
+      return await this.ctx.waterfall(this, 'tools/execute', exec, async (): Promise<ToolExecutionResult> => {
+        try {
+          const tool = this.store.get(exec.name)
+          // Unknown tool routes through the same catch as a tool-thrown error, so
+          // both failure classes get structured `{ name, code }` from one path.
+          if (!tool) throw new ToolNotFoundError(exec.name)
+          const content = await tool.execute(exec.arguments, exec)
+          return { callId: exec.callId, content, isError: false }
+        } catch (error: unknown) {
+          return toolErrorResult(exec.callId, error)
         }
-      }
-    })
+      })
+    } catch (error: unknown) {
+      return toolErrorResult(exec.callId, error)
+    }
+  }
+}
+
+function toolErrorResult(callId: ToolExecution['callId'], error: unknown): ToolExecutionResult {
+  const info = errorInfo(error)
+  return {
+    callId,
+    content: [{ type: 'text', text: `Error: ${errorMessage(error)}` }],
+    isError: true,
+    ...info ? { error: info } : {},
   }
 }
 

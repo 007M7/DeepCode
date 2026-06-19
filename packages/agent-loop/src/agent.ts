@@ -63,7 +63,11 @@ export class LoopAgent implements Agent {
     // waiter (AGENTS.md "contain callback exceptions" — a lifecycle await must
     // not hang on one bad listener).
     if (status !== 'running') this.settleIdleWaiters()
-    this.ctx.emit('agent/status', this, status)
+    try {
+      this.ctx.emit('agent/status', this, status)
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`agent "${this.id}": agent/status listener threw on ${status}: ${String(error)}`)
+    }
   }
 
   /**
@@ -177,16 +181,16 @@ export class LoopAgent implements Agent {
    * `running`. If it is already disposed, awaits {@link done} (the loop-exit
    * promise) — `agent/status('disposed')` fires in the disposer BEFORE the
    * driver loop has unwound, so it is NOT itself a quiescence signal. If it is
-   * idle, resolves immediately. Otherwise queues an internal waiter (see
-   * {@link idleWaiters}) released on the next running→idle/disposed transition,
-   * resolving on `idle` directly (the turn fully ended) or chaining {@link done}
-   * on `disposed` (wait for the loop to actually exit). Implements the
-   * {@link Agent.whenIdle} contract used by teardown (`abort()` then
-   * `await whenIdle()`).
+   * idle AND has no queued work, resolves immediately. Otherwise queues an
+   * internal waiter (see {@link idleWaiters}) released on the next
+   * running→idle/disposed transition, resolving on `idle` directly (the turn
+   * fully ended) or chaining {@link done} on `disposed` (wait for the loop to
+   * actually exit). Implements the {@link Agent.whenIdle} contract used by
+   * teardown (`abort()` then `await whenIdle()`).
    */
   whenIdle(): Promise<void> {
     if (this._status === 'disposed') return this.done
-    if (this._status !== 'running') return Promise.resolve()
+    if (this._status !== 'running' && !this.inbox.hasQueued) return Promise.resolve()
     // Register an internal waiter (resolved by settleIdleWaiters on the next
     // running→idle/disposed transition), NOT an effect-scoped `ctx.on` listener:
     // a concurrent fiber disposal runs this agent's listener disposers, which

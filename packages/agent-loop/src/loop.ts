@@ -203,8 +203,8 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
   // agent/step-end emit is contained: a throwing step-end listener must not
   // abort finalization and strand the turn open (turn/end balance > notifying
   // one bad listener). Appended before the emit (the event-sourcing RFC append-before-emit).
-  const closeStep = (): void => {
-    if (!stepOpen) return
+  const closeStep = (): boolean => {
+    if (!stepOpen) return false
     stepOpen = false
     // Session.append pushes step/end BEFORE notifying session/event listeners,
     // so a throwing listener leaves step/end in the log (balance holds) but
@@ -226,7 +226,11 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
     // a throwing listener from producing a silent "completed" turn when the step
     // itself succeeded, AND keeps finalization going when closeStep runs from
     // the outer catch.
-    if (failure !== undefined) failTurn(toError(failure))
+    if (failure !== undefined) {
+      failTurn(toError(failure))
+      return true
+    }
+    return false
   }
 
   // Record a step/turn failure exactly once: append the single `error` event
@@ -358,7 +362,7 @@ async function runTurn(ctx: Context, agent: LoopAgent, handle: LoopHandle, turn:
       // Steering that arrived during streaming/tool execution.
       const steered = drainSteering(ctx, agent, turn)
 
-      closeStep()
+      if (closeStep()) break
 
       const defaultDecision = stepOutcome.hadToolCalls || steered
       let shouldContinue: boolean
@@ -497,6 +501,18 @@ async function runStep(
   const stepError = finishError(assembler.finish)
   if (stepError) throw stepError
 
+  if (assembler.finish.kind === 'max-tokens') {
+    let message: Message = withoutToolCalls(assembler.message())
+    message = withoutToolCalls(await ctx.waterfall('agent/step-result', agent, turn, step, message, () => Promise.resolve(message)))
+    if (message.content.length > 0) {
+      session.append('assistant/message', { turn, step, content: message.content })
+    }
+    if (assembler.usage) {
+      session.append('usage', { turn, step, usage: assembler.usage })
+    }
+    return { hadToolCalls: false, finish: assembler.finish }
+  }
+
   // The step-result waterfall runs BEFORE the session append so the log (the
   // source of truth for derived history and replay) records the message that
   // tool dispatch actually uses.
@@ -544,8 +560,6 @@ async function runStep(
     })
     // signal CAN flip during the await above (abort() inside a tool);
     // the analyzer can't see through the await boundary.
-    // signal can flip during the await above (abort() inside a tool);
-    // the analyzer can't see through the await boundary.
     /* v8 ignore start -- signal.reason default unreachable via agent.abort() */
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
@@ -553,6 +567,10 @@ async function runStep(
   }
 
   return { hadToolCalls: toolCalls.length > 0, finish: assembler.finish }
+}
+
+function withoutToolCalls(message: Message): Message {
+  return { ...message, content: message.content.filter(block => block.type !== 'tool-call') }
 }
 
 /** The last turn number in a (possibly seeded) session log, or 0. */

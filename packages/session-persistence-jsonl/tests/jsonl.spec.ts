@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
+import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -644,25 +644,40 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     expect(loaded.meta.title).toBeUndefined()
   })
 
-  it('delete removes the sidecar of a lazy session that has no log', async () => {
-    // update() before the first append() writes a .summary.json sidecar but no
-    // .jsonl log (lazy create). delete() must still remove that sidecar.
-    const m = meta('lazy-del', '/a')
+  it('update before the first append keeps summary in memory and writes no orphan sidecar', async () => {
+    const m = meta('lazy-update', '/a')
     await ctx.sessionPersistence.create(m)
     await ctx.sessionPersistence.update(m.id, { title: 'secret', firstPrompt: 'sensitive' })
     const sidecar = sidecarPath(root, '/a', m.id)
-    expect((await stat(sidecar)).isFile()).toBe(true) // sidecar exists, no log
-    await expect(stat(logPath(root, '/a', m.id))).rejects.toThrow() // no log
-    await ctx.sessionPersistence.delete(m.id)
-    await expect(stat(sidecar)).rejects.toThrow() // sidecar gone
+    await expect(stat(sidecar)).rejects.toThrow()
+    await expect(stat(logPath(root, '/a', m.id))).rejects.toThrow()
+
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const loaded = await ctx.sessionPersistence.load(m.id)
+    expect(loaded.meta.title).toBe('secret')
+    expect(loaded.meta.firstPrompt).toBe('sensitive')
+    expect((await stat(sidecar)).isFile()).toBe(true)
   })
 
-  it('delete removes a cwd-bucket sidecar even after a restart loses the in-memory cwd', async () => {
-    // A lazy session writes a sidecar under cwd /a (no log). Restart the backend
-    // (fresh instance, empty state) and delete: the in-memory cwd is gone and
-    // there is no log to recover it from, so delete must scan every bucket for
-    // the sidecar rather than only the _no-cwd bucket.
+  it('a lazy update leaves no sidecar that can leak into a future same-id session after restart', async () => {
+    await ctx.sessionPersistence.create(meta('restart-lazy', '/a'))
+    await ctx.sessionPersistence.update(SessionId('restart-lazy'), { title: 'secret' })
+    await expect(stat(sidecarPath(root, '/a', SessionId('restart-lazy')))).rejects.toThrow()
+
+    const ctx2 = new Context()
+    await ctx2.plugin(SessionStore)
+    await ctx2.plugin(SessionPersistenceJsonl, { root })
+    const m2 = meta('restart-lazy', '/a')
+    await ctx2.sessionPersistence.create(m2)
+    await ctx2.sessionPersistence.append(m2.id, oneTurnLog())
+    const loaded = await ctx2.sessionPersistence.load(m2.id)
+    expect(loaded.meta.title).toBeUndefined()
+    await ctx2.fiber.dispose()
+  })
+
+  it('delete removes a materialized cwd-bucket sidecar after a restart', async () => {
     await ctx.sessionPersistence.create(meta('restart-del', '/a'))
+    await ctx.sessionPersistence.append(SessionId('restart-del'), oneTurnLog())
     await ctx.sessionPersistence.update(SessionId('restart-del'), { title: 'secret' })
     const sidecar = sidecarPath(root, '/a', SessionId('restart-del'))
     expect((await stat(sidecar)).isFile()).toBe(true)
@@ -671,7 +686,8 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     await ctx2.sessionPersistence.delete(SessionId('restart-del'))
-    await expect(stat(sidecar)).rejects.toThrow() // sidecar gone despite no in-memory cwd
+    await expect(stat(sidecar)).rejects.toThrow()
+    await expect(stat(logPath(root, '/a', SessionId('restart-del')))).rejects.toThrow()
     await ctx2.fiber.dispose()
   })
 
@@ -749,6 +765,27 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     expect(ids).toEqual(['p1', 'p2', 'p3'])
   })
 
+  it('list tolerates one corrupt sidecar and still returns other sessions', async () => {
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const bad = meta('bad-list-summary', '/proj')
+    await ctx.sessionPersistence.create(bad)
+    await ctx.sessionPersistence.append(bad.id, oneTurnLog())
+    await ctx.sessionPersistence.update(bad.id, { title: 'hidden by corrupt sidecar' })
+    await writeFile(sidecarPath(root, '/proj', bad.id), '{not json')
+    const good = meta('good-list-summary', '/proj')
+    await ctx.sessionPersistence.create(good)
+    await ctx.sessionPersistence.append(good.id, oneTurnLog())
+    await ctx.sessionPersistence.update(good.id, { title: 'visible' })
+
+    const listed = await ctx.sessionPersistence.list()
+
+    const badListed = listed.find(m => m.id === bad.id)
+    expect(badListed).toMatchObject({ id: bad.id })
+    expect(badListed).not.toHaveProperty('title')
+    expect(listed.find(m => m.id === good.id)).toMatchObject({ id: good.id, title: 'visible' })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('bad-list-summary'))
+  })
+
   it('list on an empty root returns nothing', async () => {
     expect(await ctx.sessionPersistence.list()).toEqual([])
   })
@@ -819,6 +856,30 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     // 6 original + 2 new, contiguous, no duplicated seed.
     expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
     await ctx2.fiber.dispose()
+  })
+
+  it('HMR adoption does not crash-repair an active open turn as interrupted', async () => {
+    const dir = await freshRoot()
+    const hmr = new Context()
+    await hmr.plugin(SessionStore)
+    const first = await hmr.plugin(SessionPersistenceJsonl, { root: dir })
+    const session = hmr.sessions.create('hmr-open', { meta: { cwd: '/hmr' } })
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    await hmr.parallel('session/flush', session)
+
+    await first.dispose()
+    await appendFile(logPath(dir, '/hmr', SessionId('hmr-open')), '{"torn":')
+    const second = await hmr.plugin(SessionPersistenceJsonl, { root: dir })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    await hmr.parallel('session/flush', session)
+
+    const loaded = await hmr.sessionPersistence.load(SessionId('hmr-open'))
+    expect(loaded.events.map(e => e.type)).toEqual(['turn/start', 'step/start', 'step/end', 'turn/end'])
+    expect(loaded.events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
+    await second.dispose()
+    await hmr.fiber.dispose()
   })
 
   it('a NEW live session whose id collides with an on-disk log is rejected, not silently adopted', async () => {
@@ -1021,6 +1082,14 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     // With no sidecar, updatedAt falls back to the header createdAt (5), NOT 0
     // — reporting an active session as updated at the Unix epoch would be wrong.
     expect(loaded.meta.updatedAt).toBe(5)
+  })
+
+  it('load rejects a corrupt sidecar instead of treating it as absent', async () => {
+    const m = meta('bad-sidecar')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    await writeFile(sidecarPath(root, undefined, m.id), '{not json')
+    await expect(ctx.sessionPersistence.load(m.id)).rejects.toThrow()
   })
 
   it('list returns nothing when the root directory does not exist', async () => {

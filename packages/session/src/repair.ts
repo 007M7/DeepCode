@@ -27,9 +27,10 @@
  * — which every provider rejects as an invalid transcript on the next request.
  * Synthesizing an error result per orphaned call keeps resume safe.
  *
- * This module computes those synthetic closers from an event list; the backend
- * returns them inline from `load` (so the reconstructed session is balanced and
- * immediately usable) and persists them on the first post-load `append`.
+ * This module computes those synthetic closers from an event list; backends
+ * return them inline from `load` (so the reconstructed session is balanced and
+ * immediately usable) and persist them during that mutating load before any
+ * later append continues the log.
  *
  * @module @deepseek-ai/dsh-session/repair
  */
@@ -78,6 +79,7 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
         openStep = event.data.step
         break
       case 'step/end':
+        pendingCalls.clear()
         openStep = null
         break
       case 'assistant/message':

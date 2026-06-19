@@ -59,7 +59,7 @@ import {
 } from '@agentclientprotocol/sdk'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ToolCallKind, ToolCallPresentation, ToolRegistry, ToolResultPresentation, ToolTerminal } from '@deepseek-ai/dsh-tools'
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
@@ -98,6 +98,10 @@ function invalidParams(detail: string): RequestError {
  */
 function internalError(detail: string): RequestError {
   return RequestError.internalError(undefined, detail)
+}
+
+function sameWorkspaceCwd(left: string, right: string): boolean {
+  return resolvePath(left) === resolvePath(right)
 }
 
 /** Plugin config: the agent template ACP sessions are created from. */
@@ -278,6 +282,18 @@ export function apply(ctx: Context, config: AcpConfig): void {
     inflight.resolve(reason)
   }
 
+  /** Apply the single ACP prompt-settlement mapping for a completed turn. */
+  const settleFromTurnEnd = (
+    inflight: NonNullable<SessionRecord['inflight']>,
+    reason: TurnEndReason,
+  ): void => {
+    if (reason.kind === 'error') {
+      inflight.reject(internalError(`turn failed: ${reason.message}`))
+    } else {
+      inflight.resolve(turnEndToStopReason(reason))
+    }
+  }
+
   // --- Stream the harness event taxonomy to ACP session/update --------------
 
   // All content streaming AND the prompt settle flow through `session/event`,
@@ -303,7 +319,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     streamSessionEventUpdate(rec.sessionId, event, notify, rec.presenter, {
       enabled: rec.terminalEnabled,
       cwd: session.header.cwd,
-    })
+    }, { includeUserMessages: false })
     const inflight = rec.inflight
     if (inflight === undefined) return
     if (event.type === 'turn/start') {
@@ -323,12 +339,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     // Settle only on the OWNING turn's end.
     if (event.type !== 'turn/end' || inflight.turn !== event.data.turn) return
     rec.inflight = undefined
-    const reason = event.data.reason
-    if (reason.kind === 'error') {
-      inflight.reject(internalError(`turn failed: ${reason.message}`))
-    } else {
-      inflight.resolve(turnEndToStopReason(reason))
-    }
+    settleFromTurnEnd(inflight, event.data.reason)
   })
 
   // Settle fallback: a `session/event` listener registered BEFORE ACP that
@@ -369,12 +380,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
       inflight.resolve('cancelled')
       return
     }
-    const reason = end.data.reason
-    if (reason.kind === 'error') {
-      inflight.reject(internalError(`turn failed: ${reason.message}`))
-    } else {
-      inflight.resolve(turnEndToStopReason(reason))
-    }
+    settleFromTurnEnd(inflight, end.data.reason)
   }
 
   // On a settle to idle/disposed, reconcile any still-pending prompt from the
@@ -409,7 +415,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
           agentInfo: { name: agentName, version: agentVersion },
           agentCapabilities: {
             loadSession: true,
-            // text-only: no image/audio/embeddedContext, no mcpCapabilities
+            // Baseline prompt blocks only: text plus resource_link rendered as
+            // text. No image/audio/embeddedContext, no mcpCapabilities.
             promptCapabilities: { image: false, audio: false, embeddedContext: false },
           },
           authMethods: [],
@@ -425,6 +432,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
       newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
         assertOpen()
         validateWorkspaceParams(params)
+        validateMcpServers(params)
         const sessionId = randomUUID()
         const agent = agents.create({
           agentId: sessionId,
@@ -443,6 +451,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           throw invalidParams(`session ${params.sessionId} is already loaded`)
         }
         validateWorkspaceParams(params)
+        validateMcpServers(params)
         // Reserve THIS id's load slot BEFORE the await. Without it, two pipelined
         // loads for the same id could both pass the guard above while the first
         // resume() is pending, then both install a record and leak a second
@@ -463,10 +472,16 @@ export function apply(ctx: Context, config: AcpConfig): void {
           // (An id unknown to `list()` falls through to resume, which rejects with
           // the backend's not-found error.)
           const meta = (await sessionPersistence.list()).find(m => m.id === params.sessionId)
-          if (meta !== undefined && (meta.cwd === undefined || !isAbsolute(meta.cwd))) {
-            throw invalidParams(
-              `session ${params.sessionId} has no absolute persisted cwd; cannot determine its workspace (it predates per-session cwd, or was created without one)`,
-            )
+          if (meta !== undefined) {
+            const persistedCwd = meta.cwd
+            if (persistedCwd === undefined || !isAbsolute(persistedCwd)) {
+              throw invalidParams(
+                `session ${params.sessionId} has no absolute persisted cwd; cannot determine its workspace (it predates per-session cwd, or was created without one)`,
+              )
+            }
+            if (!sameWorkspaceCwd(persistedCwd, params.cwd)) {
+              throw invalidParams(`session ${params.sessionId} cwd mismatch: persisted ${persistedCwd}, requested ${params.cwd}`)
+            }
           }
           const agent = await agents.resume({
             agentId: params.sessionId,
@@ -528,7 +543,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           throw invalidParams('a prompt is already in flight for this session')
         }
         if (promptHasUnsupportedContent(params.prompt)) {
-          throw invalidParams('only text prompt content is supported (text-only promptCapabilities); image/audio/resource blocks are rejected rather than silently dropped')
+          throw invalidParams('only text and resource_link prompt content is supported; image/audio/embedded resource blocks are rejected rather than silently dropped')
         }
         const text = acpPromptToText(params.prompt)
         if (text.trim().length === 0) {
@@ -681,13 +696,13 @@ export function agentOptions(config: AcpConfig): { model?: string; systemPrompt?
 /**
  * Validate the `cwd`/`additionalDirectories` contract shared by `session/new`
  * and `session/load`: `cwd` must be absolute (a relative path would be ambiguous
- * as a workspace root). What the cwd is USED for differs by method, and this
- * validator only enforces shape:
+ * as a workspace root). The persisted-cwd equality check for `session/load`
+ * happens after the metadata lookup; this validator only enforces request shape:
  *  - `session/new`: the validated `cwd` becomes the session's `SessionHeader.cwd`
  *    (via `agents.create({meta:{cwd}})`) and thus the default bash workdir.
- *  - `session/load`: the request `cwd` is shape-checked only; the RESUMED
- *    session keeps its PERSISTED `header.cwd`, which stays authoritative for the
- *    bash workdir — the request cwd does not override it.
+ *  - `session/load`: the request `cwd` must be absolute AND must match the
+ *    PERSISTED `header.cwd`, which stays authoritative for the bash workdir —
+ *    the request cwd does not override it.
  * Any absolute path is accepted (the per-session cwd flows to the bash executor
  * — see `dsh-tool-bash`), so the server no longer has to launch in the
  * workspace. `additionalDirectories` must still be empty: widening the
@@ -705,6 +720,12 @@ function validateWorkspaceParams(params: { cwd: string; additionalDirectories?: 
   }
 }
 
+function validateMcpServers(params: { mcpServers?: unknown[] }): void {
+  if (params.mcpServers !== undefined && params.mcpServers.length > 0) {
+    throw invalidParams('mcpServers is not supported in this MVP')
+  }
+}
+
 /**
  * Translate a single harness {@link SessionEvent} into the `session/update`
  * notification(s) it produces, pushing each via `notify`. Shared by live
@@ -712,8 +733,9 @@ function validateWorkspaceParams(params: { cwd: string; additionalDirectories?: 
  * identical update stream from the same event log.
  *
  * - `assistant/chunk` text-delta/reasoning-delta → message/thought chunks
- * - `user/message` → `user_message_chunk` (text blocks) — so a `session/load`
- *   replay reconstructs the USER side of each turn, not just the agent's
+ * - `user/message` → `user_message_chunk` during load replay only — so a
+ *   loaded transcript reconstructs the USER side of each turn without echoing
+ *   a live `session/prompt` back to the client
  * - `tool/call`   → `tool_call` (pending)
  * - `tool/result` → `tool_call_update` (completed/failed)
  *
@@ -734,7 +756,9 @@ export function streamSessionEventUpdate(
   notify: (notification: SessionNotification) => void,
   presenter: Pick<ToolPresenter, 'call' | 'result'> = nullToolPresenter,
   terminal: TerminalRendering = noTerminalRendering,
+  options: { includeUserMessages?: boolean } = {},
 ): void {
+  const includeUserMessages = options.includeUserMessages ?? true
   switch (event.type) {
     case 'assistant/chunk': {
       const chunk = event.data.chunk
@@ -746,9 +770,10 @@ export function streamSessionEventUpdate(
       return
     }
     case 'user/message': {
+      if (!includeUserMessages) return
       // Replay the user's prompt so a loaded session shows both sides of each
-      // turn. Only text blocks carry inline content the bridge surfaces (the
-      // prompt path is text-only); other block kinds produce no chunk.
+      // turn. Live prompt turns suppress this path to avoid duplicating what
+      // the client just sent.
       for (const block of event.data.content) {
         const content = harnessBlockToAcpContent(block)
         if (content !== undefined) {

@@ -107,6 +107,23 @@ describe('SystemPrompt', () => {
     expect(assembly.sections).toHaveLength(0)
   })
 
+  it('assembles snapshots so one-step mutations do not leak into future assemblies', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    ctx.systemPrompt.section({ name: 'base', order: 0, text: 'base' })
+    ctx.systemPrompt.tools(() => [{ name: 't', description: 'tool', parameters: { type: 'object', properties: {} } }])
+
+    const first = await ctx.systemPrompt.assemble()
+    first.sections[0]!.name = 'mutated'
+    first.tools[0]!.description = 'mutated'
+    const firstParameters = first.tools[0]!.parameters as { properties: Record<string, unknown> }
+    firstParameters.properties['leak'] = { type: 'string' }
+
+    const second = await ctx.systemPrompt.assemble()
+    expect(second.sections.map(section => section.name)).toEqual(['base'])
+    expect(second.tools).toEqual([{ name: 't', description: 'tool', parameters: { type: 'object', properties: {} } }])
+  })
+
   it('filters out empty section text from renderPrompt', () => {
     // Direct test of renderPrompt: function returning empty string, and empty static text
     const result = renderPrompt({

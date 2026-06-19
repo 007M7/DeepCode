@@ -52,4 +52,13 @@ describe('acp bridge — demux & config edges', () => {
     const a = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [], additionalDirectories: [] })
     expect(a.sessionId).toBeTruthy()
   })
+
+  it('rejects non-empty mcpServers until MCP wiring is implemented', async () => {
+    harness = await makeBridgeHarness({ storageDir })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    await expect(harness.client.newSession({
+      cwd: process.cwd(),
+      mcpServers: [{ name: 'fs', command: 'npx', args: ['server'], env: [] }],
+    })).rejects.toThrow(/mcpServers/)
+  })
 })

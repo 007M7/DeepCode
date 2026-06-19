@@ -27,4 +27,4 @@ Implementations subclass `BashExecutor`, implement the abstract methods, and cal
 
 ## Vocabulary
 
-`BashExecSpec` (command, workdir?, timeoutMs?, signal?) → `BashRunResult` (exitCode, signal, timedOut, aborted, timeoutMs, stdout/stderr as `CollectedOutput`) and `BashTask`/`BashTaskRead` for the background side. See `src/types.ts` for the full contracts.
+`BashExecRequest` (command, workdir?, timeoutMs?, signal?) resolves to `BashExecSpec` (command, workdir, timeoutMs, signal?) before execution; `run()` returns `BashRunResult` (exitCode, signal, timedOut, aborted, timeoutMs, stdout/stderr as `CollectedOutput`) and `start()`/`readOutput()` use `BashTask`/`BashTaskRead` for the background side. See `src/types.ts` for the full contracts.

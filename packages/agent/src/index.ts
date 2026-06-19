@@ -71,6 +71,9 @@ export interface AgentFactory {
   resume(options: ResumeAgentOptions): Promise<Agent>
 }
 
+/** Thrown when create/resume is called before an agent factory is registered. */
+const NO_FACTORY_MESSAGE = 'no agent factory registered (load an agent-loop plugin)'
+
 /**
  * Agent registry (`ctx.agents`): tracks live agents so UI, hook, and
  * orchestrator plugins can find them without depending on the concrete loop
@@ -107,7 +110,7 @@ export class AgentRegistry extends Service {
    * registered.
    */
   create(options: CreateAgentOptions): Agent {
-    if (this.factory === undefined) throw new Error('no agent factory registered (load an agent-loop plugin)')
+    if (this.factory === undefined) throw new Error(NO_FACTORY_MESSAGE)
     return this.factory.createAgent(options)
   }
 
@@ -117,7 +120,7 @@ export class AgentRegistry extends Service {
    * session persistence is not configured.
    */
   async resume(options: ResumeAgentOptions): Promise<Agent> {
-    if (this.factory === undefined) throw new Error('no agent factory registered (load an agent-loop plugin)')
+    if (this.factory === undefined) throw new Error(NO_FACTORY_MESSAGE)
     return this.factory.resume(options)
   }
 

@@ -1,6 +1,6 @@
 # Packages
 
-Harness packages, all under the `@deepseek-ai/dsh-*` scope. Each package is a Cordis service (microkernel plugin-style): it exports a default `Service` class that gets registered via `ctx.plugin()`, declares its ctx key and events through declaration merging, and exposes extension points through `ctx.effect()`, `ctx.on()`, and `ctx.waterfall()`.
+Harness packages, all under the `@deepseek-ai/dsh-*` scope. Each package is a Cordis plugin (microkernel-style): it exports either a default `Service` subclass or a functional plugin that gets registered via `ctx.plugin()`, declares its ctx key/events where applicable through declaration merging, and exposes extension points through `ctx.effect()`, `ctx.on()`, and `ctx.waterfall()`.
 
 ## Dependency graph
 
@@ -31,7 +31,7 @@ The rule: plugins depend on interfaces, never on the concrete loop. `dsh-agent-l
 | `system-prompt/` | Prompt-section + tool-schema assembly registry | `ctx.systemPrompt` |
 | `tools/` | Tool registry + `tools/execute` waterfall | `ctx.tools` |
 | `agent/` | Agent interface, registry, `agent/*` event vocabulary | `ctx.agents` |
-| `agent-loop/` | THE concrete plugin: `LoopAgent` + the loop driver | `ctx.agentLoop` |
+| `agent-loop/` | THE concrete loop plugin: `LoopAgent` + the loop driver | `ctx.agentLoop` |
 | `bash/` | Abstract bash executor seam (interface + vocabulary) | `ctx.bash` |
 | `bash-local/` | Local-subprocess `BashExecutor` implementation | (registers `ctx.bash`) |
 | `tool-bash/` | Model-facing `bash`/`bash_output`/`bash_kill` tool schemas | (registers on `ctx.tools`) |

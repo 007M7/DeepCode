@@ -7,7 +7,8 @@
  * exists — an independent implementation stress-tests the StreamChunk
  * protocol):
  * - pi-ai tool-call `arguments` are PARSED OBJECTS; the harness keeps the
- *   raw JSON string. We parse on the way in and re-stringify on the way out.
+ *   raw JSON string. We parse on the way into pi-ai, patch provider payloads
+ *   back to the original raw string in the adapter, and re-stringify on output.
  * - pi-ai reports errors as in-stream `error` events (it never throws
  *   mid-stream); the harness expresses those as `finish {kind:'error'}` /
  *   `{kind:'aborted'}` chunks.
@@ -17,7 +18,7 @@
  * @module dsh-llm-pi-ai/convert
  */
 
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { CallId, LlmError } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, GenerateOptions, Message, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type {
   AssistantMessage,
@@ -168,6 +169,14 @@ export function mapUsage(usage: PiUsage): TokenUsage {
   }
 }
 
+function classifyPiAiError(message: string): string {
+  if (/\b(?:401|403)\b/.test(message)) return 'AUTH'
+  if (/\b429\b|rate.?limit/i.test(message)) return 'RATE_LIMIT'
+  if (/\b400\b|invalid.?request/i.test(message)) return 'INVALID_REQUEST'
+  if (/\b5\d\d\b/.test(message)) return 'SERVER'
+  return 'PI_AI_ERROR'
+}
+
 /** Map a terminal pi-ai event to the harness finish reason. */
 export function mapStopReason(message: AssistantMessage): FinishReason {
   switch (message.stopReason) {
@@ -175,10 +184,9 @@ export function mapStopReason(message: AssistantMessage): FinishReason {
     case 'length': return { kind: 'max-tokens' }
     case 'toolUse': return { kind: 'tool-calls' }
     case 'aborted': return { kind: 'aborted' }
-    case 'error': return {
-      kind: 'error',
-      message: message.errorMessage ?? 'pi-ai stream error',
-      code: 'PI_AI_ERROR',
+    case 'error': {
+      const text = message.errorMessage ?? 'pi-ai stream error'
+      return { kind: 'error', message: text, code: classifyPiAiError(text) }
     }
   }
 }
@@ -264,4 +272,5 @@ export async function* toStreamChunks(events: AsyncIterable<AssistantMessageEven
       // when one is added (switch covers all current variants).
     }
   }
+  throw new LlmError('pi-ai event stream ended without done/error', 'STREAM_CLOSED')
 }

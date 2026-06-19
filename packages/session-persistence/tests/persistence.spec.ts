@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { SessionId, isJsonValue, interruptedTurnClosers } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
-import { SessionPersistence } from '../src/index.ts'
+import { SessionPersistence, assertSerializable, seedCoversPrefix } from '../src/index.ts'
 import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
 
 /**
@@ -69,7 +69,7 @@ class MemoryPersistence extends SessionPersistence {
 
   async update(id: SessionId, summary: Partial<SessionSummary>): Promise<void> {
     const entry = this.store.get(id)
-    if (entry) Object.assign(entry.meta, summary)
+    if (entry) Object.assign(entry.meta, summary, { updatedAt: summary.updatedAt ?? Date.now() })
   }
 }
 
@@ -102,5 +102,40 @@ describe('SessionPersistence service registration', () => {
     const loaded = await ctx.sessionPersistence.load(m.id)
     expect(loaded.events).toHaveLength(6)
     await fiber.dispose()
+  })
+})
+
+describe('shared persistence helpers', () => {
+  it('accepts a seed that reproduces the persisted prefix exactly', () => {
+    const log = oneTurnLog()
+    expect(seedCoversPrefix(log, log.slice(0, 3))).toBe(true)
+    expect(seedCoversPrefix(log, [])).toBe(true)
+  })
+
+  it('rejects a prefix longer than the seed', () => {
+    const log = oneTurnLog()
+    expect(seedCoversPrefix(log.slice(0, 2), log)).toBe(false)
+  })
+
+  it('rejects a same-envelope event with mutated data', () => {
+    const log = oneTurnLog()
+    const tampered = structuredClone(log)
+    const event = tampered[1]!
+    tampered[1] = {
+      ...event,
+      data: { ...event.data, content: [{ type: 'text', text: 'tampered' }] },
+    } as SessionEvent
+    expect(seedCoversPrefix(tampered, log.slice(0, 2))).toBe(false)
+  })
+
+  it('accepts JSON-serializable event data', () => {
+    expect(() => { assertSerializable(oneTurnLog()) }).not.toThrow()
+  })
+
+  it('rejects non-JSON-serializable event data with type and seq context', () => {
+    const bad = [
+      { type: 'user/message', seq: 0, time: 1, data: { content: 1n } },
+    ] as unknown as SessionEvent[]
+    expect(() => { assertSerializable(bad) }).toThrow(/"user\/message".*seq 0/)
   })
 })

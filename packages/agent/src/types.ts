@@ -72,8 +72,9 @@ export interface Agent {
    * (inject is synchronous): a failing flush is reported via `agent/error`
    * (step `0`) and the logger, never thrown into the caller.
    *
-   * TODO(review): exact envelope/rendering rules live in dsh-session and need
-   * review once a real adapter exists.
+   * Live-adapter review has validated the tagged-envelope rendering against
+   * current DeepSeek behavior; provider-specific mismatches belong in that
+   * adapter, not in the canonical session vocabulary.
    */
   inject(content: ContentBlock[], options?: SendOptions): void
 
@@ -82,11 +83,12 @@ export interface Agent {
 
   /**
    * Resolve once the agent has reached quiescence after settling out of
-   * `running`, or immediately if it is already idle. The quiescence signal a
-   * teardown awaits: `agent.abort()` then `await agent.whenIdle()` guarantees
-   * the in-flight turn has fully stopped before the caller proceeds (a closing
-   * ACP connection, a disposing UI plugin), rather than returning while the
-   * driver is still streaming.
+   * `running`, or immediately if it is already idle with no queued work. The
+   * quiescence signal a teardown awaits: `agent.abort()` then
+   * `await agent.whenIdle()` guarantees queued/running work has fully stopped
+   * before the caller proceeds (a closing ACP connection, a disposing UI
+   * plugin), rather than returning while the driver is still streaming or about
+   * to start a queued turn.
    *
    * "Quiescence", not merely "status changed": a disposed agent emits
    * `agent/status('disposed')` from inside its disposer, BEFORE the driver loop

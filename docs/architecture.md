@@ -4,7 +4,7 @@ This document describes the phase-1 architecture of the DeepSeek Harness — the
 
 > **Microkernel approach. Everything is a plugin.**
 
-The harness core is deliberately tiny: a handful of abstract services plus one concrete plugin (the agent loop). Every product feature — tools, hooks, compaction, sandboxing, UI, persistence, sub-agents, MCP, skills — is meant to be written as a plugin against the extension surface described here, without modifying the loop.
+The harness core is deliberately tiny: a handful of abstract services plus one concrete loop plugin (`dsh-agent-loop`). Every product feature — tools, hooks, compaction, sandboxing, UI, persistence, sub-agents, MCP, skills — is meant to be written as a plugin against the extension surface described here, without modifying the loop.
 
 Requirement context: [Coding Harness MVP 需求分析][mvp-doc].
 
