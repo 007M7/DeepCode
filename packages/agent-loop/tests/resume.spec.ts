@@ -43,7 +43,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
   it('createAgent uses the caller-supplied sessionId (not ${id}-session)', async () => {
     const adapter = new MockAdapter([textResponse('hi')])
     const { ctx } = await persistentHarness(adapter)
-    const agent = ctx.agents.create({ agentId: 'a1', sessionId: 'custom-session', meta: { cwd: '/w' } })
+    const { agent } = ctx.agents.create({ agentId: 'a1', sessionId: 'custom-session', meta: { cwd: '/w' } })
     expect(agent.session.id).toBe('custom-session')
     expect(agent.session.header.cwd).toBe('/w')
     await ctx.fiber.dispose()
@@ -63,7 +63,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
   it('createAgent works without meta (no cwd)', async () => {
     const adapter = new MockAdapter([textResponse('hi')])
     const { ctx } = await persistentHarness(adapter)
-    const agent = ctx.agents.create({ agentId: 'a-nometa', sessionId: 'nometa-session' })
+    const { agent } = ctx.agents.create({ agentId: 'a-nometa', sessionId: 'nometa-session' })
     expect(agent.session.id).toBe('nometa-session')
     expect(agent.session.header.cwd).toBeUndefined()
     await ctx.fiber.dispose()
@@ -73,7 +73,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     // Lifecycle 1: create a no-cwd session and run a turn.
     const adapter1 = new MockAdapter([textResponse('a')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
-    const a1 = ctx1.agents.create({ agentId: 'm', sessionId: 'nocwd-sess' }) as ReactLoopAgent
+    const a1 = ctx1.agents.create({ agentId: 'm', sessionId: 'nocwd-sess' }).agent as ReactLoopAgent
     a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
@@ -89,7 +89,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.plugin(AgentLoop, { agents: [] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
-    const a2 = await ctx2.agents.resume({ agentId: 'm', resumeSessionId: 'nocwd-sess' }) as ReactLoopAgent
+    const a2 = (await ctx2.agents.resume({ agentId: 'm', resumeSessionId: 'nocwd-sess' })).agent as ReactLoopAgent
     expect(a2.session.header.cwd).toBeUndefined()
     await ctx2.fiber.dispose()
   })
@@ -120,7 +120,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.plugin(AgentLoop, { agents: [] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
-    const a2 = await ctx2.agents.resume({ agentId: 'm', resumeSessionId: 'forked-sess' }) as ReactLoopAgent
+    const a2 = (await ctx2.agents.resume({ agentId: 'm', resumeSessionId: 'forked-sess' })).agent as ReactLoopAgent
     expect(a2.session.header.parentSession).toBe('parent-sess')
     expect(a2.session.header.cwd).toBe('/w')
     await ctx2.fiber.dispose()
@@ -133,7 +133,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     // disk, since a crash before the next turn would otherwise lose it.
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
-    const a1 = ctx1.agents.create({ agentId: 'm', sessionId: 'inject-sess', meta: { cwd: '/w' } }) as ReactLoopAgent
+    const a1 = ctx1.agents.create({ agentId: 'm', sessionId: 'inject-sess', meta: { cwd: '/w' } }).agent as ReactLoopAgent
     a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     a1.inject([{ type: 'text', text: 'background task 42 finished' }], { source: { kind: 'plugin', plugin: 'tool-bash' } })
@@ -158,7 +158,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     // drop it on reload (the bug this guards).
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
-    const a1 = ctx1.agents.create({ agentId: 'm', sessionId: 'inject-sess', meta: { cwd: '/w' } }) as ReactLoopAgent
+    const a1 = ctx1.agents.create({ agentId: 'm', sessionId: 'inject-sess', meta: { cwd: '/w' } }).agent as ReactLoopAgent
     a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     a1.inject([{ type: 'text', text: 'background task 42 finished' }], { source: { kind: 'plugin', plugin: 'tool-bash' } })
@@ -176,7 +176,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.plugin(AgentLoop, { agents: [] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
-    const a2 = await ctx2.agents.resume({ agentId: 'm', resumeSessionId: 'inject-sess' }) as ReactLoopAgent
+    const a2 = (await ctx2.agents.resume({ agentId: 'm', resumeSessionId: 'inject-sess' })).agent as ReactLoopAgent
     const flat = JSON.stringify(a2.session.deriveMessages())
     expect(flat).toContain('background task 42 finished')
     await ctx2.fiber.dispose()
@@ -186,7 +186,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     // Lifecycle 1: run one full turn, persisting it.
     const adapter1 = new MockAdapter([textResponse('first answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
-    const a1 = ctx1.agents.create({ agentId: 'main', sessionId: 'sess-resume', meta: { cwd: '/w' } }) as ReactLoopAgent
+    const a1 = ctx1.agents.create({ agentId: 'main', sessionId: 'sess-resume', meta: { cwd: '/w' } }).agent as ReactLoopAgent
     a1.send([{ type: 'text', text: 'first question' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     const events1 = [...a1.session.events]
@@ -206,7 +206,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
 
-    const a2 = await ctx2.agents.resume({ agentId: 'main', resumeSessionId: 'sess-resume' }) as ReactLoopAgent
+    const a2 = (await ctx2.agents.resume({ agentId: 'main', resumeSessionId: 'sess-resume' })).agent as ReactLoopAgent
     // The resumed session carries the prior history…
     expect(a2.session.id).toBe('sess-resume')
     expect(a2.session.events.length).toBe(events1.length)

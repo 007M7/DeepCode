@@ -230,6 +230,25 @@ export class SessionStore extends Service {
    *   non-absolute path (storage backends key directories off it).
    */
   create(id?: string, options?: CreateSessionOptions): Session {
+    // Discard the store-removal disposer: a plain create() is owned by the
+    // calling fiber (disposing the fiber removes the session). An owner that
+    // needs to remove ONE session independently uses createOwned().
+    return this.createOwned(id, options).session
+  }
+
+  /**
+   * Like {@link create}, but ALSO returns the disposer for the session's
+   * store-removal effect — so an owner can remove exactly THIS session (detach
+   * `onAppend`, delete the store entry) without disposing the whole fiber.
+   *
+   * Used by the agent factory's {@link AgentHandle} teardown: an owned agent's
+   * `dispose()` stops the loop, awaits quiescence, unregisters the agent, and
+   * THEN runs this session disposer — so the loop's final `session/flush`
+   * (delivered via `onAppend` → `session/event`) is captured before `onAppend`
+   * is detached. The disposer is async (a cordis effect disposer) to compose
+   * with the agent teardown's promise chain.
+   */
+  createOwned(id?: string, options?: CreateSessionOptions): { session: Session; dispose: () => Promise<void> } {
     const sessionId = SessionId(id ?? `session-${++this.counter}`)
     if (this.store.has(sessionId)) throw new Error(`session "${sessionId}" already exists`)
     const cwd = options?.meta?.cwd
@@ -244,7 +263,7 @@ export class SessionStore extends Service {
       ...options?.meta?.parentSession !== undefined ? { parentSession: options.meta.parentSession } : {},
     }
     const session = new Session(sessionId, options?.seed, header)
-    this.ctx.effect(function* (this: SessionStore) {
+    const dispose = this.ctx.effect(function* (this: SessionStore) {
       session.onAppend = (event) => { this.ctx.emit('session/event', session, event) }
       this.store.set(sessionId, session)
       // Yield the rollback BEFORE emitting `session/created`: a generator
@@ -259,7 +278,9 @@ export class SessionStore extends Service {
       }
       this.ctx.emit('session/created', session)
     }.bind(this), 'sessions.create()')
-    return session
+    // ctx.effect's disposer returns Promise<void>; normalize to an always-async
+    // disposer for the owner.
+    return { session, dispose: async () => { await dispose() } }
   }
 
   get(id: string): Session | undefined {

@@ -11,7 +11,7 @@ import { Context, Service } from 'cordis'
 import { randomUUID } from 'node:crypto'
 import z from 'schemastery'
 import { AgentId } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentFactory, AgentOptions, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
+import type { AgentFactory, AgentHandle, AgentOptions, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -120,23 +120,28 @@ export class AgentLoop extends Service implements AgentFactory {
    */
   create(id: string, options: AgentOptions = {}): ReactLoopAgent {
     this.assertAgentIdFree(id)
+    // Config/programmatic path: the session is owned by THIS fiber (the plain
+    // create()), so disposing the AgentLoop/caller fiber removes it. No
+    // AgentHandle is needed — the register+start effect is fiber-owned too.
     const session = this.ctx.sessions.create(`${id}-session-${randomUUID()}`, { meta: {} })
-    return this.start(AgentId(id), options, session)
+    const { agent } = this.start(AgentId(id), options, session)
+    return agent
   }
 
   /**
    * Programmatic factory create ({@link AgentFactory}): an agent on a
    * caller-supplied `sessionId` (NOT `${id}-session`), with optional session
    * metadata (validated `cwd`, lineage). The ACP bridge uses this so the
-   * client-generated session id becomes the live/persisted session id.
+   * client-generated session id becomes the live/persisted session id. Returns
+   * an {@link AgentHandle} the owner disposes to tear down exactly this agent.
    */
-  createAgent(options: CreateAgentOptions): Agent {
+  createAgent(options: CreateAgentOptions): AgentHandle {
     // Check the agent id BEFORE creating the session: register() would reject a
     // duplicate id only AFTER sessions.create(), leaving an orphaned live
     // session (and lazy persistence state) that blocks reuse of that id.
     this.assertAgentIdFree(options.agentId)
-    const session = this.ctx.sessions.create(options.sessionId, { meta: options.meta ?? {} })
-    return this.start(AgentId(options.agentId), options.agentOptions ?? {}, session)
+    const owned = this.ctx.sessions.createOwned(options.sessionId, { meta: options.meta ?? {} })
+    return this.startOwned(AgentId(options.agentId), options.agentOptions ?? {}, owned)
   }
 
   /**
@@ -151,7 +156,7 @@ export class AgentLoop extends Service implements AgentFactory {
    * forever) — callers that need resume (ACP) inject `sessionPersistence`, so
    * by the time this runs the service exists.
    */
-  async resume(options: ResumeAgentOptions): Promise<Agent> {
+  async resume(options: ResumeAgentOptions): Promise<AgentHandle> {
     // Read the service through `ctx.get('sessionPersistence')` — a direct
     // global-store lookup keyed by the isolate symbol — NOT
     // `this.ctx.sessionPersistence`. AgentLoop deliberately does NOT inject
@@ -183,7 +188,7 @@ export class AgentLoop extends Service implements AgentFactory {
    * sessions store + registry are still read through `this.ctx` (both are in
    * AgentLoop's static inject, so they resolve fine).
    */
-  private async resumeWith(persistence: SessionPersistence, options: ResumeAgentOptions): Promise<Agent> {
+  private async resumeWith(persistence: SessionPersistence, options: ResumeAgentOptions): Promise<AgentHandle> {
     this.assertAgentIdFree(options.agentId)
     const { meta, events } = await persistence.load(SessionId(options.resumeSessionId))
     // Re-check the agent id AFTER the await: the pre-load check above can go
@@ -196,7 +201,7 @@ export class AgentLoop extends Service implements AgentFactory {
     // events make lastTurnNumber/deriveMessages continue; the backend already
     // has state (cursor) from the load above, so onCreated is a no-op and the
     // seed is not re-persisted.
-    const session = this.ctx.sessions.create(options.resumeSessionId, {
+    const owned = this.ctx.sessions.createOwned(options.resumeSessionId, {
       seed: events,
       meta: {
         createdAt: meta.createdAt,
@@ -204,7 +209,7 @@ export class AgentLoop extends Service implements AgentFactory {
         ...meta.parentSession !== undefined ? { parentSession: meta.parentSession } : {},
       },
     })
-    return this.start(AgentId(options.agentId), options.agentOptions ?? {}, session)
+    return this.startOwned(AgentId(options.agentId), options.agentOptions ?? {}, owned)
   }
 
   /**
@@ -219,16 +224,54 @@ export class AgentLoop extends Service implements AgentFactory {
     }
   }
 
-  /** Shared: construct a ReactLoopAgent, register it, and start its loop (LIFO). */
-  private start(id: AgentId, options: AgentOptions, session: Session): ReactLoopAgent {
+  /**
+   * Shared: construct a ReactLoopAgent, register it, and start its loop. The
+   * register + loop-stop disposers live in ONE generator effect so they run
+   * LIFO on dispose (the loop-stop disposer — yielded last — runs first, then
+   * the registry unregister), so a throwing stop() cannot leak the registry
+   * entry. Returns the agent plus the effect's disposer (`disposeAgent`); the
+   * effect is owned by the caller fiber, so disposing that fiber also tears the
+   * agent down — the disposer is for an OWNER that needs to tear down ONE agent.
+   */
+  private start(id: AgentId, options: AgentOptions, session: Session): { agent: ReactLoopAgent; disposeAgent: () => Promise<void> } {
     const agent = new ReactLoopAgent(this.ctx, id, options, session)
-    // Generator effect: stop and unregister are independent disposables
-    // (LIFO), so a throwing stop() cannot leak the registry entry.
-    this.ctx.effect(function* (this: AgentLoop) {
+    const dispose = this.ctx.effect(function* (this: AgentLoop) {
       yield this.ctx.agents.register(agent)
       yield agent.start()
     }.bind(this), 'agentLoop.start()')
-    return agent
+    return { agent, disposeAgent: async () => { await dispose() } }
+  }
+
+  /**
+   * Build an {@link AgentHandle} for an OWNED session + agent. The handle's
+   * `dispose()` tears down exactly this agent in the order durability requires:
+   *
+   *   1. run `disposeAgent` — the register+start effect's disposer. LIFO runs
+   *      `agent.start()`'s (synchronous) disposer first: it sets `disposed`,
+   *      aborts the in-flight step, and unblocks the loop's idle wait. Then the
+   *      registry unregister runs. The loop has NOT necessarily exited yet — the
+   *      start disposer only REQUESTS exit, it does not await it.
+   *   2. `await agent.done` — the loop-exit promise. The loop unwinds and runs
+   *      its final `session/flush` + `turn/end`, delivered through the still-
+   *      attached `session.onAppend` → `session/event`, so persistence captures
+   *      the closing events. Only now is the agent truly quiescent.
+   *   3. run the session disposer — detach `onAppend` and remove the store
+   *      entry. Done LAST so step 2's final flush is not dropped.
+   */
+  private startOwned(
+    id: AgentId,
+    options: AgentOptions,
+    owned: { session: Session; dispose: () => Promise<void> },
+  ): AgentHandle {
+    const { agent, disposeAgent } = this.start(id, options, owned.session)
+    return {
+      agent,
+      dispose: async () => {
+        await disposeAgent()      // stop the loop (sync) + unregister
+        await agent.done          // wait for the loop to actually exit (final flush captured)
+        await owned.dispose()     // detach onAppend + remove the session store entry
+      },
+    }
   }
 }
 
