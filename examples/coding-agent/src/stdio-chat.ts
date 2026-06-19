@@ -53,7 +53,11 @@ export function apply(ctx: Context) {
   })
 
   ctx.effect(() => {
-    const reader = createInterface({ input: process.stdin })
+    const reader = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: process.stdin.isTTY && process.stdout.isTTY,
+    })
     // Piped-input exit, once stdin reaches EOF:
     //  - If no line ever submitted work (empty stdin, blank-only lines), exit
     //    immediately — no turn will ever start, so there is nothing to wait

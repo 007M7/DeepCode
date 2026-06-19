@@ -35,7 +35,11 @@ export function apply(ctx: Context) {
   })
 
   ctx.effect(() => {
-    const reader = createInterface({ input: process.stdin })
+    const reader = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: process.stdin.isTTY && process.stdout.isTTY,
+    })
     reader.on('line', (line) => {
       const text = line.trim()
       if (!text) return

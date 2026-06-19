@@ -19,7 +19,7 @@ export default defineConfig({
   // instead applies the one root map to every importer.
   plugins: [tsconfigPaths({ projects: ['./tsconfig.test.json'] })],
   test: {
-    include: ['packages/*/tests/**/*.spec.ts'],
+    include: ['packages/*/tests/**/*.spec.ts', 'examples/*/tests/**/*.spec.ts'],
     coverage: {
       provider: 'v8',
       // Coverage measures OUR runtime source. Types-only files carry no

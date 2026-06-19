@@ -12,3 +12,5 @@ coverage/
 .doc-typecheck-*/
 .vscode/
 .DS_Store
+.idea
+mise.toml
