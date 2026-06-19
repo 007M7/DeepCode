@@ -68,10 +68,12 @@ pnpm run test:snapshot  # ACP snapshot tests (examples/*/tests/**/*.snapshot.ts)
                     # boot the real acp-agent subprocess, replay a recorded
                     # session JSONL, diff the normalized stdout + re-persisted
                     # log against committed goldens. KEYLESS — runs in the
-                    # default gate. Filter one: `pnpm run test:snapshot -- -t <name>`.
+                    # default gate. Filter one by scenario name (no `--`, which
+                    # vitest treats as a positional file filter): `pnpm run
+                    # test:snapshot -t <name>`.
 pnpm run test:snapshot:record  # re-record fixtures + goldens against the real
                     # API (needs DEEPSEEK_API_KEY); accept-the-diff = re-record
-                    # (or `pnpm run test:snapshot -- -u` to refresh goldens only)
+                    # (or `pnpm run test:snapshot -u` to refresh goldens only)
 pnpm run typecheck      # tsc -b tsconfig.build.json (declarations) + tsc -p
                     # tsconfig.typecheck.json (tests/examples typecheck too)
 pnpm run lint           # eslint .
