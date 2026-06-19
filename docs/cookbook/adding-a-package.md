@@ -15,7 +15,7 @@ packages/<name>/
   README.md        # service API, events, extension points, design notes
 ```
 
-package.json invariants (enforced by `pnpm run constraints` / `scripts/check-workspace-constraints.ts`): `private: true`, `version: 0.0.1`, `type: module`, `main: "lib/index.js"`, `types: "lib/typings/index.d.ts"`, `exports["."].types: "./lib/typings/index.d.ts"`, `cordis` in BOTH peerDependencies and devDependencies (same range). Mirror every dsh peer dependency in devDependencies. `schemastery` goes in `dependencies` (it is a runtime validator), matching agent-loop. The `files` list is precise: `lib/index.js`, `lib/typings/**/*.d.ts`, and `src`; do not publish `lib/typings` JS/map intermediates or stale root declaration files.
+package.json invariants (enforced by `pnpm run constraints` / `scripts/check-workspace-constraints.ts`): `private: true`, `version: 0.0.1`, `type: module`, `main: "lib/index.js"`, `types: "lib/typings/index.d.ts"`, `exports["."].types: "./lib/typings/index.d.ts"`, `exports["."].default: "./lib/index.js"`, `cordis` in BOTH peerDependencies and devDependencies (same range). Mirror every dsh peer dependency in devDependencies. `schemastery` goes in `dependencies` (it is a runtime validator), matching agent-loop. The `files` list is precise: `lib/index.js`, `lib/typings/**/*.d.ts`, `lib/typings/**/*.d.ts.map`, and `src`; do not publish `lib/typings` JS/map intermediates or stale root declaration files.
 
 ## 2. Register it in the root configs
 

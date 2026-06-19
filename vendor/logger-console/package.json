@@ -19,6 +19,7 @@
     "lib/index.js",
     "lib/browser.js",
     "lib/typings/**/*.d.ts",
+    "lib/typings/**/*.d.ts.map",
     "src"
   ],
   "author": "Shigma <shigma10826@gmail.com>",

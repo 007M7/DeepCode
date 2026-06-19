@@ -10,6 +10,7 @@
     "lib/index.mjs",
     "lib/index.cjs",
     "lib/typings/**/*.d.ts",
+    "lib/typings/**/*.d.ts.map",
     "src"
   ],
   "author": "Shigma <shigma10826@gmail.com>",

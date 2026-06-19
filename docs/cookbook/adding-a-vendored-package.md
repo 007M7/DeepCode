@@ -27,7 +27,7 @@ vendor/<dir>/
 }
 ```
 
-`package.json` invariants: `"private": true` (vendored packages are never published), keep upstream's `name`/`version`/`exports`/`type`, point declaration metadata at `lib/typings`, and list its cordis deps in `peerDependencies` (matching the upstream manifest). Transitive upstream deps must themselves be vendored or already present — vendoring one package often means vendoring its dependency tree (e.g. `@cordisjs/plugin-http` pulls `@cordisjs/fetch-file`).
+`package.json` invariants: `"private": true` (vendored packages are never published), keep upstream's `name`/`version`/`exports`/`type`, point declaration metadata at `lib/typings`, publish `.d.ts` and `.d.ts.map` declaration outputs, and list its cordis deps in `peerDependencies` (matching the upstream manifest). Transitive upstream deps must themselves be vendored or already present — vendoring one package often means vendoring its dependency tree (e.g. `@cordisjs/plugin-http` pulls `@cordisjs/fetch-file`).
 
 ## 2. Register it in the root configs
 

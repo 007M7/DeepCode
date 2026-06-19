@@ -17,6 +17,7 @@
   "files": [
     "lib/index.js",
     "lib/typings/**/*.d.ts",
+    "lib/typings/**/*.d.ts.map",
     "src"
   ],
   "license": "BSD-3-Clause",

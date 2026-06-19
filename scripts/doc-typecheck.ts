@@ -30,6 +30,13 @@ interface Block {
   code: string
 }
 
+/** Strip JSONC comments from checked-in tsconfig files before JSON.parse. */
+function stripJsonComments(raw: string): string {
+  return raw
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1')
+}
+
 /** Extract every ```ts / ```ts ignore-check block from one Markdown file. */
 function extractBlocks(absPath: string): Block[] {
   const text = readFileSync(absPath, 'utf8')
@@ -62,7 +69,7 @@ function extractBlocks(absPath: string): Block[] {
 /** Reuse the repo typecheck graph references from a temp project one directory below root. */
 function workspaceReferences(): { path: string }[] {
   const raw = readFileSync(join(root, 'tsconfig.json'), 'utf8')
-  const { references } = JSON.parse(raw) as { references: { path: string }[] }
+  const { references } = JSON.parse(stripJsonComments(raw)) as { references: { path: string }[] }
   return references.map(({ path }) => {
     const relativeToTemp = path.startsWith('./') ? `../${path.slice(2)}` : `../${path}`
     return { path: relativeToTemp }

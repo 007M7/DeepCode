@@ -28,6 +28,15 @@ interface PackageManifest {
   version?: string
   private?: boolean
   type?: string
+  main?: string
+  types?: string
+  exports?: {
+    '.'?: {
+      types?: string
+      default?: string
+    }
+  }
+  files?: string[]
   peerDependencies?: Record<string, string>
   devDependencies?: Record<string, string>
 }
@@ -58,6 +67,17 @@ function workspaceManifests(): WorkspaceManifest[] {
   return manifests
 }
 
+const dshPackageFiles = [
+  'lib/index.js',
+  'lib/typings/**/*.d.ts',
+  'lib/typings/**/*.d.ts.map',
+  'src',
+] as const
+
+function sameStringList(actual: readonly string[] | undefined, expected: readonly string[]): boolean {
+  return !!actual && actual.length === expected.length && actual.every((value, index) => value === expected[index])
+}
+
 function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
   const errors: string[] = []
   const label = manifest.name ?? dir
@@ -84,6 +104,21 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     }
     if (manifest.type !== 'module') {
       errors.push(`${label}: package.json must set "type": "module"`)
+    }
+    if (manifest.main !== 'lib/index.js') {
+      errors.push(`${label}: package.json must set "main": "lib/index.js"`)
+    }
+    if (manifest.types !== 'lib/typings/index.d.ts') {
+      errors.push(`${label}: package.json must set "types": "lib/typings/index.d.ts"`)
+    }
+    if (manifest.exports?.['.']?.types !== './lib/typings/index.d.ts') {
+      errors.push(`${label}: package.json exports["."].types must be "./lib/typings/index.d.ts"`)
+    }
+    if (manifest.exports?.['.']?.default !== './lib/index.js') {
+      errors.push(`${label}: package.json exports["."].default must be "./lib/index.js"`)
+    }
+    if (!sameStringList(manifest.files, dshPackageFiles)) {
+      errors.push(`${label}: package.json files must be ${JSON.stringify(dshPackageFiles)}`)
     }
   }
 
