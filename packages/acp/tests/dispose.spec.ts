@@ -3,7 +3,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import { makeBridgeHarness } from './harness.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { makeBridgeHarness, textResponse } from './harness.ts'
 
 describe('acp bridge — disposal & HMR safety', () => {
   let storageDir: string
@@ -82,10 +83,11 @@ describe('acp bridge — disposal & HMR safety', () => {
     await harness.dispose()
   })
 
-  it('a client disconnect mid-prompt tears the session down to quiescence', async () => {
+  it('a client disconnect mid-prompt disposes the session (no registered agent left)', async () => {
     // The ACP transport closes (editor quits) while a turn runs. The bridge must
-    // settle the in-flight prompt cancelled and abort+drain the agent rather
-    // than leaving an orphaned running agent whose updates are swallowed.
+    // settle the in-flight prompt cancelled and DISPOSE the agent (PR D's
+    // per-agent AgentHandle teardown) rather than leaving an orphaned running —
+    // or even idled-but-still-registered — agent whose updates are swallowed.
     const harness = await makeBridgeHarness({ storageDir, script: ['hang'] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
@@ -96,13 +98,25 @@ describe('acp bridge — disposal & HMR safety', () => {
     await new Promise(r => setTimeout(r, 30))
     expect(agent.status).toBe('running')
 
-    // Sever the transport — the bridge's conn.closed teardown runs and drives
-    // the agent to quiescence on its OWN (assert before any dispose() runs).
+    // Sever the transport — the bridge's conn.closed teardown runs and drives the
+    // agent's AgentHandle dispose to quiescence on its OWN (before any dispose()).
     await harness.closeClientTransport()
     await agent.whenIdle()
-    expect(agent.status).toBe('idle')
+    // The agent's loop has stopped: status `disposed`.
+    expect(agent.status).toBe('disposed')
 
-    await harness.dispose() // idempotent with the close teardown
+    // Await the bridge teardown to completion WITHOUT tearing down the root
+    // agents/sessions services (so we can still query them). acpFiber.dispose()
+    // invokes the SAME memoized quiesce() the disconnect started and awaits its
+    // promise — which resolves only after every rec.dispose() (loop exit +
+    // session removal) has finished, closing the whenIdle()/owned.dispose()
+    // microtask race. The AgentHandle dispose has run: the agent is unregistered
+    // and its session removed from the store, not merely idled (the old
+    // behavior). The services live on the root ctx, so they survive this.
+    await harness.acpFiber.dispose()
+    expect(harness.ctx.agents.get(sessionId)).toBeUndefined()
+    expect(harness.ctx.sessions.get(sessionId)).toBeUndefined()
+    await harness.dispose()
   })
 
   it('a client disconnect racing fiber dispose both reach quiescence (shared teardown)', async () => {
@@ -139,5 +153,62 @@ describe('acp bridge — disposal & HMR safety', () => {
     session.append('turn/start', { turn: 99, trigger: { kind: 'message', source: { kind: 'user' } } })
     await new Promise(r => setTimeout(r, 10))
     expect(harness.updates.length).toBe(before)
+  })
+
+  it('the final turn closing events are persisted across an AgentHandle dispose (durability)', async () => {
+    // The teardown-ORDER guarantee: a per-agent dispose must stop the loop,
+    // AWAIT its exit (so the loop's final `turn/end` + `session/flush` fire
+    // through the still-attached `session.onAppend` → `session/event`), and only
+    // THEN detach onAppend + remove the session. If the order were inverted
+    // (detach first), the closing events would never reach persistence. Drive a
+    // CLEAN turn to completion, dispose JUST the bridge, then re-load the
+    // persisted log from disk and assert the closing turn/end is on disk — the
+    // world, not the agent's self-report.
+    const harness = await makeBridgeHarness({ storageDir, script: [textResponse('done')] })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
+    const liveEvents = harness.ctx.agents.get(sessionId)!.session.events.length
+    expect(liveEvents).toBeGreaterThan(0)
+
+    // Tear down JUST the bridge (the AgentHandle dispose runs to quiescence).
+    await harness.acpFiber.dispose()
+    expect(harness.ctx.agents.get(sessionId)).toBeUndefined()
+
+    // Re-load the session from disk: every live event (incl. the closing
+    // turn/end) was flushed before the session was detached.
+    const reloaded = await harness.ctx.sessionPersistence.load(SessionId(sessionId))
+    expect(reloaded.events.length).toBe(liveEvents)
+    const last = reloaded.events.at(-1)!
+    expect(last.type).toBe('turn/end')
+    await harness.dispose()
+  })
+
+  it('per-session AgentHandle dispose leaves sibling agents untouched', async () => {
+    // The factory returns a per-agent AgentHandle whose dispose() tears down
+    // EXACTLY that agent + its session — RFC 011 isolation. Create two agents
+    // directly through the registry factory (the same path the ACP bridge uses),
+    // dispose one handle, and assert the other survives, registered and
+    // queryable, with its session still in the store.
+    const harness = await makeBridgeHarness({ storageDir, script: [] })
+    const handleA = harness.ctx.agents.create({
+      agentId: 'sib-a', sessionId: 'sib-a', agentOptions: { model: 'mock' },
+    })
+    const handleB = harness.ctx.agents.create({
+      agentId: 'sib-b', sessionId: 'sib-b', agentOptions: { model: 'mock' },
+    })
+    expect(harness.ctx.agents.get('sib-a')).toBe(handleA.agent)
+    expect(harness.ctx.agents.get('sib-b')).toBe(handleB.agent)
+
+    await handleA.dispose()
+    // A is gone — unregistered AND its session removed from the store.
+    expect(harness.ctx.agents.get('sib-a')).toBeUndefined()
+    expect(harness.ctx.sessions.get('sib-a')).toBeUndefined()
+    expect(handleA.agent.status).toBe('disposed')
+    // B is wholly unaffected.
+    expect(harness.ctx.agents.get('sib-b')).toBe(handleB.agent)
+    expect(harness.ctx.sessions.get('sib-b')).toBeDefined()
+    expect(handleB.agent.status).not.toBe('disposed')
+    await harness.dispose()
   })
 })

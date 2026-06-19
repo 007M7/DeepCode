@@ -25,7 +25,7 @@ describe('acp bridge — demux & config edges', () => {
     await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
     const before = harness.updates.length
 
-    const foreign = harness.ctx.agents.create({ agentId: 'foreign', sessionId: 'foreign-session', agentOptions: { model: 'mock' } })
+    const { agent: foreign } = harness.ctx.agents.create({ agentId: 'foreign', sessionId: 'foreign-session', agentOptions: { model: 'mock' } })
     foreign.send([{ type: 'text', text: 'hi' }])
     await foreign.whenIdle()
     await new Promise(r => setTimeout(r, 10))

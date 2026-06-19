@@ -41,7 +41,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('resume: continue a persisted ses
       agentId: 'resume-1',
       sessionId: SESSION_ID,
       agentOptions: { model: 'deepseek-v4-flash', systemPrompt: SYSTEM_PROMPT },
-    }) as ReactLoopAgent
+    }).agent as ReactLoopAgent
     first.send([{ type: 'text', text: `Remember this code for later: ${SECRET}. Just acknowledge it.` }])
     await waitForIdle(ctx, first)
     await ctx.fiber.dispose()
@@ -51,11 +51,11 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('resume: continue a persisted ses
     // session. The loaded event log seeds the live session, so the model sees
     // run 1's exchange as conversation history.
     ctx = await codingHarness(process.cwd(), root)
-    const resumed = await ctx.agents.resume({
+    const resumed = (await ctx.agents.resume({
       agentId: 'resume-2',
       resumeSessionId: SESSION_ID,
       agentOptions: { model: 'deepseek-v4-flash', systemPrompt: SYSTEM_PROMPT },
-    }) as ReactLoopAgent
+    })).agent as ReactLoopAgent
     expect(resumed.session.id).toBe(SESSION_ID)
     // The prior user turn is in the rehydrated log before the model is asked.
     expect(JSON.stringify(resumed.session.deriveMessages())).toContain(SECRET)
