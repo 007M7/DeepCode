@@ -37,6 +37,7 @@ interface Scenario {
 
 const SCENARIOS: Scenario[] = [
   { name: 'handshake', hasModelTurn: false, recorded: false },
+  { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
   { name: 'text-turn', hasModelTurn: true, recorded: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
   { name: 'workspace-edit', hasModelTurn: true, recorded: true },

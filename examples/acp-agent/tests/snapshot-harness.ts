@@ -55,6 +55,7 @@ const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta
 type InputStep =
   | { op: 'initialize'; terminalOutput?: boolean }
   | { op: 'newSession' }
+  | { op: 'newSessionExpectError'; additionalDirectories?: string[] }
   | { op: 'prompt'; text: string }
   | { op: 'promptExpectError'; text: string }
   | { op: 'promptAndCancel'; text: string }
@@ -226,6 +227,21 @@ async function runStep(
     case 'newSession': {
       const { sessionId } = await client.newSession({ cwd, mcpServers: [] })
       setSessionId(sessionId)
+      return
+    }
+    case 'newSessionExpectError': {
+      // The bridge rejects a session/new that widens the workspace scope
+      // (non-empty additionalDirectories / mcpServers — unimplemented). The SDK
+      // surfaces that as a rejected RPC; swallow it so the run completes and the
+      // error frame is captured in the transcript.
+      await client.newSession({
+        cwd,
+        mcpServers: [],
+        ...step.additionalDirectories !== undefined ? { additionalDirectories: step.additionalDirectories } : {},
+      }).then(
+        () => { throw new Error('snapshot-harness: expected session/new to be rejected but it succeeded') },
+        () => { /* expected: the bridge rejected the unsupported workspace scope */ },
+      )
       return
     }
     case 'prompt': {
