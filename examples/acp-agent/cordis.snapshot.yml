@@ -23,7 +23,7 @@
 # The replay adapter: short-circuits llm/stream with the recorded log's chunks,
 # in place of llm-deepseek.
 - id: llm-replay
-  name: './src/llm-replay.ts'
+  name: '@deepseek-ai/dsh-llm-replay'
 
 # agent-loop + persistence + the ACP bridge — shared with cordis.yml.
 - id: acp-tail

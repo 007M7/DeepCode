@@ -6,7 +6,8 @@
     ".": {
       "entry": [
         "examples/echo-agent/src/*.ts",
-        "examples/coding-agent/src/*.ts",
+        "examples/echo-agent/tests/**/*.e2e.ts",
+        "examples/coding-agent/tests/**/*.e2e.ts",
         "examples/acp-agent/src/*.ts",
         "examples/acp-agent/tests/**/*.e2e.ts",
         "examples/acp-agent/tests/**/*.snapshot.ts"

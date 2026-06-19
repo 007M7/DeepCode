@@ -64,9 +64,9 @@ Both surfaces contain non-deterministic values that a pure normalization functio
 
 Determinism of the tool environment comes from a per-test `mkdtemp` cwd, the executor's existing secret-scrubbing env (`/KEY|SECRET|TOKEN/i`), the fresh non-login `bash -c` per call, and the normalization pass — **not** from an OS sandbox. A real rootless sandbox (bwrap on Linux, sandbox-exec/Seatbelt on macOS) is the established cross-platform pattern (Claude Code, Codex), but it is per-OS, fragile on newer kernels (Ubuntu 24.04+ AppArmor blocks unprivileged user namespaces), and unnecessary for transcript determinism. It is reserved as a future tier via the documented `BashExecutor` capability seam ([a sandboxing executor replaces dsh-bash-local without touching a tool schema](2026-06-13-capability-seams.md)) — a new `bash-*` package, not a change here. Scenarios keep bash commands tightly constrained (no `date`/`env`/background/large-output) so the temp-dir tier suffices.
 
-### Example-local plugin, not a new package
+### The replay plugin is its own package
 
-The replay plugin lives at `examples/acp-agent/src/llm-replay.ts`, referenced from the snapshot config by relative path — exactly how echo-agent wires its [mock-llm.ts](../../../examples/echo-agent/src/mock-llm.ts). It is test/example infrastructure with one consumer; the capability-seams rule says not to split into a published `packages/` trio preemptively. It is promoted to a package only when a second example needs it.
+The replay plugin lives in its own package, `@deepseek-ai/dsh-llm-replay` (`packages/llm-replay/`), and the snapshot config references it by package name. It is the keyless replacement for the real LLM adapter: it installs an `llm/stream` waterfall listener and short-circuits it, serving model streams reconstructed from a recorded session JSONL. Its sole consumer is the ACP snapshot harness here, but it is a package (not example-local glue like echo-agent's [mock-llm.ts](../../../examples/echo-agent/src/mock-llm.ts)) so that its derive/parse/replay branches fall under the per-file 100% coverage gate on package `src` trees — logic under `examples/` is not measured by that gate, which would leave those branches unguarded.
 
 ### Two subcommands, replay in the default gate
 

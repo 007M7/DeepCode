@@ -21,14 +21,18 @@
  * (`<scenario>/replay.override.json`: a `ReplayEntry[]`) that REPLACES the
  * derived script.
  *
- * It lives in the example (not packages/) because it is example/test
- * infrastructure with one consumer, exactly like echo-agent's `mock-llm.ts`;
- * the capability-seams rule says not to split into a published package
- * preemptively.
+ * It lives in its own package (not under `examples/`) so its derive/parse/
+ * replay logic falls under the per-file 100% coverage gate on package `src`
+ * trees — its tests previously lived under `examples/`, which the gate does
+ * not measure, leaving these branches (clean chunks / mid-stream throw / hang)
+ * unguarded. Its consumer is the ACP snapshot harness in `examples/acp-agent`,
+ * which loads it (via `cordis.snapshot.yml`) in place of a real LLM adapter.
  *
  * Plugin export shape: named `name`/`inject`/`Config`/`apply`, NO default
  * export (the cordis Loader's `unwrapExports` does `exports.default ?? exports`,
  * so a stray default would drop the namespace — see docs/postmortem/0001).
+ *
+ * @module @deepseek-ai/dsh-llm-replay
  */
 
 import { existsSync, readFileSync } from 'node:fs'
@@ -188,6 +192,7 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined)
         if (signal?.aborted) { reject(new Error('aborted')); return }
         signal?.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
       })
+      /* v8 ignore next -- unreachable: the hang promise only ever rejects (on abort), never resolves; control never reaches here */
       return
     default:
       // Closed local union: an unknown kind means malformed (hand-edited or
