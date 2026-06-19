@@ -169,16 +169,24 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
     if (handle.isDisposed()) break
 
     // Pre-step cancel (window 1): a `cancel()` landed after a `send()` woke the
-    // idle wait but before we flip to `running`. Drop the about-to-run turn: the
-    // queued/steering work is already cleared by `cancel()`, and we settle any
-    // `whenIdle()` waiter DIRECTLY (no status transition fires here, so the
-    // running→idle settle never runs) WITHOUT emitting `agent/status` (an ACP
-    // listener must not see a spurious idle that resolves a freshly-queued prompt
-    // as cancelled). Clear the marker and re-park.
+    // idle wait but before we flip to `running`. The cancelled queued/steering
+    // work is already cleared by `cancel()`. Clear the marker, then:
+    //   - if NOTHING new is queued, drop the about-to-run turn and re-park,
+    //     settling any `whenIdle()` waiter DIRECTLY (no running→idle transition
+    //     fires here to settle it) and WITHOUT emitting `agent/status` (an ACP
+    //     listener must not see a spurious idle that resolves a freshly-queued
+    //     prompt as cancelled);
+    //   - if a NEW prompt was queued AFTER the cancel (a send() that raced in
+    //     before the loop resumed), the marker was for the cancelled work only —
+    //     fall through and run the new prompt's turn. Do NOT settle waiters here:
+    //     a whenIdle() waiter must wait for that new turn's running→idle, not
+    //     resolve before it runs (the quiescence contract).
     if (handle.isCancelled()) {
       handle.clearCancel()
-      handle.settleIdle()
-      continue
+      if (!agent.inbox.hasQueued) {
+        handle.settleIdle()
+        continue
+      }
     }
 
     handle.setStatus('running')

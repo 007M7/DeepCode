@@ -249,6 +249,31 @@ describe('Agent.cancel()', () => {
     expect(agent.session.events.some(e => e.type === 'turn/start')).toBe(false)
   })
 
+  it('whenIdle() does NOT resolve early when a new prompt is queued during a pre-step cancel', async () => {
+    // The subtle race: a whenIdle() waiter is registered for prompt A; cancel()
+    // clears A; prompt B is queued BEFORE the loop resumes from the idle wait.
+    // The window-1 cancel branch must NOT settle the waiter while B is still
+    // queued-and-unrun — whenIdle() must wait for B's turn to actually run and
+    // settle (the quiescence contract), not resolve before B's first event.
+    const adapter = new MockAdapter([textResponse('A reply'), textResponse('B reply')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+
+    send(agent, 'A')           // queues A (status still idle, loop microtask pending)
+    const idle = agent.whenIdle() // registers a waiter (idle + hasQueued → no fast path)
+    agent.cancel('drop A')     // arms marker, clears A
+    send(agent, 'B')           // B races in before the loop resumes
+
+    // whenIdle() must resolve only AFTER B's turn fully ran — by which point B's
+    // user message and a turn/end are in the log. (Before the fix it resolved
+    // immediately, with zero events, then B ran afterward.)
+    await idle
+    expect(userTexts(agent)).toContain('B')
+    expect(agent.session.events.some(e => e.type === 'turn/end')).toBe(true)
+    // A was dropped (never ran); only B's turn is recorded.
+    expect(userTexts(agent)).not.toContain('A')
+  })
+
   it("cancel clears the turn's steering — it is not re-enqueued as a fresh turn", async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
