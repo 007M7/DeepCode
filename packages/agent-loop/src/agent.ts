@@ -26,6 +26,14 @@ export class ReactLoopAgent implements Agent {
 
   private _status: AgentStatus = 'idle'
   private currentAbort: AbortController | undefined
+  /**
+   * Turn-scoped cancel marker, set by {@link cancel} and read/cleared by the
+   * driver loop (via the LoopHandle) at every point a turn could start or
+   * continue. Armed ONLY when there is something to cancel (a running turn, an
+   * in-flight step, or queued/steering work), so an idle no-op cancel cannot
+   * leave it set to wrongly drop a later prompt.
+   */
+  private cancelRequested = false
   private disposed: Promise<void>
   private resolveDisposed!: () => void
   /** Resolves when the driver loop has fully exited (tests/disposal). */
@@ -176,6 +184,30 @@ export class ReactLoopAgent implements Agent {
     this.currentAbort?.abort(reason ?? 'aborted')
   }
 
+  cancel(reason?: string): void {
+    // Arm-gate: only mark a cancellation when there is actually work to cancel —
+    // a running turn, an in-flight step, or queued/steering work. An idle cancel
+    // with nothing pending is a true no-op; arming the marker then would wrongly
+    // drop the NEXT legitimate prompt (the marker is consumed only at the loop's
+    // turn-decision points, which an idle parked loop does not reach until woken
+    // by a real send()). Note the gate canNOT be `status === 'running'` alone:
+    // the pre-step window (a send() queued but the loop not yet flipped to
+    // running) has status `idle` with `hasQueued` true, and the marker exists
+    // precisely to cover it.
+    if (this._status === 'running' || this.currentAbort !== undefined || this.inbox.hasQueued || this.inbox.hasSteering) {
+      this.cancelRequested = true
+    }
+    // Drop all pending queued + steering work (un-started prompts never run; the
+    // cancelled turn's steering is not re-enqueued). Cleared directly even when
+    // the loop is parked in waitForQueued — there is no turn to stop and nothing
+    // left for the parked loop to run, so no wake is needed.
+    this.inbox.clear()
+    // Interrupt an in-flight step immediately (the running turn observes the
+    // abort and ends `aborted`). The marker covers the windows where no step is
+    // running (pre-step, continuation).
+    this.currentAbort?.abort(reason ?? 'cancelled')
+  }
+
   /**
    * Resolve once the agent has reached quiescence after settling out of
    * `running`. If it is already disposed, awaits {@link done} (the loop-exit
@@ -218,6 +250,15 @@ export class ReactLoopAgent implements Agent {
       setAbort: controller => void (this.currentAbort = controller),
       disposed: this.disposed,
       isDisposed: () => this._status === 'disposed',
+      isCancelled: () => this.cancelRequested,
+      clearCancel: () => { this.cancelRequested = false },
+      // Settle whenIdle() waiters WITHOUT a status transition — the pre-step
+      // cancel-skip path drops the about-to-run turn and re-parks without ever
+      // flipping running→idle, so a waiter registered in the pre-step window
+      // (status idle, hasQueued was true) would otherwise hang. This emits no
+      // agent/status, so an ACP agent/status listener never sees a spurious idle
+      // that would resolve a freshly-queued prompt as cancelled.
+      settleIdle: () => { this.settleIdleWaiters() },
     })
     // The disposer must be infallible: it runs inside the fiber's LIFO
     // disposal chain, where a throw would skip later disposers (e.g. the

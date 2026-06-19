@@ -52,6 +52,16 @@ export class Inbox {
     return this.steeringMessages.splice(0)
   }
 
+  /**
+   * Discard all pending messages (queued + steering) without delivering them —
+   * used by `cancel()`, which drops un-started work rather than draining it into
+   * a turn. Unlike `drainQueued`/`drainSteering`, the messages are thrown away.
+   */
+  clear(): void {
+    this.queuedMessages.length = 0
+    this.steeringMessages.length = 0
+  }
+
   /** Wait until a queued message arrives or `cancel` resolves. */
   waitForQueued(cancel: Promise<void>): Promise<void> {
     if (this.hasQueued) return Promise.resolve()

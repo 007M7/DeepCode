@@ -327,21 +327,64 @@ describe('acp bridge — turn outcomes', () => {
     expect(res.stopReason).toBe('cancelled')
   })
 
-  it('cancel in the pre-step window still settles the prompt cancelled exactly once', async () => {
-    // No script entry is consumed before cancel: cancel immediately after the
-    // prompt is sent, before the model step starts. The prompt must still
-    // settle cancelled (best-effort abort + settle), not hang.
-    harness = await makeBridgeHarness({ storageDir, script: [textResponse('late')] })
+  it('cancel right after prompt settles cancelled and leaves the agent idle, no leaked turn', async () => {
+    // Over the async JSON-RPC transport the loop usually wakes before cancel
+    // arrives, so this is a running/mid-step cancel (the synchronous pre-step
+    // DROP is unit-tested in agent-loop/cancel.spec.ts). The ACP-level guarantee:
+    // the prompt settles cancelled, the agent reaches idle, and no second/leaked
+    // turn runs afterward.
+    harness = await makeBridgeHarness({ storageDir, script: [textResponse('answer'), textResponse('leaked')] })
     const sessionId = await newSession(harness)
     const promptDone = harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
     await harness.client.cancel({ sessionId })
     const res = await promptDone
     expect(res.stopReason).toBe('cancelled')
-    // The queued turn may still start after the cancel cleared the in-flight
-    // slot (the documented TODO(rfc010-cancel-prestep) best-effort window): its
-    // turn-start then fires with no prompt to tag, and the bridge does nothing.
-    // Let it run to completion and assert nothing re-settles (no throw, no hang).
-    await harness.ctx.agents.get(sessionId)!.whenIdle()
+    const agent = harness.ctx.agents.get(sessionId)!
+    await agent.whenIdle()
+    // At most ONE turn ran (the cancelled one) — the cancel cleared the queue, so
+    // no second turn was batched or leaked. (A best-effort abort that left queued
+    // work could have started a second turn.)
+    const turnStarts = agent.session.events.filter(e => e.type === 'turn/start').length
+    expect(turnStarts).toBeLessThanOrEqual(1)
+  })
+
+  it('idle session/cancel then session/prompt runs the prompt (no intervening whenIdle)', async () => {
+    // The ACP bridge settles the cancel RPC synchronously and accepts the next
+    // prompt WITHOUT awaiting quiescence — so this drives cancel→prompt with NO
+    // whenIdle() between, the production race. An idle cancel must be a no-op that
+    // does NOT drop the following prompt.
+    harness = await makeBridgeHarness({ storageDir, script: [textResponse('real answer')] })
+    const sessionId = await newSession(harness)
+    // Cancel while idle (no prompt in flight) — a no-op.
+    await harness.client.cancel({ sessionId })
+    // Immediately prompt, no whenIdle() between.
+    const res = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
+    expect(res.stopReason).toBe('end_turn')
+    const text = harness.updates
+      .filter(u => u.sessionUpdate === 'agent_message_chunk')
+      .map(u => (u.content.type === 'text' ? u.content.text : ''))
+      .join('')
+    expect(text).toContain('real answer')
+  })
+
+  it('mid-stream cancel then an IMMEDIATE next prompt runs (no intervening whenIdle)', async () => {
+    // Cancel a running turn, then send the next prompt WITHOUT awaiting quiescence
+    // (the synchronous-settle path). The new prompt must run — the cancel marker
+    // must not leak onto it.
+    harness = await makeBridgeHarness({ storageDir, script: ['hang', textResponse('next answer')] })
+    const sessionId = await newSession(harness)
+    const a = harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'A' }] })
+    await new Promise(r => setTimeout(r, 30))
+    await harness.client.cancel({ sessionId })
+    expect((await a).stopReason).toBe('cancelled')
+    // Immediately — no whenIdle() — send the next prompt.
+    const b = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'B' }] })
+    expect(b.stopReason).toBe('end_turn')
+    const text = harness.updates
+      .filter(u => u.sessionUpdate === 'agent_message_chunk')
+      .map(u => (u.content.type === 'text' ? u.content.text : ''))
+      .join('')
+    expect(text).toContain('next answer')
   })
 
   it('a cancelled turn\'s late turn/end does not settle the NEXT prompt', async () => {
