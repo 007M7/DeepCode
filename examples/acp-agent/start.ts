@@ -6,13 +6,12 @@ import Loader from '@cordisjs/plugin-loader'
 //   DSH_SNAPSHOT=replay  — load cordis.snapshot.yml (providerless; llm-replay
 //                          serves a recorded session log). Skip .env so a stray
 //                          key can never trigger a live model call.
-//   DSH_SNAPSHOT=record  — load cordis.snapshot-record.yml (the real adapter +
-//                          persistence) so a real run can be harvested.
+//   DSH_SNAPSHOT=record  — load the normal cordis.yml (the real llm-deepseek
+//                          adapter + persistence) so a real run can be harvested
+//                          (the persistence root is redirected by env).
 // Absent — the normal demo (cordis.yml), driven by a real editor.
 const snapshotMode = process.env.DSH_SNAPSHOT
-const configPath = snapshotMode === 'replay' ? './cordis.snapshot.yml'
-  : snapshotMode === 'record' ? './cordis.snapshot-record.yml'
-    : './cordis.yml'
+const configPath = snapshotMode === 'replay' ? './cordis.snapshot.yml' : './cordis.yml'
 
 // Load DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL from a gitignored repo-root .env
 // (Node native). Absent file is fine — the environment may already carry them.

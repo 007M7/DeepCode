@@ -41,7 +41,9 @@ examples/    Runnable demos (not workspaces). echo-agent = mock model + echo
              (pnpm run demo:coding, needs DEEPSEEK_API_KEY).
              acp-agent = the coding agent exposed as an ACP server over
              JSON-RPC stdio (pnpm run demo:acp, needs DEEPSEEK_API_KEY).
-             base.yml = shared provider/tool core both real demos include.
+             base.yml = shared provider/tool core both real demos include
+             (= base-core.yml, the providerless core, + the llm-deepseek adapter;
+             base-core.yml is reused by the acp-agent snapshot-replay config).
 docs/        architecture.md — the design doc. module-graph.md — generated
              inter-package dependency graph (Mermaid; `pnpm run gen-module-graph`).
              rfc/ — design decisions and proposals, one kind of doc grouped by
