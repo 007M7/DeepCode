@@ -39,6 +39,6 @@ The `base*.yml`/`acp-tail.yml` includes already dedupe the *config*, but a YAML 
 
 ## Related
 
-- Supersedes [Make the shared example base providerless](2026-06-20-providerless-example-base.md): renaming `base.yml` to the providerless core is moot once the spine moves into `dsh-agent-core` and the `base*.yml` files are deleted.
+- Supersedes [Make the shared example base providerless](../../rejected/architecture/2026-06-20-providerless-example-base.md): renaming `base.yml` to the providerless core is moot once the spine moves into `dsh-agent-core` and the `base*.yml` files are deleted.
 - Builds on the [capability-seams](../../implemented/architecture/2026-06-13-capability-seams.md) interface/implementation/consumer split — backends and presentation stay leaf choices; the spine is the shared bundle.
 - Complements [Reorganize packages into a modular hierarchy](2026-06-20-package-hierarchy.md): the new app/core packages slot into whatever hierarchy that RFC settles on.
