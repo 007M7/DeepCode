@@ -116,7 +116,7 @@ function tempTsconfig(): string {
   })
 }
 
-const markdownGlobs = ['README.md', 'docs/**/*.md', 'packages/*/README.md']
+const markdownGlobs = ['README.md', 'docs/**/*.md', 'packages/*/*.md']
 
 const files: string[] = []
 for (const pattern of markdownGlobs) {

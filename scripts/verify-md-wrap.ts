@@ -18,7 +18,7 @@
  * A wrapped paragraph inside a list item or blockquote is still a `paragraph`
  * node, so those are caught too. Scope mirrors doc-typecheck plus the two
  * AGENTS.md files that doc-sync does NOT otherwise cover (the convention itself
- * lives there): README.md, docs/** /*.md, packages/* /README.md, AGENTS.md,
+ * lives there): README.md, docs/** /*.md, packages/* /*.md, AGENTS.md,
  * packages/AGENTS.md. The root and packages/ CLAUDE.md are symlinks to the
  * AGENTS.md files, so they are deduped by real path.
  *
@@ -36,7 +36,7 @@ import type { Nodes } from 'mdast'
 const root = resolve(import.meta.dirname, '..')
 
 /** Files to check: doc-typecheck's scope plus the AGENTS.md pair. */
-const PATTERNS = ['README.md', 'docs/**/*.md', 'packages/*/README.md', 'AGENTS.md', 'packages/AGENTS.md']
+const PATTERNS = ['README.md', 'docs/**/*.md', 'packages/*/*.md', 'AGENTS.md', 'packages/AGENTS.md']
 
 /** A located hard-wrap: a prose paragraph spanning more than one source line. */
 interface Violation {
