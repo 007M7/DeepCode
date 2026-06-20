@@ -2,13 +2,20 @@
 
 Harness packages, all under the `@deepseek-ai/dsh-*` scope. Each package is a Cordis plugin (microkernel-style): it exports either a default `Service` subclass or a functional plugin that gets registered via `ctx.plugin()`, declares its ctx key/events where applicable through declaration merging, and exposes extension points through `ctx.effect()`, `ctx.on()`, and `ctx.waterfall()`.
 
-<!-- FIXME(package-hierarchy): packages/ is currently FLAT, mixing product
-     packages (llm, session, agent, agent-loop, …) with example-coupled support
-     packages (ui-stdio, llm-replay — extracted from examples/ for the coverage
-     gate). ALL packages should eventually be regrouped into a deliberate
-     hierarchy, e.g. packages/{core,examples,…}/, so the workspace-glob and
-     tsconfig-paths churn happens ONCE rather than per extraction. Deferred to a
-     dedicated restructure PR; do not add new top-level subgroups piecemeal. -->
+## Hierarchy
+
+Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group directory is a pure container (no `package.json` of its own); the package name stays `@deepseek-ai/dsh-<pkg>` regardless of group. Each group has a `README.md` describing its role and whether it is product or support infrastructure.
+
+| Group | Role | Release expectation |
+|---|---|---|
+| [`core/`](core/README.md) | Product API spine: session, system-prompt, tools, agent, and the concrete loop | Product — stable surface |
+| [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
+| [`bash/`](bash/README.md) | Bash capability family: the executor seam, a local impl, and the model-facing tool | Product — stable surface |
+| [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
+| [`ui/`](ui/README.md) | Editor/client integration surfaces (the ACP bridge) | Product — stable surface |
+| [`support/`](support/README.md) | Dev/test/example infrastructure (invariants, stdio UI, replay adapter) | Support — lower compatibility expectations |
+
+The split is the point: a package's group says whether it is part of the product API or support/test/example infrastructure, so release and removal decisions do not have to treat every package as an equal public contract. New packages join an existing group; adding a new top-level group is a deliberate act (extend the group READMEs and the hierarchy docs).
 
 ## Dependency graph
 
@@ -34,23 +41,26 @@ The rule: plugins depend on interfaces, never on the concrete loop. `dsh-agent-l
 
 ## What goes where
 
-| Package | Role | ctx key |
-|---|---|---|
-| `llm/` | Abstract LLM service + content-block vocabulary + chunk assembler | `ctx.llm` |
-| `session/` | Event-sourced session log + in-memory store | `ctx.sessions` |
-| `system-prompt/` | Prompt-section + tool-schema assembly registry | `ctx.systemPrompt` |
-| `tools/` | Tool registry + `tools/execute` waterfall | `ctx.tools` |
-| `agent/` | Agent interface, registry, `agent/*` event vocabulary | `ctx.agents` |
-| `agent-loop/` | THE concrete loop plugin: `ReactLoopAgent` + the loop driver | `ctx.agentLoop` |
-| `bash/` | Abstract bash executor seam (interface + vocabulary) | `ctx.bash` |
-| `bash-local/` | Local-subprocess `BashExecutor` implementation | (registers `ctx.bash`) |
-| `tool-bash/` | Model-facing `bash`/`bash_output`/`bash_kill` tool schemas | (registers on `ctx.tools`) |
-| `llm-deepseek/` | DeepSeek API adapter (hand-rolled fetch/SSE) | (registers on `ctx.llm`) |
-| `llm-pi-ai/` | DeepSeek adapter via `@earendil-works/pi-ai` (design twin) | (registers on `ctx.llm`) |
-| `invariants/` | Dev-mode event-contract invariants + session-log freeze | (listens on `session/*`, `agent/*`) |
-| `acp/` | Agent Client Protocol bridge: serves the agent to an ACP editor over JSON-RPC stdio | (drives `ctx.agents`/`ctx.sessions`) |
-| `ui-stdio/` | Minimal stdio (readline) UI plugin: renders `agent/*` events, feeds stdin lines to the agent | (drives `ctx.agents`) |
-| `llm-replay/` | Record/replay adapter: short-circuits `llm/stream` with chunks from a recorded session JSONL (keyless snapshot tests) | (listens on `llm/stream`) |
+| Package | Group | Role | ctx key |
+|---|---|---|---|
+| `llm/` | `llm` | Abstract LLM service + content-block vocabulary + chunk assembler | `ctx.llm` |
+| `session/` | `core` | Event-sourced session log + in-memory store | `ctx.sessions` |
+| `system-prompt/` | `core` | Prompt-section + tool-schema assembly registry | `ctx.systemPrompt` |
+| `tools/` | `core` | Tool registry + `tools/execute` waterfall | `ctx.tools` |
+| `agent/` | `core` | Agent interface, registry, `agent/*` event vocabulary | `ctx.agents` |
+| `agent-loop/` | `core` | THE concrete loop plugin: `ReactLoopAgent` + the loop driver | `ctx.agentLoop` |
+| `bash/` | `bash` | Abstract bash executor seam (interface + vocabulary) | `ctx.bash` |
+| `bash-local/` | `bash` | Local-subprocess `BashExecutor` implementation | (registers `ctx.bash`) |
+| `tool-bash/` | `bash` | Model-facing `bash`/`bash_output`/`bash_kill` tool schemas | (registers on `ctx.tools`) |
+| `llm-deepseek/` | `llm` | DeepSeek API adapter (hand-rolled fetch/SSE) | (registers on `ctx.llm`) |
+| `llm-pi-ai/` | `llm` | DeepSeek adapter via `@earendil-works/pi-ai` (design twin) | (registers on `ctx.llm`) |
+| `session-persistence/` | `session-persistence` | Persistence seam + write coordinator | `ctx.sessionPersistence` |
+| `session-persistence-jsonl/` | `session-persistence` | JSONL-sidecar persistence backend | (registers `ctx.sessionPersistence`) |
+| `session-persistence-sqlite/` | `session-persistence` | SQLite persistence backend | (registers `ctx.sessionPersistence`) |
+| `invariants/` | `support` | Dev-mode event-contract invariants + session-log freeze | (listens on `session/*`, `agent/*`) |
+| `acp/` | `ui` | Agent Client Protocol bridge: serves the agent to an ACP editor over JSON-RPC stdio | (drives `ctx.agents`/`ctx.sessions`) |
+| `ui-stdio/` | `support` | Minimal stdio (readline) UI plugin: renders `agent/*` events, feeds stdin lines to the agent | (drives `ctx.agents`) |
+| `llm-replay/` | `support` | Record/replay adapter: short-circuits `llm/stream` with chunks from a recorded session JSONL (keyless snapshot tests) | (listens on `llm/stream`) |
 
 Each package has its own `README.md` with purpose, service API, events, extension points, and deliberate non-goals (TODOs).
 
@@ -61,4 +71,4 @@ Each package has its own `README.md` with purpose, service API, events, extensio
 - **Waterfall semantics**: `ctx.waterfall` listeners receive `(...args, next)` and MUST call `next()` to delegate; returning without it short-circuits (the veto mechanism).
 - **Extensible unions**: `ContentBlockMap`, `MessageSourceMap`, `FinishReasonMap`, `TurnTriggerMap`, `TurnEndReasonMap`, and `SessionEventMap` use the merge-extensible-map pattern so plugins can add variants via declaration merging.
 - **ESM everywhere**; imports use package names across package boundaries, `.ts` extensions within a package.
-- **Tests**: vitest, colocated under `packages/<name>/tests/*.spec.ts`. Every registry needs an HMR-safety test. Err on the side of more tests.
+- **Tests**: vitest, colocated under `packages/<group>/<pkg>/tests/*.spec.ts`. Every registry needs an HMR-safety test. Err on the side of more tests.
