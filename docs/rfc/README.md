@@ -35,6 +35,9 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Retire mid-turn steering](proposed/2026-06-20-retire-mid-turn-steering.md) | 2026-06-20 |
 | [Stop mirroring durable boundaries as agent events](proposed/2026-06-20-remove-agent-boundary-mirror-events.md) | 2026-06-20 |
 | [Keep one public stop primitive](proposed/2026-06-20-public-agent-stop-surface.md) | 2026-06-20 |
+| [Drop the unconsumed `streamBlocks()` assembled-view surface](proposed/2026-06-20-drop-unconsumed-llm-block-views.md) | 2026-06-20 |
+| [Drop the unconsumed registry `*/change` events](proposed/2026-06-20-drop-unconsumed-registry-change-events.md) | 2026-06-20 |
+| [Prune dead methods from the persistence and bash seams](proposed/2026-06-20-prune-dead-seam-methods.md) | 2026-06-20 |
 | [Drop durable step boundary events](proposed/2026-06-20-drop-durable-step-boundaries.md) | 2026-06-20 |
 | [Truncate interrupted final turns on load](proposed/2026-06-20-truncate-interrupted-turns.md) | 2026-06-20 |
 | [Persist assembled assistant messages, not stream chunks](proposed/2026-06-20-assembled-assistant-messages-only.md) | 2026-06-20 |
