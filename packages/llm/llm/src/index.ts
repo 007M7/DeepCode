@@ -63,8 +63,8 @@ export abstract class LlmAdapter {
 }
 
 /**
- * The abstract `llm` service: an adapter registry plus streaming /
- * non-streaming call surfaces, both interceptable via waterfall events.
+ * The abstract `llm` service: an adapter registry plus a streaming model-call
+ * surface, interceptable via the `llm/stream` waterfall.
  */
 export class LlmService extends Service {
   private adapters = new Map<string, LlmAdapter>()

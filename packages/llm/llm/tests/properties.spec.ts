@@ -4,7 +4,7 @@
  * The assembler is protocol-shaped: arbitrary interleavings of block-start,
  * deltas, block-end, usage, and finish — valid and malformed (duplicate
  * indices, stragglers after block-end, missing block-start, delta-only). The
- * invariants below are the contract the agent loop and LlmService rely on.
+ * invariants below are the contract the agent loop relies on.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -97,18 +97,6 @@ describe('BlockAssembler properties', () => {
         const last = finishes[finishes.length - 1]
         if (last?.type === 'finish') expect(a.finish).toEqual(last.reason)
       }
-    }))
-  })
-
-  it('streaming and one-shot assembly agree on usage and finish', () => {
-    fc.assert(fc.property(streamArb, (chunks) => {
-      // Streaming consumer: push as it goes.
-      const streaming = new BlockAssembler()
-      for (const chunk of chunks) streaming.push(chunk)
-      // One-shot consumer: push all, then read.
-      const oneShot = feed(chunks)
-      expect(streaming.usage).toEqual(oneShot.usage)
-      expect(streaming.finish).toEqual(oneShot.finish)
     }))
   })
 })

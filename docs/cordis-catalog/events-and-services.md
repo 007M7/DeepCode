@@ -341,7 +341,7 @@ Source: [`packages/bash/bash/src/index.ts:58`](../../packages/bash/bash/src/inde
 
 ### `ctx.llm` — `LlmService`
 
-The abstract `llm` service: an adapter registry plus streaming / non-streaming call surfaces, both interceptable via waterfall events.
+The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.
 
 ```ts cordis-catalog
 registerAdapter(models: string[], adapter: LlmAdapter): () => void
