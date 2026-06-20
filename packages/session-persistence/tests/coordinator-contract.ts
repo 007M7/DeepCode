@@ -20,9 +20,8 @@
  * write path — never the storage primitives directly — so it runs unchanged for
  * every backend (memory / jsonl / sqlite).
  *
- * Each scenario here was previously DUPLICATED in `jsonl.spec.ts` and
- * `sqlite.spec.ts`; it now lives once and runs once per backend through the
- * fixture. The per-backend specs keep ONLY their storage-mechanics tests.
+ * Each scenario lives here once and runs once per backend through the fixture;
+ * the per-backend specs keep ONLY their storage-mechanics tests.
  *
  * @module @deepseek-ai/dsh-session-persistence/tests/coordinator-contract
  */
