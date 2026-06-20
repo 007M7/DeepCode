@@ -17,30 +17,32 @@ One plausible shape:
 ```text
 packages/
   core/
-    llm/
     session/
     system-prompt/
     tools/
     agent/
     agent-loop/
     invariants/
-  capabilities/
+  llm/
+    llm/
+    adapters/
+      llm-deepseek/
+      llm-pi-ai/
+  bash/
     bash/
     bash-local/
     tool-bash/
+  session-persistence/
     session-persistence/
     session-persistence-jsonl/
     session-persistence-sqlite/
-  integrations/
-    llm-deepseek/
-    llm-pi-ai/
-    acp/
+  acp/
   support/
     ui-stdio/
     llm-replay/
 ```
 
-The final implementation may choose different names or groupings, but it should keep the same intent: core APIs, capability seams, concrete integrations, and support/test/example packages are distinguishable from the filesystem alone. Npm package names can stay `@deepseek-ai/dsh-*`; the hierarchy is about repo structure and maintenance policy, not public package renaming.
+The final implementation may choose different names or groupings, but it should keep the same intent: core APIs, package families such as LLM/bash/session persistence, standalone integrations such as ACP, and support/test/example packages are distinguishable from the filesystem alone. Npm package names can stay `@deepseek-ai/dsh-*`; the hierarchy is about repo structure and maintenance policy, not public package renaming.
 
 This proposal does not delete `llm-replay` or `ui-stdio` by itself. It makes their status honest: either they graduate into product packages with documented consumers, or they live under a support/testing/example classification where release and compatibility expectations are lower.
 
