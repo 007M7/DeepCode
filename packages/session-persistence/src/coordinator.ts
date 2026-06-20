@@ -2,21 +2,20 @@
  * The backend-agnostic write-path orchestration shared by every first-party
  * {@link SessionPersistence} backend.
  *
- * The two durable backends (`dsh-session-persistence-jsonl` over file bytes,
- * `dsh-session-persistence-sqlite` over `node:sqlite` rows) were byte-identical
- * — or same-algorithm — for ALL of their orchestration: the in-memory
- * bookkeeping (the per-id state, the write-behind buffers, the per-id
- * serialization chains, the per-session init promises), the `session/event` →
- * buffer → `session/flush` drain, lazy materialization, crash-tail repair on
- * load, the four `session/created` adoption cases (new / HMR-adopt / collision /
- * ownerless-claim), and dispose-time quiescence. Only the STORAGE primitives
- * differed (write bytes vs. INSERT rows). {@link PersistenceCoordinator} owns
- * the orchestration once; a backend supplies the storage primitives as a small
+ * Every durable backend needs the same orchestration: the in-memory bookkeeping
+ * (the per-id state, the write-behind buffers, the per-id serialization chains,
+ * the per-session init promises), the `session/event` → buffer → `session/flush`
+ * drain, lazy materialization, crash-tail repair on load, the four
+ * `session/created` adoption cases (new / HMR-adopt / collision /
+ * ownerless-claim), and dispose-time quiescence. Only the STORAGE primitives are
+ * backend-specific (file bytes for `dsh-session-persistence-jsonl`, `node:sqlite`
+ * rows for `dsh-session-persistence-sqlite`). {@link PersistenceCoordinator} owns
+ * the orchestration; a backend supplies the storage primitives as a small
  * {@link PersistenceBackend} hook object.
  *
- * The abstract {@link SessionPersistence} service's public API is unchanged: a
- * backend still IS a `SessionPersistence` (its six public methods delegate to a
- * coordinator it composes), so a third-party backend MAY implement the service
+ * The abstract {@link SessionPersistence} service's public API is independent of
+ * this: a backend IS a `SessionPersistence` (its six public methods delegate to
+ * a coordinator it composes), so a third-party backend MAY implement the service
  * directly without using the coordinator at all.
  *
  * See the write-coordinator RFC (docs/rfc/implemented/2026-06-18-shared-persistence-write-coordinator.md)
@@ -115,7 +114,19 @@ interface SessionState {
   meta: SessionHeader
   /** The next seq the backend expects to append (the stored log length). */
   cursor: number
-  /** Whether the session has been physically materialized. */
+  /**
+   * Whether the backend has physically written this session (a JSONL file /
+   * SQLite row exists). `create()` registers state LAZILY — cursor 0,
+   * materialized false, nothing on disk — so an empty session leaves no
+   * artifact and the FIRST `appendBatch` writes the header + its events in ONE
+   * transaction (the "a row exists ⇔ it has events" invariant `has`/`list`
+   * rely on; a separate up-front materialize could crash leaving a row with
+   * zero events). The flag is the only signal that distinguishes a session
+   * registered-but-never-written from one durably present, which two callers
+   * need: `has()` (lazy-but-unwritten is not yet durable) and the reclaim path
+   * (an abandoned id with no artifact AND no buffered events is free to reuse;
+   * a materialized one is a real collision).
+   */
   materialized: boolean
   /**
    * The live Session this state was bound to via `onCreated`, if any. State
@@ -450,9 +461,18 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       if (tracked.owner === session) return
       if (tracked.owner === undefined) {
         // Ownerless state from the public create()/load() API. The FIRST live
-        // session claims it — but ONLY if its seed reproduces the persisted
-        // prefix (else a fresh, unrelated session reusing the id would have its
-        // seq 0..cursor-1 events filtered as already-written and grafted on).
+        // session claims it — but ONLY if BOTH the cwd scope and the seed match.
+        // The cwd guard mirrors case-2's cwd-scoped loadLive(): a same-id
+        // ownerless artifact at a DIFFERENT cwd is a collision, not a claim
+        // (claiming it would append the live cwd's events under the stored
+        // header's cwd, the exact cross-cwd corruption the loadLive scope
+        // prevents). The seed guard then ensures the live events reproduce the
+        // persisted prefix (else a fresh, unrelated session reusing the id would
+        // have its seq 0..cursor-1 events filtered as already-written and
+        // grafted on).
+        if (tracked.meta.cwd !== session.header.cwd) {
+          throw new Error(`session "${id}" is already persisted at a different cwd (persisted: ${String(tracked.meta.cwd)}, live: ${String(session.header.cwd)}) (id collision)`)
+        }
         if (!await this.seedMatchesPersisted(id, seed, tracked.cursor)) {
           throw new Error(`session "${id}" is already persisted with ${tracked.cursor} event(s) that do not match this live session (id collision)`)
         }
