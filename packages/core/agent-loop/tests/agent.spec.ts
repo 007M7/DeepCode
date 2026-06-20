@@ -288,7 +288,7 @@ describe('ReactLoopAgent', () => {
     expect(settled).toBe(false)
 
     await waitForStatus(ctx, agent, 'running')
-    agent.abort('done')
+    agent.cancel('done')
     await idle
     expect(settled).toBe(true)
     expect(agent.status).toBe('idle')
@@ -429,21 +429,5 @@ describe('ReactLoopAgent', () => {
     expect(agent.status).toBe('idle')
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent/status listener threw on idle'))
     warn.mockRestore()
-  })
-
-  it('abort() resolves reason to "aborted" when no reason provided', async () => {
-    const adapter = new MockAdapter(['hang'])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
-
-    const reasons: { kind: string; reason?: string }[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
-
-    send(agent, 'go')
-    await new Promise(r => setTimeout(r, 30))
-    agent.abort() // no reason string
-    await waitForIdle(ctx, agent)
-
-    expect(reasons[0]).toMatchObject({ kind: 'aborted', reason: 'aborted' })
   })
 })

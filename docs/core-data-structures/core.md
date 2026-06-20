@@ -233,12 +233,8 @@ interface Agent {
    */
   inject(content: ContentBlock[], options?: SendOptions): void
 
-  /** Abort the in-flight step (if any); the turn ends with reason 'aborted'. */
-  abort(reason?: string): void
-
   /**
-   * Cancel ALL pending work for the agent — the narrower {@link abort} kills
-   * only the in-flight step. `cancel()`:
+   * Cancel ALL pending work for the agent. `cancel()`:
    *
    * - clears the queued FIFO (un-started prompts never run) and the steering
    *   FIFO (steering for the cancelled turn is dropped, not re-enqueued);
@@ -258,11 +254,11 @@ interface Agent {
   /**
    * Resolve once the agent has reached quiescence after settling out of
    * `running`, or immediately if it is already idle with no queued work. The
-   * quiescence signal a teardown awaits: `agent.abort()` then
-   * `await agent.whenIdle()` guarantees queued/running work has fully stopped
-   * before the caller proceeds (a closing ACP connection, a disposing UI
-   * plugin), rather than returning while the driver is still streaming or about
-   * to start a queued turn.
+   * quiescence signal a teardown awaits: a lifecycle owner disposes the agent
+   * through its `AgentHandle` (which aborts in-flight work then awaits this), so
+   * the caller proceeds only after queued/running work has fully stopped (a
+   * closing ACP connection, a disposing UI plugin) rather than returning while
+   * the driver is still streaming or about to start a queued turn.
    *
    * "Quiescence", not merely "status changed": a disposed agent emits
    * `agent/status('disposed')` from inside its disposer, BEFORE the driver loop

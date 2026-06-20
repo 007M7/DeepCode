@@ -435,7 +435,7 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
         if (handle.isDisposed()) {
           reason = { kind: 'disposed' }
         } else if (abort.signal.aborted) {
-          /* v8 ignore next -- abort.signal.reason always set by agent.abort() which provides a default */
+          /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
           reason = { kind: 'aborted', reason: String(abort.signal.reason ?? 'aborted') }
         } else {
           failTurn(error)
@@ -590,7 +590,7 @@ async function runStep(
   // --- Model call (streaming-first; raw chunks are the replay record) ---
   const assembler = new BlockAssembler()
   for await (const chunk of ctx.llm.stream(request)) {
-    /* v8 ignore next -- signal.reason always set by agent.abort() which provides a default */
+    /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
     session.append('assistant/chunk', { turn, step, chunk })
     ctx.emit('agent/stream-chunk', agent, turn, step, chunk)
@@ -633,7 +633,7 @@ async function runStep(
   // isError results, so abort is re-checked around every call here.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')
   for (const call of toolCalls) {
-    /* v8 ignore next -- signal.reason always set by agent.abort() which provides a default */
+    /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
     session.append('tool/call', { turn, step, callId: call.id, name: call.name, arguments: call.arguments })
     let parsedArguments: unknown
@@ -664,7 +664,7 @@ async function runStep(
     })
     // signal CAN flip during the await above (abort() inside a tool);
     // the analyzer can't see through the await boundary.
-    /* v8 ignore start -- signal.reason default unreachable via agent.abort() */
+    /* v8 ignore start -- signal.reason default unreachable: cancel()/disposal always set it */
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
     /* v8 ignore stop */

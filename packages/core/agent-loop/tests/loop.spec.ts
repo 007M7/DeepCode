@@ -318,7 +318,7 @@ describe('agent loop', () => {
     expect(adapter.requests[0]!.model).toBe('other-model')
   })
 
-  it('abort() mid-stream ends the turn with reason aborted', async () => {
+  it('cancel() mid-stream ends the turn with reason aborted', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
@@ -327,10 +327,10 @@ describe('agent loop', () => {
     ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
 
     send(agent, 'go')
-    // wait until the stream is hanging, then abort
+    // wait until the stream is hanging, then cancel
     await new Promise(r => setTimeout(r, 30))
     expect(agent.status).toBe('running')
-    agent.abort('user interrupt')
+    agent.cancel('user interrupt')
     await waitForIdle(ctx, agent)
 
     expect(reasons).toEqual([{ kind: 'aborted', reason: 'user interrupt' }])

@@ -191,10 +191,6 @@ export class ReactLoopAgent implements Agent {
     }
   }
 
-  abort(reason?: string): void {
-    this.currentAbort?.abort(reason ?? 'aborted')
-  }
-
   cancel(reason?: string): void {
     // Arm-gate: only mark a cancellation when there is actually work to cancel —
     // a running turn, an in-flight step, or queued/steering work. An idle cancel
@@ -233,7 +229,7 @@ export class ReactLoopAgent implements Agent {
    * running→idle/disposed transition, resolving on `idle` directly (the turn
    * fully ended) or chaining {@link done} on `disposed` (wait for the loop to
    * actually exit). Implements the {@link Agent.whenIdle} contract used by
-   * teardown (`abort()` then `await whenIdle()`).
+   * teardown (handle disposal aborts in-flight work, then awaits `whenIdle()`).
    */
   whenIdle(): Promise<void> {
     if (this._status === 'disposed') return this.done
