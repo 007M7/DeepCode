@@ -8,7 +8,7 @@ Status: implemented (accepted 2026-06-20)
 
 A plugin author needs two reference surfaces that no single document gave them: every cordis **event** they can listen to (with its exact signature and dispatch mode) and every `ctx.<key>` **service** they can call (with its exact interface). The pieces existed but were scattered — a hand-maintained event-taxonomy *table* in `docs/architecture.md` (names + prose Mode/Purpose, name-set-checked by `verify-event-taxonomy`), a Service-map table (8 rows of role prose), and the `interface Events` / `interface Context` declarations themselves. The taxonomy table also could not catch a brand-new *undocumented* event: a name-set verifier only checks the names that are already in the table on both sides.
 
-This is the wiring-axis complement to the [core-data-structures catalog](../../core-data-structures/core.md): that one catalogs the *data structures* the loop moves around (verified hand-pastes); this one catalogs the *events and services* that move them.
+This is the wiring-axis complement to the [core-data-structures catalog](../../core-data-structures/core.md) ([its RFC](2026-06-20-core-data-structures-catalog.md)): that one catalogs the *data structures* the loop moves around (verified hand-pastes); this one catalogs the *events and services* that move them.
 
 ## Decision
 
