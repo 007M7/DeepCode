@@ -34,24 +34,19 @@
       "@cordisjs/plugin-timer": ["./vendor/timer/src"],
       "@cordisjs/plugin-hmr": ["./vendor/hmr/src"],
       "@cordisjs/plugin-logger-console": ["./vendor/logger-console/src"],
-      "@deepseek-ai/dsh-llm": ["./packages/llm/src"],
-      "@deepseek-ai/dsh-session": ["./packages/session/src"],
-      "@deepseek-ai/dsh-session-persistence": ["./packages/session-persistence/src"],
-      "@deepseek-ai/dsh-session-persistence-jsonl": ["./packages/session-persistence-jsonl/src"],
-      "@deepseek-ai/dsh-session-persistence-sqlite": ["./packages/session-persistence-sqlite/src"],
-      "@deepseek-ai/dsh-system-prompt": ["./packages/system-prompt/src"],
-      "@deepseek-ai/dsh-tools": ["./packages/tools/src"],
-      "@deepseek-ai/dsh-agent": ["./packages/agent/src"],
-      "@deepseek-ai/dsh-agent-loop": ["./packages/agent-loop/src"],
-      "@deepseek-ai/dsh-bash": ["./packages/bash/src"],
-      "@deepseek-ai/dsh-llm-deepseek": ["./packages/llm-deepseek/src"],
-      "@deepseek-ai/dsh-llm-pi-ai": ["./packages/llm-pi-ai/src"],
-      "@deepseek-ai/dsh-bash-local": ["./packages/bash-local/src"],
-      "@deepseek-ai/dsh-tool-bash": ["./packages/tool-bash/src"],
-      "@deepseek-ai/dsh-invariants": ["./packages/invariants/src"],
-      "@deepseek-ai/dsh-acp": ["./packages/acp/src"],
-      "@deepseek-ai/dsh-ui-stdio": ["./packages/ui-stdio/src"],
-      "@deepseek-ai/dsh-llm-replay": ["./packages/llm-replay/src"]
+      // One wildcard maps every @deepseek-ai/dsh-<name> to its source. Package
+      // dir names are unique across groups, so first-on-disk-wins resolution is
+      // unambiguous; adding a package under an existing group needs no edit
+      // here. The build graph's project references (tsconfig.build.json) stay
+      // explicit — TS project references have no wildcard form.
+      "@deepseek-ai/dsh-*": [
+        "./packages/core/*/src",
+        "./packages/llm/*/src",
+        "./packages/bash/*/src",
+        "./packages/session-persistence/*/src",
+        "./packages/ui/*/src",
+        "./packages/support/*/src"
+      ]
     }
   }
 }

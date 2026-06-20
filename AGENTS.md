@@ -34,25 +34,37 @@ vendor/      Vendored Cordis framework source (original npm names, private).
              See vendor/README.md for the manifest, local-modification log,
              and the upstream sync procedure. Do NOT edit casually — every
              divergence must be logged there.
-packages/    Harness packages, all named @deepseek-ai/dsh-<name>:
-  llm/            abstract LLM service + content-block vocabulary
-  llm-deepseek/   DeepSeek API adapter (hand-rolled fetch/SSE)
-  llm-pi-ai/      DeepSeek adapter via @earendil-works/pi-ai (design twin)
-  session/        event-sourced session log + in-memory store
-  system-prompt/  prompt-section + tool-schema assembly registry
-  tools/          tool registry + tools/execute waterfall
-  agent/          Agent interface, registry, agent/* event vocabulary
-  agent-loop/     THE concrete plugin: ReactLoopAgent + the loop driver
-  invariants/     dev-mode event-contract invariants + session-log freeze
-  bash/           abstract bash executor seam (ctx.bash) — interface only
-  bash-local/     local-subprocess BashExecutor implementation
-  tool-bash/      model-facing bash/bash_output/bash_kill tool schemas
-  acp/            Agent Client Protocol bridge: drive the agent from an ACP
-                  editor (Zed) over JSON-RPC stdio
-  ui-stdio/       minimal stdio (readline) UI plugin: renders agent/* events,
-                  feeds stdin lines to the agent (shared by the demos)
-  llm-replay/     record/replay adapter: short-circuits llm/stream from a
-                  recorded session JSONL (keyless snapshot tests)
+packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
+             Every package is named @deepseek-ai/dsh-<pkg>; the group dir is a
+             pure container (no package.json). See packages/README.md and each
+             group's README.md for the product-vs-support split.
+  core/           product API spine
+    session/        event-sourced session log + in-memory store
+    system-prompt/  prompt-section + tool-schema assembly registry
+    tools/          tool registry + tools/execute waterfall
+    agent/          Agent interface, registry, agent/* event vocabulary
+    agent-loop/     THE concrete plugin: ReactLoopAgent + the loop driver
+  llm/            LLM capability family
+    llm/            abstract LLM service + content-block vocabulary
+    llm-deepseek/   DeepSeek API adapter (hand-rolled fetch/SSE)
+    llm-pi-ai/      DeepSeek adapter via @earendil-works/pi-ai (design twin)
+  bash/           bash capability family
+    bash/           abstract bash executor seam (ctx.bash) — interface only
+    bash-local/     local-subprocess BashExecutor implementation
+    tool-bash/      model-facing bash/bash_output/bash_kill tool schemas
+  session-persistence/   persistence capability family
+    session-persistence/         durable persistence seam + write coordinator
+    session-persistence-jsonl/    JSONL-sidecar backend
+    session-persistence-sqlite/   SQLite backend
+  ui/             product integration surfaces
+    acp/            Agent Client Protocol bridge: drive the agent from an ACP
+                    editor (Zed) over JSON-RPC stdio
+  support/        dev/test/example infrastructure (lower compat expectations)
+    invariants/     dev-mode event-contract invariants + session-log freeze
+    ui-stdio/       minimal stdio (readline) UI plugin: renders agent/* events,
+                    feeds stdin lines to the agent (shared by the demos)
+    llm-replay/     record/replay adapter: short-circuits llm/stream from a
+                    recorded session JSONL (keyless snapshot tests)
 examples/    Runnable demos (not workspaces; see examples/AGENTS.md). echo-agent
              = mock model + echo tool + stdio UI + JSONL persistence, wired via
              cordis.yml. coding-agent = the real thing: DeepSeek V4 + bash tools
@@ -83,7 +95,7 @@ scripts/     repo maintenance scripts (vendor-manifest guard, publint runner).
 ```sh
 pnpm install        # pnpm workspaces, node >= 24
 pnpm run test           # vitest run (packages|examples/*/tests/**/*.spec.ts)
-pnpm run test:coverage  # vitest run --coverage (per-file 100% gate on packages/*/src)
+pnpm run test:coverage  # vitest run --coverage (per-file 100% gate on packages/*/*/src)
 pnpm run test:e2e       # real-API tests (packages|examples/*/tests/**/*.e2e.ts);
                     # self-skips without DEEPSEEK_API_KEY — see Secrets below
 pnpm run test:snapshot  # ACP snapshot tests (examples/*/tests/**/*.snapshot.ts):
@@ -102,10 +114,10 @@ pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix
 pnpm run build          # tsc -b tsconfig.build.json && tsdown (JS bundles into lib/)
 pnpm run knip           # dead-code / unused-dependency check
-pnpm run publint        # package.json publish-correctness check (publishable packages/*)
+pnpm run publint        # package.json publish-correctness check (every packages/*/* package)
 pnpm run hygiene        # knip + publint + workspace constraints
 pnpm run doc-typecheck  # typecheck every ```ts block in README.md, docs/**/*.md,
-                    # packages/*/*.md (doc/code drift gate)
+                    # packages/*/*.md + packages/*/*/*.md (doc/code drift gate)
 pnpm run gen-cordis-catalog  # regenerate docs/cordis-catalog/events-and-services.md
                     # (events + services) from the interface Events / Context source
 pnpm run verify-cordis-catalog  # assert that generated catalog is not stale
@@ -113,10 +125,12 @@ pnpm run verify-md-wrap  # assert no hard-wrapped prose paragraphs in README.md,
                     # docs/**/*.md, packages/*/*.md, AGENTS.md (one line per paragraph)
 pnpm run verify-doc-refs  # assert every docs/*.md path cited in a packages|examples
                     # TypeScript comment resolves (catches a moved/renamed doc)
+pnpm run verify-package-paths  # assert every packages/<path> cited in Markdown or a
+                    # TypeScript comment resolves when it names a real (moved) package
 pnpm run verify-rfc-classification  # assert every RFC lives in a valid
                     # {lifecycle}/{class}/ folder and docs/rfc/README.md lists it
                     # under the matching heading (closed class set + index completeness)
-pnpm run doc-sync       # doc-typecheck + verify-cordis-catalog + verify-md-wrap + verify-md-links + verify-doc-refs + verify-rfc-classification + verify-type-equiv (CI runs this)
+pnpm run doc-sync       # doc-typecheck + verify-cordis-catalog + verify-md-wrap + verify-md-links + verify-doc-refs + verify-package-paths + verify-rfc-classification + verify-type-equiv (CI runs this)
 pnpm run demo:echo      # run examples/echo-agent (no API key; type "echo hi" to
                     # see a tool call) — the mock skeleton
 pnpm run demo:coding    # run examples/coding-agent — the real agent (needs
@@ -158,7 +172,7 @@ Dev/test/demo run **unbuilt** via tsx + the `paths` map in the root `tsconfig.js
 - **Symmetry is usually more correct**: when two related values play parallel roles (a test fixture and its expected output, a request shape and its response shape, a buggy input and the test that checks the fix), give them parallel form — both named consts, or both inline, not one each way. Asymmetry is a smell that usually points at a missed extraction.
 - **Merging PRs**: always merge with a **merge commit** (`gh pr merge --merge`), never squash or rebase. The per-PR commit history is intentional — review-fix commits, regression-test commits, and the reasoning in each message are part of the record — and squashing flattens it away.
 - **TODO markers**: use `FIXME`/`TODO`/`XXX` to flag known issues by urgency — see [docs/development.md](docs/development.md) for the semantics of each.
-- **Tests**: vitest, colocated under `packages/<name>/tests/*.spec.ts`. Every registry needs an HMR-safety test (dispose the contributing fiber, assert cleanup). **Excessive tests are welcome** — when in doubt, write the test; err on the side of covering edge cases, error paths, event ordering, and concurrency races even if they seem unlikely. Review findings get regression tests (see `packages/agent-loop/tests/review-fixes.spec.ts`). The same generosity applies to **real-API (with-key) e2e tests — inference is cheap here (we are DeepSeek), so do not ration them**: cover the agent's real flows (a real prompt that writes a file, multi-turn, tool use, cancellation) and run them frequently while developing, especially cheap **smoke tests** that boot the real example and check the world. A green mock/no-key suite proves the plumbing, not the product — the with-key smoke test is what catches "green units, broken product". See § Secrets / .env for the with-key policy and why self-skip is a CI accommodation, not a verdict that real-API tests are expensive.
+- **Tests**: vitest, colocated under `packages/<group>/<pkg>/tests/*.spec.ts`. Every registry needs an HMR-safety test (dispose the contributing fiber, assert cleanup). **Excessive tests are welcome** — when in doubt, write the test; err on the side of covering edge cases, error paths, event ordering, and concurrency races even if they seem unlikely. Review findings get regression tests (see `packages/core/agent-loop/tests/review-fixes.spec.ts`). The same generosity applies to **real-API (with-key) e2e tests — inference is cheap here (we are DeepSeek), so do not ration them**: cover the agent's real flows (a real prompt that writes a file, multi-turn, tool use, cancellation) and run them frequently while developing, especially cheap **smoke tests** that boot the real example and check the world. A green mock/no-key suite proves the plumbing, not the product — the with-key smoke test is what catches "green units, broken product". See § Secrets / .env for the with-key policy and why self-skip is a CI accommodation, not a verdict that real-API tests are expensive.
 - **Prefer the REAL implementation over a mock/stand-in in tests.** When the genuine collaborator is available in the repo, wire it up instead of hand-rolling a fake — a test that registers an inline `defineTool({ name: 'bash', … })` to stand in for `dsh-tool-bash` proves the *bridge* moves bytes but not that the *shipping tool* renders the way the test asserts; the two drift and the test passes while the product is wrong. Mock only the genuinely expensive/non-deterministic boundary (the LLM adapter, the network, the clock) and keep everything downstream real: a bridge tool-call test runs the scripted mock MODEL but the REAL tool + REAL executor (e.g. `makeBridgeHarness({ withBash: true })` plugs `dsh-bash-local` + `dsh-tool-bash` and runs an actual `echo`), so it verifies the actual `presentCall`/`presentResult` an editor sees. This is the unit-test echo of "verify the world, not a synthetic stand-in" (see § Defensive patterns) — a fake you wrote will agree with whatever you assumed; the real thing won't.
 - **A change that affects the editor-facing transcript or end-to-end agent UX needs a snapshot test (or an explicit note in the PR why none applies).** The snapshot tier (`examples/*/tests/**/*.snapshot.ts`, `pnpm run test:snapshot`) boots the real example subprocess, replays a recorded session JSONL deterministically (keyless), and diffs the normalized stdout transcript + re-persisted session log against committed goldens — the full-transcript regression net that mock-level unit tests structurally cannot be (it is what catches a bridge-translation or loop-structure regression that leaves every unit green). When you change the ACP bridge, the agent loop's observable output, tool presentation, or anything an editor renders, add or update a scenario under `examples/acp-agent/tests/snapshots/` and re-record with `pnpm run test:snapshot:record`. Reviewing the golden diff is part of the review. The rule is scoped to transcript/UX-affecting changes — a pure internal refactor with no observable-output change does not need one, but say so. See [docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md](docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md).
 
@@ -178,11 +192,13 @@ Each bullet is a bug class that bit us; the rule prevents the reoccurrence.
 
 ## Type Safety and Documentation
 
-This codebase aims to be **very type-safe and well documented** for maintainability. Code that fails to compile under `strict: true` (with `noImplicitAny` enabled for all `packages/*` source) is not acceptable. Every `any` that remains must have a specific justification (a comment explaining why a narrower type is infeasible).
+This codebase aims to be **very type-safe and well documented** for maintainability. Code that fails to compile under `strict: true` (with `noImplicitAny` enabled for all `packages/*/*` source) is not acceptable. Every `any` that remains must have a specific justification (a comment explaining why a narrower type is infeasible).
 
-In the **core** packages (`packages/llm`, `packages/tools`, `packages/agent`, `packages/agent-loop`, `packages/session`, `packages/system-prompt`), **type gymnastics are acceptable when they improve the DX of plugin authors** for common plugin types. The `defineTool` typed schema DSL in `dsh-tools` is the canonical example: the `SchemaSpec` to `InferArgs<S>` type-level mapping gives tool authors zero-cast typed `execute` args, and the cost of the conditional types stays inside the core package.
+**Almost always lean toward the stricter lint rule.** In the agentic-coding era the cost/benefit of strictness has inverted: a machine writes and reads most of the code, so the one-time cost of satisfying a stricter rule is cheap and paid by a tool, while the benefit — a whole class of error caught mechanically, a consistent foundation every agent can rely on, less reviewer attention spent on what a linter could have caught — compounds across every future change. When choosing whether to enable a rule, tighten an existing one, or add a new gate (a `verify-*` script, a constraint check), default to YES unless it has a concrete, recurring false-positive problem. Prefer a narrowly-scoped escape hatch (a justified inline disable with a reason, a per-path override) over leaving the rule off globally. The same reasoning motivates this repo's many bespoke gates (`doc-sync`, `verify-package-paths`, the workspace-shape constraint): encode the invariant in a check so no human or agent has to remember it.
 
-Verbose documentation is fine **as long as docs and code stay strictly in sync**. Out-of-sync docs are worse than no docs. **When you change code, update its docs in the SAME change** — grep the package README and the module/JSDoc comments for the old behavior (config keys, defaults, error codes, wire field names, event names) and fix every hit. CI runs `pnpm run doc-sync` (`doc-typecheck` + `verify-cordis-catalog` + `verify-md-wrap` + `verify-md-links` + `verify-doc-refs` + `verify-rfc-classification` + `verify-type-equiv`), which typechecks every fenced `ts` block in `README.md`, `docs/**/*.md`, and `packages/*/*.md`, regenerates the cordis events/services catalog from source and fails if the committed copy is stale, asserts no hard-wrapped prose paragraphs, checks that every relative Markdown cross-link resolves, checks that every `docs/*.md` path cited in a source comment resolves, checks that every RFC is filed under a valid class folder and listed in its index, and checks that every ` ```ts type-equiv ` doc block still matches its source type — across those files plus `AGENTS.md` / `packages/AGENTS.md` — but that scope does NOT catch prose drift in `AGENTS.md` / `packages/AGENTS.md` / `packages/README.md` (config keys, defaults, error codes), so keeping those in sync remains on the author. Every module has a module-level doc comment explaining its role. Every exported class, interface, type, function, and non-obvious method has a JSDoc that explains semantics (not just the name) — contracts (what events fire when), disposal behavior, error behavior, and extension intent. Internal helpers get docs only where non-obvious. Prefer one-liners when one line suffices.
+In the **core** packages (`packages/llm/llm`, `packages/core/tools`, `packages/core/agent`, `packages/core/agent-loop`, `packages/core/session`, `packages/core/system-prompt`), **type gymnastics are acceptable when they improve the DX of plugin authors** for common plugin types. The `defineTool` typed schema DSL in `dsh-tools` is the canonical example: the `SchemaSpec` to `InferArgs<S>` type-level mapping gives tool authors zero-cast typed `execute` args, and the cost of the conditional types stays inside the core package.
+
+Verbose documentation is fine **as long as docs and code stay strictly in sync**. Out-of-sync docs are worse than no docs. **When you change code, update its docs in the SAME change** — grep the package README and the module/JSDoc comments for the old behavior (config keys, defaults, error codes, wire field names, event names) and fix every hit. CI runs `pnpm run doc-sync` (`doc-typecheck` + `verify-cordis-catalog` + `verify-md-wrap` + `verify-md-links` + `verify-doc-refs` + `verify-package-paths` + `verify-rfc-classification` + `verify-type-equiv`), which typechecks every fenced `ts` block in `README.md`, `docs/**/*.md`, and `packages/*/*.md`, regenerates the cordis events/services catalog from source and fails if the committed copy is stale, asserts no hard-wrapped prose paragraphs, checks that every relative Markdown cross-link resolves, checks that every `docs/*.md` path cited in a source comment resolves, checks that every `packages/<path>` reference naming a real package resolves, checks that every RFC is filed under a valid class folder and listed in its index, and checks that every ` ```ts type-equiv ` doc block still matches its source type — across those files plus `AGENTS.md` / `packages/AGENTS.md` — but that scope does NOT catch prose drift in `AGENTS.md` / `packages/AGENTS.md` / `packages/README.md` (config keys, defaults, error codes), so keeping those in sync remains on the author. Every module has a module-level doc comment explaining its role. Every exported class, interface, type, function, and non-obvious method has a JSDoc that explains semantics (not just the name) — contracts (what events fire when), disposal behavior, error behavior, and extension intent. Internal helpers get docs only where non-obvious. Prefer one-liners when one line suffices.
 
 **Tag every new event with `@mode`.** The cordis events/services catalog ([docs/cordis-catalog/events-and-services.md](docs/cordis-catalog/events-and-services.md)) is GENERATED from source by `scripts/gen-cordis-catalog.ts` — never hand-edit it; run `pnpm run gen-cordis-catalog` and commit the result. When you add an event to an `interface Events` block, its JSDoc MUST carry a `@mode emit|waterfall|parallel` tag (the generator hard-errors without it): use `waterfall` when the signature ends with a `next: () => …` parameter (the listener transforms or vetoes via `next()`), `parallel` when the loop awaits a fan-out with no veto (e.g. an awaited `Promise<void> | void` checkpoint like `session/flush`), and `emit` for plain fire-and-forget notifications. The generator also cross-checks the tag against the signature where the shape is conclusive (a trailing `next` ⇒ waterfall) and hard-errors on a contradiction. Write the rest of the event's JSDoc to stand alone — it is the catalog entry's prose.
 

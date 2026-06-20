@@ -16,25 +16,15 @@
       "@cordisjs/plugin-timer": ["./vendor/timer/lib"],
       "@cordisjs/plugin-hmr": ["./vendor/hmr/lib"],
       "@cordisjs/plugin-logger-console": ["./vendor/logger-console/lib/shared"],
-      "@deepseek-ai/dsh-llm": ["./packages/llm/src"],
-      "@deepseek-ai/dsh-session": ["./packages/session/src"],
-      "@deepseek-ai/dsh-session-persistence": ["./packages/session-persistence/src"],
-      "@deepseek-ai/dsh-session-persistence-jsonl": ["./packages/session-persistence-jsonl/src"],
-      "@deepseek-ai/dsh-session-persistence-sqlite": ["./packages/session-persistence-sqlite/src"],
-      "@deepseek-ai/dsh-system-prompt": ["./packages/system-prompt/src"],
-      "@deepseek-ai/dsh-tools": ["./packages/tools/src"],
-      "@deepseek-ai/dsh-agent": ["./packages/agent/src"],
-      "@deepseek-ai/dsh-agent-loop": ["./packages/agent-loop/src"],
-      "@deepseek-ai/dsh-bash": ["./packages/bash/src"],
-      "@deepseek-ai/dsh-llm-deepseek": ["./packages/llm-deepseek/src"],
-      "@deepseek-ai/dsh-llm-pi-ai": ["./packages/llm-pi-ai/src"],
-      "@deepseek-ai/dsh-bash-local": ["./packages/bash-local/src"],
-      "@deepseek-ai/dsh-tool-bash": ["./packages/tool-bash/src"],
-      "@deepseek-ai/dsh-invariants": ["./packages/invariants/src"],
-      "@deepseek-ai/dsh-acp": ["./packages/acp/src"],
-      "@deepseek-ai/dsh-ui-stdio": ["./packages/ui-stdio/src"],
-      "@deepseek-ai/dsh-llm-replay": ["./packages/llm-replay/src"]
+      "@deepseek-ai/dsh-*": [
+        "./packages/core/*/src",
+        "./packages/llm/*/src",
+        "./packages/bash/*/src",
+        "./packages/session-persistence/*/src",
+        "./packages/ui/*/src",
+        "./packages/support/*/src"
+      ]
     }
   },
-  "include": ["packages/*/src", "packages/*/tests", "examples", "scripts"]
+  "include": ["packages/*/*/src", "packages/*/*/tests", "examples", "scripts"]
 }

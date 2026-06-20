@@ -6,7 +6,7 @@ The file-by-file checklist for a new `@deepseek-ai/dsh-<name>` package. (Verifie
 
 ```
 packages/<name>/
-  package.json     # copy from packages/tools, adjust name/description/deps
+  package.json     # copy from packages/core/tools, adjust name/description/deps
   tsconfig.json    # extends ../../tsconfig.base.json, rootDir src, outDir lib,
                    # references: vendor/cosmokit, vendor/cordis (+ vendor/schemastery
                    # if you use Config, + ../<dep> for each dsh dependency)
@@ -25,7 +25,7 @@ package.json invariants (enforced by `pnpm run constraints` / `scripts/check-wor
 | `tsconfig.typecheck.json` | same entry (this file overrides the map wholesale) |
 | `tsconfig.build.json` | add `{ "path": "./packages/<name>" }` to `references` |
 | `scripts/publint-all.ts` | add `'packages/<name>'` to the array |
-| `knip.json` | only if the package has non-`*.spec.ts` entries (e.g. `*.e2e.ts` → add a per-workspace override like `packages/llm-deepseek`) |
+| `knip.json` | only if the package has non-`*.spec.ts` entries (e.g. `*.e2e.ts` → add a per-workspace override like `packages/llm/llm-deepseek`) |
 
 Covered automatically by globs — no edits needed: root `package.json` workspaces, `tsdown.config.ts`, `vitest.config.ts`, `eslint.config.mjs`.
 

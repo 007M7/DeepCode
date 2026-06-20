@@ -24,6 +24,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { glob } from 'node:fs/promises'
+import ts from 'typescript'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -96,13 +97,17 @@ function extractBlocks(absPath: string): Block[] {
  * vendor `lib/` to exist (a fresh clone runs `pnpm run build` first; CI does too).
  */
 function workspacePaths(): Record<string, string[]> {
-  const raw = readFileSync(join(root, 'tsconfig.typecheck.json'), 'utf8')
-  // Strip // line comments and /* */ block comments so JSON.parse accepts it.
-  const stripped = raw
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/.*$/gm, '$1')
-  return (JSON.parse(stripped) as { compilerOptions: { paths: Record<string, string[]> } })
-    .compilerOptions.paths
+  const file = join(root, 'tsconfig.typecheck.json')
+  // Parse with TypeScript's own JSONC reader, not a hand-rolled comment strip:
+  // a regex strip mistakes the `/*/` in a wildcard path candidate
+  // (`./packages/core/*/src`) for a block comment and corrupts the map.
+  const result = ts.readConfigFile(file, p => readFileSync(p, 'utf8'))
+  if (result.error) {
+    throw new Error(`doc-typecheck: cannot read ${file}: ${ts.flattenDiagnosticMessageText(result.error.messageText, '\n')}`)
+  }
+  // `config` is typed `any` by the TS API; narrow it to the one field we read.
+  const config = result.config as { compilerOptions: { paths: Record<string, string[]> } }
+  return config.compilerOptions.paths
 }
 
 /** The standalone tsconfig for the temp project (copies base resolution, no
@@ -125,7 +130,7 @@ function tempTsconfig(): string {
   })
 }
 
-const markdownGlobs = ['README.md', 'docs/**/*.md', 'packages/*/*.md']
+const markdownGlobs = ['README.md', 'docs/**/*.md', 'packages/*/*.md', 'packages/*/*/*.md']
 
 const files: string[] = []
 for (const pattern of markdownGlobs) {

@@ -1,6 +1,6 @@
 # Cookbook: adding a tool
 
-How to give the model a new capability. Reference implementations: `examples/echo-agent/src/echo-tool.ts` (minimal) and `packages/tool-bash` (production-grade, three-package seam).
+How to give the model a new capability. Reference implementations: `examples/echo-agent/src/echo-tool.ts` (minimal) and `packages/bash/tool-bash` (production-grade, three-package seam).
 
 ## The minimal shape
 
@@ -50,4 +50,4 @@ Prefer not to build policy into the tool. The seam is the `tools/execute` waterf
 
 ## Tests every tool needs
 
-Arg-validation rejections, result shaping for every outcome, the HMR disposal test, and — for tools with side effects — an integration spec that drives the tool through the agent loop with a scripted `MockAdapter` (`packages/agent-loop/tests/mock-adapter.ts`), asserting the `tool/call` / `tool/result` session events.
+Arg-validation rejections, result shaping for every outcome, the HMR disposal test, and — for tools with side effects — an integration spec that drives the tool through the agent loop with a scripted `MockAdapter` (`packages/core/agent-loop/tests/mock-adapter.ts`), asserting the `tool/call` / `tool/result` session events.

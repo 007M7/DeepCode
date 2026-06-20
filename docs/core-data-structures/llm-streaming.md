@@ -1,8 +1,8 @@
 # LLM Streaming
 
-The wire-level streaming vocabulary of [dsh-llm](../../packages/llm). [core.md](core.md) introduces `StreamChunk`, `Message`, and `ContentBlock`; this page owns the full chunk protocol, the adapter contract every adapter must obey, and the shared assembler.
+The wire-level streaming vocabulary of [dsh-llm](../../packages/llm/llm). [core.md](core.md) introduces `StreamChunk`, `Message`, and `ContentBlock`; this page owns the full chunk protocol, the adapter contract every adapter must obey, and the shared assembler.
 
-Source: [`packages/llm/src/types.ts`](../../packages/llm/src/types.ts)
+Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 
 ## `StreamChunk` — the raw protocol
 
@@ -45,7 +45,7 @@ interface TokenUsage {
 
 ## `BlockAssembler`
 
-`BlockAssembler` ([`packages/llm/src/assembler.ts`](../../packages/llm/src/assembler.ts)) is the single shared implementation that folds a `StreamChunk` stream back into `ContentBlock`s and a final `Message`. The loop logs the raw chunks (for replay fidelity) while feeding the same chunks through an assembler — so the canonical log keeps token-level detail and the derived message is rebuilt deterministically. A consumer that needs the assembled result without re-implementing the fold uses this.
+`BlockAssembler` ([`packages/llm/llm/src/assembler.ts`](../../packages/llm/llm/src/assembler.ts)) is the single shared implementation that folds a `StreamChunk` stream back into `ContentBlock`s and a final `Message`. The loop logs the raw chunks (for replay fidelity) while feeding the same chunks through an assembler — so the canonical log keeps token-level detail and the derived message is rebuilt deterministically. A consumer that needs the assembled result without re-implementing the fold uses this.
 
 ## The seam
 

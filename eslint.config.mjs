@@ -30,7 +30,7 @@ export default tseslint.config(
 
   // --- our packages: full strictness -------------------------------------
   {
-    files: ['packages/*/src/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts'],
+    files: ['packages/*/*/src/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts'],
     extends: [
       ...tseslint.configs.strictTypeChecked,
     ],
@@ -81,7 +81,7 @@ export default tseslint.config(
 
   // --- tests: same rules, minus the friction that fights test ergonomics --
   {
-    files: ['packages/*/tests/**/*.ts'],
+    files: ['packages/*/*/tests/**/*.ts'],
     extends: [
       ...tseslint.configs.strictTypeChecked,
     ],

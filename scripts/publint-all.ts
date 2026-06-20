@@ -1,31 +1,22 @@
 import { execFileSync } from 'node:child_process'
+import { readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-// publint every publishable package (vendor/ is private upstream code and
-// examples/ are not packages; both are out of scope).
-// TODO(package-inventory): derive this from the deliberate package hierarchy.
-const packages = [
-  'packages/llm',
-  'packages/session',
-  'packages/session-persistence',
-  'packages/session-persistence-jsonl',
-  'packages/session-persistence-sqlite',
-  'packages/system-prompt',
-  'packages/tools',
-  'packages/agent',
-  'packages/agent-loop',
-  'packages/bash',
-  'packages/llm-deepseek',
-  'packages/llm-pi-ai',
-  'packages/bash-local',
-  'packages/tool-bash',
-  'packages/invariants',
-  'packages/acp',
-  'packages/ui-stdio',
-  'packages/llm-replay',
-]
-
+// publint every harness package. Packages live at packages/<group>/<pkg>
+// (the group dirs — core/llm/bash/… — are pure containers); vendor/ is private
+// upstream code and examples/ are not packages, both out of scope. Derived
+// from the hierarchy so a new package needs no edit here.
 const root = resolve(import.meta.dirname, '..')
+const packagesRoot = resolve(root, 'packages')
+
+const packages = readdirSync(packagesRoot, { withFileTypes: true })
+  .filter(group => group.isDirectory())
+  .flatMap(group =>
+    readdirSync(resolve(packagesRoot, group.name), { withFileTypes: true })
+      .filter(pkg => pkg.isDirectory())
+      .map(pkg => `packages/${group.name}/${pkg.name}`),
+  )
+
 for (const path of packages) {
   execFileSync('node_modules/.bin/publint', [path], { cwd: root, stdio: 'inherit' })
 }
