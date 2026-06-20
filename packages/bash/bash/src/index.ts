@@ -85,9 +85,6 @@ export abstract class BashExecutor extends Service {
   /** Start a background task and return its handle immediately. */
   abstract start(spec: BashExecSpec): BashTask
 
-  /** Look up a background task by id. */
-  abstract get(id: string): BashTask | undefined
-
   /**
    * The opaque OWNER token recorded for a background task at {@link start}
    * (from the {@link BashExecSpec}'s `owner`), or `undefined` for an unknown id
@@ -102,9 +99,6 @@ export abstract class BashExecutor extends Service {
    * tool plugin — is what makes ownership survive a `tool-bash` HMR reload.
    */
   abstract ownerOf(id: string): string | undefined
-
-  /** All tracked background tasks (insertion order). */
-  abstract list(): BashTask[]
 
   /** Read output produced since the previous read. Throws for unknown ids. */
   abstract readOutput(id: string): BashTaskRead

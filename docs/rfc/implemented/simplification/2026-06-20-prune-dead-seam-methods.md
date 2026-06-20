@@ -1,6 +1,6 @@
 # RFC: Prune dead methods from the persistence and bash capability seams
 
-Status: proposed
+Status: implemented (proposed and accepted 2026-06-20)
 
 ## Problem
 

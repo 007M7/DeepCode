@@ -176,18 +176,10 @@ export class LocalBashExecutor extends BashExecutor {
     return task
   }
 
-  get(id: string): BashTask | undefined {
-    return this.tasks.get(id)
-  }
-
   ownerOf(id: string): string | undefined {
     // Unknown id and known-but-ownerless both read as undefined — the consumer
     // treats undefined as "open" and a truly unknown id fails at readOutput/kill.
     return this.tasks.get(id)?.owner
-  }
-
-  list(): BashTask[] {
-    return [...this.tasks.values()]
   }
 
   readOutput(id: string): BashTaskRead {

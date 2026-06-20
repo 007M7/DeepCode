@@ -11,7 +11,7 @@
  * Like the JSONL backend it supplies ONLY the storage primitives (the
  * {@link PersistenceBackend} hooks below — INSERT/DELETE/SELECT inside
  * transactions); all the write-path orchestration lives in the backend-agnostic
- * {@link PersistenceCoordinator} this class composes. The six public
+ * {@link PersistenceCoordinator} this class composes. The four public
  * {@link SessionPersistence} methods delegate to the coordinator.
  *
  * @module @deepseek-ai/dsh-session-persistence-sqlite
@@ -97,14 +97,6 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
 
   load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     return this.coordinator.load(id)
-  }
-
-  has(id: SessionId): Promise<boolean> {
-    return this.coordinator.has(id)
-  }
-
-  delete(id: SessionId): Promise<void> {
-    return this.coordinator.delete(id)
   }
 
   // `list` is BOTH the public service method and the PersistenceBackend hook —
@@ -203,12 +195,6 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     }
   }
 
-  /** Remove a session's row (ON DELETE CASCADE drops its events). */
-  async deleteStored(id: SessionId): Promise<void> {
-    await this.ready
-    this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
-  }
-
   /** List all materialized sessions' metadata (every row is a materialized session). */
   async list(): Promise<SessionHeader[]> {
     await this.ready
@@ -234,7 +220,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   /**
    * Insert-or-replace a session's metadata row. The only caller is the first
    * materializing `appendBatch`, so writing the row IS the materialization (its
-   * existence is the signal `has`/`list` read).
+   * existence is the signal `list` reads).
    */
   private writeRow(meta: SessionHeader): void {
     this.db.prepare(`
