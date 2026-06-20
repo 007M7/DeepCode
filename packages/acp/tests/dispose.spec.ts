@@ -85,7 +85,7 @@ describe('acp bridge — disposal & HMR safety', () => {
 
   it('a client disconnect mid-prompt disposes the session (no registered agent left)', async () => {
     // The ACP transport closes (editor quits) while a turn runs. The bridge must
-    // settle the in-flight prompt cancelled and DISPOSE the agent (PR D's
+    // settle the in-flight prompt cancelled and DISPOSE the agent (the session's
     // per-agent AgentHandle teardown) rather than leaving an orphaned running —
     // or even idled-but-still-registered — agent whose updates are swallowed.
     const harness = await makeBridgeHarness({ storageDir, script: ['hang'] })
