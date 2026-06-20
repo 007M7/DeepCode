@@ -65,6 +65,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Extract a generic long-running tool runtime](proposed/architecture/2026-06-20-generic-long-running-tool-runtime.md) | 2026-06-20 |
 | [Extract example apps into packages](proposed/architecture/2026-06-20-extract-example-app-packages.md) | 2026-06-20 |
 | [Branded IDs everywhere they belong](proposed/architecture/2026-06-20-branded-ids.md) | 2026-06-20 |
+| [Treat unstable LLM APIs as a first-class failure mode](proposed/architecture/2026-06-21-unstable-llm-api-recovery.md) | 2026-06-21 |
 
 ### Process
 
