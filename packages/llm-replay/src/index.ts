@@ -5,7 +5,7 @@
  * waterfall (never calls `next()`) and yields model streams reconstructed from
  * a recorded **session JSONL** fixture — so a snapshot test can boot the real
  * agent against a fixed model transcript with no API key. See
- * docs/rfc/implemented/2026-06-19-acp-snapshot-tests.md.
+ * docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  *
  * The fixture IS the persisted session log (`<scenario>/session.jsonl`): its
  * `assistant/chunk` events carry every {@link StreamChunk}, so grouping them by

@@ -18,7 +18,7 @@
  * a coordinator it composes), so a third-party backend MAY implement the service
  * directly without using the coordinator at all.
  *
- * See the write-coordinator RFC (docs/rfc/implemented/2026-06-18-shared-persistence-write-coordinator.md)
+ * See the write-coordinator RFC (docs/rfc/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md)
  * for the design rationale (composition over inheritance, the opaque torn marker).
  *
  * @module @deepseek-ai/dsh-session-persistence/coordinator
