@@ -21,7 +21,7 @@
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:snapshot": "vitest run --config vitest.snapshot.config.ts",
     "test:snapshot:record": "DSH_SNAPSHOT=record vitest run --config vitest.snapshot.config.ts --update",
-    "knip": "knip",
+    "knip": "knip --treat-config-hints-as-errors",
     "publint": "tsx scripts/publint-all.ts",
     "doc-typecheck": "tsx scripts/doc-typecheck.ts",
     "verify-md-wrap": "tsx scripts/verify-md-wrap.ts",
