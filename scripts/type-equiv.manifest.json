@@ -1,0 +1,41 @@
+{
+  "comment": "Maps each ` ```ts type-equiv ` block (by doc + declared symbol) to the source symbol it must match verbatim. verify-type-equiv.ts enforces a 1:1 correspondence: every type-equiv block has exactly one entry here, and every entry resolves to exactly one block. Add an entry when you add a type-equiv block; remove it when you remove the block.",
+  "entries": [
+    { "doc": "docs/core-data-structures/core.md", "symbol": "Branded", "source": "packages/llm/src/brand.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "ContentBlockMap", "source": "packages/llm/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "Message", "source": "packages/llm/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "MessageSourceMap", "source": "packages/llm/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "FinishReasonMap", "source": "packages/llm/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "GenerateOptions", "source": "packages/llm/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "GenerateResult", "source": "packages/llm/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "ToolSchema", "source": "packages/llm/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "SessionEvent", "source": "packages/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "Agent", "source": "packages/agent/src/types.ts" },
+
+    { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "StreamChunk", "source": "packages/llm/src/types.ts" },
+    { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "TokenUsage", "source": "packages/llm/src/types.ts" },
+    { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "ContentBlockMap", "source": "packages/llm/src/types.ts" },
+
+    { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEventMap", "source": "packages/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEvent", "source": "packages/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/session.md", "symbol": "TurnTriggerMap", "source": "packages/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/session.md", "symbol": "TurnEndReasonMap", "source": "packages/session/src/types.ts" },
+
+    { "doc": "docs/core-data-structures/persistence.md", "symbol": "SessionHeader", "source": "packages/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/persistence.md", "symbol": "CreateSessionOptions", "source": "packages/session/src/types.ts" },
+
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolDefinition", "source": "packages/tools/src/index.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "SchemaProp", "source": "packages/tools/src/schema.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "SchemaSpec", "source": "packages/tools/src/schema.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "InferArgs", "source": "packages/tools/src/schema.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecution", "source": "packages/tools/src/index.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionResult", "source": "packages/tools/src/index.ts" },
+
+    { "doc": "docs/core-data-structures/bash.md", "symbol": "BashExecRequest", "source": "packages/bash/src/types.ts" },
+    { "doc": "docs/core-data-structures/bash.md", "symbol": "BashExecSpec", "source": "packages/bash/src/types.ts" },
+    { "doc": "docs/core-data-structures/bash.md", "symbol": "BashRunResult", "source": "packages/bash/src/types.ts" },
+    { "doc": "docs/core-data-structures/bash.md", "symbol": "CollectedOutput", "source": "packages/bash/src/types.ts" },
+    { "doc": "docs/core-data-structures/bash.md", "symbol": "BashTask", "source": "packages/bash/src/types.ts" },
+    { "doc": "docs/core-data-structures/bash.md", "symbol": "BashTaskRead", "source": "packages/bash/src/types.ts" }
+  ]
+}
