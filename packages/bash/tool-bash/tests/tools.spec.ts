@@ -24,7 +24,6 @@ async function setup() {
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
   ;(ctx.bash as LocalBashExecutor).internals = { spillDir, graceMs: 200 }
   await ctx.plugin(ToolBash)
-  trackCompletions(ctx)
   return ctx
 }
 
@@ -67,44 +66,6 @@ function text(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(block => block.type === 'text').map(block => block.text).join('')
 }
 
-/**
- * Per-context background-completion tracker. The task is started indirectly
- * (via `ctx.tools.execute`), so `start()`'s return is not accessible here, and
- * there is no get-by-id seam to poll current state — the only surviving way to
- * await a task by id is the executor's `onTaskDone` listener. Registering that
- * listener lazily (after the task may have already closed) would miss the
- * completion and hang; so {@link trackCompletions} installs ONE listener
- * EAGERLY (before any task starts) that records every completion, and
- * {@link doneFor} resolves from that record — immediately if the task already
- * finished, otherwise when it does. Call `trackCompletions(ctx)` right after
- * the executor is mounted (`setup()` does this for you).
- */
-const completions = new WeakMap<Context, { done: Map<string, BashTask>; waiters: Map<string, (task: BashTask) => void> }>()
-
-function trackCompletions(ctx: Context): void {
-  const state = { done: new Map<string, BashTask>(), waiters: new Map<string, (task: BashTask) => void>() }
-  completions.set(ctx, state)
-  ctx.bash.onTaskDone((task) => {
-    // Always record the completion so a later doneFor(id) still resolves; also
-    // wake any waiter already parked on this id.
-    state.done.set(task.id, task)
-    const waiter = state.waiters.get(task.id)
-    if (waiter) {
-      state.waiters.delete(task.id)
-      waiter(task)
-    }
-  })
-}
-
-/** Resolve (with the task object) once the background task `id` has completed. */
-function doneFor(ctx: Context, id: string): Promise<BashTask> {
-  const state = completions.get(ctx)
-  if (!state) throw new Error('trackCompletions(ctx) must be called before doneFor(ctx, …)')
-  const already = state.done.get(id)
-  if (already) return Promise.resolve(already)
-  return new Promise<BashTask>(resolve => state.waiters.set(id, resolve))
-}
-
 class LossyReadBashExecutor extends BashExecutor {
   private readonly task: BashTask = {
     id: 'bash-lossy',
@@ -133,8 +94,16 @@ class LossyReadBashExecutor extends BashExecutor {
     return this.task
   }
 
+  get(id: string): BashTask | undefined {
+    return id === this.task.id ? this.task : undefined
+  }
+
   ownerOf(): string | undefined {
     return undefined
+  }
+
+  list(): BashTask[] {
+    return [this.task]
   }
 
   readOutput(id: string): BashTaskRead {
@@ -317,7 +286,7 @@ describe('background tools', () => {
     expect(text(first)).toContain('first')
     expect(text(first)).toContain('[status: running]')
 
-    await doneFor(ctx, id)
+    await ctx.bash.get(id)!.done
     const second = await call(ctx, 'bash_output', { task_id: id })
     expect(text(second)).toContain('second')
     expect(text(second)).not.toContain('first')
@@ -334,11 +303,10 @@ describe('background tools', () => {
     await ctx.plugin(LocalBashExecutor, { maxOutputBytes: 100 })
     ;(ctx.bash as LocalBashExecutor).internals = { spillDir, graceMs: 200 }
     await ctx.plugin(ToolBash)
-    trackCompletions(ctx)
 
     const started = await call(ctx, 'bash', { command: 'for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', description: 'test command', run_in_background: true })
     const id = /task (bash-\d+)/.exec(text(started))![1]!
-    await doneFor(ctx, id)
+    await ctx.bash.get(id)!.done
     const read = await call(ctx, 'bash_output', { task_id: id })
     expect(text(read)).toContain('[some output was dropped from memory; full output: ')
   })
@@ -361,7 +329,7 @@ describe('background tools', () => {
 
     const killed = await call(ctx, 'bash_kill', { task_id: id })
     expect(text(killed)).toBe(`killed background task ${id}`)
-    await doneFor(ctx, id)
+    await ctx.bash.get(id)!.done
 
     const again = await call(ctx, 'bash_kill', { task_id: id })
     expect(text(again)).toBe(`task ${id} had already finished`)
@@ -405,7 +373,7 @@ describe('background tools', () => {
       agent,
     })
     const id = /task (bash-\d+)/.exec(text(started))![1]!
-    await doneFor(ctx, id)
+    await ctx.bash.get(id)!.done
 
     expect(inject).toHaveBeenCalledTimes(1)
     const [content, options] = inject.mock.calls[0] as [
@@ -428,7 +396,7 @@ describe('background tools', () => {
       agent,
     })
     const id = /task (bash-\d+)/.exec(text(started))![1]!
-    await expect(doneFor(ctx, id)).resolves.toBeDefined()
+    await expect(ctx.bash.get(id)!.done).resolves.toBeUndefined()
   })
 
   it('rethrows a non-disposed inject failure (not blindly swallowed)', async () => {
@@ -447,7 +415,7 @@ describe('background tools', () => {
         agent,
       })
       const id = /task (bash-\d+)/.exec(text(started))![1]!
-      await doneFor(ctx, id)
+      await ctx.bash.get(id)!.done
       // notifyTaskDone caught and logged the rethrown error.
       expect(errorSpy).toHaveBeenCalled()
       const logged = errorSpy.mock.calls.flat().some(arg => arg instanceof Error && arg.message === 'unexpected inject bug')
@@ -475,7 +443,7 @@ describe('background tools', () => {
     const id = /task (bash-\d+)/.exec(text(started))![1]!
     // Unregister the agent BEFORE the task completes (simulate disconnect).
     unregisterFakeAgents(ctx)
-    await expect(doneFor(ctx, id)).resolves.toBeDefined()
+    await expect(ctx.bash.get(id)!.done).resolves.toBeUndefined()
     expect(inject).not.toHaveBeenCalled()
   })
 
@@ -483,7 +451,7 @@ describe('background tools', () => {
     const ctx = await setup()
     const started = await call(ctx, 'bash', { command: 'true', description: 'test command', run_in_background: true })
     const id = /task (bash-\d+)/.exec(text(started))![1]!
-    await expect(doneFor(ctx, id)).resolves.toBeDefined()
+    await expect(ctx.bash.get(id)!.done).resolves.toBeUndefined()
   })
 })
 
@@ -566,7 +534,7 @@ describe('background task ownership (cross-session isolation)', () => {
     const b = fakeAgent('sess-b')
     const started = await callAs(ctx, a, 'bash', { command: 'echo done', description: 'bg', run_in_background: true })
     const id = /task (bash-\d+)/.exec(text(started))![1]!
-    await doneFor(ctx, id)
+    await ctx.bash.get(id)!.done
     // Completion does NOT clear ownership: B is still rejected, A still allowed.
     const readByB = await callAs(ctx, b, 'bash_output', { task_id: id })
     expect(readByB.isError).toBe(true)
@@ -599,9 +567,7 @@ describe('background task ownership (cross-session isolation)', () => {
     // token) survive.
     await fiber.dispose()
     await ctx.plugin(ToolBash)
-    // The task survived the reload, still running and still owned by A — proven
-    // via A's own bash_output (reports running status) and the surviving owner token.
-    expect(text(await callAs(ctx, a, 'bash_output', { task_id: id }))).toContain('[status: running]')
+    expect(ctx.bash.get(id)?.status).toBe('running')
     expect(ctx.bash.ownerOf(id)).toBe('sess-a')
 
     // After reload, ownership is INTACT → B is STILL rejected.
@@ -709,10 +675,10 @@ describe('status lines', () => {
     const ctx = await setup()
     const started = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
     const id = /task (bash-\d+)/.exec(text(started))![1]!
-    const done = doneFor(ctx, id)
+    const task = ctx.bash.get(id)!
 
     await call(ctx, 'bash_kill', { task_id: id })
-    const task = await done
+    await task.done
     // Simulate the variant where the close event carried no signal.
     task.signal = null
     const read = await call(ctx, 'bash_output', { task_id: id })
@@ -723,7 +689,8 @@ describe('status lines', () => {
     const ctx = await setup()
     const started = await call(ctx, 'bash', { command: 'true', description: 'test command', run_in_background: true })
     const id = /task (bash-\d+)/.exec(text(started))![1]!
-    const task = await doneFor(ctx, id)
+    const task = ctx.bash.get(id)!
+    await task.done
     // Defensive: completed tasks always carry an exit code in practice; the
     // ?? 0 fallback covers task shapes from other executor implementations.
     task.exitCode = null

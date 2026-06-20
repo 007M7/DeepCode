@@ -8,7 +8,6 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
-import type { BashTask } from '@deepseek-ai/dsh-bash'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
@@ -144,18 +143,13 @@ describe('bash tool through the agent loop', () => {
       return next()
     })
 
-    // Capture the single background task's completion. Registered BEFORE send so
-    // a fast task (echo) can't finish before the listener is attached; onTaskDone
-    // delivers the task object once it completes (completion may race turn end).
-    const taskDone = new Promise<BashTask>((resolve) => {
-      const dispose = ctx.bash.onTaskDone((task) => { dispose(); resolve(task) })
-    })
-
     agent.send([{ type: 'text', text: 'run echo bg-ok in the background' }])
     await waitForIdle(ctx, agent)
 
     // Wait for the background task itself (completion may race turn end).
-    await taskDone
+    const task = ctx.bash.get(taskId)
+    if (!task) throw new Error(`task ${taskId} not registered`)
+    await task.done
 
     const log = events(agent)
     const firstResult = findEvent(log, 'tool/result')

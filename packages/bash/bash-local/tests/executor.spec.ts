@@ -98,6 +98,8 @@ describe('LocalBashExecutor background tasks', () => {
     const task = bash.start(bash.resolve({ command: 'sleep 0.2; echo done' }))
     expect(Date.now() - before).toBeLessThan(150)
     expect(task.status).toBe('running')
+    expect(bash.get(task.id)).toBe(task)
+    expect(bash.list()).toContain(task)
     await task.done
     expect(task.status).toBe('completed')
     expect(task.exitCode).toBe(0)
@@ -235,6 +237,7 @@ describe('LocalBashExecutor background tasks', () => {
     await running.done
     expect(finished.status).toBe('completed')
     expect(running.signal).toBe('SIGTERM')
+    expect(bash.list()).toEqual([])
   })
 
   it('disposing the executor fiber kills running tasks (no orphans)', async () => {
@@ -246,13 +249,14 @@ describe('LocalBashExecutor background tasks', () => {
     bash.onTaskDone(listener)
 
     const task = bash.start(bash.resolve({ command: 'sleep 60' }))
-    const running = task
+    const running = bash.get(task.id)!
     await new Promise(resolve => setTimeout(resolve, 50))
 
     // Grab the pid before dispose clears the registry.
     const pid = (running as unknown as { running: { pid: number } }).running.pid
     await fiber.dispose()
     await waitGone(pid)
+    expect(bash.list()).toEqual([])
     // Listener silenced by base-class teardown — no late notifications.
     expect(listener).not.toHaveBeenCalled()
   })

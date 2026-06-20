@@ -1,6 +1,8 @@
-# RFC: Prune dead methods from the persistence and bash capability seams
+# RFC: Prune dead methods from the persistence seam
 
 Status: implemented (proposed and accepted 2026-06-20)
+
+> **Implementation note (scope narrowed from the original proposal).** This RFC proposed pruning dead methods from BOTH the persistence seam (`SessionPersistence.has()`/`.delete()`) and the bash seam (`BashExecutor.get()`/`.list()`). Only the **persistence** removal shipped. The bash `get()`/`.list()` removal was reverted before merge: each is a one-line accessor over the executor's already-tracked `tasks` map, and removing them forced `dsh-tool-bash`'s tests onto a ~35-line `onTaskDone`-based completion-tracking harness to replace the one-line `ctx.bash.get(id)` lookup — the migration cost dwarfed the surface removed. Per the [AGENTS.md "RFCs are proposals, not golden truth"](../../../../AGENTS.md) principle, that friction is evidence the method earns its keep (a test harness IS a consumer that programs against the seam), so `get()`/`list()` stay. The bash-seam analysis below is retained for the record but was NOT acted on; `BashTaskId`-branding those methods lands in the [branded-ids RFC](../../proposed/architecture/2026-06-20-branded-ids.md) instead. The persistence removal stands: `has()`/`delete()` had only contract-test callers and no test-ergonomics cost to remove.
 
 ## Problem
 
@@ -35,10 +37,10 @@ Re-adding a seam method with a live consumer is cheap and better-designed than t
 
 ## Acceptance criteria
 
-- `has`/`delete`/`deleteStored` and `get`/`list` are gone from their seams, impls, and contract suites; `pnpm run knip` reports no new dead exports.
-- The remaining seam operations (`create`/`append`/`load`/`list` for persistence; `run`/`start`/`ownerOf`/`onTaskDone`/`readOutput`/`kill`/`resolve` for bash) are untouched; ACP `session/list`, bash tool flows, and crash-recovery behave identically.
-- `pnpm run test:coverage` stays 100% per-file (the contract/spec rows for the removed methods are deleted with them).
-- Seam READMEs and `docs/architecture.md` no longer list the removed methods.
+- `has`/`delete`/`deleteStored` are gone from the persistence seam, impl, and contract suites; `pnpm run knip` reports no new dead exports. (The bash `get`/`list` removal was reverted — see the implementation note above; those methods remain.)
+- The remaining seam operations (`create`/`append`/`load`/`list` for persistence; `run`/`start`/`get`/`ownerOf`/`list`/`onTaskDone`/`readOutput`/`kill`/`resolve` for bash) are untouched; ACP `session/list`, bash tool flows, and crash-recovery behave identically.
+- `pnpm run test:coverage` stays 100% per-file (the contract/spec rows for the removed persistence methods are deleted with them).
+- Persistence seam READMEs and `docs/architecture.md` no longer list the removed `has`/`delete` methods.
 
 ## Risks
 

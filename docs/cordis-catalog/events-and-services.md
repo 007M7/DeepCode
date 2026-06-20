@@ -327,7 +327,9 @@ Semantics every implementation must honor:
 abstract resolve(request: BashExecRequest): BashExecSpec
 abstract run(spec: BashExecSpec): Promise<BashRunResult>
 abstract start(spec: BashExecSpec): BashTask
+abstract get(id: string): BashTask | undefined
 abstract ownerOf(id: string): string | undefined
+abstract list(): BashTask[]
 abstract readOutput(id: string): BashTaskRead
 abstract kill(id: string): boolean
 onTaskDone(listener: BashTaskListener): () => void

@@ -4,7 +4,7 @@ Status: proposed
 
 ## Problem
 
-The bash capability seam supports both foreground commands and long-running background tasks. Background support is large: the abstract executor exposes `start`, `ownerOf`, `readOutput`, `kill`, and `onTaskDone`; the local executor tracks tasks, incremental reads, owner tokens, process cleanup, and completion listeners; the model sees three tools (`bash`, `bash_output`, `bash_kill`); the tool plugin injects completion notices back into the owning agent's session. The local executor fences task access behind owner tokens because predictable global task ids are a cross-session read/kill hazard.
+The bash capability seam supports both foreground commands and long-running background tasks. Background support is large: the abstract executor exposes `start`, `get`, `ownerOf`, `list`, `readOutput`, `kill`, and `onTaskDone`; the local executor tracks tasks, incremental reads, owner tokens, process cleanup, and completion listeners; the model sees three tools (`bash`, `bash_output`, `bash_kill`); the tool plugin injects completion notices back into the owning agent's session. The local executor fences task access behind owner tokens because predictable global task ids are a cross-session read/kill hazard.
 
 The [tool cookbook](../../../cookbook/adding-a-tool.md) already points at the real design smell: background bash is really generic long-running-tool infrastructure living inside one tool. If future tools need background execution, polling, kill, ownership, and completion notices, those semantics should not be hidden in `dsh-bash`.
 

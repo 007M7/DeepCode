@@ -44,8 +44,16 @@ class StubExecutor extends BashExecutor {
     return task
   }
 
+  get(id: string): BashTask | undefined {
+    return this.tasks.get(id)
+  }
+
   ownerOf(id: string): string | undefined {
     return this.owners.get(id)
+  }
+
+  list(): BashTask[] {
+    return [...this.tasks.values()]
   }
 
   readOutput(id: string): BashTaskRead {
@@ -80,6 +88,8 @@ describe('BashExecutor service seam', () => {
   it('registers as ctx.bash and serves the abstract API', async () => {
     const { bash } = await setup()
     const task = bash.start(bash.resolve({ command: 'sleep 1' }))
+    expect(bash.get(task.id)).toBe(task)
+    expect(bash.list()).toEqual([task])
     expect(bash.kill(task.id)).toBe(true)
     expect(bash.kill(task.id)).toBe(false)
     const result = await bash.run(bash.resolve({ command: 'true' }))
