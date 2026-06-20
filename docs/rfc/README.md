@@ -32,6 +32,17 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Optional Code Mode — model writes TypeScript against an SDK of all tools](proposed/2026-06-15-optional-code-mode.md) | 2026-06-15 |
 | [Runtime schemas for the event vocabulary (Zod vs the merge-extensible-map pattern)](proposed/2026-06-16-typed-event-schemas.md) | 2026-06-16 |
 | [Unify the agent id and the session id](proposed/2026-06-20-unify-agent-and-session-id.md) | 2026-06-20 |
+| [Stop mirroring durable boundaries as agent events](proposed/2026-06-20-remove-agent-boundary-mirror-events.md) | 2026-06-20 |
+| [Keep one public stop primitive](proposed/2026-06-20-public-agent-stop-surface.md) | 2026-06-20 |
+| [Drop unconsumed assembled LLM convenience surfaces](proposed/2026-06-20-drop-unconsumed-llm-assembled-surfaces.md) | 2026-06-20 |
+| [Drop the unconsumed `llm/adapter-change` event](proposed/2026-06-20-drop-unconsumed-llm-adapter-change-event.md) | 2026-06-20 |
+| [Prune dead methods from the persistence and bash seams](proposed/2026-06-20-prune-dead-seam-methods.md) | 2026-06-20 |
+| [Fold trace-only session facts into load-bearing events](proposed/2026-06-20-collapse-trace-only-session-events.md) | 2026-06-20 |
+| [Extract a generic long-running tool runtime](proposed/2026-06-20-generic-long-running-tool-runtime.md) | 2026-06-20 |
+| [Make the shared example base providerless](proposed/2026-06-20-providerless-example-base.md) | 2026-06-20 |
+| [Use `session.jsonl` as the only snapshot session-log artifact](proposed/2026-06-20-remove-redundant-snapshot-log-goldens.md) | 2026-06-20 |
+| [Reorganize packages into a modular hierarchy](proposed/2026-06-20-package-hierarchy.md) | 2026-06-20 |
+| [Discover package inventories instead of maintaining static lists](proposed/2026-06-20-discover-package-inventory.md) | 2026-06-20 |
 
 ## Implemented
 
@@ -70,3 +81,14 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | Title | First proposed |
 |---|---|
 | [Deep-readonly public surfaces](rejected/2026-06-11-immutable-public-surfaces.md) | 2026-06-11 |
+| [Persist assembled assistant messages, not stream chunks](rejected/2026-06-20-assembled-assistant-messages-only.md) | 2026-06-20 |
+| [Drop ACP session/load until resume has a product shape](rejected/2026-06-20-drop-acp-session-load.md) | 2026-06-20 |
+| [Drop ACP terminal `_meta` rendering](rejected/2026-06-20-drop-acp-terminal-meta.md) | 2026-06-20 |
+| [Drop bash full-output spill files](rejected/2026-06-20-drop-bash-output-spill-files.md) | 2026-06-20 |
+| [Drop durable step boundary events](rejected/2026-06-20-drop-durable-step-boundaries.md) | 2026-06-20 |
+| [Drop unused session lineage metadata](rejected/2026-06-20-drop-unused-session-lineage.md) | 2026-06-20 |
+| [Fold the persistence interface into dsh-session](rejected/2026-06-20-fold-session-persistence-interface.md) | 2026-06-20 |
+| [Collapse tool-owned UI presentation](rejected/2026-06-20-generic-tool-rendering.md) | 2026-06-20 |
+| [Retire mid-turn steering](rejected/2026-06-20-retire-mid-turn-steering.md) | 2026-06-20 |
+| [Return the ACP bridge to one live session per connection](rejected/2026-06-20-single-session-acp-bridge.md) | 2026-06-20 |
+| [Truncate interrupted final turns on load](rejected/2026-06-20-truncate-interrupted-turns.md) | 2026-06-20 |

@@ -159,7 +159,11 @@ export class OutputCollector {
     writeSync(this.spillFd, chunk)
   }
 
-  /** Read the collected tail without finalizing (used by background polling). */
+  // TODO(snapshot-scope): `snapshot()` has one internal caller (`finalize()` at
+  // the bottom of this file) and `totalBytes` is read only by a test. The live
+  // background-poll path goes through `readFrom()`, so inline snapshot() into
+  // finalize() and drop or privatize the totalBytes getter.
+  /** Read the collected tail without finalizing (the final-result snapshot). */
   snapshot(): CollectedOutput {
     return {
       text: Buffer.concat(this.chunks).toString('utf8'),

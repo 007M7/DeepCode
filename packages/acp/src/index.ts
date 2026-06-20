@@ -203,6 +203,10 @@ interface SessionRecord {
  * others are no-ops (settle-exactly-once).
  */
 export function apply(ctx: Context, config: AcpConfig): void {
+  // TODO(double-default): these literals duplicate the Config schema defaults
+  // (`agentName`/`agentVersion` `.default(...)` above). The Loader applies the
+  // schema before apply() runs, so the `??` only fires for direct-apply unit
+  // tests. Pick one home for the default to avoid drift.
   const agentName = config.agentName ?? 'deepseek-harness-acp'
   const agentVersion = config.agentVersion ?? '0.0.1'
 
