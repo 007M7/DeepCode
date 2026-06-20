@@ -7,11 +7,15 @@ Inter-package dependencies among the `@deepseek-ai/dsh-*` harness packages, deri
 
 ```mermaid
 graph TD
+  bash --> brand
+  llm --> brand
   bash-local --> bash
   llm-deepseek --> llm
   llm-pi-ai --> llm
+  session --> brand
   session --> llm
   system-prompt --> llm
+  agent --> brand
   agent --> llm
   agent --> session
   llm-replay --> llm
@@ -49,14 +53,15 @@ graph TD
 
 | Package | Depends on |
 | --- | --- |
-| `bash` | — |
-| `llm` | — |
+| `brand` | — |
+| `bash` | `brand` |
+| `llm` | `brand` |
 | `bash-local` | `bash` |
 | `llm-deepseek` | `llm` |
 | `llm-pi-ai` | `llm` |
-| `session` | `llm` |
+| `session` | `brand`, `llm` |
 | `system-prompt` | `llm` |
-| `agent` | `llm`, `session` |
+| `agent` | `brand`, `llm`, `session` |
 | `llm-replay` | `llm`, `session` |
 | `session-persistence` | `session` |
 | `invariants` | `agent`, `llm`, `session` |

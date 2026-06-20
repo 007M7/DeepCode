@@ -21,6 +21,7 @@
 
 import type { Context } from 'cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
+import type { CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 
@@ -65,7 +66,7 @@ interface SessionTrace {
    * Tool-call ids issued in the OPEN step awaiting a result. Cleared at
    * `step/end` — a result must arrive in the same step as its call.
    */
-  pendingCalls: Set<string>
+  pendingCalls: Set<CallId>
 }
 
 /**

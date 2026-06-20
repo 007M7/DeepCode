@@ -25,7 +25,7 @@ interface BashExecRequest {
    * seam — that is the consumer's job). Absent for foreground runs and for an
    * ownerless background start (a non-agent caller).
    */
-  owner?: string | undefined
+  owner?: OwnerToken | undefined
 }
 ```
 
@@ -44,11 +44,13 @@ interface BashExecSpec {
    * silently-absent property that yields an unowned (cross-session-readable)
    * task. `start()` stores it; `run()` (foreground) ignores it.
    */
-  owner: string | undefined
+  owner: OwnerToken | undefined
 }
 ```
 
 The `owner` token is the isolation key: the executor stores it but never interprets it (access policy is the consumer's job), so a background task started by one agent isn't readable cross-session. A required-but-nullable field makes a forgotten owner a visible `undefined` rather than a silently-unowned task.
+
+Both ids the seam handles are [branded](core.md) (zero-cost `string` brands, the same machinery as `SessionId`/`AgentId`): `BashTaskId` (a tracked background task, generated `bash-N` by the local executor) and `OwnerToken` (the opaque isolation key). `OwnerToken` is deliberately a DISTINCT brand from `SessionId`, not an alias: the bash seam is a capability seam that must not know what an owner token *means*, so it never imports `dsh-session`'s vocabulary — the `dsh-tool-bash` consumer is the single boundary that casts the owning agent's `SessionId` into an `OwnerToken`. Branding both stops a raw `string` (or a `BashTaskId` where an `OwnerToken` is expected, or vice versa) from slipping through the type checker on the model-facing `task_id` path.
 
 ## Foreground runs: `BashRunResult`
 
@@ -90,7 +92,7 @@ A long-running command started with `start()` is tracked as a `BashTask`. `BashT
 
 ```ts type-equiv
 interface BashTask {
-  readonly id: string
+  readonly id: BashTaskId
   readonly command: string
   status: BashTaskStatus
   /** Exit code once finished (null = killed by signal / still running). */

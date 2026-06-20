@@ -1,7 +1,7 @@
 {
   "comment": "Maps each ` ```ts type-equiv ` block (by doc + declared symbol) to the source symbol it must match verbatim. verify-type-equiv.ts enforces a 1:1 correspondence: every type-equiv block has exactly one entry here, and every entry resolves to exactly one block. Add an entry when you add a type-equiv block; remove it when you remove the block.",
   "entries": [
-    { "doc": "docs/core-data-structures/core.md", "symbol": "Branded", "source": "packages/llm/llm/src/brand.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "Branded", "source": "packages/util/brand/src/index.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "ContentBlockMap", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "Message", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "MessageSourceMap", "source": "packages/llm/llm/src/types.ts" },

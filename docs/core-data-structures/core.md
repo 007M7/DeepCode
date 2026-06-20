@@ -61,13 +61,15 @@ Two large discriminated unions are the ones consumers `switch` over most: **`Str
 
 IDs that cross package boundaries are **branded** — structurally strings, but non-interchangeable at the type level (an `AgentId` can't be passed where a `CallId` is expected). Construction goes through a per-type factory; comparison, logging, and JSON behave as ordinary strings.
 
-Source: [`packages/llm/llm/src/brand.ts`](../../packages/llm/llm/src/brand.ts)
+The `Branded<B>` primitive lives in its own type-only package, [dsh-brand](../../packages/util/brand) (no runtime code, no harness-package dependency), so any package can brand the ids it owns without depending on an unrelated capability package (e.g. dsh-bash brands `BashTaskId`/`OwnerToken` via dsh-brand alone, never pulling in dsh-llm).
+
+Source: [`packages/util/brand/src/index.ts`](../../packages/util/brand/src/index.ts)
 
 ```ts type-equiv
 type Branded<B extends string> = string & { readonly [BRAND]: B }
 ```
 
-The three core IDs: `CallId` (correlates a tool call with its result; dsh-llm), `SessionId` (dsh-session), `AgentId` (dsh-agent). Each is `Branded<'CallId'>` etc. plus a same-named factory function.
+The three core IDs: `CallId` (correlates a tool call with its result; dsh-llm), `SessionId` (dsh-session), `AgentId` (dsh-agent). Each is `Branded<'CallId'>` etc. plus a same-named factory function. Capability seams brand their own ids too — see `BashTaskId`/`OwnerToken` in [bash.md](bash.md).
 
 ## Content blocks and messages
 

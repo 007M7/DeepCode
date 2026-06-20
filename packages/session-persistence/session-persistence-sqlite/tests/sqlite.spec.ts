@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionPersistenceSqlite, { SCHEMA_VERSION } from '@deepseek-ai/dsh-session-persistence-sqlite'
 import { openDatabase, scanRows, type EventRow } from '../src/schema.ts'
@@ -352,7 +352,7 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     const path = await freshDbPath()
     // Instance 1 materializes a session and disposes.
     const b1 = await backend(path)
-    const s1 = b1.ctx.sessions.create('hmr-collide')
+    const s1 = b1.ctx.sessions.create(SessionId('hmr-collide'))
     for (const e of oneTurnLog()) s1.append(e.type, e.data)
     await b1.ctx.parallel('session/flush', s1)
     await b1.dispose()
@@ -363,7 +363,7 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     await ctx.plugin(SessionStore)
     let session!: Session
     await ctx.plugin(Object.assign((inner: Context) => {
-      session = inner.sessions.create('hmr-collide')
+      session = inner.sessions.create(SessionId('hmr-collide'))
     }, { inject: ['sessions'] }))
     session.append('turn/start', { turn: 9, trigger: { kind: 'message', source: { kind: 'user' } } })
     await ctx.plugin(SessionPersistenceSqlite, { path })

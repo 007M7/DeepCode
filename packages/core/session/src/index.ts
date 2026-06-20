@@ -220,7 +220,7 @@ export class Session {
  * subscribe to `session/event` and flush on `session/flush` / dispose.
  */
 export class SessionStore extends Service {
-  private store = new Map<string, Session>()
+  private store = new Map<SessionId, Session>()
   private counter = 0
 
   constructor(ctx: Context) {
@@ -244,7 +244,7 @@ export class SessionStore extends Service {
    * @throws if a session with `id` already exists, or if `meta.cwd` is a
    *   non-absolute path (storage backends key directories off it).
    */
-  create(id?: string, options?: CreateSessionOptions): Session {
+  create(id?: SessionId, options?: CreateSessionOptions): Session {
     const session = this.prepare(id, options)
     // Single effect owned by the calling fiber. Yield the detach BEFORE
     // announcing so a throwing `session/created` listener rolls the attach back
@@ -269,7 +269,7 @@ export class SessionStore extends Service {
    * @throws if a session with `id` already exists, or if `meta.cwd` is a
    *   non-absolute path.
    */
-  prepare(id?: string, options?: CreateSessionOptions): Session {
+  prepare(id?: SessionId, options?: CreateSessionOptions): Session {
     const sessionId = SessionId(id ?? `session-${++this.counter}`)
     if (this.store.has(sessionId)) throw new Error(`session "${sessionId}" already exists`)
     const cwd = options?.meta?.cwd
@@ -321,7 +321,7 @@ export class SessionStore extends Service {
     this.ctx.emit('session/created', session)
   }
 
-  get(id: string): Session | undefined {
+  get(id: SessionId): Session | undefined {
     return this.store.get(id)
   }
 

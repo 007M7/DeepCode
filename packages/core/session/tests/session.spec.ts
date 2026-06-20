@@ -213,11 +213,11 @@ describe('SessionStore', () => {
   it('rejects duplicate ids and supports seeding', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const a = ctx.sessions.create('fixed')
-    expect(() => ctx.sessions.create('fixed')).toThrow('already exists')
+    const a = ctx.sessions.create(SessionId('fixed'))
+    expect(() => ctx.sessions.create(SessionId('fixed'))).toThrow('already exists')
 
     a.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
-    const forked = ctx.sessions.create('fork', { seed: [...a.events] })
+    const forked = ctx.sessions.create(SessionId('fork'), { seed: [...a.events] })
     expect(forked.deriveMessages()).toEqual(a.deriveMessages())
   })
 
@@ -228,11 +228,11 @@ describe('SessionStore', () => {
     // the REAL session, breaking the store-uniqueness invariant.
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const stale = ctx.sessions.prepare('racy')
-    const live = ctx.sessions.create('racy')
+    const stale = ctx.sessions.prepare(SessionId('racy'))
+    const live = ctx.sessions.create(SessionId('racy'))
     expect(() => ctx.sessions.enter(stale)).toThrow(/already exists/)
     // The live session is intact and still the store entry.
-    expect(ctx.sessions.get('racy')).toBe(live)
+    expect(ctx.sessions.get(SessionId('racy'))).toBe(live)
   })
 
   it('prepare() + enter() + announce() register a session and emit session/created', async () => {
@@ -241,24 +241,24 @@ describe('SessionStore', () => {
     const created: Session[] = []
     ctx.on('session/created', session => void created.push(session))
 
-    const session = ctx.sessions.prepare('lifecycle')
+    const session = ctx.sessions.prepare(SessionId('lifecycle'))
     // prepare alone does NOT enter the store.
-    expect(ctx.sessions.get('lifecycle')).toBeUndefined()
+    expect(ctx.sessions.get(SessionId('lifecycle'))).toBeUndefined()
     const detach = ctx.sessions.enter(session)
-    expect(ctx.sessions.get('lifecycle')).toBe(session)
+    expect(ctx.sessions.get(SessionId('lifecycle'))).toBe(session)
     // enter does NOT announce.
     expect(created).toEqual([])
     ctx.sessions.announce(session)
     expect(created).toEqual([session])
     // The detach disposer removes the entry + stops notification.
     detach()
-    expect(ctx.sessions.get('lifecycle')).toBeUndefined()
+    expect(ctx.sessions.get(SessionId('lifecycle'))).toBeUndefined()
   })
 
   it('synthesizes a minimal v1 header for a bare-created session', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const session = ctx.sessions.create('plain')
+    const session = ctx.sessions.create(SessionId('plain'))
     expect(session.header).toMatchObject({ version: 1, id: 'plain' })
     expect(typeof session.header.createdAt).toBe('number')
     expect(session.header.cwd).toBeUndefined()
@@ -268,7 +268,7 @@ describe('SessionStore', () => {
   it('attaches cwd and parentSession from meta to the header', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const session = ctx.sessions.create('child', {
+    const session = ctx.sessions.create(SessionId('child'), {
       meta: { cwd: '/work/project', parentSession: SessionId('parent') },
     })
     expect(session.header).toMatchObject({
@@ -282,10 +282,10 @@ describe('SessionStore', () => {
   it('rejects a non-absolute meta.cwd', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    expect(() => ctx.sessions.create('rel', { meta: { cwd: 'relative/path' } }))
+    expect(() => ctx.sessions.create(SessionId('rel'), { meta: { cwd: 'relative/path' } }))
       .toThrow(/cwd must be an absolute path/)
     // the rejected session was not registered
-    expect(ctx.sessions.get('rel')).toBeUndefined()
+    expect(ctx.sessions.get(SessionId('rel'))).toBeUndefined()
   })
 
   it('a bare Session() constructed without the store still exposes a v1 header', () => {
@@ -300,15 +300,15 @@ describe('SessionStore', () => {
 
     let session!: Session
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      session = inner.sessions.create('scoped')
+      session = inner.sessions.create(SessionId('scoped'))
     }, { inject: ['sessions'] }))
-    expect(ctx.sessions.get('scoped')).toBe(session)
+    expect(ctx.sessions.get(SessionId('scoped'))).toBe(session)
 
     let observed = 0
     ctx.on('session/event', () => void observed++)
 
     await fiber.dispose()
-    expect(ctx.sessions.get('scoped')).toBeUndefined()
+    expect(ctx.sessions.get(SessionId('scoped'))).toBeUndefined()
     session.append('user/message', { content: [{ type: 'text', text: 'late' }], source: { kind: 'user' } })
     expect(observed).toBe(0)
   })
@@ -323,15 +323,15 @@ describe('SessionStore', () => {
     })
 
     // The throwing emit must roll the store entry back, not leak it.
-    expect(() => ctx.sessions.create('fixed')).toThrow('boom created listener')
-    expect(ctx.sessions.get('fixed')).toBeUndefined() // rolled back, not leaked
+    expect(() => ctx.sessions.create(SessionId('fixed'))).toThrow('boom created listener')
+    expect(ctx.sessions.get(SessionId('fixed'))).toBeUndefined() // rolled back, not leaked
 
     // A subsequent create of the SAME id succeeds (the already-exists check is
     // not wedged) and its onAppend is correctly wired (events observable).
     const events: SessionEvent[] = []
     ctx.on('session/event', (_session, event) => void events.push(event))
-    const session = ctx.sessions.create('fixed')
-    expect(ctx.sessions.get('fixed')).toBe(session)
+    const session = ctx.sessions.create(SessionId('fixed'))
+    expect(ctx.sessions.get(SessionId('fixed'))).toBe(session)
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
     expect(events).toHaveLength(1)
   })

@@ -1,6 +1,6 @@
 {
-  "name": "@deepseek-ai/dsh-llm",
-  "description": "Provider-neutral LLM service interface for the DeepSeek Harness",
+  "name": "@deepseek-ai/dsh-brand",
+  "description": "Type-only Branded<B> nominal-typing primitive for the DeepSeek Harness",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -20,11 +20,9 @@
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
-    "@deepseek-ai/dsh-brand": "^0.0.1",
     "cordis": "^4.0.0-rc.6"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-brand": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }
 }

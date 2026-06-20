@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { CallId, StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { TurnEndReason } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from './mock-adapter.ts'
 
@@ -44,7 +44,7 @@ describe('agent loop', () => {
   it('runs a simple turn: queued message → model → idle, with ordered events', async () => {
     const adapter = new MockAdapter([textResponse('hello there')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const order: string[] = []
     for (const name of ['agent/turn-start', 'agent/step-start', 'agent/step-end', 'agent/turn-end'] as const) {
@@ -85,7 +85,7 @@ describe('agent loop', () => {
         return [{ type: 'text', text: `echo: ${args.text}` }]
       },
     }))
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     send(agent, 'use the tool')
     await waitForIdle(ctx, agent)
@@ -120,7 +120,7 @@ describe('agent loop', () => {
         return []
       },
     }))
-    const agent = ctx.agentLoop.create('a1', { model: 'mock', systemPrompt: 'Agent-specific suffix.' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock', systemPrompt: 'Agent-specific suffix.' })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
@@ -133,7 +133,7 @@ describe('agent loop', () => {
   it('records raw chunks for replay and emits agent/stream-chunk', async () => {
     const adapter = new MockAdapter([textResponse('abc')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const streamed: StreamChunk[] = []
     ctx.on('agent/stream-chunk', (_agent, _turn, _step, chunk) => void streamed.push(chunk))
@@ -161,7 +161,7 @@ describe('agent loop', () => {
     ])
     const ctx = await harness(adapter)
 
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     ctx.tools.register(defineTool({
       name: 'slow',
       description: '',
@@ -193,7 +193,7 @@ describe('agent loop', () => {
   it('steering while idle behaves like send (starts a turn)', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     agent.steer([{ type: 'text', text: 'hello' }])
     await waitForIdle(ctx, agent)
@@ -203,7 +203,7 @@ describe('agent loop', () => {
   it('inject() while idle wraps context in a one-shot turn, visible to the next request', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     agent.inject([{ type: 'text', text: 'file changed: a.ts' }], { source: { kind: 'plugin', plugin: 'watcher' } })
     // The idle inject records a self-contained turn (turn/start → context/message
@@ -230,7 +230,7 @@ describe('agent loop', () => {
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     // A tool that injects mid-execution: at this point the agent is running, so
     // inject must append the context/message into the ALREADY-open turn rather
     // than wrap it in its own one-shot turn.
@@ -264,7 +264,7 @@ describe('agent loop', () => {
       textResponse('step 3'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let steps = 0
     ctx.on('agent/step-end', () => void steps++)
@@ -290,7 +290,7 @@ describe('agent loop', () => {
         return [{ type: 'text', text: String(args.text) }]
       },
     }))
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     ctx.on('agent/turn-continuation', async () => false as const)
 
@@ -306,7 +306,7 @@ describe('agent loop', () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     ctx.llm.registerAdapter(['other-model'], adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     ctx.on('agent/request', async (_agent, _turn, _step, options, next) => {
       options.model = 'other-model'
@@ -321,7 +321,7 @@ describe('agent loop', () => {
   it('abort() mid-stream ends the turn with reason aborted', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
     ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
@@ -341,7 +341,7 @@ describe('agent loop', () => {
     // turn stops by default and ends max-tokens, not completed.
     const adapter = new MockAdapter([maxTokensResponse('truncat')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
     ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
@@ -366,7 +366,7 @@ describe('agent loop', () => {
       textResponse('second half'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let steps = 0
     ctx.on('agent/step-end', () => void steps++)
@@ -397,7 +397,7 @@ describe('agent loop', () => {
     // stop. The per-turn reason must be independent — turn 2 ends completed.
     const adapter = new MockAdapter([maxTokensResponse('cut'), textResponse('clean')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
     ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
@@ -430,7 +430,7 @@ describe('agent loop', () => {
         return [{ type: 'text', text: 'should not run' }]
       },
     }))
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
     ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
@@ -461,7 +461,7 @@ describe('agent loop', () => {
       expect(message.content).toEqual([{ type: 'text', text: 'partial text' }])
       return next()
     })
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -488,7 +488,7 @@ describe('agent loop', () => {
         return [{ type: 'text', text: String(args.text) }]
       },
     }))
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     let threw = false
     ctx.on('agent/step-end', () => {
       if (!threw) { threw = true; throw new Error('bad step-end listener') }
@@ -505,7 +505,7 @@ describe('agent loop', () => {
   it('chains queued messages into consecutive turns', async () => {
     const adapter = new MockAdapter([textResponse('first'), textResponse('second')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const turns: number[] = []
     ctx.on('agent/turn-start', (_agent, turn) => void turns.push(turn))
@@ -530,7 +530,7 @@ describe('agent loop', () => {
   it('awaits session/flush at turn end (persistence checkpoint)', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let flushed = 0
     let flushedBeforeIdle = false
@@ -550,7 +550,7 @@ describe('agent loop', () => {
   it('errors from the model surface as agent/error and end the turn', async () => {
     const adapter = new MockAdapter([]) // script exhausted → throws
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const errors: Error[] = []
     const reasons: TurnEndReason[] = []
@@ -572,10 +572,10 @@ describe('agent loop', () => {
 
     let agent!: ReactLoopAgent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create('scoped', { model: 'mock' })
+      agent = inner.agentLoop.create(AgentId('scoped'), { model: 'mock' })
     }, { inject: ['agentLoop'] }))
 
-    expect(ctx.agents.get('scoped')).toBe(agent)
+    expect(ctx.agents.get(AgentId('scoped'))).toBe(agent)
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
     expect(agent.status).toBe('running')
@@ -584,7 +584,7 @@ describe('agent loop', () => {
     await agent.done
 
     expect(agent.status).toBe('disposed')
-    expect(ctx.agents.get('scoped')).toBeUndefined()
+    expect(ctx.agents.get(AgentId('scoped'))).toBeUndefined()
     expect(() => { send(agent, 'too late') }).toThrow('disposed')
   })
 
@@ -597,11 +597,11 @@ describe('agent loop', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, {
-      agents: [{ id: 'config-agent', model: 'mock', systemPrompt: 'Config prompt' }],
+      agents: [{ id: AgentId('config-agent'), model: 'mock', systemPrompt: 'Config prompt' }],
     })
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    const agent = ctx.agents.get('config-agent')! as ReactLoopAgent
+    const agent = ctx.agents.get(AgentId('config-agent'))! as ReactLoopAgent
     expect(agent).toBeDefined()
     expect(agent.id).toBe('config-agent')
     expect(agent.options.model).toBe('mock')
@@ -626,11 +626,11 @@ describe('agent loop', () => {
         return [{ type: 'text', text: String(args.text) }]
       },
     }))
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     send(agent, 'run')
     await waitForIdle(ctx, agent)
 
-    const replayed = ctx.sessions.create('replayed', { seed: [...agent.session.events] })
+    const replayed = ctx.sessions.create(SessionId('replayed'), { seed: [...agent.session.events] })
     expect(replayed.deriveMessages()).toEqual(agent.session.deriveMessages())
     // event-by-event identity of types
     expect(replayed.events.map(e => e.type)).toEqual(

@@ -4,10 +4,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
@@ -35,10 +35,10 @@ describe('config-driven session id', () => {
     await ctx1.plugin(SystemPrompt)
     await ctx1.plugin(ToolRegistry)
     await ctx1.plugin(AgentRegistry)
-    await ctx1.plugin(AgentLoop, { agents: [{ id: 'cfg', model: 'mock', systemPrompt: '' }] })
+    await ctx1.plugin(AgentLoop, { agents: [{ id: AgentId('cfg'), model: 'mock', systemPrompt: '' }] })
     await ctx1.plugin(SessionPersistenceJsonl, { root })
     ctx1.llm.registerAdapter(['mock'], new MockAdapter([textResponse('cfg')]))
-    const a1 = ctx1.agents.get('cfg') as ReactLoopAgent
+    const a1 = ctx1.agents.get(AgentId('cfg')) as ReactLoopAgent
     expect(a1.session.id).toMatch(idPattern)
     a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
@@ -52,10 +52,10 @@ describe('config-driven session id', () => {
     await ctx2.plugin(SystemPrompt)
     await ctx2.plugin(ToolRegistry)
     await ctx2.plugin(AgentRegistry)
-    await ctx2.plugin(AgentLoop, { agents: [{ id: 'cfg', model: 'mock', systemPrompt: '' }] })
+    await ctx2.plugin(AgentLoop, { agents: [{ id: AgentId('cfg'), model: 'mock', systemPrompt: '' }] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], new MockAdapter([textResponse('cfg2')]))
-    const a2 = ctx2.agents.get('cfg') as ReactLoopAgent
+    const a2 = ctx2.agents.get(AgentId('cfg')) as ReactLoopAgent
     expect(a2.session.id).toMatch(idPattern)
     expect(a2.session.id).not.toBe(a1.session.id)
     a2.send([{ type: 'text', text: 'q2' }], { source: { kind: 'user' } })
@@ -78,7 +78,7 @@ describe('config-driven session id', () => {
     await ctx1.plugin(AgentLoop, { agents: [] })
     await ctx1.plugin(SessionPersistenceJsonl, { root })
     ctx1.llm.registerAdapter(['mock'], new MockAdapter([textResponse('first')]))
-    const a1 = ctx1.agents.create({ agentId: 'main', sessionId: 'sticky-1' }).agent as ReactLoopAgent
+    const a1 = ctx1.agents.create({ agentId: AgentId('main'), sessionId: SessionId('sticky-1') }).agent as ReactLoopAgent
     a1.send([{ type: 'text', text: 'remember me' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
@@ -92,7 +92,7 @@ describe('config-driven session id', () => {
     await ctx2.plugin(SystemPrompt)
     await ctx2.plugin(ToolRegistry)
     await ctx2.plugin(AgentRegistry)
-    await ctx2.plugin(AgentLoop, { agents: [{ id: 'main', model: 'mock', systemPrompt: '', resumeSessionId: 'sticky-1' }] })
+    await ctx2.plugin(AgentLoop, { agents: [{ id: AgentId('main'), model: 'mock', systemPrompt: '', resumeSessionId: SessionId('sticky-1') }] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], new MockAdapter([textResponse('second')]))
 
@@ -100,7 +100,7 @@ describe('config-driven session id', () => {
     let resumed: ReactLoopAgent | undefined
     for (let i = 0; i < 50 && !resumed; i++) {
       await new Promise(r => setTimeout(r, 5))
-      resumed = ctx2.agents.get('main') as ReactLoopAgent | undefined
+      resumed = ctx2.agents.get(AgentId('main')) as ReactLoopAgent | undefined
     }
     expect(resumed).toBeDefined()
     // The live session id IS the resumed id (NOT a fresh ${id}-session-<uuid>),
@@ -120,7 +120,7 @@ describe('config-driven session id', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(AgentLoop, { agents: [{ id: 'main', model: 'mock', systemPrompt: '', resumeSessionId: 'does-not-exist' }] })
+    await ctx.plugin(AgentLoop, { agents: [{ id: AgentId('main'), model: 'mock', systemPrompt: '', resumeSessionId: SessionId('does-not-exist') }] })
     const warn = vi.spyOn((ctx.agentLoop as unknown as { ctx: { logger: { warn: (...a: unknown[]) => void } } }).ctx.logger, 'warn')
       .mockImplementation(() => undefined)
     await ctx.plugin(SessionPersistenceJsonl, { root })
@@ -129,7 +129,7 @@ describe('config-driven session id', () => {
     // The deferred resume fails (no such session on disk). It must be contained:
     // a warning is logged, no 'main' agent is registered, and the app stays up.
     await new Promise(r => setTimeout(r, 200))
-    expect(ctx.agents.get('main')).toBeUndefined()
+    expect(ctx.agents.get(AgentId('main'))).toBeUndefined()
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('config-driven resume of "does-not-exist" failed'))
     warn.mockRestore()
     await ctx.fiber.dispose()

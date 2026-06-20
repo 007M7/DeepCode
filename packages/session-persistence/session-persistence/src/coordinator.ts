@@ -157,14 +157,14 @@ async function settledErrors(promises: Iterable<Promise<unknown>>): Promise<unkn
  */
 export class PersistenceCoordinator<TornMarker = unknown> {
   /** Backend bookkeeping keyed by session id (NOT the live Session object). */
-  private states = new Map<string, SessionState>()
+  private states = new Map<SessionId, SessionState>()
   /** Write-behind buffers keyed by the live Session (write path). */
   private buffers = new Map<Session, SessionEvent[]>()
   /**
    * Per-session serialization: every operation chains onto the prior one for the
    * same id, so writes for one session never interleave. Keyed by session id.
    */
-  private chains = new Map<string, Promise<unknown>>()
+  private chains = new Map<SessionId, Promise<unknown>>()
   /**
    * Per-session init promise (onCreated). Keyed by the LIVE Session OBJECT, not
    * its id: a disposed fiber's session can be replaced by a different live

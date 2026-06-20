@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import { makeBridgeHarness, textResponse, toolCallResponse, type BridgeHarness, type CapturedUpdate } from './harness.ts'
 
 /** Concatenate the text of all agent_message_chunk updates. */
@@ -155,7 +156,7 @@ describe('acp bridge — session/load replay', () => {
     release()                            // resume() finishes AFTER teardown
     expect(await loadResult).toBe('rejected')
     // No live agent was installed for the closed connection.
-    expect(loader.ctx.agents.get(sessionId)).toBeUndefined()
+    expect(loader.ctx.agents.get(AgentId(sessionId))).toBeUndefined()
   })
 
   it('rejects load when the requested cwd does not match the persisted session cwd', async () => {
@@ -176,11 +177,11 @@ describe('acp bridge — session/load replay', () => {
     await loader.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     await expect(loader.client.loadSession({ sessionId: 'elsewhere', cwd: process.cwd(), mcpServers: [] }))
       .rejects.toThrow(/cwd mismatch/)
-    expect(loader.ctx.agents.get('elsewhere')).toBeUndefined()
+    expect(loader.ctx.agents.get(AgentId('elsewhere'))).toBeUndefined()
 
     const res = await loader.client.loadSession({ sessionId: 'elsewhere', cwd: `${otherCwd}/.`, mcpServers: [] })
     expect(res).toBeDefined()
-    expect(loader.ctx.agents.get('elsewhere')!.session.header.cwd).toBe(otherCwd)
+    expect(loader.ctx.agents.get(AgentId('elsewhere'))!.session.header.cwd).toBe(otherCwd)
   })
 
   it('rejects load for a non-absolute cwd (still required to be absolute)', async () => {
@@ -215,7 +216,7 @@ describe('acp bridge — session/load replay', () => {
     // Rejected BEFORE resume (metadata-only check) — no agent was registered, so
     // the id is not wedged: a later attempt hits the same clean rejection, not a
     // duplicate-registration error.
-    expect(loader.ctx.agents.get('legacy')).toBeUndefined()
+    expect(loader.ctx.agents.get(AgentId('legacy'))).toBeUndefined()
     await expect(loader.client.loadSession({ sessionId: 'legacy', cwd: process.cwd(), mcpServers: [] }))
       .rejects.toThrow(/no absolute persisted cwd/)
   })

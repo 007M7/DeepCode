@@ -15,7 +15,7 @@ import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
@@ -56,7 +56,7 @@ describe('Agent.cancel()', () => {
   it('cancel() on an idle agent with nothing queued is a no-op; the next prompt runs (F2 leak guard)', async () => {
     const adapter = new MockAdapter([textResponse('reply')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     // The loop is parked at the idle wait with nothing queued. A cancel here must
     // NOT arm the marker — otherwise the next legitimate prompt would be dropped.
@@ -73,7 +73,7 @@ describe('Agent.cancel()', () => {
   it('pre-step cancel drops the about-to-start turn (no turn is opened)', async () => {
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     // send() queues synchronously (status still idle, loop microtask not yet
     // resumed). Cancel in that pre-step window: the queued turn must not run.
@@ -92,7 +92,7 @@ describe('Agent.cancel()', () => {
   it('a whenIdle() waiter registered BEFORE a pre-step cancel resolves (F1 hang guard)', async () => {
     const adapter = new MockAdapter([textResponse('x')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     // Queue work, then register a whenIdle() waiter while in the pre-step window
     // (status idle, hasQueued true) — it does NOT take the fast path. Then cancel.
@@ -113,7 +113,7 @@ describe('Agent.cancel()', () => {
   it('cancel() mid-step aborts the in-flight model call; the turn ends aborted', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
     ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
@@ -130,7 +130,7 @@ describe('Agent.cancel()', () => {
   it('cancel() with no reason defaults to "cancelled" when aborting an in-flight step', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
     ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
@@ -146,7 +146,7 @@ describe('Agent.cancel()', () => {
   it('a prompt sent AFTER a cancelled turn settles runs normally (marker reset)', async () => {
     const adapter = new MockAdapter(['hang', textResponse('second reply')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     // First turn hangs; cancel it mid-step.
     send(agent, 'first')
@@ -168,7 +168,7 @@ describe('Agent.cancel()', () => {
   it('cancel from a synchronous agent/turn-start listener drops the step (step-start window)', async () => {
     const adapter = new MockAdapter([textResponse('should not stream')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     // A turn-start listener fires BEFORE any AbortController is installed for the
     // step. Cancelling there must still drop the step (the turn-scoped marker,
@@ -200,7 +200,7 @@ describe('Agent.cancel()', () => {
     // `aborted` and run NO second step.
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let steps = 0
     ctx.on('agent/step-start', () => { steps += 1 })
@@ -230,7 +230,7 @@ describe('Agent.cancel()', () => {
   it('cancel from a synchronous agent/status(running) listener drops the turn (window 2)', async () => {
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     // setStatus('running') emits agent/status SYNCHRONOUSLY, so a running
     // listener can cancel in the gap between the loop's pre-step check and
@@ -260,7 +260,7 @@ describe('Agent.cancel()', () => {
     // so whenIdle() resolves on the replacement turn's running→idle, not before.
     const adapter = new MockAdapter([textResponse('A reply'), textResponse('B reply')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let replaced = false
     const dispose = ctx.on('agent/status', (subject, status) => {
@@ -290,7 +290,7 @@ describe('Agent.cancel()', () => {
     // settle (the quiescence contract), not resolve before B's first event.
     const adapter = new MockAdapter([textResponse('A reply'), textResponse('B reply')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     send(agent, 'A')           // queues A (status still idle, loop microtask pending)
     const idle = agent.whenIdle() // registers a waiter (idle + hasQueued → no fast path)
@@ -310,7 +310,7 @@ describe('Agent.cancel()', () => {
   it("cancel clears the turn's steering — it is not re-enqueued as a fresh turn", async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))

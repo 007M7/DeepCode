@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
-import type {} from '@deepseek-ai/dsh-bash'
+import { BashTaskId } from '@deepseek-ai/dsh-bash'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-bash-exec-spec-'))
 
@@ -155,7 +155,7 @@ describe('LocalBashExecutor background tasks', () => {
 
   it('readOutput throws for unknown ids', async () => {
     const { bash } = await setup()
-    expect(() => bash.readOutput('nope')).toThrow(/unknown bash task "nope"/)
+    expect(() => bash.readOutput(BashTaskId('nope'))).toThrow(/unknown bash task "nope"/)
   })
 
   it('kill terminates the process group and reports status killed', async () => {
@@ -172,7 +172,7 @@ describe('LocalBashExecutor background tasks', () => {
     const task = bash.start(bash.resolve({ command: 'true' }))
     await task.done
     expect(bash.kill(task.id)).toBe(false)
-    expect(() => bash.kill('nope')).toThrow(/unknown bash task "nope"/)
+    expect(() => bash.kill(BashTaskId('nope'))).toThrow(/unknown bash task "nope"/)
   })
 
   it('notifies onTaskDone listeners on completion', async () => {

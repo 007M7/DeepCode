@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { BashExecutor } from '@deepseek-ai/dsh-bash'
+import { BashExecutor, BashTaskId, OwnerToken } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRead } from '@deepseek-ai/dsh-bash'
 
 /** Minimal concrete executor: records calls, lets tests drive completions. */
 class StubExecutor extends BashExecutor {
-  tasks = new Map<string, BashTask>()
-  private owners = new Map<string, string | undefined>()
+  tasks = new Map<BashTaskId, BashTask>()
+  private owners = new Map<BashTaskId, OwnerToken | undefined>()
 
   resolve(request: BashExecRequest): BashExecSpec {
     return {
@@ -32,7 +32,7 @@ class StubExecutor extends BashExecutor {
 
   start(spec: BashExecSpec): BashTask {
     const task: BashTask = {
-      id: `stub-${this.tasks.size + 1}`,
+      id: BashTaskId(`stub-${this.tasks.size + 1}`),
       command: spec.command,
       status: 'running',
       exitCode: null,
@@ -44,11 +44,11 @@ class StubExecutor extends BashExecutor {
     return task
   }
 
-  get(id: string): BashTask | undefined {
+  get(id: BashTaskId): BashTask | undefined {
     return this.tasks.get(id)
   }
 
-  ownerOf(id: string): string | undefined {
+  ownerOf(id: BashTaskId): OwnerToken | undefined {
     return this.owners.get(id)
   }
 
@@ -56,13 +56,13 @@ class StubExecutor extends BashExecutor {
     return [...this.tasks.values()]
   }
 
-  readOutput(id: string): BashTaskRead {
+  readOutput(id: BashTaskId): BashTaskRead {
     const task = this.tasks.get(id)
     if (!task) throw new Error(`unknown bash task "${id}"`)
     return { task, delta: '', lossy: false }
   }
 
-  kill(id: string): boolean {
+  kill(id: BashTaskId): boolean {
     const task = this.tasks.get(id)
     if (!task) throw new Error(`unknown bash task "${id}"`)
     if (task.status !== 'running') return false

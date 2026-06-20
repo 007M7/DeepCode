@@ -22,7 +22,7 @@ import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type {} from '@deepseek-ai/dsh-agent'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 
 export const name = 'ui-stdio'
 export const inject = ['agents']
@@ -69,7 +69,7 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   // Loader validation, so it must be self-contained rather than trusting the
   // cast — `config.welcome as string` would otherwise be `undefined` on `{}`.
   const welcome = config.welcome ?? 'ready.'
-  const agentId = config.agent ?? 'main'
+  const agentId = AgentId(config.agent ?? 'main')
   const { input, output, exit } = runtime
 
   let inReasoning = false

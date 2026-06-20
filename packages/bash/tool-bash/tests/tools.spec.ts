@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { BashExecutor } from '@deepseek-ai/dsh-bash'
-import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRead } from '@deepseek-ai/dsh-bash'
+import { BashExecutor, BashTaskId } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRead, OwnerToken } from '@deepseek-ai/dsh-bash'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -68,7 +68,7 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 
 class LossyReadBashExecutor extends BashExecutor {
   private readonly task: BashTask = {
-    id: 'bash-lossy',
+    id: BashTaskId('bash-lossy'),
     command: 'fake',
     status: 'running',
     exitCode: null,
@@ -94,11 +94,11 @@ class LossyReadBashExecutor extends BashExecutor {
     return this.task
   }
 
-  get(id: string): BashTask | undefined {
+  get(id: BashTaskId): BashTask | undefined {
     return id === this.task.id ? this.task : undefined
   }
 
-  ownerOf(): string | undefined {
+  ownerOf(): OwnerToken | undefined {
     return undefined
   }
 
@@ -106,7 +106,7 @@ class LossyReadBashExecutor extends BashExecutor {
     return [this.task]
   }
 
-  readOutput(id: string): BashTaskRead {
+  readOutput(id: BashTaskId): BashTaskRead {
     if (id !== this.task.id) throw new Error(`unknown bash task "${id}"`)
     return { task: this.task, delta: 'tail', lossy: true }
   }
@@ -279,7 +279,7 @@ describe('background tools', () => {
   it('bash_output polls incrementally and reports status', async () => {
     const ctx = await setup()
     const started = await call(ctx, 'bash', { command: 'echo first; sleep 0.3; echo second', description: 'test command', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
 
     await new Promise(resolve => setTimeout(resolve, 150))
     const first = await call(ctx, 'bash_output', { task_id: id })
@@ -305,7 +305,7 @@ describe('background tools', () => {
     await ctx.plugin(ToolBash)
 
     const started = await call(ctx, 'bash', { command: 'for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', description: 'test command', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     await ctx.bash.get(id)!.done
     const read = await call(ctx, 'bash_output', { task_id: id })
     expect(text(read)).toContain('[some output was dropped from memory; full output: ')
@@ -325,7 +325,7 @@ describe('background tools', () => {
   it('bash_kill stops a running task; repeat reports already-finished', async () => {
     const ctx = await setup()
     const started = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
 
     const killed = await call(ctx, 'bash_kill', { task_id: id })
     expect(text(killed)).toBe(`killed background task ${id}`)
@@ -372,7 +372,7 @@ describe('background tools', () => {
       arguments: { command: 'true', description: 'test command', run_in_background: true },
       agent,
     })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     await ctx.bash.get(id)!.done
 
     expect(inject).toHaveBeenCalledTimes(1)
@@ -395,7 +395,7 @@ describe('background tools', () => {
       arguments: { command: 'true', description: 'test command', run_in_background: true },
       agent,
     })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     await expect(ctx.bash.get(id)!.done).resolves.toBeUndefined()
   })
 
@@ -414,7 +414,7 @@ describe('background tools', () => {
         arguments: { command: 'true', description: 'test command', run_in_background: true },
         agent,
       })
-      const id = /task (bash-\d+)/.exec(text(started))![1]!
+      const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
       await ctx.bash.get(id)!.done
       // notifyTaskDone caught and logged the rethrown error.
       expect(errorSpy).toHaveBeenCalled()
@@ -440,7 +440,7 @@ describe('background tools', () => {
       arguments: { command: 'true', description: 'test command', run_in_background: true },
       agent,
     })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     // Unregister the agent BEFORE the task completes (simulate disconnect).
     unregisterFakeAgents(ctx)
     await expect(ctx.bash.get(id)!.done).resolves.toBeUndefined()
@@ -450,7 +450,7 @@ describe('background tools', () => {
   it('does not notify when no agent owned the task', async () => {
     const ctx = await setup()
     const started = await call(ctx, 'bash', { command: 'true', description: 'test command', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     await expect(ctx.bash.get(id)!.done).resolves.toBeUndefined()
   })
 })
@@ -474,7 +474,7 @@ describe('background task ownership (cross-session isolation)', () => {
     const b = fakeAgent('sess-b')
     // Agent A starts a long-running background task.
     const started = await callAs(ctx, a, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
 
     // Agent B (a different session token) cannot read or kill A's task.
     const readByB = await callAs(ctx, b, 'bash_output', { task_id: id })
@@ -498,7 +498,7 @@ describe('background task ownership (cross-session isolation)', () => {
     const a1 = fakeAgent('sess-shared')
     const a2 = fakeAgent('sess-shared') // distinct object, same token
     const started = await callAs(ctx, a1, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     const readByA2 = await callAs(ctx, a2, 'bash_output', { task_id: id })
     expect(readByA2.isError).toBe(false)
     await callAs(ctx, a1, 'bash_kill', { task_id: id }) // cleanup
@@ -508,7 +508,7 @@ describe('background task ownership (cross-session isolation)', () => {
     const ctx = await setup()
     const a = fakeAgent('sess-a')
     const started = await callAs(ctx, a, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     // A call with no exec.agent has no token → cannot prove ownership of an owned task.
     const read = await callAs(ctx, undefined, 'bash_output', { task_id: id })
     expect(read.isError).toBe(true)
@@ -520,7 +520,7 @@ describe('background task ownership (cross-session isolation)', () => {
     const ctx = await setup()
     // Started by a non-loop caller (no exec.agent) → no owner token recorded.
     const started = await callAs(ctx, undefined, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     // Any agent (and the no-agent caller) may read/kill it.
     const read = await callAs(ctx, fakeAgent('sess-x'), 'bash_output', { task_id: id })
     expect(read.isError).toBe(false)
@@ -533,7 +533,7 @@ describe('background task ownership (cross-session isolation)', () => {
     const a = fakeAgent('sess-a')
     const b = fakeAgent('sess-b')
     const started = await callAs(ctx, a, 'bash', { command: 'echo done', description: 'bg', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     await ctx.bash.get(id)!.done
     // Completion does NOT clear ownership: B is still rejected, A still allowed.
     const readByB = await callAs(ctx, b, 'bash_output', { task_id: id })
@@ -559,7 +559,7 @@ describe('background task ownership (cross-session isolation)', () => {
     const a = fakeAgent('sess-a')
     const b = fakeAgent('sess-b')
     const started = await callAs(ctx, a, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     // Before reload: B is rejected (A owns it).
     expect((await callAs(ctx, b, 'bash_output', { task_id: id })).isError).toBe(true)
 
@@ -674,7 +674,7 @@ describe('status lines', () => {
   it('reports kills without a recorded signal (executor raced process exit)', async () => {
     const ctx = await setup()
     const started = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     const task = ctx.bash.get(id)!
 
     await call(ctx, 'bash_kill', { task_id: id })
@@ -688,7 +688,7 @@ describe('status lines', () => {
   it('reports completed tasks with a null exit code as exit 0', async () => {
     const ctx = await setup()
     const started = await call(ctx, 'bash', { command: 'true', description: 'test command', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     const task = ctx.bash.get(id)!
     await task.done
     // Defensive: completed tasks always carry an exit code in practice; the

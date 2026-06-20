@@ -60,7 +60,10 @@ import {
   type StopReason,
 } from '@agentclientprotocol/sdk'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
+import { AgentId } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ToolCallKind, ToolCallPresentation, ToolRegistry, ToolResultPresentation, ToolTerminal } from '@deepseek-ai/dsh-tools'
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
@@ -138,7 +141,7 @@ export const Config: Schema<AcpConfig> = Schema.object({
  * map keyed by id (RFC 011 multi-session).
  */
 interface SessionRecord {
-  sessionId: string
+  sessionId: SessionId
   agent: Agent
   /**
    * The owned-agent disposer (from the {@link AgentHandle} the factory returned).
@@ -229,12 +232,12 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // reverse map so `agent/*` events (which carry only the Agent) demux in O(1).
   // The two stay in lockstep: a record is added to `sessions` and the agent to
   // `bySession` together, and removed together.
-  const sessions = new Map<string, SessionRecord>()
-  const bySession = new WeakMap<Agent, string>()
+  const sessions = new Map<SessionId, SessionRecord>()
+  const bySession = new WeakMap<Agent, SessionId>()
   // Session ids whose `session/load` is mid-`resume()` (the slot is reserved
   // before the async resume so a pipelined load/new for the SAME id can't create
   // two agents). Distinct ids load concurrently; a given id loads once at a time.
-  const loadingIds = new Set<string>()
+  const loadingIds = new Set<SessionId>()
   // Set once the bridge has torn down (disposal or client disconnect). An async
   // `session/load` mid-`resume()` when teardown ran must observe this after its
   // await and NOT install a record (which would resurrect a live agent/listeners
@@ -265,7 +268,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
   }
 
   /** Resolve the live record for a sessionId, or throw an ACP error. */
-  const requireSession = (sessionId: string): SessionRecord => {
+  const requireSession = (sessionId: SessionId): SessionRecord => {
     const rec = sessions.get(sessionId)
     if (rec === undefined) {
       throw invalidParams(`unknown session: ${sessionId}`)
@@ -446,9 +449,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
         assertOpen()
         validateWorkspaceParams(params)
         validateMcpServers(params)
-        const sessionId = randomUUID()
+        const sessionId = SessionId(randomUUID())
         const handle = agents.create({
-          agentId: sessionId,
+          agentId: AgentId(sessionId),
           sessionId,
           meta: { cwd: params.cwd },
           agentOptions: agentOptions(config),
@@ -467,8 +470,11 @@ export function apply(ctx: Context, config: AcpConfig): void {
 
       async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
         assertOpen()
-        if (sessions.has(params.sessionId) || loadingIds.has(params.sessionId)) {
-          throw invalidParams(`session ${params.sessionId} is already loaded`)
+        // The wire `params.sessionId` is a raw protocol string; brand it once at
+        // this entry so the session collections and the resume factory see a SessionId.
+        const sessionId = SessionId(params.sessionId)
+        if (sessions.has(sessionId) || loadingIds.has(sessionId)) {
+          throw invalidParams(`session ${sessionId} is already loaded`)
         }
         validateWorkspaceParams(params)
         validateMcpServers(params)
@@ -477,7 +483,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // resume() is pending, then both install a record and leak a second
         // agent. (Distinct ids load concurrently — the set is keyed by id.) The
         // slot is released in `finally` so a rejected load never wedges the id.
-        loadingIds.add(params.sessionId)
+        loadingIds.add(sessionId)
         try {
           // Validate the PERSISTED cwd BEFORE resuming — `list()` is a
           // metadata-only read (no full-log parse), so this rejects a session we
@@ -491,21 +497,21 @@ export function apply(ctx: Context, config: AcpConfig): void {
           // always has a cwd (session/new requires it); reject the rest loudly.
           // (An id unknown to `list()` falls through to resume, which rejects with
           // the backend's not-found error.)
-          const meta = (await sessionPersistence.list()).find(m => m.id === params.sessionId)
+          const meta = (await sessionPersistence.list()).find(m => m.id === sessionId)
           if (meta !== undefined) {
             const persistedCwd = meta.cwd
             if (persistedCwd === undefined || !isAbsolute(persistedCwd)) {
               throw invalidParams(
-                `session ${params.sessionId} has no absolute persisted cwd; cannot determine its workspace (it predates per-session cwd, or was created without one)`,
+                `session ${sessionId} has no absolute persisted cwd; cannot determine its workspace (it predates per-session cwd, or was created without one)`,
               )
             }
             if (!sameWorkspaceCwd(persistedCwd, params.cwd)) {
-              throw invalidParams(`session ${params.sessionId} cwd mismatch: persisted ${persistedCwd}, requested ${params.cwd}`)
+              throw invalidParams(`session ${sessionId} cwd mismatch: persisted ${persistedCwd}, requested ${params.cwd}`)
             }
           }
           const handle = await agents.resume({
-            agentId: params.sessionId,
-            resumeSessionId: params.sessionId,
+            agentId: AgentId(sessionId),
+            resumeSessionId: sessionId,
             agentOptions: agentOptions(config),
           })
           // The bridge may have torn down (disposal / client disconnect) while
@@ -523,20 +529,20 @@ export function apply(ctx: Context, config: AcpConfig): void {
             throw invalidParams('connection closed during session/load')
           }
           const agent = handle.agent
-          bySession.set(agent, params.sessionId)
+          bySession.set(agent, sessionId)
           // Snapshot the terminal capability ONCE for this session (used by both
           // the replay below and the post-load live stream) so a later
           // `initialize` can't desync the call/result of a tool card.
           const terminalEnabled = terminalOutputCap
           const record: SessionRecord = {
-            sessionId: params.sessionId,
+            sessionId,
             agent,
             dispose: () => handle.dispose(),
             presenter: makePresenter(),
             terminalEnabled,
             inflight: undefined,
           }
-          sessions.set(params.sessionId, record)
+          sessions.set(sessionId, record)
           // Replay the persisted event log to the client as session/update. Use
           // the raw event log (NOT deriveMessages, which drops assistant/chunk
           // and trace events): RFC 010's load contract reconstructs the streamed
@@ -556,17 +562,17 @@ export function apply(ctx: Context, config: AcpConfig): void {
             cwd: agent.session.header.cwd,
           }
           for (const event of agent.session.events) {
-            streamSessionEventUpdate(params.sessionId, event, notify, replayPresenter, replayTerminal)
+            streamSessionEventUpdate(sessionId, event, notify, replayPresenter, replayTerminal)
           }
           return {}
         } finally {
-          loadingIds.delete(params.sessionId)
+          loadingIds.delete(sessionId)
         }
       },
 
       async prompt(params: PromptRequest): Promise<PromptResponse> {
         assertOpen()
-        const rec = requireSession(params.sessionId)
+        const rec = requireSession(SessionId(params.sessionId))
         if (rec.inflight !== undefined) {
           throw invalidParams('a prompt is already in flight for this session')
         }
@@ -595,7 +601,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
       },
 
       cancel(params: CancelNotification): Promise<void> {
-        const rec = sessions.get(params.sessionId)
+        const rec = sessions.get(SessionId(params.sessionId))
         if (rec === undefined) return Promise.resolve()
         // session/cancel maps to the queue-aware agent.cancel(reason): it aborts
         // a RUNNING step, clears the queued + steering FIFOs, and drops a
@@ -773,7 +779,7 @@ function validateMcpServers(params: { mcpServers?: unknown[] }): void {
  * no client update.
  */
 export function streamSessionEventUpdate(
-  sessionId: string,
+  sessionId: SessionId,
   event: SessionEvent,
   notify: (notification: SessionNotification) => void,
   presenter: Pick<ToolPresenter, 'call' | 'result'> = nullToolPresenter,
@@ -938,7 +944,7 @@ interface ResolvedResultPresentation {
  * stale entry's only cost is one map slot until the session ends.
  */
 export class ToolPresenter {
-  private readonly pending = new Map<string, { name: string; args: unknown; isTerminal: boolean }>()
+  private readonly pending = new Map<CallId, { name: string; args: unknown; isTerminal: boolean }>()
 
   /**
    * @param tools the registry to resolve tool definitions by name.
@@ -954,7 +960,7 @@ export class ToolPresenter {
   ) {}
 
   /** Pending-state presentation for a `tool/call`; remembers `(name, args)` for the matching result. */
-  call(callId: string, name: string, argsJson: string): ResolvedCallPresentation {
+  call(callId: CallId, name: string, argsJson: string): ResolvedCallPresentation {
     const args = parseToolArguments(argsJson)
     let present: ToolCallPresentation | undefined
     try {
@@ -986,7 +992,7 @@ export class ToolPresenter {
   }
 
   /** Completed-state presentation for a `tool/result`; consumes the remembered `(name, args)`. */
-  result(callId: string, content: ContentBlock[], isError: boolean): ResolvedResultPresentation {
+  result(callId: CallId, content: ContentBlock[], isError: boolean): ResolvedResultPresentation {
     const call = this.pending.get(callId)
     this.pending.delete(callId)
     // No remembered call (unknown/late callId) → nothing to present from; raw content.

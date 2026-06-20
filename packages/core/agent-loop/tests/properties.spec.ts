@@ -17,7 +17,7 @@ import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import fc from 'fast-check'
 
@@ -95,7 +95,7 @@ describe('agent loop scheduling properties', () => {
       async (texts) => {
         const ctx = await harness()
         try {
-          const agent = ctx.agentLoop.create('a', { model: 'mock' })
+          const agent = ctx.agentLoop.create(AgentId('a'), { model: 'mock' })
           const { seen: trace } = recordStatus(ctx, agent)
           const idle = nextIdle(ctx, agent)
           // Send all in one synchronous tick: they queue before the loop wakes.
@@ -120,7 +120,7 @@ describe('agent loop scheduling properties', () => {
       async (texts) => {
         const ctx = await harness()
         try {
-          const agent = ctx.agentLoop.create('a', { model: 'mock' })
+          const agent = ctx.agentLoop.create(AgentId('a'), { model: 'mock' })
           for (const text of texts) {
             const idle = nextIdle(ctx, agent)
             agent.send([{ type: 'text', text }])
@@ -145,7 +145,7 @@ describe('agent loop scheduling properties', () => {
       async (steps) => {
         const ctx = await harness()
         try {
-          const agent = ctx.agentLoop.create('a', { model: 'mock' })
+          const agent = ctx.agentLoop.create(AgentId('a'), { model: 'mock' })
           // Capture an idle waiter before EACH send; the last one is guaranteed
           // to resolve because the final send always triggers (or joins) a turn
           // that ends idle. Awaiting an already-resolved waiter is a no-op, so a
