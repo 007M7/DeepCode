@@ -41,7 +41,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Extract a generic long-running tool runtime](proposed/2026-06-20-generic-long-running-tool-runtime.md) | 2026-06-20 |
 | [Make the shared example base providerless](proposed/2026-06-20-providerless-example-base.md) | 2026-06-20 |
 | [Use `session.jsonl` as the only snapshot session-log artifact](proposed/2026-06-20-remove-redundant-snapshot-log-goldens.md) | 2026-06-20 |
-| [Classify packages by aspect metadata](proposed/2026-06-20-classify-packages-by-aspect.md) | 2026-06-20 |
+| [Reorganize packages into a modular hierarchy](proposed/2026-06-20-package-hierarchy.md) | 2026-06-20 |
 | [Discover package inventories instead of maintaining static lists](proposed/2026-06-20-discover-package-inventory.md) | 2026-06-20 |
 
 ## Implemented
@@ -80,7 +80,6 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 |---|---|
 | [Deep-readonly public surfaces](rejected/2026-06-11-immutable-public-surfaces.md) | 2026-06-11 |
 | [Persist assembled assistant messages, not stream chunks](rejected/2026-06-20-assembled-assistant-messages-only.md) | 2026-06-20 |
-| [Classify product, integration, and support packages](rejected/2026-06-20-classify-support-packages.md) | 2026-06-20 |
 | [Drop ACP session/load until resume has a product shape](rejected/2026-06-20-drop-acp-session-load.md) | 2026-06-20 |
 | [Drop ACP terminal `_meta` rendering](rejected/2026-06-20-drop-acp-terminal-meta.md) | 2026-06-20 |
 | [Drop bash full-output spill files](rejected/2026-06-20-drop-bash-output-spill-files.md) | 2026-06-20 |
