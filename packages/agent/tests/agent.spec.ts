@@ -82,8 +82,14 @@ describe('AgentRegistry factory seam', () => {
   function stubFactory() {
     const calls: { create: unknown[]; resume: unknown[] } = { create: [], resume: [] }
     const factory: import('@deepseek-ai/dsh-agent').AgentFactory = {
-      createAgent(options) { calls.create.push(options); return stubAgent(options.agentId) },
-      resume(options) { calls.resume.push(options); return Promise.resolve(stubAgent(options.agentId)) },
+      createAgent(options) {
+        calls.create.push(options)
+        return { agent: stubAgent(options.agentId), dispose: () => Promise.resolve() }
+      },
+      resume(options) {
+        calls.resume.push(options)
+        return Promise.resolve({ agent: stubAgent(options.agentId), dispose: () => Promise.resolve() })
+      },
     }
     return { factory, calls }
   }
@@ -102,11 +108,11 @@ describe('AgentRegistry factory seam', () => {
     ctx.agents.setFactory(factory)
 
     const created = ctx.agents.create({ agentId: 'c1', sessionId: 'sess-1', meta: { cwd: '/w' } })
-    expect(created.id).toBe('c1')
+    expect(created.agent.id).toBe('c1')
     expect(calls.create).toEqual([{ agentId: 'c1', sessionId: 'sess-1', meta: { cwd: '/w' } }])
 
     const resumed = await ctx.agents.resume({ agentId: 'r1', resumeSessionId: 'old-sess' })
-    expect(resumed.id).toBe('r1')
+    expect(resumed.agent.id).toBe('r1')
     expect(calls.resume).toEqual([{ agentId: 'r1', resumeSessionId: 'old-sess' }])
   })
 

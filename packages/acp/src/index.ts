@@ -141,6 +141,13 @@ interface SessionRecord {
   sessionId: string
   agent: Agent
   /**
+   * The owned-agent disposer (from the {@link AgentHandle} the factory returned).
+   * Teardown calls it to unregister this ONE agent, stop its loop, await
+   * quiescence, and remove its session — instead of leaving it for the bridge
+   * fiber to reclaim.
+   */
+  dispose: () => Promise<void>
+  /**
    * Resolves tool-owned presentation for THIS session's tool calls and remembers
    * each in-flight call's `(name, args)` so the matching `tool/result` can find
    * its tool. Per-session so two concurrent sessions never cross their in-flight
@@ -436,14 +443,21 @@ export function apply(ctx: Context, config: AcpConfig): void {
         validateWorkspaceParams(params)
         validateMcpServers(params)
         const sessionId = randomUUID()
-        const agent = agents.create({
+        const handle = agents.create({
           agentId: sessionId,
           sessionId,
           meta: { cwd: params.cwd },
           agentOptions: agentOptions(config),
         })
-        bySession.set(agent, sessionId)
-        sessions.set(sessionId, { sessionId, agent, presenter: makePresenter(), terminalEnabled: terminalOutputCap, inflight: undefined })
+        bySession.set(handle.agent, sessionId)
+        sessions.set(sessionId, {
+          sessionId,
+          agent: handle.agent,
+          dispose: () => handle.dispose(),
+          presenter: makePresenter(),
+          terminalEnabled: terminalOutputCap,
+          inflight: undefined,
+        })
         return Promise.resolve({ sessionId })
       },
 
@@ -485,30 +499,38 @@ export function apply(ctx: Context, config: AcpConfig): void {
               throw invalidParams(`session ${params.sessionId} cwd mismatch: persisted ${persistedCwd}, requested ${params.cwd}`)
             }
           }
-          const agent = await agents.resume({
+          const handle = await agents.resume({
             agentId: params.sessionId,
             resumeSessionId: params.sessionId,
             agentOptions: agentOptions(config),
           })
           // The bridge may have torn down (disposal / client disconnect) while
           // resume() was pending. Its listeners are gone, so installing a record
-          // now would resurrect a live agent the bridge can no longer drive or
-          // tear down. Bail: the just-resumed agent is reclaimed with the host
-          // context (no per-agent disposer — TODO(rfc010-agent-disposal)).
-          /* v8 ignore next 3 -- the in-memory test transport rejects the in-flight
+          // now would resurrect a live agent the bridge can no longer drive. Bail —
+          // and tear down the just-resumed agent (unregister + stop + remove its
+          // session) before throwing, so it does not leak: it has no SessionRecord,
+          // so quiesce() would never see it.
+          /* v8 ignore next 4 -- the in-memory test transport rejects the in-flight
              session/load request the instant it closes (before this post-await
              code runs), so the guard can't be hit in tests; it protects the real
              stdio path, where a closed pipe need not reject a mid-flight handler. */
           if (closed) {
+            await handle.dispose()
             throw invalidParams('connection closed during session/load')
           }
+          const agent = handle.agent
           bySession.set(agent, params.sessionId)
           // Snapshot the terminal capability ONCE for this session (used by both
           // the replay below and the post-load live stream) so a later
           // `initialize` can't desync the call/result of a tool card.
           const terminalEnabled = terminalOutputCap
           const record: SessionRecord = {
-            sessionId: params.sessionId, agent, presenter: makePresenter(), terminalEnabled, inflight: undefined,
+            sessionId: params.sessionId,
+            agent,
+            dispose: () => handle.dispose(),
+            presenter: makePresenter(),
+            terminalEnabled,
+            inflight: undefined,
           }
           sessions.set(params.sessionId, record)
           // Replay the persisted event log to the client as session/update. Use
@@ -606,35 +628,29 @@ export function apply(ctx: Context, config: AcpConfig): void {
 
   /**
    * Tear ALL live sessions down to quiescence (AGENTS.md "dispose must reach
-   * quiescence"): for each session settle any pending prompt `cancelled`, abort
-   * the agent, and AWAIT it draining via the interface-level `whenIdle()` signal
-   * (NOT `agent/status('disposed')`, which fires before the driver exits). The
-   * agents drain in parallel. Idempotent — clears the `sessions` map first and
-   * memoizes, so a second call (close racing dispose) is a no-op.
+   * quiescence"): for each session settle any pending prompt `cancelled`, then
+   * run that session's {@link AgentHandle} `dispose()` — which stops the loop
+   * (sets `disposed`, aborts the in-flight step), AWAITS the loop's exit (the
+   * final `turn/end` + `session/flush` are captured while `onAppend` is still
+   * attached), unregisters the agent, and removes its session from the store.
+   * The per-session disposes run in parallel. Idempotent — clears the `sessions`
+   * map first and memoizes, so a second call (close racing dispose) is a no-op.
    * Shared by Cordis disposal AND client disconnect (`conn.closed`).
    *
-   * Caveat (same window as TODO(rfc010-cancel-prestep)): if teardown lands in
-   * the pre-step window — `agent.send()` queued a turn but the loop has not yet
-   * flipped to `running` — `abort()` has no live `AbortController` to signal and
-   * `whenIdle()` returns immediately (status is still `idle`), so that queued
-   * turn may still start and run after teardown returns. Reaching true
-   * quiescence in that window needs a queue-aware loop cancel primitive (a
-   * loop-level change); the single-in-flight-per-session rule bounds the worst
-   * case to one short queued turn per session.
-   *
-   * The agents are NOT individually disposed/unregistered here. The factory
-   * (`ctx.agents.create`/`resume`) registers each via `AgentLoop.start`'s
-   * `this.ctx.effect(...)`; because the factory is reached through this bridge's
-   * traceable service proxy, that effect's `this.ctx` is the CALLER context (the
-   * bridge fiber), so every registry entry is bound to the bridge fiber and is
-   * reclaimed when the bridge fiber disposes (whole-context dispose, or an
-   * ACP-only HMR `acpFiber.dispose()` — both unregister all the bridge's
-   * agents). What this teardown path handles is a bare client disconnect, which
-   * resolves `conn.closed` WITHOUT disposing the fiber: each live agent is
-   * idled+aborted here but stays in `ctx.agents` until the fiber is disposed.
-   * Since a reconnect spins up a fresh context, the lingering idle agents strand
-   * no work. A per-agent disposal seam (unregister on disconnect) is a follow-up
-   * (TODO(rfc010-agent-disposal)).
+   * Per-agent disposal closes the former pre-step best-effort window — but via
+   * the DISPOSED path, not `cancel()`: the start-disposer resolves `handle.disposed`,
+   * which wakes the parked loop, and `isDisposed()` breaks the loop before a
+   * queued-but-not-yet-running turn can start (a turn cut off mid-flight ends
+   * with reason `disposed`, not `aborted`). A bare client disconnect (resolves
+   * `conn.closed` WITHOUT disposing the fiber) thus leaves NO registered agent
+   * and NO session-store entry — not an idled-but-still-registered one. When the
+   * fiber IS disposed (whole-context or an ACP-only HMR
+   * `acpFiber.dispose()`), this same memoized teardown runs first; the factory's
+   * register+start+session effects are ALSO bound to the bridge fiber (the
+   * factory is reached through this bridge's traceable service proxy, so
+   * `AgentLoop.start`'s `this.ctx.effect(...)` binds to the CALLER context — the
+   * bridge fiber), so any agent this path did not reach is still reclaimed by
+   * fiber disposal.
    */
   let quiescing: Promise<void> | undefined
   const quiesce = (): Promise<void> => {
@@ -652,8 +668,12 @@ export function apply(ctx: Context, config: AcpConfig): void {
     quiescing = (async () => {
       await Promise.all(recs.map(async (rec) => {
         settlePrompt(rec, 'cancelled')
-        rec.agent.abort('disposed')
-        await rec.agent.whenIdle()
+        // Per-agent dispose (the AgentHandle disposer): unregister this agent,
+        // stop its loop (sets disposed + aborts the in-flight step), await
+        // quiescence (the loop exit + final flush), and remove its session — so
+        // a bare client disconnect leaves NO registered agent and NO
+        // session-store entry, not just an idled-but-still-registered one.
+        await rec.dispose()
       }))
     })()
     return quiescing

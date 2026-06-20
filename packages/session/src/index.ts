@@ -219,17 +219,48 @@ export class SessionStore extends Service {
   }
 
   /**
-   * Create a session. `options.seed` populates the session with a copy of
-   * those events (replay/fork); `options.meta` attaches creation metadata
-   * (validated absolute `cwd`, `parentSession` lineage) as the immutable
-   * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`). The
-   * session is a Cordis effect: disposing the calling fiber stops event
-   * notification and removes the session from the store.
+   * Create a session owned by the calling fiber: disposing that fiber stops
+   * event notification and removes the session from the store. `options.seed`
+   * populates the session with a copy of those events (replay/fork);
+   * `options.meta` attaches creation metadata (validated absolute `cwd`,
+   * `parentSession` lineage) as the immutable {@link SessionHeader} (the store
+   * fills `version`/`id`/`createdAt`).
+   *
+   * For an agent whose session must be torn down IN ORDER with its loop (so the
+   * loop's final flush is captured before `onAppend` detaches), do NOT use this
+   * — fold the session lifecycle into the agent's own effect via
+   * {@link prepare} + {@link enter} + {@link announce} (see `dsh-agent-loop`'s
+   * `startOwned`).
    *
    * @throws if a session with `id` already exists, or if `meta.cwd` is a
    *   non-absolute path (storage backends key directories off it).
    */
   create(id?: string, options?: CreateSessionOptions): Session {
+    const session = this.prepare(id, options)
+    // Single effect owned by the calling fiber. Yield the detach BEFORE
+    // announcing so a throwing `session/created` listener rolls the attach back
+    // (the generator effect disposes already-yielded disposers on a throw)
+    // instead of leaking the store entry + onAppend.
+    this.ctx.effect(function* (this: SessionStore) {
+      yield this.enter(session)
+      this.announce(session)
+    }.bind(this), 'sessions.create()')
+    return session
+  }
+
+  /**
+   * Build a session WITHOUT entering it into the store — validate the id/cwd and
+   * construct the {@link Session} (with its immutable {@link SessionHeader}).
+   * Pairs with {@link enter} + {@link announce}: a caller that owns a composite
+   * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE
+   * effect so a fiber unload tears the session + agent down as a single ORDERED
+   * chain rather than as racing sibling effects — which would detach `onAppend`
+   * before the loop's closing `session/flush`, dropping the closing events.
+   *
+   * @throws if a session with `id` already exists, or if `meta.cwd` is a
+   *   non-absolute path.
+   */
+  prepare(id?: string, options?: CreateSessionOptions): Session {
     const sessionId = SessionId(id ?? `session-${++this.counter}`)
     if (this.store.has(sessionId)) throw new Error(`session "${sessionId}" already exists`)
     const cwd = options?.meta?.cwd
@@ -243,23 +274,42 @@ export class SessionStore extends Service {
       ...cwd !== undefined ? { cwd } : {},
       ...options?.meta?.parentSession !== undefined ? { parentSession: options.meta.parentSession } : {},
     }
-    const session = new Session(sessionId, options?.seed, header)
-    this.ctx.effect(function* (this: SessionStore) {
-      session.onAppend = (event) => { this.ctx.emit('session/event', session, event) }
-      this.store.set(sessionId, session)
-      // Yield the rollback BEFORE emitting `session/created`: a generator
-      // effect collects each yielded disposer before the next step runs, so a
-      // throwing `session/created` listener detaches onAppend and removes the
-      // store entry instead of leaking them (a leak would wedge the
-      // already-exists check until restart). The duplicate throw above fires
-      // before any mutation — it leaks nothing.
-      yield () => {
-        session.onAppend = undefined
-        this.store.delete(sessionId)
-      }
-      this.ctx.emit('session/created', session)
-    }.bind(this), 'sessions.create()')
-    return session
+    return new Session(sessionId, options?.seed, header)
+  }
+
+  /**
+   * Enter a {@link prepare}d session into the store: wire `onAppend` →
+   * `session/event` and add it to the store. Returns the DETACH disposer
+   * (`onAppend = undefined` + store removal). Does NOT emit `session/created` —
+   * the caller yields this disposer inside its effect and THEN calls
+   * {@link announce}, so a throwing `session/created` listener rolls the attach
+   * back instead of leaking it.
+   *
+   * Re-checks the id for a duplicate: `prepare` and `enter` are public
+   * cross-package primitives and a caller may interleave arbitrary work (or
+   * another create) between them, so a stale prepared session must NOT overwrite
+   * a live store entry of the same id — its detach disposer would later delete
+   * the REAL session. The {@link create} convenience and the agent factory call
+   * the two back-to-back so they never trip this, but the public seam cannot
+   * assume that.
+   *
+   * @throws if a session with this id is already in the store.
+   */
+  enter(session: Session): () => void {
+    if (this.store.has(session.id)) throw new Error(`session "${session.id}" already exists`)
+    session.onAppend = (event) => { this.ctx.emit('session/event', session, event) }
+    this.store.set(session.id, session)
+    return () => {
+      session.onAppend = undefined
+      this.store.delete(session.id)
+    }
+  }
+
+  /** Emit `session/created` for an {@link enter}ed session. Separate from
+   * {@link enter} so the caller can yield the detach disposer first (rollback
+   * safety — see {@link enter}). */
+  announce(session: Session): void {
+    this.ctx.emit('session/created', session)
   }
 
   get(id: string): Session | undefined {

@@ -48,7 +48,7 @@ Dependency rule: plugins depend on interface packages, never on `dsh-agent-loop`
 | `ctx.sessionPersistence` | `SessionPersistence` (abstract) | dsh-session-persistence | durable persistence seam: create/append/load/list sessions |
 | `ctx.systemPrompt` | `SystemPrompt` | dsh-system-prompt | ordered sections + tool schemas → `assemble()` |
 | `ctx.tools` | `ToolRegistry` | dsh-tools | tool definitions; `execute()` through waterfall |
-| `ctx.agents` | `AgentRegistry` | dsh-agent | live `Agent` handles + the create/resume factory seam |
+| `ctx.agents` | `AgentRegistry` | dsh-agent | live `Agent` handles + the create/resume factory seam (returns an `AgentHandle` = `{ agent, dispose() }` for owned per-agent teardown) |
 | `ctx.agentLoop` | `AgentLoop` | dsh-agent-loop | creates `ReactLoopAgent`s and drives their loops |
 | `ctx.bash` | `BashExecutor` (abstract) | dsh-bash | bash execution seam: foreground runs + background tasks |
 

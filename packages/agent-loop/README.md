@@ -12,8 +12,10 @@ This is the only package in the harness that contains concrete loop logic. Every
 
 `AgentLoop` also implements the `AgentFactory` seam and registers itself via `ctx.agents.setFactory(this)`, so plugins create/resume agents through `ctx.agents` (the interface):
 
-- `ctx.agents.create({ agentId, sessionId, meta?, agentOptions? })` — programmatic create on a caller-supplied `sessionId` (e.g. an ACP-generated id), NOT `${id}-session`.
-- `ctx.agents.resume({ agentId, resumeSessionId, agentOptions? })` — load a persisted session via `ctx.sessionPersistence` ([session persistence](../../docs/rfc/implemented/2026-06-14-session-persistence.md)) and resume an agent on it. The live session id is the resumed id; turn numbering and derived history continue from the loaded log. Requires a session-persistence backend (NOT hard-injected — non-persistent demos still work; `resume` rejects with a clear error when persistence is absent).
+- `ctx.agents.create({ agentId, sessionId, meta?, agentOptions? }): AgentHandle` — programmatic create on a caller-supplied `sessionId` (e.g. an ACP-generated id), NOT `${id}-session`. Returns an [`AgentHandle`](../agent/README.md) — the owner disposes it to tear down exactly this agent (stop loop + await quiescence + unregister + remove session).
+- `ctx.agents.resume({ agentId, resumeSessionId, agentOptions? }): Promise<AgentHandle>` — load a persisted session via `ctx.sessionPersistence` ([session persistence](../../docs/rfc/implemented/2026-06-14-session-persistence.md)) and resume an agent on it. The live session id is the resumed id; turn numbering and derived history continue from the loaded log. Requires a session-persistence backend (NOT hard-injected — non-persistent demos still work; `resume` rejects with a clear error when persistence is absent). Returns an `AgentHandle`.
+
+The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loop fiber (it discards the handle) — only the programmatic factory callers (the ACP bridge) hold a handle and own per-agent teardown.
 
 ### Injected services
 
