@@ -95,7 +95,8 @@ pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
 pnpm run verify-event-taxonomy  # compare docs/architecture.md event names with source
 pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
-pnpm run doc-sync       # doc-typecheck, event taxonomy, and markdown wrap verification
+pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
+pnpm run doc-sync       # doc-typecheck, event taxonomy, markdown wrap/link, and type-equiv verification
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
 pnpm run build          # build declarations and JS bundles
@@ -127,6 +128,16 @@ Use one of three comment tags to flag known issues in the code, ordered by urgen
 - `XXX` — an issue that we may fix someday; lowest priority, no commitment.
 
 Pick the tag that matches the urgency so anyone scanning the code can tell a release blocker from a someday-maybe.
+
+## Documenting types verbatim (`ts type-equiv`)
+
+The [core data structures](core-data-structures/core.md) docs paste real type definitions so a reader sees the exact shape. To keep a paste from drifting when source changes, fence it as ` ```ts type-equiv ` (instead of ` ```ts `) and register it in `scripts/type-equiv.manifest.json` with the source file and symbol it mirrors:
+
+```json
+{ "doc": "docs/core-data-structures/session.md", "symbol": "SessionEvent", "source": "packages/session/src/types.ts" }
+```
+
+`pnpm run verify-type-equiv` (part of `doc-sync`) then extracts that symbol's declaration from source via the TypeScript parser and asserts the block matches it (whitespace- and comment-insensitive, so a doc block may show a clean definition and the prose can carry the semantics). It also enforces a 1:1 correspondence: every `ts type-equiv` block has exactly one manifest entry and vice-versa, so a block can't go silently unchecked and a stale entry can't linger. `doc-typecheck` skips `ts type-equiv` blocks (they aren't standalone-compilable) and excludes them from its opt-out ratio. When you change a documented type, the gate fails until you update the paste; when you add or remove a block, update the manifest in the same change.
 
 ## Architecture context
 
