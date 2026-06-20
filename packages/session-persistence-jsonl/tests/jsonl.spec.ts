@@ -4,10 +4,11 @@ import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } fr
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { encodeSegment, logPath, scanLog, sessionDir } from '../src/format.ts'
 import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
+import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
 let root: string
 const dirs: string[] = []
@@ -34,6 +35,29 @@ runPersistenceContract('jsonl', async () => {
       await fiber.dispose()
       await rm(dir, { recursive: true, force: true })
     },
+  }
+})
+
+// Run the shared coordinator orchestration suite against the real JSONL backend.
+// One temp root is the shared storage scope (two mounted instances over the same
+// root = HMR/reload). `corruptTail` appends a partial, newline-less fragment to
+// the session's .jsonl past the committed region — a never-committed torn tail
+// that drives the coordinator's commitRepair-with-tornMarker branch over real
+// file bytes.
+runCoordinatorContract('jsonl', async (): Promise<CoordinatorFixture> => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-jsonl-coord-'))
+  return {
+    mount: async (ctx) => {
+      const fiber = await ctx.plugin(SessionPersistenceJsonl, { root: dir })
+      return fiber
+    },
+    corruptTail: async (id, cwd) => {
+      // A half-written record with no trailing newline: scanLog treats it as an
+      // uncommitted crash fragment and reports committedBytes < byteLength, so
+      // the coordinator sees a tornMarker to truncate.
+      await appendFile(logPath(dir, cwd, id), '{"type":"assistant/chunk","seq":8,"ti')
+    },
+    cleanup: async () => { await rm(dir, { recursive: true, force: true }) },
   }
 })
 
@@ -198,36 +222,6 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
   })
 
-  it('append snapshots its batch: mutating the caller array after the call is ignored', async () => {
-    const m = meta('snapshot')
-    await ctx.sessionPersistence.create(m)
-    const events = oneTurnLog() // seqs 0..5
-    const p = ctx.sessionPersistence.append(m.id, events)
-    // Mutate the caller's array immediately after calling append (before the
-    // queued op runs). The backend must persist the snapshot taken at call time,
-    // not the mutated array.
-    events.push({ type: 'turn/start', seq: 6, time: 99, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } })
-    await p
-    const loaded = await ctx.sessionPersistence.load(m.id)
-    expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5]) // not 0..6
-  })
-
-  it('append deep-snapshots event objects: mutating an event after the call is ignored', async () => {
-    const m = meta('deep-snapshot')
-    await ctx.sessionPersistence.create(m)
-    const events = oneTurnLog()
-    const userMsg = events[1] // the user/message event
-    const p = ctx.sessionPersistence.append(m.id, events)
-    // Mutate an event OBJECT (not just the array) after calling append. The deep
-    // snapshot taken at call time must shield the persisted data.
-    if (userMsg?.type === 'user/message') userMsg.data.content = [{ type: 'text', text: 'MUTATED' }]
-    await p
-    const loaded = await ctx.sessionPersistence.load(m.id)
-    const persisted = JSON.stringify(loaded.events)
-    expect(persisted).toContain('hi') // original content
-    expect(persisted).not.toContain('MUTATED')
-  })
-
   it('load returns a meta copy: mutating it does not corrupt backend pathing', async () => {
     const m = meta('meta-copy', '/proj')
     await ctx.sessionPersistence.create(m)
@@ -244,25 +238,6 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     const reloaded = await ctx.sessionPersistence.load(m.id)
     expect(reloaded.meta.cwd).toBe('/proj')
     expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
-  })
-
-  it('rejects an unknown format version on load', async () => {
-    const m = meta('v2')
-    await ctx.sessionPersistence.create(m)
-    await ctx.sessionPersistence.append(m.id, oneTurnLog())
-    // Corrupt the header version on disk.
-    const path = logPath(root, undefined, m.id)
-    const lines = (await readFile(path, 'utf8')).split('\n')
-    const header = JSON.parse(lines[0]!) as { version: number }
-    header.version = 2
-    lines[0] = JSON.stringify(header)
-    await writeFile(path, lines.join('\n'))
-    // Fresh backend (no in-memory state) → must reject on load.
-    const ctx2 = new Context()
-    await ctx2.plugin(SessionStore)
-    await ctx2.plugin(SessionPersistenceJsonl, { root })
-    await expect(ctx2.sessionPersistence.load(m.id)).rejects.toThrow(/version/)
-    await ctx2.fiber.dispose()
   })
 
   it('rejects a re-append of an already-stored seq', async () => {
@@ -293,62 +268,6 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
 })
 
 describe('SessionPersistenceJsonl: write path (session/event → flush)', () => {
-  it('persists a live session driven through the store, surviving reload', async () => {
-    root = await freshRoot()
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionPersistenceJsonl, { root })
-
-    const session = ctx.sessions.create('live', { meta: { cwd: '/w' } })
-    for (const e of oneTurnLog()) session.append(e.type, e.data)
-    await ctx.parallel('session/flush', session)
-
-    const loaded = await ctx.sessionPersistence.load(SessionId('live'))
-    expect(loaded.events).toHaveLength(6)
-    expect(loaded.meta.cwd).toBe('/w')
-    await ctx.fiber.dispose()
-  })
-
-  it('snapshot-on-buffer: mutating an event after session/event does not corrupt the persisted copy', async () => {
-    root = await freshRoot()
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionPersistenceJsonl, { root })
-
-    const session = ctx.sessions.create('mutate')
-    const ev = session.append('user/message', { content: [{ type: 'text', text: 'original' }], source: { kind: 'user' } })
-    // Mutate the live event object AFTER it was buffered.
-    ;(ev.data as { content: { type: 'text'; text: string }[] }).content[0]!.text = 'HACKED'
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    await ctx.parallel('session/flush', session)
-
-    const loaded = await ctx.sessionPersistence.load(SessionId('mutate'))
-    const first = loaded.events[0]
-    expect(first?.type === 'user/message' && (first.data.content[0] as { text: string }).text).toBe('original')
-    await ctx.fiber.dispose()
-  })
-
-  it('fork: a seeded new session persists its seed once', async () => {
-    root = await freshRoot()
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionPersistenceJsonl, { root })
-
-    const seed = oneTurnLog()
-    // A fork: a brand-new id whose seed came from elsewhere.
-    const forked = ctx.sessions.create('forked', { seed })
-    // onCreated persisted the seed asynchronously; wait a tick.
-    await new Promise(r => setTimeout(r, 10))
-    const loaded = await ctx.sessionPersistence.load(SessionId('forked'))
-    expect(loaded.events).toEqual(seed)
-    // A flush with no NEW events must not double-write.
-    await ctx.parallel('session/flush', forked)
-    const reloaded = await ctx.sessionPersistence.load(SessionId('forked'))
-    expect(reloaded.events).toEqual(seed)
-    await ctx.fiber.dispose()
-  })
-
   it('concurrent sessions do not cross buffers', async () => {
     root = await freshRoot()
     const ctx = new Context()
@@ -373,112 +292,6 @@ describe('SessionPersistenceJsonl: write path (session/event → flush)', () => 
     await ctx.fiber.dispose()
   })
 
-  it('HMR: applying the plugin seeds existing live sessions', async () => {
-    root = await freshRoot()
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    // A session exists BEFORE the persistence plugin is applied.
-    const session = ctx.sessions.create('pre-existing')
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-
-    await ctx.plugin(SessionPersistenceJsonl, { root })
-    // The plugin seeded it on apply; a subsequent flush persists its events.
-    await ctx.parallel('session/flush', session)
-    const loaded = await ctx.sessionPersistence.load(SessionId('pre-existing'))
-    expect(loaded.events.length).toBeGreaterThanOrEqual(2)
-    await ctx.fiber.dispose()
-  })
-
-  it('HMR: dispose drains remaining buffers', async () => {
-    root = await freshRoot()
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    let session!: Session
-    const fiber = await ctx.plugin(SessionPersistenceJsonl, { root })
-    const sessFiber = await ctx.plugin(Object.assign((inner: Context) => {
-      session = inner.sessions.create('drain')
-    }, { inject: ['sessions'] }))
-    session.append('user/message', { content: [{ type: 'text', text: 'buffered' }], source: { kind: 'user' } })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    // No explicit flush — dispose must drain.
-    await fiber.dispose()
-    await sessFiber.dispose()
-
-    // A fresh backend reads what the disposed one drained.
-    const ctx2 = new Context()
-    await ctx2.plugin(SessionStore)
-    await ctx2.plugin(SessionPersistenceJsonl, { root })
-    const loaded = await ctx2.sessionPersistence.load(SessionId('drain'))
-    expect(loaded.events.length).toBeGreaterThanOrEqual(2)
-    await ctx2.fiber.dispose()
-  })
-
-  it('HMR: reloading the backend adopts a still-live, already-materialized session', async () => {
-    root = await freshRoot()
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    // The session lives in its OWN fiber so it survives the backend reload.
-    let session!: Session
-    await ctx.plugin(Object.assign((inner: Context) => {
-      session = inner.sessions.create('hmr-adopt')
-    }, { inject: ['sessions'] }))
-
-    // Backend instance 1 materializes the session on disk.
-    const backend1 = await ctx.plugin(SessionPersistenceJsonl, { root })
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    await ctx.parallel('session/flush', session)
-
-    // Hot-reload the backend: dispose instance 1, plug in instance 2 over the
-    // SAME root while the session stays live. Instance 2 has an empty states
-    // map but the log is on disk — it must ADOPT (not reject) so flush keeps
-    // working. A second turn appended after reload then persists.
-    await backend1.dispose()
-    await ctx.plugin(SessionPersistenceJsonl, { root })
-    session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('user/message', { content: [{ type: 'text', text: 'again' }], source: { kind: 'user' } })
-    session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
-    await expect(ctx.parallel('session/flush', session)).resolves.not.toThrow()
-
-    const loaded = await ctx.sessionPersistence.load(SessionId('hmr-adopt'))
-    expect(loaded.events.filter(e => e.type === 'turn/start')).toHaveLength(2)
-    await ctx.fiber.dispose()
-  })
-
-  it('HMR: adoption persists the live SUFFIX that was ahead of the on-disk prefix', async () => {
-    root = await freshRoot()
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    let session!: Session
-    await ctx.plugin(Object.assign((inner: Context) => {
-      session = inner.sessions.create('hmr-suffix')
-    }, { inject: ['sessions'] }))
-
-    // Instance 1 flushes turn 1 to disk.
-    const backend1 = await ctx.plugin(SessionPersistenceJsonl, { root })
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    await ctx.parallel('session/flush', session)
-
-    // Append turn 2 to the LIVE session, then dispose instance 1 WITHOUT
-    // flushing turn 2. Turn 2 is now ONLY in the live session's events; the new
-    // backend never buffered it via session/event.
-    await backend1.dispose()
-    session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
-
-    // Instance 2 adopts the on-disk prefix (turn 1) and MUST also persist the
-    // live suffix (turn 2) carried in the session's events — otherwise turn 2 is
-    // lost and a later flush would mismatch.
-    await ctx.plugin(SessionPersistenceJsonl, { root })
-    await ctx.parallel('session/flush', session)
-    const loaded = await ctx.sessionPersistence.load(SessionId('hmr-suffix'))
-    expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3])
-    expect(loaded.events.filter(e => e.type === 'turn/start')).toHaveLength(2)
-    await ctx.fiber.dispose()
-  })
 })
 
 
@@ -570,77 +383,12 @@ describe('SessionPersistenceJsonl: edge cases', () => {
   })
   afterEach(async () => { await ctx.fiber.dispose() })
 
-  it('load rejects a missing session', async () => {
-    await expect(ctx.sessionPersistence.load(SessionId('nope'))).rejects.toThrow(/not found/)
-  })
-
-  it('append of an empty batch is a no-op', async () => {
-    const m = meta('empty-batch')
-    await ctx.sessionPersistence.create(m)
-    await ctx.sessionPersistence.append(m.id, [])
-    expect(await ctx.sessionPersistence.has(m.id)).toBe(false)
-  })
-
   it('append rejects non-JSON-serializable undefined-producing data', async () => {
     const m = meta('undef')
     await ctx.sessionPersistence.create(m)
     // A value whose JSON.stringify yields undefined (a bare function as data).
     const bad = [{ type: 'user/message', seq: 0, time: 1, data: (() => 0) as unknown }] as unknown as SessionEvent[]
     await expect(ctx.sessionPersistence.append(m.id, bad)).rejects.toThrow(/non-JSON-serializable/)
-  })
-
-  it('delete of a non-existent session is a no-op', async () => {
-    await expect(ctx.sessionPersistence.delete(SessionId('ghost'))).resolves.toBeUndefined()
-  })
-
-  it('an abandoned lazy session (never materialized) releases its id for reuse', async () => {
-    // A live session is created then disposed BEFORE its first append: cursor 0,
-    // never materialized, nothing on disk. A new live session reusing the id
-    // must reclaim it (lazy materialization promises no lingering artifact),
-    // not wedge on an "already bound" collision until restart.
-    const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
-    let firstSession!: Session
-    const firstFiber = await ctx.plugin(Object.assign((inner: Context) => {
-      firstSession = inner.sessions.create('abandoned', { meta: { cwd: '/a' } })
-    }, { inject: ['sessions'] }))
-    await backend.inits.get(firstSession) // let the lazy create register the state
-    await firstFiber.dispose() // disposed before any append → never materialized
-
-    let reuse!: Session
-    await ctx.plugin(Object.assign((inner: Context) => {
-      reuse = inner.sessions.create('abandoned', { meta: { cwd: '/a' } })
-    }, { inject: ['sessions'] }))
-    // The new session claims the id without error and can persist a turn.
-    await expect(backend.inits.get(reuse)).resolves.toBeUndefined()
-    reuse.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    reuse.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    await ctx.parallel('session/flush', reuse)
-    const loaded = await ctx.sessionPersistence.load(SessionId('abandoned'))
-    expect(loaded.events.map(e => e.seq)).toEqual([0, 1])
-  })
-
-  it('does NOT reclaim an id whose abandoned owner still has buffered (unflushed) events', async () => {
-    // A session that appended events but was disposed BEFORE its first flush is
-    // not materialized yet but still holds a write-behind buffer. Reusing the id
-    // must be rejected (not reclaimed), or the stale buffer would drain against
-    // the new session — persisting old events under the new id or dropping the
-    // new session's seq-0 events.
-    const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
-    let first!: Session
-    const firstFiber = await ctx.plugin(Object.assign((inner: Context) => {
-      first = inner.sessions.create('buffered', { meta: { cwd: '/a' } })
-    }, { inject: ['sessions'] }))
-    await backend.inits.get(first)
-    // Append a turn but do NOT flush — events sit in the write-behind buffer.
-    first.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    first.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    await firstFiber.dispose() // disposed before flush; not materialized, buffer pending
-
-    let reuse!: Session
-    await ctx.plugin(Object.assign((inner: Context) => {
-      reuse = inner.sessions.create('buffered', { meta: { cwd: '/a' } })
-    }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(reuse)).rejects.toThrow(/already bound to a different live session/)
   })
 
   it('create snapshots its meta: mutating the caller object after the call is ignored', async () => {
@@ -713,81 +461,6 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.fiber.dispose()
   })
 
-  it('resume/adopt: a live session whose id is already on disk continues from the stored length', async () => {
-    // First lifecycle: persist a session through the store.
-    const s1 = ctx.sessions.create('resumed', { meta: { cwd: '/r' } })
-    for (const e of oneTurnLog()) s1.append(e.type, e.data)
-    await ctx.parallel('session/flush', s1)
-
-    // Second lifecycle: a NEW backend + a session re-created with the same id
-    // and SEEDED with the loaded events (the resume path). onCreated must adopt
-    // the on-disk log (not re-persist the seed), and a new turn appends at seq 6.
-    const ctx2 = new Context()
-    await ctx2.plugin(SessionStore)
-    await ctx2.plugin(SessionPersistenceJsonl, { root })
-    const loaded = await ctx2.sessionPersistence.load(SessionId('resumed'))
-    const s2 = ctx2.sessions.create('resumed', { seed: loaded.events, meta: { cwd: '/r' } })
-    await new Promise(r => setTimeout(r, 10)) // let onCreated adopt
-    // Append a fresh turn through the live session.
-    s2.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
-    s2.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
-    await ctx2.parallel('session/flush', s2)
-
-    const reloaded = await ctx2.sessionPersistence.load(SessionId('resumed'))
-    // 6 original + 2 new, contiguous, no duplicated seed.
-    expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
-    await ctx2.fiber.dispose()
-  })
-
-  it('HMR adoption does not crash-repair an active open turn as interrupted', async () => {
-    const dir = await freshRoot()
-    const hmr = new Context()
-    await hmr.plugin(SessionStore)
-    const first = await hmr.plugin(SessionPersistenceJsonl, { root: dir })
-    const session = hmr.sessions.create('hmr-open', { meta: { cwd: '/hmr' } })
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('step/start', { turn: 1, step: 1 })
-    await hmr.parallel('session/flush', session)
-
-    await first.dispose()
-    await appendFile(logPath(dir, '/hmr', SessionId('hmr-open')), '{"torn":')
-    const second = await hmr.plugin(SessionPersistenceJsonl, { root: dir })
-    session.append('step/end', { turn: 1, step: 1 })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    await hmr.parallel('session/flush', session)
-
-    const loaded = await hmr.sessionPersistence.load(SessionId('hmr-open'))
-    expect(loaded.events.map(e => e.type)).toEqual(['turn/start', 'step/start', 'step/end', 'turn/end'])
-    expect(loaded.events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
-    await second.dispose()
-    await hmr.fiber.dispose()
-  })
-
-  it('a NEW live session whose id collides with an on-disk log is rejected, not silently adopted', async () => {
-    // Persist a session on disk.
-    const s1 = ctx.sessions.create('collide', { meta: { cwd: '/a' } })
-    for (const e of oneTurnLog()) s1.append(e.type, e.data)
-    await ctx.parallel('session/flush', s1)
-    const before = await readFile(logPath(root, '/a', SessionId('collide')), 'utf8')
-
-    // A FRESH backend + a NEW live session with the same id but NO explicit
-    // load/resume. onCreated must NOT adopt-from-disk (resume is explicit); it
-    // treats this as a new session and create() rejects because a log already
-    // exists on disk. The rejection surfaces via the init promise (flush awaits
-    // it); the on-disk committed log is left byte-for-byte intact.
-    const ctx2 = new Context()
-    await ctx2.plugin(SessionStore)
-    await ctx2.plugin(SessionPersistenceJsonl, { root })
-    const backend = ctx2.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
-    const s2 = ctx2.sessions.create('collide', { meta: { cwd: '/a' } })
-    // The init for the new live session rejects (observed via the per-session
-    // init map and, in production, via flush which awaits the same promise).
-    await expect(backend.inits.get(s2)).rejects.toThrow(/already has a persisted log on disk/)
-    // The committed log is untouched (no clobber).
-    expect(await readFile(logPath(root, '/a', SessionId('collide')), 'utf8')).toBe(before)
-    await ctx2.fiber.dispose()
-  })
-
   it('a DIFFERENT live session object reusing a disposed id gets its own init (no stale cache)', async () => {
     // Session A materializes a log under id "reuse".
     const sessFiberA = await ctx.plugin(Object.assign((inner: Context) => {
@@ -811,96 +484,39 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await expect(backend.inits.get(b)).rejects.toThrow(/already bound to a different live session|already has a persisted log on disk/)
   })
 
-  it('a live session claims cursor-0 ownerless state created via the public API', async () => {
-    // create() registers ownerless state with cursor 0 (lazy, nothing persisted
-    // yet). A live session with that id then arrives and claims it without a
-    // prefix check (cursor 0 matches trivially), persisting its seed.
-    await ctx.sessionPersistence.create(meta('lazy-claim', '/a'))
-    const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
-    let live!: Session
-    await ctx.plugin(Object.assign((inner: Context) => {
-      live = inner.sessions.create('lazy-claim', { meta: { cwd: '/a' } })
+  it('a NO-CWD live session does NOT cross-cwd-adopt a same-id log from a real cwd bucket (loadLive is scope-exact)', async () => {
+    // Backend 1: materialize a log under id "x" in the cwd "/w" bucket, then
+    // dispose the WHOLE backend (so backend 2 mounts with an EMPTY states map —
+    // the HMR/reload path where onCreated goes through loadLive, not a tracked
+    // collision).
+    await ctx.sessionPersistence.create(meta('x', '/w'))
+    await ctx.sessionPersistence.append(SessionId('x'), oneTurnLog())
+    await ctx.fiber.dispose()
+
+    // Backend 2 over the SAME root. A live no-cwd session reuses id "x". Because
+    // loadLive(id, undefined) is the DEFINITE no-cwd bucket (NOT an all-buckets
+    // scan), case-2 adoption does NOT match the "/w" log — so it would NOT
+    // silently graft the no-cwd events onto the "/w" log with a mismatched cwd
+    // (the bug a non-scope-exact loadLive caused). It falls through to the
+    // new-session path, where createCore's any-cwd collision probe (loadStored)
+    // catches the duplicate id and REJECTS — the id is taken in another bucket.
+    const ctx2 = new Context()
+    await ctx2.plugin(SessionStore)
+    await ctx2.plugin(SessionPersistenceJsonl, { root })
+    const backend = ctx2.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
+    let b!: Session
+    await ctx2.plugin(Object.assign((inner: Context) => {
+      b = inner.sessions.create('x') // no cwd
     }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(live)).resolves.toBeUndefined()
-    live.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    live.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    await ctx.parallel('session/flush', live)
-    const loaded = await ctx.sessionPersistence.load(SessionId('lazy-claim'))
-    expect(loaded.events.map(e => e.seq)).toEqual([0, 1])
-  })
+    await expect(backend.inits.get(b)).rejects.toThrow(/already has a persisted log on disk/)
 
-  it('a fresh session reusing a previously-loaded id is rejected (ownerless guard)', async () => {
-    // Materialize a log, then load() it into the backend's state WITHOUT a live
-    // session — leaving state.owner undefined and cursor at the persisted length
-    // (the public preview path).
-    await ctx.sessionPersistence.create(meta('preview', '/a'))
-    await ctx.sessionPersistence.append(SessionId('preview'), oneTurnLog())
-    await ctx.sessionPersistence.load(SessionId('preview'))
-
-    const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
-    // A FRESH (empty-seed) live session reusing that id must be rejected: its
-    // seq 0..cursor-1 events would otherwise be filtered as already-persisted
-    // and its conversation grafted onto the old log.
-    let fresh!: Session
-    await ctx.plugin(Object.assign((inner: Context) => {
-      fresh = inner.sessions.create('preview', { meta: { cwd: '/a' } })
-    }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(fresh)).rejects.toThrow(/do not match this live session|already has a persisted log/)
-  })
-
-  it('a session whose seed matches the loaded prefix claims ownerless state', async () => {
-    // Materialize a log and load it (ownerless state, cursor = 6).
-    await ctx.sessionPersistence.create(meta('match', '/a'))
-    await ctx.sessionPersistence.append(SessionId('match'), oneTurnLog())
-    await ctx.sessionPersistence.load(SessionId('match'))
-
-    const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
-    // A live session SEEDED with the persisted log legitimately continues it —
-    // its seed reproduces the loaded prefix, so it claims the ownerless state.
-    let cont!: Session
-    await ctx.plugin(Object.assign((inner: Context) => {
-      cont = inner.sessions.create('match', { seed: oneTurnLog(), meta: { cwd: '/a' } })
-    }, { inject: ['sessions'] }))
-    await expect(backend.inits.get(cont)).resolves.toBeUndefined()
-  })
-
-  it('claiming ownerless state persists the seed suffix beyond the prefix', async () => {
-    // Materialize a one-turn log and load it (ownerless state, cursor = 6).
-    await ctx.sessionPersistence.create(meta('suffix-claim', '/a'))
-    await ctx.sessionPersistence.append(SessionId('suffix-claim'), oneTurnLog())
-    await ctx.sessionPersistence.load(SessionId('suffix-claim'))
-
-    const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
-    // A live session seeded with the prefix PLUS a second turn (seqs 6,7). The
-    // suffix (constructor seed, never emits session/event) must be persisted on
-    // claim, not lost.
-    const seed = [
-      ...oneTurnLog(),
-      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
-      { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
-    ] as SessionEvent[]
-    let cont!: Session
-    await ctx.plugin(Object.assign((inner: Context) => {
-      cont = inner.sessions.create('suffix-claim', { seed, meta: { cwd: '/a' } })
-    }, { inject: ['sessions'] }))
-    await backend.inits.get(cont)
-    const loaded = await ctx.sessionPersistence.load(SessionId('suffix-claim'))
-    expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
-  })
-
-  it('claiming cursor-0 ownerless state persists the whole constructor seed', async () => {
-    // create() registers ownerless state with cursor 0 (lazy, nothing on disk).
-    await ctx.sessionPersistence.create(meta('lazy-seed', '/a'))
-    const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
-    // A live session seeded with a full turn claims it; the whole seed (cursor
-    // is 0) must be persisted.
-    let cont!: Session
-    await ctx.plugin(Object.assign((inner: Context) => {
-      cont = inner.sessions.create('lazy-seed', { seed: oneTurnLog(), meta: { cwd: '/a' } })
-    }, { inject: ['sessions'] }))
-    await backend.inits.get(cont)
-    const loaded = await ctx.sessionPersistence.load(SessionId('lazy-seed'))
-    expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5])
+    // The "/w" log is untouched — no no-cwd events were grafted onto it, and no
+    // `_no-cwd` log for "x" was created.
+    const inW = scanLog(await readFile(logPath(root, '/w', SessionId('x'))))
+    expect(inW.meta.cwd).toBe('/w')
+    expect(inW.events).toHaveLength(6)
+    await expect(stat(logPath(root, undefined, SessionId('x')))).rejects.toThrow()
+    await ctx2.fiber.dispose()
   })
 
   it('a seed with matching seq/type/time but DIFFERENT data is rejected (deep prefix compare)', async () => {
@@ -942,14 +558,6 @@ describe('SessionPersistenceJsonl: edge cases', () => {
       .rejects.toThrow(/already bound to a different live session|already has a persisted log|do not match/)
   })
 
-  it('round-trips a header with parentSession (fork lineage)', async () => {
-    const m: SessionHeader = { version: 1, id: SessionId('forked-child'), createdAt: 1, parentSession: SessionId('the-parent') }
-    await ctx.sessionPersistence.create(m)
-    await ctx.sessionPersistence.append(m.id, oneTurnLog())
-    const loaded = await ctx.sessionPersistence.load(m.id)
-    expect(loaded.meta.parentSession).toBe('the-parent')
-  })
-
   it('list returns nothing when the root directory does not exist', async () => {
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
@@ -976,7 +584,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     // open() must surface, not be collapsed to "not found" (which would let a
     // collision check proceed under a false absence assumption). A LAZY session
     // (created, never appended) keeps its cwd in state, so has() reaches
-    // findLog(id, cwd) → exists(logPath). Make that cwd's bucket DIRECTORY a
+    // loadLive(id, cwd) → exists(logPath). Make that cwd's bucket DIRECTORY a
     // regular file: open()ing `bucket/<id>.jsonl` under it then fails ENOTDIR.
     const cwd = '/x'
     const ctx2 = new Context()
@@ -1025,48 +633,6 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     expect(end.type === 'turn/end' && end.data.reason).toEqual({ kind: 'interrupted' })
   })
 
-  it('initFor is idempotent: a re-seeded existing session is not re-initialized', async () => {
-    const session = ctx.sessions.create('idem', { meta: { cwd: '/i' } })
-    session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    await ctx.parallel('session/flush', session)
-    // Re-emit session/created for the SAME live session (idempotent initFor).
-    ctx.emit('session/created', session)
-    await ctx.parallel('session/flush', session)
-    const loaded = await ctx.sessionPersistence.load(SessionId('idem'))
-    expect(loaded.events).toHaveLength(2) // not doubled
-  })
-
-
-  it('flush before init resolves with no state uses cursor 0', async () => {
-    // Drive a fork (seed) flush where the buffer holds the seed; the fresh
-    // events filter against cursor. Exercises the state-undefined cursor path.
-    const session = ctx.sessions.create('flush-nostate')
-    // Append directly to the live session and flush IMMEDIATELY, before the
-    // async onCreated init has necessarily set state.
-    session.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    await ctx.parallel('session/flush', session)
-    const loaded = await ctx.sessionPersistence.load(SessionId('flush-nostate'))
-    expect(loaded.events).toHaveLength(2)
-  })
-
-  it('createCore rejects creating an id this backend already tracks', async () => {
-    await ctx.sessionPersistence.create(meta('dup'))
-    await expect(ctx.sessionPersistence.create(meta('dup'))).rejects.toThrow(/already exists in this backend/)
-  })
-
-  it('createCore rejects creating an id whose log already exists on disk', async () => {
-    const m = meta('on-disk', '/od')
-    await ctx.sessionPersistence.create(m)
-    await ctx.sessionPersistence.append(m.id, oneTurnLog())
-    // A fresh backend (no in-memory state) must refuse to create over the log.
-    const ctx2 = new Context()
-    await ctx2.plugin(SessionStore)
-    await ctx2.plugin(SessionPersistenceJsonl, { root })
-    await expect(ctx2.sessionPersistence.create(meta('on-disk', '/od'))).rejects.toThrow(/already has a persisted log on disk/)
-    await ctx2.fiber.dispose()
-  })
 
   it('createCore rejects an id already on disk under a DIFFERENT cwd bucket', async () => {
     // Persist the id under cwd A.

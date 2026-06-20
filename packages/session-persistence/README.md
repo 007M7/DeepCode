@@ -21,11 +21,31 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 - **JSON-serializable data.** `append` rejects non-serializable `event.data`; backends snapshot each event when buffering (the live `session.events` object is mutable).
 - **Durability.** `append` returns only once the batch is durable.
 
+## The write coordinator
+
+The two first-party backends were byte-identical (or same-algorithm) for ALL of their write-path orchestration — the in-memory bookkeeping (per-id state, write-behind buffers, per-id serialization chains, per-session init promises), the `session/event` → buffer → `session/flush` drain, lazy materialization, crash-tail repair on load, the four `session/created` adoption cases (new / HMR-adopt / collision / ownerless-claim), and dispose-time quiescence. Only the STORAGE primitives differed (write bytes vs. INSERT rows).
+
+`PersistenceCoordinator` owns that orchestration once. A first-party backend composes one (`new PersistenceCoordinator(ctx, this)`), implements the small `PersistenceBackend` hook interface, and delegates its six public service methods to the coordinator. This keeps the duplicated, correctness-heavy orchestration in a single place (it used to receive the same fixes twice).
+
+The `PersistenceBackend<TornMarker>` hooks (the only seam between the coordinator and storage):
+
+| Hook | Role |
+|---|---|
+| `name` | Backend label for the dispose-failure `AggregateError`. |
+| `loadStored(id)` | Read a stored prefix by id, scanning ANY storage scope. Used by resume/load and, via `!== undefined`, the create-collision probe. Returns an opaque `tornMarker` iff a torn tail must be truncated. |
+| `loadLive(id, cwd)` | Read a stored prefix SCOPED to `cwd` (HMR live-adoption must only adopt a log at the SAME cwd; a same-id log elsewhere is a collision, not a resume). A globally-unique-id backend ignores `cwd`. |
+| `appendBatch(meta, events, isMaterialized)` | Durably append a contiguous batch, lazily materializing ATOMICALLY when not yet materialized. |
+| `commitRepair(meta, tornMarker, closers)` | Make a crash repair durable: truncate the torn tail (iff `tornMarker !== undefined` — a marker may be falsy, e.g. seq/offset `0`) and append `closers`. NOT required to be atomic. Used by load (truncate + closers) and live-adoption (truncate only). |
+| `deleteStored(id)` / `list()` | Remove a stored artifact / list all stored metadata. |
+| `close?()` | Optional lifecycle teardown (e.g. close a db handle), awaited after the dispose drain. |
+
+The `tornMarker` is fully OPAQUE: the coordinator only tests `!== undefined` and round-trips it to `commitRepair`, never inspecting its value (the JSONL backend uses the byte offset to truncate to, the SQLite backend the seq to delete from). The public `SessionPersistence` service shape is unchanged, so a third-party backend MAY still implement the abstract service directly without the coordinator. See [the write-coordinator RFC](../../docs/rfc/implemented/2026-06-18-shared-persistence-write-coordinator.md).
+
 ## Testing backends
 
-Import `runPersistenceContract` from `tests/contract.ts` and call it with a factory that yields a fresh, empty backend plus a teardown. Every backend is held to the same append-only / contiguous-seq / lazy-materialization / serializability semantics; a backend's own spec adds implementation-specific tests (crash repair, path sanitization) on top.
+Import `runPersistenceContract` from `tests/contract.ts` (the public-API contract) and `runCoordinatorContract` from `tests/coordinator-contract.ts` (the shared write-path orchestration: adoption, HMR, collision, dispose-drain, crash-tail repair) and call each with a fixture for your backend. Every backend is held to the same append-only / contiguous-seq / lazy-materialization / serializability semantics AND the same orchestration, so a backend's own spec is left with only storage-mechanics tests (path sanitization, fsync rollback; schema version, transaction rollback) on top.
 
-Two backends run this suite: `dsh-session-persistence-jsonl` (append-only file log) and `dsh-session-persistence-sqlite` (`node:sqlite`, each `SessionEvent` one row `(session_id, seq, type, time, data)`). Both passing the same contract is the proof that the seam is genuinely backend-agnostic — lazy materialization, crash-tail-on-load, and contiguous-seq hold identically over file bytes and over a transactional store.
+Three backends run these suites: an in-memory reference (in `tests/`), `dsh-session-persistence-jsonl` (append-only file log) and `dsh-session-persistence-sqlite` (`node:sqlite`, each `SessionEvent` one row `(session_id, seq, type, time, data)`). All passing the same contract + coordinator suite is the proof that the seam is genuinely backend-agnostic — lazy materialization, crash-tail-on-load, and contiguous-seq hold identically over file bytes and over a transactional store.
 
 ## Metadata types
 
