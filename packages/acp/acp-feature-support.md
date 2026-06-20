@@ -1,6 +1,6 @@
 # ACP feature support checklist
 
-A structured inventory of [Agent Client Protocol](https://agentclientprotocol.com) (ACP) features and where the harness's ACP bridge ([`@deepseek-ai/dsh-acp`](../packages/acp/README.md)) stands on each. The bridge exposes the harness agent as an ACP **server** (the agent side of an editor↔agent connection), so "supported" below means *the bridge implements the agent's half* — answering an agent method, advertising a capability, or calling a client method.
+A structured inventory of [Agent Client Protocol](https://agentclientprotocol.com) (ACP) features and where the harness's ACP bridge ([`@deepseek-ai/dsh-acp`](README.md)) stands on each. The bridge exposes the harness agent as an ACP **server** (the agent side of an editor↔agent connection), so "supported" below means *the bridge implements the agent's half* — answering an agent method, advertising a capability, or calling a client method.
 
 ## Scope
 
@@ -92,7 +92,7 @@ These are capabilities the bridge would *drive* on the editor. The harness runs 
 
 ## 5. Tool-call rendering
 
-Tool-call presentation is **owned by each tool** (`presentCall` / `presentResult` on the `dsh-tools` definition), not special-cased in the bridge — see the [terminal-and-tool-rendering RFC](rfc/implemented/2026-06-18-acp-terminal-and-tool-rendering.md).
+Tool-call presentation is **owned by each tool** (`presentCall` / `presentResult` on the `dsh-tools` definition), not special-cased in the bridge — see the [terminal-and-tool-rendering RFC](../../docs/rfc/implemented/2026-06-18-acp-terminal-and-tool-rendering.md).
 
 | Feature | Stable | Bridge | Claude | Codex | Notes |
 |---|---|---|---|---|---|
@@ -130,7 +130,7 @@ The bridge rejects unsupported prompt blocks rather than silently dropping them 
 | Feature | Stable | Bridge | Notes |
 |---|---|---|---|
 | `StopReason` mapping | S | ✅ | `turnEndToStopReason` is total over harness turn-end reasons → `end_turn`/`max_tokens`/`cancelled`. |
-| Multi-session (N per connection) | S | ✅ | Strict per-session demux; concurrent streams never interleave. See the [multi-session RFC](rfc/proposed/2026-06-14-acp-multi-session.md). |
+| Multi-session (N per connection) | S | ✅ | Strict per-session demux; concurrent streams never interleave. See the [multi-session RFC](../../docs/rfc/proposed/2026-06-14-acp-multi-session.md). |
 | Disconnect / disposal teardown | S | ✅ | Quiesces every live session on client disconnect or Cordis disposal. |
 | `_meta` extensibility | S | ⚠️ | Consumed (Zed terminal cap) and emitted (terminal `_meta`); no other custom extensions. |
 | Background-task ownership isolation | — | ✅ | `bash_output`/`bash_kill` reject another session's task via an opaque owner token. |
@@ -159,4 +159,4 @@ Unstable/draft ACP features that **neither** reference adapter ships are not tra
 
 - Stable spec: `schema/v1/schema.json` (schema `1.14.0`) and `docs/protocol/v1/*.mdx` in the [agent-client-protocol](https://github.com/agentclientprotocol/agent-client-protocol) repo.
 - Reference adapters: [`claude-agent-acp`](https://github.com/zed-industries/claude-code-acp) and [`codex-acp`](https://github.com/zed-industries/codex-acp).
-- Bridge: [`packages/acp/README.md`](../packages/acp/README.md), [`packages/acp/src/index.ts`](../packages/acp/src/index.ts), and the ACP RFCs under [`docs/rfc/`](rfc/README.md).
+- Bridge: [`README.md`](README.md), [`src/index.ts`](src/index.ts), and the ACP RFCs under [`docs/rfc/`](../../docs/rfc/README.md).
