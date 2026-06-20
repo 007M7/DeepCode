@@ -49,9 +49,9 @@ packages/
 
 ### Deduplicating the package lists
 
-The package list had been enumerated in five places. The uniform depth-2 layout collapsed most of them:
+The package list had been enumerated in five places. The uniform depth-2 layout lets most of them be derived instead:
 
-- `tsconfig.base.json` and `tsconfig.typecheck.json` each replaced their 18 per-package `paths` entries with a single `@deepseek-ai/dsh-*` wildcard listing one candidate per group.
+- `tsconfig.base.json` and `tsconfig.typecheck.json` each map every package through a single `@deepseek-ai/dsh-*` `paths` wildcard listing one candidate per group, in place of 18 per-package entries. (One subtlety this introduced: a path candidate contains `/*/`, which a naive regex comment-stripper mistakes for a block comment — `scripts/doc-typecheck.ts` reads the `paths` map via the TypeScript JSONC API rather than stripping comments by hand for exactly this reason.)
 - `scripts/publint-all.ts` derives its list by reading the hierarchy (`packages/<group>/<pkg>`), resolving the `TODO(package-inventory)`.
 - `tsconfig.build.json`'s project `references` stay an explicit list — TypeScript project references have no wildcard form. Generating these from a manifest is left to a follow-up (see [discover package inventories](../../proposed/process/2026-06-20-discover-package-inventory.md)).
 
