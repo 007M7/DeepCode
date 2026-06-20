@@ -8,6 +8,8 @@ The harness core is deliberately tiny: a handful of abstract services plus one c
 
 Requirement context: [Coding Harness MVP 需求分析][mvp-doc].
 
+For a catalog of the **data structures** this architecture moves around — the core vocabulary types, their literal shapes, and the seam types grouped by capability — see [core-data-structures/](core-data-structures/core.md). This document covers behavior; that one covers the types.
+
 **Contents:** [Layering](#layering) · [Service map](#service-map) · [Capability seams](#capability-seams-interface--implementation--consumer) · [The vocabulary (dsh-llm)](#the-vocabulary-dsh-llm) · [Event-sourced sessions](#event-sourced-sessions-dsh-session) · [Prompt assembly](#prompt-assembly-dsh-system-prompt) · [Tool pipeline](#tool-pipeline-dsh-tools) · [Agents and the loop](#agents-dsh-agent-and-the-loop-dsh-agent-loop) ([lifecycle](#loop-lifecycle-session--turn--step), [event taxonomy](#event-taxonomy), [waterfall semantics](#cordis-waterfall-semantics-important)) · [Plugin sanity checklist](#plugin-sanity-checklist) · [Extension cookbook](#extension-cookbook) · [Deferred work](#deferred-work-todo)
 
 [microkernel-doc]: https://trtgsjkv6r.feishu.cn/wiki/VS9Lw1kQki6mDJk2UHocyuphnsc
