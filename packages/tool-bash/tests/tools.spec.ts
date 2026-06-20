@@ -37,7 +37,13 @@ async function setup() {
  */
 const fakeAgentDisposers = new Map<Context, (() => void)[]>()
 function registerFakeAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void): Agent {
-  const agent = { id: sessionId, inject, session: { header: { version: 1, id: sessionId, createdAt: 0 } } } as unknown as Agent
+  // The registry KEY (agent.id) is deliberately DIFFERENT from the session
+  // token (session.header.id) — a config agent has `agentId !== sessionId`. The
+  // owner token IS the session id, so the notice path must find the agent by
+  // `session.header.id`, NOT the registry key. Using distinct values here makes
+  // the test fail if a regression matched on the wrong field (a same-value fake
+  // would pass either way — the "hits the line but not the scenario" trap).
+  const agent = { id: `agent-${sessionId}`, inject, session: { header: { version: 1, id: sessionId, createdAt: 0 } } } as unknown as Agent
   const dispose = ctx.agents.register(agent)
   const list = fakeAgentDisposers.get(ctx) ?? []
   list.push(dispose)
