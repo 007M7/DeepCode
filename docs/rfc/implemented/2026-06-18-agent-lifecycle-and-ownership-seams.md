@@ -35,6 +35,8 @@ Background-task ownership moved from a `tool-bash` plugin-local `Map<string, Age
 
 The bash owner-token comparison relies on `session.header.id` being unique among live agents. The agent registry does NOT enforce this — it rejects a duplicate *agentId*, not a duplicate session id, and `createAgent` accepts an arbitrary `sessionId`. This is NOT reachable via ACP (UUID sessionId, `agentId === sessionId`, duplicate-load rejected), so it is not a live product hole, but a programmatic caller that registers two agents with the same session id would break bash isolation and mis-route the completion notice. The access *policy* (token comparison) stays in `tool-bash` (the consumer); the bash seam stores only an opaque `owner` string and never interprets it — the correct interface/impl/consumer split.
 
+The planned resolution is to remove the precondition by construction — see [unify the agent id and the session id](../proposed/2026-06-20-unify-agent-and-session-id.md): once an agent IS its session (one id), the registry's existing unique-`agentId` check is a unique-session-id guarantee and no two live agents can share a session token.
+
 ## Notes
 
 This touched public interfaces (`Agent`, `AgentFactory`, the bash seam) deliberately, not as a local ACP patch. The simple synchronous `Agent.send()` ergonomics were preserved; the async lifecycle path is additive, for owners that need it.

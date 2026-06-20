@@ -34,7 +34,7 @@ It is a **client-driver / UI plugin**, the structured analogue of the readline `
 
 The bridge multiplexes N sessions over one connection. Live sessions are held in a `Map<sessionId, SessionRecord>` (forward) with a `WeakMap<Agent, sessionId>` reverse map so `agent/*` events — which carry only the `Agent` — demux in O(1). Every `session/event` and `agent/status` is routed strictly to its owning record, so concurrent sessions never cross-settle or interleave their `session/update` notifications. State is per session: one in-flight prompt each, `session/cancel` aborts and settles only its own agent/prompt, and disposal drains every live session in parallel to quiescence. (Per-session *permission* ownership is reserved for the deferred permission gate — `TODO(rfc010-permission-gate)`.)
 
-Background-task isolation rides on `dsh-tool-bash`: bash task ids are global and predictable, so the tool layer records each background task's owning agent and `bash_output`/`bash_kill` reject a task owned by a different agent — one session's agent can't read or kill another's task.
+Background-task isolation rides on `dsh-tool-bash`: bash task ids are global and predictable, so each task carries an opaque owner token — the owning agent's `session.header.id` — stored on the task inside the executor (`dsh-bash`'s `ownerOf(id)` seam). `bash_output`/`bash_kill` reject a task whose token differs from the caller's session token, so one session's agent can't read or kill another's task. Ownership is by session TOKEN, not `Agent` object identity — a different `Agent` object on the same session may access the task — and because the token lives on the executor's task it survives a `tool-bash` HMR reload.
 
 ## Per-session cwd
 

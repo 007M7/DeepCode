@@ -31,6 +31,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Multiplex concurrent ACP sessions over one connection](proposed/2026-06-14-acp-multi-session.md) | 2026-06-14 |
 | [Optional Code Mode — model writes TypeScript against an SDK of all tools](proposed/2026-06-15-optional-code-mode.md) | 2026-06-15 |
 | [Runtime schemas for the event vocabulary (Zod vs the merge-extensible-map pattern)](proposed/2026-06-16-typed-event-schemas.md) | 2026-06-16 |
+| [Unify the agent id and the session id](proposed/2026-06-20-unify-agent-and-session-id.md) | 2026-06-20 |
 
 ## Implemented
 

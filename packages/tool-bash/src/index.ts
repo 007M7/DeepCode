@@ -22,10 +22,11 @@
  * multi-session ACP (RFC 011) this token check is the fence that stops one
  * session's agent from reading or killing another session's background task.
  *
- * Because ownership lives on the task in the EXECUTOR (disposed with the
- * `dsh-bash` fiber), it SURVIVES a `tool-bash` HMR reload — closing the old
- * plugin-local-map gap where a reload orphaned pre-reload tasks. (The
- * `onTaskDone` listener is still effect-scoped to this plugin's `apply`, so a
+ * Storing the token on the task in the EXECUTOR (disposed with the `dsh-bash`
+ * fiber), rather than in this plugin, is what makes ownership survive a
+ * `tool-bash` HMR reload — a reload that reset a plugin-local map would orphan
+ * a task spawned before it. (The `onTaskDone` listener is still effect-scoped
+ * to this plugin's `apply`, so a
  * completion landing during the reload gap still drops its one notice — the
  * pre-existing reload-gap drop — but the ownership fence itself is HMR-proof.)
  *
