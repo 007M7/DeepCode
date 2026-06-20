@@ -10,7 +10,7 @@ Legend: ✅ supported · ⚠️ partial / fallback · ❌ not yet · — n/a. Th
 
 ## At a glance
 
-The bridge implements the **core prompt-turn loop** for N concurrent sessions: initialize, session new/load, prompt, cancel, streamed assistant/thought chunks, tool-call rendering (including Zed terminal cards), and resumable session replay. The largest **unbuilt** areas are the **permission gate** (`session/request_permission`), the client **filesystem** and **terminal** method families, **MCP passthrough**, **session modes / config options / model selection**, **slash commands**, and **agent plans** — all of which both reference adapters ship. See [Gap summary](#gap-summary).
+The bridge implements the **core prompt-turn loop** for N concurrent sessions: initialize, session new/load, prompt, cancel, streamed assistant/thought chunks, tool-call rendering (including Zed terminal cards), and resumable session replay. The largest **unbuilt** areas are the **permission gate** (`session/request_permission`), **MCP passthrough**, **session modes / config options / model selection**, **slash commands**, and **agent plans** — all of which both reference adapters ship — plus the client **filesystem** and **terminal** method families (which the adapters mostly do NOT drive either — see rows 43-49). See [Gap summary](#gap-summary).
 
 ## 1. Agent methods (client → agent)
 
@@ -22,7 +22,7 @@ The bridge implements the **core prompt-turn loop** for N concurrent sessions: i
 | `session/new` | S | ✅ | ✅ | ✅ | Maps to `agents.create`; requires an absolute `cwd` (becomes the session workspace); rejects non-empty `additionalDirectories` / `mcpServers`. |
 | `session/load` | S | ✅ | ✅ | ✅ | Maps to `agents.resume` + full event-log replay; validates persisted `cwd` before constructing the agent. |
 | `session/resume` | S | ❌ | ✅ | ✅ | Reconnect WITHOUT replay; gated by `sessionCapabilities.resume`. Not advertised. |
-| `session/close` | S | ⚠️ | ✅ | ✅ | No explicit `session/close` handler; the bridge tears a session down on client disconnect / disposal, not on demand per session. |
+| `session/close` | S | ❌ | ✅ | ✅ | No `session/close` handler — the SDK dispatch returns `method_not_found`. The bridge tears sessions down on client disconnect / Cordis disposal (cross-cutting, see [§8](#8-cross-cutting)), but that is not the on-demand per-session method. |
 | `session/prompt` | S | ✅ | ✅ | ✅ | Maps to `agent.send`; one in-flight prompt per session; settles on the owning turn's end. |
 | `session/cancel` | S | ✅ | ✅ | ✅ | Queue-aware `agent.cancel`; settles the in-flight prompt `cancelled`, scoped to the one session. |
 | `session/set_mode` | S | ❌ | ✅ | ✅ | Session modes not modeled (see [§6 Modes](#6-session-modes--config-options--models)). |
@@ -47,7 +47,7 @@ These are capabilities the bridge would *drive* on the editor. The harness runs 
 | `terminal/wait_for_exit` | S | ❌ | ❌ | ❌ | As above. |
 | `terminal/kill` | S | ❌ | ❌ | ❌ | As above. |
 | `terminal/release` | S | ❌ | ❌ | ❌ | As above. |
-| `elicitation/create` · `elicitation/complete` | U | ❌ | ✅ | ✅ | Structured user-input forms; both adapters use the `unstable_*` elicitation methods (mostly to surface MCP server elicitations). |
+| `elicitation/create` · `elicitation/complete` | U | ❌ | ✅ | ⚠️ | Structured user-input forms. Claude calls the `unstable_*` elicitation methods (to surface MCP server elicitations); Codex does NOT — its `CodexElicitationHandler` maps elicitations onto `session/request_permission` instead. |
 
 ## 3. Capabilities
 
@@ -83,7 +83,7 @@ These are capabilities the bridge would *drive* on the editor. The harness runs 
 | `user_message_chunk` | S | ✅ | ✅ | ✅ | Emitted during `session/load` replay to reconstruct the user side. |
 | `tool_call` | S | ✅ | ✅ | ✅ | Tool-owned presentation (`presentCall`); see [§5](#5-tool-call-rendering). |
 | `tool_call_update` | S | ✅ | ✅ | ✅ | From `tool/result` via `presentResult`. |
-| `plan` | S | ❌ | ✅ | ⚠️ | No agent plan emitted. Claude emits real plan entries; Codex renders plan as plain message text. |
+| `plan` | S | ❌ | ✅ | ✅ | No agent plan emitted. Both adapters emit real plan entries (Codex's `CodexEventHandler.updatePlan` maps `turn/plan/updated` → `{ sessionUpdate: 'plan', entries }`). |
 | `available_commands_update` | S | ❌ | ✅ | ✅ | No slash commands advertised. |
 | `current_mode_update` | S | ❌ | ✅ | ✅ | No session modes. |
 | `config_option_update` | S | ❌ | ✅ | ✅ | No config options. |
@@ -160,4 +160,3 @@ Unstable/draft ACP features that **neither** reference adapter ships are not tra
 - Stable spec: `schema/v1/schema.json` (schema `1.14.0`) and `docs/protocol/v1/*.mdx` in the [agent-client-protocol](https://github.com/agentclientprotocol/agent-client-protocol) repo.
 - Reference adapters: [`claude-agent-acp`](https://github.com/zed-industries/claude-code-acp) and [`codex-acp`](https://github.com/zed-industries/codex-acp).
 - Bridge: [`packages/acp/README.md`](../packages/acp/README.md), [`packages/acp/src/index.ts`](../packages/acp/src/index.ts), and the ACP RFCs under [`docs/rfc/`](rfc/README.md).
-</content>
