@@ -2,7 +2,7 @@
 
 The **durability seam** for the event log. [session.md](session.md) describes the in-memory `Session` — the append-only `SessionEvent` log that is the source of truth. This page describes how that log is made durable: the abstract `SessionPersistence` service, its backends, the flush checkpoint, crash recovery, and the metadata header that travels alongside the log.
 
-The seam is a textbook [capability seam](../rfc/implemented/2026-06-13-capability-seams.md): one abstract service ([dsh-session-persistence](../../packages/session-persistence), `ctx.sessionPersistence`) defining create/append/load/list/has/delete over the existing `SessionEvent` — **no parallel persisted type** — and two interchangeable backends that pass the same `runPersistenceContract` suite. See the [session-persistence RFC](../rfc/implemented/2026-06-14-session-persistence.md).
+The seam is a textbook [capability seam](../rfc/implemented/architecture/2026-06-13-capability-seams.md): one abstract service ([dsh-session-persistence](../../packages/session-persistence), `ctx.sessionPersistence`) defining create/append/load/list/has/delete over the existing `SessionEvent` — **no parallel persisted type** — and two interchangeable backends that pass the same `runPersistenceContract` suite. See the [session-persistence RFC](../rfc/implemented/architecture/2026-06-14-session-persistence.md).
 
 ## The flush checkpoint
 
@@ -60,4 +60,4 @@ Both implement the same abstract `SessionPersistence` (create/append/load/list/h
 - **[dsh-session-persistence-jsonl](../../packages/session-persistence-jsonl)** — an append-only JSONL log per session with crash-safe atomic writes, the interrupted-turn crash recovery above, and a read/replay path.
 - **[dsh-session-persistence-sqlite](../../packages/session-persistence-sqlite)** — `node:sqlite`, one row per `SessionEvent`. The row shape `(session_id, seq, type, time, data)` maps 1:1 onto the event, so there is no parallel persisted schema to keep in sync.
 
-Multiple backends sharing one on-disk session coordinate writes through the [shared persistence write-coordinator](../rfc/implemented/2026-06-18-shared-persistence-write-coordinator.md).
+Multiple backends sharing one on-disk session coordinate writes through the [shared persistence write-coordinator](../rfc/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).

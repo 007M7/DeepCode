@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-session-persistence-sqlite
 
-A SQLite durable session-persistence backend — a second `SessionPersistence` implementation ([session persistence](../../docs/rfc/implemented/2026-06-14-session-persistence.md)), built to validate that the abstract seam and the shared `runPersistenceContract` suite are genuinely backend-agnostic. It satisfies the SAME contract as `dsh-session-persistence-jsonl` (append-only, contiguous-seq, lazy materialization, interrupted-turn close on load), expressed over `node:sqlite` rows instead of file bytes.
+A SQLite durable session-persistence backend — a second `SessionPersistence` implementation ([session persistence](../../docs/rfc/implemented/architecture/2026-06-14-session-persistence.md)), built to validate that the abstract seam and the shared `runPersistenceContract` suite are genuinely backend-agnostic. It satisfies the SAME contract as `dsh-session-persistence-jsonl` (append-only, contiguous-seq, lazy materialization, interrupted-turn close on load), expressed over `node:sqlite` rows instead of file bytes.
 
 > **TODO:** this backend talks to `node:sqlite` directly. If a cordis database service (`cordis/db` / a `@cordisjs` SQL driver plugin) is adopted, route through that instead of holding a raw `DatabaseSync` here — the contract surface (`SessionPersistence`) would not change, only the storage driver.
 

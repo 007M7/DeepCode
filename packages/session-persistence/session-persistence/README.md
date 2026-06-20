@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-session-persistence
 
-The abstract durable session-persistence seam (`ctx.sessionPersistence`). Defines WHAT a persistence backend does — durably store, reload, and list sessions — without saying HOW. Mirrors the `dsh-bash` capability-seam template ([capability seams](../../docs/rfc/implemented/2026-06-13-capability-seams.md)): an abstract service here, a concrete implementation in a sibling package, consumers that inject the interface.
+The abstract durable session-persistence seam (`ctx.sessionPersistence`). Defines WHAT a persistence backend does — durably store, reload, and list sessions — without saying HOW. Mirrors the `dsh-bash` capability-seam template ([capability seams](../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)): an abstract service here, a concrete implementation in a sibling package, consumers that inject the interface.
 
 The persisted unit IS the existing `SessionEvent` (event-sourced model — the log is the single source of truth), so there is no parallel "persisted message" type. Metadata that is NOT replayable conversation state (format version, cwd, lineage) travels separately as `SessionHeader`, owned by `dsh-session` and re-exported here.
 
@@ -39,7 +39,7 @@ The `PersistenceBackend<TornMarker>` hooks (the only seam between the coordinato
 | `deleteStored(id)` / `list()` | Remove a stored artifact / list all stored metadata. |
 | `close?()` | Optional lifecycle teardown (e.g. close a db handle), awaited after the dispose drain. |
 
-The `tornMarker` is fully OPAQUE: the coordinator only tests `!== undefined` and round-trips it to `commitRepair`, never inspecting its value (the JSONL backend uses the byte offset to truncate to, the SQLite backend the seq to delete from). The public `SessionPersistence` service shape is unchanged, so a third-party backend MAY still implement the abstract service directly without the coordinator. See [the write-coordinator RFC](../../docs/rfc/implemented/2026-06-18-shared-persistence-write-coordinator.md).
+The `tornMarker` is fully OPAQUE: the coordinator only tests `!== undefined` and round-trips it to `commitRepair`, never inspecting its value (the JSONL backend uses the byte offset to truncate to, the SQLite backend the seq to delete from). The public `SessionPersistence` service shape is unchanged, so a third-party backend MAY still implement the abstract service directly without the coordinator. See [the write-coordinator RFC](../../docs/rfc/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).
 
 ## Testing backends
 

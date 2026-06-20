@@ -30,7 +30,7 @@ dsh-ui-stdio      ← dsh-agent, dsh-llm, dsh-session (stdio readline UI plugin)
 dsh-llm-replay    ← dsh-llm, dsh-session            (record/replay adapter for keyless snapshot tests)
 ```
 
-The rule: plugins depend on interfaces, never on the concrete loop. `dsh-agent-loop` is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced. A swappable capability splits into interface / implementation / consumer packages (the bash trio is the template — see [capability seams](../docs/rfc/implemented/2026-06-13-capability-seams.md)).
+The rule: plugins depend on interfaces, never on the concrete loop. `dsh-agent-loop` is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced. A swappable capability splits into interface / implementation / consumer packages (the bash trio is the template — see [capability seams](../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)).
 
 ## What goes where
 

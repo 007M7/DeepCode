@@ -11,7 +11,7 @@
  * `time` (epoch ms) and header `createdAt` → 0. NOT scrubbed: the log's `seq`
  * (deterministic — `seq = log.length`, part of the event-log contract).
  *
- * See docs/rfc/implemented/2026-06-19-acp-snapshot-tests.md.
+ * See docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  */
 
 const SESSION_ID = '{{sessionId}}'
