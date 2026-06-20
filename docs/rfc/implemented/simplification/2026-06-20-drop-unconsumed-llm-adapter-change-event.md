@@ -1,6 +1,6 @@
 # RFC: Drop the unconsumed `llm/adapter-change` event
 
-Status: proposed
+Status: implemented (proposed and accepted 2026-06-20)
 
 ## Problem
 

@@ -5,6 +5,7 @@ import { Context } from 'cordis'
 import LlmService, { LlmError } from '@deepseek-ai/dsh-llm'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekAdapter, httpErrorCode } from '@deepseek-ai/dsh-llm-deepseek'
+import { assemble } from './assemble.ts'
 
 /** One scripted behavior for the next request the mock server receives. */
 type Behavior =
@@ -90,11 +91,11 @@ async function harness(baseURL: string, config: object = {}) {
 }
 
 describe('DeepSeekAdapter against a mock server', () => {
-  it('streams a text generation end to end through ctx.llm.generate', async () => {
+  it('streams a text generation end to end through the assembler', async () => {
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const ctx = await harness(server.url)
 
-    const result = await ctx.llm.generate({
+    const result = await assemble(ctx, {
       model: 'deepseek-v4-flash',
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
     })
@@ -130,7 +131,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const ctx = await harness(server.url, { thinking: 'disabled', reasoningEffort: 'high' })
 
-    await ctx.llm.generate({
+    await assemble(ctx,{
       model: 'deepseek-v4-flash',
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
     })
@@ -155,15 +156,15 @@ describe('DeepSeekAdapter against a mock server', () => {
     }
     const server = await mockServer([behavior, behavior, behavior])
     const ctx = await harness(server.url)
-    await expect(ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [] }))
+    await expect(assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] }))
       .rejects.toThrow(`failed with ${status}`)
     await expect(
-      ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [] })
+      assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
         .catch((error: unknown) => (error as LlmError).code),
     ).resolves.toBe(code)
     // The numeric HTTP status is carried on the error for explicit handling.
     await expect(
-      ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [] })
+      assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
         .catch((error: unknown) => (error as LlmError).status),
     ).resolves.toBe(status)
   })
@@ -171,14 +172,14 @@ describe('DeepSeekAdapter against a mock server', () => {
   it('keeps the status-line message for JSON error bodies without a message', async () => {
     const server = await mockServer([{ kind: 'http-error', status: 500, body: '{"error":{"type":"x"}}' }])
     const ctx = await harness(server.url)
-    await expect(ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [] }))
+    await expect(assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] }))
       .rejects.toThrow(/HTTP 500/)
   })
 
   it('keeps the status-line message for non-JSON error bodies', async () => {
     const server = await mockServer([{ kind: 'http-error', status: 502, body: 'Bad Gateway', contentType: 'text/plain' }])
     const ctx = await harness(server.url)
-    await expect(ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [] }))
+    await expect(assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] }))
       .rejects.toThrow(/HTTP 502/)
   })
 
@@ -207,7 +208,7 @@ describe('DeepSeekAdapter against a mock server', () => {
       events: ['{"choices":[{"delta":{"content":"par"}}]}'],
     }])
     const ctx = await harness(server.url)
-    await expect(ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [] }))
+    await expect(assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] }))
       .rejects.toThrow(/terminated|socket|without \[DONE\]/)
   })
 
@@ -278,7 +279,7 @@ describe('plugin registration and config', () => {
     vi.stubEnv('DEEPSEEK_BASE_URL', 'http://env-host:1')
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const ctx = await harness(server.url) // harness passes explicit config
-    await ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [] })
+    await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
     expect(server.requests).toHaveLength(1) // hit the explicit URL, not env
   })
 
@@ -288,7 +289,7 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmDeepSeek, { apiKey: 'k', models: ['deepseek-v4-flash'] })
-    await ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [] })
+    await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
     expect(server.requests).toHaveLength(1)
   })
 

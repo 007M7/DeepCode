@@ -193,10 +193,3 @@ export interface GenerateOptions {
   stop?: string[]
   signal?: AbortSignal
 }
-
-/** Non-streaming result, assembled from the chunk stream. */
-export interface GenerateResult {
-  message: Message
-  usage?: TokenUsage
-  finish: FinishReason
-}

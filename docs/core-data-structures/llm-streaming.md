@@ -49,7 +49,7 @@ interface TokenUsage {
 
 ## The seam
 
-`LlmAdapter` is the provider seam: subclass, implement `stream()`, register with `ctx.llm.registerAdapter(models, adapter)`. The `block-start` / `block-end` `index` correlation and the assembler together mean an adapter only has to emit well-formed chunks — block reassembly is not each adapter's problem. The consumer surface (`ctx.llm.stream()` / `streamBlocks()` / `generate()`) and the `llm/stream` waterfall are described in [architecture.md § The vocabulary](../architecture.md#the-vocabulary-dsh-llm).
+`LlmAdapter` is the provider seam: subclass, implement `stream()`, register with `ctx.llm.registerAdapter(models, adapter)`. The `block-start` / `block-end` `index` correlation and the assembler together mean an adapter only has to emit well-formed chunks — block reassembly is not each adapter's problem. The consumer surface (`ctx.llm.stream()`) and the `llm/stream` waterfall are described in [architecture.md § The vocabulary](../architecture.md#the-vocabulary-dsh-llm).
 
 `ContentBlockType` (the key set the `index`-correlated blocks carry) derives from `ContentBlockMap`:
 

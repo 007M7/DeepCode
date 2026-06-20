@@ -45,7 +45,7 @@ Dependency rule: plugins depend on interface packages, never on `dsh-agent-loop`
 
 | ctx key | Class | Package | Role |
 |---|---|---|---|
-| `ctx.llm` | `LlmService` | dsh-llm | adapter registry; `stream()` / `streamBlocks()` / `generate()` |
+| `ctx.llm` | `LlmService` | dsh-llm | adapter registry; `stream()` |
 | `ctx.sessions` | `SessionStore` | dsh-session | creates/holds event-sourced `Session`s |
 | `ctx.sessionPersistence` | `SessionPersistence` (abstract) | dsh-session-persistence | durable persistence seam: create/append/load/list sessions |
 | `ctx.systemPrompt` | `SystemPrompt` | dsh-system-prompt | ordered sections + tool schemas → `assemble()` |

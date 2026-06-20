@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import fc from 'fast-check'
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { CallId } from '@deepseek-ai/dsh-llm'
 
 // A small pool of indices so collisions (duplicate-index bugs) are common.
@@ -55,38 +55,6 @@ function feed(chunks: StreamChunk[]): BlockAssembler {
 }
 
 describe('BlockAssembler properties', () => {
-  it('flushReady() ++ flushRemaining() === blocks(), in order', () => {
-    fc.assert(fc.property(streamArb, (chunks) => {
-      const streaming = new BlockAssembler()
-      const flushed: ContentBlock[] = []
-      for (const chunk of chunks) {
-        streaming.push(chunk)
-        flushed.push(...streaming.flushReady())
-      }
-      flushed.push(...streaming.flushRemaining())
-
-      const oneShot = feed(chunks).blocks()
-      expect(flushed).toEqual(oneShot)
-    }))
-  })
-
-  it('streamBlocks-style flush never yields a block before an earlier open one', () => {
-    // flushReady is strict-order: once it stops at an open index, no later
-    // index may be emitted until that one closes. We assert the flushed prefix
-    // is always a prefix of the final blocks() order.
-    fc.assert(fc.property(streamArb, (chunks) => {
-      const streaming = new BlockAssembler()
-      const flushed: ContentBlock[] = []
-      for (const chunk of chunks) {
-        streaming.push(chunk)
-        flushed.push(...streaming.flushReady())
-      }
-      const finalSoFar = streaming.blocks()
-      // Everything flushed mid-stream is a prefix of the full ordered blocks.
-      expect(finalSoFar.slice(0, flushed.length)).toEqual(flushed)
-    }))
-  })
-
   it('partials map size never exceeds the number of distinct indices seen', () => {
     fc.assert(fc.property(streamArb, (chunks) => {
       const distinct = new Set<number>()
@@ -134,13 +102,9 @@ describe('BlockAssembler properties', () => {
 
   it('streaming and one-shot assembly agree on usage and finish', () => {
     fc.assert(fc.property(streamArb, (chunks) => {
-      // Streaming consumer: push + flush as it goes.
+      // Streaming consumer: push as it goes.
       const streaming = new BlockAssembler()
-      for (const chunk of chunks) {
-        streaming.push(chunk)
-        streaming.flushReady()
-      }
-      streaming.flushRemaining()
+      for (const chunk of chunks) streaming.push(chunk)
       // One-shot consumer: push all, then read.
       const oneShot = feed(chunks)
       expect(streaming.usage).toEqual(oneShot.usage)

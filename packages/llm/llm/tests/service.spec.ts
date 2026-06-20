@@ -19,24 +19,22 @@ const SCRIPT: StreamChunk[] = [
 ]
 
 describe('LlmService', () => {
-  it('routes stream() to the registered adapter and generate() assembles it', async () => {
+  it('routes stream() to the registered adapter', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     ctx.llm.registerAdapter(['test-model'], new ScriptedAdapter(SCRIPT))
 
     const chunks: StreamChunk[] = []
     for await (const chunk of ctx.llm.stream({ model: 'test-model', messages: [] })) chunks.push(chunk)
-    expect(chunks).toHaveLength(3)
-
-    const result = await ctx.llm.generate({ model: 'test-model', messages: [] })
-    expect(result.message.content).toEqual([{ type: 'text', text: 'hi' }])
-    expect(result.finish).toEqual({ kind: 'stop' })
+    expect(chunks).toEqual(SCRIPT)
   })
 
   it('throws NO_ADAPTER for unregistered models', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    await expect(ctx.llm.generate({ model: 'nope', messages: [] })).rejects.toThrow('no adapter registered')
+    await expect((async () => {
+      for await (const _ of ctx.llm.stream({ model: 'nope', messages: [] })) { /* drain */ }
+    })()).rejects.toThrow('no adapter registered')
   })
 
   it('unregisters adapters when the owning fiber is disposed (HMR safety)', async () => {
@@ -71,21 +69,6 @@ describe('LlmService', () => {
     expect(chunks[0]).toMatchObject({ index: 99 })
   })
 
-  it('lets llm/generate waterfall listeners intercept and transform the result', async () => {
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['test-model'], new ScriptedAdapter(SCRIPT))
-
-    ctx.on('llm/generate', async function (_options, next) {
-      const result = await next()
-      return { ...result, finish: { kind: 'max-tokens' } as const }
-    })
-
-    const result = await ctx.llm.generate({ model: 'test-model', messages: [] })
-    expect(result.finish).toEqual({ kind: 'max-tokens' })
-    expect(result.message.content).toEqual([{ type: 'text', text: 'hi' }])
-  })
-
   it('creates LlmError with a code for programmatic handling', () => {
     const err = new LlmError('something went wrong', 'CUSTOM_CODE')
     expect(err).toBeInstanceOf(Error)
@@ -116,20 +99,13 @@ describe('LlmService', () => {
     expect(isHarnessError('nope')).toBe(false)
   })
 
-  it('disposes adapter registration on adapter-change event emission', async () => {
+  it('removes the adapter when the returned disposer is called', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
 
-    const changes: string[][] = []
-    ctx.on('llm/adapter-change', () => {
-      changes.push([...ctx.llm.models()])
-    })
-
     const dispose = ctx.llm.registerAdapter(['m1'], new ScriptedAdapter(SCRIPT))
-    expect(changes).toEqual([['m1']])
-
+    expect(ctx.llm.models()).toEqual(['m1'])
     dispose()
-    expect(changes).toEqual([['m1'], []])
     expect(ctx.llm.models()).toEqual([])
   })
 
@@ -147,25 +123,19 @@ describe('LlmService', () => {
     }
   })
 
-  it('rolls back the adapter entry when an adapter-change listener throws (P1-1)', async () => {
+  it('re-registers a model after its prior registration is disposed', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
 
-    // A change listener that throws on the FIRST emit only.
-    let threw = false
-    ctx.on('llm/adapter-change', () => {
-      if (!threw) { threw = true; throw new Error('boom change listener') }
-    })
-
-    // The throwing emit must roll the mutation back, not leak it.
-    expect(() => ctx.llm.registerAdapter(['m1'], new ScriptedAdapter(SCRIPT))).toThrow('boom change listener')
-    expect(ctx.llm.models()).toEqual([]) // entry rolled back, not leaked
-
-    // A subsequent listener-free register of the SAME model succeeds and
-    // contributes exactly once (the duplicate check is not wedged).
     const dispose = ctx.llm.registerAdapter(['m1'], new ScriptedAdapter(SCRIPT))
     expect(ctx.llm.models()).toEqual(['m1'])
     dispose()
+    expect(ctx.llm.models()).toEqual([])
+
+    // The duplicate check is not wedged: the same model registers cleanly again.
+    const disposeAgain = ctx.llm.registerAdapter(['m1'], new ScriptedAdapter(SCRIPT))
+    expect(ctx.llm.models()).toEqual(['m1'])
+    disposeAgain()
     expect(ctx.llm.models()).toEqual([])
   })
 })
