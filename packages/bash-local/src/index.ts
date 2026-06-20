@@ -49,6 +49,8 @@ interface TrackedTask extends BashTask {
   /** Whole-stream byte offsets already delivered via {@link LocalBashExecutor.readOutput}. */
   stdoutOffset: number
   stderrOffset: number
+  /** Opaque owner token from the {@link BashExecSpec} (the consumer's isolation key). */
+  owner: string | undefined
 }
 
 /**
@@ -114,6 +116,9 @@ export class LocalBashExecutor extends BashExecutor {
       workdir: request.workdir ?? this.config.cwd ?? process.cwd(),
       timeoutMs,
       ...request.signal ? { signal: request.signal } : {},
+      // Carry the owner through verbatim (required-but-nullable on the spec):
+      // the executor never interprets it — the consumer's access policy does.
+      owner: request.owner,
     }
   }
 
@@ -149,6 +154,7 @@ export class LocalBashExecutor extends BashExecutor {
       status: 'running',
       exitCode: null,
       signal: null,
+      owner: spec.owner,
       running,
       stdoutOffset: 0,
       stderrOffset: 0,
@@ -172,6 +178,12 @@ export class LocalBashExecutor extends BashExecutor {
 
   get(id: string): BashTask | undefined {
     return this.tasks.get(id)
+  }
+
+  ownerOf(id: string): string | undefined {
+    // Unknown id and known-but-ownerless both read as undefined — the consumer
+    // treats undefined as "open" and a truly unknown id fails at readOutput/kill.
+    return this.tasks.get(id)?.owner
   }
 
   list(): BashTask[] {

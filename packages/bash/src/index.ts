@@ -88,6 +88,21 @@ export abstract class BashExecutor extends Service {
   /** Look up a background task by id. */
   abstract get(id: string): BashTask | undefined
 
+  /**
+   * The opaque OWNER token recorded for a background task at {@link start}
+   * (from the {@link BashExecSpec}'s `owner`), or `undefined` for an unknown id
+   * OR a known-but-ownerless task. The executor stores and returns the token
+   * verbatim — it never interprets it; the access POLICY (who may read/kill a
+   * task) lives in the consumer (`@deepseek-ai/dsh-tool-bash`), which compares
+   * `ownerOf(id)` to the caller's token. Collapsing unknown-id and
+   * known-but-unowned into the same `undefined` is fine: the consumer's access
+   * gate treats `undefined` as "open", and a genuinely unknown id then fails
+   * loudly at the subsequent {@link readOutput}/{@link kill} ("unknown task").
+   * Storing ownership in the executor (disposed with ITS fiber) — not in the
+   * tool plugin — is what makes ownership survive a `tool-bash` HMR reload.
+   */
+  abstract ownerOf(id: string): string | undefined
+
   /** All tracked background tasks (insertion order). */
   abstract list(): BashTask[]
 

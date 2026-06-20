@@ -20,6 +20,15 @@ export interface BashExecRequest {
   timeoutMs?: number | undefined
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
+  /**
+   * Opaque OWNER token for a background task — the consumer's isolation key
+   * (the tool layer passes the owning agent's `session.header.id`). The
+   * executor stores it on the task and exposes it via {@link BashExecutor.ownerOf};
+   * the executor itself NEVER interprets it (no access policy lives in the
+   * seam — that is the consumer's job). Absent for foreground runs and for an
+   * ownerless background start (a non-agent caller).
+   */
+  owner?: string | undefined
 }
 
 /**
@@ -36,6 +45,15 @@ export interface BashExecSpec {
   timeoutMs: number
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
+  /**
+   * Opaque owner token, REQUIRED-but-nullable (mirrors `workdir`/`timeoutMs`
+   * being required on the resolved spec): {@link BashExecutor.resolve} carries
+   * the request's `owner` through, defaulting a missing one to `undefined`. A
+   * required field makes a forgotten owner a VISIBLE `undefined` rather than a
+   * silently-absent property that yields an unowned (cross-session-readable)
+   * task. `start()` stores it; `run()` (foreground) ignores it.
+   */
+  owner: string | undefined
 }
 
 /** One captured stream: the (possibly truncated) text plus recovery info. */
