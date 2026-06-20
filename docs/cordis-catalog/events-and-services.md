@@ -355,10 +355,9 @@ abstract list(): BashTask[]
 abstract readOutput(id: string): BashTaskRead
 abstract kill(id: string): boolean
 onTaskDone(listener: BashTaskListener): () => void
-protected notifyTaskDone(task: BashTask): void
 ```
 
-Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [BashTask](../core-data-structures/bash.md)
+Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [BashTask](../core-data-structures/bash.md) · [BashTaskRead](../core-data-structures/bash.md)
 
 Source: [`packages/bash/src/index.ts:58`](../../packages/bash/src/index.ts)
 

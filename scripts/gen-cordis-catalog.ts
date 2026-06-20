@@ -7,16 +7,15 @@
  * can call (exact public interface). It complements the core-data-structures
  * catalog (the VOCABULARY axis — the types these signatures move around).
  *
- * Unlike the core-data-structures docs (a hand-paste drift-checked by
- * verify-type-equiv), this file is FULLY GENERATED from source — never
- * hand-edit it. The codebase is disciplined enough that a pure-AST pass
- * captures the whole truthful surface: every event/service is a string literal
- * that round-trips to a static `interface Events` / `interface Context`
- * declaration (no dynamically-named events, no runtime-only services). So the
- * committed file is a build artifact and a regenerate-and-diff freshness check
- * (`--check`) makes drift structurally impossible — which also closes the gap a
- * name-set verifier could not: a brand-new UNDOCUMENTED event cannot slip
- * through, because generation enumerates source rather than checking a subset.
+ * The catalog is FULLY GENERATED from source — never hand-edit it. The codebase
+ * is disciplined enough that a pure-AST pass captures the whole truthful
+ * surface: every event/service is a string literal that round-trips to a static
+ * `interface Events` / `interface Context` declaration (no dynamically-named
+ * events, no runtime-only services). So the committed file is a build artifact
+ * and a regenerate-and-diff freshness check (`--check`) makes drift structurally
+ * impossible. Because generation enumerates source rather than checking a
+ * hand-written subset, a brand-new event cannot be silently undocumented — it
+ * appears in the next regenerate, and an un-regenerated file fails `--check`.
  *
  *   `tsx scripts/gen-cordis-catalog.ts`          → write the catalog
  *   `tsx scripts/gen-cordis-catalog.ts --check`  → exit 1 if the committed file
@@ -76,6 +75,7 @@ const LINK_MAP: Record<string, string> = {
   BashExecSpec: 'bash.md',
   BashRunResult: 'bash.md',
   BashTask: 'bash.md',
+  BashTaskRead: 'bash.md',
 }
 
 /** One harness event, extracted from an `interface Events` block. */
@@ -276,10 +276,16 @@ export function collectServices(scanRoot: string = root): ServiceEntry[] {
       const methods: string[] = []
       for (const member of cls.members) {
         if (!ts.isMethodDeclaration(member)) continue
-        const isPrivate = member.modifiers?.some(m => m.kind === ts.SyntaxKind.PrivateKeyword)
+        // Only the PUBLIC callable surface a `ctx.<key>` consumer sees. Drop
+        // private/protected (a protected method like `notifyTaskDone` is a
+        // subclass hook, not something a plugin calls through `ctx.bash`) and
+        // static (not reachable through the instance).
+        const nonPublic = member.modifiers?.some(m =>
+          m.kind === ts.SyntaxKind.PrivateKeyword
+          || m.kind === ts.SyntaxKind.ProtectedKeyword
+          || m.kind === ts.SyntaxKind.StaticKeyword)
           || ts.isPrivateIdentifier(member.name)
-        const isStatic = member.modifiers?.some(m => m.kind === ts.SyntaxKind.StaticKeyword)
-        if (isPrivate || isStatic) continue
+        if (nonPublic) continue
         const memberName = member.name.getText(sf)
         if (memberName.startsWith('[')) continue // computed/symbol members
         methods.push(memberSignature(member, sf))
