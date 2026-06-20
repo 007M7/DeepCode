@@ -26,7 +26,7 @@ import type { ContentBlock as AcpContentBlock, StopReason } from '@agentclientpr
  *
  * - `completed` → `end_turn` (the model chose to stop)
  * - `max-tokens` → `max_tokens` (cut off at the output-token ceiling)
- * - `aborted`   → `cancelled` (an `agent.abort()`, e.g. from `session/cancel`)
+ * - `aborted`   → `cancelled` (a step abort or a queue-aware `agent.cancel()`, e.g. from `session/cancel`)
  * - `error`     → `end_turn` (defensive fallback only: the bridge REJECTS the
  *                 `session/prompt` RPC on an error turn BEFORE calling this, so
  *                 a client sees a JSON-RPC error, not a stop reason — see

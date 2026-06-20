@@ -13,7 +13,9 @@
  * - `session/load`   → `ctx.agents.resume(...)` then replay the event log
  * - `session/prompt` → `agent.send()`, settle on the owning turn's end (a turn
  *                      that ends in `error` rejects the RPC)
- * - `session/cancel` → `agent.abort()` + settle the in-flight prompt
+ * - `session/cancel` → `agent.cancel()` (the queue-aware cancel: aborts a
+ *                      running step, clears queued + steering work, and drops a
+ *                      turn about to start) + settle the in-flight prompt
  *
  * Multi-session (RFC 011): N concurrent sessions per connection, each mapped to
  * its own `ReactLoopAgent`. Sessions are keyed by id in `sessions` (forward) with an
@@ -569,23 +571,19 @@ export function apply(ctx: Context, config: AcpConfig): void {
       cancel(params: CancelNotification): Promise<void> {
         const rec = sessions.get(params.sessionId)
         if (rec === undefined) return Promise.resolve()
-        // RFC 010: session/cancel maps to agent.abort(reason). This aborts a
-        // RUNNING step (the turn ends 'aborted' → 'cancelled' via turn-end).
-        // It aborts and settles ONLY this session's agent/prompt — a cancel in
-        // one session never touches another's stream or pending prompt (RFC 011
-        // isolation). It also settles the in-flight prompt as cancelled directly,
-        // in case the abort lands in the pre-step window (queued-but-not-started)
-        // where abort() has no AbortController to signal — see the README
-        // TODO(rfc010-cancel-prestep): a not-yet-started queued turn may still
-        // run to completion until a loop-level cancel lands. Best-effort abort
-        // plus honest RPC/UI cancellation. A secondary consequence of that same
-        // gap: because the loop batches all queued messages into one turn, a
-        // prompt accepted right after a pre-step cancel can be merged into the
-        // same turn as the cancelled one — that turn then carries both prompts'
-        // text and the new prompt settles for it. Both are closed by the same
-        // queue-aware loop cancel; the single-in-flight rule bounds the blast
-        // radius to one extra prompt.
-        rec.agent.abort('session/cancel')
+        // session/cancel maps to the queue-aware agent.cancel(reason): it aborts
+        // a RUNNING step, clears the queued + steering FIFOs, and drops a
+        // turn that is about to start (the pre-step window) — so a queued-but-
+        // not-yet-started prompt never runs, and a prompt accepted right after
+        // cannot be batched into the cancelled turn. Scoped to THIS session's
+        // agent — a cancel in one session never touches another's stream or
+        // pending prompt (RFC 011 isolation). We ALSO settle the in-flight prompt
+        // as cancelled directly here: do NOT rely on the resulting turn/end to
+        // settle it, because cancel() may drop the turn before any turn/end is
+        // emitted, and removing this direct settle would move the RPC's
+        // resolution onto the settleFromLog/agent-status path, changing its
+        // timing.
+        rec.agent.cancel('session/cancel')
         settlePrompt(rec, 'cancelled')
         return Promise.resolve()
       },

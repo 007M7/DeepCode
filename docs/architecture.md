@@ -109,6 +109,7 @@ Tool schemas are deliberately **part of the assembly**: "what the model is told 
 - `steer(content)` — mid-turn injection, drained **between steps**; behaves like `send` when idle
 - `inject(content)` — in-session context (`context/message` event); the next request sees it (Claude Code attachment / system-reminder analog). An inject made while the agent is *running* joins the open turn; an inject while *idle* is wrapped in a one-shot turn (`turn/start{trigger:injection}` → `context/message` → `turn/end`) so every event stays turn-enclosed (see [the turn-enclosure invariant](rfc/implemented/2026-06-15-turn-enclosure-invariant.md)).
 - `abort(reason)` — aborts the in-flight step via `AbortSignal`
+- `cancel(reason)` — the broad cancel: clears queued + steering work, aborts the in-flight step, and drops a turn about to start (the pre-step window) so a queued-but-not-started prompt never runs and cannot be batched into the cancelled turn. `abort()` is the narrower step-only verb; `cancel()` is what a UI/ACP `session/cancel` maps to.
 - `whenIdle()` — resolves once the agent reaches quiescence after settling out of `running` (resolves immediately when already idle; awaits the loop exit when disposed). The teardown signal: `abort()` then `await whenIdle()` guarantees the in-flight turn has fully stopped. Observes the transition without disposing the agent.
 - `session`, `status`, `options`
 

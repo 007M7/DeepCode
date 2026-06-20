@@ -82,6 +82,25 @@ export interface Agent {
   abort(reason?: string): void
 
   /**
+   * Cancel ALL pending work for the agent — the narrower {@link abort} kills
+   * only the in-flight step. `cancel()`:
+   *
+   * - clears the queued FIFO (un-started prompts never run) and the steering
+   *   FIFO (steering for the cancelled turn is dropped, not re-enqueued);
+   * - aborts the in-flight step if one is running (the turn ends `aborted`);
+   * - drops a turn that is about to start (a `cancel()` landing in the
+   *   pre-step window — after a `send()` queued but before the loop flips to
+   *   `running`, or after `running` is emitted but before the first step) so
+   *   that queued prompt does not run and cannot be batched into the cancelled
+   *   turn.
+   *
+   * After `cancel()`, `whenIdle()` resolves on the post-cancel quiescent state.
+   * `cancel()` on an idle agent with nothing queued or running is a safe no-op
+   * — it does NOT arm anything that would drop a later legitimate prompt.
+   */
+  cancel(reason?: string): void
+
+  /**
    * Resolve once the agent has reached quiescence after settling out of
    * `running`, or immediately if it is already idle with no queued work. The
    * quiescence signal a teardown awaits: `agent.abort()` then

@@ -107,6 +107,34 @@ export interface LoopHandle {
   /** Resolves when the agent is disposed — unblocks the idle wait. */
   disposed: Promise<void>
   isDisposed(): boolean
+  /**
+   * Whether a `cancel()` is pending for the current turn. The driver checks this
+   * at every decision point where a turn could start or continue (right after
+   * the idle wait, after the `running` flip, before each step, and at the
+   * continuation gate) and drops the about-to-run / continuing turn. Reset once
+   * per loop iteration via {@link clearCancel} after the turn returns, so the
+   * marker governs exactly one cancellation and never leaks to a later prompt.
+   */
+  isCancelled(): boolean
+  /**
+   * The resolved reason for the pending cancel (`reason ?? 'cancelled'`), read
+   * by the marker branches (pre-step / continuation) so a turn dropped where no
+   * `AbortController` carries the reason still records the caller's
+   * `cancel(reason)` value — matching the mid-step abort path. Only meaningful
+   * when {@link isCancelled} is true.
+   */
+  cancelReason(): string
+  /** Clear the cancel marker (called once per iteration after the turn returns). */
+  clearCancel(): void
+  /**
+   * Settle pending `whenIdle()` waiters WITHOUT a status transition. Used by the
+   * pre-step cancel-skip path: it drops the about-to-run turn and re-parks at the
+   * idle wait, so no `running→idle` transition fires to settle a `whenIdle()`
+   * waiter that was registered in the pre-step window — this settles it directly
+   * (it emits no `agent/status`, so an ACP `agent/status` listener never sees a
+   * spurious idle that would resolve a freshly-queued prompt as cancelled).
+   */
+  settleIdle(): void
 }
 
 /**
@@ -148,7 +176,49 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
     await agent.inbox.waitForQueued(handle.disposed)
     if (handle.isDisposed()) break
 
+    // Pre-step cancel (window 1): a `cancel()` landed after a `send()` woke the
+    // idle wait but before we flip to `running`. The cancelled queued/steering
+    // work is already cleared by `cancel()`. Clear the marker, then:
+    //   - if NOTHING new is queued, drop the about-to-run turn and re-park,
+    //     settling any `whenIdle()` waiter DIRECTLY (no running→idle transition
+    //     fires here to settle it) and WITHOUT emitting `agent/status` (an ACP
+    //     listener must not see a spurious idle that resolves a freshly-queued
+    //     prompt as cancelled);
+    //   - if a NEW prompt was queued AFTER the cancel (a send() that raced in
+    //     before the loop resumed), the marker was for the cancelled work only —
+    //     fall through and run the new prompt's turn. Do NOT settle waiters here:
+    //     a whenIdle() waiter must wait for that new turn's running→idle, not
+    //     resolve before it runs (the quiescence contract).
+    if (handle.isCancelled()) {
+      handle.clearCancel()
+      if (!agent.inbox.hasQueued) {
+        handle.settleIdle()
+        continue
+      }
+    }
+
     handle.setStatus('running')
+
+    // Pre-step cancel (window 2): `setStatus('running')` emits `agent/status`
+    // SYNCHRONOUSLY, so a `running` listener can `cancel()` in the gap between the
+    // check above and `runTurn`. Mirror window 1: clear the marker, then
+    //   - if NOTHING new is queued, drop the about-to-run turn and transition
+    //     back to `idle` (`running` was already emitted, so a real idle
+    //     transition balances the status AND settles `whenIdle()` waiters);
+    //   - if a NEW prompt was queued AFTER the cancel (a `running` listener that
+    //     cancels then sends), the marker was for the cancelled work only — fall
+    //     through and run the new prompt's turn (status is already `running`), so
+    //     a `whenIdle()` waiter resolves on THAT turn's running→idle, not before
+    //     it runs. Settling here would resolve quiescence while the replacement
+    //     is still queued and unrun (the same early-resolve race window 1 fixes).
+    if (handle.isCancelled()) {
+      handle.clearCancel()
+      if (!agent.inbox.hasQueued) {
+        handle.setStatus('idle')
+        continue
+      }
+    }
+
     // Re-derive the turn number from the log each iteration (do NOT keep a local
     // counter): an idle `agent.inject()` can append its own one-shot turn while
     // the loop waits above, so the next real turn must continue from whatever
@@ -170,8 +240,18 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
       } catch { /* contained: a throwing agent/error listener must not kill the driver */ }
     }
 
+    // Reset the cancel marker UNCONDITIONALLY here, after the turn returns and
+    // before the next iteration's idle wait. NOT gated on the idle transition
+    // below: a `send()` that lands during the cancelled turn's flush window makes
+    // `hasQueued` true at the `setStatus('idle')` guard, so an idle-gated reset
+    // would never fire and the stale marker would wrongly drop that next prompt's
+    // turn. Resetting per iteration scopes the marker to exactly the turn that was
+    // cancelled.
+    handle.clearCancel()
+
     // Steering that arrived too late to join this turn (turn-end listeners,
-    // flush) becomes a queued message — it must never be stranded.
+    // flush) becomes a queued message — it must never be stranded. (A cancelled
+    // turn already cleared its steering, so there is nothing to re-enqueue.)
     for (const message of agent.inbox.drainSteering()) {
       agent.inbox.enqueue(message)
     }
@@ -323,6 +403,20 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
       const abort = new AbortController()
       handle.setAbort(abort)
 
+      // Cancel landing in the step-start window: a synchronous `agent/turn-start`
+      // or `agent/step-start` listener (both fire before this point) can have
+      // called `cancel()`, and `runStep` would otherwise run a full extra step
+      // with no AbortController having observed it. Check the marker AFTER
+      // setAbort (so the next-iteration drain sees a clean controller) and before
+      // `runStep`: drop the step, end the turn `aborted`. closeStep balances the
+      // already-appended step/start.
+      if (handle.isCancelled()) {
+        handle.setAbort(undefined)
+        reason = { kind: 'aborted', reason: handle.cancelReason() }
+        closeStep()
+        break
+      }
+
       let stepOutcome: { hadToolCalls: boolean; finish: FinishReason } | { error: Error }
       try {
         stepOutcome = await runStep(ctx, agent, turn, step, abort.signal)
@@ -381,6 +475,16 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
       // demands the model see it — it overrides a negative decision; the
       // next iteration's drain records it.
       if (!shouldContinue && agent.inbox.hasSteering) shouldContinue = true
+
+      // A cancel that landed during the continuation window — after the step's
+      // AbortController was cleared (setAbort(undefined)) but before the next
+      // step starts — has no controller to observe it, so the turn-scoped marker
+      // ends the turn here. cancel() also cleared the steering FIFO, so the
+      // override above did not re-arm continuation.
+      if (handle.isCancelled()) {
+        reason = { kind: 'aborted', reason: handle.cancelReason() }
+        break
+      }
 
       if (!shouldContinue || handle.isDisposed()) {
         /* v8 ignore next -- disposal during continuation-decision window is a narrow race; error-path disposal is covered elsewhere */
