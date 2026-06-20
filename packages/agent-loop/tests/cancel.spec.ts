@@ -1,5 +1,5 @@
 /**
- * Tests for the queue-aware `Agent.cancel()` primitive (PR C). `cancel()` is the
+ * Tests for the queue-aware `Agent.cancel()` primitive. `cancel()` is the
  * broad verb — it clears queued + steering work, aborts an in-flight step, and
  * drops a turn about to start — whereas `abort()` kills only the current step.
  * These tests exercise every window where a cancel can land (idle, pre-step,
