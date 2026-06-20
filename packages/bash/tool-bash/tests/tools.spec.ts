@@ -85,12 +85,13 @@ function trackCompletions(ctx: Context): void {
   const state = { done: new Map<string, BashTask>(), waiters: new Map<string, (task: BashTask) => void>() }
   completions.set(ctx, state)
   ctx.bash.onTaskDone((task) => {
+    // Always record the completion so a later doneFor(id) still resolves; also
+    // wake any waiter already parked on this id.
+    state.done.set(task.id, task)
     const waiter = state.waiters.get(task.id)
     if (waiter) {
       state.waiters.delete(task.id)
       waiter(task)
-    } else {
-      state.done.set(task.id, task)
     }
   })
 }
