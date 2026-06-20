@@ -1,6 +1,6 @@
 # RFC: Persist assembled assistant messages, not stream chunks
 
-Status: proposed
+Status: rejected — high-fidelity chunk replay, partial failed streams, and snapshot replay currently depend on persisted `assistant/chunk` events. Dropping chunks is only viable with a no-information-loss replay/artifact replacement.
 
 ## Problem
 
@@ -10,7 +10,7 @@ For successful steps that assemble completed content, the loop already appends a
 
 ## Proposal
 
-Stop storing `assistant/chunk` in the canonical session log. The durable log keeps `assistant/message`, `tool/call`, `tool/result`, `usage` if retained, and turn boundaries. Live UIs can still receive token deltas through a deliberately transient stream event. Snapshot replay should move its model script into an explicit fixture sidecar or derive it from a recorded adapter artifact, rather than treating the canonical user session as a token tape. Scenarios that need partial failed-stream output must record that output in the replay fixture or accept that it is not part of completed conversation history.
+Stop storing `assistant/chunk` in the canonical session log. The durable log keeps `assistant/message`, `tool/call`, `tool/result`, `usage` if retained, and turn boundaries. Live UIs can still receive token deltas through a deliberately transient stream event. Snapshot replay should move its model script into an explicit fixture sidecar or derive it from a recorded adapter artifact, rather than treating the canonical user session as a token tape. Scenarios that need partial failed-stream output must record that output in the replay fixture.
 
 ACP `session/load` can replay prior assistant messages as complete content blocks instead of simulating the original token stream. A loaded transcript need not reproduce every historical delta; it must show the same completed assistant content and resume with a valid provider history.
 
@@ -25,7 +25,7 @@ ACP `session/load` can replay prior assistant messages as complete content block
 
 ## What we give up
 
-The canonical user session no longer reconstructs the exact token stream of an old turn. It also loses partial assistant output from failed or aborted streams unless another event or fixture records it. That is acceptable for resume and load, where completed message content is the user-visible state. Tests that need exact deterministic streams should own that fixture directly instead of smuggling it through the durable session format.
+The canonical user session no longer reconstructs the exact token stream of an old turn. It also loses partial assistant output from failed or aborted streams unless another event or fixture records it. That is too much information loss for the current resume, load, and snapshot contracts. Tests that need exact deterministic streams should own that fixture directly only if the production session log keeps enough fidelity for user-visible recovery.
 
 ## Related
 

@@ -1,6 +1,6 @@
 # RFC: Retire mid-turn steering
 
-Status: proposed
+Status: rejected — mid-turn steering is an intentional agent capability for between-step user/plugin input and future goal/loop workflows. It is complexity with a product direction, not an accidental duplicate of `send()`.
 
 ## Problem
 
@@ -30,4 +30,4 @@ A user cannot add same-turn steering content while a model is between tool steps
 
 ## Related
 
-This pairs naturally with [dropping durable step boundaries](2026-06-20-drop-durable-step-boundaries.md), because removing same-turn steering and `agent/turn-continuation` leaves tool calls as the only reason a turn contains multiple model steps.
+This pairs naturally with [dropping durable step boundaries](../proposed/2026-06-20-drop-durable-step-boundaries.md), because removing same-turn steering and `agent/turn-continuation` leaves tool calls as the only reason a turn contains multiple model steps.

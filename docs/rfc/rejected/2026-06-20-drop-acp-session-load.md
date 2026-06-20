@@ -1,12 +1,12 @@
 # RFC: Drop ACP session/load until resume has a product shape
 
-Status: proposed
+Status: rejected — Zed is the current target ACP client, advertises and exercises load-capable sessions, and keeps pending-load state for concurrent `session/load`. The bridge should keep `session/load` and make the resume contract solid.
 
 ## Problem
 
 ACP advertises `loadSession: true` and implements `session/load` by injecting persistence into the bridge, validating cwd against stored metadata, reconstructing an agent from the persisted log, and replaying prior transcript updates to the client. That path has its own race handling, loading-id guard, replay presenter logic, and tests. It also depends on the canonical log retaining enough UI data to reconstruct old chunks and tool presentations.
 
-Durable persistence remains foundational, but editor-visible resume is not yet a designed product flow. There is no session picker, no title/preview metadata, and no clear UX for failed or partial loads. The bridge is paying complexity for a feature that is mostly exercised by tests and documentation.
+Durable persistence remains foundational, but editor-visible resume is not yet a designed product flow. There is no session picker, no title/preview metadata, and no clear UX for failed or partial loads. The bridge is paying complexity for a feature that is exercised by tests, documentation, and the current target client's session model.
 
 ## Proposal
 

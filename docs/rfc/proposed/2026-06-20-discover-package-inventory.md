@@ -10,13 +10,13 @@ Static lists are appropriate when they encode policy; they are needless friction
 
 ## Proposal
 
-Make package/gate inventories discoverable. Publishability should come from explicit package classification metadata, not from a static array in a script or the npm `private` flag. Module graph generation should read package manifests. `doc-sync` should be the one command that defines and prints its sub-gates, with docs linking to that command rather than restating a second list.
+Make package/gate inventories discoverable. Publishability should come from explicit package aspect metadata, not from a static array in a script or the npm `private` flag. Module graph generation should read package manifests. `doc-sync` should be the one command that defines and prints its sub-gates, with docs linking to that command rather than restating a second list.
 
-This pairs well with [classifying support packages](2026-06-20-classify-support-packages.md), because discovery needs to know which packages are product-publishable, support-only, private, or examples.
+The metadata should be aspect-oriented rather than a single support/product bucket: a package may be core, bash-related, filesystem-related, persistence-related, provider-facing, example-facing, testing-only, and/or publishable. Discovery needs enough explicit facts to drive gates without baking a fragile hierarchy into every script.
 
 ## Acceptance criteria
 
-- `publint-all` discovers publishable packages from manifests plus a single classification source.
+- `publint-all` discovers publishable packages from manifests plus explicit aspect metadata.
 - Adding a package does not require editing a static package list for every gate.
 - Docs describe the source of truth rather than repeating generated inventories.
 - CI invokes the aggregate commands and lets those commands own their sub-gate lists.

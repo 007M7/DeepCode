@@ -1,12 +1,12 @@
 # RFC: Drop ACP terminal `_meta` rendering
 
-Status: proposed
+Status: rejected — Zed is the current target client, and the terminal `_meta` convention is intentional Zed UX with a plain ACP fallback for other clients.
 
 ## Problem
 
 The ACP bridge implements a Zed-specific terminal-card convention through `_meta.terminal_info`, `_meta.terminal_output`, and `_meta.terminal_exit`. The implemented [rich ACP bash rendering RFC](../implemented/2026-06-18-acp-terminal-and-tool-rendering.md) deliberately avoided ACP's client-side `terminal/create` because bash execution belongs in the harness, but still adopted the reference agents' display-only `_meta` convention. That gives a nicer Zed card at the cost of bridge state, capability negotiation, terminal ids, special update mapping, text fallback tests, and exit-pill parsing in `dsh-tool-bash`.
 
-The fallback path already exists: render the tool call and completed output as normal ACP content blocks. Non-Zed clients rely on that path anyway.
+The fallback path already exists: render the tool call and completed output as normal ACP content blocks. Non-Zed clients rely on that path anyway, but the Zed terminal card is a current target-client feature rather than speculative decoration.
 
 ## Proposal
 

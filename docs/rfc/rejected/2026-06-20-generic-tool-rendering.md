@@ -1,6 +1,6 @@
 # RFC: Collapse tool-owned UI presentation
 
-Status: proposed
+Status: rejected — tool-owned presentation should wait for more real tools before being generalized or deleted. Bash and ACP currently need the existing richer presentation path.
 
 ## Problem
 

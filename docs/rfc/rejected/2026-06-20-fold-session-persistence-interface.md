@@ -1,6 +1,6 @@
 # RFC: Fold the persistence interface into dsh-session
 
-Status: proposed
+Status: rejected — the separate persistence interface package is the intended modular capability seam for durable backends. Folding it into `dsh-session` would reduce package count at the cost of a cleaner backend boundary.
 
 ## Problem
 

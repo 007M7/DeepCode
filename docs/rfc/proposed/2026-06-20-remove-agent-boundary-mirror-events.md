@@ -28,4 +28,4 @@ A plugin can no longer observe turn/step boundaries from a convenient `Agent`-fi
 
 ## Related
 
-This is compatible with [assembled assistant messages only](2026-06-20-assembled-assistant-messages-only.md), but the exact fate of `agent/stream-chunk` depends on that decision. If chunks leave the canonical log, `agent/stream-chunk` can remain as a deliberately live-only UI signal while the other mirror events disappear.
+Because high-fidelity `assistant/chunk` persistence remains load-bearing, `agent/stream-chunk` can be evaluated as another mirror of durable session data rather than as the only token stream. If a future proposal moves chunks out of the canonical log, `agent/stream-chunk` would need a fresh decision as a deliberately live-only UI signal.

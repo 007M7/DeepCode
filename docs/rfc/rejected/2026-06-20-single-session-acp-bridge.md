@@ -1,12 +1,12 @@
 # RFC: Return the ACP bridge to one live session per connection
 
-Status: proposed
+Status: rejected — Zed is the current target ACP client and its ACP implementation is explicitly multi-session: it stores live sessions in a `HashMap<SessionId, AcpSession>`, tracks `pending_sessions`, joins concurrent loads for the same id, and tests close-during-load behavior.
 
 ## Problem
 
-The ACP bridge now supports multiple live sessions on one JSON-RPC connection. That capability brings multi-entry session maps, reverse session/agent lookups, per-session prompt state, loading ids, demux for every event, cross-session teardown, and isolation concerns for future permission prompts and background tasks. The older [multi-session ACP proposal](2026-06-14-acp-multi-session.md) still tracks the unfinished permission-ownership piece; this RFC is the competing simplification path.
+The ACP bridge now supports multiple live sessions on one JSON-RPC connection. That capability brings multi-entry session maps, reverse session/agent lookups, per-session prompt state, loading ids, demux for every event, cross-session teardown, and isolation concerns for future permission prompts and background tasks. The older [multi-session ACP proposal](../proposed/2026-06-14-acp-multi-session.md) still tracks the unfinished permission-ownership piece; this RFC is the competing simplification path.
 
-The product has not yet proven it needs concurrent editor conversations over one harness process. The snapshot replay tier also avoids concurrent model streams because its replay entries are positional; concurrency would require keying replay by request instead of by stream order.
+The product target has proven it needs concurrent editor conversations over one harness process: Zed's ACP connection owns multiple sessions and load states. The snapshot replay tier still avoids concurrent model streams because its replay entries are positional; that is a test-fixture limitation, not a reason to remove bridge multiplexing.
 
 ## Proposal
 
@@ -20,7 +20,7 @@ Remove the multi-session maps and demux where a single `SessionRecord | undefine
 - `session/new` and `session/load` reject while that record exists.
 - Event handlers no longer demux across a `Map<sessionId, record>`.
 - Multi-session tests are removed or moved under the proposal that continues to defend multiplexing.
-- The existing [multi-session ACP proposal](2026-06-14-acp-multi-session.md) is updated to link this RFC while both proposals remain live.
+- The existing [multi-session ACP proposal](../proposed/2026-06-14-acp-multi-session.md) is updated to link this RFC and remains the live direction.
 
 ## What we give up
 

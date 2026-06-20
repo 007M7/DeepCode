@@ -1,6 +1,6 @@
 # RFC: Truncate interrupted final turns on load
 
-Status: proposed
+Status: rejected — a single turn can contain substantial real work, including many steps and large tool output. Preserving interrupted turns is preferable to silently dropping that tail on load.
 
 ## Problem
 
@@ -29,4 +29,4 @@ A crash can lose real work from the final turn: assistant text, tool calls, and 
 
 ## Related
 
-This is a direct simplification of [session persistence](../implemented/2026-06-14-session-persistence.md) and [turn enclosure](../implemented/2026-06-15-turn-enclosure-invariant.md). It also removes much of the motivation for durable step boundary events, making [drop durable step boundary events](2026-06-20-drop-durable-step-boundaries.md) smaller.
+This is a direct simplification of [session persistence](../implemented/2026-06-14-session-persistence.md) and [turn enclosure](../implemented/2026-06-15-turn-enclosure-invariant.md). It also removes much of the motivation for durable step boundary events, making [drop durable step boundary events](../proposed/2026-06-20-drop-durable-step-boundaries.md) smaller.

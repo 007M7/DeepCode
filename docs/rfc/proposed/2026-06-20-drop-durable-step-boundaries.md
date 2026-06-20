@@ -12,7 +12,7 @@ The boundary events make the log more ceremonial than informative. The loop trac
 
 Make the turn the only durable boundary. Remove `step/start` and `step/end` from `SessionEventMap`; keep the numeric `step` field on events that need grouping. The loop increments the step counter and records step-scoped events with that number, but it no longer appends open/close boundary events. Consumers infer step groups from contiguous events sharing `(turn, step)`.
 
-The invariants plugin should enforce that step-scoped events have valid positive step numbers within an open turn, not that separate boundary records surround them. Crash repair should not synthesize `step/end`; if [interrupted turns are truncated](2026-06-20-truncate-interrupted-turns.md), the repair path disappears entirely.
+The invariants plugin should enforce that step-scoped events have valid positive step numbers within an open turn, not that separate boundary records surround them. Crash repair should not synthesize `step/end`; if an interrupted turn is preserved, the repair path can still close the turn without inventing step boundary records.
 
 ## Acceptance criteria
 

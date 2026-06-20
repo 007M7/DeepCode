@@ -1,12 +1,12 @@
 # RFC: Drop unused session lineage metadata
 
-Status: proposed
+Status: rejected — `parentSession` is part of the documented fork/sub-agent seam and is already preserved by the agent/session resume path. The field is future-facing, but it is not accidental dead state.
 
 ## Problem
 
 `SessionHeader.parentSession` records the session a new session was forked from. It is defined in `dsh-session`, preserved by persistence backends, copied through resume, documented as lineage metadata, and covered by round-trip tests. The repo has no production fork UI or sub-agent flow that reads it. The planned sub-agent/fork seam is still a TODO, so the field is currently stored future shape.
 
-The cost is small per file but broad across the format: every backend schema and metadata serializer preserves a value that no feature uses. Because the header is an on-disk contract, even a placeholder field becomes something future refactors must either maintain, migrate, or deliberately break.
+The cost is small per file but broad across the format: every backend schema and metadata serializer preserves a value that no completed feature reads yet. Because the header is an on-disk contract, even a placeholder field becomes something future refactors must either maintain, migrate, or deliberately break.
 
 ## Proposal
 

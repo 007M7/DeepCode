@@ -1,6 +1,6 @@
 # RFC: Drop bash full-output spill files
 
-Status: proposed
+Status: rejected — full-output recovery is a real bash behavior. A future artifact/blob service may generalize it, but dropping spill files before that replacement would lose useful command output.
 
 ## Problem
 
@@ -12,7 +12,7 @@ This solves a real problem, but in a narrow and leaky way. A spill path is a pro
 
 Keep tail truncation, drop full-output spill files. A bash result contains the bounded tail plus a clear truncation marker; no path is emitted. If users need full-output recovery, add a generic artifact/blob service with explicit ownership, cleanup, and UI rendering, then let bash attach large outputs to that service.
 
-This proposal can land independently of [foreground-only bash](2026-06-20-foreground-only-bash.md). If background tasks stay, `bash_output` should still report that output was dropped, but without advertising a spill path.
+This proposal can land independently of [a generic long-running tool runtime](../proposed/2026-06-20-generic-long-running-tool-runtime.md). If background tasks stay, `bash_output` should still report that output was dropped, but without advertising a spill path.
 
 ## Acceptance criteria
 
