@@ -132,48 +132,94 @@ export interface Agent {
 declare module 'cordis' {
   interface Events {
     // ---- lifecycle (emit) ----
-    /** An agent was registered. */
+    /**
+     * An agent was registered in the {@link AgentRegistry} and is ready to
+     * receive messages.
+     * @mode emit
+     */
     'agent/created'(agent: Agent): void
-    /** An agent was disposed. */
+    /**
+     * An agent was disposed and removed from the registry; its fiber and any
+     * in-flight turn have been torn down.
+     * @mode emit
+     */
     'agent/disposed'(agent: Agent): void
-    /** Agent status changed (idle/running/disposed). */
+    /**
+     * Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive
+     * lifecycle off this transition, never off a status you just requested —
+     * `send()` does not flip status to `running` before it returns.
+     * @mode emit
+     */
     'agent/status'(agent: Agent, status: AgentStatus): void
     /**
      * A message entered the agent's inbox (queued or steering). `source` is
      * the resolved source (defaults applied), not the caller's raw options.
+     * @mode emit
      */
     'agent/queued'(agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void
 
     // ---- turn/step boundaries (emit) ----
+    /**
+     * A turn began. `turn` is the 1-based turn number within the session.
+     * @mode emit
+     */
     'agent/turn-start'(agent: Agent, turn: number): void
+    /**
+     * A turn ended. `reason` distinguishes a clean stop from a truncated or
+     * aborted one (`completed` | `aborted` | `error` | `disposed` | `max-tokens`).
+     * @mode emit
+     */
     'agent/turn-end'(agent: Agent, turn: number, reason: TurnEndReason): void
+    /**
+     * A step (one model call plus its tool dispatch) began. `step` is 1-based
+     * within the turn; a turn runs one or more steps.
+     * @mode emit
+     */
     'agent/step-start'(agent: Agent, turn: number, step: number): void
+    /**
+     * A step ended.
+     * @mode emit
+     */
     'agent/step-end'(agent: Agent, turn: number, step: number): void
 
     // ---- interception seams (waterfall) ----
     /**
-     * Waterfall: mutate the fully-assembled GenerateOptions before the model
-     * call (hooks, compaction, model switching, tool filtering, …).
+     * Waterfall: mutate the fully-assembled {@link GenerateOptions} before the
+     * model call (hooks, compaction, model switching, tool filtering, …). Call
+     * `next()` to delegate, or return without it to short-circuit.
+     * @mode waterfall
      */
     'agent/request'(agent: Agent, turn: number, step: number, options: GenerateOptions, next: () => Promise<GenerateOptions>): Promise<GenerateOptions>
     /**
-     * Waterfall: post-process the assembled assistant message before tool
-     * dispatch (validation, content rewriting, …).
+     * Waterfall: post-process the assembled assistant {@link Message} before
+     * tool dispatch (validation, content rewriting, …).
+     * @mode waterfall
      */
     'agent/step-result'(agent: Agent, turn: number, step: number, message: Message, next: () => Promise<Message>): Promise<Message>
     /**
      * Waterfall: override the turn-continuation decision. The default
      * (computed by the loop) is `hadToolCalls || steeringInjected`. Listeners
      * can force-continue (/goal, /loop) or force-stop (budget guards).
+     * @mode waterfall
      */
     'agent/turn-continuation'(agent: Agent, turn: number, defaultDecision: boolean, next: () => Promise<boolean>): Promise<boolean>
 
     // ---- streaming + tool notifications (emit) ----
-    /** A raw stream chunk arrived (token-level UI/log feed). */
+    /**
+     * A raw {@link StreamChunk} arrived from the model (token-level UI/log feed).
+     * @mode emit
+     */
     'agent/stream-chunk'(agent: Agent, turn: number, step: number, chunk: StreamChunk): void
-    /** Steering content was injected into a running turn. */
+    /**
+     * Steering content was injected into a running turn.
+     * @mode emit
+     */
     'agent/steering'(agent: Agent, turn: number, content: ContentBlock[], source: MessageSource): void
-    /** A step or turn errored. */
+    /**
+     * A step or turn errored. The loop reports a failure here (plus the logger)
+     * even when the error has no in-turn position for a session `error` event.
+     * @mode emit
+     */
     'agent/error'(agent: Agent, turn: number, step: number, error: Error): void
   }
 }

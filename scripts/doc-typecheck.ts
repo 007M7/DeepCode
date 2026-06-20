@@ -8,7 +8,14 @@
  * build is required first). A block that is a deliberate sketch rather than
  * compilable code opts out with an explicit ` ```ts ignore-check ` info string
  * — the opt-out is visible in the source, and this script reports the ratio so
- * the escape hatch can't quietly become the norm.
+ * the escape hatch can't quietly become the norm. A third info string,
+ * doc-typecheck.ts recognizes two more fence variants and skips both (each is a
+ * separately-checked category, not an unchecked sketch, so neither counts in the
+ * opt-out ratio): ` ```ts type-equiv ` is a verbatim source-type paste that
+ * `scripts/verify-type-equiv.ts` drift-checks, and ` ```ts cordis-catalog ` is a
+ * generated event/service signature fragment in the cordis catalog (a bare
+ * signature is not standalone-compilable; the catalog is generated and frozen by
+ * `scripts/gen-cordis-catalog.ts` + its `--check` freshness gate).
  *
  * Run: `tsx scripts/doc-typecheck.ts`.
  */
@@ -20,23 +27,40 @@ import { glob } from 'node:fs/promises'
 
 const root = resolve(import.meta.dirname, '..')
 
+/**
+ * How a fenced block participates in this gate:
+ * - `check` (` ```ts `) — compiled.
+ * - `ignore` (` ```ts ignore-check `) — a deliberate sketch; skipped, and
+ *   counted in the opt-out ratio so the escape hatch can't quietly take over.
+ * - `type-equiv` (` ```ts type-equiv `) — a verbatim paste of a source type
+ *   definition, drift-checked by `scripts/verify-type-equiv.ts` against the
+ *   source symbol. Skipped HERE (it is not standalone-compilable — no imports)
+ *   and EXCLUDED from the opt-out ratio: it is a separate fully-checked
+ *   category, not an unchecked sketch.
+ * - `cordis-catalog` (` ```ts cordis-catalog `) — a generated event/service
+ *   signature fragment in the cordis catalog. Skipped HERE for the same reason
+ *   (a bare signature fragment has no imports and does not stand alone) and
+ *   EXCLUDED from the opt-out ratio: the catalog is generated and frozen by
+ *   `scripts/gen-cordis-catalog.ts` + its `--check` freshness gate.
+ */
+type BlockKind = 'check' | 'ignore' | 'type-equiv' | 'cordis-catalog'
+
 /** One extracted code block. */
 interface Block {
   file: string
   /** 1-based line of the opening fence. */
   line: number
-  /** `true` when the fence is ` ```ts ignore-check ` (skip compilation). */
-  ignored: boolean
+  kind: BlockKind
   code: string
 }
 
-/** Extract every ```ts / ```ts ignore-check block from one Markdown file. */
+/** Extract every ts / ts ignore-check / ts type-equiv / ts cordis-catalog block from one Markdown file. */
 function extractBlocks(absPath: string): Block[] {
   const text = readFileSync(absPath, 'utf8')
   const lines = text.split('\n')
   const file = relative(root, absPath)
   const blocks: Block[] = []
-  let open: { line: number; ignored: boolean; body: string[] } | null = null
+  let open: { line: number; kind: BlockKind; body: string[] } | null = null
 
   lines.forEach((raw, i) => {
     const fence = /^```(\s*)(\S.*)?$/.exec(raw)
@@ -46,15 +70,19 @@ function extractBlocks(absPath: string): Block[] {
     }
     if (open) {
       // closing fence
-      blocks.push({ file, line: open.line, ignored: open.ignored, code: open.body.join('\n') })
+      blocks.push({ file, line: open.line, kind: open.kind, code: open.body.join('\n') })
       open = null
       return
     }
     // opening fence — only care about ts blocks
     const info = (fence[2] ?? '').trim()
-    if (info === 'ts' || info === 'ts ignore-check') {
-      open = { line: i + 1, ignored: info === 'ts ignore-check', body: [] }
-    }
+    const kind: BlockKind | null =
+      info === 'ts' ? 'check'
+        : info === 'ts ignore-check' ? 'ignore'
+          : info === 'ts type-equiv' ? 'type-equiv'
+            : info === 'ts cordis-catalog' ? 'cordis-catalog'
+              : null
+    if (kind) open = { line: i + 1, kind, body: [] }
   })
   return blocks
 }
@@ -97,7 +125,7 @@ function tempTsconfig(): string {
   })
 }
 
-const markdownGlobs = ['README.md', 'docs/**/*.md', 'packages/*/README.md']
+const markdownGlobs = ['README.md', 'docs/**/*.md', 'packages/*/*.md']
 
 const files: string[] = []
 for (const pattern of markdownGlobs) {
@@ -106,8 +134,14 @@ for (const pattern of markdownGlobs) {
 files.sort()
 
 const all = files.flatMap(extractBlocks)
-const checked = all.filter(b => !b.ignored)
-const ignored = all.filter(b => b.ignored)
+const checked = all.filter(b => b.kind === 'check')
+const ignored = all.filter(b => b.kind === 'ignore')
+// `type-equiv` and `cordis-catalog` blocks are verified elsewhere
+// (verify-type-equiv.ts and the gen-cordis-catalog `--check` freshness gate),
+// not here: neither compiled nor counted toward the opt-out ratio (each is a
+// separate fully-checked category, not an unchecked sketch). The ratio's
+// denominator is therefore the compile-eligible blocks only.
+const ratioDenominator = checked.length + ignored.length
 
 if (checked.length === 0) {
   console.log('doc-typecheck: no ts code blocks to check.')
@@ -139,11 +173,12 @@ try {
     process.exit(1)
   }
 
-  const ratio = ignored.length / all.length
-  console.log(`doc-typecheck: ${checked.length} block(s) compiled, ${ignored.length} ignored (${(ratio * 100).toFixed(0)}% opt-out).`)
+  const ratio = ignored.length / ratioDenominator
+  const skipped = all.length - ratioDenominator
+  console.log(`doc-typecheck: ${checked.length} block(s) compiled, ${ignored.length} ignored (${(ratio * 100).toFixed(0)}% opt-out), ${skipped} type-equiv/cordis-catalog (checked elsewhere).`)
   // Guard against the escape hatch becoming the norm.
-  if (all.length >= 4 && ratio > 0.5) {
-    console.error(`doc-typecheck: too many blocks opt out of checking (${ignored.length}/${all.length}). Make them compile or delete them.`)
+  if (ratioDenominator >= 4 && ratio > 0.5) {
+    console.error(`doc-typecheck: too many blocks opt out of checking (${ignored.length}/${ratioDenominator}). Make them compile or delete them.`)
     process.exit(1)
   }
 } finally {
