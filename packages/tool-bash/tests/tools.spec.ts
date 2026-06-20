@@ -8,6 +8,8 @@ import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRead } from '@deepseek-ai/dsh-bash'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import { renderResult } from '@deepseek-ai/dsh-tool-bash'
@@ -18,10 +20,41 @@ async function setup() {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
+  await ctx.plugin(AgentRegistry)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
   ;(ctx.bash as LocalBashExecutor).internals = { spillDir, graceMs: 200 }
   await ctx.plugin(ToolBash)
   return ctx
+}
+
+/**
+ * Build a fake {@link Agent} whose session token is `sessionId`, REGISTER it in
+ * `ctx.agents` (the completion-notice path finds the owning agent by scanning
+ * the registry for a matching `session.header.id`), and return it. The returned
+ * agent is also passed to `execute` as `exec.agent` so it owns the spawned task.
+ * The registration disposer is tracked so {@link unregisterFakeAgents} can drop
+ * it (simulating the owning session disconnecting before a task completes).
+ */
+const fakeAgentDisposers = new Map<Context, (() => void)[]>()
+function registerFakeAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void): Agent {
+  // The registry KEY (agent.id) is deliberately DIFFERENT from the session
+  // token (session.header.id) — a config agent has `agentId !== sessionId`. The
+  // owner token IS the session id, so the notice path must find the agent by
+  // `session.header.id`, NOT the registry key. Using distinct values here makes
+  // the test fail if a regression matched on the wrong field (a same-value fake
+  // would pass either way — the "hits the line but not the scenario" trap).
+  const agent = { id: `agent-${sessionId}`, inject, session: { header: { version: 1, id: sessionId, createdAt: 0 } } } as unknown as Agent
+  const dispose = ctx.agents.register(agent)
+  const list = fakeAgentDisposers.get(ctx) ?? []
+  list.push(dispose)
+  fakeAgentDisposers.set(ctx, list)
+  return agent
+}
+
+/** Unregister every fake agent in this ctx (simulate the owning session disconnecting). */
+function unregisterFakeAgents(ctx: Context): void {
+  for (const dispose of fakeAgentDisposers.get(ctx) ?? []) dispose()
+  fakeAgentDisposers.delete(ctx)
 }
 
 let callCounter = 0
@@ -49,6 +82,7 @@ class LossyReadBashExecutor extends BashExecutor {
       workdir: request.workdir ?? process.cwd(),
       timeoutMs: request.timeoutMs ?? 0,
       ...request.signal ? { signal: request.signal } : {},
+      owner: request.owner,
     }
   }
 
@@ -62,6 +96,10 @@ class LossyReadBashExecutor extends BashExecutor {
 
   get(id: string): BashTask | undefined {
     return id === this.task.id ? this.task : undefined
+  }
+
+  ownerOf(): string | undefined {
+    return undefined
   }
 
   list(): BashTask[] {
@@ -320,10 +358,13 @@ describe('background tools', () => {
     expect(text(result)).toMatch(pattern)
   })
 
-  it('injects a completion notice into the owning agent', async () => {
+  it('injects a completion notice into the owning agent (found via the registry by session token)', async () => {
     const ctx = await setup()
     const inject = vi.fn()
-    const agent = { inject, session: { header: { version: 1, id: 'bg', createdAt: 0 } } } as unknown as import('@deepseek-ai/dsh-agent').Agent
+    // The notice path looks the agent up in ctx.agents by its session token, so
+    // the agent must be REGISTERED (not merely passed to execute). Mount a
+    // registry and register a fake whose session.header.id IS the owner token.
+    const agent = registerFakeAgent(ctx, 'bg', inject)
 
     const started = await ctx.tools.execute({
       callId: CallId('call-bg'),
@@ -346,10 +387,7 @@ describe('background tools', () => {
 
   it('swallows ONLY the disposed-agent inject error', async () => {
     const ctx = await setup()
-    const agent = {
-      inject: () => { throw new Error('agent "x" is disposed') },
-      session: { header: { version: 1, id: 'bg', createdAt: 0 } },
-    } as unknown as import('@deepseek-ai/dsh-agent').Agent
+    const agent = registerFakeAgent(ctx, 'bg', () => { throw new Error('agent "x" is disposed') })
 
     const started = await ctx.tools.execute({
       callId: CallId('call-bg2'),
@@ -368,10 +406,7 @@ describe('background tools', () => {
     // the listener itself must have thrown rather than silently eaten it.
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     try {
-      const agent = {
-        inject: () => { throw new Error('unexpected inject bug') },
-        session: { header: { version: 1, id: 'bg', createdAt: 0 } },
-      } as unknown as import('@deepseek-ai/dsh-agent').Agent
+      const agent = registerFakeAgent(ctx, 'bg', () => { throw new Error('unexpected inject bug') })
 
       const started = await ctx.tools.execute({
         callId: CallId('call-bg3'),
@@ -390,6 +425,28 @@ describe('background tools', () => {
     }
   })
 
+  it('drops the notice cleanly when the owning agent is gone from the registry by completion', async () => {
+    // A bash task (owned by the host-scoped bash-local fiber) can OUTLIVE its
+    // per-session agent — e.g. the ACP session disconnects and its AgentHandle
+    // disposes while the background task is still running. The owner token is
+    // still on the task, but no live agent carries it anymore, so the registry
+    // lookup finds nothing and the notice is dropped (no throw).
+    const ctx = await setup()
+    const inject = vi.fn()
+    const agent = registerFakeAgent(ctx, 'bg', inject)
+    const started = await ctx.tools.execute({
+      callId: CallId('call-bg4'),
+      name: 'bash',
+      arguments: { command: 'true', description: 'test command', run_in_background: true },
+      agent,
+    })
+    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    // Unregister the agent BEFORE the task completes (simulate disconnect).
+    unregisterFakeAgents(ctx)
+    await expect(ctx.bash.get(id)!.done).resolves.toBeUndefined()
+    expect(inject).not.toHaveBeenCalled()
+  })
+
   it('does not notify when no agent owned the task', async () => {
     const ctx = await setup()
     const started = await call(ctx, 'bash', { command: 'true', description: 'test command', run_in_background: true })
@@ -403,18 +460,23 @@ describe('background task ownership (cross-session isolation)', () => {
   function callAs(ctx: Context, agent: import('@deepseek-ai/dsh-agent').Agent | undefined, name: string, args: unknown) {
     return ctx.tools.execute({ callId: CallId(`own-${++callCounter}`), name, arguments: args, ...agent ? { agent } : {} })
   }
-  // Distinct identities — ownership is by agent object identity, not id.
-  const fakeAgent = () => ({ inject: () => undefined, session: { header: { version: 1, id: 'bg', createdAt: 0 } } }) as unknown as import('@deepseek-ai/dsh-agent').Agent
+  // Ownership is by TOKEN (session.header.id), NOT agent object identity — so
+  // each agent needs a DISTINCT session id, else every fake yields the same
+  // token and the isolation tests pass for the wrong reason (all tasks owned by
+  // the same token). The impl reads `session.header.id`, so the fakes MUST carry
+  // it.
+  const fakeAgent = (sessionId: string) =>
+    ({ inject: () => undefined, session: { header: { version: 1, id: sessionId, createdAt: 0 } } }) as unknown as import('@deepseek-ai/dsh-agent').Agent
 
-  it('rejects bash_output/bash_kill for a task owned by a DIFFERENT agent', async () => {
+  it('rejects bash_output/bash_kill for a task owned by a DIFFERENT session token', async () => {
     const ctx = await setup()
-    const a = fakeAgent()
-    const b = fakeAgent()
+    const a = fakeAgent('sess-a')
+    const b = fakeAgent('sess-b')
     // Agent A starts a long-running background task.
     const started = await callAs(ctx, a, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
     const id = /task (bash-\d+)/.exec(text(started))![1]!
 
-    // Agent B cannot read or kill A's task.
+    // Agent B (a different session token) cannot read or kill A's task.
     const readByB = await callAs(ctx, b, 'bash_output', { task_id: id })
     expect(readByB.isError).toBe(true)
     expect(text(readByB)).toMatch(/belongs to another session/)
@@ -428,12 +490,26 @@ describe('background task ownership (cross-session isolation)', () => {
     expect(text(killByA)).toBe(`killed background task ${id}`)
   })
 
+  it('a DIFFERENT Agent object with the SAME session token may access the task (ownership is by token, not object identity)', async () => {
+    // Ownership fences by session.header.id, NOT Agent object identity. Two
+    // distinct Agent objects sharing one session token (e.g. an agent re-created
+    // on the same session) are the SAME owner.
+    const ctx = await setup()
+    const a1 = fakeAgent('sess-shared')
+    const a2 = fakeAgent('sess-shared') // distinct object, same token
+    const started = await callAs(ctx, a1, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
+    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const readByA2 = await callAs(ctx, a2, 'bash_output', { task_id: id })
+    expect(readByA2.isError).toBe(false)
+    await callAs(ctx, a1, 'bash_kill', { task_id: id }) // cleanup
+  })
+
   it('the no-agent (non-loop) caller cannot access an owned task', async () => {
     const ctx = await setup()
-    const a = fakeAgent()
+    const a = fakeAgent('sess-a')
     const started = await callAs(ctx, a, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
     const id = /task (bash-\d+)/.exec(text(started))![1]!
-    // A call with no exec.agent cannot prove ownership of an owned task.
+    // A call with no exec.agent has no token → cannot prove ownership of an owned task.
     const read = await callAs(ctx, undefined, 'bash_output', { task_id: id })
     expect(read.isError).toBe(true)
     expect(text(read)).toMatch(/belongs to another session/)
@@ -442,20 +518,20 @@ describe('background task ownership (cross-session isolation)', () => {
 
   it('an UNOWNED task (started with no agent) is accessible to anyone', async () => {
     const ctx = await setup()
-    // Started by a non-loop caller (no exec.agent) → no recorded owner.
+    // Started by a non-loop caller (no exec.agent) → no owner token recorded.
     const started = await callAs(ctx, undefined, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
     const id = /task (bash-\d+)/.exec(text(started))![1]!
     // Any agent (and the no-agent caller) may read/kill it.
-    const read = await callAs(ctx, fakeAgent(), 'bash_output', { task_id: id })
+    const read = await callAs(ctx, fakeAgent('sess-x'), 'bash_output', { task_id: id })
     expect(read.isError).toBe(false)
     const killed = await callAs(ctx, undefined, 'bash_kill', { task_id: id })
     expect(killed.isError).toBe(false)
   })
 
-  it('the owner can still access its task AFTER it completes (owner record persists)', async () => {
+  it('the owner can still access its task AFTER it completes (owner token persists on the task)', async () => {
     const ctx = await setup()
-    const a = fakeAgent()
-    const b = fakeAgent()
+    const a = fakeAgent('sess-a')
+    const b = fakeAgent('sess-b')
     const started = await callAs(ctx, a, 'bash', { command: 'echo done', description: 'bg', run_in_background: true })
     const id = /task (bash-\d+)/.exec(text(started))![1]!
     await ctx.bash.get(id)!.done
@@ -467,12 +543,12 @@ describe('background task ownership (cross-session isolation)', () => {
     expect(readByA.isError).toBe(false)
   })
 
-  it('documents the HMR caveat: an independent tool-bash reload resets ownership', async () => {
-    // The ownership map is per-plugin-instance (XXX(tool-bash-owner-hmr)). When
-    // ONLY tool-bash is reloaded (bash/executor + task survive), the new instance
-    // has an empty map, so the previously-owned task becomes unowned (open). This
-    // test pins that documented behavior — a regression here (e.g. an accidental
-    // global map) would change it.
+  it('ownership SURVIVES an independent tool-bash HMR reload (token lives on the executor)', async () => {
+    // The owner token lives on the TASK inside the executor (dsh-bash fiber), NOT
+    // in a tool-bash plugin-local map. So reloading ONLY tool-bash (executor +
+    // task survive) preserves ownership. This is the regression guard: a
+    // plugin-local map would make B accessible after reload, and this test would
+    // catch it.
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
@@ -480,21 +556,23 @@ describe('background task ownership (cross-session isolation)', () => {
     ;(ctx.bash as LocalBashExecutor).internals = { spillDir, graceMs: 200 }
     const fiber = await ctx.plugin(ToolBash)
 
-    const a = fakeAgent()
-    const b = fakeAgent()
+    const a = fakeAgent('sess-a')
+    const b = fakeAgent('sess-b')
     const started = await callAs(ctx, a, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
     const id = /task (bash-\d+)/.exec(text(started))![1]!
     // Before reload: B is rejected (A owns it).
     expect((await callAs(ctx, b, 'bash_output', { task_id: id })).isError).toBe(true)
 
-    // Reload ONLY tool-bash; the executor and its running task survive.
+    // Reload ONLY tool-bash; the executor and its running task (with its owner
+    // token) survive.
     await fiber.dispose()
     await ctx.plugin(ToolBash)
     expect(ctx.bash.get(id)?.status).toBe('running')
+    expect(ctx.bash.ownerOf(id)).toBe('sess-a')
 
-    // After reload the fresh map has no owner → B can now access it (the caveat).
-    expect((await callAs(ctx, b, 'bash_output', { task_id: id })).isError).toBe(false)
-    await callAs(ctx, b, 'bash_kill', { task_id: id }) // cleanup
+    // After reload, ownership is INTACT → B is STILL rejected.
+    expect((await callAs(ctx, b, 'bash_output', { task_id: id })).isError).toBe(true)
+    await callAs(ctx, a, 'bash_kill', { task_id: id }) // cleanup
   })
 })
 

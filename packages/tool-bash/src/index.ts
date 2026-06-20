@@ -11,22 +11,24 @@
  * message, which is why the tool descriptions tell the model to poll with
  * `bash_output`.
  *
- * Task ownership: the owning agent is recorded per task id at spawn and kept
- * for the lifetime of THIS plugin instance (it is NOT cleared on task
- * completion — a finished task must stay un-readable / un-killable by a
- * different agent). `bash_output`/`bash_kill` reject a task owned by a DIFFERENT
- * agent (a task with no recorded owner is open to anyone). Task ids are global
- * and predictable (`bash-1`, …); under multi-session ACP (RFC 011) this
- * ownership check is the fence that stops one session's agent from reading or
- * killing another session's background task.
+ * Task ownership: a background task's OWNER is an opaque token — the owning
+ * agent's `session.header.id` — passed to the executor at spawn
+ * (`resolve({ …, owner })`) and stored ON THE TASK inside the executor
+ * (`@deepseek-ai/dsh-bash`'s `ownerOf(id)` seam), NOT in a plugin-local map.
+ * `bash_output`/`bash_kill` compare `ctx.bash.ownerOf(id)` to the caller's token
+ * and reject a task owned by a DIFFERENT session (`owner !== undefined && owner
+ * !== caller`); an unowned task (no token — started by a non-agent caller) is
+ * open to anyone. Task ids are global and predictable (`bash-1`, …); under
+ * multi-session ACP (RFC 011) this token check is the fence that stops one
+ * session's agent from reading or killing another session's background task.
  *
- * XXX(tool-bash-owner-hmr): the ownership map is per-plugin-instance, so an
- * independent HMR reload of `tool-bash` (without reloading `dsh-bash`) starts a
- * fresh map and a task spawned before the reload becomes un-owned (open to any
- * caller). This is acceptable today — HMR is dev-only, the ACP session boundary
- * is one user's cooperative editor (not an adversarial trust boundary), and the
- * executor's own disposal kills its tasks — but a durable fix would attach
- * ownership to the executor/task lifetime via a `dsh-bash` seam.
+ * Storing the token on the task in the EXECUTOR (disposed with the `dsh-bash`
+ * fiber), rather than in this plugin, is what makes ownership survive a
+ * `tool-bash` HMR reload — a reload that reset a plugin-local map would orphan
+ * a task spawned before it. (The `onTaskDone` listener is still effect-scoped
+ * to this plugin's `apply`, so a
+ * completion landing during the reload gap still drops its one notice — the
+ * pre-existing reload-gap drop — but the ownership fence itself is HMR-proof.)
  *
  * TODO(permissions): commands run with the executor's full authority. The
  * permission/sandbox seam is the `tools/execute` waterfall (veto/ask) plus
@@ -268,33 +270,47 @@ function statusLine(task: BashTask): string {
 }
 
 export function apply(ctx: Context): void {
-  // Owning agent per background task id, recorded at spawn. Kept for the
-  // lifetime of THIS plugin instance (NOT cleared on completion): a completed
-  // task must stay un-readable / un-killable by a DIFFERENT agent, so the
-  // ownership record outlives the task. Under multi-session ACP (RFC 011) this
-  // is the isolation fence — one session's agent must never read or kill
-  // another session's background task. A task with no recorded owner (started by
-  // a non-loop caller, `exec.agent` absent) is unowned and accessible to anyone.
-  // An independent `tool-bash` HMR reload resets this map — see the
-  // XXX(tool-bash-owner-hmr) note in the module doc.
-  const taskOwner = new Map<string, Agent>()
+  /**
+   * The caller's owner TOKEN — the owning agent's `session.header.id`, or
+   * `undefined` for a non-agent caller. Read `session.header.id` (NOT
+   * `session.id`): every other subsystem keys off the header id (the ACP bridge,
+   * both persistence backends), and the sibling `resolveWorkdir` already reads
+   * `session.header.cwd`, so using `session.id` here would be the asymmetry smell
+   * the conventions flag. The two are equal in production, but the header is the
+   * canonical identity.
+   */
+  const callerToken = (exec: { agent?: Agent }): string | undefined => exec.agent?.session.header.id
 
   /**
-   * Authorize a `bash_output`/`bash_kill` call against a task's owner. Rejects
-   * when the task has a recorded owner and the caller is not that exact agent —
-   * including the conservative no-agent case (`exec.agent` absent cannot prove
-   * ownership of an owned task). An unowned task (no record) is allowed.
+   * Authorize a `bash_output`/`bash_kill` call against the task's stored owner
+   * token. Rejects when the task HAS an owner and it differs from the caller's
+   * token — using `!== undefined` semantics, NOT truthiness, so an empty-string
+   * token is still a real owner (never treated as unowned). An unowned task
+   * (`ownerOf` returns `undefined`) is allowed; a truly unknown id is also
+   * `undefined` here and then fails loudly at the subsequent
+   * `readOutput`/`kill` ("unknown bash task"). The conservative no-agent caller
+   * (`callerToken` undefined) cannot match an owned task and is rejected.
    */
   const assertTaskAccess = (taskId: string, exec: { agent?: Agent }): void => {
-    const owner = taskOwner.get(taskId)
-    if (owner !== undefined && owner !== exec.agent) {
+    const owner = ctx.bash.ownerOf(taskId)
+    if (owner !== undefined && owner !== callerToken(exec)) {
       throw new Error(`task ${taskId} belongs to another session`)
     }
   }
 
   // Background completion → inject a notice into the owning agent's session.
+  // Find the live agent by its session id token via the agent registry, read
+  // opportunistically with `ctx.get('agents')` (NOT `ctx.agents`/static inject):
+  // this listener runs from `task.done.then` on the bash fiber — a foreign
+  // fiber — where the `ctx.agents` property proxy would throw through the
+  // traceable shadow; `ctx.get(name)` is the topology-independent lookup. No
+  // registry mounted (`undefined`) → drop the notice. Match on
+  // `agent.session.header.id`, NOT the registry key: a config agent's id differs
+  // from its session id, and the owner token IS the session id.
   ctx.bash.onTaskDone((task) => {
-    const agent = taskOwner.get(task.id)
+    const ownerToken = ctx.bash.ownerOf(task.id)
+    if (ownerToken === undefined) return
+    const agent = ctx.get('agents')?.list().find(a => a.session.header.id === ownerToken)
     if (!agent) return
     try {
       agent.inject(
@@ -348,8 +364,11 @@ export function apply(ctx: Context): void {
         ...exec.signal ? { signal: exec.signal } : {},
       }
       if (args.run_in_background === true) {
-        const task = ctx.bash.start(ctx.bash.resolve(request))
-        if (exec.agent) taskOwner.set(task.id, exec.agent)
+        // Stamp the owner token (the agent's session id) onto the spec so the
+        // executor stores it on the task — the isolation fence for bash_output/
+        // bash_kill. Foreground runs pass no owner (they finish inline; nothing
+        // to fence).
+        const task = ctx.bash.start(ctx.bash.resolve({ ...request, owner: callerToken(exec) }))
         return [{ type: 'text', text: `started background task ${task.id}` }]
       }
       const result = await ctx.bash.run(ctx.bash.resolve(request))

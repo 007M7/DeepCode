@@ -6,6 +6,7 @@ import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRe
 /** Minimal concrete executor: records calls, lets tests drive completions. */
 class StubExecutor extends BashExecutor {
   tasks = new Map<string, BashTask>()
+  private owners = new Map<string, string | undefined>()
 
   resolve(request: BashExecRequest): BashExecSpec {
     return {
@@ -13,6 +14,7 @@ class StubExecutor extends BashExecutor {
       workdir: request.workdir ?? '/stub',
       timeoutMs: request.timeoutMs ?? 1000,
       ...request.signal ? { signal: request.signal } : {},
+      owner: request.owner,
     }
   }
 
@@ -38,11 +40,16 @@ class StubExecutor extends BashExecutor {
       done: Promise.resolve(),
     }
     this.tasks.set(task.id, task)
+    this.owners.set(task.id, spec.owner)
     return task
   }
 
   get(id: string): BashTask | undefined {
     return this.tasks.get(id)
+  }
+
+  ownerOf(id: string): string | undefined {
+    return this.owners.get(id)
   }
 
   list(): BashTask[] {
