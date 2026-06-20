@@ -66,6 +66,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Make the shared example base providerless](proposed/architecture/2026-06-20-providerless-example-base.md) | 2026-06-20 |
 | [Reorganize packages into a modular hierarchy](proposed/architecture/2026-06-20-package-hierarchy.md) | 2026-06-20 |
 | [Extract example apps into packages](proposed/architecture/2026-06-20-extract-example-app-packages.md) | 2026-06-20 |
+| [Branded IDs everywhere they belong](proposed/architecture/2026-06-20-branded-ids.md) | 2026-06-20 |
 
 ### Process
 
