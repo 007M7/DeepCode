@@ -63,8 +63,8 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 |---|---|
 | [Runtime schemas for the event vocabulary (Zod vs the merge-extensible-map pattern)](proposed/architecture/2026-06-16-typed-event-schemas.md) | 2026-06-16 |
 | [Extract a generic long-running tool runtime](proposed/architecture/2026-06-20-generic-long-running-tool-runtime.md) | 2026-06-20 |
-| [Make the shared example base providerless](proposed/architecture/2026-06-20-providerless-example-base.md) | 2026-06-20 |
 | [Reorganize packages into a modular hierarchy](proposed/architecture/2026-06-20-package-hierarchy.md) | 2026-06-20 |
+| [Extract example apps into packages](proposed/architecture/2026-06-20-extract-example-app-packages.md) | 2026-06-20 |
 | [Branded IDs everywhere they belong](proposed/architecture/2026-06-20-branded-ids.md) | 2026-06-20 |
 
 ### Process
@@ -162,3 +162,4 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | Title | First proposed |
 |---|---|
 | [Deep-readonly public surfaces](rejected/architecture/2026-06-11-immutable-public-surfaces.md) | 2026-06-11 |
+| [Make the shared example base providerless](rejected/architecture/2026-06-20-providerless-example-base.md) | 2026-06-20 |
