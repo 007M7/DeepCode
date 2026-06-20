@@ -285,14 +285,18 @@ export class SessionStore extends Service {
    * {@link announce}, so a throwing `session/created` listener rolls the attach
    * back instead of leaking it.
    *
-   * The id was already validated by {@link prepare}, which runs in the SAME
-   * synchronous sequence as `enter` (a config/factory caller does
-   * `prepare()` → `ctx.effect(generator)`, and a synchronous generator effect
-   * iterates inline — no await between them), so no concurrent create can claim
-   * the id in the gap. `enter` therefore does not re-check; it is not a public
-   * reservation primitive.
+   * Re-checks the id for a duplicate: `prepare` and `enter` are public
+   * cross-package primitives and a caller may interleave arbitrary work (or
+   * another create) between them, so a stale prepared session must NOT overwrite
+   * a live store entry of the same id — its detach disposer would later delete
+   * the REAL session. The {@link create} convenience and the agent factory call
+   * the two back-to-back so they never trip this, but the public seam cannot
+   * assume that.
+   *
+   * @throws if a session with this id is already in the store.
    */
   enter(session: Session): () => void {
+    if (this.store.has(session.id)) throw new Error(`session "${session.id}" already exists`)
     session.onAppend = (event) => { this.ctx.emit('session/event', session, event) }
     this.store.set(session.id, session)
     return () => {

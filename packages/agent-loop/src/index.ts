@@ -267,15 +267,25 @@ export class AgentLoop extends Service implements AgentFactory {
 
   /**
    * Build an {@link AgentHandle} for a PREPARED session + a fresh agent. The
-   * handle's `dispose()` just runs the composite effect's disposer (see
+   * handle's `dispose()` runs the composite effect's disposer (see
    * {@link start}) — which stops the loop, awaits its exit (final flush
    * captured), unregisters the agent, and detaches the session, in that order.
    * The same composite effect is what a fiber unload disposes, so both teardown
    * triggers honor the ordering identically.
+   *
+   * `dispose()` is MEMOIZED: the underlying cordis effect disposer is
+   * single-shot (a second call returns immediately because the effect's epoch is
+   * already cleared, NOT awaiting the in-flight teardown), so concurrent/repeated
+   * `dispose()` calls would otherwise resolve before the first call's
+   * `await agent.done` + final flush completed. Memoizing the promise makes every
+   * caller observe the SAME quiescence boundary, honoring the
+   * `AgentHandle.dispose(): Promise<void>` contract (mirrors the ACP `quiesce()`
+   * helper).
    */
   private startOwned(id: AgentId, options: AgentOptions, session: Session): AgentHandle {
     const { agent, disposeAgent } = this.start(id, options, session)
-    return { agent, dispose: disposeAgent }
+    let disposing: Promise<void> | undefined
+    return { agent, dispose: () => (disposing ??= disposeAgent()) }
   }
 }
 
