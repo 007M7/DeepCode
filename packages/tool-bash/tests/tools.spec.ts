@@ -490,10 +490,10 @@ describe('background task ownership (cross-session isolation)', () => {
     expect(text(killByA)).toBe(`killed background task ${id}`)
   })
 
-  it('a DIFFERENT Agent object with the SAME session token may access the task (identity no longer matters)', async () => {
-    // The old design fenced by Agent object identity; the token design fences by
-    // session.header.id. Two distinct Agent objects sharing one session token
-    // (e.g. an agent re-created on the same session) are now the SAME owner.
+  it('a DIFFERENT Agent object with the SAME session token may access the task (ownership is by token, not object identity)', async () => {
+    // Ownership fences by session.header.id, NOT Agent object identity. Two
+    // distinct Agent objects sharing one session token (e.g. an agent re-created
+    // on the same session) are the SAME owner.
     const ctx = await setup()
     const a1 = fakeAgent('sess-shared')
     const a2 = fakeAgent('sess-shared') // distinct object, same token
@@ -546,10 +546,9 @@ describe('background task ownership (cross-session isolation)', () => {
   it('ownership SURVIVES an independent tool-bash HMR reload (token lives on the executor)', async () => {
     // The owner token lives on the TASK inside the executor (dsh-bash fiber), NOT
     // in a tool-bash plugin-local map. So reloading ONLY tool-bash (executor +
-    // task survive) preserves ownership — closing the old XXX(tool-bash-owner-hmr)
-    // gap where the fresh map orphaned pre-reload tasks. This is the regression
-    // guard: an accidental return to a plugin-local map would make B accessible
-    // after reload, and this test would catch it.
+    // task survive) preserves ownership. This is the regression guard: a
+    // plugin-local map would make B accessible after reload, and this test would
+    // catch it.
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
