@@ -34,6 +34,17 @@ export class ReactLoopAgent implements Agent {
    * leave it set to wrongly drop a later prompt.
    */
   private cancelRequested = false
+  /**
+   * The resolved reason for the pending {@link cancel} (`reason ?? 'cancelled'`),
+   * read by the driver loop's marker branches so a turn dropped in a
+   * marker-only window (pre-step / continuation, where no `AbortController`
+   * carries the reason) ends with the SAME `{kind:'aborted', reason}` the
+   * mid-step abort path produces from `abort.signal.reason`. Without this the
+   * caller's `cancel(reason)` would be silently replaced by the literal
+   * 'cancelled' whenever the cancel landed outside a running step — making the
+   * logged reason race-dependent and the public `reason?` param half-effective.
+   */
+  private cancelReason = 'cancelled'
   private disposed: Promise<void>
   private resolveDisposed!: () => void
   /** Resolves when the driver loop has fully exited (tests/disposal). */
@@ -196,6 +207,10 @@ export class ReactLoopAgent implements Agent {
     // precisely to cover it.
     if (this._status === 'running' || this.currentAbort !== undefined || this.inbox.hasQueued || this.inbox.hasSteering) {
       this.cancelRequested = true
+      // Capture the resolved reason for the marker-only windows (pre-step /
+      // continuation). The mid-step path reads it from abort.signal.reason
+      // below; the marker path reads it via the LoopHandle's cancelReason().
+      this.cancelReason = reason ?? 'cancelled'
     }
     // Drop all pending queued + steering work (un-started prompts never run; the
     // cancelled turn's steering is not re-enqueued). Cleared directly even when
@@ -251,6 +266,7 @@ export class ReactLoopAgent implements Agent {
       disposed: this.disposed,
       isDisposed: () => this._status === 'disposed',
       isCancelled: () => this.cancelRequested,
+      cancelReason: () => this.cancelReason,
       clearCancel: () => { this.cancelRequested = false },
       // Settle whenIdle() waiters WITHOUT a status transition — the pre-step
       // cancel-skip path drops the about-to-run turn and re-parks without ever

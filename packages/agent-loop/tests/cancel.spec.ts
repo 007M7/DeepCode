@@ -186,9 +186,11 @@ describe('Agent.cancel()', () => {
     await waitForIdle(ctx, agent)
     dispose()
 
-    // No step streamed (the model never ran), and the turn ended aborted.
+    // No step streamed (the model never ran), and the turn ended aborted with
+    // the CALLER's reason — the marker carries `cancel(reason)` through even
+    // though no AbortController observed it in this window.
     expect(streamed).toBe(false)
-    expect(reasons).toEqual([{ kind: 'aborted', reason: 'cancelled' }])
+    expect(reasons).toEqual([{ kind: 'aborted', reason: 'from turn-start' }])
   })
 
   it('cancel during the continuation window ends the turn aborted and runs no further step', async () => {
@@ -219,9 +221,10 @@ describe('Agent.cancel()', () => {
     await waitForIdle(ctx, agent)
 
     // Only ONE step ran (the second was cancelled in the continuation window),
-    // and the turn ended aborted.
+    // and the turn ended aborted with the CALLER's reason (carried by the
+    // marker, since the finished step's AbortController was already cleared).
     expect(steps).toBe(1)
-    expect(reasons).toEqual([{ kind: 'aborted', reason: 'cancelled' }])
+    expect(reasons).toEqual([{ kind: 'aborted', reason: 'from continuation' }])
   })
 
   it('cancel from a synchronous agent/status(running) listener drops the turn (window 2)', async () => {
