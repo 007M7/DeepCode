@@ -4,7 +4,7 @@ Status: proposed
 
 ## Problem
 
-The ACP bridge implements a Zed-specific terminal-card convention through `_meta.terminal_info`, `_meta.terminal_output`, and `_meta.terminal_exit`. The implemented RFC deliberately avoided ACP's client-side `terminal/create` because bash execution belongs in the harness, but still adopted the reference agents' display-only `_meta` convention. That gives a nicer Zed card at the cost of bridge state, capability negotiation, terminal ids, special update mapping, text fallback tests, and exit-pill parsing in `dsh-tool-bash`.
+The ACP bridge implements a Zed-specific terminal-card convention through `_meta.terminal_info`, `_meta.terminal_output`, and `_meta.terminal_exit`. The implemented [rich ACP bash rendering RFC](../implemented/2026-06-18-acp-terminal-and-tool-rendering.md) deliberately avoided ACP's client-side `terminal/create` because bash execution belongs in the harness, but still adopted the reference agents' display-only `_meta` convention. That gives a nicer Zed card at the cost of bridge state, capability negotiation, terminal ids, special update mapping, text fallback tests, and exit-pill parsing in `dsh-tool-bash`.
 
 The fallback path already exists: render the tool call and completed output as normal ACP content blocks. Non-Zed clients rely on that path anyway.
 
@@ -20,7 +20,7 @@ This proposal is narrower than [collapsing tool-owned UI presentation](2026-06-2
 - `TerminalRendering`, terminal ids, terminal cwd resolution, and `_meta.terminal_*` update mapping disappear from `@deepseek-ai/dsh-acp`.
 - `ToolTerminal` disappears from `@deepseek-ai/dsh-tools`, or is unused and deleted with the presentation cleanup.
 - Bash result presentation no longer parses exit status for terminal pills.
-- The implemented terminal-rendering RFC is superseded or moved to rejected with this proposal linked.
+- The implemented [rich ACP bash rendering RFC](../implemented/2026-06-18-acp-terminal-and-tool-rendering.md) stays in `implemented/` as shipped history and is cross-linked from this proposal if superseded.
 
 ## What we give up
 

@@ -20,6 +20,7 @@ If lineage returns, decide then whether it belongs in the immutable header, a se
 - JSONL and SQLite metadata schemas stop storing parent-session ids.
 - Resume and list APIs no longer round-trip `parentSession`.
 - Docs and tests remove fork-lineage claims that are not backed by a production consumer.
+- The session format version, backend schema versions, and recorded fixtures are refreshed as needed; non-current stored data is rejected per the pre-release format policy, with no migration path.
 
 ## What we give up
 

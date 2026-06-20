@@ -20,7 +20,7 @@ Stdout goldens remain unchanged; they are the editor-facing projection and are n
 - The snapshot test derives the expected session log from `session.jsonl` for `recorded: true` scenarios.
 - Authored sidecar scenarios keep explicit session goldens when needed.
 - Orphan-fixture guards understand which files are required by scenario kind.
-- The snapshot-test RFC is updated to describe the reduced fixture set.
+- The [ACP snapshot tests RFC](../implemented/2026-06-19-acp-snapshot-tests.md) is updated to describe the reduced fixture set.
 
 ## What we give up
 

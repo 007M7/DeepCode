@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 
 // publint every publishable package (vendor/ is private upstream code and
 // examples/ are not packages; both are out of scope).
-// TODO(package-inventory): derive this from package metadata/classification.
+// TODO(package-inventory): derive this from explicit package classification metadata.
 const packages = [
   'packages/llm',
   'packages/session',

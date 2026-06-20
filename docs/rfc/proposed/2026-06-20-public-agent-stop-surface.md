@@ -16,7 +16,7 @@ Delete public `abort()` and `whenIdle()`, the tests that exercise them as standa
 
 ## Acceptance criteria
 
-- `Agent` exposes `send()`, `inject()`, `cancel()`, status, options, session, and identity, with no public `abort()` or `whenIdle()`.
+- `Agent` exposes no public `abort()` or `whenIdle()`; if [retiring mid-turn steering](2026-06-20-retire-mid-turn-steering.md) has not landed, `steer()` remains part of the message surface.
 - ACP cancellation continues to call `cancel()`.
 - Agent teardown continues to await quiescence through handle disposal.
 - Tests cover cancellation and disposal as the two supported stop paths.
@@ -24,3 +24,7 @@ Delete public `abort()` and `whenIdle()`, the tests that exercise them as standa
 ## What we give up
 
 A future plugin cannot abort only the current model/tool step while preserving queued prompts through the public interface. If that use case becomes real, it should return with a named consumer and a narrower contract. Today it is latent generality that keeps private loop mechanics public.
+
+## Related
+
+This RFC only removes the stop/quiescence methods. If it lands before [retiring mid-turn steering](2026-06-20-retire-mid-turn-steering.md), `steer()` remains part of the `Agent` message surface; if the steering RFC lands first, the resulting surface is `send()`, `inject()`, `cancel()`, status, options, session, and identity.

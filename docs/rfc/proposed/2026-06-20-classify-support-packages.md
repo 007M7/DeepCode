@@ -4,7 +4,7 @@ Status: proposed
 
 ## Problem
 
-`packages/` is flat. Core product packages, provider integrations, tool implementations, example UI support, and snapshot-only replay support all sit at the same level and look equally publishable. `packages/README.md` already has a `FIXME(package-hierarchy)` noting that `ui-stdio` and `llm-replay` were extracted from examples mostly for reuse and coverage. The flat layout makes support packages appear more foundational than they are and forces publish/lint/doc scripts to special-case intent in prose or static lists.
+`packages/` is flat. Core product packages, provider integrations, tool implementations, example UI support, and snapshot-only replay support all sit at the same level and look equally publishable. The [package README](../../../packages/README.md) already has a `FIXME(package-hierarchy)` noting that `ui-stdio` and `llm-replay` were extracted from examples mostly for reuse and coverage. The flat layout makes support packages appear more foundational than they are and forces publish/lint/doc scripts to special-case intent in prose or static lists.
 
 This is not just cosmetic. A package's location currently says little about whether it is core API, an integration, an example harness helper, or test infrastructure. That makes future removal harder because every top-level package looks like part of the same public surface.
 

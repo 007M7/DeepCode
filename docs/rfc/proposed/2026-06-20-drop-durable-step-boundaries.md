@@ -20,7 +20,8 @@ The invariants plugin should enforce that step-scoped events have valid positive
 - The loop has no `closeStep()` finalization path.
 - ACP snapshots and persistence contract fixtures stop expecting step-boundary lines.
 - `deriveMessages()` and replay derive the same message history from step-scoped events.
-- The event taxonomy docs describe turns as the durable boundary and steps as a field on step-scoped records.
+- The [event taxonomy docs](../../architecture.md) describe turns as the durable boundary and steps as a field on step-scoped records.
+- The session format version and recorded fixtures are refreshed; non-current stored logs are rejected per the pre-release format policy.
 
 ## What we give up
 

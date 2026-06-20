@@ -21,6 +21,7 @@ If analytics become real, add a projection helper or a dedicated telemetry store
 - The loop records durable failures only as `turn/end { kind: 'error' }` and reports live diagnostics through `agent/error`.
 - ACP snapshots and persistence tests stop asserting trace-only lines.
 - Documentation explains where token usage and operational errors are observed if they remain available.
+- The session format version and recorded fixtures are refreshed; non-current stored logs are rejected per the pre-release format policy.
 
 ## What we give up
 
