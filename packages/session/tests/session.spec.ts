@@ -221,6 +221,40 @@ describe('SessionStore', () => {
     expect(forked.deriveMessages()).toEqual(a.deriveMessages())
   })
 
+  it('enter() rejects a stale prepared session whose id is already live (no overwrite)', async () => {
+    // prepare()/enter() are public cross-package primitives that a caller may
+    // separate with arbitrary work. A stale prepared session must NOT overwrite
+    // a live store entry of the same id — its detach disposer would later delete
+    // the REAL session, breaking the store-uniqueness invariant.
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const stale = ctx.sessions.prepare('racy')
+    const live = ctx.sessions.create('racy')
+    expect(() => ctx.sessions.enter(stale)).toThrow(/already exists/)
+    // The live session is intact and still the store entry.
+    expect(ctx.sessions.get('racy')).toBe(live)
+  })
+
+  it('prepare() + enter() + announce() register a session and emit session/created', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const created: Session[] = []
+    ctx.on('session/created', session => void created.push(session))
+
+    const session = ctx.sessions.prepare('lifecycle')
+    // prepare alone does NOT enter the store.
+    expect(ctx.sessions.get('lifecycle')).toBeUndefined()
+    const detach = ctx.sessions.enter(session)
+    expect(ctx.sessions.get('lifecycle')).toBe(session)
+    // enter does NOT announce.
+    expect(created).toEqual([])
+    ctx.sessions.announce(session)
+    expect(created).toEqual([session])
+    // The detach disposer removes the entry + stops notification.
+    detach()
+    expect(ctx.sessions.get('lifecycle')).toBeUndefined()
+  })
+
   it('synthesizes a minimal v1 header for a bare-created session', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

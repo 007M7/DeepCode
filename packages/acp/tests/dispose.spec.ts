@@ -273,4 +273,47 @@ describe('acp bridge — disposal & HMR safety', () => {
     expect(harness.ctx.sessions.get('guard-a')).toBeUndefined() // detach still ran
     await harness.dispose()
   })
+
+  it('concurrent AgentHandle dispose() calls all await the SAME teardown (memoized)', async () => {
+    // The handle's dispose() must memoize: the underlying cordis effect disposer
+    // is single-shot, so a second dispose() while the first is mid-teardown would
+    // otherwise resolve IMMEDIATELY (effect epoch already cleared) — before the
+    // first call's await agent.done + final flush finished. Every caller must
+    // observe the same quiescence boundary.
+    const harness = await makeBridgeHarness({ storageDir, script: ['hang'] })
+    const handle = harness.ctx.agents.create({
+      agentId: 'conc-a', sessionId: 'conc-a', agentOptions: { model: 'mock' },
+    })
+    // Drive a turn that hangs in the model stream, so the loop is mid-turn when
+    // disposed — its exit runs a final session/flush we can gate to hold the
+    // teardown observably in-flight.
+    handle.agent.send([{ type: 'text', text: 'go' }])
+    await new Promise(r => setTimeout(r, 30))
+    expect(handle.agent.status).toBe('running')
+    let releaseFlush!: () => void
+    const flushGate = new Promise<void>((resolve) => { releaseFlush = resolve })
+    harness.ctx.on('session/flush', () => flushGate)
+
+    // First dispose enters teardown (aborts the hanging step) and blocks in the
+    // gated final flush.
+    const first = handle.dispose()
+    let firstSettled = false
+    void first.then(() => { firstSettled = true })
+    await new Promise(r => setTimeout(r, 20))
+    expect(firstSettled).toBe(false)
+
+    // Second dispose MUST await the same in-flight teardown, not resolve early.
+    const second = handle.dispose()
+    let secondSettled = false
+    void second.then(() => { secondSettled = true })
+    await new Promise(r => setTimeout(r, 20))
+    expect(secondSettled).toBe(false) // memoized: still pending with the first
+
+    // Release the flush; both resolve together and the session is gone.
+    releaseFlush()
+    await Promise.all([first, second])
+    expect(harness.ctx.agents.get('conc-a')).toBeUndefined()
+    expect(harness.ctx.sessions.get('conc-a')).toBeUndefined()
+    await harness.dispose()
+  })
 })

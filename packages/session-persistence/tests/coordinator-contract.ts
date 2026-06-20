@@ -68,6 +68,7 @@ export interface CoordinatorFixture {
 
 /** A constant absolute cwd; jsonl keys directories off it, memory/sqlite ignore it. */
 const WORK = '/w'
+const OTHER = '/other'
 
 /** The per-session init map a backend exposes for white-box init awaits. */
 function inits(persistence: SessionPersistence): Map<Session, Promise<void>> {
@@ -529,6 +530,58 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         await inits(ctx.sessionPersistence).get(cont)
         const loaded = await ctx.sessionPersistence.load(SessionId('claim'))
         expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('a live session at a DIFFERENT cwd cannot claim cursor-0 ownerless state (cwd scope)', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        // create() registers ownerless state at cwd /a (cursor 0 — claims would
+        // otherwise match trivially on the seed).
+        await ctx.sessionPersistence.create(meta('wrong-cwd-claim', OTHER))
+        // A live session reusing the id but at cwd WORK must NOT claim it — the
+        // cwd scope is the fence (without it, WORK events would append under the
+        // OTHER header). Rejected as a collision.
+        const live = ctx.sessions.create('wrong-cwd-claim', { seed: oneTurnLog(), meta: { cwd: WORK } })
+        await expect(inits(ctx.sessionPersistence).get(live)).rejects.toThrow(/different cwd|id collision/)
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('a live session at a DIFFERENT cwd cannot claim loaded-prefix ownerless state (cwd scope)', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        // Materialize + load at cwd OTHER (ownerless, cursor = 6).
+        await ctx.sessionPersistence.create(meta('wrong-cwd-load', OTHER))
+        await ctx.sessionPersistence.append(SessionId('wrong-cwd-load'), oneTurnLog())
+        const { events } = await ctx.sessionPersistence.load(SessionId('wrong-cwd-load'))
+        // A live session whose SEED matches the loaded prefix but whose cwd is
+        // WORK must still be rejected — the cwd guard runs before the seed check.
+        const live = ctx.sessions.create('wrong-cwd-load', { seed: events, meta: { cwd: WORK } })
+        await expect(inits(ctx.sessionPersistence).get(live)).rejects.toThrow(/different cwd|id collision/)
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('a no-cwd ownerless state cannot be claimed by a live session WITH a cwd (cwd scope, undefined side)', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        // Ownerless state created WITHOUT a cwd (the no-cwd bucket).
+        await ctx.sessionPersistence.create(meta('no-cwd-state'))
+        // A live session reusing the id but WITH cwd WORK is a cwd mismatch
+        // (undefined vs WORK) and must be rejected.
+        const live = ctx.sessions.create('no-cwd-state', { seed: oneTurnLog(), meta: { cwd: WORK } })
+        await expect(inits(ctx.sessionPersistence).get(live)).rejects.toThrow(/different cwd|id collision/)
       } finally {
         await fiber.dispose()
         await fix.cleanup()

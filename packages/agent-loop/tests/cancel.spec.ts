@@ -252,6 +252,36 @@ describe('Agent.cancel()', () => {
     expect(agent.session.events.some(e => e.type === 'turn/start')).toBe(false)
   })
 
+  it('window 2: whenIdle() does NOT resolve early when a running listener cancels then queues replacement work', async () => {
+    // The window-1 early-resolve race has a window-2 twin: a synchronous
+    // agent/status('running') listener cancels the about-to-run turn AND queues a
+    // replacement. window 2 must NOT settle waiters (via setStatus('idle')) while
+    // the replacement is still queued-and-unrun — it must fall through and run it,
+    // so whenIdle() resolves on the replacement turn's running→idle, not before.
+    const adapter = new MockAdapter([textResponse('A reply'), textResponse('B reply')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create('a1', { model: 'mock' })
+
+    let replaced = false
+    const dispose = ctx.on('agent/status', (subject, status) => {
+      if (subject !== agent || status !== 'running' || replaced) return
+      replaced = true
+      agent.cancel('drop A')
+      send(agent, 'B')
+    })
+
+    send(agent, 'A')
+    const idle = agent.whenIdle()
+    await idle
+    dispose()
+
+    // whenIdle() resolved only AFTER B's turn ran: B's user message + a turn/end
+    // are in the log, and A was dropped.
+    expect(userTexts(agent)).toContain('B')
+    expect(userTexts(agent)).not.toContain('A')
+    expect(agent.session.events.some(e => e.type === 'turn/end')).toBe(true)
+  })
+
   it('whenIdle() does NOT resolve early when a new prompt is queued during a pre-step cancel', async () => {
     // The subtle race: a whenIdle() waiter is registered for prompt A; cancel()
     // clears A; prompt B is queued BEFORE the loop resumes from the idle wait.

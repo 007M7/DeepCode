@@ -201,14 +201,22 @@ export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopH
 
     // Pre-step cancel (window 2): `setStatus('running')` emits `agent/status`
     // SYNCHRONOUSLY, so a `running` listener can `cancel()` in the gap between the
-    // check above and `runTurn`. `cancel()` already cleared the queued FIFO, so
-    // drop the turn before it starts (runTurn would otherwise throw on an empty
-    // queue) and transition back to idle — `running` was already emitted, so a
-    // real `idle` transition (which also settles waiters) balances the status.
+    // check above and `runTurn`. Mirror window 1: clear the marker, then
+    //   - if NOTHING new is queued, drop the about-to-run turn and transition
+    //     back to `idle` (`running` was already emitted, so a real idle
+    //     transition balances the status AND settles `whenIdle()` waiters);
+    //   - if a NEW prompt was queued AFTER the cancel (a `running` listener that
+    //     cancels then sends), the marker was for the cancelled work only — fall
+    //     through and run the new prompt's turn (status is already `running`), so
+    //     a `whenIdle()` waiter resolves on THAT turn's running→idle, not before
+    //     it runs. Settling here would resolve quiescence while the replacement
+    //     is still queued and unrun (the same early-resolve race window 1 fixes).
     if (handle.isCancelled()) {
       handle.clearCancel()
-      handle.setStatus('idle')
-      continue
+      if (!agent.inbox.hasQueued) {
+        handle.setStatus('idle')
+        continue
+      }
     }
 
     // Re-derive the turn number from the log each iteration (do NOT keep a local
