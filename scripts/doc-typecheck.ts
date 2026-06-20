@@ -9,10 +9,13 @@
  * compilable code opts out with an explicit ` ```ts ignore-check ` info string
  * — the opt-out is visible in the source, and this script reports the ratio so
  * the escape hatch can't quietly become the norm. A third info string,
- * ` ```ts type-equiv `, marks a verbatim paste of a source type definition that
- * `scripts/verify-type-equiv.ts` drift-checks against the source symbol; it is
- * skipped here and EXCLUDED from the opt-out ratio (a separately-checked
- * category, not an unchecked sketch).
+ * doc-typecheck.ts recognizes two more fence variants and skips both (each is a
+ * separately-checked category, not an unchecked sketch, so neither counts in the
+ * opt-out ratio): ` ```ts type-equiv ` is a verbatim source-type paste that
+ * `scripts/verify-type-equiv.ts` drift-checks, and ` ```ts cordis-catalog ` is a
+ * generated event/service signature fragment in the cordis catalog (a bare
+ * signature is not standalone-compilable; the catalog is generated and frozen by
+ * `scripts/gen-cordis-catalog.ts` + its `--check` freshness gate).
  *
  * Run: `tsx scripts/doc-typecheck.ts`.
  */
@@ -34,8 +37,13 @@ const root = resolve(import.meta.dirname, '..')
  *   source symbol. Skipped HERE (it is not standalone-compilable — no imports)
  *   and EXCLUDED from the opt-out ratio: it is a separate fully-checked
  *   category, not an unchecked sketch.
+ * - `cordis-catalog` (` ```ts cordis-catalog `) — a generated event/service
+ *   signature fragment in the cordis catalog. Skipped HERE for the same reason
+ *   (a bare signature fragment has no imports and does not stand alone) and
+ *   EXCLUDED from the opt-out ratio: the catalog is generated and frozen by
+ *   `scripts/gen-cordis-catalog.ts` + its `--check` freshness gate.
  */
-type BlockKind = 'check' | 'ignore' | 'type-equiv'
+type BlockKind = 'check' | 'ignore' | 'type-equiv' | 'cordis-catalog'
 
 /** One extracted code block. */
 interface Block {
@@ -46,7 +54,7 @@ interface Block {
   code: string
 }
 
-/** Extract every ```ts / ```ts ignore-check / ```ts type-equiv block from one Markdown file. */
+/** Extract every ts / ts ignore-check / ts type-equiv / ts cordis-catalog block from one Markdown file. */
 function extractBlocks(absPath: string): Block[] {
   const text = readFileSync(absPath, 'utf8')
   const lines = text.split('\n')
@@ -72,7 +80,8 @@ function extractBlocks(absPath: string): Block[] {
       info === 'ts' ? 'check'
         : info === 'ts ignore-check' ? 'ignore'
           : info === 'ts type-equiv' ? 'type-equiv'
-            : null
+            : info === 'ts cordis-catalog' ? 'cordis-catalog'
+              : null
     if (kind) open = { line: i + 1, kind, body: [] }
   })
   return blocks
@@ -127,10 +136,11 @@ files.sort()
 const all = files.flatMap(extractBlocks)
 const checked = all.filter(b => b.kind === 'check')
 const ignored = all.filter(b => b.kind === 'ignore')
-// `type-equiv` blocks are verified by verify-type-equiv.ts, not here: neither
-// compiled nor counted toward the opt-out ratio (they are a separate
-// fully-checked category, not an unchecked sketch). The ratio's denominator is
-// therefore the compile-eligible blocks only.
+// `type-equiv` and `cordis-catalog` blocks are verified elsewhere
+// (verify-type-equiv.ts and the gen-cordis-catalog `--check` freshness gate),
+// not here: neither compiled nor counted toward the opt-out ratio (each is a
+// separate fully-checked category, not an unchecked sketch). The ratio's
+// denominator is therefore the compile-eligible blocks only.
 const ratioDenominator = checked.length + ignored.length
 
 if (checked.length === 0) {
@@ -164,7 +174,8 @@ try {
   }
 
   const ratio = ignored.length / ratioDenominator
-  console.log(`doc-typecheck: ${checked.length} block(s) compiled, ${ignored.length} ignored (${(ratio * 100).toFixed(0)}% opt-out), ${all.length - ratioDenominator} type-equiv (checked by verify-type-equiv).`)
+  const skipped = all.length - ratioDenominator
+  console.log(`doc-typecheck: ${checked.length} block(s) compiled, ${ignored.length} ignored (${(ratio * 100).toFixed(0)}% opt-out), ${skipped} type-equiv/cordis-catalog (checked elsewhere).`)
   // Guard against the escape hatch becoming the norm.
   if (ratioDenominator >= 4 && ratio > 0.5) {
     console.error(`doc-typecheck: too many blocks opt out of checking (${ignored.length}/${ratioDenominator}). Make them compile or delete them.`)

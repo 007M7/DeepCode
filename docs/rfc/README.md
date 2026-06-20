@@ -62,6 +62,8 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Drop the mutable session summary](implemented/2026-06-19-drop-mutable-session-summary.md) | 2026-06-19 |
 | [Shared persistence write coordinator](implemented/2026-06-18-shared-persistence-write-coordinator.md) | 2026-06-18 |
 | [Agent lifecycle and ownership seams](implemented/2026-06-18-agent-lifecycle-and-ownership-seams.md) | 2026-06-18 |
+| [Core-data-structures catalog and the `ts type-equiv` drift gate](implemented/2026-06-20-core-data-structures-catalog.md) | 2026-06-20 |
+| [Generated cordis events + services catalog](implemented/2026-06-20-generated-cordis-catalog.md) | 2026-06-20 |
 
 ## Rejected
 

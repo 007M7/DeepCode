@@ -36,11 +36,15 @@ declare module 'cordis' {
      * Waterfall around every tool execution — the single seam where sandbox,
      * permission, hook, and plan-mode plugins wrap or veto a call. Listeners
      * receive `(exec, next)`: call `next()` to proceed (possibly around your
-     * own logic), or return a ToolExecutionResult without calling `next()`
-     * to short-circuit (veto).
+     * own logic), or return a {@link ToolExecutionResult} without calling
+     * `next()` to short-circuit (veto).
+     * @mode waterfall
      */
     'tools/execute'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
-    /** A tool was registered or unregistered. */
+    /**
+     * A tool was registered or unregistered (the available tool set changed).
+     * @mode emit
+     */
     'tools/change'(): void
   }
 }

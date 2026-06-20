@@ -45,10 +45,11 @@ jobs:
 
       # Doc-sync gates (doc-sync-enforcement RFC). doc-typecheck compiles the fenced ts blocks in
       # the docs and resolves vendor packages via their built declarations, which
-      # the typecheck step above emits — so it runs after typecheck. The event
-      # taxonomy check and the markdown wrap check only read source. Same
-      # `doc-sync` script the pre-push hook runs (quality-gates RFC: one source of truth).
-      - name: Doc-sync gates (doc code blocks + event taxonomy + markdown wrap)
+      # the typecheck step above emits — so it runs after typecheck. The cordis
+      # catalog freshness check, type-equiv check, and markdown wrap/link checks
+      # only read source. Same `doc-sync` script the pre-push hook runs
+      # (quality-gates RFC: one source of truth).
+      - name: Doc-sync gates (doc code blocks + cordis catalog + type-equiv + markdown wrap/links)
         run: pnpm run doc-sync
 
       # Module-graph freshness: regenerate docs/module-graph.md from the

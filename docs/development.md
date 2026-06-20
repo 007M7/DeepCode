@@ -93,17 +93,18 @@ pnpm run typecheck      # build declarations, then typecheck source, tests, and 
 pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
-pnpm run verify-event-taxonomy  # compare docs/architecture.md event names with source
+pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events-and-services.md from source
+pnpm run verify-cordis-catalog  # fail if the cordis events/services catalog is stale
 pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
 pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
-pnpm run doc-sync       # doc-typecheck, event taxonomy, markdown wrap/link, and type-equiv verification
+pnpm run doc-sync       # doc-typecheck, cordis-catalog freshness, markdown wrap/link, and type-equiv verification
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
 pnpm run build          # build declarations and JS bundles
 pnpm run hygiene        # knip, publint, and workspace constraints
 ```
 
-When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets, event-taxonomy drift, and hard-wrapped markdown prose, but broader prose/API sync still needs review.
+When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets, cordis events/services catalog drift, and hard-wrapped markdown prose, but broader prose/API sync still needs review.
 
 ## Demos
 
