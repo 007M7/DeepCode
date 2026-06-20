@@ -13,7 +13,9 @@
  * - `session/load`   → `ctx.agents.resume(...)` then replay the event log
  * - `session/prompt` → `agent.send()`, settle on the owning turn's end (a turn
  *                      that ends in `error` rejects the RPC)
- * - `session/cancel` → `agent.abort()` + settle the in-flight prompt
+ * - `session/cancel` → `agent.cancel()` (the queue-aware cancel: aborts a
+ *                      running step, clears queued + steering work, and drops a
+ *                      turn about to start) + settle the in-flight prompt
  *
  * Multi-session (RFC 011): N concurrent sessions per connection, each mapped to
  * its own `ReactLoopAgent`. Sessions are keyed by id in `sessions` (forward) with an
@@ -628,19 +630,21 @@ export function apply(ctx: Context, config: AcpConfig): void {
    * Tear ALL live sessions down to quiescence (AGENTS.md "dispose must reach
    * quiescence"): for each session settle any pending prompt `cancelled`, then
    * run that session's {@link AgentHandle} `dispose()` — which stops the loop
-   * with the queue-aware cancel, AWAITS the loop's exit (the final
-   * `turn/end` + `session/flush` are captured while `onAppend` is still
+   * (sets `disposed`, aborts the in-flight step), AWAITS the loop's exit (the
+   * final `turn/end` + `session/flush` are captured while `onAppend` is still
    * attached), unregisters the agent, and removes its session from the store.
    * The per-session disposes run in parallel. Idempotent — clears the `sessions`
    * map first and memoizes, so a second call (close racing dispose) is a no-op.
    * Shared by Cordis disposal AND client disconnect (`conn.closed`).
    *
-   * Per-agent disposal closes the former pre-step best-effort window: the
-   * queue-aware `cancel()` (RFC 011) drops a turn about to start, so a queued-
-   * but-not-yet-running prompt never runs after teardown. A bare client
-   * disconnect (resolves `conn.closed` WITHOUT disposing the fiber) thus leaves
-   * NO registered agent and NO session-store entry — not an idled-but-still-
-   * registered one. When the fiber IS disposed (whole-context or an ACP-only HMR
+   * Per-agent disposal closes the former pre-step best-effort window — but via
+   * the DISPOSED path, not `cancel()`: the start-disposer resolves `handle.disposed`,
+   * which wakes the parked loop, and `isDisposed()` breaks the loop before a
+   * queued-but-not-yet-running turn can start (a turn cut off mid-flight ends
+   * with reason `disposed`, not `aborted`). A bare client disconnect (resolves
+   * `conn.closed` WITHOUT disposing the fiber) thus leaves NO registered agent
+   * and NO session-store entry — not an idled-but-still-registered one. When the
+   * fiber IS disposed (whole-context or an ACP-only HMR
    * `acpFiber.dispose()`), this same memoized teardown runs first; the factory's
    * register+start+session effects are ALSO bound to the bridge fiber (the
    * factory is reached through this bridge's traceable service proxy, so
@@ -665,10 +669,10 @@ export function apply(ctx: Context, config: AcpConfig): void {
       await Promise.all(recs.map(async (rec) => {
         settlePrompt(rec, 'cancelled')
         // Per-agent dispose (the AgentHandle disposer): unregister this agent,
-        // stop its loop with the queue-aware cancel, await quiescence (the loop
-        // exit + final flush), and remove its session — so a bare client
-        // disconnect leaves NO registered agent and NO session-store entry, not
-        // just an idled-but-still-registered one.
+        // stop its loop (sets disposed + aborts the in-flight step), await
+        // quiescence (the loop exit + final flush), and remove its session — so
+        // a bare client disconnect leaves NO registered agent and NO
+        // session-store entry, not just an idled-but-still-registered one.
         await rec.dispose()
       }))
     })()
