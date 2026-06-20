@@ -24,6 +24,7 @@ async function setup() {
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
   ;(ctx.bash as LocalBashExecutor).internals = { spillDir, graceMs: 200 }
   await ctx.plugin(ToolBash)
+  trackCompletions(ctx)
   return ctx
 }
 
@@ -67,20 +68,40 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 }
 
 /**
- * Resolve once the background task with `id` completes. The task is started
- * indirectly (via `ctx.tools.execute`), so `start()`'s return is not accessible
- * here; the executor's `onTaskDone` listener delivers the SAME task object on
- * completion, which is the surviving seam for awaiting a task by id.
+ * Per-context background-completion tracker. The task is started indirectly
+ * (via `ctx.tools.execute`), so `start()`'s return is not accessible here, and
+ * there is no get-by-id seam to poll current state — the only surviving way to
+ * await a task by id is the executor's `onTaskDone` listener. Registering that
+ * listener lazily (after the task may have already closed) would miss the
+ * completion and hang; so {@link trackCompletions} installs ONE listener
+ * EAGERLY (before any task starts) that records every completion, and
+ * {@link doneFor} resolves from that record — immediately if the task already
+ * finished, otherwise when it does. Call `trackCompletions(ctx)` right after
+ * the executor is mounted (`setup()` does this for you).
  */
-function doneFor(ctx: Context, id: string): Promise<BashTask> {
-  return new Promise<BashTask>((resolve) => {
-    const dispose = ctx.bash.onTaskDone((task) => {
-      if (task.id === id) {
-        dispose()
-        resolve(task)
-      }
-    })
+const completions = new WeakMap<Context, { done: Map<string, BashTask>; waiters: Map<string, (task: BashTask) => void> }>()
+
+function trackCompletions(ctx: Context): void {
+  const state = { done: new Map<string, BashTask>(), waiters: new Map<string, (task: BashTask) => void>() }
+  completions.set(ctx, state)
+  ctx.bash.onTaskDone((task) => {
+    const waiter = state.waiters.get(task.id)
+    if (waiter) {
+      state.waiters.delete(task.id)
+      waiter(task)
+    } else {
+      state.done.set(task.id, task)
+    }
   })
+}
+
+/** Resolve (with the task object) once the background task `id` has completed. */
+function doneFor(ctx: Context, id: string): Promise<BashTask> {
+  const state = completions.get(ctx)
+  if (!state) throw new Error('trackCompletions(ctx) must be called before doneFor(ctx, …)')
+  const already = state.done.get(id)
+  if (already) return Promise.resolve(already)
+  return new Promise<BashTask>(resolve => state.waiters.set(id, resolve))
 }
 
 class LossyReadBashExecutor extends BashExecutor {
@@ -312,6 +333,7 @@ describe('background tools', () => {
     await ctx.plugin(LocalBashExecutor, { maxOutputBytes: 100 })
     ;(ctx.bash as LocalBashExecutor).internals = { spillDir, graceMs: 200 }
     await ctx.plugin(ToolBash)
+    trackCompletions(ctx)
 
     const started = await call(ctx, 'bash', { command: 'for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', description: 'test command', run_in_background: true })
     const id = /task (bash-\d+)/.exec(text(started))![1]!

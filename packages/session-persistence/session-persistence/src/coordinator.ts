@@ -202,7 +202,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       throw new Error(`session "${meta.id}" already exists in this backend`)
     }
     // A persisted artifact under this id (in ANY scope) blocks creation: load/
-    // has/resume identify a session by id alone, so a second artifact would make
+    // resume identify a session by id alone, so a second artifact would make
     // resume nondeterministic.
     if (await this.backend.loadStored(meta.id) !== undefined) {
       throw new Error(`session "${meta.id}" already has a persisted log on disk; load/resume it instead of creating`)

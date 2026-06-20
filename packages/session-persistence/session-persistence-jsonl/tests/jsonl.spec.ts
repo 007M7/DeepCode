@@ -629,8 +629,8 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const a = meta('dup-id', '/projA')
     await ctx.sessionPersistence.create(a)
     await ctx.sessionPersistence.append(a.id, oneTurnLog())
-    // A fresh backend creating the SAME id under cwd B must still refuse: load/
-    // has identify by id across all buckets, so a second log would make resume
+    // A fresh backend creating the SAME id under cwd B must still refuse: load
+    // identifies by id across all buckets, so a second log would make resume
     // nondeterministic. create scans every bucket, not just meta.cwd's.
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
