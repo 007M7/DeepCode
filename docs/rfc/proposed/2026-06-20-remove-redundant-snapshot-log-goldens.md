@@ -1,27 +1,31 @@
-# RFC: Use the recorded session fixture as the snapshot log golden
+# RFC: Use `session.jsonl` as the only snapshot session-log artifact
 
 Status: proposed
 
 ## Problem
 
-Recorded ACP snapshot scenarios ship both `session.jsonl` and `session.golden.jsonl`. For normal recorded scenarios, `session.jsonl` is the replay fixture harvested from a real run, and the replay test normalizes the newly persisted log and compares it to `session.golden.jsonl`. In the current fixtures, the normalized recorded log and normalized golden are identical for the ordinary recorded scenarios.
+Model-driving ACP snapshot scenarios ship both `session.jsonl` and `session.golden.jsonl`. For normal recorded scenarios, `session.jsonl` is the replay fixture harvested from a real run, and the replay test normalizes the newly persisted log and compares it to `session.golden.jsonl`. In the current fixtures, the normalized recorded log and normalized golden are identical for the ordinary recorded scenarios.
 
-The duplicate file can help review by showing "expected persisted log" separately from "model replay input", but for recorded scenarios those are intentionally the same artifact. Keeping both means a re-record churns two files with the same semantic content, when one committed session log can serve as both replay input and expected persisted output.
+Authored override scenarios (`error-finish`, `cancel`) currently use `replay.override.json` to drive model behavior and keep `session.jsonl` as a minimal dummy fixture, while `session.golden.jsonl` holds the expected persisted log. That split is also unnecessary: when an override sidecar exists, `llm-replay` replaces the derived script and does not need `session.jsonl` for model chunks, so `session.jsonl` can still be the expected session-log artifact for the scenario.
 
 ## Proposal
 
-For recorded scenarios, keep one session-log artifact: `session.jsonl`. The snapshot test compares the replay run's normalized persisted log directly against normalized `session.jsonl`. Keep explicit `session.golden.jsonl` only for authored scenarios where `replay.override.json` drives behavior that is not derivable from the fixture, or where the expected persisted log intentionally differs from the replay script.
+Remove the `session.golden.jsonl` concept entirely. Every scenario has at most one committed session-log artifact, `session.jsonl`:
+
+- For recorded scenarios, `session.jsonl` remains the raw harvested log. Replay still derives model chunks from it, and the snapshot test compares the replay run's normalized persisted log against normalized `session.jsonl`.
+- For authored override scenarios, `replay.override.json` drives model behavior and `session.jsonl` holds the expected produced session log. The replay adapter ignores the fixture for model chunks when the override exists, so the same file can be the expected log without affecting replay behavior.
+- For no-model scenarios, `session.jsonl` can stay as the minimal fixture needed to boot `llm-replay`; no session-log comparison is needed unless the scenario creates a persisted session.
 
 Stdout goldens remain unchanged; they are the editor-facing projection and are not redundant with the session fixture.
 
 ## Acceptance criteria
 
-- Recorded scenarios commit `session.jsonl` as the single session-log fixture/golden and stop committing `session.golden.jsonl`.
-- The snapshot test derives the expected session log from `session.jsonl` for `recorded: true` scenarios.
-- Authored sidecar scenarios keep explicit session goldens when needed.
+- `session.golden.jsonl` disappears from the snapshot harness, fixtures, orphan guards, and docs.
+- The snapshot test derives the expected session log from `session.jsonl` for every model scenario.
+- Authored sidecar scenarios commit their expected produced log in `session.jsonl`; `replay.override.json` remains the model-behavior override.
 - Orphan-fixture guards understand which files are required by scenario kind.
 - The [ACP snapshot tests RFC](../implemented/2026-06-19-acp-snapshot-tests.md) is updated to describe the reduced fixture set.
 
 ## What we give up
 
-Reviewers lose one redundant artifact that made the expected persisted log visually separate from the replay fixture. The stdout golden still protects the editor transcript, and comparing replay output to the recorded fixture preserves the loop/persistence regression check without duplicating files.
+Reviewers lose one artifact name that made the expected persisted log visually separate from the replay fixture. The stdout golden still protects the editor transcript, and comparing replay output to `session.jsonl` preserves the loop/persistence regression check without duplicating files.

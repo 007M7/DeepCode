@@ -37,11 +37,11 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Drop unconsumed assembled LLM convenience surfaces](proposed/2026-06-20-drop-unconsumed-llm-assembled-surfaces.md) | 2026-06-20 |
 | [Drop the unconsumed `llm/adapter-change` event](proposed/2026-06-20-drop-unconsumed-llm-adapter-change-event.md) | 2026-06-20 |
 | [Prune dead methods from the persistence and bash seams](proposed/2026-06-20-prune-dead-seam-methods.md) | 2026-06-20 |
-| [Drop durable step boundary events](proposed/2026-06-20-drop-durable-step-boundaries.md) | 2026-06-20 |
 | [Fold trace-only session facts into load-bearing events](proposed/2026-06-20-collapse-trace-only-session-events.md) | 2026-06-20 |
 | [Extract a generic long-running tool runtime](proposed/2026-06-20-generic-long-running-tool-runtime.md) | 2026-06-20 |
 | [Make the shared example base providerless](proposed/2026-06-20-providerless-example-base.md) | 2026-06-20 |
-| [Use the recorded session fixture as the snapshot log golden](proposed/2026-06-20-remove-redundant-snapshot-log-goldens.md) | 2026-06-20 |
+| [Use `session.jsonl` as the only snapshot session-log artifact](proposed/2026-06-20-remove-redundant-snapshot-log-goldens.md) | 2026-06-20 |
+| [Classify packages by aspect metadata](proposed/2026-06-20-classify-packages-by-aspect.md) | 2026-06-20 |
 | [Discover package inventories instead of maintaining static lists](proposed/2026-06-20-discover-package-inventory.md) | 2026-06-20 |
 
 ## Implemented
@@ -84,6 +84,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Drop ACP session/load until resume has a product shape](rejected/2026-06-20-drop-acp-session-load.md) | 2026-06-20 |
 | [Drop ACP terminal `_meta` rendering](rejected/2026-06-20-drop-acp-terminal-meta.md) | 2026-06-20 |
 | [Drop bash full-output spill files](rejected/2026-06-20-drop-bash-output-spill-files.md) | 2026-06-20 |
+| [Drop durable step boundary events](rejected/2026-06-20-drop-durable-step-boundaries.md) | 2026-06-20 |
 | [Drop unused session lineage metadata](rejected/2026-06-20-drop-unused-session-lineage.md) | 2026-06-20 |
 | [Fold the persistence interface into dsh-session](rejected/2026-06-20-fold-session-persistence-interface.md) | 2026-06-20 |
 | [Collapse tool-owned UI presentation](rejected/2026-06-20-generic-tool-rendering.md) | 2026-06-20 |

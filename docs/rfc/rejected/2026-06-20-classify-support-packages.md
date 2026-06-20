@@ -12,7 +12,7 @@ This is not just cosmetic. A package's location currently says little about whet
 
 Introduce an explicit package classification and move packages accordingly, for example `packages/core/`, `packages/integrations/`, `packages/tools/`, `packages/testing/`, and `packages/examples/`, or an equivalent structure decided in the implementing PR. The important part is that example/test support packages are not indistinguishable from product core.
 
-The rejected part is the one-dimensional taxonomy. The useful follow-up is explicit package aspect metadata that scripts can consume without pretending a package has only one role.
+The rejected part is the one-dimensional taxonomy. The useful follow-up is [explicit package aspect metadata](../proposed/2026-06-20-classify-packages-by-aspect.md) that scripts can consume without pretending a package has only one role.
 
 This proposal does not delete `llm-replay` or `ui-stdio` by itself. It makes their status honest: either they graduate into product packages with documented consumers, or they live under a support/testing/example classification where release and compatibility expectations are lower.
 

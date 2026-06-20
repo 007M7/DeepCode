@@ -1,12 +1,12 @@
 # RFC: Drop durable step boundary events
 
-Status: proposed
+Status: rejected — `step/end` is the durable indication that a model step finished, and keeping the symmetric `step/start` / `step/end` pair makes crash repair, invariants, and transcript inspection clearer than inferring completion from adjacent step-scoped events.
 
 ## Problem
 
 The session log stores `step/start` and `step/end` events even though every step-scoped event already carries `{ turn, step }`: assistant chunks, assistant messages, tool calls, tool results, usage, and errors. `deriveMessages()` ignores step boundaries, ACP ignores them for UI, and the main consumers are invariants, tests, snapshot goldens, and crash repair.
 
-The boundary events make the log more ceremonial than informative. The loop tracks open steps solely to close them, repair synthesizes `step/end` when a crash leaves a step open, invariants track a second nesting stack inside the turn, and snapshots carry lines that do not affect replayed message history. A model request that crashes before producing any step-scoped event is the only information represented by a bare `step/start`, and that case has no useful resumable content.
+The rejected argument was that boundary events make the log more ceremonial than informative. In practice, `step/end` is concrete information: a reader can tell whether a model request finished, crashed, or is being repaired without deriving that state from the next event. A bare `step/start` is likewise useful for a model request that began but produced no chunks before failing.
 
 ## Proposal
 
@@ -25,4 +25,4 @@ The invariants plugin should enforce that step-scoped events have valid positive
 
 ## What we give up
 
-The log no longer records "a model request started but produced no event before the process died" as a durable fact. That is acceptable: there is no assistant content, tool call, usage, or error to replay from that empty request. A live UI can still show an in-progress step from a transient event if it needs one; the durable log should not store an empty bracket.
+The log no longer records "a model request started but produced no event before the process died" as a durable fact, and no longer has an explicit "this step completed" marker. That loss is not acceptable while the session log is the durable replay and audit surface.
