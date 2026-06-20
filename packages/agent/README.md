@@ -18,7 +18,7 @@ Agent *creation* is provided by whichever plugin implements `AgentFactory` (phas
 
 - `ctx.agents.setFactory(factory: AgentFactory): () => void` — register the creation factory (the loop calls this on construction). Throws on a second factory; the slot clears on dispose.
 - `ctx.agents.create(options: CreateAgentOptions): AgentHandle` — construct, start, AND register a new agent on a caller-supplied `sessionId` (with optional `meta.cwd`). Distinct from `register` (which only records). Throws if no factory is registered.
-- `ctx.agents.resume(options: ResumeAgentOptions): Promise<AgentHandle>` — load a persisted session ([session persistence](../../docs/rfc/implemented/2026-06-14-session-persistence.md)) and resume an agent on it. Async; rejects if no factory is registered, or if the factory finds session persistence unconfigured.
+- `ctx.agents.resume(options: ResumeAgentOptions): Promise<AgentHandle>` — load a persisted session ([session persistence](../../docs/rfc/implemented/architecture/2026-06-14-session-persistence.md)) and resume an agent on it. Async; rejects if no factory is registered, or if the factory finds session persistence unconfigured.
 
 `AgentHandle = { agent: Agent; dispose(): Promise<void> }`. The disposer is a **capability** — only the holder can tear this agent down. `dispose()` stops the loop, `await`s its exit (quiescence — NOT just the `disposed` status flip), unregisters the agent, and removes its session from the store, in an order that captures the loop's final `session/flush` before the session is detached. `ctx.agents.get(id)` still returns a bare `Agent` — the handle is only for the OWNER that created it. The ACP bridge is the production consumer (one handle per session, disposed on disconnect/teardown); config-created agents are owned by the loop fiber and never need a handle.
 
@@ -55,7 +55,7 @@ The handle every plugin programs against:
 
 - `agent.send(content, options?)` — queue a message; starts a turn when idle
 - `agent.steer(content, options?)` — steer a running turn (inject between steps); behaves like `send` when idle
-- `agent.inject(content, options?)` — inject in-session context (context/message event); the next request sees it. Does not run the model. While a turn is open it joins that turn; while idle it is wrapped in a one-shot `injection` turn so every event stays turn-enclosed ([the turn-enclosure invariant](../../docs/rfc/implemented/2026-06-15-turn-enclosure-invariant.md))
+- `agent.inject(content, options?)` — inject in-session context (context/message event); the next request sees it. Does not run the model. While a turn is open it joins that turn; while idle it is wrapped in a one-shot `injection` turn so every event stays turn-enclosed ([the turn-enclosure invariant](../../docs/rfc/implemented/architecture/2026-06-15-turn-enclosure-invariant.md))
 - `agent.abort(reason?)` — abort the in-flight step (the narrow, step-only verb)
 - `agent.cancel(reason?)` — cancel ALL pending work: clears the queued + steering FIFOs, aborts the in-flight step, and drops a turn about to start (the pre-step window) so a queued-but-not-started prompt never runs. A UI/ACP `session/cancel` maps to this. Idle with nothing pending → a safe no-op.
 - `agent.whenIdle()` — resolve once the agent reaches quiescence after settling out of `running` (idle → immediately; disposed → awaits the loop exit), the signal a teardown awaits (`abort()` then `await whenIdle()`). Observes the transition without disposing the agent.

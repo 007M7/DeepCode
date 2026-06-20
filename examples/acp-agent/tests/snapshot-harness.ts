@@ -10,7 +10,7 @@
  * shutdown flush. Two pure normalizers turn the captured stdout frames and the
  * session-log events into stable, snapshot-able text.
  *
- * See docs/rfc/implemented/2026-06-19-acp-snapshot-tests.md.
+ * See docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
