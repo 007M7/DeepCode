@@ -10,7 +10,7 @@
  * The fixture IS the persisted session log (`<scenario>/session.jsonl`): its
  * `assistant/chunk` events carry every {@link StreamChunk}, so grouping them by
  * `(turn, step)` reconstructs each `stream()` call's chunk sequence (one model
- * call per loop step — see packages/agent-loop/src/loop.ts). Recording is
+ * call per loop step — see packages/core/agent-loop/src/loop.ts). Recording is
  * therefore "run the real agent once and harvest the `.jsonl`", done by the
  * snapshot harness — this plugin does not record.
  *
@@ -46,7 +46,7 @@ import { LlmError, assertNever } from '@deepseek-ai/dsh-llm'
  * so it can faithfully replay BOTH branches of the documented LLM failure
  * contract — an adapter may THROW from `stream()` or end with a `finish` error
  * chunk — plus a `hang` marker for cancellation scenarios (mirrors the
- * `MockAdapter` `hang` support in packages/agent-loop/tests).
+ * `MockAdapter` `hang` support in packages/core/agent-loop/tests).
  *
  * A `throw` entry carries any `chunks` the adapter emitted BEFORE it threw, so
  * a mid-stream transport failure (partial output then `STREAM_CLOSED`) replays

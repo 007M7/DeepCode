@@ -18,7 +18,7 @@ For now, ACP starts fresh sessions only. `initialize` advertises `loadSession: f
 - `initialize` does not advertise load support.
 - The `session/load` handler, loading-id tracking, cwd preflight for loaded sessions, and load replay tests are removed.
 - Snapshot fixtures no longer rely on load replay presentation.
-- [ACP docs](../../../../packages/acp/README.md) describe fresh-session support only.
+- [ACP docs](../../../../packages/ui/acp/README.md) describe fresh-session support only.
 
 ## What we give up
 

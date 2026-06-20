@@ -41,4 +41,4 @@ Disposal (HMR or fiber teardown) closes the readline interface, which also fires
 
 ## Plugin export shape
 
-Named `name` / `inject` / `Config` / `apply`, with **no default export**: the cordis Loader's `unwrapExports` does `exports.default ?? exports`, so a stray default would collapse the module to the bare function and drop the `inject` namespace (see [docs/postmortem/0001](../../docs/postmortem/0001-acp-default-export-drops-inject.md)). The keyless Loader-path e2e smokes in `examples/{echo,coding}-agent` guard this end-to-end.
+Named `name` / `inject` / `Config` / `apply`, with **no default export**: the cordis Loader's `unwrapExports` does `exports.default ?? exports`, so a stray default would collapse the module to the bare function and drop the `inject` namespace (see [docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)). The keyless Loader-path e2e smokes in `examples/{echo,coding}-agent` guard this end-to-end.

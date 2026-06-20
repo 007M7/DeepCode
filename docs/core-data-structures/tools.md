@@ -1,8 +1,8 @@
 # Tools
 
-The tool pipeline of [dsh-tools](../../packages/tools). [core.md](core.md) introduces `ToolDefinition` as the one pipeline-authoring type promoted to the spine and `ToolSchema` as the model-facing wire shape. This page owns the full `ToolDefinition`, the typed schema DSL that builds it, the waterfall execution shapes, and the UI-presentation vocabulary.
+The tool pipeline of [dsh-tools](../../packages/core/tools). [core.md](core.md) introduces `ToolDefinition` as the one pipeline-authoring type promoted to the spine and `ToolSchema` as the model-facing wire shape. This page owns the full `ToolDefinition`, the typed schema DSL that builds it, the waterfall execution shapes, and the UI-presentation vocabulary.
 
-Source: [`packages/tools/src/index.ts`](../../packages/tools/src/index.ts) · [`packages/tools/src/schema.ts`](../../packages/tools/src/schema.ts)
+Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index.ts) · [`packages/core/tools/src/schema.ts`](../../packages/core/tools/src/schema.ts)
 
 ## `ToolDefinition` — a registered tool
 
@@ -36,7 +36,7 @@ interface ToolDefinition extends ToolSchema {
 
 Plugin authors write per-property specs with a boolean `required: true`, and a type-level helper maps the spec to the `execute` argument type — zero casts. The DSL is *machinery that types* `ToolDefinition`; it is intentionally a sub-page detail, not core.
 
-Source: [`packages/tools/src/schema.ts`](../../packages/tools/src/schema.ts)
+Source: [`packages/core/tools/src/schema.ts`](../../packages/core/tools/src/schema.ts)
 
 ```ts type-equiv
 interface SchemaProp {
@@ -109,4 +109,4 @@ How a tool wants its call shown in a UI (an editor tool-call card, a CLI log lin
 
 > These shapes carry a `FIXME(tool-presentation)` in source: they grew incrementally and the call-vs-result terminal split is muddy. Before more tools/UIs depend on them, they will be redesigned (a tagged union over card kinds) and pinned in an RFC, migrating `dsh-tool-bash` and the ACP bridge together. Treat the field-level shapes here as provisional; the source is authoritative.
 
-The full presentation field docs live in [`packages/tools/src/index.ts`](../../packages/tools/src/index.ts). The bash tool's own schemas (`bash`/`bash_output`/`bash_kill`) and the executor they drive are on [bash.md](bash.md).
+The full presentation field docs live in [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index.ts). The bash tool's own schemas (`bash`/`bash_output`/`bash_kill`) and the executor they drive are on [bash.md](bash.md).

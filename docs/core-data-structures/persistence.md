@@ -2,7 +2,7 @@
 
 The **durability seam** for the event log. [session.md](session.md) describes the in-memory `Session` — the append-only `SessionEvent` log that is the source of truth. This page describes how that log is made durable: the abstract `SessionPersistence` service, its backends, the flush checkpoint, crash recovery, and the metadata header that travels alongside the log.
 
-The seam is a textbook [capability seam](../rfc/implemented/architecture/2026-06-13-capability-seams.md): one abstract service ([dsh-session-persistence](../../packages/session-persistence), `ctx.sessionPersistence`) defining create/append/load/list/has/delete over the existing `SessionEvent` — **no parallel persisted type** — and two interchangeable backends that pass the same `runPersistenceContract` suite. See the [session-persistence RFC](../rfc/implemented/architecture/2026-06-14-session-persistence.md).
+The seam is a textbook [capability seam](../rfc/implemented/architecture/2026-06-13-capability-seams.md): one abstract service ([dsh-session-persistence](../../packages/session-persistence/session-persistence), `ctx.sessionPersistence`) defining create/append/load/list/has/delete over the existing `SessionEvent` — **no parallel persisted type** — and two interchangeable backends that pass the same `runPersistenceContract` suite. See the [session-persistence RFC](../rfc/implemented/architecture/2026-06-14-session-persistence.md).
 
 ## The flush checkpoint
 
@@ -16,7 +16,7 @@ A backend that reloads a log crashed mid-turn finds an open `turn/start` with no
 
 Per-session metadata travels **separately** from the event log: format version, cwd, and lineage are storage concerns, not conversation events, so they stay out of `SessionEventMap` and never reach `deriveMessages()`. The header is attached to a `Session` via `session.header`.
 
-Source: [`packages/session/src/types.ts`](../../packages/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)
 
 ```ts type-equiv
 interface SessionHeader {
@@ -57,7 +57,7 @@ Replay/fork is therefore `ctx.sessions.create(id, { seed: seedEvents })`; resumi
 
 Both implement the same abstract `SessionPersistence` (create/append/load/list/has/delete over `SessionEvent`) and pass `runPersistenceContract`, proving the seam is genuinely backend-agnostic:
 
-- **[dsh-session-persistence-jsonl](../../packages/session-persistence-jsonl)** — an append-only JSONL log per session with crash-safe atomic writes, the interrupted-turn crash recovery above, and a read/replay path.
-- **[dsh-session-persistence-sqlite](../../packages/session-persistence-sqlite)** — `node:sqlite`, one row per `SessionEvent`. The row shape `(session_id, seq, type, time, data)` maps 1:1 onto the event, so there is no parallel persisted schema to keep in sync.
+- **[dsh-session-persistence-jsonl](../../packages/session-persistence/session-persistence-jsonl)** — an append-only JSONL log per session with crash-safe atomic writes, the interrupted-turn crash recovery above, and a read/replay path.
+- **[dsh-session-persistence-sqlite](../../packages/session-persistence/session-persistence-sqlite)** — `node:sqlite`, one row per `SessionEvent`. The row shape `(session_id, seq, type, time, data)` maps 1:1 onto the event, so there is no parallel persisted schema to keep in sync.
 
 Multiple backends sharing one on-disk session coordinate writes through the [shared persistence write-coordinator](../rfc/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).

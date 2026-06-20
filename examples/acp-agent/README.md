@@ -28,7 +28,7 @@ Add to your Zed `settings.json` under `agent_servers`:
 }
 ```
 
-The editor sets each session's `cwd` to the project it opens; the agent's bash tools run there (see the per-session `cwd` note in `packages/acp`), so launch the server from the harness repo with `pnpm --dir …` and let ACP carry the workspace path per session.
+The editor sets each session's `cwd` to the project it opens; the agent's bash tools run there (see the per-session `cwd` note in `packages/ui/acp`), so launch the server from the harness repo with `pnpm --dir …` and let ACP carry the workspace path per session.
 
 ## Snapshot tests (record-once / replay-deterministic)
 
@@ -36,4 +36,4 @@ This example is the home of the harness's **snapshot tests** — they boot this 
 
 ## MVP limitations
 
-The bridge supports N concurrent sessions per connection, each in its own workspace `cwd` (RFC 011). Remaining limits: prompts support ACP's baseline `text` and `resource_link` blocks only, `additionalDirectories` and `mcpServers` are rejected, and the tool-permission gate is deferred (`TODO(rfc010-permission-gate)` — tools run with the executor's full authority). See `packages/acp/README.md` for the full contract.
+The bridge supports N concurrent sessions per connection, each in its own workspace `cwd` (RFC 011). Remaining limits: prompts support ACP's baseline `text` and `resource_link` blocks only, `additionalDirectories` and `mcpServers` are rejected, and the tool-permission gate is deferred (`TODO(rfc010-permission-gate)` — tools run with the executor's full authority). See `packages/ui/acp/README.md` for the full contract.

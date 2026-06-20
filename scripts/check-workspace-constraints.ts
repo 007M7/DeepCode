@@ -5,7 +5,7 @@
  * Run: `tsx scripts/check-workspace-constraints.ts`.
  */
 
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
@@ -105,7 +105,37 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
   return errors.map(error => `${relative(root, join(root, dir, 'package.json'))}: ${error}`)
 }
 
-const errors = workspaceManifests().flatMap(checkWorkspace)
+/**
+ * Enforce the packages/ hierarchy SHAPE: every package lives at exactly
+ * `packages/<group>/<pkg>`. A group dir is a pure container — it holds packages,
+ * never sources of its own — so it must NOT carry a package.json, and a package
+ * must NOT sit directly at the `packages/` root (the old flat layout) nor nest a
+ * level deeper. The group NAMES are open on purpose: a new group may be added
+ * without touching this gate, but the depth-2 shape is fixed. This is what keeps
+ * a stray flat package or an over-nested one from regressing the hierarchy.
+ */
+function checkHierarchyShape(): string[] {
+  const errors: string[] = []
+  const packagesRoot = join(root, 'packages')
+  for (const group of readdirSync(packagesRoot, { withFileTypes: true })) {
+    if (!group.isDirectory()) continue
+    const groupRel = join('packages', group.name)
+    if (existsSync(join(packagesRoot, group.name, 'package.json'))) {
+      errors.push(`${groupRel}: a group dir must not contain a package.json — packages live at packages/<group>/<pkg>, not directly under packages/`)
+      continue
+    }
+    for (const pkg of readdirSync(join(packagesRoot, group.name), { withFileTypes: true })) {
+      if (!pkg.isDirectory()) continue
+      const pkgRel = join(groupRel, pkg.name)
+      if (!existsSync(join(packagesRoot, group.name, pkg.name, 'package.json'))) {
+        errors.push(`${pkgRel}: expected a package here (no package.json found) — the hierarchy is exactly packages/<group>/<pkg>, no deeper nesting`)
+      }
+    }
+  }
+  return errors
+}
+
+const errors = [...workspaceManifests().flatMap(checkWorkspace), ...checkHierarchyShape()]
 if (errors.length > 0) {
   console.error(errors.join('\n'))
   process.exitCode = 1

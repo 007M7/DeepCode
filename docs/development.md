@@ -135,7 +135,7 @@ Pick the tag that matches the urgency so anyone scanning the code can tell a rel
 The [core data structures](core-data-structures/core.md) docs paste real type definitions so a reader sees the exact shape. To keep a paste from drifting when source changes, fence it as ` ```ts type-equiv ` (instead of ` ```ts `) and register it in `scripts/type-equiv.manifest.json` with the source file and symbol it mirrors:
 
 ```json
-{ "doc": "docs/core-data-structures/session.md", "symbol": "SessionEvent", "source": "packages/session/src/types.ts" }
+{ "doc": "docs/core-data-structures/session.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" }
 ```
 
 `pnpm run verify-type-equiv` (part of `doc-sync`) then extracts that symbol's declaration from source via the TypeScript parser and asserts the block matches it (whitespace- and comment-insensitive, so a doc block may show a clean definition and the prose can carry the semantics). It also enforces a 1:1 correspondence: every `ts type-equiv` block has exactly one manifest entry and vice-versa, so a block can't go silently unchecked and a stale entry can't linger. `doc-typecheck` skips `ts type-equiv` blocks (they aren't standalone-compilable) and excludes them from its opt-out ratio. When you change a documented type, the gate fails until you update the paste; when you add or remove a block, update the manifest in the same change.

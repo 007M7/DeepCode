@@ -57,7 +57,7 @@ export function apply(ctx: Context) {
 
 A *client driver* is a UI plugin whose "user" is another program speaking a wire protocol rather than a human at a terminal. It owns the process's stdio (so it must run with **no stdout logger** — every non-protocol byte corrupts the stream), creates/resumes agents on demand through the `dsh-agent` factory seam, translates harness events (`session/event`, `agent/*`) into outbound protocol messages, and translates inbound requests back into `agent.send()` / `agent.abort()`. Two harness-specific contracts make it correct: resolve each request exactly once off a settle signal (the turn can end without its `agent/turn-end` event firing — fall back through the logged `turn/end` record), and on disposal reach quiescence (`await agent.whenIdle()` after `abort()`), not just request it.
 
-`packages/acp` is the worked example: it bridges the agent to the Agent Client Protocol (JSON-RPC over stdio) so Zed and other ACP editors can drive it. See its README for the full method surface and the deferred-permission-gate note.
+`packages/ui/acp` is the worked example: it bridges the agent to the Agent Client Protocol (JSON-RPC over stdio) so Zed and other ACP editors can drive it. See its README for the full method surface and the deferred-permission-gate note.
 
 ```ts
 import type { Context } from 'cordis'

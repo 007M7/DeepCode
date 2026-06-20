@@ -1,8 +1,8 @@
 # Sessions
 
-The in-memory, event-sourced model of [dsh-session](../../packages/session). A `Session` is an **append-only log** of typed `SessionEvent`s — the single source of truth for an agent's whole interaction history. The LLM message history is *derived* from the log, never stored separately; replay is re-derivation from the same events. How the log is made **durable** (the persistence seam, backends, crash recovery) is the sibling concern on [persistence.md](persistence.md).
+The in-memory, event-sourced model of [dsh-session](../../packages/core/session). A `Session` is an **append-only log** of typed `SessionEvent`s — the single source of truth for an agent's whole interaction history. The LLM message history is *derived* from the log, never stored separately; replay is re-derivation from the same events. How the log is made **durable** (the persistence seam, backends, crash recovery) is the sibling concern on [persistence.md](persistence.md).
 
-Source: [`packages/session/src/types.ts`](../../packages/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)
 
 ## `SessionEventMap` — the event vocabulary
 

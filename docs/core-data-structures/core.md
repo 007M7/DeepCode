@@ -61,7 +61,7 @@ Two large discriminated unions are the ones consumers `switch` over most: **`Str
 
 IDs that cross package boundaries are **branded** — structurally strings, but non-interchangeable at the type level (an `AgentId` can't be passed where a `CallId` is expected). Construction goes through a per-type factory; comparison, logging, and JSON behave as ordinary strings.
 
-Source: [`packages/llm/src/brand.ts`](../../packages/llm/src/brand.ts)
+Source: [`packages/llm/llm/src/brand.ts`](../../packages/llm/llm/src/brand.ts)
 
 ```ts type-equiv
 type Branded<B extends string> = string & { readonly [BRAND]: B }
@@ -73,7 +73,7 @@ The three core IDs: `CallId` (correlates a tool call with its result; dsh-llm), 
 
 A conversation is `Message`s; a message is an array of typed **content blocks**. The block union derives from `ContentBlockMap`.
 
-Source: [`packages/llm/src/types.ts`](../../packages/llm/src/types.ts)
+Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 
 ```ts type-equiv
 interface ContentBlockMap {
@@ -116,7 +116,7 @@ The full union, the adapter contract (usage-before-finish, raw-JSON tool argumen
 
 One model call is a fully-assembled `GenerateOptions`; the non-streaming result is `GenerateResult`.
 
-Source: [`packages/llm/src/types.ts`](../../packages/llm/src/types.ts)
+Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 
 ```ts type-equiv
 interface GenerateOptions {
@@ -180,7 +180,7 @@ The model-facing `ToolSchema` is the wire shape; the registered `ToolDefinition`
 
 A `Session` is an **append-only log** of typed `SessionEvent`s — the single source of truth. The LLM message history is *derived* from the log (`deriveMessages()`), not stored separately. The event vocabulary derives from `SessionEventMap`:
 
-Source: [`packages/session/src/types.ts`](../../packages/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)
 
 ```ts type-equiv
 type SessionEvent<T extends SessionEventType = SessionEventType> = {
@@ -201,7 +201,7 @@ The thirteen event variants (`turn/start`, `turn/end`, `step/start`, `step/end`,
 
 `Agent` is the surface every plugin (UI, hooks, orchestrators) programs against. The concrete implementation is `ReactLoopAgent` in dsh-agent-loop; nothing outside the loop depends on the implementation.
 
-Source: [`packages/agent/src/types.ts`](../../packages/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
 ```ts type-equiv
 interface Agent {
