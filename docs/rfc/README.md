@@ -32,6 +32,25 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Optional Code Mode — model writes TypeScript against an SDK of all tools](proposed/2026-06-15-optional-code-mode.md) | 2026-06-15 |
 | [Runtime schemas for the event vocabulary (Zod vs the merge-extensible-map pattern)](proposed/2026-06-16-typed-event-schemas.md) | 2026-06-16 |
 | [Unify the agent id and the session id](proposed/2026-06-20-unify-agent-and-session-id.md) | 2026-06-20 |
+| [Retire mid-turn steering](proposed/2026-06-20-retire-mid-turn-steering.md) | 2026-06-20 |
+| [Stop mirroring durable boundaries as agent events](proposed/2026-06-20-remove-agent-boundary-mirror-events.md) | 2026-06-20 |
+| [Keep one public stop primitive](proposed/2026-06-20-public-agent-stop-surface.md) | 2026-06-20 |
+| [Drop durable step boundary events](proposed/2026-06-20-drop-durable-step-boundaries.md) | 2026-06-20 |
+| [Truncate interrupted final turns on load](proposed/2026-06-20-truncate-interrupted-turns.md) | 2026-06-20 |
+| [Persist assembled assistant messages, not stream chunks](proposed/2026-06-20-assembled-assistant-messages-only.md) | 2026-06-20 |
+| [Collapse trace-only session events](proposed/2026-06-20-collapse-trace-only-session-events.md) | 2026-06-20 |
+| [Drop unused session lineage metadata](proposed/2026-06-20-drop-unused-session-lineage.md) | 2026-06-20 |
+| [Make the bash tool foreground-only](proposed/2026-06-20-foreground-only-bash.md) | 2026-06-20 |
+| [Drop bash full-output spill files](proposed/2026-06-20-drop-bash-output-spill-files.md) | 2026-06-20 |
+| [Collapse tool-owned UI presentation](proposed/2026-06-20-generic-tool-rendering.md) | 2026-06-20 |
+| [Drop ACP terminal `_meta` rendering](proposed/2026-06-20-drop-acp-terminal-meta.md) | 2026-06-20 |
+| [Return the ACP bridge to one live session per connection](proposed/2026-06-20-single-session-acp-bridge.md) | 2026-06-20 |
+| [Drop ACP session/load until resume has a product shape](proposed/2026-06-20-drop-acp-session-load.md) | 2026-06-20 |
+| [Make the shared example base providerless](proposed/2026-06-20-providerless-example-base.md) | 2026-06-20 |
+| [Classify product, integration, and support packages](proposed/2026-06-20-classify-support-packages.md) | 2026-06-20 |
+| [Fold the persistence interface into dsh-session](proposed/2026-06-20-fold-session-persistence-interface.md) | 2026-06-20 |
+| [Remove redundant recorded snapshot log goldens](proposed/2026-06-20-remove-redundant-snapshot-log-goldens.md) | 2026-06-20 |
+| [Discover package inventories instead of maintaining static lists](proposed/2026-06-20-discover-package-inventory.md) | 2026-06-20 |
 
 ## Implemented
 
