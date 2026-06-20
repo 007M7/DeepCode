@@ -13,7 +13,9 @@
  * - `session/load`   → `ctx.agents.resume(...)` then replay the event log
  * - `session/prompt` → `agent.send()`, settle on the owning turn's end (a turn
  *                      that ends in `error` rejects the RPC)
- * - `session/cancel` → `agent.abort()` + settle the in-flight prompt
+ * - `session/cancel` → `agent.cancel()` (the queue-aware cancel: aborts a
+ *                      running step, clears queued + steering work, and drops a
+ *                      turn about to start) + settle the in-flight prompt
  *
  * Multi-session (RFC 011): N concurrent sessions per connection, each mapped to
  * its own `ReactLoopAgent`. Sessions are keyed by id in `sessions` (forward) with an

@@ -116,6 +116,14 @@ export interface LoopHandle {
    * marker governs exactly one cancellation and never leaks to a later prompt.
    */
   isCancelled(): boolean
+  /**
+   * The resolved reason for the pending cancel (`reason ?? 'cancelled'`), read
+   * by the marker branches (pre-step / continuation) so a turn dropped where no
+   * `AbortController` carries the reason still records the caller's
+   * `cancel(reason)` value — matching the mid-step abort path. Only meaningful
+   * when {@link isCancelled} is true.
+   */
+  cancelReason(): string
   /** Clear the cancel marker (called once per iteration after the turn returns). */
   clearCancel(): void
   /**
@@ -396,7 +404,7 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
       // already-appended step/start.
       if (handle.isCancelled()) {
         handle.setAbort(undefined)
-        reason = { kind: 'aborted', reason: 'cancelled' }
+        reason = { kind: 'aborted', reason: handle.cancelReason() }
         closeStep()
         break
       }
@@ -466,7 +474,7 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
       // ends the turn here. cancel() also cleared the steering FIFO, so the
       // override above did not re-arm continuation.
       if (handle.isCancelled()) {
-        reason = { kind: 'aborted', reason: 'cancelled' }
+        reason = { kind: 'aborted', reason: handle.cancelReason() }
         break
       }
 
