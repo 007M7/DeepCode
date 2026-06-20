@@ -15,9 +15,18 @@ declare module 'cordis' {
   }
 
   interface Events {
-    /** Waterfall around prompt assembly — mutate/extend the assembly. */
+    /**
+     * Waterfall around prompt assembly — mutate or extend the
+     * {@link PromptAssembly} (sections + tool schemas) before it is rendered.
+     * Bound to the {@link SystemPrompt} service; call `next()` to delegate.
+     * @mode waterfall
+     */
     'system-prompt/assemble'(this: SystemPrompt, assembly: PromptAssembly, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>
-    /** A section or tool provider was registered or unregistered. */
+    /**
+     * A section or tool provider was registered or unregistered (the assembly
+     * inputs changed).
+     * @mode emit
+     */
     'system-prompt/change'(): void
   }
 }

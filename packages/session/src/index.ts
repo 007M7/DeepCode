@@ -23,15 +23,24 @@ declare module 'cordis' {
   }
 
   interface Events {
-    /** A session was created in the store. */
+    /**
+     * A session was created in the store.
+     * @mode emit
+     */
     'session/created'(session: Session): void
-    /** An event was appended to a session log (sync, fire-and-forget). */
+    /**
+     * An event was appended to a session log (sync, fire-and-forget). This is
+     * the per-append feed a UI or invariant plugin tails.
+     * @mode emit
+     */
     'session/event'(session: Session, event: SessionEvent): void
     /**
      * Awaited durability checkpoint. The agent loop awaits
      * `ctx.parallel('session/flush', session)` at every turn end; persistence
-     * plugins (JSONL, SQLite) drain their write-behind
-     * buffers here and on fiber dispose.
+     * plugins (JSONL, SQLite) drain their write-behind buffers here and on
+     * fiber dispose. Awaited (parallel), not a waterfall: every listener runs
+     * and the loop waits for all of them, but none can veto.
+     * @mode parallel
      */
     'session/flush'(session: Session): Promise<void> | void
   }

@@ -23,11 +23,23 @@ declare module 'cordis' {
   }
 
   interface Events {
-    /** Waterfall around every streaming model call (retry, caching, routing). */
+    /**
+     * Waterfall around every streaming model call (retry, caching, routing).
+     * Bound to the {@link LlmService}; call `next()` to reach the resolved
+     * adapter's stream, or yield your own chunks to short-circuit.
+     * @mode waterfall
+     */
     'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
-    /** Waterfall around every non-streaming model call. */
+    /**
+     * Waterfall around every non-streaming model call. Bound to the
+     * {@link LlmService}; call `next()` to delegate to the adapter.
+     * @mode waterfall
+     */
     'llm/generate'(this: LlmService, options: GenerateOptions, next: () => Promise<GenerateResult>): Promise<GenerateResult>
-    /** An adapter was registered or unregistered. */
+    /**
+     * An adapter was registered or unregistered (the model→adapter map changed).
+     * @mode emit
+     */
     'llm/adapter-change'(): void
   }
 }
