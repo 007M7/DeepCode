@@ -5,8 +5,7 @@
  *
  * 1. **The backend** — a concrete {@link SessionPersistence}: one append-only
  *    `.jsonl` event log per session (a header line then one `SessionEvent` per
- *    line, verbatim including `assistant/chunk` so `seq` stays contiguous) plus
- *    a small atomic `.summary.json` sidecar for the mutable `SessionSummary`.
+ *    line, verbatim including `assistant/chunk` so `seq` stays contiguous).
  *    Lazy materialization (no file until the first `append`), atomic first
  *    write, and load-time repair of a never-committed crash tail.
  *
@@ -22,16 +21,16 @@
 
 import { Context } from 'cordis'
 import z from 'schemastery'
-import { open, mkdir, readFile, readdir, rename, link, rm, truncate } from 'node:fs/promises'
+import { open, mkdir, readFile, readdir, link, rm, truncate } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import {
   SessionPersistence, assertSerializable, seedCoversPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import { interruptedTurnClosers } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionId, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
-  encodeSegment, eventLine, logPath, parseHeaderMeta, scanLog, sessionDir, sidecarPath, toHeaderLine,
+  encodeSegment, eventLine, logPath, parseHeaderMeta, scanLog, sessionDir, toHeaderLine,
 } from './format.ts'
 
 export interface Config {
@@ -45,7 +44,7 @@ export interface Config {
 
 /** Per-session write state held by the backend's in-memory bookkeeping. */
 interface SessionState {
-  meta: SessionMeta
+  meta: SessionHeader
   /** The next seq the backend expects to append (the stored log length). */
   cursor: number
   /** Whether the `.jsonl` file has been physically materialized. */
@@ -130,17 +129,17 @@ export class SessionPersistenceJsonl extends SessionPersistence {
 
   // --- SessionPersistence backend surface (all serialized per session id) ---
 
-  create(meta: SessionMeta): Promise<void> {
+  create(meta: SessionHeader): Promise<void> {
     // Snapshot the metadata at call time: the op runs later (behind the
     // per-session chain) and the snapshot is also stored as the lazy state, so
     // keeping the caller's object by reference would let a later mutation of
     // `id`/`cwd` register under one key but materialize under a different
-    // path/header. A shallow copy is enough — SessionMeta is a flat record.
-    const snapshot: SessionMeta = { ...meta }
+    // path/header. A shallow copy is enough — SessionHeader is a flat record.
+    const snapshot: SessionHeader = { ...meta }
     return this.serialize(snapshot.id, () => this.createCore(snapshot))
   }
 
-  private async createCore(meta: SessionMeta): Promise<void> {
+  private async createCore(meta: SessionHeader): Promise<void> {
     // Do NOT clobber an existing session. If we already track it, or a log
     // exists on disk under this id, refuse — the SessionId IS the identity, and
     // silently resetting state (cursor 0, materialized false) over committed
@@ -218,27 +217,21 @@ export class SessionPersistenceJsonl extends SessionPersistence {
       await this.appendLines(state, events)
     }
     // The durable event log is the transaction: advance the cursor as soon as
-    // the log write commits. The sidecar (mutable summary) is best-effort here
-    // — a failed sidecar write must NOT reject an append whose log already
-    // landed (that would desync the cursor and let a retry duplicate seqs).
+    // the log write commits.
     state.cursor += events.length
-    await this.touchSummary(state).catch(() => { /* sidecar is recoverable metadata; log is durable */ })
   }
 
-  load(id: SessionId): Promise<{ meta: SessionMeta; events: SessionEvent[] }> {
+  load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     return this.serialize(id, () => this.loadCore(id))
   }
 
-  private async loadCore(id: SessionId): Promise<{ meta: SessionMeta; events: SessionEvent[] }> {
+  private async loadCore(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     const cwd = this.states.get(id)?.meta.cwd
     const file = await this.findLog(id, cwd)
     if (file === undefined) throw new Error(`session "${id}" not found`)
     const buffer = await readFile(file.path)
     const { meta, events, committedBytes } = scanLog(buffer)
     this.assertVersion(meta)
-
-    const summary = await this.readSidecar(id, meta.cwd)
-    const fullMeta: SessionMeta = { ...meta, ...summary }
 
     // Crash-recovery: if the log ended mid-turn (an open turn with real,
     // preserved events but no closing turn/end), close it durably DURING load so
@@ -253,7 +246,7 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     // Set state BEFORE the repair writes so they can resolve the log path.
     const needsTorn = committedBytes < buffer.byteLength
     const state: SessionState = {
-      meta: { ...fullMeta },
+      meta: { ...meta },
       cursor: events.length,
       materialized: true,
     }
@@ -267,15 +260,12 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     if (closers.length > 0) {
       // Durably append the synthetic closers, then advance the cursor to the
       // balanced length. After this, disk == balanced and the next append (live
-      // or direct) continues cleanly. No sidecar touch here: load is not a
-      // summary-changing op (the closers carry no new title/firstPrompt), and
-      // the next real append bumps `updatedAt` — keeping the summary write off
-      // the recovery path avoids a second best-effort failure mode.
+      // or direct) continues cleanly.
       await this.appendLines(state, closers)
       state.cursor = balanced.length
     }
 
-    return { meta: fullMeta, events: balanced }
+    return { meta, events: balanced }
   }
 
   private async adoptLiveDiskPrefix(
@@ -290,9 +280,8 @@ export class SessionPersistenceJsonl extends SessionPersistence {
       throw new Error(`session "${session.header.id}" already has a persisted log on disk that does not match this live session (id collision)`)
     }
 
-    const summary = await this.readSidecar(session.header.id, meta.cwd)
     const state: SessionState = {
-      meta: { ...meta, ...summary },
+      meta: { ...meta },
       cursor: events.length,
       materialized: true,
       owner: session,
@@ -306,8 +295,8 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     if (suffix.length > 0) await this.appendCore(session.header.id, suffix)
   }
 
-  async list(): Promise<SessionMeta[]> {
-    const metas: SessionMeta[] = []
+  async list(): Promise<SessionHeader[]> {
+    const metas: SessionHeader[] = []
     for (const dir of await this.listCwdDirs()) {
       for (const name of await this.listJsonl(dir)) {
         // Read ONLY the header line, not the whole log: a session picker must
@@ -318,8 +307,7 @@ export class SessionPersistenceJsonl extends SessionPersistence {
         if (first === undefined) continue // empty/half-written file
         const meta = parseHeaderMeta(first)
         if (meta === undefined) continue // not a session header
-        const summary = await this.readSidecarForList(meta.id, meta.cwd)
-        metas.push({ ...meta, ...summary })
+        metas.push(meta)
       }
     }
     return metas
@@ -367,39 +355,7 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     const cwd = this.states.get(id)?.meta.cwd
     const file = await this.findLog(id, cwd)
     if (file) await rm(file.path, { force: true })
-    // Remove the sidecar too. A lazy session (update() before the first
-    // append()) has a `.summary.json` sidecar but NO `.jsonl` log, and after a
-    // restart the in-memory cwd is gone — so keying sidecar removal off the log
-    // or the in-memory cwd would leak its possibly-sensitive title/firstPrompt.
-    // Scan every cwd bucket for the sidecar by its (sanitized) filename.
-    await this.removeSidecars(id)
     this.states.delete(id)
-  }
-
-  /** Remove a session's summary sidecar from EVERY cwd bucket (id is unique). */
-  private async removeSidecars(id: SessionId): Promise<void> {
-    const target = `${encodeSegment(id)}.summary.json`
-    for (const dir of await this.listCwdDirs()) {
-      await rm(`${dir}/${target}`, { force: true })
-    }
-  }
-
-  update(id: SessionId, summary: Partial<SessionSummary>): Promise<void> {
-    return this.serialize(id, () => this.updateCore(id, summary))
-  }
-
-  private async updateCore(id: SessionId, summary: Partial<SessionSummary>): Promise<void> {
-    let state = this.states.get(id)
-    if (state === undefined) state = await this.adopt(id)
-    // Build the NEXT meta separately and commit it to in-memory state only AFTER
-    // the sidecar write succeeds. update's only durable effect is the sidecar,
-    // so a failure DOES reject (unlike append, whose log is the transaction and
-    // sidecar is best-effort) — but if we mutated state.meta first, a later
-    // touchSummary() on a successful append would persist the rejected
-    // title/firstPrompt, making a failed update durable after the fact.
-    const nextMeta: SessionMeta = { ...state.meta, ...summary, updatedAt: summary.updatedAt ?? Date.now() }
-    if (state.materialized) await this.writeSidecar(nextMeta)
-    state.meta = nextMeta
   }
 
   // --- materialization / append / repair ---
@@ -521,76 +477,6 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     }
   }
 
-  // --- sidecar (mutable summary) ---
-
-  private async touchSummary(state: SessionState): Promise<void> {
-    state.meta = { ...state.meta, updatedAt: Date.now() }
-    await this.writeSidecar(state.meta)
-  }
-
-  /**
-   * Atomic sidecar write (temp-write + rename), summary fields only.
-   *
-   * Deliberately NOT directory-fsynced (unlike {@link materialize}): the
-   * sidecar holds mutable, recoverable summary metadata (updatedAt, title,
-   * firstPrompt), not source-of-truth log data. The rename is atomic so a
-   * reader never sees a torn file, but a power loss may lose the most recent
-   * summary — acceptable because it is re-derivable and the durable log (the
-   * transaction) is independently synced. Strict crash-durability is reserved
-   * for the event log.
-   */
-  private async writeSidecar(meta: SessionMeta): Promise<void> {
-    const dir = sessionDir(this.root, meta.cwd)
-    await mkdir(dir, { recursive: true, mode: 0o700 })
-    const path = sidecarPath(this.root, meta.cwd, meta.id)
-    const summary: SessionSummary = {
-      updatedAt: meta.updatedAt,
-      ...meta.title !== undefined ? { title: meta.title } : {},
-      ...meta.firstPrompt !== undefined ? { firstPrompt: meta.firstPrompt } : {},
-    }
-    const tmp = `${path}.${randomBytes(6).toString('hex')}.tmp`
-    // Exclusive owner-only create ('wx', 0o600), matching the log-materialization
-    // temp write: the sidecar can carry user data (title/firstPrompt), so a
-    // predictable/pre-existing temp path must never be silently truncated and
-    // followed (symlink race / disclosure). The random suffix already makes a
-    // collision unlikely; 'wx' makes reuse an error rather than a clobber.
-    const handle = await open(tmp, 'wx', 0o600)
-    try {
-      await handle.writeFile(JSON.stringify(summary))
-    } finally {
-      await handle.close()
-    }
-    await rename(tmp, path)
-  }
-
-  /**
-   * Read the mutable-summary sidecar, or `undefined` if it is absent (a session
-   * that has never been `update()`d). Non-ENOENT failures surface on strict
-   * load/adopt paths so corrupt metadata does not masquerade as a clean default.
-   */
-  private async readSidecar(id: SessionId, cwd: string | undefined): Promise<SessionSummary | undefined> {
-    try {
-      const raw = await readFile(sidecarPath(this.root, cwd, id), 'utf8')
-      return JSON.parse(raw) as SessionSummary
-    } catch (error) {
-      if (isENOENT(error)) return undefined
-      throw error
-    }
-  }
-
-  /**
-   * Best-effort summary read for list(): a corrupt sidecar should degrade one
-   * row to header metadata, not hide every session from a picker.
-   */
-  private async readSidecarForList(id: SessionId, cwd: string | undefined): Promise<SessionSummary | undefined> {
-    try {
-      return await this.readSidecar(id, cwd)
-    } catch (error: unknown) {
-      this.ctx.logger.warn(`session-persistence-jsonl: ignoring unreadable summary for session "${id}" while listing: ${String(error)}`)
-      return undefined
-    }
-  }
-
   // --- discovery helpers ---
 
   /** Find a session's log file across cwd buckets (when cwd is unknown). */
@@ -604,7 +490,8 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     for (const dir of await this.listCwdDirs()) {
       const path = `${dir}/${target}`
       if (await this.exists(path)) {
-        // Recover cwd from the header for accurate sidecar pathing.
+        // Recover the cwd from the header so the caller has the session's
+        // bucket location (which `findLog` was given an unknown cwd for).
         const { meta } = scanLog(await readFile(path))
         return { path, cwd: meta.cwd }
       }
@@ -657,7 +544,7 @@ export class SessionPersistenceJsonl extends SessionPersistence {
     return state
   }
 
-  private assertVersion(meta: SessionMeta): void {
+  private assertVersion(meta: SessionHeader): void {
     if (meta.version !== 1) {
       throw new Error(`unsupported session format version ${meta.version} for "${meta.id}" (only v1 is supported)`)
     }
@@ -827,7 +714,7 @@ export class SessionPersistenceJsonl extends SessionPersistence {
 
     // case 4: a genuinely new session. Register its meta (lazy), then persist
     // its seed (events present at creation time) once.
-    const meta: SessionMeta = { ...session.header, updatedAt: Date.now() }
+    const meta: SessionHeader = { ...session.header }
     await this.create(meta)
     // Bind this state to the live session so a later DIFFERENT session reusing
     // the id is detected as a collision (case 1) rather than silently no-opped.

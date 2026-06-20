@@ -1,8 +1,8 @@
 # @deepseek-ai/dsh-session-persistence
 
-The abstract durable session-persistence seam (`ctx.sessionPersistence`). Defines WHAT a persistence backend does — durably store, reload, list, and update sessions — without saying HOW. Mirrors the `dsh-bash` capability-seam template ([capability seams](../../docs/rfc/implemented/2026-06-13-capability-seams.md)): an abstract service here, a concrete implementation in a sibling package, consumers that inject the interface.
+The abstract durable session-persistence seam (`ctx.sessionPersistence`). Defines WHAT a persistence backend does — durably store, reload, and list sessions — without saying HOW. Mirrors the `dsh-bash` capability-seam template ([capability seams](../../docs/rfc/implemented/2026-06-13-capability-seams.md)): an abstract service here, a concrete implementation in a sibling package, consumers that inject the interface.
 
-The persisted unit IS the existing `SessionEvent` (event-sourced model — the log is the single source of truth), so there is no parallel "persisted message" type. Metadata that is NOT replayable conversation state (format version, cwd, lineage) travels separately as `SessionMeta`, owned by `dsh-session` and re-exported here.
+The persisted unit IS the existing `SessionEvent` (event-sourced model — the log is the single source of truth), so there is no parallel "persisted message" type. Metadata that is NOT replayable conversation state (format version, cwd, lineage) travels separately as `SessionHeader`, owned by `dsh-session` and re-exported here.
 
 ## Service API (`ctx.sessionPersistence`)
 
@@ -11,9 +11,8 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 | `create(meta): Promise<void>` | Register a new session's metadata. MAY defer the physical write until the first `append` (lazy materialization). |
 | `append(id, events): Promise<void>` | Durably persist a batch (from the `session/flush` drain). Append-only; first event `seq` == stored next-seq after any repair; rejects non-JSON-serializable data naming the offending type. |
 | `load(id): Promise<{ meta; events }>` | Reload meta + log. Preserves an interrupted (unclosed) final turn and closes it with synthetic closers — an error `tool/result` per unanswered `tool-call`, then `step/end?`+`turn/end {interrupted}` (a turn can be huge — never truncated); only a torn tail fragment is dropped. Events contiguous (`events[i].seq === i`); rejects a committed-region gap/parse error or unknown `version`. |
-| `list(): Promise<SessionMeta[]>` | Lightweight listing from metadata, no full-log parse. |
+| `list(): Promise<SessionHeader[]>` | Lightweight listing from metadata, no full-log parse. |
 | `has(id)` / `delete(id)` | Existence / removal. A zero-event lazily-materialized session is absent from `has`/`list`. |
-| `update(id, summary): Promise<void>` | Update mutable `SessionSummary` fields without touching the append-only log. |
 
 ## Invariants every backend must honor
 
@@ -30,4 +29,4 @@ Two backends run this suite: `dsh-session-persistence-jsonl` (append-only file l
 
 ## Metadata types
 
-Re-exported from `dsh-session`: `SessionHeader` (immutable: `version`, `id`, `createdAt`, `cwd?`, `parentSession?`), `SessionSummary` (mutable: `updatedAt`, `title?`, `firstPrompt?`), `SessionMeta` (their intersection).
+Re-exported from `dsh-session`: `SessionHeader` (immutable session metadata: `version`, `id`, `createdAt`, `cwd?`, `parentSession?`).

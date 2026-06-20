@@ -166,7 +166,7 @@ describe('acp bridge — session/load replay', () => {
     loader = await makeBridgeHarness({ storageDir, script: [] })
     const otherCwd = '/some/other/workspace'
     await loader.ctx.sessionPersistence.create({
-      version: 1, id: SessionId('elsewhere'), createdAt: 1, cwd: otherCwd, updatedAt: 1,
+      version: 1, id: SessionId('elsewhere'), createdAt: 1, cwd: otherCwd,
     })
     await loader.ctx.sessionPersistence.append(SessionId('elsewhere'), [
       { type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
@@ -203,7 +203,7 @@ describe('acp bridge — session/load replay', () => {
     // to the server's launch dir (the request cwd does not override the header).
     loader = await makeBridgeHarness({ storageDir, script: [] })
     await loader.ctx.sessionPersistence.create({
-      version: 1, id: SessionId('legacy'), createdAt: 1, updatedAt: 1, // no cwd
+      version: 1, id: SessionId('legacy'), createdAt: 1, // no cwd
     })
     await loader.ctx.sessionPersistence.append(SessionId('legacy'), [
       { type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },

@@ -8,9 +8,9 @@
  * @module @deepseek-ai/dsh-session-persistence/tests/contract
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SessionMeta } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { SessionPersistence } from '../src/index.ts'
 
@@ -20,13 +20,12 @@ export interface ContractBackend {
   dispose: () => Promise<void>
 }
 
-/** Build a minimal {@link SessionMeta} for a session id. */
-export function meta(id: string, cwd?: string): SessionMeta {
+/** Build a minimal {@link SessionHeader} for a session id. */
+export function meta(id: string, cwd?: string): SessionHeader {
   return {
     version: 1,
     id: SessionId(id),
     createdAt: 1000,
-    updatedAt: 1000,
     ...cwd !== undefined ? { cwd } : {},
   }
 }
@@ -238,32 +237,6 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         expect(await persistence.has(m.id)).toBe(true)
         await persistence.delete(m.id)
         expect(await persistence.has(m.id)).toBe(false)
-      } finally {
-        await dispose()
-      }
-    })
-
-    it('update mutates summary fields without touching the event log', async () => {
-      const { persistence, dispose } = await make()
-      try {
-        const m = meta('s7')
-        const log = oneTurnLog()
-        await persistence.create(m)
-        await persistence.append(m.id, log)
-        const beforeUpdate = (await persistence.load(m.id)).meta.updatedAt
-        vi.useFakeTimers()
-        vi.setSystemTime(beforeUpdate + 1_000)
-        try {
-          await persistence.update(m.id, { title: 'My session', firstPrompt: 'hi' })
-        } finally {
-          vi.useRealTimers()
-        }
-
-        const loaded = await persistence.load(m.id)
-        expect(loaded.meta.title).toBe('My session')
-        expect(loaded.meta.firstPrompt).toBe('hi')
-        expect(loaded.meta.updatedAt).toBe(beforeUpdate + 1_000)
-        expect(loaded.events).toEqual(log) // log untouched
       } finally {
         await dispose()
       }

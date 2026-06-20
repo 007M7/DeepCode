@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { SessionId, isJsonValue, interruptedTurnClosers } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import { SessionPersistence, assertSerializable, seedCoversPrefix } from '../src/index.ts'
 import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
 
@@ -12,10 +12,10 @@ import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
  * `@deepseek-ai/dsh-session-persistence-jsonl`.
  */
 class MemoryPersistence extends SessionPersistence {
-  private store = new Map<string, { meta: SessionMeta; events: SessionEvent[] }>()
-  private pending = new Map<string, SessionMeta>()
+  private store = new Map<string, { meta: SessionHeader; events: SessionEvent[] }>()
+  private pending = new Map<string, SessionHeader>()
 
-  async create(m: SessionMeta): Promise<void> {
+  async create(m: SessionHeader): Promise<void> {
     // Lazy: record the intended meta, but stay absent from has/list until the
     // first append materializes the session.
     this.pending.set(m.id, m)
@@ -43,7 +43,7 @@ class MemoryPersistence extends SessionPersistence {
     }
   }
 
-  async load(id: SessionId): Promise<{ meta: SessionMeta; events: SessionEvent[] }> {
+  async load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     const entry = this.store.get(id)
     if (!entry) throw new Error(`session "${id}" not found`)
     // Honor the crash-recovery contract: if the stored log ends mid-turn, close
@@ -54,7 +54,7 @@ class MemoryPersistence extends SessionPersistence {
     return { meta: structuredClone(entry.meta), events: structuredClone(entry.events) }
   }
 
-  async list(): Promise<SessionMeta[]> {
+  async list(): Promise<SessionHeader[]> {
     return [...this.store.values()].map(e => structuredClone(e.meta))
   }
 
@@ -65,11 +65,6 @@ class MemoryPersistence extends SessionPersistence {
   async delete(id: SessionId): Promise<void> {
     this.store.delete(id)
     this.pending.delete(id)
-  }
-
-  async update(id: SessionId, summary: Partial<SessionSummary>): Promise<void> {
-    const entry = this.store.get(id)
-    if (entry) Object.assign(entry.meta, summary, { updatedAt: summary.updatedAt ?? Date.now() })
   }
 }
 

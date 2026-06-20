@@ -4,9 +4,9 @@ import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } fr
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionMeta } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import { encodeSegment, logPath, scanLog, sessionDir, sidecarPath } from '../src/format.ts'
+import { encodeSegment, logPath, scanLog, sessionDir } from '../src/format.ts'
 import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
 
 let root: string
@@ -274,7 +274,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
 
   it('path-traversal session ids are neutralized (no escape from root)', async () => {
     const evil = SessionId('../../etc/pwn')
-    const m = { version: 1, id: evil, createdAt: 1, updatedAt: 1 }
+    const m = { version: 1, id: evil, createdAt: 1 }
     await ctx.sessionPersistence.create(m)
     await ctx.sessionPersistence.append(evil, oneTurnLog())
     // The file lives UNDER root, not at ../../etc.
@@ -581,23 +581,6 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     expect(await ctx.sessionPersistence.has(m.id)).toBe(false)
   })
 
-  it('append resolves even when the best-effort sidecar write fails (log is the transaction)', async () => {
-    const m = meta('sidecar-fail')
-    await ctx.sessionPersistence.create(m)
-    // Force the sidecar write to reject AFTER the durable log append commits.
-    // The append must still resolve and advance the cursor — a failed sidecar
-    // is recoverable metadata and must never desync the log (which would let a
-    // retry duplicate seqs). This exercises the `.catch()` on touchSummary.
-    const backend = ctx.sessionPersistence as unknown as { writeSidecar: (state: unknown) => Promise<void> }
-    const original = backend.writeSidecar.bind(backend)
-    backend.writeSidecar = () => Promise.reject(new Error('disk full'))
-    await expect(ctx.sessionPersistence.append(m.id, oneTurnLog())).resolves.toBeUndefined()
-    backend.writeSidecar = original
-    // The durable log landed in full despite the sidecar failure.
-    const loaded = await ctx.sessionPersistence.load(m.id)
-    expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5])
-  })
-
   it('append rejects non-JSON-serializable undefined-producing data', async () => {
     const m = meta('undef')
     await ctx.sessionPersistence.create(m)
@@ -608,87 +591,6 @@ describe('SessionPersistenceJsonl: edge cases', () => {
 
   it('delete of a non-existent session is a no-op', async () => {
     await expect(ctx.sessionPersistence.delete(SessionId('ghost'))).resolves.toBeUndefined()
-  })
-
-  it('update adopts a session that exists only on disk', async () => {
-    const m = meta('disk-only')
-    await ctx.sessionPersistence.create(m)
-    await ctx.sessionPersistence.append(m.id, oneTurnLog())
-    // A fresh backend has no in-memory state → update must adopt from disk.
-    const ctx2 = new Context()
-    await ctx2.plugin(SessionStore)
-    await ctx2.plugin(SessionPersistenceJsonl, { root })
-    await ctx2.sessionPersistence.update(m.id, { title: 'adopted' })
-    const loaded = await ctx2.sessionPersistence.load(m.id)
-    expect(loaded.meta.title).toBe('adopted')
-    await ctx2.fiber.dispose()
-  })
-
-  it('a failed update does not become durable via a later append', async () => {
-    const m = meta('update-fail')
-    await ctx.sessionPersistence.create(m)
-    await ctx.sessionPersistence.append(m.id, oneTurnLog())
-    // Force the sidecar write to fail for the update.
-    const backend = ctx.sessionPersistence as unknown as { writeSidecar: (meta: unknown) => Promise<void> }
-    const original = backend.writeSidecar.bind(backend)
-    backend.writeSidecar = () => Promise.reject(new Error('disk full'))
-    await expect(ctx.sessionPersistence.update(m.id, { title: 'rejected-title' })).rejects.toThrow(/disk full/)
-    backend.writeSidecar = original
-    // A later successful append's touchSummary must NOT persist the rejected
-    // title (it was never committed to in-memory state).
-    await ctx.sessionPersistence.append(m.id, [
-      { type: 'turn/start', seq: 6, time: 9, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
-      { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, reason: { kind: 'completed' } } },
-    ] as SessionEvent[])
-    const loaded = await ctx.sessionPersistence.load(m.id)
-    expect(loaded.meta.title).toBeUndefined()
-  })
-
-  it('update before the first append keeps summary in memory and writes no orphan sidecar', async () => {
-    const m = meta('lazy-update', '/a')
-    await ctx.sessionPersistence.create(m)
-    await ctx.sessionPersistence.update(m.id, { title: 'secret', firstPrompt: 'sensitive' })
-    const sidecar = sidecarPath(root, '/a', m.id)
-    await expect(stat(sidecar)).rejects.toThrow()
-    await expect(stat(logPath(root, '/a', m.id))).rejects.toThrow()
-
-    await ctx.sessionPersistence.append(m.id, oneTurnLog())
-    const loaded = await ctx.sessionPersistence.load(m.id)
-    expect(loaded.meta.title).toBe('secret')
-    expect(loaded.meta.firstPrompt).toBe('sensitive')
-    expect((await stat(sidecar)).isFile()).toBe(true)
-  })
-
-  it('a lazy update leaves no sidecar that can leak into a future same-id session after restart', async () => {
-    await ctx.sessionPersistence.create(meta('restart-lazy', '/a'))
-    await ctx.sessionPersistence.update(SessionId('restart-lazy'), { title: 'secret' })
-    await expect(stat(sidecarPath(root, '/a', SessionId('restart-lazy')))).rejects.toThrow()
-
-    const ctx2 = new Context()
-    await ctx2.plugin(SessionStore)
-    await ctx2.plugin(SessionPersistenceJsonl, { root })
-    const m2 = meta('restart-lazy', '/a')
-    await ctx2.sessionPersistence.create(m2)
-    await ctx2.sessionPersistence.append(m2.id, oneTurnLog())
-    const loaded = await ctx2.sessionPersistence.load(m2.id)
-    expect(loaded.meta.title).toBeUndefined()
-    await ctx2.fiber.dispose()
-  })
-
-  it('delete removes a materialized cwd-bucket sidecar after a restart', async () => {
-    await ctx.sessionPersistence.create(meta('restart-del', '/a'))
-    await ctx.sessionPersistence.append(SessionId('restart-del'), oneTurnLog())
-    await ctx.sessionPersistence.update(SessionId('restart-del'), { title: 'secret' })
-    const sidecar = sidecarPath(root, '/a', SessionId('restart-del'))
-    expect((await stat(sidecar)).isFile()).toBe(true)
-
-    const ctx2 = new Context()
-    await ctx2.plugin(SessionStore)
-    await ctx2.plugin(SessionPersistenceJsonl, { root })
-    await ctx2.sessionPersistence.delete(SessionId('restart-del'))
-    await expect(stat(sidecar)).rejects.toThrow()
-    await expect(stat(logPath(root, '/a', SessionId('restart-del')))).rejects.toThrow()
-    await ctx2.fiber.dispose()
   })
 
   it('an abandoned lazy session (never materialized) releases its id for reuse', async () => {
@@ -763,27 +665,6 @@ describe('SessionPersistenceJsonl: edge cases', () => {
 
     const ids = (await ctx.sessionPersistence.list()).map(x => x.id).sort()
     expect(ids).toEqual(['p1', 'p2', 'p3'])
-  })
-
-  it('list tolerates one corrupt sidecar and still returns other sessions', async () => {
-    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-    const bad = meta('bad-list-summary', '/proj')
-    await ctx.sessionPersistence.create(bad)
-    await ctx.sessionPersistence.append(bad.id, oneTurnLog())
-    await ctx.sessionPersistence.update(bad.id, { title: 'hidden by corrupt sidecar' })
-    await writeFile(sidecarPath(root, '/proj', bad.id), '{not json')
-    const good = meta('good-list-summary', '/proj')
-    await ctx.sessionPersistence.create(good)
-    await ctx.sessionPersistence.append(good.id, oneTurnLog())
-    await ctx.sessionPersistence.update(good.id, { title: 'visible' })
-
-    const listed = await ctx.sessionPersistence.list()
-
-    const badListed = listed.find(m => m.id === bad.id)
-    expect(badListed).toMatchObject({ id: bad.id })
-    expect(badListed).not.toHaveProperty('title')
-    expect(listed.find(m => m.id === good.id)).toMatchObject({ id: good.id, title: 'visible' })
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('bad-list-summary'))
   })
 
   it('list on an empty root returns nothing', async () => {
@@ -1062,34 +943,11 @@ describe('SessionPersistenceJsonl: edge cases', () => {
   })
 
   it('round-trips a header with parentSession (fork lineage)', async () => {
-    const m: SessionMeta = { version: 1, id: SessionId('forked-child'), createdAt: 1, updatedAt: 1, parentSession: SessionId('the-parent') }
+    const m: SessionHeader = { version: 1, id: SessionId('forked-child'), createdAt: 1, parentSession: SessionId('the-parent') }
     await ctx.sessionPersistence.create(m)
     await ctx.sessionPersistence.append(m.id, oneTurnLog())
     const loaded = await ctx.sessionPersistence.load(m.id)
     expect(loaded.meta.parentSession).toBe('the-parent')
-  })
-
-  it('loads a log that has no sidecar (default summary)', async () => {
-    // Hand-write a valid log WITHOUT a sidecar, then load it.
-    const dir = sessionDir(root, undefined)
-    await (await import('node:fs/promises')).mkdir(dir, { recursive: true })
-    const header = JSON.stringify({ type: 'session', version: 1, id: 'no-sidecar', createdAt: 5 })
-    const body = oneTurnLog().map(e => JSON.stringify(e)).join('\n')
-    await writeFile(logPath(root, undefined, SessionId('no-sidecar')), header + '\n' + body + '\n')
-    const loaded = await ctx.sessionPersistence.load(SessionId('no-sidecar'))
-    expect(loaded.events).toHaveLength(6)
-    expect(loaded.meta.title).toBeUndefined() // no sidecar → no title
-    // With no sidecar, updatedAt falls back to the header createdAt (5), NOT 0
-    // — reporting an active session as updated at the Unix epoch would be wrong.
-    expect(loaded.meta.updatedAt).toBe(5)
-  })
-
-  it('load rejects a corrupt sidecar instead of treating it as absent', async () => {
-    const m = meta('bad-sidecar')
-    await ctx.sessionPersistence.create(m)
-    await ctx.sessionPersistence.append(m.id, oneTurnLog())
-    await writeFile(sidecarPath(root, undefined, m.id), '{not json')
-    await expect(ctx.sessionPersistence.load(m.id)).rejects.toThrow()
   })
 
   it('list returns nothing when the root directory does not exist', async () => {

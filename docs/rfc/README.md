@@ -60,6 +60,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Rich ACP bash rendering — the terminal card (`_meta`) and command classification](implemented/2026-06-18-acp-terminal-and-tool-rendering.md) | 2026-06-18 |
 | [ACP snapshot tests — record-once / replay-deterministic](implemented/2026-06-19-acp-snapshot-tests.md) | 2026-06-19 |
 | [Real-API e2e in CI against the external DeepSeek API](implemented/2026-06-19-real-api-e2e-ci.md) | 2026-06-19 |
+| [Drop the mutable session summary](implemented/2026-06-19-drop-mutable-session-summary.md) | 2026-06-19 |
 
 ## Rejected
 

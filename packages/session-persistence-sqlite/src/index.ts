@@ -7,8 +7,7 @@
  * / interrupted-turn-close-on-load semantics the JSONL backend expresses over
  * file bytes, expressed here over `node:sqlite` rows. Each `SessionEvent` maps
  * 1:1 onto a row `(session_id, seq, type, time, data)`; `append` is an INSERT
- * inside a transaction that asserts the contiguous-seq contract; the mutable
- * `SessionSummary` lives in the `sessions` metadata row.
+ * inside a transaction that asserts the contiguous-seq contract.
  *
  * Like the JSONL backend it is also the write-path plugin: it installs the
  * `session/event` → buffer → `session/flush` drain, persists a fork's seed once
@@ -28,7 +27,7 @@ import {
   SessionPersistence, assertSerializable, seedCoversPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import { interruptedTurnClosers } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionId, SessionMeta, SessionSummary } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
   openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
 } from './schema.ts'
@@ -47,7 +46,7 @@ export interface Config {
 
 /** Backend bookkeeping for a session id (NOT the live Session object). */
 interface SessionState {
-  meta: SessionMeta
+  meta: SessionHeader
   /** Next seq to write — equals the number of committed events. */
   cursor: number
   /** Whether the session has at least one persisted event (materialized). */
@@ -108,12 +107,12 @@ export class SessionPersistenceSqlite extends SessionPersistence {
 
   // --- SessionPersistence backend surface (all serialized per session id) ---
 
-  create(meta: SessionMeta): Promise<void> {
-    const snapshot: SessionMeta = { ...meta }
+  create(meta: SessionHeader): Promise<void> {
+    const snapshot: SessionHeader = { ...meta }
     return this.serialize(snapshot.id, () => this.createCore(snapshot))
   }
 
-  private async createCore(meta: SessionMeta): Promise<void> {
+  private async createCore(meta: SessionHeader): Promise<void> {
     await this.ready
     if (this.states.has(meta.id)) {
       throw new Error(`session "${meta.id}" already exists in this backend`)
@@ -173,11 +172,7 @@ export class SessionPersistenceSqlite extends SessionPersistence {
       for (const event of events) {
         insertEvent.run(id, event.seq, event.type, event.time, JSON.stringify(event.data))
       }
-      // Bump updatedAt on every append (the mutable summary lives in the row).
-      const updatedAt = Date.now()
-      this.db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(updatedAt, id)
       this.db.exec('COMMIT')
-      state.meta = { ...state.meta, updatedAt }
     } catch (error) {
       this.db.exec('ROLLBACK')
       throw error
@@ -186,11 +181,11 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     state.cursor += events.length
   }
 
-  load(id: SessionId): Promise<{ meta: SessionMeta; events: SessionEvent[] }> {
+  load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     return this.serialize(id, () => this.loadCore(id))
   }
 
-  private async loadCore(id: SessionId): Promise<{ meta: SessionMeta; events: SessionEvent[] }> {
+  private async loadCore(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     await this.ready
     const row = this.rowFor(id)
     if (row === undefined) throw new Error(`session "${id}" not found`)
@@ -290,7 +285,7 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     if (suffix.length > 0) await this.appendCore(session.header.id, suffix)
   }
 
-  async list(): Promise<SessionMeta[]> {
+  async list(): Promise<SessionHeader[]> {
     await this.ready
     // Every metadata row is a materialized session: the row is written only by
     // the first append (a created-but-never-appended session has no row), so
@@ -320,23 +315,6 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     this.states.delete(id)
   }
 
-  update(id: SessionId, summary: Partial<SessionSummary>): Promise<void> {
-    return this.serialize(id, () => this.updateCore(id, summary))
-  }
-
-  private async updateCore(id: SessionId, summary: Partial<SessionSummary>): Promise<void> {
-    await this.ready
-    let state = this.states.get(id)
-    if (state === undefined) state = await this.adopt(id)
-    const nextMeta: SessionMeta = { ...state.meta, ...summary, updatedAt: summary.updatedAt ?? Date.now() }
-    // update's only durable effect is the summary fields; the event log is
-    // untouched. If the row is not materialized yet (a lazy session updated
-    // before its first append) there is nothing to write — keep the pending
-    // summary in memory so the materializing append carries it.
-    if (state.materialized) this.writeRow(nextMeta)
-    state.meta = nextMeta
-  }
-
   // --- row helpers ---
 
   /** Fetch a session's row, or undefined if absent. */
@@ -346,32 +324,26 @@ export class SessionPersistenceSqlite extends SessionPersistence {
   }
 
   /**
-   * Insert-or-replace a session's metadata row. The only callers are the first
-   * materializing `append` and a post-materialization `update`, so writing the
-   * row IS the materialization (its existence is the signal `has`/`list` read);
-   * a never-appended session has no row at all.
+   * Insert-or-replace a session's metadata row. The only caller is the first
+   * materializing `append`, so writing the row IS the materialization (its
+   * existence is the signal `has`/`list` read); a never-appended session has no
+   * row at all.
    */
-  private writeRow(meta: SessionMeta): void {
+  private writeRow(meta: SessionHeader): void {
     this.db.prepare(`
-      INSERT INTO sessions (id, version, created_at, cwd, parent_session, updated_at, title, first_prompt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, version, created_at, cwd, parent_session)
+      VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         version = excluded.version,
         created_at = excluded.created_at,
         cwd = excluded.cwd,
-        parent_session = excluded.parent_session,
-        updated_at = excluded.updated_at,
-        title = excluded.title,
-        first_prompt = excluded.first_prompt
+        parent_session = excluded.parent_session
     `).run(
       meta.id,
       meta.version,
       meta.createdAt,
       meta.cwd ?? null,
       meta.parentSession ?? null,
-      meta.updatedAt,
-      meta.title ?? null,
-      meta.firstPrompt ?? null,
     )
   }
 
@@ -384,7 +356,7 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     return state
   }
 
-  private assertVersion(meta: SessionMeta): void {
+  private assertVersion(meta: SessionHeader): void {
     if (meta.version !== 1) {
       throw new Error(`unsupported session format version ${meta.version} for "${meta.id}" (only v1 is supported)`)
     }
@@ -513,7 +485,7 @@ export class SessionPersistenceSqlite extends SessionPersistence {
     }
 
     // case 4: a genuinely new session.
-    const meta: SessionMeta = { ...session.header, updatedAt: Date.now() }
+    const meta: SessionHeader = { ...session.header }
     await this.create(meta)
     const created = this.states.get(id)
     /* v8 ignore next -- create() always sets the state for the id */
