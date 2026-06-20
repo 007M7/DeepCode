@@ -2,6 +2,8 @@
 
 Status: proposed
 
+> Superseded by [Extract example apps into packages](2026-06-20-extract-example-app-packages.md): moving the spine into a `dsh-agent-core` bundle and deleting the `base*.yml` files makes the rename below moot. Kept for the record.
+
 ## Problem
 
 The examples have two shared base files: [examples/base-core.yml](../../../../examples/base-core.yml) is providerless, while [examples/base.yml](../../../../examples/base.yml) includes that core plus the real `llm-deepseek` adapter. Snapshot replay needs the providerless core with `llm-replay`, because loading the real adapter without a key throws. The normal demos need the real adapter. The result is a naming inversion: the file named `base.yml` is not the reusable base for all examples, while the true base is `base-core.yml`.
