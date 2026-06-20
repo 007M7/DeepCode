@@ -208,7 +208,7 @@ function memberSignature(member: ts.TypeElement | ts.ClassElement, sf: ts.Source
  * `scanRoot` defaults to the repo root; tests pass a fixture dir. */
 export function collectEvents(scanRoot: string = root): EventEntry[] {
   const entries: EventEntry[] = []
-  for (const rel of globSync('packages/*/src/*.ts', { cwd: scanRoot }).sort()) {
+  for (const rel of globSync('packages/*/*/src/*.ts', { cwd: scanRoot }).sort()) {
     const abs = resolve(scanRoot, rel)
     const text = readFileSync(abs, 'utf8')
     if (!text.includes('interface Events')) continue
@@ -248,7 +248,7 @@ export function collectEvents(scanRoot: string = root): EventEntry[] {
  * `scanRoot` defaults to the repo root; tests pass a fixture dir. */
 export function collectServices(scanRoot: string = root): ServiceEntry[] {
   const entries: ServiceEntry[] = []
-  for (const rel of globSync('packages/*/src/index.ts', { cwd: scanRoot }).sort()) {
+  for (const rel of globSync('packages/*/*/src/index.ts', { cwd: scanRoot }).sort()) {
     const abs = resolve(scanRoot, rel)
     const text = readFileSync(abs, 'utf8')
     if (!text.includes('interface Context')) continue

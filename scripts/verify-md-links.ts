@@ -49,6 +49,7 @@ const PATTERNS = [
   'README.md',
   'docs/**/*.md',
   'packages/*/*.md',
+  'packages/*/*/*.md',
   'AGENTS.md',
   'packages/AGENTS.md',
   '.agents/skills/**/*.md',

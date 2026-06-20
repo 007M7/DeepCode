@@ -36,7 +36,7 @@ const root = resolve(import.meta.dirname, '..')
  * added to a doc with NO manifest entry is still discovered here and reported as
  * an orphan, instead of being silently skipped.
  */
-const MARKDOWN_GLOBS = ['README.md', 'docs/**/*.md', 'packages/*/*.md']
+const MARKDOWN_GLOBS = ['README.md', 'docs/**/*.md', 'packages/*/*.md', 'packages/*/*/*.md']
 
 /** One manifest entry: a documented type-equiv block and its source symbol. */
 interface ManifestEntry {

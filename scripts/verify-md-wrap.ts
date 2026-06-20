@@ -36,7 +36,7 @@ import type { Nodes } from 'mdast'
 const root = resolve(import.meta.dirname, '..')
 
 /** Files to check: doc-typecheck's scope plus the AGENTS.md pair. */
-const PATTERNS = ['README.md', 'docs/**/*.md', 'packages/*/*.md', 'AGENTS.md', 'packages/AGENTS.md']
+const PATTERNS = ['README.md', 'docs/**/*.md', 'packages/*/*.md', 'packages/*/*/*.md', 'AGENTS.md', 'packages/AGENTS.md']
 
 /** A located hard-wrap: a prose paragraph spanning more than one source line. */
 interface Violation {

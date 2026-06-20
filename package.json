@@ -9,7 +9,7 @@
   },
   "workspaces": [
     "vendor/*",
-    "packages/*"
+    "packages/*/*"
   ],
   "scripts": {
     "build": "tsc -b tsconfig.build.json && tsdown",

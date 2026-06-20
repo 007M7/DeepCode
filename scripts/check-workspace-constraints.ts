@@ -9,7 +9,12 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
-const workspaceGlobs = ['vendor', 'packages'] as const
+// vendor/* is single-level; packages/<group>/<pkg> nests one level deeper
+// (the group dirs — core/llm/bash/… — are pure containers with no manifest).
+const workspaceGlobs = [
+  { dir: 'vendor', depth: 1 },
+  { dir: 'packages', depth: 2 },
+] as const
 const vendoredPackages = new Set([
   'cordis',
   'cosmokit',
@@ -42,15 +47,25 @@ function readJson(path: string): PackageManifest {
   return JSON.parse(readFileSync(path, 'utf8')) as PackageManifest
 }
 
+/** Repo-relative dirs holding a package.json, walked to the configured depth. */
+function packageDirs(base: string, depth: number): string[] {
+  if (depth === 1) {
+    return readdirSync(join(root, base), { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => join(base, entry.name))
+  }
+  return readdirSync(join(root, base), { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .flatMap(group => packageDirs(join(base, group.name), depth - 1))
+}
+
 function workspaceManifests(): WorkspaceManifest[] {
   const manifests: WorkspaceManifest[] = [
     { dir: '.', manifest: readJson(join(root, 'package.json')) },
   ]
 
-  for (const workspaceDir of workspaceGlobs) {
-    for (const entry of readdirSync(join(root, workspaceDir), { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue
-      const dir = join(workspaceDir, entry.name)
+  for (const { dir: base, depth } of workspaceGlobs) {
+    for (const dir of packageDirs(base, depth)) {
       manifests.push({ dir, manifest: readJson(join(root, dir, 'package.json')) })
     }
   }
