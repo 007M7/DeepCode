@@ -23,10 +23,20 @@
  */
 
 import { readFileSync, existsSync } from 'node:fs'
-import { relative, resolve } from 'node:path'
+import { resolve } from 'node:path'
+import { glob } from 'node:fs/promises'
 import ts from 'typescript'
 
 const root = resolve(import.meta.dirname, '..')
+
+/**
+ * Markdown globs scanned for ` ```ts type-equiv ` blocks — the SAME scope
+ * doc-typecheck uses. Scanning every doc (not only the docs the manifest names)
+ * is what makes the 1:1 guarantee real in both directions: a type-equiv block
+ * added to a doc with NO manifest entry is still discovered here and reported as
+ * an orphan, instead of being silently skipped.
+ */
+const MARKDOWN_GLOBS = ['README.md', 'docs/**/*.md', 'packages/*/README.md']
 
 /** One manifest entry: a documented type-equiv block and its source symbol. */
 interface ManifestEntry {
@@ -71,7 +81,7 @@ function stripExport(code: string): string {
 
 /** Parse the declared symbol name from a type-equiv block body. */
 function blockSymbol(code: string): string | null {
-  const m = /(?:export\s+(?:default\s+)?)?(?:interface|type|class|enum)\s+([A-Za-z0-9_]+)/.exec(code)
+  const m = /(?:export\s+(?:default\s+)?)?(?:abstract\s+)?(?:interface|type|class|enum)\s+([A-Za-z0-9_]+)/.exec(code)
   return m?.[1] ?? null
 }
 
@@ -133,13 +143,22 @@ const entries = manifest.entries
 // doc, but at most once per doc).
 const keyOf = (x: { doc: string; symbol: string }): string => `${x.doc}::${x.symbol}`
 
-// Collect every type-equiv block across the docs the manifest references.
-const docFiles = [...new Set(entries.map(e => e.doc))]
-const missingDocs = docFiles.filter(d => !existsSync(resolve(root, d)))
-const blocks: EquivBlock[] = docFiles.filter(d => existsSync(resolve(root, d))).flatMap(extractEquivBlocks)
+// Collect every type-equiv block across ALL docs in scope — not only the docs
+// the manifest names — so a block in an unmanifested doc is found and reported
+// as an orphan rather than silently skipped.
+const docSet = new Set<string>()
+for (const pattern of MARKDOWN_GLOBS) {
+  for await (const match of glob(pattern, { cwd: root })) docSet.add(match)
+}
+const blocks: EquivBlock[] = [...docSet].sort().flatMap(extractEquivBlocks)
 
 const errors: string[] = []
-for (const d of missingDocs) errors.push(`manifest references ${d}, which does not exist`)
+// A manifest entry naming a doc that does not exist (or is outside the scanned
+// scope, so no block could ever match it) is an error in its own right.
+for (const d of [...new Set(entries.map(e => e.doc))]) {
+  if (!existsSync(resolve(root, d))) errors.push(`manifest references ${d}, which does not exist`)
+  else if (!docSet.has(d)) errors.push(`manifest references ${d}, which is outside the scanned markdown scope (${MARKDOWN_GLOBS.join(', ')})`)
+}
 
 // Duplicate-block guard: the same symbol twice in one doc is ambiguous.
 const blockByKey = new Map<string, EquivBlock>()
@@ -204,5 +223,5 @@ if (errors.length === 0) {
 
 console.error('verify-type-equiv: type-equiv verification failed:')
 for (const e of errors) console.error(`  ${e}`)
-console.error(`\n(checked ${blocks.length} block(s) across ${docFiles.map(d => relative(root, resolve(root, d))).length} doc(s); manifest at scripts/type-equiv.manifest.json)`)
+console.error(`\n(checked ${blocks.length} block(s) across ${new Set(blocks.map(b => b.doc)).size} doc(s); manifest at scripts/type-equiv.manifest.json)`)
 process.exit(1)
