@@ -253,12 +253,14 @@ interface Agent {
 
   /**
    * Resolve once the agent has reached quiescence after settling out of
-   * `running`, or immediately if it is already idle with no queued work. The
-   * quiescence signal a teardown awaits: a lifecycle owner disposes the agent
-   * through its `AgentHandle` (which aborts in-flight work then awaits this), so
-   * the caller proceeds only after queued/running work has fully stopped (a
-   * closing ACP connection, a disposing UI plugin) rather than returning while
-   * the driver is still streaming or about to start a queued turn.
+   * `running`, or immediately if it is already idle with no queued work. A
+   * non-owner's quiescence-observation hook: a consumer that does NOT own the
+   * agent's lifecycle (a closing ACP connection, a UI plugin) awaits this to
+   * proceed only after queued/running work has fully stopped, rather than
+   * returning while the driver is still streaming or about to start a queued
+   * turn. It does NOT tear the agent down — a lifecycle owner stops and
+   * unregisters the agent through its `AgentHandle.dispose()` (which awaits the
+   * loop-exit promise directly), separate from this.
    *
    * "Quiescence", not merely "status changed": a disposed agent emits
    * `agent/status('disposed')` from inside its disposer, BEFORE the driver loop
@@ -266,10 +268,6 @@ interface Agent {
    * to actually exit (the implementation chains the loop-exit promise), not just
    * observe the status flip. A mid-step disposal that never reaches `idle` still
    * unblocks the await this way.
-   *
-   * Distinct from disposal: `whenIdle()` observes the transition WITHOUT tearing
-   * the agent down. A consumer that owns the agent's lifecycle disposes it
-   * separately.
    */
   whenIdle(): Promise<void>
 
