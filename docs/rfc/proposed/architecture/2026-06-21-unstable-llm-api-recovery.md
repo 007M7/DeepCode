@@ -88,7 +88,7 @@ type LlmStreamEvent =
   | { type: 'response/failed'; responseId?: ResponseId; failure: LlmFailure }
   | { type: 'response/committed'; responseId: ResponseId; message: Message; finish: FinishReason; usage?: TokenUsage }
 
-type GenerateOutcome =
+type LlmCallOutcome =
   | { type: 'committed'; responseId: ResponseId; message: Message; finish: FinishReason; usage?: TokenUsage }
   | { type: 'failed'; responseId?: ResponseId; failure: LlmFailure }
 ```
@@ -120,6 +120,10 @@ ctx.llm.registerRoute({
 ```
 
 `GenerateOptions.model` remains the logical model. The service resolves it to a route for each API response, records the route in failure/response diagnostics, and can retry on the same route or fail over to another route with compatible capabilities. Duplicate model names become normal; duplicate route ids are the conflict. This is the smallest vocabulary that can express direct endpoint vs SDK-backed endpoint, regional endpoints, and future fallback models without making every caller own routing.
+
+The route registry must keep the lifecycle guarantees of the current adapter registry: `registerRoute()` is effect-scoped, returns a disposer, and has an HMR-safety test proving disposal removes the route. It should not preserve `llm/adapter-change`; if [PR #82](https://github.com/deepseek-ai/deepseek-harness/pull/82) lands first, that event is already gone, and the route registry should not reintroduce it without a concrete consumer.
+
+The new ids should follow the branded-id policy. `ResponseId`, `RouteId`, and the logical/wire model ids cross package boundaries and are easy to swap accidentally, so the implementation should deliberately brand or explicitly decline to brand each one in line with `2026-06-20-branded-ids` and its implementation stack ([PR #84](https://github.com/deepseek-ai/deepseek-harness/pull/84)).
 
 ### 4. Put default API recovery policy in `dsh-llm`
 
@@ -163,9 +167,9 @@ This RFC is deliberately about the `dsh-llm` API and how callers use it, not abo
 - `response/committed` is the only event that makes model output safe for history or side effects. It carries the assembled `Message`, finish reason, usage, response id, route metadata, and provider ids known to the service.
 - `response/failed` is the terminal event for classified failures. Callers should not need `try`/`catch` to learn that a provider was rate-limited, unavailable, misconfigured, aborted, or otherwise unable to produce a committed response.
 - Response diagnostics are JSON-serializable so callers can store, display, or ignore them. The LLM package does not decide whether those diagnostics become session events, agent events, telemetry rows, or UI-only state.
-- Convenience helpers such as `generate()` return a terminal union (`committed` or `failed`) rather than throwing for classified LLM failures. They must be derived from the lifecycle stream so recovery semantics stay single-sourced.
+- Any assembled convenience helper that survives or is reintroduced returns a terminal union (`committed` or `failed`) rather than throwing for classified LLM failures. It must be derived from the lifecycle stream so recovery semantics stay single-sourced.
 
-The session log shape, agent event taxonomy, ACP rendering, snapshot/replay fixtures, and whether live uncommitted chunks are ever durably recorded are downstream integration decisions. This RFC should constrain them only by the LLM API contract above.
+The session log shape, agent event taxonomy, ACP rendering, snapshot/replay fixtures, and whether live uncommitted chunks are ever durably recorded are downstream integration decisions. So is the fate of today's assembled public helper methods: [PR #82](https://github.com/deepseek-ai/deepseek-harness/pull/82) implements the proposed removal of `generate()`, `streamBlocks()`, `GenerateResult`, and `llm/generate`, and this RFC should not resurrect them without a real caller. This RFC should constrain downstream work only by the LLM API contract above.
 
 ## Out of scope
 
@@ -181,9 +185,11 @@ This RFC does not decide whether product UIs consume LLM lifecycle events direct
 - Recovery policy can distinguish retry, failover, credential/user-action, unsupported request, caller abort, adapter/protocol bug, and post-commit partial stream failure without parsing message text.
 - `ctx.llm.stream()` exposes the response lifecycle as the canonical stream, including terminal `response/failed` events for classified failures; convenience APIs are derived views for callers that only want the terminal outcome.
 - `response/committed` carries the assembled assistant `Message`; callers do not need to rebuild committed output from lifecycle chunks.
-- `generate()` returns a committed/failed union derived from the lifecycle stream, rather than throwing for classified LLM failures.
+- Any assembled convenience API that survives or is reintroduced returns a committed/failed union derived from the lifecycle stream, rather than throwing for classified LLM failures.
 - The LLM service has an explicit API-response boundary; no retry path can present output from two provider responses as one committed assistant result.
 - The route registry allows multiple concrete API routes for one logical model and records the selected route on responses/failures.
+- `registerRoute()` is effect-scoped, returns a disposer, and has an HMR-safety test proving route cleanup; `llm/adapter-change` is not reintroduced unless a concrete consumer needs it.
+- New LLM ids are deliberately branded or explicitly left unbranded according to the branded-id policy, with `ResponseId`, `RouteId`, and logical/wire model ids decided together.
 - Default recovery retries transient pre-commit failures with bounded backoff, honors provider retry-after hints, times out stuck streams, disables hidden SDK retries or surfaces them as response lifecycle events, and never retries after committed chunks without an explicit continuation design.
 - Unit tests cover thrown errors and finish-error chunks through `dsh-llm`, retry-before-first-commit, failover to a second compatible route, unbounded retry status/backoff visibility, abort during backoff, stream timeout, and the "partial chunks then failure does not retry/splice" invariant.
 - Adapter tests classify representative HTTP statuses, retry-after headers, request ids, malformed/truncated SSE streams, SDK in-stream errors, caller aborts, and unsupported options into `LlmFailure`.
@@ -201,3 +207,5 @@ This RFC does not decide whether product UIs consume LLM lifecycle events direct
 - Builds on [Provider-neutral content-block vocabulary](../../implemented/architecture/2026-06-11-content-block-vocabulary.md): the content vocabulary stays provider-neutral; this adds a provider-neutral failure/recovery vocabulary beside it.
 - Revises the scope implied by [Two LLM adapters as a design-verification twin](../../implemented/architecture/2026-06-13-twin-llm-adapters.md): the twin validated chunk shape and error delivery paths, but it also exposed that delivery paths are not enough for unstable API recovery.
 - Extends [Structured error taxonomy](../../implemented/architecture/2026-06-11-structured-error-taxonomy.md): `HarnessError.code` was the foundation; LLM API recovery needs a richer payload because retry/failover policy cannot safely branch on one flat string.
+- Coordinates with [PR #82](https://github.com/deepseek-ai/deepseek-harness/pull/82), which implements the `drop-unconsumed-llm-assembled-surfaces` and `drop-unconsumed-llm-adapter-change-event` simplification RFCs. If that PR lands first, this RFC starts from a narrower `dsh-llm`: no `generate()`, no `streamBlocks()`, no `GenerateResult`, no `llm/generate`, and no `llm/adapter-change`. Recovery should build on that baseline rather than revive removed convenience or change-notification surfaces speculatively.
+- Coordinates with [PR #84](https://github.com/deepseek-ai/deepseek-harness/pull/84), which implements the branded-id RFC. The new response/route/model ids introduced here are exactly the sort of cross-boundary ids that need an explicit branding decision before implementation.
