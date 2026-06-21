@@ -95,7 +95,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Drop the mutable session summary](implemented/simplification/2026-06-19-drop-mutable-session-summary.md) | 2026-06-19 |
 | [Drop unconsumed assembled LLM convenience surfaces](implemented/simplification/2026-06-20-drop-unconsumed-llm-assembled-surfaces.md) | 2026-06-20 |
 | [Drop the unconsumed `llm/adapter-change` event](implemented/simplification/2026-06-20-drop-unconsumed-llm-adapter-change-event.md) | 2026-06-20 |
-| [Prune dead methods from the persistence and bash seams](implemented/simplification/2026-06-20-prune-dead-seam-methods.md) | 2026-06-20 |
+| [Prune dead methods from the persistence seam](implemented/simplification/2026-06-20-prune-dead-seam-methods.md) | 2026-06-20 |
 
 ### Architecture
 
