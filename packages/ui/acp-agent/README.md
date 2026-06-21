@@ -16,7 +16,7 @@ stdout is the ACP JSON-RPC channel, so the cluster is defined as much by what it
 | ~~console logger~~ | **omitted** — it writes to stdout and would corrupt the protocol frames ([the stdout-purity footgun](../acp/README.md)) |
 | ~~`hmr`~~ | **omitted** — the editor owns the subprocess |
 
-Because there is no logger entry in the package, the footgun is **structurally unreachable from the leaf**: a leaf author cannot wire a stdout logger into the ACP config, because the leaf only picks backends, not the front door.
+Because the package wires no logger entry, an ACP leaf has **nothing to get wrong by default**: it only picks backends, so the common mistake — copying a console-logger entry from the stdio config — has no place here. (A leaf author technically *can* still add `@cordisjs/plugin-logger-console` as a sibling entry; the package can't forbid that. So the rule stands: never add a stdout logger to an ACP leaf — stdout is the JSON-RPC channel. Use a stderr exporter if you need logs.)
 
 ## Config
 

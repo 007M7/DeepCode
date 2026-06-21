@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Context } from 'cordis'
+import Loader from '@cordisjs/plugin-loader'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import * as stdioAgent from '../src/index.ts'
 
@@ -67,5 +68,25 @@ describe('dsh-stdio-agent app', () => {
   it('exposes its name and Config schema', () => {
     expect(stdioAgent.name).toBe('stdio-agent')
     expect(stdioAgent.Config).toBeDefined()
+  })
+
+  it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/Config/apply', () => {
+    // Postmortem 0001 guard: a stray `export default apply` makes the Loader's
+    // `unwrapExports` (`exports.default ?? exports`) collapse the module to the
+    // bare `apply` function, DROPPING the named `name`/`Config`. This package has
+    // no `inject` export, so that collapse would NOT crash at load (the keyless
+    // echo smoke would still boot the tree) — it would silently lose its config
+    // schema. So guard the shape directly here: assert no `default` export, and
+    // that the real `unwrapExports` leaves `name`/`Config`/`apply` intact. Adding
+    // `export default` to src/index.ts fails this test.
+    expect('default' in stdioAgent).toBe(false)
+    expect(typeof stdioAgent.apply).toBe('function')
+
+    const loader = Object.create(Loader.prototype) as Loader
+    const unwrapped = loader.unwrapExports(stdioAgent) as Record<string, unknown>
+    expect(unwrapped).toBe(stdioAgent)
+    expect(unwrapped.name).toBe('stdio-agent')
+    expect(unwrapped.Config).toBeDefined()
+    expect(typeof unwrapped.apply).toBe('function')
   })
 })
