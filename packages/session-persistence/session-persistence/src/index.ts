@@ -103,7 +103,7 @@ export abstract class SessionPersistence extends Service {
   /**
    * Register a new session's metadata. A backend MAY defer the physical write
    * until the first {@link append} (lazy materialization), in which case a
-   * created-but-never-appended session is absent from {@link has}/{@link list}
+   * created-but-never-appended session is absent from {@link list}
    * — abandoned sessions leave nothing behind.
    */
   abstract create(meta: SessionHeader): Promise<void>
@@ -143,12 +143,6 @@ export abstract class SessionPersistence extends Service {
 
   /** Lightweight listing from metadata, without a full-log parse. */
   abstract list(): Promise<SessionHeader[]>
-
-  /** Whether a session is durably present (materialized). */
-  abstract has(id: SessionId): Promise<boolean>
-
-  /** Remove a session and all its persisted artifacts. */
-  abstract delete(id: SessionId): Promise<void>
 }
 
 export default SessionPersistence

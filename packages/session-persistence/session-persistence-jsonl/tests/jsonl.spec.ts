@@ -105,12 +105,12 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     // nothing on disk yet
     const dir = sessionDir(root, '/work')
     await expect(stat(logPath(root, '/work', m.id))).rejects.toThrow()
-    expect(await ctx.sessionPersistence.has(m.id)).toBe(false)
+    expect((await ctx.sessionPersistence.list()).map(h => h.id)).not.toContain(m.id)
 
     await ctx.sessionPersistence.append(m.id, oneTurnLog())
     // now materialized
     expect((await stat(logPath(root, '/work', m.id))).isFile()).toBe(true)
-    expect(await ctx.sessionPersistence.has(m.id)).toBe(true)
+    expect((await ctx.sessionPersistence.list()).map(h => h.id)).toContain(m.id)
     void dir
   })
 
@@ -448,19 +448,6 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     expect(ids).toContain('big')
   })
 
-  it('has() finds a session on disk under an unknown cwd (cross-bucket scan)', async () => {
-    const m = meta('scan-me', '/somewhere')
-    await ctx.sessionPersistence.create(m)
-    await ctx.sessionPersistence.append(m.id, oneTurnLog())
-    // A fresh backend with no in-memory state → has() must scan disk buckets.
-    const ctx2 = new Context()
-    await ctx2.plugin(SessionStore)
-    await ctx2.plugin(SessionPersistenceJsonl, { root })
-    expect(await ctx2.sessionPersistence.has(m.id)).toBe(true)
-    expect(await ctx2.sessionPersistence.has(SessionId('absent'))).toBe(false)
-    await ctx2.fiber.dispose()
-  })
-
   it('a DIFFERENT live session object reusing a disposed id gets its own init (no stale cache)', async () => {
     // Session A materializes a log under id "reuse".
     const sessFiberA = await ctx.plugin(Object.assign((inner: Context) => {
@@ -579,20 +566,23 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.fiber.dispose()
   })
 
-  it('exists() surfaces a non-ENOENT lookup error (ENOTDIR) instead of reporting absent', async () => {
-    // Same contract on the existence path: a non-ENOENT error from the per-id
-    // open() must surface, not be collapsed to "not found" (which would let a
-    // collision check proceed under a false absence assumption). A LAZY session
-    // (created, never appended) keeps its cwd in state, so has() reaches
-    // loadLive(id, cwd) → exists(logPath). Make that cwd's bucket DIRECTORY a
-    // regular file: open()ing `bucket/<id>.jsonl` under it then fails ENOTDIR.
+  it('loadLive surfaces a non-ENOENT lookup error (ENOTDIR) instead of reporting absent', async () => {
+    // A non-ENOENT error from the per-id open() must surface, not be collapsed to
+    // "not found" (which would let live-adoption proceed under a false absence
+    // assumption). A live session's onCreated reaches loadLive(id, cwd) →
+    // exists(logPath). Make that cwd's bucket DIRECTORY a regular file: open()ing
+    // `bucket/<id>.jsonl` under it then fails ENOTDIR.
     const cwd = '/x'
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionPersistenceJsonl, { root })
-    await ctx2.sessionPersistence.create(meta('exists-fault', cwd)) // lazy: no bucket yet
     await writeFile(sessionDir(root, cwd), 'x') // bucket path is now a FILE
-    await expect(ctx2.sessionPersistence.has(SessionId('exists-fault'))).rejects.toThrow(/ENOTDIR/)
+    const backend = ctx2.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
+    let s!: Session
+    await ctx2.plugin(Object.assign((inner: Context) => {
+      s = inner.sessions.create('exists-fault', { meta: { cwd } })
+    }, { inject: ['sessions'] }))
+    await expect(backend.inits.get(s)).rejects.toThrow(/ENOTDIR/)
     await ctx2.fiber.dispose()
   })
 
@@ -639,8 +629,8 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const a = meta('dup-id', '/projA')
     await ctx.sessionPersistence.create(a)
     await ctx.sessionPersistence.append(a.id, oneTurnLog())
-    // A fresh backend creating the SAME id under cwd B must still refuse: load/
-    // has identify by id across all buckets, so a second log would make resume
+    // A fresh backend creating the SAME id under cwd B must still refuse: load
+    // identifies by id across all buckets, so a second log would make resume
     // nondeterministic. create scans every bucket, not just meta.cwd's.
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
@@ -687,7 +677,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     circ.self = circ
     await expect(ctx.sessionPersistence.append(m.id, bad(circ))).rejects.toThrow(/non-JSON-serializable/)
     // The session was never materialized by any of the rejected appends.
-    expect(await ctx.sessionPersistence.has(m.id)).toBe(false)
+    expect((await ctx.sessionPersistence.list()).map(h => h.id)).not.toContain(m.id)
   })
 
   it('accepts well-formed JSON values (null, booleans, nested arrays/objects)', async () => {
@@ -695,7 +685,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx.sessionPersistence.create(m)
     const ev = [{ type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra: { a: null, b: true, c: [1, 2, { d: 'nested' }] } } }] as unknown as SessionEvent[]
     await ctx.sessionPersistence.append(m.id, ev)
-    expect(await ctx.sessionPersistence.has(m.id)).toBe(true)
+    expect((await ctx.sessionPersistence.list()).map(h => h.id)).toContain(m.id)
   })
 
   it('Session.append rejects a non-serializable event at the source (never enters the log)', () => {

@@ -21,7 +21,7 @@ export const SCHEMA_VERSION = 2
  * A row of the `sessions` table — the out-of-log metadata ({@link SessionHeader}).
  * The row's EXISTENCE is the materialization signal: it is written only by the
  * first `append` (lazy materialization), so a created-but-never-appended
- * session has no row and is absent from `has`/`list`, mirroring the JSONL
+ * session has no row and is absent from `list`, mirroring the JSONL
  * backend's "no file until first append".
  */
 export interface SessionRow {

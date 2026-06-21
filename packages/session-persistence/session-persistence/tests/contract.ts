@@ -142,24 +142,22 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
       }
     })
 
-    it('has()/list() exclude a created-but-never-appended (zero-event) session', async () => {
+    it('list() excludes a created-but-never-appended (zero-event) session', async () => {
       const { persistence, dispose } = await make()
       try {
         await persistence.create(meta('empty'))
-        expect(await persistence.has(SessionId('empty'))).toBe(false)
         expect((await persistence.list()).map(m => m.id)).not.toContain(SessionId('empty'))
       } finally {
         await dispose()
       }
     })
 
-    it('has()/list() include a session once it has events', async () => {
+    it('list() includes a session once it has events', async () => {
       const { persistence, dispose } = await make()
       try {
         const m = meta('s2')
         await persistence.create(m)
         await persistence.append(m.id, oneTurnLog())
-        expect(await persistence.has(m.id)).toBe(true)
         expect((await persistence.list()).map(x => x.id)).toContain(m.id)
       } finally {
         await dispose()
@@ -223,20 +221,6 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
           ] as unknown as SessionEvent[]
           await expect(persistence.append(mi.id, events)).rejects.toThrow(/user\/message/)
         }
-      } finally {
-        await dispose()
-      }
-    })
-
-    it('delete removes a session', async () => {
-      const { persistence, dispose } = await make()
-      try {
-        const m = meta('s6')
-        await persistence.create(m)
-        await persistence.append(m.id, oneTurnLog())
-        expect(await persistence.has(m.id)).toBe(true)
-        await persistence.delete(m.id)
-        expect(await persistence.has(m.id)).toBe(false)
       } finally {
         await dispose()
       }

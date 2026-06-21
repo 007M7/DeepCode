@@ -61,14 +61,6 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     return this.coordinator.load(id)
   }
 
-  has(id: SessionId): Promise<boolean> {
-    return this.coordinator.has(id)
-  }
-
-  delete(id: SessionId): Promise<void> {
-    return this.coordinator.delete(id)
-  }
-
   /** White-box accessor: await a specific session's onCreated init. */
   get inits(): Map<Session, Promise<void>> {
     return this.coordinator.inits
@@ -112,10 +104,6 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     /* v8 ignore next -- commitRepair only runs for a materialized (stored) session */
     if (!entry) return
     if (closers.length > 0) entry.events.push(...structuredClone(closers) as SessionEvent[])
-  }
-
-  async deleteStored(id: SessionId): Promise<void> {
-    this.store.delete(id)
   }
 
   async list(): Promise<SessionHeader[]> {

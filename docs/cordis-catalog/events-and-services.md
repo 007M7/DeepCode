@@ -369,8 +369,6 @@ abstract create(meta: SessionHeader): Promise<void>
 abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
 abstract list(): Promise<SessionHeader[]>
-abstract has(id: SessionId): Promise<boolean>
-abstract delete(id: SessionId): Promise<void>
 ```
 
 Types: [SessionEvent](../core-data-structures/core.md)

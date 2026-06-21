@@ -214,17 +214,15 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
       { type: 'user/message', seq: 1, time: 2, data: { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } } },
     ])
-    expect(await b1.ctx.sessionPersistence.has(m.id)).toBe(true) // materialized
     await b1.dispose()
 
     // A fresh backend loads it: the interrupted (only) turn's real events are
     // preserved and closed with a synthetic turn/end {interrupted} — NOT
-    // truncated. The session was materialized, so has()/list() report it present.
+    // truncated. The session was materialized, so list() reports it present.
     const b2 = await backend(path)
     const loaded = await b2.ctx.sessionPersistence.load(m.id)
     expect(loaded.events.map(e => e.type)).toEqual(['turn/start', 'user/message', 'turn/end'])
     expect(loaded.events.at(-1)!.type === 'turn/end' && loaded.events.at(-1)!.data).toMatchObject({ reason: { kind: 'interrupted' } })
-    expect(await b2.ctx.sessionPersistence.has(m.id)).toBe(true)
     expect((await b2.ctx.sessionPersistence.list()).map(x => x.id)).toContain(m.id)
     await b2.dispose()
   })

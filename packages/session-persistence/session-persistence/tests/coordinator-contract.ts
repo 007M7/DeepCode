@@ -625,7 +625,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         const m = meta('empty-batch', WORK)
         await ctx.sessionPersistence.create(m)
         await ctx.sessionPersistence.append(m.id, [])
-        expect(await ctx.sessionPersistence.has(m.id)).toBe(false)
+        expect((await ctx.sessionPersistence.list()).map(h => h.id)).not.toContain(m.id)
       } finally {
         await fiber.dispose()
         await fix.cleanup()
@@ -637,17 +637,6 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       const { ctx, fiber } = await freshCtx(fix)
       try {
         await expect(ctx.sessionPersistence.load(SessionId('nope'))).rejects.toThrow(/not found/)
-      } finally {
-        await fiber.dispose()
-        await fix.cleanup()
-      }
-    })
-
-    it('delete of a non-existent session is a no-op', async () => {
-      const fix = await makeFixture()
-      const { ctx, fiber } = await freshCtx(fix)
-      try {
-        await expect(ctx.sessionPersistence.delete(SessionId('ghost'))).resolves.toBeUndefined()
       } finally {
         await fiber.dispose()
         await fix.cleanup()
