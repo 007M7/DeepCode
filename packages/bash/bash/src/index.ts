@@ -17,7 +17,7 @@
 import { Context, Service } from 'cordis'
 import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskId, BashTaskListener, BashTaskRead, OwnerToken } from './types'
 
-export { BashTaskId, OwnerToken } from './types.ts'
+export { BashTaskId, OwnerToken } from './types'
 export type {
   BashExecRequest,
   BashExecSpec,

@@ -6,8 +6,8 @@
  * @module @deepseek-ai/dsh-llm/assembler
  */
 
-import { CallId } from './brand.ts'
-import { assertNever } from './never.ts'
+import { CallId } from './brand'
+import { assertNever } from './never'
 import type { ContentBlock, FinishReason, Message, StreamChunk, TokenUsage } from './types'
 
 interface PartialBlock {

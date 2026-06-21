@@ -5,7 +5,7 @@ import { Context } from 'cordis'
 import LlmService, { LlmError } from '@deepseek-ai/dsh-llm'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekAdapter, httpErrorCode } from '@deepseek-ai/dsh-llm-deepseek'
-import { assemble } from './assemble.ts'
+import { assemble } from './assemble'
 
 /** One scripted behavior for the next request the mock server receives. */
 type Behavior =

@@ -5,7 +5,7 @@ import { Context } from 'cordis'
 import LlmService, { CallId, LlmError } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { buildModel, PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
-import { assemble } from './assemble.ts'
+import { assemble } from './assemble'
 
 /** Scripted SSE responses, one per request (OpenAI chat-completions shape). */
 interface MockServer {

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { AgentId } from '@deepseek-ai/dsh-agent'
-import * as stdioAgent from '../src/index.ts'
+import * as stdioAgent from '../src/index'
 
 /**
  * Unit coverage for the @deepseek-ai/dsh-stdio-agent app plugin: mounting it

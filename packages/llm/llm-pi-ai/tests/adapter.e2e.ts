@@ -5,7 +5,7 @@ import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import type { Config } from '@deepseek-ai/dsh-llm-pi-ai'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
-import { assemble, type AssembledResult } from './assemble.ts'
+import { assemble, type AssembledResult } from './assemble'
 
 /**
  * Real-API e2e for the pi-ai-backed adapter: V4 Flash + V4 Pro across all

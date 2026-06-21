@@ -4,7 +4,7 @@ import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import type { Config } from '@deepseek-ai/dsh-llm-deepseek'
-import { assemble, type AssembledResult } from './assemble.ts'
+import { assemble, type AssembledResult } from './assemble'
 
 /**
  * Real-API e2e for the hand-rolled adapter: V4 Flash + V4 Pro across

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import * as acpAgent from '../src/index.ts'
+import * as acpAgent from '../src/index'
 
 /**
  * In-process unit coverage for the @deepseek-ai/dsh-acp-agent composition:

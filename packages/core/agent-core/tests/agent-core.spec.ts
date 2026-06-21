@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import * as agentCore from '../src/index.ts'
+import * as agentCore from '../src/index'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 
 /**

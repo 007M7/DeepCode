@@ -30,8 +30,8 @@ import { describe, expect, it } from 'vitest'
 import { Context, type Fiber } from 'cordis'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import type { SessionPersistence } from '../src/index.ts'
-import { meta, oneTurnLog } from './contract.ts'
+import type { SessionPersistence } from '../src/index'
+import { meta, oneTurnLog } from './contract'
 
 /**
  * The backend-specific capabilities the orchestration suite needs beyond the

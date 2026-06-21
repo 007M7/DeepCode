@@ -13,7 +13,7 @@
   ],
   "scripts": {
     "build": "tsc -b tsconfig.build.json && tsdown",
-    "clean:build": "rm -rf .typecheck packages/*/lib vendor/*/lib *.tsbuildinfo",
+    "clean:build": "rm -rf .typecheck packages/*/*/lib vendor/*/lib *.tsbuildinfo",
     "typecheck": "tsc -b tsconfig.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

@@ -29,8 +29,8 @@ import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-se
 export type { SessionHeader } from '@deepseek-ai/dsh-session'
 
 // The backend-agnostic write-path orchestration first-party backends compose.
-export { PersistenceCoordinator } from './coordinator.ts'
-export type { PersistenceBackend, StoredPrefix } from './coordinator.ts'
+export { PersistenceCoordinator } from './coordinator'
+export type { PersistenceBackend, StoredPrefix } from './coordinator'
 
 declare module 'cordis' {
   interface Context {
