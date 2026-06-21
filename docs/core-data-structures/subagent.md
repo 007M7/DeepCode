@@ -85,4 +85,4 @@ interface SubagentProvider {
 }
 ```
 
-The service (`ctx.subagents`) emits `subagent/start` when a run begins and `subagent/end` when it settles (see the [events catalog](../cordis-catalog/events-and-services.md)). Both emits contain a thrown listener (logged, never propagated) so one bad subscriber can neither strand a live run nor surface as an unhandled rejection on the detached settle hook.
+The service (`ctx.subagents`) emits `subagent/start` when a run begins and `subagent/end` when it settles (see the [events catalog](../cordis-catalog/events-and-services.md)). Both emits contain a thrown listener **per listener** (logged, never propagated): one bad subscriber can neither strand a live run, surface as an unhandled rejection on the detached settle hook, nor starve the listeners registered after it.

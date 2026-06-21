@@ -200,31 +200,37 @@ describe('SubagentService', () => {
     expect(ended).toHaveBeenCalledWith(expect.objectContaining({ provider: 'rejecter', id: run.id, stopReason: 'error' }))
   })
 
-  it('contains a throwing subagent/start listener so start() still returns the run', async () => {
+  it('contains a throwing subagent/start listener per-listener: a later listener still observes the event and start() returns the run', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
     ctx.subagents.registerProvider(new StubProvider('contain'))
-    // A bad subscriber must not strand the live run: start() returns it anyway.
+    // Two listeners; the FIRST throws. Per-listener containment means the second
+    // must STILL run (a single try/catch around ctx.emit would let the first
+    // throw halt the dispatch and starve the second — the round-2 regression).
+    const second = vi.fn()
     ctx.on('subagent/start', () => { throw new Error('bad start listener') })
+    ctx.on('subagent/start', second)
 
     const run = ctx.subagents.start('contain', baseRequest())
     expect(run.id).toBeDefined()
+    expect(second).toHaveBeenCalledWith(expect.objectContaining({ provider: 'contain', id: run.id }))
     await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
   })
 
-  it('contains a throwing subagent/end listener (no unhandled rejection on the settle hook)', async () => {
+  it('contains a throwing subagent/end listener per-listener: a later listener still observes the settle, no unhandled rejection', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
     ctx.subagents.registerProvider(new StubProvider('contain-end'))
+    const second = vi.fn()
     ctx.on('subagent/end', () => { throw new Error('bad end listener') })
+    ctx.on('subagent/end', second)
 
     const run = ctx.subagents.start('contain-end', baseRequest())
     await run.result
-    // Let the detached `.then` + the contained emit run; a thrown listener here
-    // must be swallowed (logged), not escape as an unhandled rejection.
+    // Let the detached `.then` + the contained emit run.
     await Promise.resolve()
     await Promise.resolve()
-    expect(run.id).toBeDefined()
+    expect(second).toHaveBeenCalledWith(expect.objectContaining({ provider: 'contain-end', id: run.id, stopReason: 'completed' }))
   })
 
   it('SubagentError extends the shared HarnessError base', () => {
