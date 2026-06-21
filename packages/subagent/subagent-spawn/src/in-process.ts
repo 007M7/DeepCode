@@ -143,6 +143,11 @@ export function startInProcessRun(
 
   const result: Promise<SubagentResult> = (async () => {
     try {
+      // A signal already aborted BEFORE the run starts never fires an `abort`
+      // event (`addEventListener` only fires on the transition), so the listener
+      // above won't catch it — settle `aborted` without running the child rather
+      // than completing an already-cancelled request.
+      if (request.signal?.aborted) return { output: [], stopReason: 'aborted' }
       child.send(request.prompt)
       await child.whenIdle()
       return readResult(child, seedLength, cancelled)

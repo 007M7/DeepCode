@@ -128,6 +128,22 @@ describe('dsh-subagent-spawn', () => {
     await run.dispose()
   })
 
+  it('settles aborted (without running the child) when the request signal is ALREADY aborted', async () => {
+    // Regression: a signal aborted BEFORE the run starts never fires an `abort`
+    // event, so the listener can't catch it. The driver must check the
+    // already-aborted case up front and settle `aborted` without running the
+    // child — otherwise an already-cancelled request runs to `completed`. The
+    // empty script proves the child's model is never called.
+    const controller = new AbortController()
+    controller.abort()
+    const { ctx, parent } = await setup([])
+    const run = ctx.subagents.start('spawn', { prompt: [{ type: 'text', text: 'p' }], parent, signal: controller.signal })
+    const result = await run.result
+    expect(result.stopReason).toBe('aborted')
+    expect(result.output).toEqual([])
+    await run.dispose()
+  })
+
   it('cancelling BEFORE the child turn starts settles aborted, not error', async () => {
     // Regression: a cancel landing in the pre-turn window clears the queued
     // prompt before any `turn/end` is logged. Deriving the stop reason from
