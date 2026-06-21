@@ -9,8 +9,10 @@
  * a stray console logger would corrupt the protocol frames (the [stdout-purity
  * footgun]). This package contains NO console-logger entry, NO `hmr` (the editor
  * owns the subprocess), and pre-creates NO agents (ACP `session/new` creates
- * them on demand) — so the footgun is structurally unreachable from the leaf:
- * there is no logger entry to get wrong.
+ * them on demand) — so the default front door has no logger entry to get wrong.
+ * (A leaf `cordis.yml` could still add a sibling `@cordisjs/plugin-logger-console`,
+ * which this app does not prevent — so the rule "never add a stdout logger to an
+ * ACP leaf" still stands; the app just gives the leaf nothing to misconfigure.)
  *
  * The leaf supplies only the swappable backends: the LLM adapter (`llm-deepseek`
  * for the real model, `llm-replay` for keyless snapshot replay) and the bash
