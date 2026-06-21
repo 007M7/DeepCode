@@ -9,12 +9,16 @@ import { type NormalizeContext, normalizeSessionLog, normalizeStdout } from './s
 /**
  * ACP snapshot tests (REPLAY by default, keyless). Each scenario under
  * `snapshots/<name>/` ships an `input.json` (the client stdin script) and a
- * recorded `session.jsonl` fixture; replay boots the real acp-agent subprocess,
- * drives it, and diffs the normalized stdout transcript (and, for model
- * scenarios, the re-persisted session log) against committed goldens.
+ * `session.jsonl` fixture; replay boots the real acp-agent subprocess, drives
+ * it, and diffs the normalized stdout transcript against the committed
+ * `stdout.golden.jsonl`. For model scenarios it ALSO checks the re-persisted
+ * session log — against the `session.jsonl` fixture itself, not a separate
+ * golden: the fixture doubles as the replay source (recorded scenarios) and the
+ * expected produced log (both sides normalized before comparing).
  *
  * `pnpm run test:snapshot:record` (DSH_SNAPSHOT=record + -u) re-records the
- * fixtures against the real API and refreshes the goldens in one pass.
+ * `session.jsonl` fixtures against the real API and refreshes the stdout golden
+ * in one pass.
  */
 
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
@@ -45,6 +49,28 @@ const SCENARIOS: Scenario[] = [
   { name: 'error-finish', hasModelTurn: true, recorded: false },
   { name: 'cancel', hasModelTurn: true, recorded: false },
 ]
+
+/**
+ * Derive the {@link NormalizeContext} for a `session.jsonl` fixture from its own
+ * header line (`{ type: 'session', id, cwd }`). A committed fixture carries the
+ * session id and cwd of the run that harvested it — different from the live
+ * replay run — so normalizing it against the live run's ctx would leave those
+ * recorded values unscrubbed. Reading them from the header scrubs the fixture's
+ * own id/cwd to the same `{{sessionId}}`/`{{cwd}}` tokens the replay output gets.
+ * An authored fixture whose header is already normalized (`id:'{{sessionId}}'`,
+ * `cwd:'{{cwd}}'`) yields those tokens as the volatile values, so scrubbing them
+ * is an idempotent no-op. A header with no `cwd` falls back to a sentinel that
+ * cannot occur in a log (NOT `''`, which `String.split` would match on every
+ * character boundary and corrupt the output).
+ */
+function fixtureContext(fixture: string): NormalizeContext {
+  const firstLine = fixture.split('\n').find(line => line.trim().length > 0) ?? '{}'
+  const header = JSON.parse(firstLine) as { id?: unknown; cwd?: unknown }
+  return {
+    sessionIds: typeof header.id === 'string' ? [header.id] : [],
+    cwd: typeof header.cwd === 'string' ? header.cwd : '\0no-cwd\0',
+  }
+}
 
 for (const scenario of SCENARIOS) {
   describe(`snapshot: ${scenario.name}`, () => {
@@ -80,8 +106,17 @@ for (const scenario of SCENARIOS) {
 
       if (scenario.hasModelTurn) {
         expect(result.sessionLog, 'a model scenario must persist a session log').toBeDefined()
-        await expect(normalizeSessionLog(result.sessionLog as string, ctx))
-          .toMatchFileSnapshot(join(dir, 'session.golden.jsonl'))
+        // Compare the replay run's persisted log against the `session.jsonl`
+        // fixture — there is no separate session golden. Both sides pass through
+        // normalizeSessionLog so the comparison is on normalized form: the
+        // fixture is raw-harvested (its own real session id / cwd / timestamps),
+        // the replay output has fresh ones, and each is scrubbed against ITS OWN
+        // volatile values. The fixture's are read from its header line (a
+        // committed file cannot share the live run's ctx), so the stale recorded
+        // cwd/id are scrubbed too, not left to leak past the run's `ctx`.
+        const fixture = await readFile(join(dir, 'session.jsonl'), 'utf8')
+        expect(normalizeSessionLog(result.sessionLog as string, ctx))
+          .toEqual(normalizeSessionLog(fixture, fixtureContext(fixture)))
       }
     })
   })
@@ -99,11 +134,24 @@ describe('snapshot fixtures', () => {
   })
 
   it('every registered scenario has its required fixture files', async () => {
-    for (const { name } of SCENARIOS) {
+    // Every scenario has an input script and an stdout golden. EVERY scenario
+    // also needs `session.jsonl`: the harness boots `llm-replay` with that path
+    // as the replay source for ALL scenarios (acp.snapshot.ts passes
+    // `fixtureFile: <dir>/session.jsonl` unconditionally), and `loadReplayScript`
+    // throws "fixture not found" when it is absent and no override replaces it.
+    // A no-model scenario ships a header-only `session.jsonl` (it derives to an
+    // empty script — no model call is made); a model scenario's fixture also
+    // doubles as the expected-log artifact the run is diffed against. An authored
+    // (non-`recorded`) model scenario additionally ships a `replay.override.json`
+    // sidecar for the throw/hang cases a derived script cannot express.
+    for (const { name, hasModelTurn, recorded } of SCENARIOS) {
       const dir = join(SNAPSHOTS_DIR, name)
       expect(existsSync(join(dir, 'input.json')), `${name}/input.json`).toBe(true)
-      expect(existsSync(join(dir, 'session.jsonl')), `${name}/session.jsonl`).toBe(true)
       expect(existsSync(join(dir, 'stdout.golden.jsonl')), `${name}/stdout.golden.jsonl`).toBe(true)
+      expect(existsSync(join(dir, 'session.jsonl')), `${name}/session.jsonl`).toBe(true)
+      if (hasModelTurn && !recorded) {
+        expect(existsSync(join(dir, 'replay.override.json')), `${name}/replay.override.json`).toBe(true)
+      }
     }
   })
 })

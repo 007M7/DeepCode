@@ -26,7 +26,11 @@ import {
  * WITHOUT a key, since it only needs the server to boot and answer initialize.
  */
 
-const startScript = fileURLToPath(new URL('../start.ts', import.meta.url))
+// The dsh-acp-agent bin (the demo:acp entry) and this example's cordis.yml. The
+// bin resolves its config-path arg from CWD; the subprocess runs from a temp
+// workdir, so pass the example config's ABSOLUTE path.
+const binScript = fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url))
+const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 // Resolve tsx's loader to an ABSOLUTE path: the subprocess runs with cwd set to
 // a temp workdir (this test launches there and uses it as the session cwd; the
 // bridge no longer requires cwd === the launch dir, but a temp dir keeps the
@@ -55,7 +59,7 @@ interface Spawned {
 function spawnAcpAgent(cwd: string, env: NodeJS.ProcessEnv = process.env): Spawned {
   const child = spawn(
     process.execPath,
-    ['--import', tsxLoader, startScript],
+    ['--import', tsxLoader, binScript, configPath],
     { cwd, env: { ...env, TSX_TSCONFIG_PATH: repoTsconfig }, stdio: ['pipe', 'pipe', 'pipe'] },
   )
   const stderr: string[] = []
@@ -101,7 +105,7 @@ describe('acp-agent over real stdio (no key required)', () => {
     // A dummy key lets the deepseek adapter APPLY (it only checks the key is
     // present at boot, not valid — the key is used only on a real model call,
     // which this purity test never triggers). So this runs WITHOUT real creds.
-    const child = spawn(process.execPath, ['--import', tsxLoader, startScript], {
+    const child = spawn(process.execPath, ['--import', tsxLoader, binScript, configPath], {
       cwd: workdir,
       env: { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot', TSX_TSCONFIG_PATH: repoTsconfig },
       stdio: ['pipe', 'pipe', 'pipe'],

@@ -8,6 +8,8 @@ The harness core is deliberately tiny: a handful of abstract services plus one c
 
 Requirement context: [Coding Harness MVP 需求分析][mvp-doc].
 
+For a catalog of the **data structures** this architecture moves around — the core vocabulary types, their literal shapes, and the seam types grouped by capability — see [core-data-structures/](core-data-structures/core.md). This document covers behavior; that one covers the types.
+
 **Contents:** [Layering](#layering) · [Service map](#service-map) · [Capability seams](#capability-seams-interface--implementation--consumer) · [The vocabulary (dsh-llm)](#the-vocabulary-dsh-llm) · [Event-sourced sessions](#event-sourced-sessions-dsh-session) · [Prompt assembly](#prompt-assembly-dsh-system-prompt) · [Tool pipeline](#tool-pipeline-dsh-tools) · [Agents and the loop](#agents-dsh-agent-and-the-loop-dsh-agent-loop) ([lifecycle](#loop-lifecycle-session--turn--step), [event taxonomy](#event-taxonomy), [waterfall semantics](#cordis-waterfall-semantics-important)) · [Plugin sanity checklist](#plugin-sanity-checklist) · [Extension cookbook](#extension-cookbook) · [Deferred work](#deferred-work-todo)
 
 [microkernel-doc]: https://trtgsjkv6r.feishu.cn/wiki/VS9Lw1kQki6mDJk2UHocyuphnsc
@@ -37,22 +39,24 @@ Requirement context: [Coding Harness MVP 需求分析][mvp-doc].
 └─────────────────────────────────────────────────────────────┘
 ```
 
-Dependency rule: plugins depend on interface packages, never on `dsh-agent-loop`. The loop itself is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced.
+Dependency rule: **extension** plugins depend on interface packages, never on `dsh-agent-loop`. The loop itself is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced. The one sanctioned exception is a **composition/bundle** package whose job IS to assemble the concrete spine: `dsh-agent-core` bundles `dsh-agent-loop` (and the other concrete spine plugins) by design, so it depends on the concrete loop on purpose. The rule constrains plugins that EXTEND the system, not the bundle that COMPOSES it — swapping the loop means publishing a different bundle, not rewiring every extension.
 
 ## Service map
 
 | ctx key | Class | Package | Role |
 |---|---|---|---|
-| `ctx.llm` | `LlmService` | dsh-llm | adapter registry; `stream()` / `streamBlocks()` / `generate()` |
+| `ctx.llm` | `LlmService` | dsh-llm | adapter registry; `stream()` |
 | `ctx.sessions` | `SessionStore` | dsh-session | creates/holds event-sourced `Session`s |
-| `ctx.sessionPersistence` | `SessionPersistence` (abstract) | dsh-session-persistence | durable persistence seam: create/append/load/list/update sessions |
+| `ctx.sessionPersistence` | `SessionPersistence` (abstract) | dsh-session-persistence | durable persistence seam: create/append/load/list sessions |
 | `ctx.systemPrompt` | `SystemPrompt` | dsh-system-prompt | ordered sections + tool schemas → `assemble()` |
 | `ctx.tools` | `ToolRegistry` | dsh-tools | tool definitions; `execute()` through waterfall |
-| `ctx.agents` | `AgentRegistry` | dsh-agent | live `Agent` handles + the create/resume factory seam |
+| `ctx.agents` | `AgentRegistry` | dsh-agent | live `Agent` handles + the create/resume factory seam (returns an `AgentHandle` = `{ agent, dispose() }` for owned per-agent teardown) |
 | `ctx.agentLoop` | `AgentLoop` | dsh-agent-loop | creates `ReactLoopAgent`s and drives their loops |
 | `ctx.bash` | `BashExecutor` (abstract) | dsh-bash | bash execution seam: foreground runs + background tasks |
 
 All registrations (`registerAdapter`, `section`, `tools`, `register`, …) go through `ctx.effect()` and return disposers, so plugin hot-reload (vendored HMR) and fiber disposal clean up automatically.
+
+For each service's full public interface (every method signature, generated from source), plus the inherited cordis-core/loader/hmr/timer surface a plugin also sees, see the `## Services` section of [cordis-catalog/events-and-services.md](cordis-catalog/events-and-services.md). This table is the at-a-glance role summary; that catalog is the exhaustive reference.
 
 ## Capability seams: interface / implementation / consumer
 
@@ -79,13 +83,13 @@ Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta
 A `Session` is an append-only log of typed `SessionEvent`s — the single source of truth. The LLM message history is *derived* from the log (`deriveMessages()`):
 
 - `user/message` → user message
-- `assistant/message` → assistant message (raw `assistant/chunk` events are replay/UI data and are skipped in derivation)
+- `assistant/message` → assistant message (raw `assistant/chunk` events are replay/UI data and are skipped in derivation; an empty-content `assistant/message`, which exists only to host a max-tokens step's `usage`, is skipped too)
 - `tool/result` → user message carrying a `tool-result` block
 - `context/message`, `steering/message` → user-role messages wrapped in a tagged envelope (`<context source="…">…</context>`) at their chronological position — the "system-reminder" pattern; models distinguish them from real user prompts by the envelope. **TODO(review)**: the real adapters now exist (the original precondition); the envelope still wants a deliberate review against live model behavior (`TODO(review)` in dsh-session).
 
 Replay/fork = `ctx.sessions.create(id, { seed: seedEvents })`. Trace/telemetry = listen to `session/event`.
 
-**Durability seam**: `session/event` is a synchronous notification; persistence plugins buffer (write-behind) and drain at the awaited `session/flush` checkpoint the loop fires at every turn end. The durable backend is a real **capability seam**: the abstract `SessionPersistence` service (`dsh-session-persistence`, `ctx.sessionPersistence`) defines create/append/load/list/update over the existing `SessionEvent` (no parallel persisted type), and `dsh-session-persistence-jsonl` is the first implementation — an append-only JSONL log per session with crash-safe atomic writes, crash recovery that PRESERVES an interrupted turn (closing it with a synthetic `turn/end {interrupted}` rather than truncating — a turn can be huge), and a read/replay path. Session metadata (format version, cwd, lineage) travels separately as `SessionMeta`, attached to a `Session` via `session.header`. Resuming a persisted session into a live agent is `ctx.agents.resume({ resumeSessionId })`. A second backend, `dsh-session-persistence-sqlite` (`node:sqlite`, one row per `SessionEvent` — the row shape `(session_id, seq, type, time, data)` maps 1:1 onto it), passes the same `runPersistenceContract` suite, proving the seam is genuinely backend-agnostic.
+**Durability seam**: `session/event` is a synchronous notification; persistence plugins buffer (write-behind) and drain at the awaited `session/flush` checkpoint the loop fires at every turn end. The durable backend is a real **capability seam**: the abstract `SessionPersistence` service (`dsh-session-persistence`, `ctx.sessionPersistence`) defines create/append/load/list over the existing `SessionEvent` (no parallel persisted type), and `dsh-session-persistence-jsonl` is the first implementation — an append-only JSONL log per session with crash-safe atomic writes, crash recovery that PRESERVES an interrupted turn (closing it with a synthetic `turn/end {interrupted}` rather than truncating — a turn can be huge), and a read/replay path. Session metadata (format version, cwd, lineage) travels separately as `SessionHeader`, attached to a `Session` via `session.header`. Resuming a persisted session into a live agent is `ctx.agents.resume({ resumeSessionId })`. A second backend, `dsh-session-persistence-sqlite` (`node:sqlite`, one row per `SessionEvent` — the row shape `(session_id, seq, type, time, data)` maps 1:1 onto it), passes the same `runPersistenceContract` suite, proving the seam is genuinely backend-agnostic.
 
 ## Prompt assembly (dsh-system-prompt)
 
@@ -107,9 +111,9 @@ Tool schemas are deliberately **part of the assembly**: "what the model is told 
 
 - `send(content)` — queued message; starts a turn when idle, else next turn
 - `steer(content)` — mid-turn injection, drained **between steps**; behaves like `send` when idle
-- `inject(content)` — in-session context (`context/message` event); the next request sees it (Claude Code attachment / system-reminder analog). An inject made while the agent is *running* joins the open turn; an inject while *idle* is wrapped in a one-shot turn (`turn/start{trigger:injection}` → `context/message` → `turn/end`) so every event stays turn-enclosed (see [the turn-enclosure invariant](rfc/implemented/2026-06-15-turn-enclosure-invariant.md)).
-- `abort(reason)` — aborts the in-flight step via `AbortSignal`
-- `whenIdle()` — resolves once the agent reaches quiescence after settling out of `running` (resolves immediately when already idle; awaits the loop exit when disposed). The teardown signal: `abort()` then `await whenIdle()` guarantees the in-flight turn has fully stopped. Observes the transition without disposing the agent.
+- `inject(content)` — in-session context (`context/message` event); the next request sees it (Claude Code attachment / system-reminder analog). An inject made while the agent is *running* joins the open turn; an inject while *idle* is wrapped in a one-shot turn (`turn/start{trigger:injection}` → `context/message` → `turn/end`) so every event stays turn-enclosed (see [the turn-enclosure invariant](rfc/implemented/architecture/2026-06-15-turn-enclosure-invariant.md)).
+- `cancel(reason)` — the single public stop primitive: clears queued + steering work, aborts the in-flight step, and drops a turn about to start (the pre-step window) so a queued-but-not-started prompt never runs and cannot be batched into the cancelled turn. A UI/ACP `session/cancel` maps to it.
+- `whenIdle()` — resolves once the agent reaches quiescence after settling out of `running` (resolves immediately when already idle; awaits the loop exit when disposed). A non-owner's quiescence-observation hook: it lets a consumer await the current work settling **without** disposing the agent. It is NOT teardown — it does not stop queued work, unregister the agent, or detach the session; a lifecycle owner tears an agent down with `await AgentHandle.dispose()` (which stops the loop, awaits its exit, and unregisters).
 - `session`, `status`, `options`
 
 **TODO(sub-agents)**: `spawn`/`fork` land on `AgentLoop.create()` — fork seeds the child Session with the parent's event log, spawn starts fresh; children are ordinary `Agent` handles so `steer()` and event subscription work uniformly. Inter-agent channels beyond these primitives are deliberately deferred.
@@ -138,7 +142,7 @@ forever:
                                                          step error (turn ends error/aborted,
                                                          not a normal completed message)
       msg = waterfall agent/step-result               ⟵ runs BEFORE the log append, so the
-      session('assistant/message', 'usage')              log records what tool dispatch uses
+      session('assistant/message' {content, usage?})     log records what tool dispatch uses
       each tool-call (sequential, abort-checked between calls):
         session('tool/call'); ctx.tools.execute()     ⟵ waterfall tools/execute
         session('tool/result')
@@ -154,36 +158,17 @@ forever:
   emit agent/status(idle) unless more queued
 ```
 
-Error containment: a throwing `agent/turn-continuation` listener or a broken step ends the **turn** with an `error` event (appended INSIDE the turn, before `turn/end`) — never the driver loop. An adapter that ends its stream with a `finish {kind:'error'}` or `{kind:'aborted'}` chunk (the in-band error path, for adapters that can't throw mid-stream) is likewise translated into a step error, so the turn ends `error`/`aborted` instead of logging a normal `completed` assistant message. `abort()` is honored mid-stream **and** between tool calls; disposal mid-turn ends the turn with reason `disposed` and emits `agent/status('disposed')`.
+Error containment: a throwing `agent/turn-continuation` listener or a broken step ends the **turn** with `turn/end { reason: { kind: 'error', step, message, code? } }` — the failure's step number rides on the durable turn reason (there is no separate session `error` event); live diagnostics fire via `agent/error`. Never the driver loop. An adapter that ends its stream with a `finish {kind:'error'}` or `{kind:'aborted'}` chunk (the in-band error path, for adapters that can't throw mid-stream) is likewise translated into a step error, so the turn ends `error`/`aborted` instead of logging a normal `completed` assistant message. A `cancel()` is honored mid-stream **and** between tool calls; disposal mid-turn ends the turn with reason `disposed` and emits `agent/status('disposed')`.
 
 Turn-end reasons: a turn ends with one `TurnEndReason` — `completed`, `aborted`, `error`, `disposed`, or `max-tokens`. `max-tokens` mirrors the model-call `FinishReason` of the same name (DeepSeek's `length`): a step that hit the output-token ceiling makes the turn end `max-tokens` rather than `completed`, by the rule *any `max-tokens` step in the turn surfaces as `max-tokens`* (a continuation plugin may run further steps after one, but the cut-short fact wins; the `disposed`/`aborted`/`error` outcomes still take precedence). This lets a consumer distinguish a clean stop from a truncated one (the ACP bridge maps it to the `max_tokens` stop reason). `TurnEndReason` is merge-extensible; `refusal` and `max_turn_requests` are the next variants to add when an adapter/loop first emits them.
 
-A failure that happens once the turn is already closed has no in-turn position for a session `error` event (appending one after `turn/end` would put it past the persistence commit boundary, where it is dropped as a crash tail — [the turn-enclosure invariant](rfc/implemented/2026-06-15-turn-enclosure-invariant.md)). So a rejecting `session/flush` (the post-`turn/end` durability checkpoint) and a throwing `agent/turn-end` listener are reported via `agent/error` + the logger only, NOT as a session event; the turn stays balanced and the persistence backend keeps its buffered events for the next flush.
+A failure that happens once the turn is already closed has no in-turn position for a turn-end error reason (the turn already ended). So a rejecting `session/flush` (the post-`turn/end` durability checkpoint) and a throwing `agent/turn-end` listener are reported via `agent/error` + the logger only, NOT as a session event; the turn stays balanced and the persistence backend keeps its buffered events for the next flush.
 
-**Turn-enclosure invariant**: every session event lives inside a turn (between a `turn/start` and its `turn/end`). The loop appends queued `user/message` events *after* `turn/start`, and an idle `agent.inject()` wraps its `context/message` in a one-shot `injection` turn. This makes the turn the single durability/replay boundary: a persistence backend can treat anything after the last `turn/end` as an interrupted-crash tail without risking the loss of legitimately-recorded between-turn context. The `dsh-invariants` plugin enforces it in dev (a message event outside an open turn throws). See [the turn-enclosure invariant](rfc/implemented/2026-06-15-turn-enclosure-invariant.md).
+**Turn-enclosure invariant**: every session event lives inside a turn (between a `turn/start` and its `turn/end`). The loop appends queued `user/message` events *after* `turn/start`, and an idle `agent.inject()` wraps its `context/message` in a one-shot `injection` turn. This makes the turn the single durability/replay boundary: a persistence backend can treat anything after the last `turn/end` as an interrupted-crash tail without risking the loss of legitimately-recorded between-turn context. The `dsh-invariants` plugin enforces it in dev (a message event outside an open turn throws). See [the turn-enclosure invariant](rfc/implemented/architecture/2026-06-15-turn-enclosure-invariant.md).
 
 ### Event taxonomy
 
-The `agent/*` events are declared in `@deepseek-ai/dsh-agent` (so nothing depends on the loop package); each other service declares its own events (`tools/*`, `llm/*`, `system-prompt/*`, `session/*`). The table below is CI-verified against the `interface Events` declarations in source (`scripts/verify-event-taxonomy.ts`).
-
-| Event | Mode | Purpose |
-|---|---|---|
-| `agent/created` / `agent/disposed` / `agent/status` / `agent/queued` | emit | lifecycle + inbox notifications |
-| `agent/turn-start` / `agent/turn-end` / `agent/step-start` / `agent/step-end` | emit | boundaries |
-| `agent/request` | **waterfall** | mutate the final `GenerateOptions` before the model call |
-| `agent/stream-chunk` | emit | token-level UI/log feed |
-| `agent/step-result` | **waterfall** | post-process the assistant message before tool dispatch |
-| `agent/steering` | emit | steering content injected |
-| `agent/turn-continuation` | **waterfall** | override the continue/stop decision |
-| `agent/error` | emit | step/turn errors |
-| `tools/execute` (dsh-tools) | **waterfall** | wrap/veto/sandbox tool execution |
-| `tools/change` (dsh-tools) | emit | a tool was registered/unregistered |
-| `llm/stream` / `llm/generate` (dsh-llm) | **waterfall** | model-call interception |
-| `llm/adapter-change` (dsh-llm) | emit | an adapter was registered/unregistered |
-| `system-prompt/assemble` (dsh-system-prompt) | **waterfall** | mutate the assembly |
-| `system-prompt/change` (dsh-system-prompt) | emit | a section/tool-provider changed |
-| `session/created` / `session/event` (dsh-session) | emit | session lifecycle + log feed |
-| `session/flush` (dsh-session) | parallel (awaited) | durability checkpoint |
+The `agent/*` events are declared in `@deepseek-ai/dsh-agent` (so nothing depends on the loop package); each other service declares its own events (`tools/*`, `llm/*`, `system-prompt/*`, `session/*`). The full catalog — every event's exact signature, dispatch mode, and prose — is **generated from source** and lives in [cordis-catalog/events-and-services.md](cordis-catalog/events-and-services.md) (the `## Events` section), alongside the `ctx.<key>` service interfaces. That file is regenerated by `scripts/gen-cordis-catalog.ts` and frozen by the `verify-cordis-catalog` freshness gate (part of `doc-sync`), so it cannot drift from the `interface Events` declarations.
 
 ### Cordis waterfall semantics (important)
 

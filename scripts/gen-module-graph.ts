@@ -4,7 +4,7 @@
  * The architectural shape of the harness lives implicitly in each package's
  * `peerDependencies` — the canonical runtime-dependency signal (devDeps mirror
  * these as `workspace:^` plus test-only extras, which would add noise). This
- * script reads every `packages/* /package.json`, keeps only the
+ * script reads every `packages/* /* /package.json`, keeps only the
  * `@deepseek-ai/dsh-*` peer edges (dropping the `cordis` peer), and renders a
  * GitHub-viewable Mermaid graph plus a dependency table.
  *
@@ -34,7 +34,7 @@ interface Pkg {
 /** Read every workspace package and its `@deepseek-ai/dsh-*` peer edges. */
 function collect(): Pkg[] {
   const pkgs: Pkg[] = []
-  for (const rel of globSync('packages/*/package.json', { cwd: root })) {
+  for (const rel of globSync('packages/*/*/package.json', { cwd: root })) {
     const json = JSON.parse(readFileSync(resolve(root, rel), 'utf8')) as {
       name: string
       peerDependencies?: Record<string, string>

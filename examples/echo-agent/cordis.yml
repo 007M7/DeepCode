@@ -1,57 +1,38 @@
-# The echo-agent plugin tree, loaded via @cordisjs/plugin-include.
-# Core services first, then the demo plugins, then the agent itself.
+# The echo-agent plugin tree: the stdio chat app with its LLM backend swapped to
+# the local `mock-echo` mock and the local `echo` tool added. The clean
+# demonstration of "swap the backend, keep the app" — every service the agent
+# needs lives in @deepseek-ai/dsh-stdio-agent (which bundles @deepseek-ai/dsh-
+# agent-core); this leaf only picks the backends, `hmr`, and the app config.
+#
+# No API key: the `mock-echo` adapter never touches the network.
 
-- id: logger
-  name: '@cordisjs/plugin-logger-console'
-
-- id: timer
-  name: '@cordisjs/plugin-timer'
-
+# Hot-module reload for the dev/demo loop (a leaf entry, not baked into
+# dsh-stdio-agent — it needs `node --expose-internals`, which `demo:echo` passes).
 - id: hmr
   name: '@cordisjs/plugin-hmr'
   config:
     root: ['.']
 
-- id: llm
-  name: '@deepseek-ai/dsh-llm'
-
-- id: sessions
-  name: '@deepseek-ai/dsh-session'
-
-- id: system-prompt
-  name: '@deepseek-ai/dsh-system-prompt'
-
-- id: tools
-  name: '@deepseek-ai/dsh-tools'
-
-- id: agents
-  name: '@deepseek-ai/dsh-agent'
-
-# Dev-mode event-contract assertions + session-log freeze (off in prod;
-# on here so the demo smoke test exercises the contract).
-- id: invariants
-  name: '@deepseek-ai/dsh-invariants'
-
-- id: agent-loop
-  name: '@deepseek-ai/dsh-agent-loop'
-  config:
-    agents:
-      - id: main
-        model: mock-echo
-        systemPrompt: 'You are echo-agent, a demo agent.'
-
+# The mock model (registers the `mock-echo` adapter) and the demo `echo` tool —
+# example-local teaching plugins, resolved relative to THIS file's directory.
 - id: mock-llm
   name: './src/mock-llm.ts'
 
 - id: echo-tool
   name: './src/echo-tool.ts'
 
-- id: session-persistence
-  name: '@deepseek-ai/dsh-session-persistence-jsonl'
-  config:
-    root: './.sessions'
+# Local bash executor: agent-core ships the `tool-bash` consumer schema, so the
+# leaf provides the executor it runs on (the echo demo doesn't drive bash, but
+# the tool is part of the shared spine).
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
 
-- id: stdio-chat
-  name: '@deepseek-ai/dsh-ui-stdio'
+# The stdio chat app: console logger + the agent-core spine (pre-creating the
+# `main` agent on the mock model) + JSONL persistence + the readline UI.
+- id: stdio-agent
+  name: '@deepseek-ai/dsh-stdio-agent'
   config:
+    model: mock-echo
+    systemPrompt: 'You are echo-agent, a demo agent.'
     welcome: 'echo-agent ready. Type a message ("echo <text>" triggers the tool).'
+    persistenceRoot: './.sessions'

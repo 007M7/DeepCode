@@ -10,7 +10,7 @@
  * shutdown flush. Two pure normalizers turn the captured stdout frames and the
  * session-log events into stable, snapshot-able text.
  *
- * See docs/rfc/implemented/2026-06-19-acp-snapshot-tests.md.
+ * See docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
@@ -31,7 +31,12 @@ import {
   type SessionNotification,
 } from '@agentclientprotocol/sdk'
 
-const startScript = fileURLToPath(new URL('../start.ts', import.meta.url))
+// The dsh-acp-agent bin (the demo:acp entry) and this example's cordis.yml.
+// The bin resolves its config-path arg from CWD and, under DSH_SNAPSHOT=replay,
+// swaps it for the sibling cordis.snapshot.yml. The child's cwd is a temp dir
+// OUTSIDE the repo, so pass the example config's ABSOLUTE path.
+const binScript = fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url))
+const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // The repo-root tsconfig: dev/test run UNBUILT and the `@deepseek-ai/dsh-*`
 // imports resolve through its `paths` map. The child's cwd is a temp dir
@@ -130,7 +135,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
 
     child = spawn(
       process.execPath,
-      ['--import', tsxLoader, startScript],
+      ['--import', tsxLoader, binScript, configPath],
       { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] },
     )
 

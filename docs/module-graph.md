@@ -7,11 +7,15 @@ Inter-package dependencies among the `@deepseek-ai/dsh-*` harness packages, deri
 
 ```mermaid
 graph TD
+  bash --> brand
+  llm --> brand
   bash-local --> bash
   llm-deepseek --> llm
   llm-pi-ai --> llm
+  session --> brand
   session --> llm
   system-prompt --> llm
+  agent --> brand
   agent --> llm
   agent --> session
   llm-replay --> llm
@@ -45,18 +49,35 @@ graph TD
   tool-bash --> bash
   tool-bash --> llm
   tool-bash --> tools
+  agent-core --> agent
+  agent-core --> agent-loop
+  agent-core --> invariants
+  agent-core --> llm
+  agent-core --> session
+  agent-core --> system-prompt
+  agent-core --> tool-bash
+  agent-core --> tools
+  acp-agent --> acp
+  acp-agent --> agent-core
+  acp-agent --> session-persistence-jsonl
+  stdio-agent --> agent
+  stdio-agent --> agent-core
+  stdio-agent --> session
+  stdio-agent --> session-persistence-jsonl
+  stdio-agent --> ui-stdio
 ```
 
 | Package | Depends on |
 | --- | --- |
-| `bash` | — |
-| `llm` | — |
+| `brand` | — |
+| `bash` | `brand` |
+| `llm` | `brand` |
 | `bash-local` | `bash` |
 | `llm-deepseek` | `llm` |
 | `llm-pi-ai` | `llm` |
-| `session` | `llm` |
+| `session` | `brand`, `llm` |
 | `system-prompt` | `llm` |
-| `agent` | `llm`, `session` |
+| `agent` | `brand`, `llm`, `session` |
 | `llm-replay` | `llm`, `session` |
 | `session-persistence` | `session` |
 | `invariants` | `agent`, `llm`, `session` |
@@ -67,3 +88,6 @@ graph TD
 | `acp` | `agent`, `llm`, `session`, `session-persistence`, `tools` |
 | `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |
+| `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `system-prompt`, `tool-bash`, `tools` |
+| `acp-agent` | `acp`, `agent-core`, `session-persistence-jsonl` |
+| `stdio-agent` | `agent`, `agent-core`, `session`, `session-persistence-jsonl`, `ui-stdio` |

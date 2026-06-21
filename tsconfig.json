@@ -7,7 +7,7 @@
     "examples/*/src/**/*.ts",
     "examples/*/start.ts",
     "examples/*/tests/**/*.ts",
-    "packages/*/tests/**/*.ts",
+    "packages/*/*/tests/**/*.ts",
     "scripts/**/*.ts"
   ],
   "references": [

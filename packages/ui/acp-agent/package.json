@@ -1,0 +1,47 @@
+{
+  "name": "@deepseek-ai/dsh-acp-agent",
+  "description": "ACP server app: the agent-core spine + JSONL persistence + the ACP bridge (no stdout logger, no hmr, no pre-created agents), with a bin to boot a leaf cordis.yml over JSON-RPC stdio",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "bin": {
+    "dsh-acp-agent": "lib/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./bin": {
+      "types": "./lib/bin.d.ts",
+      "default": "./lib/bin.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src"
+  ],
+  "license": "BSD-3-Clause",
+  "peerDependencies": {
+    "@cordisjs/plugin-include": "^1.0.4",
+    "@cordisjs/plugin-loader": "^1.0.0-rc.4",
+    "@deepseek-ai/dsh-acp": "^0.0.1",
+    "@deepseek-ai/dsh-agent-core": "^0.0.1",
+    "@deepseek-ai/dsh-session-persistence-jsonl": "^0.0.1",
+    "cordis": "^4.0.0-rc.6",
+    "schemastery": "^3.17.0"
+  },
+  "devDependencies": {
+    "@cordisjs/plugin-include": "workspace:^",
+    "@cordisjs/plugin-loader": "workspace:^",
+    "@deepseek-ai/dsh-acp": "workspace:^",
+    "@deepseek-ai/dsh-agent-core": "workspace:^",
+    "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:^",
+    "cordis": "^4.0.0-rc.6",
+    "schemastery": "^3.17.0"
+  }
+}

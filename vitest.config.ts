@@ -19,14 +19,19 @@ export default defineConfig({
   // instead applies the one root map to every importer.
   plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
   test: {
-    include: ['packages/*/tests/**/*.spec.ts', 'examples/*/tests/**/*.spec.ts'],
+    include: ['packages/*/*/tests/**/*.spec.ts', 'examples/*/tests/**/*.spec.ts'],
     coverage: {
       provider: 'v8',
       // Coverage measures OUR runtime source. Types-only files carry no
       // executable code; vendor/ and examples/ are out of scope (examples are
       // exercised by the demo smoke test instead).
-      include: ['packages/*/src/**/*.ts'],
-      exclude: ['packages/*/src/types.ts'],
+      include: ['packages/*/*/src/**/*.ts'],
+      // Types-only files carry no executable code. `bin.ts` files are
+      // self-executing CLI entrypoints (a top-level `await main()`): a spec
+      // can't import one without booting it, so they are driven by the keyless
+      // Loader-path smoke (a real subprocess) instead of the in-process unit
+      // suite — the same reason `examples/start.ts` sat out of coverage scope.
+      exclude: ['packages/*/*/src/types.ts', 'packages/*/*/src/bin.ts'],
       // 100% or it doesn't merge (AGENTS.md: excessive tests are welcome).
       // Per-file so a well-covered big file can't subsidize a bare one.
       // Every v8 ignore comment must carry a reason — see AGENTS.md.
