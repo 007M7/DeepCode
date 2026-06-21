@@ -8,7 +8,7 @@ Status: implemented (accepted 2026-06-20)
 
 The current TypeScript build and typecheck setup had these issues:
 
-- `build` used `tsc` to transform `.ts` to `.d.ts` files for `packages/*` and `vendor/*`, and then used `tsdown` to transform `.ts` to bundled `.js` files. This made two tools do TypeScript transform.
+- `build` used `tsc` to transform `.ts` to `.d.ts` files for packages under `packages/<group>/<pkg>` and `vendor/*`, and then used `tsdown` to transform `.ts` to bundled `.js` files. This made two tools do TypeScript transform.
 - `typecheck` tended to validate packages, vendor source, examples, tests, and scripts through one root typecheck config.
 
 The goal is to make build and typecheck use matching tsconfig boundaries and TypeScript resolution/transform behavior. Build should generate `.js`, `.d.ts`, `.js.map`, and `.d.ts.map` through one compiler and config, so publish output and type validation stay consistent.
@@ -21,7 +21,7 @@ Validation found several concrete technical issues and possible routes:
     - Bundled `.js` emitted by `tsdown` is not the same behavior as per-file `.js` emitted by `tsc -b`, such as decorator transform behavior.
 - `vendor/*/src`, examples, tests, and scripts cannot all be plain-included in one root strict program.
     - Directly typechecking `vendor/*/src` under the root strict config triggers many type errors outside this project's ownership.
-    - `package/*` dependencies on `vendor` are resolved to the `vendor/*/lib` for different tsconfig strictness.
+    - Package dependencies under `packages/*/*` on `vendor` are resolved to the `vendor/*/lib` for different tsconfig strictness.
 
 
 ## Decision
@@ -38,7 +38,7 @@ In-package relative imports are extensionless.
 
 `pnpm run typecheck` runs build mode over the root `tsconfig.json`.
 - The root `tsconfig.json` is the single development/typecheck project. It typechecks examples, tests, and scripts with `noEmit`, and validates package/vendor source through references.
-- Referenced package/vendor projects keep the same emit behavior as build, so typecheck can refresh their `lib/types` outputs instead of using a separate no-emit graph. Project-specific strictness changes live in the owning `packages/*/tsconfig.json` or `vendor/*/tsconfig.json`.
+- Referenced package/vendor projects keep the same emit behavior as build, so typecheck can refresh their `lib/types` outputs instead of using a separate no-emit graph. Project-specific strictness changes live in the owning `packages/*/*/tsconfig.json` or `vendor/*/tsconfig.json`.
 
 The command orchestration shape is:
 
@@ -57,7 +57,7 @@ tsc -b tsconfig.json
 
 Build responsibilities are clearer:
 
-- Each module under `packages/*` and `vendor/*` has one local tsconfig for build, typecheck, and tools that run source directly, such as `tsx` and `vitest`.
+- Each module under `packages/<group>/<pkg>` and `vendor/*` has one local tsconfig for build, typecheck, and tools that run source directly, such as `tsx` and `vitest`.
 - The `build` command uses `tsconfig.build.json`. `tsc -b` owns the publishable per-module `.js` and `.d.ts` output, and the bundler owns only `lib/index.*`.
     - `lib/types/*.d.ts` and `.d.ts.map` are the publish declaration output.
     - `lib/types/*.js` is only a bundler input and must not be used as a runtime entry or public import target.
