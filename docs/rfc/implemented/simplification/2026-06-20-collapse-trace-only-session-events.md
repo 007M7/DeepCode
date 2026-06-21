@@ -26,7 +26,7 @@ If analytics become real, add a projection helper or a dedicated telemetry store
 - The loop records durable failures through `turn/end { kind: 'error', step, message, code? }` or an equivalent no-information-loss shape and reports live diagnostics through `agent/error`.
 - ACP snapshots and persistence tests stop asserting trace-only lines.
 - Documentation explains exactly where token usage and operational errors are observed.
-- The session format version and recorded fixtures are refreshed; non-current stored logs are rejected per the pre-release format policy.
+- Recorded fixtures are refreshed for the new event shape; the session format version stays pinned at `0` (unstable/pre-release) and backends reject any non-`0` stored log per the pre-release format policy.
 
 ## What we give up
 
@@ -34,9 +34,10 @@ A consumer can no longer filter the canonical log for standalone `usage` or step
 
 ## Implementation note
 
-Shipped as proposed, with two scope refinements (per AGENTS.md "RFCs are proposals, not golden truth"):
+Shipped as proposed, with one scope refinement (per AGENTS.md "RFCs are proposals, not golden truth"):
 
-- **No format-version bump.** The acceptance criterion "the session format version and recorded fixtures are refreshed" over-reached: the harness is pre-release with no persisted user data, so per the pre-release format policy there is nothing to migrate or reject. The session `version` stays `1`; only event shapes and recorded fixtures change. `turn/end.reason.error.step` is therefore optional-on-read for any hypothetical pre-existing log but guaranteed for newly-written ones — no migration shim.
 - **Empty-content `assistant/message` hosts usage with no data loss.** The proof the proposal demanded (no persisted usage chunk becomes unrepresented) lands on the max-tokens path: a step cut off with usage but empty content (e.g. only a dropped tool call) previously emitted a standalone `usage`. It now records an empty-content `assistant/message { content: [], usage }`. To keep that from injecting a spurious content-less assistant turn into the provider transcript, `deriveMessages()` skips empty-content `assistant/message` events. A regression test asserts usage stays represented AND derived history is uncorrupted.
+
+**Format version.** The persisted `SessionEventMap` shape changed (usage folded onto `assistant/message`, standalone `usage`/`error` removed, `step` on `turn/end.reason.error`), so per the AGENTS.md "bump the version and reject — don't migrate" policy a backend must reject any non-current log. The version literal is centralized in an exported `SESSION_FORMAT_VERSION` constant (read by both write sites and the coordinator's load-time check). While the harness is unreleased the on-disk format is pre-release/unstable, so the constant stays **`0`**: a breaking format change is absorbed at v0 (no monotonic bump until the first tagged release, when a specific format boundary becomes worth distinguishing) and old logs at any other version are rejected on load — there is no v0→vN migration (no persisted user data exists). `turn/end.reason.error.step` is required for newly-written logs.
 
 Usage is now observed on `assistant/message.usage`; an operational error's step on `turn/end.reason` for `kind: 'error'`. `agent/error` + logging are unchanged for live diagnostics.

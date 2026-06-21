@@ -10,6 +10,23 @@ export function SessionId(id: string): SessionId {
 }
 
 /**
+ * The on-disk session format version, stamped into every newly-written
+ * {@link SessionHeader} and enforced by every persistence backend on load. The
+ * single source of truth for the version — write sites and the load-time check
+ * all read it.
+ *
+ * It is **`0`** deliberately: while the harness is unreleased the on-disk format
+ * is **unstable / pre-release, with no compatibility implied**. Breaking changes
+ * to the persisted {@link SessionEventMap} shape (folding fields onto an event,
+ * removing a variant, …) happen freely and do NOT bump this — v0 absorbs all
+ * pre-release churn, and a backend simply REJECTS any log not at v0 (there is no
+ * migration; no persisted user data exists to preserve). A real, monotonically
+ * bumped version policy begins at the first tagged release, when a specific
+ * format boundary becomes worth distinguishing.
+ */
+export const SESSION_FORMAT_VERSION = 0
+
+/**
  * Immutable session metadata — written once at creation and never rewritten.
  *
  * Kept SEPARATE from the event log deliberately: format-version, cwd, and
@@ -19,7 +36,11 @@ export function SessionId(id: string): SessionId {
  * metadata) writes such a header.
  */
 export interface SessionHeader {
-  /** On-disk format version; a persistence backend rejects unknown versions. */
+  /**
+   * On-disk format version, stamped from {@link SESSION_FORMAT_VERSION} when the
+   * session is created. A persistence backend rejects any other version on load
+   * (no migration — see the constant).
+   */
   version: number
   /** The session's id (mirrors the {@link Session}'s id). */
   id: SessionId

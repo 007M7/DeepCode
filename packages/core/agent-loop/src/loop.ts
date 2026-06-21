@@ -322,15 +322,22 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
   const failTurn = (err: CodedError): void => {
     if (errorReported) return
     errorReported = true
-    // Set `reason` here so the durable failure is captured before closeTurn
-    // appends turn/end. The step number rides along so the operational error's
-    // location survives in the durable log.
-    reason = { kind: 'error', step, ...errorData(err) }
+    // Set the error reason ONLY while the turn is still open — closeTurn appends
+    // turn/end with it. If the turn has already ended (the only way here: a
+    // throwing agent/turn-end listener after closeTurn(true) already appended
+    // turn/end), the reason can no longer affect the durable log, so log the late
+    // throw directly instead — otherwise the listener exception would vanish.
+    if (!turnEnded) {
+      reason = { kind: 'error', step, ...errorData(err) }
+    } else {
+      ctx.logger.warn(`agent "${agent.id}": agent/turn-end listener threw after turn ${turn} closed: ${err.message}`)
+    }
     try {
       ctx.emit('agent/error', agent, turn, step, err)
     } catch {
-      // contained: the error is already captured on `reason`; a throwing
-      // agent/error listener must not prevent the turn from closing.
+      // contained: the error is already captured (on `reason`, or via the logger
+      // above); a throwing agent/error listener must not prevent the turn from
+      // closing.
     }
   }
 
@@ -609,7 +616,14 @@ async function runStep(
   let message: Message = assembler.message()
   message = await ctx.waterfall('agent/step-result', agent, turn, step, message, () => Promise.resolve(message))
 
-  session.append('assistant/message', { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) })
+  // Same content-or-usage guard as the max-tokens branch: a step that finishes
+  // with neither assembled content nor usage (e.g. a bare `stop` finish that
+  // streamed nothing) records no assistant/message — an empty-content message
+  // exists only to host usage, and deriveMessages() skips it either way, so
+  // appending one with no usage would be a pure trace-only row.
+  if (message.content.length > 0 || assembler.usage) {
+    session.append('assistant/message', { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) })
+  }
 
   // --- Tool execution (sequential; parallel execution is a TODO) ---
   // ToolRegistry.execute converts tool failures (including aborts) into

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 
 describe('Session', () => {
   it('derives message history from the event log', () => {
@@ -255,11 +255,11 @@ describe('SessionStore', () => {
     expect(ctx.sessions.get(SessionId('lifecycle'))).toBeUndefined()
   })
 
-  it('synthesizes a minimal v1 header for a bare-created session', async () => {
+  it('synthesizes a minimal current-version header for a bare-created session', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('plain'))
-    expect(session.header).toMatchObject({ version: 1, id: 'plain' })
+    expect(session.header).toMatchObject({ version: SESSION_FORMAT_VERSION, id: 'plain' })
     expect(typeof session.header.createdAt).toBe('number')
     expect(session.header.cwd).toBeUndefined()
     expect(session.header.parentSession).toBeUndefined()
@@ -272,7 +272,7 @@ describe('SessionStore', () => {
       meta: { cwd: '/work/project', parentSession: SessionId('parent') },
     })
     expect(session.header).toMatchObject({
-      version: 1,
+      version: SESSION_FORMAT_VERSION,
       id: 'child',
       cwd: '/work/project',
       parentSession: 'parent',
@@ -288,9 +288,9 @@ describe('SessionStore', () => {
     expect(ctx.sessions.get(SessionId('rel'))).toBeUndefined()
   })
 
-  it('a bare Session() constructed without the store still exposes a v1 header', () => {
+  it('a bare Session() constructed without the store still exposes a current-version header', () => {
     const session = new Session(SessionId('bare'))
-    expect(session.header).toMatchObject({ version: 1, id: 'bare' })
+    expect(session.header).toMatchObject({ version: SESSION_FORMAT_VERSION, id: 'bare' })
     expect(typeof session.header.createdAt).toBe('number')
   })
 
