@@ -38,8 +38,8 @@ function toError(error: unknown): CodedError {
  * caller's try/catch), OR end the stream with a finish-error/aborted chunk
  * (the only option for adapters that can't throw mid-stream, e.g.
  * library-backed ones). This translates the latter into a thrown step error
- * so the turn ends error/aborted with a logged `error` event, never as a
- * normal `completed` assistant message.
+ * so the turn ends error/aborted (the failure recorded on `turn/end.reason`),
+ * never as a normal `completed` assistant message.
  *
  * `FinishReason` is merge-extensible (plugins/adapters can add `kind`s), so
  * the switch handles the known terminal-failure kinds and treats every other
