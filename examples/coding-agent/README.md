@@ -32,15 +32,16 @@ RESUME_SESSION_ID=<prior-session-id> pnpm run demo:coding
 
 The id is wired through `cordis.yml` (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`); unset, the agent starts a new session. A missing/unreadable id is non-fatal — it logs a warning and starts no `main` agent.
 
-## What each plugin demonstrates
+## What each leaf entry demonstrates
+
+This example is a thin leaf `cordis.yml`: it picks the swappable backends and loads one app package. The spine (sessions, system-prompt, tools, agents, invariants, `agent-loop`) and the front-door cluster (console logger, JSONL persistence, readline UI, the pre-created `main` agent) all live inside the [`@deepseek-ai/dsh-stdio-agent`](../../packages/ui/stdio-agent) app and the [`@deepseek-ai/dsh-agent-core`](../../packages/core/agent-core) bundle it loads — so the leaf has only four entries:
 
 | Entry | Demonstrates |
 |---|---|
+| `hmr` (`@cordisjs/plugin-hmr`) | the dev/demo edit-reload loop — a **leaf** entry (not baked into the app) because it is Loader-only and needs `node --expose-internals`, which `demo:coding` passes |
 | `llm-deepseek` | real `LlmAdapter` via config (`!!js process.env.…` secrets); swap one line to `@deepseek-ai/dsh-llm-pi-ai` for the library-backed twin |
-| `bash` (`dsh-bash-local`) + `tool-bash` | the executor seam + tool schemas as separate plugins |
-| `agent-loop` | agent created from config with a coding system prompt |
-| `session-persistence` (`dsh-session-persistence-jsonl`) | durable JSONL persistence (`root: ./.sessions`): append-only event log per session, crash-safe atomic writes — the shared backend, no per-example file |
-| `src/stdio-chat.ts` | UI as a plugin; copied from echo-agent with reasoning-dimming and an exit-on-idle close handler for piped stdin. Example-local on purpose — extract a shared UI package when a third example needs it |
+| `bash` (`dsh-bash-local`) | the executor implementation — the swappable half of the bash seam. The model-facing `bash`/`bash_output`/`bash_kill` tool schemas (`tool-bash`) come from `agent-core`, so only the executor is a leaf choice |
+| `stdio-agent` (`@deepseek-ai/dsh-stdio-agent`) | the app bundle: the agent-core spine + console logger + JSONL persistence + readline UI + a pre-created `main` agent. Its config carries the model, system prompt, `persistenceRoot` (`./.sessions`), and `resumeSessionId` — so persistence and the agent are configured here, not wired as separate leaf plugins |
 
 ## End-to-end tests (`pnpm run test:e2e`, key-gated)
 

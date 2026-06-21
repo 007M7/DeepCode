@@ -1,32 +1,39 @@
-# Snapshot-test REPLAY config: the acp-agent plugin tree with the model replaced
-# by llm-replay (serves a recorded session JSONL — no API key, no network).
+# Snapshot-test REPLAY config: the acp-agent plugin tree with the model backend
+# swapped to llm-replay (serves a recorded session JSONL — no API key, no
+# network). The dsh-acp-agent bin selects this file for DSH_SNAPSHOT=replay.
 #
-# It reuses ../base-core.yml (the providerless core) + ./acp-tail.yml (agent-
-# loop + persistence + the ACP bridge), the SAME pieces cordis.yml shares — only
-# the LLM adapter differs: llm-replay here, llm-deepseek there. It can't reuse
-# ../base.yml because that loads llm-deepseek, whose apply() throws without
-# DEEPSEEK_API_KEY, killing a keyless replay run at boot.
+# Same app as cordis.yml (@deepseek-ai/dsh-acp-agent: the agent-core spine +
+# JSONL persistence + the ACP bridge) — only the LLM backend differs: llm-replay
+# here, llm-deepseek there. It can't reuse the real adapter because llm-deepseek's
+# apply() throws without DEEPSEEK_API_KEY, killing a keyless replay run at boot.
 #
-# stdout is reserved for the ACP JSON-RPC protocol — no stdout logger (see
-# cordis.yml). The replay fixture path comes from $DSH_SNAPSHOT_FILE (and an
-# optional $DSH_SNAPSHOT_OVERRIDE sidecar), set by the snapshot harness.
-
-- id: timer
-  name: '@cordisjs/plugin-timer'
-
-# Providerless core (everything base.yml has EXCEPT the llm-deepseek adapter).
-- id: base-core
-  name: '@cordisjs/plugin-include'
-  config:
-    path: '../base-core.yml'
+# stdout is reserved for the ACP JSON-RPC protocol — no stdout logger (the app
+# package omits it). The replay fixture path comes from $DSH_SNAPSHOT_FILE (and
+# an optional $DSH_SNAPSHOT_OVERRIDE sidecar), set by the snapshot harness.
 
 # The replay adapter: short-circuits llm/stream with the recorded log's chunks,
 # in place of llm-deepseek.
 - id: llm-replay
   name: '@deepseek-ai/dsh-llm-replay'
 
-# agent-loop + persistence + the ACP bridge — shared with cordis.yml.
-- id: acp-tail
-  name: '@cordisjs/plugin-include'
+# Local bash executor (the agent's only tool, via agent-core's tool-bash schema).
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
   config:
-    path: './acp-tail.yml'
+    timeoutMs: 60000
+
+# The ACP server app — identical to cordis.yml's entry.
+- id: acp-agent
+  name: '@deepseek-ai/dsh-acp-agent'
+  config:
+    model: deepseek-v4-flash
+    persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+    systemPrompt: |
+      You are a coding assistant driven over the Agent Client Protocol.
+
+      Your only tools are bash (plus bash_output/bash_kill for background
+      tasks). Do ALL file operations through bash: read with cat/sed/head,
+      search with grep, write with heredocs (cat <<'EOF' > file), edit with
+      sed or a rewrite. Each bash call runs in a fresh shell — pass workdir
+      instead of cd. Check the [exit code: N] marker; verify your work. Keep
+      answers brief and factual.

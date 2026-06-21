@@ -81,7 +81,7 @@ jobs:
       - name: Demo smoke test
         run: |
           set -euo pipefail
-          out=$(printf 'echo ci smoke\n' | timeout 60 node --expose-internals --import tsx examples/echo-agent/start.ts 2>&1)
+          out=$(printf 'echo ci smoke\n' | timeout 60 pnpm run demo:echo 2>&1)
           echo "$out"
           echo "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
           echo "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
@@ -89,3 +89,12 @@ jobs:
           # per-run session log named main-session-<uuid>.jsonl. Assert one exists.
           ls .sessions/_no-cwd/main-session-*.jsonl >/dev/null
           rm -rf .sessions
+
+      # The published `bin` is `lib/bin.js`, run under plain `node` by a real
+      # consumer — NOT the tsx dev path the demo smoke and demo:* scripts use.
+      # These keyless smokes boot the BUILT bins (this step runs AFTER the build)
+      # in a temp dir that mirrors a real install, catching a regression in the
+      # published artifact that tsx would mask. They self-skip if lib/ is absent,
+      # so the e2e job (which does not build) does not run them.
+      - name: Built-bin smoke test (published lib/bin.js under node)
+        run: pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts

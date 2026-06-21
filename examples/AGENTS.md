@@ -2,7 +2,7 @@
 
 Runnable demos that show how the harness is wired. **Examples are NOT workspaces** — each `examples/*/package.json` is a private, dependency-free stub with no build. They are booted as unbuilt `tsx` subprocesses via the cordis Loader reading a `cordis.yml`; the `@deepseek-ai/dsh-*` plugin names in those YAML files resolve through the root `tsconfig.json` `paths` map, not through `node_modules`.
 
-Because examples are not under the `packages/*/src` coverage gate, an example that grows real, reusable *logic* should extract it into a `packages/` package (where it gets the per-file 100% gate and a README). Keep only example-specific glue here: `start.ts`, the `cordis.yml` wiring, demo-only mocks/teaching artifacts, and the e2e/snapshot scenarios.
+Because examples are not under the `packages/*/src` coverage gate, an example that grows real, reusable *logic* should extract it into a `packages/` package (where it gets the per-file 100% gate and a README). Keep only example-specific glue here: the `cordis.yml` wiring, demo-only mocks/teaching artifacts, and the e2e/snapshot scenarios. There is no `start.ts` — the boot glue (Loader tail, `.env` load, snapshot-mode selection, stdin-dispose lifecycle) lives in each app package's `bin` (`@deepseek-ai/dsh-stdio-agent`, `@deepseek-ai/dsh-acp-agent`), which the `demo:*` scripts invoke against the leaf `cordis.yml`.
 
 ## Every example ships e2e smokes (keyless + with-key)
 

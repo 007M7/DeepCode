@@ -20,6 +20,7 @@
     { "path": "./packages/core/agent" },
     { "path": "./packages/core/tools" },
     { "path": "./packages/core/agent-loop" },
+    { "path": "./packages/core/agent-core" },
     { "path": "./packages/bash/bash" },
     { "path": "./packages/llm/llm-deepseek" },
     { "path": "./packages/llm/llm-pi-ai" },
@@ -27,6 +28,8 @@
     { "path": "./packages/bash/tool-bash" },
     { "path": "./packages/support/invariants" },
     { "path": "./packages/ui/acp" },
+    { "path": "./packages/ui/acp-agent" },
+    { "path": "./packages/ui/stdio-agent" },
     { "path": "./packages/support/ui-stdio" },
     { "path": "./packages/support/llm-replay" }
   ]

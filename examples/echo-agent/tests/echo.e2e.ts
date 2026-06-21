@@ -7,22 +7,29 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 /**
  * Keyless Loader-path smoke for examples/echo-agent: boot the REAL example
- * through its `cordis.yml` (the cordis Loader, `unwrapExports`, the whole
- * plugin tree), pipe a script of stdin lines, and assert the rendered stdout.
+ * through the `@deepseek-ai/dsh-stdio-agent` bin against this example's
+ * `cordis.yml` (the cordis Loader, `unwrapExports`, the whole plugin tree),
+ * pipe a script of stdin lines, and assert the rendered stdout.
  *
  * This is the guard the per-file unit suite structurally cannot be: it drives
- * the extracted `@deepseek-ai/dsh-ui-stdio` plugin AND the example-local
- * `mock-llm.ts` / `echo-tool.ts` through their REAL load path, so a broken
- * plugin export shape (a stray `export default` that `unwrapExports` would
- * collapse, dropping `inject`) fails here even though hand-mounted unit tests
- * stay green (see docs/postmortem/0001). It needs no API key — the `mock-echo`
- * adapter never touches the network — so it runs in the default e2e gate.
+ * the `@deepseek-ai/dsh-stdio-agent` app plugin, the `@deepseek-ai/dsh-agent-core`
+ * bundle it loads, the extracted `@deepseek-ai/dsh-ui-stdio` plugin, AND the
+ * example-local `mock-llm.ts` / `echo-tool.ts` through their REAL load path, so
+ * a broken plugin export shape (a stray `export default` that `unwrapExports`
+ * would collapse, dropping `inject`/`Config`) fails here even though hand-mounted
+ * unit tests stay green (see docs/postmortem/0001). It needs no API key — the
+ * `mock-echo` adapter never touches the network — so it runs in the default e2e
+ * gate.
  *
  * Both branches of mock-llm.ts are exercised: an `echo …` line (the tool
  * round-trip → `ECHO: …`) and a plain line (the direct canned reply).
  */
 
-const startScript = fileURLToPath(new URL('../start.ts', import.meta.url))
+// The dsh-stdio-agent bin (the demo:echo entry) and this example's cordis.yml.
+// The bin resolves its config-path arg from CWD; the test spawns from a temp
+// cwd, so we pass the example config's ABSOLUTE path.
+const binScript = fileURLToPath(new URL('../../../packages/ui/stdio-agent/src/bin.ts', import.meta.url))
+const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // Dev/test run UNBUILT: `@deepseek-ai/dsh-*` imports resolve through the root
 // tsconfig `paths` map, which tsx finds by searching UP from cwd. We spawn from
@@ -53,8 +60,8 @@ async function runEcho(lines: string[]): Promise<{ stdout: string; code: number 
       process.execPath,
       // --expose-internals: the example's cordis.yml loads the HMR plugin, which
       // requires it (mirrors the `demo:echo` script). The whole point is to boot
-      // the example EXACTLY as it really runs, through the Loader.
-      ['--expose-internals', '--import', tsxLoader, startScript],
+      // the example EXACTLY as it really runs, through the bin + Loader.
+      ['--expose-internals', '--import', tsxLoader, binScript, configPath],
       { cwd, env: { ...process.env, TSX_TSCONFIG_PATH: repoTsconfig }, stdio: ['pipe', 'pipe', 'pipe'] },
     )
     child = proc

@@ -6,11 +6,11 @@ The DeepSeek Harness coding agent exposed as an **Agent Client Protocol (ACP)** 
 pnpm run demo:acp          # needs DEEPSEEK_API_KEY (repo-root .env or env)
 ```
 
-This boots `@deepseek-ai/dsh-acp` over the shared provider/tool core (`../base.yml`), with `agent-loop` configured with **no pre-created agents** (ACP `session/new` creates them on demand) and JSONL session persistence (so `session/load` works).
+This example is just a leaf `cordis.yml`: it loads the [`@deepseek-ai/dsh-acp-agent`](../../packages/ui/acp-agent) app (which bundles the [`@deepseek-ai/dsh-agent-core`](../../packages/core/agent-core) spine, JSONL session persistence, and the `@deepseek-ai/dsh-acp` bridge — with **no pre-created agents**, since ACP `session/new` creates them on demand) plus the two swappable backends (`llm-deepseek`, `bash-local`). The app package bakes in the no-stdout-logger cluster, so a leaf has no logger entry to get wrong by default — keeping stdout pure for JSON-RPC.
 
 ## stdout is the protocol
 
-This example loads **no stdout logger** — `stdout` carries the JSON-RPC frames, and any other write corrupts them. Do not add `@cordisjs/plugin-logger-console` or a stdio UI here. Use a stderr exporter if you need logs.
+This example loads **no stdout logger** — `stdout` carries the JSON-RPC frames, and any other write corrupts them. `@deepseek-ai/dsh-acp-agent` includes no logger entry, so this leaf has none to get wrong by default; do not add one (use a stderr exporter if you need logs).
 
 ## Zed configuration
 

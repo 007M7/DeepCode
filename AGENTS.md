@@ -52,6 +52,9 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
     tools/          tool registry + tools/execute waterfall
     agent/          Agent interface, registry, agent/* event vocabulary
     agent-loop/     THE concrete plugin: ReactLoopAgent + the loop driver
+    agent-core/     bundle plugin: the providerless/executor-less/UI-less spine
+                    (timer+llm+sessions+system-prompt+tools+agents+invariants+
+                    tool-bash+agent-loop) as code; forwards agent-loop's `agents`
   llm/            LLM capability family
     llm/            abstract LLM service + content-block vocabulary
     llm-deepseek/   DeepSeek API adapter (hand-rolled fetch/SSE)
@@ -67,6 +70,11 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
   ui/             product integration surfaces
     acp/            Agent Client Protocol bridge: drive the agent from an ACP
                     editor (Zed) over JSON-RPC stdio
+    stdio-agent/    stdio chat APP: agent-core spine + console logger + readline
+                    UI + a pre-created main agent + a bin (the demo:echo/coding
+                    front door)
+    acp-agent/      ACP server APP: agent-core spine + JSONL persistence + the
+                    acp bridge, NO stdout logger + a bin (the demo:acp front door)
   support/        dev/test/example infrastructure (lower compat expectations)
     invariants/     dev-mode event-contract invariants + session-log freeze
     ui-stdio/       minimal stdio (readline) UI plugin: renders agent/* events,
@@ -76,15 +84,17 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
   util/           low-level zero-dependency utilities shared across groups
     brand/          type-only Branded<B> nominal-typing primitive (no runtime
                     code, no harness deps; owns the brand for cross-boundary ids)
-examples/    Runnable demos (not workspaces; see examples/AGENTS.md). echo-agent
-             = mock model + echo tool + stdio UI + JSONL persistence, wired via
-             cordis.yml. coding-agent = the real thing: DeepSeek V4 + bash tools
-             (pnpm run demo:coding, needs DEEPSEEK_API_KEY).
-             acp-agent = the coding agent exposed as an ACP server over
-             JSON-RPC stdio (pnpm run demo:acp, needs DEEPSEEK_API_KEY).
-             base.yml = shared provider/tool core both real demos include
-             (= base-core.yml, the providerless core, + the llm-deepseek adapter;
-             base-core.yml is reused by the acp-agent snapshot-replay config).
+examples/    Runnable demos (not workspaces; see examples/AGENTS.md). Each is a
+             THIN leaf cordis.yml: it picks the swappable backends (an LLM adapter,
+             a bash executor) and loads ONE app package (dsh-stdio-agent or
+             dsh-acp-agent), which bundles the agent-core spine + front-door
+             cluster + boot glue (a bin). No start.ts. echo-agent = mock model +
+             echo tool on dsh-stdio-agent (pnpm run demo:echo, no key).
+             coding-agent = the real thing: DeepSeek V4 + bash tools on the same
+             app (pnpm run demo:coding, needs DEEPSEEK_API_KEY). acp-agent = the
+             coding agent as an ACP server on dsh-acp-agent (pnpm run demo:acp,
+             needs DEEPSEEK_API_KEY). cordis.snapshot.yml = the acp leaf with
+             llm-replay for keyless snapshot replay.
 docs/        architecture.md — the design doc. module-graph.md — generated
              inter-package dependency graph (Mermaid; `pnpm run gen-module-graph`).
              rfc/ — design decisions and proposals, one kind of doc grouped by
