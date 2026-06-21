@@ -43,6 +43,7 @@
         "./packages/core/*/src",
         "./packages/llm/*/src",
         "./packages/bash/*/src",
+        "./packages/subagent/*/src",
         "./packages/session-persistence/*/src",
         "./packages/ui/*/src",
         "./packages/util/*/src",

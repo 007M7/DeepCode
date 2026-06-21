@@ -11,7 +11,7 @@ The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary
 
 ## Events
 
-Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out, no veto). The harness declares 22 events across 5 scopes.
+Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out, no veto). The harness declares 24 events across 6 scopes.
 
 ### `agent/*`
 
@@ -231,6 +231,28 @@ Awaited durability checkpoint. The agent loop awaits `ctx.parallel('session/flus
 
 Source: [`packages/core/session/src/index.ts:45`](../../packages/core/session/src/index.ts)
 
+### `subagent/*`
+
+#### `subagent/end` — emit
+
+A subagent run settled — emitted when SubagentRun.result resolves (any stop reason). Paired with Events['subagent/start'].
+
+```ts cordis-catalog
+'subagent/end'(info: SubagentRunEndInfo): void
+```
+
+Source: [`packages/subagent/subagent/src/index.ts:65`](../../packages/subagent/subagent/src/index.ts)
+
+#### `subagent/start` — emit
+
+A subagent run started — emitted after the provider is resolved and its capabilities validated, as the child run begins. Paired with Events['subagent/end'].
+
+```ts cordis-catalog
+'subagent/start'(info: SubagentRunInfo): void
+```
+
+Source: [`packages/subagent/subagent/src/index.ts:59`](../../packages/subagent/subagent/src/index.ts)
+
 ### `system-prompt/*`
 
 #### `system-prompt/assemble` — waterfall
@@ -279,7 +301,7 @@ Source: [`packages/core/tools/src/index.ts:43`](../../packages/core/tools/src/in
 
 ## Services
 
-The 8 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
+The 9 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
 
 ### `ctx.agentLoop` — `AgentLoop`
 
@@ -391,6 +413,19 @@ list(): Session[]
 ```
 
 Source: [`packages/core/session/src/index.ts:229`](../../packages/core/session/src/index.ts)
+
+### `ctx.subagents` — `SubagentService`
+
+The `subagents` service: a registry of named SubagentProviders and a capability-checked start surface.
+
+```ts cordis-catalog
+registerProvider(provider: SubagentProvider): () => void
+getProvider(name: string): SubagentProvider | undefined
+list(): string[]
+start(name: string, request: SubagentStartRequest): SubagentRun
+```
+
+Source: [`packages/subagent/subagent/src/index.ts:103`](../../packages/subagent/subagent/src/index.ts)
 
 ### `ctx.systemPrompt` — `SystemPrompt`
 

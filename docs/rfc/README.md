@@ -44,6 +44,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Agent Client Protocol (ACP) support for external editors](proposed/feature/2026-06-14-acp-agent-client-protocol.md) | 2026-06-14 |
 | [Multiplex concurrent ACP sessions over one connection](proposed/feature/2026-06-14-acp-multi-session.md) | 2026-06-14 |
 | [Optional Code Mode — model writes TypeScript against an SDK of all tools](proposed/feature/2026-06-15-optional-code-mode.md) | 2026-06-15 |
+| [Subagent capability seam](proposed/feature/2026-06-21-subagent-capability-seam.md) | 2026-06-21 |
 
 ### Simplification
 
