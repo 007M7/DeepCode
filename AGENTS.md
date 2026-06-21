@@ -81,6 +81,9 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
                     feeds stdin lines to the agent (shared by the demos)
     llm-replay/     record/replay adapter: short-circuits llm/stream from a
                     recorded session JSONL (keyless snapshot tests)
+  util/           low-level zero-dependency utilities shared across groups
+    brand/          type-only Branded<B> nominal-typing primitive (no runtime
+                    code, no harness deps; owns the brand for cross-boundary ids)
 examples/    Runnable demos (not workspaces; see examples/AGENTS.md). Each is a
              THIN leaf cordis.yml: it picks the swappable backends (an LLM adapter,
              a bash executor) and loads ONE app package (dsh-stdio-agent or
