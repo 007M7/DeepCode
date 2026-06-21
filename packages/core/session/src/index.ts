@@ -9,7 +9,7 @@
 import { Context, Service } from 'cordis'
 import { isAbsolute } from 'node:path'
 import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
-import { SessionId } from './types.ts'
+import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
 import type { CreateSessionOptions, SessionEvent, SessionEventMap, SessionEventType, SessionHeader } from './types.ts'
 import { isJsonValue } from './json.ts'
 
@@ -112,7 +112,7 @@ export class Session {
       // structuredClone can never hit a non-cloneable value here.
       this.log = seed.map(event => structuredClone(event))
     }
-    this.header = header ?? { version: 1, id, createdAt: Date.now() }
+    this.header = header ?? { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now() }
   }
 
   get events(): readonly SessionEvent[] {
@@ -284,7 +284,7 @@ export class SessionStore extends Service {
       throw new Error(`session cwd must be an absolute path, got "${cwd}"`)
     }
     const header: SessionHeader = {
-      version: 1,
+      version: SESSION_FORMAT_VERSION,
       id: sessionId,
       createdAt: options?.meta?.createdAt ?? Date.now(),
       ...cwd !== undefined ? { cwd } : {},

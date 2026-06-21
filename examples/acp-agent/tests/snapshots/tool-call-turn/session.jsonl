@@ -1,4 +1,4 @@
-{"type":"session","version":1,"id":"0e5b2fc1-d220-4a81-b48b-939c14dea057","createdAt":1781834681068,"cwd":"/tmp/acp-snap-cwd-5F2H38"}
+{"type":"session","version":0,"id":"0e5b2fc1-d220-4a81-b48b-939c14dea057","createdAt":1781834681068,"cwd":"/tmp/acp-snap-cwd-5F2H38"}
 {"type":"turn/start","seq":0,"time":1781834681072,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1781834681073,"data":{"content":[{"type":"text","text":"Use the bash tool to run exactly: echo SNAPSHOT_OK. Then reply with the single word DONE and stop."}],"source":{"kind":"user"}}}
 {"type":"step/start","seq":2,"time":1781834681073,"data":{"turn":1,"step":1}}

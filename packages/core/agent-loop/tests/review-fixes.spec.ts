@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { CallId, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -806,6 +806,7 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     ctx.on('agent/turn-end', () => { if (!threw) { threw = true; throw new Error('boom turn-end') } })
     const errors: Error[] = []
     ctx.on('agent/error', (_a, _t, _s, error) => void errors.push(error))
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -815,6 +816,9 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(c.errors).toBe(0) // NO session error event (it would be post-turn/end)
     expect(agent.session.events.at(-1)?.type).toBe('turn/end') // last event is the boundary
     expect(errors.map(e => e.message)).toEqual(['boom turn-end']) // surfaced via agent/error
+    // The late throw is also logged directly: failTurn's turn-already-ended
+    // branch warns so a throwing turn-end listener after turn/end never vanishes.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent/turn-end listener threw after turn 1 closed'))
     // The whole log is loadable (nothing dropped): a fresh replay sees the turn.
     const replay = new Session(SessionId('replay'), [...agent.session.events])
     expect(replay.deriveMessages().map(m => m.role)).toEqual(['user', 'assistant'])

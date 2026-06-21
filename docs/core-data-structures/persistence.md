@@ -20,7 +20,11 @@ Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/t
 
 ```ts type-equiv
 interface SessionHeader {
-  /** On-disk format version; a persistence backend rejects unknown versions. */
+  /**
+   * On-disk format version, stamped from {@link SESSION_FORMAT_VERSION} when the
+   * session is created. A persistence backend rejects any other version on load
+   * (no migration — see the constant).
+   */
   version: number
   /** The session's id (mirrors the {@link Session}'s id). */
   id: SessionId

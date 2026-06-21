@@ -43,7 +43,7 @@ function registerFakeAgent(ctx: Context, sessionId: string, inject: (...args: un
   // `session.header.id`, NOT the registry key. Using distinct values here makes
   // the test fail if a regression matched on the wrong field (a same-value fake
   // would pass either way — the "hits the line but not the scenario" trap).
-  const agent = { id: `agent-${sessionId}`, inject, session: { header: { version: 1, id: sessionId, createdAt: 0 } } } as unknown as Agent
+  const agent = { id: `agent-${sessionId}`, inject, session: { header: { version: 0, id: sessionId, createdAt: 0 } } } as unknown as Agent
   const dispose = ctx.agents.register(agent)
   const list = fakeAgentDisposers.get(ctx) ?? []
   list.push(dispose)
@@ -466,7 +466,7 @@ describe('background task ownership (cross-session isolation)', () => {
   // the same token). The impl reads `session.header.id`, so the fakes MUST carry
   // it.
   const fakeAgent = (sessionId: string) =>
-    ({ inject: () => undefined, session: { header: { version: 1, id: sessionId, createdAt: 0 } } }) as unknown as import('@deepseek-ai/dsh-agent').Agent
+    ({ inject: () => undefined, session: { header: { version: 0, id: sessionId, createdAt: 0 } } }) as unknown as import('@deepseek-ai/dsh-agent').Agent
 
   it('rejects bash_output/bash_kill for a task owned by a DIFFERENT session token', async () => {
     const ctx = await setup()
@@ -582,7 +582,7 @@ describe('session-cwd routing (per-session workdir)', () => {
   }
   // An agent whose session header carries a cwd (what session/new records).
   const agentInCwd = (cwd: string) =>
-    ({ inject: () => undefined, session: { header: { version: 1, id: 'c', createdAt: 0, cwd } } }) as unknown as import('@deepseek-ai/dsh-agent').Agent
+    ({ inject: () => undefined, session: { header: { version: 0, id: 'c', createdAt: 0, cwd } } }) as unknown as import('@deepseek-ai/dsh-agent').Agent
 
   it('defaults bash to the agent\'s session cwd (not the server launch dir)', async () => {
     const ctx = await setup()

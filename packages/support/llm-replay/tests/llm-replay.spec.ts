@@ -33,7 +33,7 @@ const TEXT_CHUNKS: StreamChunk[] = [
 
 /** Build a minimal session-JSONL string: a header line + the given events. */
 function sessionJsonl(events: SessionEvent[]): string {
-  const header = JSON.stringify({ type: 'session', version: 1, id: 's1', createdAt: 0 })
+  const header = JSON.stringify({ type: 'session', version: 0, id: 's1', createdAt: 0 })
   return [header, ...events.map(e => JSON.stringify(e))].join('\n') + '\n'
 }
 
@@ -67,7 +67,7 @@ describe('parseSessionLog', () => {
   })
 
   it('ignores blank lines', () => {
-    const header = JSON.stringify({ type: 'session', version: 1, id: 's1', createdAt: 0 })
+    const header = JSON.stringify({ type: 'session', version: 0, id: 's1', createdAt: 0 })
     const ev = chunkEvent(1, 1, 1, TEXT_CHUNKS[0] as StreamChunk)
     expect(parseSessionLog(`${header}\n\n${JSON.stringify(ev)}\n\n`)).toEqual([ev])
   })
