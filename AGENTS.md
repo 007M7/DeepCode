@@ -71,6 +71,9 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
                     feeds stdin lines to the agent (shared by the demos)
     llm-replay/     record/replay adapter: short-circuits llm/stream from a
                     recorded session JSONL (keyless snapshot tests)
+  util/           low-level zero-dependency utilities shared across groups
+    brand/          type-only Branded<B> nominal-typing primitive (no runtime
+                    code, no harness deps; owns the brand for cross-boundary ids)
 examples/    Runnable demos (not workspaces; see examples/AGENTS.md). echo-agent
              = mock model + echo tool + stdio UI + JSONL persistence, wired via
              cordis.yml. coding-agent = the real thing: DeepSeek V4 + bash tools

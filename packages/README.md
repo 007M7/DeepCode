@@ -14,17 +14,19 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
 | [`ui/`](ui/README.md) | Editor/client integration surfaces (the ACP bridge) | Product — stable surface |
 | [`support/`](support/README.md) | Dev/test/example infrastructure (invariants, stdio UI, replay adapter) | Support — lower compatibility expectations |
+| [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (the `Branded<B>` primitive) | Support — small, stable, harness-dep-free |
 
 The split is the point: a package's group says whether it is part of the product API or support/test/example infrastructure, so release and removal decisions do not have to treat every package as an equal public contract. New packages join an existing group; adding a new top-level group is a deliberate act (extend the group READMEs and the hierarchy docs).
 
 ## Dependency graph
 
 ```
-dsh-llm          (no harness deps — pure vocabulary)
-dsh-bash          (no harness deps — abstract executor seam)
-dsh-session       ← dsh-llm
+dsh-brand         (no harness deps — type-only Branded<B> primitive)
+dsh-llm          ← dsh-brand                       (vocabulary; brands CallId)
+dsh-bash          ← dsh-brand                       (abstract executor seam; brands BashTaskId/OwnerToken)
+dsh-session       ← dsh-llm, dsh-brand
 dsh-system-prompt ← dsh-llm
-dsh-agent         ← dsh-llm, dsh-session
+dsh-agent         ← dsh-llm, dsh-session, dsh-brand
 dsh-tools         ← dsh-llm, dsh-system-prompt, dsh-agent
 dsh-bash-local    ← dsh-bash                       (BashExecutor impl)
 dsh-tool-bash     ← dsh-bash, dsh-tools            (bash tool schemas)
@@ -61,6 +63,7 @@ The rule: plugins depend on interfaces, never on the concrete loop. `dsh-agent-l
 | `acp/` | `ui` | Agent Client Protocol bridge: serves the agent to an ACP editor over JSON-RPC stdio | (drives `ctx.agents`/`ctx.sessions`) |
 | `ui-stdio/` | `support` | Minimal stdio (readline) UI plugin: renders `agent/*` events, feeds stdin lines to the agent | (drives `ctx.agents`) |
 | `llm-replay/` | `support` | Record/replay adapter: short-circuits `llm/stream` with chunks from a recorded session JSONL (keyless snapshot tests) | (listens on `llm/stream`) |
+| `brand/` | `util` | Type-only `Branded<B>` nominal-typing primitive (no runtime code, no harness deps) | (none — type-only) |
 
 Each package has its own `README.md` with purpose, service API, events, extension points, and deliberate non-goals (TODOs).
 
