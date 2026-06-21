@@ -1,6 +1,6 @@
 # RFC: Drop unconsumed assembled LLM convenience surfaces
 
-Status: proposed
+Status: implemented (proposed and accepted 2026-06-20)
 
 ## Problem
 

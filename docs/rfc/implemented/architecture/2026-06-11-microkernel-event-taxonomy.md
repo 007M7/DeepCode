@@ -12,7 +12,7 @@ The product principle (see the 微内核Harness实现思路 design doc) is "ever
 
 Pure Cordis event taxonomy. The loop's extension seams are typed events with deliberate dispatch modes:
 
-- **waterfall** (around-middleware) where plugins mutate or veto: `agent/request`, `agent/step-result`, `agent/turn-continuation`, `tools/execute`, `llm/stream`, `llm/generate`, `system-prompt/assemble`.
+- **waterfall** (around-middleware) where plugins mutate or veto: `agent/request`, `agent/step-result`, `agent/turn-continuation`, `tools/execute`, `llm/stream`, `system-prompt/assemble`.
 - **emit** (sync fire-and-forget) for notifications: turn/step boundaries, stream chunks, lifecycle, errors.
 - **parallel** (awaited) for the one durability checkpoint: `session/flush`.
 

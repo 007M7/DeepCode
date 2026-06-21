@@ -47,7 +47,7 @@ describe('translate: text', () => {
     ))) {
       assembler.push(chunk)
     }
-    const result = assembler.result()
+    const result = { message: assembler.message(), finish: assembler.finish }
     expect(result.message.content).toEqual([{ type: 'text', text: 'hi' }])
     expect(result.finish).toEqual({ kind: 'stop' })
   })

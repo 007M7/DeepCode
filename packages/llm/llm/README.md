@@ -4,28 +4,24 @@ Provider-neutral LLM vocabulary and abstract service. This package defines the c
 
 ## Service: `LlmService` (ctx key: `llm`)
 
-An adapter registry plus streaming / non-streaming call surfaces. Both call surfaces are interceptable via waterfall events.
+An adapter registry plus a single streaming call surface, interceptable via a waterfall event.
 
 ### Public API
 
 - `ctx.llm.registerAdapter(models: string[], adapter: LlmAdapter): () => void` Register an adapter for the given model names. Disposed with the calling fiber.
 - `ctx.llm.models(): string[]` — model names with a registered adapter.
-- `ctx.llm.stream(options: GenerateOptions): AsyncIterable<StreamChunk>` Stream one model call as raw chunks (token-level deltas).
-- `ctx.llm.streamBlocks(options: GenerateOptions): AsyncIterable<ContentBlock>` Stream as completed content blocks (convenience view).
-- `ctx.llm.generate(options: GenerateOptions): Promise<GenerateResult>` One model call, fully assembled.
+- `ctx.llm.stream(options: GenerateOptions): AsyncIterable<StreamChunk>` Stream one model call as raw chunks (token-level deltas). Consumers assemble the chunks into blocks/messages with `BlockAssembler`.
 
 ### Events
 
 | Event | Mode | Purpose |
 |---|---|---|
 | `llm/stream` | waterfall | Intercept/wrap every streaming model call (retry, caching, routing) |
-| `llm/generate` | waterfall | Intercept/wrap every non-streaming model call |
-| `llm/adapter-change` | emit | An adapter was registered or unregistered |
 
 ### Extension points
 
 - Subclass `LlmAdapter` and call `ctx.llm.registerAdapter(models, adapter)` to add a new model provider.
-- Wrap `llm/stream` or `llm/generate` via `ctx.on()` waterfall listeners for caching, retry, logging, rate-limiting, etc.
+- Wrap `llm/stream` via `ctx.on()` waterfall listeners for caching, retry, logging, rate-limiting, etc.
 
 ### Content-block vocabulary (`types.ts`)
 
@@ -36,8 +32,7 @@ Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta
 ### Classes
 
 - `LlmAdapter` — abstract base class for provider adapters. The only required method is `stream()`.
-- `BlockAssembler` — incrementally assembles raw chunks into complete content blocks and an assistant message. Used by the agent loop (raw chunks for replay
-  + assembled for history) and by `streamBlocks()`/`generate()`.
+- `BlockAssembler` — incrementally assembles raw chunks into complete content blocks and an assistant message. The agent loop feeds it raw chunks (logging them for replay) while reading the assembled blocks/message for history.
 - `HarnessError` — base class for the harness error taxonomy: a stable `code` string (distinct from the human `message`) plus `cause` chaining. Lives here, in the leaf package every other imports, so a single base is shared without a new dependency edge. Per-package errors (`LlmError`, `ToolArgsError`, `InvariantError`, …) extend it. `isHarnessError(value)` narrows at seams.
 - `LlmError` — extends `HarnessError`; `code` string (`NO_ADAPTER`, `DUPLICATE_ADAPTER`, and adapter codes like `AUTH`/`RATE_LIMIT`) plus an optional numeric `status` when the failure came from a non-2xx provider response.
 

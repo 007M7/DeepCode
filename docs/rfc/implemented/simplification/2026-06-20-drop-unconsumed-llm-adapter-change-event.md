@@ -1,6 +1,6 @@
 # RFC: Drop the unconsumed `llm/adapter-change` event
 
-Status: proposed
+Status: implemented (proposed and accepted 2026-06-20)
 
 ## Problem
 
@@ -29,7 +29,7 @@ If an LLM adapter browser or dynamic model-picker needs this signal later, reint
 
 ## Acceptance criteria
 
-- `llm/adapter-change` and its emits are gone; `pnpm run verify-event-taxonomy` passes against the updated table.
+- `llm/adapter-change` and its emits are gone; `pnpm run verify-cordis-catalog` passes against the regenerated catalog.
 - HMR-safety tests still pass: disposing a contributing fiber still removes the adapter.
 - `tools/change` and `system-prompt/change` remain documented and tested.
 - `pnpm run test:coverage` stays 100% per-file.

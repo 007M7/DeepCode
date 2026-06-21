@@ -11,7 +11,7 @@ The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary
 
 ## Events
 
-Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out, no veto). The harness declares 24 events across 5 scopes.
+Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out, no veto). The harness declares 22 events across 5 scopes.
 
 ### `agent/*`
 
@@ -185,28 +185,6 @@ Source: [`packages/core/agent/src/types.ts:166`](../../packages/core/agent/src/t
 
 ### `llm/*`
 
-#### `llm/adapter-change` — emit
-
-An adapter was registered or unregistered (the model→adapter map changed).
-
-```ts cordis-catalog
-'llm/adapter-change'(): void
-```
-
-Source: [`packages/llm/llm/src/index.ts:43`](../../packages/llm/llm/src/index.ts)
-
-#### `llm/generate` — waterfall
-
-Waterfall around every non-streaming model call. Bound to the LlmService; call `next()` to delegate to the adapter.
-
-```ts cordis-catalog
-'llm/generate'(this: LlmService, options: GenerateOptions, next: () => Promise<GenerateResult>): Promise<GenerateResult>
-```
-
-Types: [GenerateOptions](../core-data-structures/core.md) · [GenerateResult](../core-data-structures/core.md)
-
-Source: [`packages/llm/llm/src/index.ts:38`](../../packages/llm/llm/src/index.ts)
-
 #### `llm/stream` — waterfall
 
 Waterfall around every streaming model call (retry, caching, routing). Bound to the LlmService; call `next()` to reach the resolved adapter's stream, or yield your own chunks to short-circuit.
@@ -217,7 +195,7 @@ Waterfall around every streaming model call (retry, caching, routing). Bound to 
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:32`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:31`](../../packages/llm/llm/src/index.ts)
 
 ### `session/*`
 
@@ -363,19 +341,17 @@ Source: [`packages/bash/bash/src/index.ts:58`](../../packages/bash/bash/src/inde
 
 ### `ctx.llm` — `LlmService`
 
-The abstract `llm` service: an adapter registry plus streaming / non-streaming call surfaces, both interceptable via waterfall events.
+The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.
 
 ```ts cordis-catalog
 registerAdapter(models: string[], adapter: LlmAdapter): () => void
 models(): string[]
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
-async * streamBlocks(options: GenerateOptions): AsyncIterable<ContentBlock>
-generate(options: GenerateOptions): Promise<GenerateResult>
 ```
 
-Types: [ContentBlock](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [GenerateResult](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:81`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:69`](../../packages/llm/llm/src/index.ts)
 
 ### `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 

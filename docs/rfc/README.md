@@ -52,8 +52,6 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Unify the agent id and the session id](proposed/simplification/2026-06-20-unify-agent-and-session-id.md) | 2026-06-20 |
 | [Stop mirroring durable boundaries as agent events](proposed/simplification/2026-06-20-remove-agent-boundary-mirror-events.md) | 2026-06-20 |
 | [Keep one public stop primitive](proposed/simplification/2026-06-20-public-agent-stop-surface.md) | 2026-06-20 |
-| [Drop unconsumed assembled LLM convenience surfaces](proposed/simplification/2026-06-20-drop-unconsumed-llm-assembled-surfaces.md) | 2026-06-20 |
-| [Drop the unconsumed `llm/adapter-change` event](proposed/simplification/2026-06-20-drop-unconsumed-llm-adapter-change-event.md) | 2026-06-20 |
 | [Prune dead methods from the persistence and bash seams](proposed/simplification/2026-06-20-prune-dead-seam-methods.md) | 2026-06-20 |
 | [Fold trace-only session facts into load-bearing events](proposed/simplification/2026-06-20-collapse-trace-only-session-events.md) | 2026-06-20 |
 
@@ -96,6 +94,8 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | Title | First proposed |
 |---|---|
 | [Drop the mutable session summary](implemented/simplification/2026-06-19-drop-mutable-session-summary.md) | 2026-06-19 |
+| [Drop unconsumed assembled LLM convenience surfaces](implemented/simplification/2026-06-20-drop-unconsumed-llm-assembled-surfaces.md) | 2026-06-20 |
+| [Drop the unconsumed `llm/adapter-change` event](implemented/simplification/2026-06-20-drop-unconsumed-llm-adapter-change-event.md) | 2026-06-20 |
 
 ### Architecture
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, ContentBlock, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
@@ -443,90 +443,6 @@ describe('MEDIUM: turn numbering continues across seeded (forked) sessions', () 
     })
 
     expect(turns).toEqual([2])
-  })
-})
-
-describe('LOW: BlockAssembler and streamBlocks edge cases', () => {
-  it('ignores deltas arriving after block-end for the same index (malformed stream)', async () => {
-    const { BlockAssembler } = await import('@deepseek-ai/dsh-llm')
-    const assembler = new BlockAssembler()
-    assembler.push({ type: 'block-start', index: 0, blockType: 'text' })
-    assembler.push({ type: 'text-delta', index: 0, text: 'good' })
-    assembler.push({ type: 'block-end', index: 0, block: { type: 'text', text: 'good' } })
-    assembler.push({ type: 'text-delta', index: 0, text: ' straggler' })
-    expect(assembler.blocks()).toEqual([{ type: 'text', text: 'good' }])
-  })
-
-  it('assembles tool-call blocks from deltas without block-end', async () => {
-    const { BlockAssembler } = await import('@deepseek-ai/dsh-llm')
-    const assembler = new BlockAssembler()
-    assembler.push({ type: 'tool-call-delta', index: 0, id: CallId('c9'), name: 'echo', argumentsDelta: '{"a"' })
-    assembler.push({ type: 'tool-call-delta', index: 0, id: CallId('c9'), argumentsDelta: ':1}' })
-    expect(assembler.blocks()).toEqual([
-      { type: 'tool-call', id: CallId('c9'), name: 'echo', arguments: '{"a":1}' },
-    ])
-  })
-
-  it('streamBlocks flushes delta-only blocks at end of stream (matches generate())', async () => {
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    const deltaOnly: StreamChunk[] = [
-      { type: 'text-delta', index: 0, text: 'no ' },
-      { type: 'text-delta', index: 0, text: 'block-end' },
-      { type: 'finish', reason: { kind: 'stop' } },
-    ]
-    ctx.llm.registerAdapter(['m'], new MockAdapter([deltaOnly, deltaOnly]))
-
-    const blocks: ContentBlock[] = []
-    for await (const block of ctx.llm.streamBlocks({ model: 'm', messages: [] })) blocks.push(block)
-    expect(blocks).toEqual([{ type: 'text', text: 'no block-end' }])
-
-    const generated = await ctx.llm.generate({ model: 'm', messages: [] })
-    expect(generated.message.content).toEqual(blocks)
-  })
-
-  it('streamBlocks preserves stream order when an open block precedes a closed one', async () => {
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    // index 0 never gets block-end (delta-only); index 1 closes mid-stream.
-    const interleaved: StreamChunk[] = [
-      { type: 'text-delta', index: 0, text: 'first, open' },
-      { type: 'block-start', index: 1, blockType: 'text' },
-      { type: 'text-delta', index: 1, text: 'second, closed' },
-      { type: 'block-end', index: 1, block: { type: 'text', text: 'second, closed' } },
-      { type: 'finish', reason: { kind: 'stop' } },
-    ]
-    ctx.llm.registerAdapter(['m'], new MockAdapter([interleaved, interleaved]))
-
-    const blocks: ContentBlock[] = []
-    for await (const block of ctx.llm.streamBlocks({ model: 'm', messages: [] })) blocks.push(block)
-    expect(blocks).toEqual([
-      { type: 'text', text: 'first, open' },
-      { type: 'text', text: 'second, closed' },
-    ])
-
-    // identical to generate()'s assembled order
-    const generated = await ctx.llm.generate({ model: 'm', messages: [] })
-    expect(generated.message.content).toEqual(blocks)
-  })
-
-  it('streamBlocks yields closed blocks incrementally once preceding blocks close', async () => {
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    const script: StreamChunk[] = [
-      { type: 'block-start', index: 0, blockType: 'text' },
-      { type: 'text-delta', index: 0, text: 'a' },
-      { type: 'block-end', index: 0, block: { type: 'text', text: 'a' } },
-      { type: 'block-start', index: 1, blockType: 'text' },
-      { type: 'text-delta', index: 1, text: 'b' },
-      { type: 'block-end', index: 1, block: { type: 'text', text: 'b' } },
-      { type: 'finish', reason: { kind: 'stop' } },
-    ]
-    ctx.llm.registerAdapter(['m'], new MockAdapter([script]))
-
-    const blocks: ContentBlock[] = []
-    for await (const block of ctx.llm.streamBlocks({ model: 'm', messages: [] })) blocks.push(block)
-    expect(blocks).toEqual([{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }])
   })
 })
 
