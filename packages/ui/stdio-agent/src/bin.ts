@@ -66,9 +66,14 @@ export function installFailLoud(): void {
  * entry with `fiber === undefined` after the tree settled never loaded. Throw on
  * any such entry so `boot()` rejects (and the top-level `await` fails the process
  * non-zero) instead of returning a half-empty context.
+ *
+ * A `disabled` entry is the one legitimate fiber-less state: `Entry.refresh()`
+ * deliberately skips `init()` for it, so it settles without a fiber by design.
+ * That is a valid config (a consumer turning an optional plugin off), not a
+ * failed import — exclude it so the guard catches only real load failures.
  */
 function assertEntriesLoaded(ctx: Context): void {
-  const failed = [...ctx.loader.entries()].filter(entry => entry.fiber === undefined)
+  const failed = [...ctx.loader.entries()].filter(entry => entry.fiber === undefined && !entry.disabled)
   if (failed.length > 0) {
     const names = failed.map(entry => entry.options.name).join(', ')
     throw new Error(`dsh-stdio-agent: plugin(s) failed to load: ${names} (see the error(s) logged above)`)

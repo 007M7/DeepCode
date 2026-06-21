@@ -85,9 +85,13 @@ export function installFailLoud(): void {
  * `fiber` and producing no rejection — so the process would otherwise exit 0. A
  * started entry has a `fiber`; throw on any entry still missing one so `boot()`
  * rejects.
+ *
+ * A `disabled` entry is the one legitimate fiber-less state: `Entry.refresh()`
+ * deliberately skips `init()` for it, so it settles without a fiber by design —
+ * a valid "plugin turned off" config, not a failed import. Exclude it.
  */
 function assertEntriesLoaded(ctx: Context): void {
-  const failed = [...ctx.loader.entries()].filter(entry => entry.fiber === undefined)
+  const failed = [...ctx.loader.entries()].filter(entry => entry.fiber === undefined && !entry.disabled)
   if (failed.length > 0) {
     const names = failed.map(entry => entry.options.name).join(', ')
     throw new Error(`dsh-acp-agent: plugin(s) failed to load: ${names} (see the error(s) logged above)`)
