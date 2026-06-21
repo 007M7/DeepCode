@@ -75,7 +75,6 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 |---|---|
 | [Mutation testing as the coverage counterweight](proposed/testing/2026-06-11-mutation-testing.md) | 2026-06-11 |
 | [Deterministic tests, the replay invariant fixture, and race stress](proposed/testing/2026-06-11-deterministic-and-stress-testing.md) | 2026-06-11 |
-| [Use `session.jsonl` as the only snapshot session-log artifact](proposed/testing/2026-06-20-remove-redundant-snapshot-log-goldens.md) | 2026-06-20 |
 
 ## Implemented
 
@@ -138,6 +137,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Property-based testing for protocol-shaped code](implemented/testing/2026-06-11-property-based-testing.md) | 2026-06-11 |
 | [ACP snapshot tests — record-once / replay-deterministic](implemented/testing/2026-06-19-acp-snapshot-tests.md) | 2026-06-19 |
 | [Real-API e2e in CI against the external DeepSeek API](implemented/testing/2026-06-19-real-api-e2e-ci.md) | 2026-06-19 |
+| [Use `session.jsonl` as the only snapshot session-log artifact](implemented/testing/2026-06-20-remove-redundant-snapshot-log-goldens.md) | 2026-06-20 |
 
 ## Rejected
 
