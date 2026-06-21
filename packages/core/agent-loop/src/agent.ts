@@ -228,8 +228,10 @@ export class ReactLoopAgent implements Agent {
    * internal waiter (see {@link idleWaiters}) released on the next
    * running→idle/disposed transition, resolving on `idle` directly (the turn
    * fully ended) or chaining {@link done} on `disposed` (wait for the loop to
-   * actually exit). Implements the {@link Agent.whenIdle} contract used by
-   * teardown (handle disposal aborts in-flight work, then awaits `whenIdle()`).
+   * actually exit). Implements the {@link Agent.whenIdle} contract: a non-owner
+   * quiescence-observation hook, distinct from teardown (a lifecycle owner stops
+   * and unregisters via `AgentHandle.dispose()`, which awaits {@link done}
+   * directly, not through this).
    */
   whenIdle(): Promise<void> {
     if (this._status === 'disposed') return this.done
