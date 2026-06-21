@@ -28,6 +28,10 @@
  * Scope mirrors the other doc gates plus repo-authored TypeScript: Markdown
  * across README/docs/packages/AGENTS, and `.ts` under packages/** and
  * examples/** (excluding built `lib/`, `*.d.ts`, and vendored upstream source).
+ * A reference whose target path goes through a `lib/` segment is also skipped:
+ * that is a build OUTPUT (`packages/ui/acp-agent/lib/bin.js`), emitted only by
+ * `pnpm run build`, which CI runs AFTER this gate — flagging it would be a false
+ * positive on a path that is correct but not yet on disk.
  *
  * Run: `tsx scripts/verify-package-paths.ts`.
  */
@@ -111,6 +115,13 @@ function findViolations(absPath: string): Violation[] {
       // class may have swallowed (`packages/core/tools.` / `…/tools/`).
       const ref = m[0].replace(/[./]+$/, '')
       if (existsSync(resolve(root, ref))) continue
+      // A reference INTO a package's built `lib/` is a build-output path, not an
+      // authored-source location: it does not exist until `pnpm run build` emits
+      // it, and CI runs this gate BEFORE the build step. This gate reports stale
+      // SOURCE paths (a moved package), so skip `lib/` targets the same way the
+      // file scan excludes `lib/` files — a `packages/ui/acp-agent/lib/bin.js`
+      // citation in a built-bin smoke is correct, just not yet on disk at lint.
+      if (ref.split('/').includes('lib')) continue
       // Only a stale path to a REAL (moved) package is a violation; a segment
       // matching a live package name is the drift signal.
       const segments = ref.split('/').slice(1)

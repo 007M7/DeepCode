@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile, readFile } from 'node:fs/promis
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   ClientSideConnection,
   ndJsonStream,
@@ -48,9 +48,14 @@ const vendorPackages = [
   'cordis', 'loader', 'include', 'timer', 'hmr', 'logger-console',
   'schemastery', 'cosmokit',
 ]
-// Third-party deps the ACP bridge needs (resolved from the acp package's own
-// node_modules and linked into the consumer so plain node finds them).
+// Third-party deps the ACP bridge needs at runtime. They are declared by
+// `dsh-acp` (NOT by `acp-agent`), so they live under `packages/ui/acp/node_modules`
+// and are NOT necessarily hoisted where THIS test file can resolve them — pnpm's
+// strict layout only exposes a package's deps under that package. Resolve each
+// from the `ui/acp` package directory (the one that declares it) so the lookup
+// works regardless of hoisting, then symlink it into the consumer for plain node.
 const npmDeps = ['@agentclientprotocol/sdk', 'zod']
+const acpPkgDir = join(repoRoot, 'packages/ui/acp')
 
 async function pkgName(absDir: string): Promise<string> {
   const json = JSON.parse(await readFile(join(absDir, 'package.json'), 'utf8')) as { name: string }
@@ -76,7 +81,10 @@ async function makeConsumer(): Promise<string> {
     await link(abs, await pkgName(abs), nm)
   }
   for (const dep of npmDeps) {
-    const resolved = fileURLToPath(import.meta.resolve(`${dep}/package.json`))
+    // Resolve from `ui/acp`'s package.json URL (the package that declares the
+    // dep), not this test file's location — `acp-agent` does not depend on these.
+    const fromAcp = pathToFileURL(join(acpPkgDir, 'package.json')).href
+    const resolved = fileURLToPath(import.meta.resolve(`${dep}/package.json`, fromAcp))
     await link(dirname(resolved), dep, nm)
   }
   await writeFile(join(dir, 'cordis.yml'), [
