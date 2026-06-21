@@ -7,21 +7,28 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 /**
  * Keyless Loader-path smoke for examples/coding-agent: boot the REAL example
- * through its `cordis.yml` (the cordis Loader, `unwrapExports`, the full plugin
- * tree incl. the extracted `@deepseek-ai/dsh-ui-stdio`), then close stdin with
- * no prompt and assert the ready banner + a clean exit.
+ * through the `@deepseek-ai/dsh-stdio-agent` bin against its `cordis.yml` (the
+ * cordis Loader, `unwrapExports`, the full plugin tree incl. the
+ * `@deepseek-ai/dsh-agent-core` bundle and the extracted
+ * `@deepseek-ai/dsh-ui-stdio`), then close stdin with no prompt and assert the
+ * ready banner + a clean exit.
  *
  * No prompt is ever sent, so the model is NEVER called — this is why it runs
  * without a real key. coding-agent's `cordis.yml` loads `llm-deepseek`, whose
  * `apply()` only requires a key to be PRESENT (it does not validate it and only
  * uses it when a stream actually starts), so a dummy key lets the tree boot
  * while the absence of any prompt guarantees no network call. The value is the
- * real-Loader-path guard for the shared UI plugin's export shape (a broken
- * `export default` that drops `inject` would crash here — see postmortem 0001),
- * complementing coding-agent's with-key e2e suites which prove the real product.
+ * real-Loader-path guard for the app + bundle + UI plugin export shapes (a broken
+ * `export default` that drops `inject`/`Config` would crash here — see postmortem
+ * 0001), complementing coding-agent's with-key e2e suites which prove the real
+ * product.
  */
 
-const startScript = fileURLToPath(new URL('../start.ts', import.meta.url))
+// The dsh-stdio-agent bin (the demo:coding entry) and this example's cordis.yml.
+// The bin resolves its config-path arg from CWD; the test spawns from a temp
+// cwd, so we pass the example config's ABSOLUTE path.
+const binScript = fileURLToPath(new URL('../../../packages/ui/stdio-agent/src/bin.ts', import.meta.url))
+const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 // Dev/test run UNBUILT: resolve `@deepseek-ai/dsh-*` through the root tsconfig
 // `paths` map; tsx searches UP from cwd, and we spawn from a temp dir outside
@@ -45,7 +52,7 @@ async function bootAndEof(): Promise<{ stdout: string; code: number }> {
     const proc = spawn(
       process.execPath,
       // --expose-internals: cordis.yml loads the HMR plugin (mirrors demo:coding).
-      ['--expose-internals', '--import', tsxLoader, startScript],
+      ['--expose-internals', '--import', tsxLoader, binScript, configPath],
       {
         cwd,
         env: {

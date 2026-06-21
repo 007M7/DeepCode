@@ -1,59 +1,59 @@
-# The coding-agent plugin tree, loaded via @cordisjs/plugin-include.
-# Infra (logger/timer/hmr) first, then the shared provider/tool core (nested
-# include of ../base.yml), then this example's agent-loop config + UI.
+# The coding-agent plugin tree: the real coding agent. The two swappable
+# backends — the DeepSeek adapter and the local bash executor — plus `hmr` for
+# the dev/demo reload loop, then the stdio chat app (@deepseek-ai/dsh-stdio-
+# agent), which bundles the whole agent-core spine (timer, llm, sessions,
+# system-prompt, tools, agents, invariants, tool-bash, agent-loop), the console
+# logger, JSONL persistence, the readline UI, and a pre-created `main` agent.
 #
-# Requires DEEPSEEK_API_KEY (and optionally DEEPSEEK_BASE_URL) in the
-# environment — start.ts loads the gitignored repo-root .env first.
+# `hmr` is a leaf entry (not baked into dsh-stdio-agent): it is a Loader-only
+# dev plugin that needs `--expose-internals` — the `demo:coding` script passes
+# it. Requires DEEPSEEK_API_KEY (and optionally DEEPSEEK_BASE_URL) in the
+# environment — the dsh-stdio-agent bin loads the gitignored repo-root .env
+# first. cordis.yml reads them via the `!!js` tag.
 
-- id: logger
-  name: '@cordisjs/plugin-logger-console'
-
-- id: timer
-  name: '@cordisjs/plugin-timer'
-
+# Hot-module reload for the dev/demo loop (needs `node --expose-internals`).
 - id: hmr
   name: '@cordisjs/plugin-hmr'
   config:
     root: ['.']
 
-# Shared provider/tool core (llm, sessions, system-prompt, tools, agents,
-# invariants, llm-deepseek, bash-local, tool-bash). Nested include: the path is
-# resolved relative to THIS file's directory.
-- id: base
-  name: '@cordisjs/plugin-include'
+# The DeepSeek adapter. Swap to '@deepseek-ai/dsh-llm-pi-ai' for the pi-ai-backed
+# twin (same config shape; `reasoning: high` replaces thinking/reasoningEffort).
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
   config:
-    path: '../base.yml'
+    apiKey: !!js process.env.DEEPSEEK_API_KEY
+    baseURL: !!js process.env.DEEPSEEK_BASE_URL
+    models:
+      - deepseek-v4-flash
+      - deepseek-v4-pro
 
-# agent-loop is per-example (NOT in base.yml): coding-agent pre-creates a `main`
-# agent its stdio-chat drives via ctx.agents.get('main').
-- id: agent-loop
-  name: '@deepseek-ai/dsh-agent-loop'
+# Local bash executor (the model's only tool, via agent-core's tool-bash schema).
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
   config:
-    agents:
-      - id: main
-        model: deepseek-v4-flash
-        # Set RESUME_SESSION_ID to continue a prior persisted session (the ids
-        # live under ./.sessions); unset starts a fresh session each run.
-        resumeSessionId: !!js process.env.RESUME_SESSION_ID
-        systemPrompt: |
-          You are coding-agent, a CLI coding assistant.
+    timeoutMs: 60000
 
-          Your only tools are bash (plus bash_output/bash_kill for background
-          tasks). Do ALL file operations through bash: read with cat/sed/head,
-          search with grep, write with heredocs (cat <<'EOF' > file), edit
-          with sed or a rewrite. Each bash call runs in a fresh shell — pass
-          workdir instead of cd, and never rely on shell state between calls.
-
-          Check the [exit code: N] marker on every command; investigate
-          failures before moving on. Verify your work by running the code or
-          tests. Keep answers brief and factual.
-
-- id: session-persistence
-  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+# The stdio chat app: the whole spine + front-door cluster, configured for a
+# real coding agent driving a pre-created `main` agent.
+- id: stdio-agent
+  name: '@deepseek-ai/dsh-stdio-agent'
   config:
-    root: './.sessions'
-
-- id: stdio-chat
-  name: '@deepseek-ai/dsh-ui-stdio'
-  config:
+    model: deepseek-v4-flash
+    # Set RESUME_SESSION_ID to continue a prior persisted session (the ids live
+    # under ./.sessions); unset starts a fresh session each run.
+    resumeSessionId: !!js process.env.RESUME_SESSION_ID
+    persistenceRoot: './.sessions'
     welcome: 'coding-agent ready. Give it a coding task (bash is its only tool).'
+    systemPrompt: |
+      You are coding-agent, a CLI coding assistant.
+
+      Your only tools are bash (plus bash_output/bash_kill for background
+      tasks). Do ALL file operations through bash: read with cat/sed/head,
+      search with grep, write with heredocs (cat <<'EOF' > file), edit
+      with sed or a rewrite. Each bash call runs in a fresh shell — pass
+      workdir instead of cd, and never rely on shell state between calls.
+
+      Check the [exit code: N] marker on every command; investigate
+      failures before moving on. Verify your work by running the code or
+      tests. Keep answers brief and factual.

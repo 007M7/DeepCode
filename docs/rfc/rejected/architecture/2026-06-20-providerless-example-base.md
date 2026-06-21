@@ -1,23 +1,23 @@
 # RFC: Make the shared example base providerless
 
-Status: rejected — superseded by [Extract example apps into packages](../../proposed/architecture/2026-06-20-extract-example-app-packages.md), which moves the spine into a `dsh-agent-core` bundle and deletes the `base*.yml` files, so there is no shared base YAML left to rename.
+Status: rejected — superseded by [Extract example apps into packages](../../implemented/architecture/2026-06-20-extract-example-app-packages.md), which moves the spine into a `dsh-agent-core` bundle and deletes the `base*.yml` files, so there is no shared base YAML left to rename.
 
 ## Problem
 
-The examples have two shared base files: [examples/base-core.yml](../../../../examples/base-core.yml) is providerless, while [examples/base.yml](../../../../examples/base.yml) includes that core plus the real `llm-deepseek` adapter. Snapshot replay needs the providerless core with `llm-replay`, because loading the real adapter without a key throws. The normal demos need the real adapter. The result is a naming inversion: the file named `base.yml` is not the reusable base for all examples, while the true base is `base-core.yml`.
+The examples had two shared base files: `examples/base-core.yml` was providerless, while `examples/base.yml` included that core plus the real `llm-deepseek` adapter. Snapshot replay needs the providerless core with `llm-replay`, because loading the real adapter without a key throws. The normal demos need the real adapter. The result was a naming inversion: the file named `base.yml` was not the reusable base for all examples, while the true base was `base-core.yml`.
 
-The split is understandable, but it makes every config explanation longer. It also leads to awkward test setup like a keyless smoke test carrying a dummy API key so an adapter can boot even though the model is not called.
+The split was understandable, but it made every config explanation longer. It also led to awkward test setup like a keyless smoke test carrying a dummy API key so an adapter could boot even though the model is not called.
 
 ## Proposal
 
-Rename the providerless core to [examples/base.yml](../../../../examples/base.yml) and make adapter selection explicit in each concrete example. The coding and ACP real configs add a tiny `llm-deepseek` include or local block; snapshot config adds `llm-replay`. Delete [examples/base-core.yml](../../../../examples/base-core.yml).
+Rename the providerless core to `examples/base.yml` and make adapter selection explicit in each concrete example. The coding and ACP real configs add a tiny `llm-deepseek` include or local block; snapshot config adds `llm-replay`. Delete `examples/base-core.yml`.
 
 The shared base should contain only provider-neutral services and tools: `llm`, sessions, system prompt, tools, agents, invariants, bash executor, and bash tool schemas. Anything that chooses a model provider belongs at the leaf config.
 
 ## Acceptance criteria
 
-- [examples/base.yml](../../../../examples/base.yml) is providerless.
-- [examples/base-core.yml](../../../../examples/base-core.yml) is deleted.
+- `examples/base.yml` is providerless.
+- `examples/base-core.yml` is deleted.
 - Real demo configs explicitly add the DeepSeek adapter.
 - Snapshot replay config includes the same providerless base and its replay adapter.
 - The [examples README](../../../../examples/README.md), example-specific READMEs, and RFC references stop explaining "base = base-core plus adapter".
