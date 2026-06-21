@@ -9,7 +9,7 @@
 import { Context, Service } from 'cordis'
 import { isAbsolute } from 'node:path'
 import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
-import { SessionId } from './types.ts'
+import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
 import type { CreateSessionOptions, SessionEvent, SessionEventMap, SessionEventType, SessionHeader } from './types.ts'
 import { isJsonValue } from './json.ts'
 
@@ -79,9 +79,10 @@ export class Session {
   /**
    * Immutable creation metadata (format version, cwd, lineage). Supplied by
    * the store via `ctx.sessions.create()`. When a `Session` is constructed
-   * bare (tests, ad-hoc replay), a minimal v1 header is synthesized so
-   * `session.header` is always present. Kept out of the event log — it is a
-   * storage concern, not replayable conversation state.
+   * bare (tests, ad-hoc replay), a minimal header is synthesized (stamped with
+   * the current {@link SESSION_FORMAT_VERSION}) so `session.header` is always
+   * present. Kept out of the event log — it is a storage concern, not
+   * replayable conversation state.
    */
   readonly header: SessionHeader
 
@@ -112,7 +113,7 @@ export class Session {
       // structuredClone can never hit a non-cloneable value here.
       this.log = seed.map(event => structuredClone(event))
     }
-    this.header = header ?? { version: 1, id, createdAt: Date.now() }
+    this.header = header ?? { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now() }
   }
 
   get events(): readonly SessionEvent[] {
@@ -180,8 +181,7 @@ export class Session {
     const messages: Message[] = []
     for (const event of this.log) {
       // Intentionally non-exhaustive: only message-producing events derive
-      // history; turn/step boundaries, chunks, usage, and errors are
-      // trace/replay data.
+      // history; turn/step boundaries and chunks are trace/replay data.
       // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
       switch (event.type) {
         case 'user/message': {
@@ -284,7 +284,7 @@ export class SessionStore extends Service {
       throw new Error(`session cwd must be an absolute path, got "${cwd}"`)
     }
     const header: SessionHeader = {
-      version: 1,
+      version: SESSION_FORMAT_VERSION,
       id: sessionId,
       createdAt: options?.meta?.createdAt ?? Date.now(),
       ...cwd !== undefined ? { cwd } : {},

@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { SessionPersistence } from '../src/index.ts'
@@ -23,7 +23,7 @@ export interface ContractBackend {
 /** Build a minimal {@link SessionHeader} for a session id. */
 export function meta(id: string, cwd?: string): SessionHeader {
   return {
-    version: 1,
+    version: SESSION_FORMAT_VERSION,
     id: SessionId(id),
     createdAt: 1000,
     ...cwd !== undefined ? { cwd } : {},
@@ -57,7 +57,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         await persistence.append(m.id, log)
 
         const loaded = await persistence.load(m.id)
-        expect(loaded.meta).toMatchObject({ version: 1, id: m.id, cwd: '/work' })
+        expect(loaded.meta).toMatchObject({ version: SESSION_FORMAT_VERSION, id: m.id, cwd: '/work' })
         expect(loaded.events).toEqual(log)
       } finally {
         await dispose()

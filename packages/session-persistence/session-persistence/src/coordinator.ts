@@ -25,7 +25,7 @@
  */
 
 import { Context } from 'cordis'
-import { interruptedTurnClosers } from '@deepseek-ai/dsh-session'
+import { interruptedTurnClosers, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import { assertSerializable, seedCoversPrefix } from './index.ts'
 
@@ -319,8 +319,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   }
 
   private assertVersion(meta: SessionHeader): void {
-    if (meta.version !== 1) {
-      throw new Error(`unsupported session format version ${meta.version} for "${meta.id}" (only v1 is supported)`)
+    if (meta.version !== SESSION_FORMAT_VERSION) {
+      throw new Error(`unsupported session format version ${meta.version} for "${meta.id}" (only v${SESSION_FORMAT_VERSION} is supported)`)
     }
   }
 
