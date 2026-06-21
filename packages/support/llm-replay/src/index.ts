@@ -211,6 +211,16 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined)
  * the snapshot harness runs one ACP session per scenario to guarantee that. The
  * cursor is advanced synchronously at listener-invocation time (not lazily
  * inside the generator) so call ORDER, not iteration order, fixes the mapping.
+ *
+ * TODO(subagent-snapshots): this single global cursor cannot route calls to the
+ * right agent when a parent and an in-process subagent both stream on one ctx.
+ * Snapshot coverage of nested agents needs either per-session-keyed replay (a
+ * `Map<sessionId, cursor>` fed by the calling agent on the `agent/request`
+ * waterfall, which carries the agent) or a call-ordered merge of the parent and
+ * child session logs (sound because subagent execution is strictly nested —
+ * the parent blocks on the child). Tracked as a stacked follow-up to the
+ * in-process subagent backends; see the subagent RFC's "Snapshot coverage of
+ * nested agents" deferral.
  */
 export function installLlmReplay(ctx: Context, config: ReplayConfig): () => void {
   const entries = loadReplayScript(config)

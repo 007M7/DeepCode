@@ -86,3 +86,10 @@ interface SubagentProvider {
 ```
 
 The service (`ctx.subagents`) emits `subagent/start` when a run begins and `subagent/end` when it settles (see the [events catalog](../cordis-catalog/events-and-services.md)). Both emits contain a thrown listener **per listener** (logged, never propagated): one bad subscriber can neither strand a live run, surface as an unhandled rejection on the detached settle hook, nor starve the listeners registered after it.
+
+## In-process backends: depth and seed
+
+The two in-process backends ([dsh-subagent-spawn](../../packages/subagent/subagent-spawn) fresh, [dsh-subagent-fork](../../packages/subagent/subagent-fork) seeded) run the child as a child `Agent` on the same context via `ctx.agents.create`. Two pieces of vocabulary ride on the existing agent/session types rather than new core types:
+
+- **Delegation depth** is a merge-extensible `AgentOptions.subagentDepth` field (`0` for a top-level agent, parent + 1 for a child). The seam owns it — the loop neither sets nor reads it — so a nested spawn reads its parent's depth from `parent.options.subagentDepth` and the `depthLimit` capability caps the tree by refusing a child whose depth would exceed `request.maxDepth`.
+- **Fork seeding** uses `CreateAgentOptions.seed` (a `SessionEvent[]` prefix threaded through `AgentLoop.createAgent` → `ctx.sessions.prepare({ seed })`, the same primitive `resume` uses). The fork backend passes a *balanced completed-turn prefix* of the parent's log — the parent's events up to and including its last `turn/end` — so the seed is contiguous-from-0 and the [invariants](../../packages/support/invariants) replay accepts it (the in-flight, unbalanced turn is excluded).

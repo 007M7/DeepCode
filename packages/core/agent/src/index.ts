@@ -6,7 +6,7 @@
  */
 
 import { Context, Service } from 'cordis'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent, AgentId, AgentOptions } from './types.ts'
 
 export * from './types.ts'
@@ -37,6 +37,17 @@ export interface CreateAgentOptions {
    * excluded — a factory caller never sets it).
    */
   meta?: { cwd?: string; parentSession?: SessionId }
+  /**
+   * Seed events to reconstruct the child session's log from (the fork lineage
+   * primitive). When present, the factory creates the session with this event
+   * prefix so `deriveMessages()`/`lastTurnNumber` continue from it — used by the
+   * in-process FORK subagent backend to seed a child with a balanced
+   * completed-turn prefix of the parent's log. The prefix MUST be contiguous
+   * from seq 0 and balanced (no open turn/step, no dangling tool-call), or the
+   * session constructor (and the dev-mode invariants replay) reject it. Absent
+   * for a fresh (spawn) child.
+   */
+  seed?: SessionEvent[]
   /** Per-agent options (model, system prompt). */
   agentOptions?: AgentOptions
 }
