@@ -255,12 +255,13 @@ interface Agent {
    * Resolve once the agent has reached quiescence after settling out of
    * `running`, or immediately if it is already idle with no queued work. A
    * non-owner's quiescence-observation hook: a consumer that does NOT own the
-   * agent's lifecycle (a closing ACP connection, a UI plugin) awaits this to
-   * proceed only after queued/running work has fully stopped, rather than
-   * returning while the driver is still streaming or about to start a queued
-   * turn. It does NOT tear the agent down — a lifecycle owner stops and
-   * unregisters the agent through its `AgentHandle.dispose()` (which awaits the
-   * loop-exit promise directly), separate from this.
+   * agent's lifecycle awaits this to proceed only after queued/running work has
+   * fully stopped, rather than returning while the driver is still streaming or
+   * about to start a queued turn — without itself tearing the agent down. (A
+   * lifecycle OWNER does not need it: `AgentHandle.dispose()` already awaits the
+   * loop-exit promise directly as part of stopping and unregistering. So this is
+   * for a non-owning observer — e.g. a test awaiting a turn to settle, or a
+   * monitor — that wants the settle signal but must not dispose the agent.)
    *
    * "Quiescence", not merely "status changed": a disposed agent emits
    * `agent/status('disposed')` from inside its disposer, BEFORE the driver loop
