@@ -12,7 +12,7 @@ The three seams shipped across a stacked chain of PRs (the queue-aware cancel, t
 
 ### 1. Queue-aware `Agent.cancel(reason?)`
 
-A new `cancel()` verb on the `Agent` interface (distinct from the narrower step-only `abort()`). It clears the inbox's queued + steering FIFOs, aborts the in-flight step if any, and drives a **turn-scoped cancellation marker** the driver loop checks at every turn-decision point — so a prompt that is queued-but-not-yet-started never runs, a cancel landing in the pre-step / continuation window drops the about-to-run turn (ending it `aborted`), and a later prompt cannot be batched into the cancelled turn. `whenIdle()` reaches post-cancel quiescence. ACP `session/cancel` maps to `cancel()`. The marker is armed ONLY when there is something to cancel, so an idle no-op cancel cannot strand the next prompt.
+A new `cancel()` verb on the `Agent` interface — the single public stop primitive. (It originally shipped alongside a narrower step-only `abort()`; that verb was later removed as unused, leaving `cancel()` the only public way to stop work.) It clears the inbox's queued + steering FIFOs, aborts the in-flight step if any, and drives a **turn-scoped cancellation marker** the driver loop checks at every turn-decision point — so a prompt that is queued-but-not-yet-started never runs, a cancel landing in the pre-step / continuation window drops the about-to-run turn (ending it `aborted`), and a later prompt cannot be batched into the cancelled turn. `whenIdle()` reaches post-cancel quiescence. ACP `session/cancel` maps to `cancel()`. The marker is armed ONLY when there is something to cancel, so an idle no-op cancel cannot strand the next prompt.
 
 ### 2. `AgentHandle` async disposer
 

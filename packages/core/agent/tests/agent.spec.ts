@@ -13,7 +13,6 @@ function stubAgent(rawId: string): Agent {
     send() {},
     steer() {},
     inject() {},
-    abort() {},
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }

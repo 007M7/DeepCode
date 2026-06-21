@@ -79,12 +79,8 @@ export interface Agent {
    */
   inject(content: ContentBlock[], options?: SendOptions): void
 
-  /** Abort the in-flight step (if any); the turn ends with reason 'aborted'. */
-  abort(reason?: string): void
-
   /**
-   * Cancel ALL pending work for the agent — the narrower {@link abort} kills
-   * only the in-flight step. `cancel()`:
+   * Cancel ALL pending work for the agent. `cancel()`:
    *
    * - clears the queued FIFO (un-started prompts never run) and the steering
    *   FIFO (steering for the cancelled turn is dropped, not re-enqueued);
@@ -103,12 +99,15 @@ export interface Agent {
 
   /**
    * Resolve once the agent has reached quiescence after settling out of
-   * `running`, or immediately if it is already idle with no queued work. The
-   * quiescence signal a teardown awaits: `agent.abort()` then
-   * `await agent.whenIdle()` guarantees queued/running work has fully stopped
-   * before the caller proceeds (a closing ACP connection, a disposing UI
-   * plugin), rather than returning while the driver is still streaming or about
-   * to start a queued turn.
+   * `running`, or immediately if it is already idle with no queued work. A
+   * non-owner's quiescence-observation hook: a consumer that does NOT own the
+   * agent's lifecycle awaits this to proceed only after queued/running work has
+   * fully stopped, rather than returning while the driver is still streaming or
+   * about to start a queued turn — without itself tearing the agent down. (A
+   * lifecycle OWNER does not need it: `AgentHandle.dispose()` already awaits the
+   * loop-exit promise directly as part of stopping and unregistering. So this is
+   * for a non-owning observer — e.g. a test awaiting a turn to settle, or a
+   * monitor — that wants the settle signal but must not dispose the agent.)
    *
    * "Quiescence", not merely "status changed": a disposed agent emits
    * `agent/status('disposed')` from inside its disposer, BEFORE the driver loop
@@ -116,10 +115,6 @@ export interface Agent {
    * to actually exit (the implementation chains the loop-exit promise), not just
    * observe the status flip. A mid-step disposal that never reaches `idle` still
    * unblocks the await this way.
-   *
-   * Distinct from disposal: `whenIdle()` observes the transition WITHOUT tearing
-   * the agent down. A consumer that owns the agent's lifecycle disposes it
-   * separately.
    */
   whenIdle(): Promise<void>
 

@@ -1,7 +1,8 @@
 /**
  * Tests for the queue-aware `Agent.cancel()` primitive. `cancel()` is the
  * broad verb — it clears queued + steering work, aborts an in-flight step, and
- * drops a turn about to start — whereas `abort()` kills only the current step.
+ * drops a turn about to start — whereas a bare step abort (the loop's private
+ * `AbortController`) kills only the current step and leaves the queue intact.
  * These tests exercise every window where a cancel can land (idle, pre-step,
  * mid-step, continuation) and the marker's arm/reset rules that keep a cancel
  * from leaking to a later prompt or hanging `whenIdle()`.
@@ -172,7 +173,7 @@ describe('Agent.cancel()', () => {
 
     // A turn-start listener fires BEFORE any AbortController is installed for the
     // step. Cancelling there must still drop the step (the turn-scoped marker,
-    // not abort(), is what catches this) — no model step runs.
+    // not the step AbortController, is what catches this) — no model step runs.
     let streamed = false
     ctx.on('agent/stream-chunk', () => { streamed = true })
     const dispose = ctx.on('agent/turn-start', (subject) => {

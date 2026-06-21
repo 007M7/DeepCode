@@ -92,7 +92,7 @@ describe('HIGH: session log records what agent/step-result actually produced', (
 })
 
 describe('HIGH: abort during tool execution ends the turn', () => {
-  it('abort() inside a tool prevents both remaining tools and the next model step', async () => {
+  it('aborting the in-flight step inside a tool prevents both remaining tools and the next model step', async () => {
     const adapter = new MockAdapter([
       // model asks for two tool calls in one step
       [
@@ -113,7 +113,11 @@ describe('HIGH: abort during tool execution ends the turn', () => {
       parameters: {},
       async execute() {
         executed.push('aborter')
-        agent.abort('user interrupt')
+        // Fire the in-flight step's AbortController directly (the loop registers
+        // it on the agent). This is the bare step-abort path — distinct from
+        // cancel(), which would also clear the inbox; here the subject is the
+        // loop's response to its running step being aborted mid-tool.
+        ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('user interrupt')
         return [{ type: 'text', text: 'done' }]
       },
     }))
@@ -228,7 +232,12 @@ describe('HIGH: steering from late extension points is never stranded', () => {
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
     agent.steer([{ type: 'text', text: 'redirect' }])
-    agent.abort('user interrupt')
+    // Abort ONLY the in-flight step, via its AbortController directly — NOT
+    // cancel(), which clears the inbox and would drop the queued steering this
+    // test proves survives a step abort. There is no public step-only abort
+    // verb (cancel() is the only public stop primitive), so reach the private
+    // controller the loop registered.
+    ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('user interrupt')
     await waitForIdle(ctx, agent)
 
     // a new turn ran with the steering content delivered as a message
