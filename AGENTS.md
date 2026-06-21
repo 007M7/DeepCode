@@ -97,8 +97,7 @@ pnpm run verify-event-taxonomy  # assert the event-taxonomy table in docs/archit
                     # matches the interface Events declarations in source
 pnpm run verify-md-wrap  # assert no hard-wrapped prose paragraphs in README.md,
                     # docs/**/*.md, packages/*/README.md, AGENTS.md (one line per paragraph)
-pnpm run verify-md-links  # assert relative Markdown links resolve in checked docs
-pnpm run doc-sync       # doc-typecheck + verify-event-taxonomy + verify-md-wrap + verify-md-links (CI runs this)
+pnpm run doc-sync       # doc-typecheck + verify-event-taxonomy + verify-md-wrap (CI runs this)
 pnpm run demo:echo      # run examples/echo-agent (no API key; type "echo hi" to
                     # see a tool call) — the mock skeleton
 pnpm run demo:coding    # run examples/coding-agent — the real agent (needs

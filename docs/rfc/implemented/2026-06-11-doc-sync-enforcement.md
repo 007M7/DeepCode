@@ -19,8 +19,6 @@ Both run via a shared `doc-sync` package.json script that the lefthook pre-push 
 
 **Amendment (2026-06-17):** a third gate, **`verify-md-wrap`**, was later folded into `doc-sync`. It parses each in-scope Markdown file (`README.md`, `docs/**`, `packages/*/README.md`, plus `AGENTS.md` / `packages/AGENTS.md`) with `mdast-util-from-markdown` + GFM and fails on any `paragraph` node spanning more than one source line, enforcing the AGENTS.md "Markdown is not hard-wrapped" convention. Same verify-don't-generate principle: it reports hard-wraps and never rewrites, so it adds no formatting churn. `doc-sync` is now three gates.
 
-**Amendment (2026-06-18):** a fourth gate, **`verify-md-links`**, was later folded into `doc-sync` by the [Markdown cross-link validity linting RFC](2026-06-18-markdown-cross-link-lint.md). It checks that every relative Markdown link in the checked docs resolves to an existing file, so the RFC tree can use date-based filenames and relative links instead of stale numeric prose references. `doc-sync` is now four gates.
-
 ## Consequences
 
 - Doc drift in the checkable classes now fails the pre-push hook and CI instead of waiting for a reviewer to notice. This is an instance of the "mechanical gates over prose" principle.

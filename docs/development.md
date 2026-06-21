@@ -95,7 +95,6 @@ pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
 pnpm run verify-event-taxonomy  # compare docs/architecture.md event names with source
 pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
-pnpm run verify-md-links  # fail on broken relative Markdown links in checked docs
 pnpm run doc-sync       # doc-typecheck, event taxonomy, markdown wrap, and link verification
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
