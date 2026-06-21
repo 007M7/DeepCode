@@ -390,7 +390,7 @@ get(id: SessionId): Session | undefined
 list(): Session[]
 ```
 
-Source: [`packages/core/session/src/index.ts:222`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:229`](../../packages/core/session/src/index.ts)
 
 ### `ctx.systemPrompt` — `SystemPrompt`
 

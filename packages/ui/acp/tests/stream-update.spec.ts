@@ -116,7 +116,7 @@ describe('streamSessionEventUpdate', () => {
   it('produces no update for boundary/other event types', () => {
     expect(updatesFor(evt('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } }))).toEqual([])
     expect(updatesFor(evt('turn/end', { turn: 1, reason: { kind: 'completed' } }))).toEqual([])
-    expect(updatesFor(evt('usage', { turn: 1, step: 1, usage: { inputTokens: 1, outputTokens: 1 } }))).toEqual([])
+    expect(updatesFor(evt('step/start', { turn: 1, step: 1 }))).toEqual([])
   })
 })
 

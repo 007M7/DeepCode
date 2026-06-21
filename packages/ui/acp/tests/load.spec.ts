@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { makeBridgeHarness, textResponse, toolCallResponse, type BridgeHarness, type CapturedUpdate } from './harness.ts'
 
@@ -167,7 +167,7 @@ describe('acp bridge — session/load replay', () => {
     loader = await makeBridgeHarness({ storageDir, script: [] })
     const otherCwd = '/some/other/workspace'
     await loader.ctx.sessionPersistence.create({
-      version: 1, id: SessionId('elsewhere'), createdAt: 1, cwd: otherCwd,
+      version: SESSION_FORMAT_VERSION, id: SessionId('elsewhere'), createdAt: 1, cwd: otherCwd,
     })
     await loader.ctx.sessionPersistence.append(SessionId('elsewhere'), [
       { type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
@@ -204,7 +204,7 @@ describe('acp bridge — session/load replay', () => {
     // to the server's launch dir (the request cwd does not override the header).
     loader = await makeBridgeHarness({ storageDir, script: [] })
     await loader.ctx.sessionPersistence.create({
-      version: 1, id: SessionId('legacy'), createdAt: 1, // no cwd
+      version: SESSION_FORMAT_VERSION, id: SessionId('legacy'), createdAt: 1, // no cwd
     })
     await loader.ctx.sessionPersistence.append(SessionId('legacy'), [
       { type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },

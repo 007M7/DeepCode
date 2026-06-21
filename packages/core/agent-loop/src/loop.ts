@@ -38,8 +38,8 @@ function toError(error: unknown): CodedError {
  * caller's try/catch), OR end the stream with a finish-error/aborted chunk
  * (the only option for adapters that can't throw mid-stream, e.g.
  * library-backed ones). This translates the latter into a thrown step error
- * so the turn ends error/aborted with a logged `error` event, never as a
- * normal `completed` assistant message.
+ * so the turn ends error/aborted (the failure recorded on `turn/end.reason`),
+ * never as a normal `completed` assistant message.
  *
  * `FinishReason` is merge-extensible (plugins/adapters can add `kind`s), so
  * the switch handles the known terminal-failure kinds and treats every other
@@ -154,7 +154,7 @@ export interface LoopHandle {
  *       stream ctx.llm.stream(req)                    ⟵ waterfall llm/stream (raw chunks)
  *         session('assistant/chunk'); emit agent/stream-chunk
  *       msg = waterfall agent/step-result             ⟵ BEFORE the log append, so the
- *       session('assistant/message','usage')             session records what actually ran
+ *       session('assistant/message' {content, usage?})   session records what actually ran
  *       each tool-call in msg (sequential, abort-checked):
  *         session('tool/call'); ctx.tools.execute()   ⟵ waterfall tools/execute
  *         session('tool/result')
@@ -313,41 +313,31 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
     return false
   }
 
-  // Record a step/turn failure exactly once: append the single `error` event
-  // (only while the turn is still open — see below), set the error reason, and
-  // emit agent/error (contained — trap: a throwing agent/error listener must not
-  // re-escape and strand the turn). Disposal and abort set `reason` directly
-  // without calling this (no `error` event for those — they are not failures).
+  // Record a step/turn failure exactly once: set the error reason (carrying the
+  // failing `step` — the durable failure lives entirely on turn/end.reason, there
+  // is no separate session error event) and emit agent/error (contained — trap: a
+  // throwing agent/error listener must not re-escape and strand the turn).
+  // Disposal and abort set `reason` directly without calling this (they are not
+  // failures).
   const failTurn = (err: CodedError): void => {
     if (errorReported) return
     errorReported = true
-    // Only append the session `error` INSIDE the turn (before turn/end). If the
-    // turn has already ended — the only way here is a throwing agent/turn-end
-    // listener after closeTurn(true) already appended turn/end — appending now
-    // would land the error AFTER the last turn/end, where the persistence
-    // backend treats it as a crash tail and drops it on resume (the turn-enclosure RFC). In
-    // that case report via agent/error + the logger only; the turn is balanced.
+    // Set the error reason ONLY while the turn is still open — closeTurn appends
+    // turn/end with it. If the turn has already ended (the only way here: a
+    // throwing agent/turn-end listener after closeTurn(true) already appended
+    // turn/end), the reason can no longer affect the durable log, so log the late
+    // throw directly instead — otherwise the listener exception would vanish.
     if (!turnEnded) {
-      // Set `reason` BEFORE the append: Session.append pushes the error event
-      // before notifying session/event listeners, so a throwing listener would
-      // otherwise leave `reason` unset (and closeTurn would record the wrong
-      // reason / the outer catch would skip closeTurn). The append is contained
-      // — the error event is already in the log either way; a throwing listener
-      // must not abort finalization.
-      reason = { kind: 'error', ...errorData(err) }
-      try {
-        session.append('error', { turn, step, ...errorData(err) })
-      } catch (appendError: unknown) {
-        ctx.logger.warn(`agent "${agent.id}": session/event listener threw on the error event at turn ${turn}: ${toError(appendError).message}`)
-      }
+      reason = { kind: 'error', step, ...errorData(err) }
     } else {
       ctx.logger.warn(`agent "${agent.id}": agent/turn-end listener threw after turn ${turn} closed: ${err.message}`)
     }
     try {
       ctx.emit('agent/error', agent, turn, step, err)
     } catch {
-      // contained: the error is already logged; a throwing agent/error
-      // listener must not prevent the turn from closing.
+      // contained: the error is already captured (on `reason`, or via the logger
+      // above); a throwing agent/error listener must not prevent the turn from
+      // closing.
     }
   }
 
@@ -608,11 +598,14 @@ async function runStep(
   if (assembler.finish.kind === 'max-tokens') {
     let message: Message = withoutToolCalls(assembler.message())
     message = withoutToolCalls(await ctx.waterfall('agent/step-result', agent, turn, step, message, () => Promise.resolve(message)))
-    if (message.content.length > 0) {
-      session.append('assistant/message', { turn, step, content: message.content })
-    }
-    if (assembler.usage) {
-      session.append('usage', { turn, step, usage: assembler.usage })
+    // Fire the assistant/message when there is content OR usage: a max-tokens
+    // step can be cut off with empty content but still carry token accounting,
+    // and assistant/message is the only host for usage (there is no standalone
+    // usage event). An empty-content assistant/message is skipped by
+    // deriveMessages(), so hosting usage on it never injects a spurious assistant
+    // turn into derived history.
+    if (message.content.length > 0 || assembler.usage) {
+      session.append('assistant/message', { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) })
     }
     return { hadToolCalls: false, finish: assembler.finish }
   }
@@ -623,9 +616,13 @@ async function runStep(
   let message: Message = assembler.message()
   message = await ctx.waterfall('agent/step-result', agent, turn, step, message, () => Promise.resolve(message))
 
-  session.append('assistant/message', { turn, step, content: message.content })
-  if (assembler.usage) {
-    session.append('usage', { turn, step, usage: assembler.usage })
+  // Same content-or-usage guard as the max-tokens branch: a step that finishes
+  // with neither assembled content nor usage (e.g. a bare `stop` finish that
+  // streamed nothing) records no assistant/message — an empty-content message
+  // exists only to host usage, and deriveMessages() skips it either way, so
+  // appending one with no usage would be a pure trace-only row.
+  if (message.content.length > 0 || assembler.usage) {
+    session.append('assistant/message', { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) })
   }
 
   // --- Tool execution (sequential; parallel execution is a TODO) ---

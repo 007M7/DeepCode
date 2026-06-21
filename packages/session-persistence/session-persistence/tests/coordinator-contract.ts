@@ -28,7 +28,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context, type Fiber } from 'cordis'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '../src/index.ts'
 import { meta, oneTurnLog } from './contract.ts'
@@ -671,7 +671,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
       try {
-        const m = { version: 2, id: SessionId('v2'), createdAt: 1, cwd: WORK }
+        const m = { version: 99, id: SessionId('v99'), createdAt: 1, cwd: WORK }
         await ctx.sessionPersistence.create(m)
         await ctx.sessionPersistence.append(m.id, oneTurnLog())
         await expect(ctx.sessionPersistence.load(m.id)).rejects.toThrow(/version/)
@@ -685,7 +685,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
       try {
-        const m = { version: 1, id: SessionId('forked-child'), createdAt: 1, cwd: WORK, parentSession: SessionId('the-parent') }
+        const m = { version: SESSION_FORMAT_VERSION, id: SessionId('forked-child'), createdAt: 1, cwd: WORK, parentSession: SessionId('the-parent') }
         await ctx.sessionPersistence.create(m)
         await ctx.sessionPersistence.append(m.id, oneTurnLog())
         const loaded = await ctx.sessionPersistence.load(m.id)

@@ -1,4 +1,4 @@
-{"type":"session","version":1,"id":"{{sessionId}}","createdAt":0,"cwd":"{{cwd}}"}
+{"type":"session","version":0,"id":"{{sessionId}}","createdAt":0,"cwd":"{{cwd}}"}
 {"type":"turn/start","seq":0,"time":0,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":0,"data":{"content":[{"type":"text","text":"A file named greeting.txt in the current directory contains one word. Use the bash tool to append a second line containing the word WORLD to it (so it has two lines), then read the file back with `cat greeting.txt` to confirm, and reply with the single word DONE. Use a single bash call per action."}],"source":{"kind":"user"}}}
 {"type":"step/start","seq":2,"time":0,"data":{"turn":1,"step":1}}
@@ -113,80 +113,77 @@
 {"type":"assistant/chunk","seq":111,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":1,"block":{"type":"tool-call","id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","arguments":"{\"command\": \"echo 'WORLD' >> greeting.txt\", \"description\": \"Append WORLD line to greeting.txt\"}"}}}}
 {"type":"assistant/chunk","seq":112,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":161,"outputTokens":146,"cacheReadTokens":768,"reasoningTokens":74}}}}
 {"type":"assistant/chunk","seq":113,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"tool-calls"}}}}
-{"type":"assistant/message","seq":114,"time":0,"data":{"turn":1,"step":1,"content":[{"type":"reasoning","text":"The user wants me to:\n1. Append a second line containing \"WORLD\" to greeting.txt\n2. Read the file back with `cat greeting.txt` to confirm\n3. Reply with \"DONE\"\n\nBut they want \"a single bash call per action\" - so I'll do two separate bash calls: one for appending, one for reading."},{"type":"tool-call","id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","arguments":"{\"command\": \"echo 'WORLD' >> greeting.txt\", \"description\": \"Append WORLD line to greeting.txt\"}"}]}}
-{"type":"usage","seq":115,"time":0,"data":{"turn":1,"step":1,"usage":{"inputTokens":161,"outputTokens":146,"cacheReadTokens":768,"reasoningTokens":74}}}
-{"type":"tool/call","seq":116,"time":0,"data":{"turn":1,"step":1,"callId":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","arguments":"{\"command\": \"echo 'WORLD' >> greeting.txt\", \"description\": \"Append WORLD line to greeting.txt\"}"}}
-{"type":"tool/result","seq":117,"time":0,"data":{"turn":1,"step":1,"callId":"call_00_r3tvHl3fD0tmV0GKQt032338","content":[{"type":"text","text":"(no output)"}],"isError":false}}
-{"type":"step/end","seq":118,"time":0,"data":{"turn":1,"step":1}}
-{"type":"step/start","seq":119,"time":0,"data":{"turn":1,"step":2}}
-{"type":"assistant/chunk","seq":120,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
-{"type":"assistant/chunk","seq":121,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":"App"}}}
-{"type":"assistant/chunk","seq":122,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":"ended"}}}
-{"type":"assistant/chunk","seq":123,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" successfully"}}}
-{"type":"assistant/chunk","seq":124,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
-{"type":"assistant/chunk","seq":125,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" Now"}}}
-{"type":"assistant/chunk","seq":126,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" read"}}}
-{"type":"assistant/chunk","seq":127,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" the"}}}
-{"type":"assistant/chunk","seq":128,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" file"}}}
-{"type":"assistant/chunk","seq":129,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
-{"type":"assistant/chunk","seq":130,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"block-start","index":1,"blockType":"tool-call"}}}
-{"type":"assistant/chunk","seq":131,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":""}}}
-{"type":"assistant/chunk","seq":132,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"{"}}}
-{"type":"assistant/chunk","seq":133,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
-{"type":"assistant/chunk","seq":134,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"command"}}}
-{"type":"assistant/chunk","seq":135,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
-{"type":"assistant/chunk","seq":136,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":": "}}}
-{"type":"assistant/chunk","seq":137,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
-{"type":"assistant/chunk","seq":138,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"cat"}}}
-{"type":"assistant/chunk","seq":139,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":" greeting"}}}
-{"type":"assistant/chunk","seq":140,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":".txt"}}}
-{"type":"assistant/chunk","seq":141,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
-{"type":"assistant/chunk","seq":142,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":", "}}}
-{"type":"assistant/chunk","seq":143,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
-{"type":"assistant/chunk","seq":144,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"description"}}}
-{"type":"assistant/chunk","seq":145,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
-{"type":"assistant/chunk","seq":146,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":": "}}}
-{"type":"assistant/chunk","seq":147,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
-{"type":"assistant/chunk","seq":148,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"Read"}}}
-{"type":"assistant/chunk","seq":149,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":" greeting"}}}
-{"type":"assistant/chunk","seq":150,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":".txt"}}}
-{"type":"assistant/chunk","seq":151,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":" to"}}}
-{"type":"assistant/chunk","seq":152,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":" confirm"}}}
-{"type":"assistant/chunk","seq":153,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
-{"type":"assistant/chunk","seq":154,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"}"}}}
-{"type":"assistant/chunk","seq":155,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"block-end","index":0,"block":{"type":"reasoning","text":"Appended successfully. Now read the file."}}}}
-{"type":"assistant/chunk","seq":156,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"block-end","index":1,"block":{"type":"tool-call","id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","arguments":"{\"command\": \"cat greeting.txt\", \"description\": \"Read greeting.txt to confirm\"}"}}}}
-{"type":"assistant/chunk","seq":157,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"usage","usage":{"inputTokens":193,"outputTokens":74,"cacheReadTokens":896,"reasoningTokens":9}}}}
-{"type":"assistant/chunk","seq":158,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"tool-calls"}}}}
-{"type":"assistant/message","seq":159,"time":0,"data":{"turn":1,"step":2,"content":[{"type":"reasoning","text":"Appended successfully. Now read the file."},{"type":"tool-call","id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","arguments":"{\"command\": \"cat greeting.txt\", \"description\": \"Read greeting.txt to confirm\"}"}]}}
-{"type":"usage","seq":160,"time":0,"data":{"turn":1,"step":2,"usage":{"inputTokens":193,"outputTokens":74,"cacheReadTokens":896,"reasoningTokens":9}}}
-{"type":"tool/call","seq":161,"time":0,"data":{"turn":1,"step":2,"callId":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","arguments":"{\"command\": \"cat greeting.txt\", \"description\": \"Read greeting.txt to confirm\"}"}}
-{"type":"tool/result","seq":162,"time":0,"data":{"turn":1,"step":2,"callId":"call_00_SkCP8dgN8aCbLiZDcYa68316","content":[{"type":"text","text":"hello\nWORLD\n"}],"isError":false}}
-{"type":"step/end","seq":163,"time":0,"data":{"turn":1,"step":2}}
-{"type":"step/start","seq":164,"time":0,"data":{"turn":1,"step":3}}
-{"type":"assistant/chunk","seq":165,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
-{"type":"assistant/chunk","seq":166,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":"The"}}}
-{"type":"assistant/chunk","seq":167,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" file"}}}
-{"type":"assistant/chunk","seq":168,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" now"}}}
-{"type":"assistant/chunk","seq":169,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" has"}}}
-{"type":"assistant/chunk","seq":170,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" two"}}}
-{"type":"assistant/chunk","seq":171,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" lines"}}}
-{"type":"assistant/chunk","seq":172,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
-{"type":"assistant/chunk","seq":173,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" I"}}}
-{"type":"assistant/chunk","seq":174,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":"'ll"}}}
-{"type":"assistant/chunk","seq":175,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" reply"}}}
-{"type":"assistant/chunk","seq":176,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" with"}}}
-{"type":"assistant/chunk","seq":177,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" D"}}}
-{"type":"assistant/chunk","seq":178,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":"ONE"}}}
-{"type":"assistant/chunk","seq":179,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
-{"type":"assistant/chunk","seq":180,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"block-start","index":1,"blockType":"text"}}}
-{"type":"assistant/chunk","seq":181,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"text-delta","index":1,"text":"D"}}}
-{"type":"assistant/chunk","seq":182,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"text-delta","index":1,"text":"ONE"}}}
-{"type":"assistant/chunk","seq":183,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"block-end","index":0,"block":{"type":"reasoning","text":"The file now has two lines. I'll reply with DONE."}}}}
-{"type":"assistant/chunk","seq":184,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"block-end","index":1,"block":{"type":"text","text":"DONE"}}}}
-{"type":"assistant/chunk","seq":185,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"usage","usage":{"inputTokens":156,"outputTokens":17,"cacheReadTokens":1024,"reasoningTokens":14}}}}
-{"type":"assistant/chunk","seq":186,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
-{"type":"assistant/message","seq":187,"time":0,"data":{"turn":1,"step":3,"content":[{"type":"reasoning","text":"The file now has two lines. I'll reply with DONE."},{"type":"text","text":"DONE"}]}}
-{"type":"usage","seq":188,"time":0,"data":{"turn":1,"step":3,"usage":{"inputTokens":156,"outputTokens":17,"cacheReadTokens":1024,"reasoningTokens":14}}}
-{"type":"step/end","seq":189,"time":0,"data":{"turn":1,"step":3}}
-{"type":"turn/end","seq":190,"time":0,"data":{"turn":1,"reason":{"kind":"completed"}}}
+{"type":"assistant/message","seq":114,"time":0,"data":{"turn":1,"step":1,"content":[{"type":"reasoning","text":"The user wants me to:\n1. Append a second line containing \"WORLD\" to greeting.txt\n2. Read the file back with `cat greeting.txt` to confirm\n3. Reply with \"DONE\"\n\nBut they want \"a single bash call per action\" - so I'll do two separate bash calls: one for appending, one for reading."},{"type":"tool-call","id":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","arguments":"{\"command\": \"echo 'WORLD' >> greeting.txt\", \"description\": \"Append WORLD line to greeting.txt\"}"}],"usage":{"inputTokens":161,"outputTokens":146,"cacheReadTokens":768,"reasoningTokens":74}}}
+{"type":"tool/call","seq":115,"time":0,"data":{"turn":1,"step":1,"callId":"call_00_r3tvHl3fD0tmV0GKQt032338","name":"bash","arguments":"{\"command\": \"echo 'WORLD' >> greeting.txt\", \"description\": \"Append WORLD line to greeting.txt\"}"}}
+{"type":"tool/result","seq":116,"time":0,"data":{"turn":1,"step":1,"callId":"call_00_r3tvHl3fD0tmV0GKQt032338","content":[{"type":"text","text":"(no output)"}],"isError":false}}
+{"type":"step/end","seq":117,"time":0,"data":{"turn":1,"step":1}}
+{"type":"step/start","seq":118,"time":0,"data":{"turn":1,"step":2}}
+{"type":"assistant/chunk","seq":119,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
+{"type":"assistant/chunk","seq":120,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":"App"}}}
+{"type":"assistant/chunk","seq":121,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":"ended"}}}
+{"type":"assistant/chunk","seq":122,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" successfully"}}}
+{"type":"assistant/chunk","seq":123,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"assistant/chunk","seq":124,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" Now"}}}
+{"type":"assistant/chunk","seq":125,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" read"}}}
+{"type":"assistant/chunk","seq":126,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" the"}}}
+{"type":"assistant/chunk","seq":127,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":" file"}}}
+{"type":"assistant/chunk","seq":128,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"assistant/chunk","seq":129,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"block-start","index":1,"blockType":"tool-call"}}}
+{"type":"assistant/chunk","seq":130,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":""}}}
+{"type":"assistant/chunk","seq":131,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"{"}}}
+{"type":"assistant/chunk","seq":132,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":133,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"command"}}}
+{"type":"assistant/chunk","seq":134,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":135,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":": "}}}
+{"type":"assistant/chunk","seq":136,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":137,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"cat"}}}
+{"type":"assistant/chunk","seq":138,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":" greeting"}}}
+{"type":"assistant/chunk","seq":139,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":".txt"}}}
+{"type":"assistant/chunk","seq":140,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":141,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":", "}}}
+{"type":"assistant/chunk","seq":142,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":143,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"description"}}}
+{"type":"assistant/chunk","seq":144,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":145,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":": "}}}
+{"type":"assistant/chunk","seq":146,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":147,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"Read"}}}
+{"type":"assistant/chunk","seq":148,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":" greeting"}}}
+{"type":"assistant/chunk","seq":149,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":".txt"}}}
+{"type":"assistant/chunk","seq":150,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":" to"}}}
+{"type":"assistant/chunk","seq":151,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":" confirm"}}}
+{"type":"assistant/chunk","seq":152,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"\""}}}
+{"type":"assistant/chunk","seq":153,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"tool-call-delta","index":1,"id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","argumentsDelta":"}"}}}
+{"type":"assistant/chunk","seq":154,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"block-end","index":0,"block":{"type":"reasoning","text":"Appended successfully. Now read the file."}}}}
+{"type":"assistant/chunk","seq":155,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"block-end","index":1,"block":{"type":"tool-call","id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","arguments":"{\"command\": \"cat greeting.txt\", \"description\": \"Read greeting.txt to confirm\"}"}}}}
+{"type":"assistant/chunk","seq":156,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"usage","usage":{"inputTokens":193,"outputTokens":74,"cacheReadTokens":896,"reasoningTokens":9}}}}
+{"type":"assistant/chunk","seq":157,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"tool-calls"}}}}
+{"type":"assistant/message","seq":158,"time":0,"data":{"turn":1,"step":2,"content":[{"type":"reasoning","text":"Appended successfully. Now read the file."},{"type":"tool-call","id":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","arguments":"{\"command\": \"cat greeting.txt\", \"description\": \"Read greeting.txt to confirm\"}"}],"usage":{"inputTokens":193,"outputTokens":74,"cacheReadTokens":896,"reasoningTokens":9}}}
+{"type":"tool/call","seq":159,"time":0,"data":{"turn":1,"step":2,"callId":"call_00_SkCP8dgN8aCbLiZDcYa68316","name":"bash","arguments":"{\"command\": \"cat greeting.txt\", \"description\": \"Read greeting.txt to confirm\"}"}}
+{"type":"tool/result","seq":160,"time":0,"data":{"turn":1,"step":2,"callId":"call_00_SkCP8dgN8aCbLiZDcYa68316","content":[{"type":"text","text":"hello\nWORLD\n"}],"isError":false}}
+{"type":"step/end","seq":161,"time":0,"data":{"turn":1,"step":2}}
+{"type":"step/start","seq":162,"time":0,"data":{"turn":1,"step":3}}
+{"type":"assistant/chunk","seq":163,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
+{"type":"assistant/chunk","seq":164,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":"The"}}}
+{"type":"assistant/chunk","seq":165,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" file"}}}
+{"type":"assistant/chunk","seq":166,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" now"}}}
+{"type":"assistant/chunk","seq":167,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" has"}}}
+{"type":"assistant/chunk","seq":168,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" two"}}}
+{"type":"assistant/chunk","seq":169,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" lines"}}}
+{"type":"assistant/chunk","seq":170,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"assistant/chunk","seq":171,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" I"}}}
+{"type":"assistant/chunk","seq":172,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":"'ll"}}}
+{"type":"assistant/chunk","seq":173,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" reply"}}}
+{"type":"assistant/chunk","seq":174,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" with"}}}
+{"type":"assistant/chunk","seq":175,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" D"}}}
+{"type":"assistant/chunk","seq":176,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":"ONE"}}}
+{"type":"assistant/chunk","seq":177,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"assistant/chunk","seq":178,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"block-start","index":1,"blockType":"text"}}}
+{"type":"assistant/chunk","seq":179,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"text-delta","index":1,"text":"D"}}}
+{"type":"assistant/chunk","seq":180,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"text-delta","index":1,"text":"ONE"}}}
+{"type":"assistant/chunk","seq":181,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"block-end","index":0,"block":{"type":"reasoning","text":"The file now has two lines. I'll reply with DONE."}}}}
+{"type":"assistant/chunk","seq":182,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"block-end","index":1,"block":{"type":"text","text":"DONE"}}}}
+{"type":"assistant/chunk","seq":183,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"usage","usage":{"inputTokens":156,"outputTokens":17,"cacheReadTokens":1024,"reasoningTokens":14}}}}
+{"type":"assistant/chunk","seq":184,"time":0,"data":{"turn":1,"step":3,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
+{"type":"assistant/message","seq":185,"time":0,"data":{"turn":1,"step":3,"content":[{"type":"reasoning","text":"The file now has two lines. I'll reply with DONE."},{"type":"text","text":"DONE"}],"usage":{"inputTokens":156,"outputTokens":17,"cacheReadTokens":1024,"reasoningTokens":14}}}
+{"type":"step/end","seq":186,"time":0,"data":{"turn":1,"step":3}}
+{"type":"turn/end","seq":187,"time":0,"data":{"turn":1,"reason":{"kind":"completed"}}}

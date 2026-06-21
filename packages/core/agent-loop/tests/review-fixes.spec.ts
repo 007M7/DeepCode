@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { CallId, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -492,11 +492,13 @@ describe('HIGH: a finish-error stream chunk ends the turn as error, not complete
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(reasons).toEqual([{ kind: 'error', message: 'provider 401', code: 'AUTH' }])
+    expect(reasons).toEqual([{ kind: 'error', step: 1, message: 'provider 401', code: 'AUTH' }])
 
     const events = [...agent.session.events]
-    expect(events.some(event => event.type === 'error'
-      && event.data.message === 'provider 401' && event.data.code === 'AUTH')).toBe(true)
+    // The durable failure lives on turn/end.reason (with the failing step), not
+    // a standalone error event.
+    const turnEnd = events.find(event => event.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'error', step: 1, message: 'provider 401', code: 'AUTH' })
     // Crucially: no assistant/message was logged for the failed step.
     expect(events.some(event => event.type === 'assistant/message')).toBe(false)
   })
@@ -515,7 +517,7 @@ describe('HIGH: a finish-error stream chunk ends the turn as error, not complete
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(reasons).toEqual([{ kind: 'error', message: 'model stream aborted', code: 'ABORTED' }])
+    expect(reasons).toEqual([{ kind: 'error', step: 1, message: 'model stream aborted', code: 'ABORTED' }])
     expect([...agent.session.events].some(event => event.type === 'assistant/message')).toBe(false)
   })
 
@@ -533,7 +535,7 @@ describe('HIGH: a finish-error stream chunk ends the turn as error, not complete
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(reasons).toEqual([{ kind: 'error', message: 'codeless failure' }])
+    expect(reasons).toEqual([{ kind: 'error', step: 1, message: 'codeless failure' }])
   })
 })
 
@@ -592,7 +594,7 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
       turnEnd: e.filter(x => x.type === 'turn/end').length,
       stepStart: e.filter(x => x.type === 'step/start').length,
       stepEnd: e.filter(x => x.type === 'step/end').length,
-      errors: e.filter(x => x.type === 'error').length,
+      errors: e.filter(x => x.type === 'turn/end' && x.data.reason.kind === 'error').length,
       lastTurnEnd: e.findLast(x => x.type === 'turn/end'),
     }
   }
@@ -611,10 +613,10 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     await waitForIdle(ctx, agent)
 
     const c = boundaryCounts(agent)
-    // turn opened and closed; no step ran; exactly one error logged + emitted.
+    // turn opened and closed; no step ran; exactly one error turn-end + emitted.
     expect(c).toMatchObject({ turnStart: 1, turnEnd: 1, stepStart: 0, stepEnd: 0, errors: 1 })
     expect(errors.map(e => e.message)).toEqual(['boom turn-start'])
-    expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason).toEqual({ kind: 'error', message: 'boom turn-start' })
+    expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason).toEqual({ kind: 'error', step: 0, message: 'boom turn-start' })
     // model was never called (we threw before the step's request).
     expect(adapter.requests).toHaveLength(0)
   })
@@ -664,7 +666,7 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(c.turnStart).toBe(1)
     expect(c.turnEnd).toBe(1)
     expect(c.stepStart).toBe(c.stepEnd)
-    expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason).toMatchObject({ kind: 'error', message: 'provider 500' })
+    expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason).toMatchObject({ kind: 'error', step: 1, message: 'provider 500' })
 
     // loop survives: a second turn runs to completion (invariants oracle would
     // throw on its turn/start if turn 1 had been left open).
@@ -701,8 +703,8 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(turnStarts).toBe(1)
     expect(turnEnds).toBe(1) // balanced — the turn was closed despite disposal
     expect(reasons).toEqual([{ kind: 'disposed' }])
-    // no error event: disposal is not a failure.
-    expect(e.some(x => x.type === 'error')).toBe(false)
+    // no error reason: disposal is not a failure.
+    expect(e.some(x => x.type === 'turn/end' && x.data.reason.kind === 'error')).toBe(false)
   })
 
   it('preserves reason disposed when the turn-end emit throws during disposal (outer-catch disposed branch)', async () => {
@@ -741,9 +743,10 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
     const turnEnd = e.findLast(x => x.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
-    // The throwing turn-end listener is contained: no error event is logged and
-    // no agent/error is emitted (disposal is not a failure; the throw is swallowed).
-    expect(e.some(x => x.type === 'error')).toBe(false)
+    // The throwing turn-end listener is contained: the turn/end carries the
+    // disposed reason (not an error) and no agent/error is emitted (disposal is
+    // not a failure; the throw is swallowed).
+    expect(e.some(x => x.type === 'turn/end' && x.data.reason.kind === 'error')).toBe(false)
     expect(errorEmits).toHaveLength(0)
   })
 
@@ -803,6 +806,7 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     ctx.on('agent/turn-end', () => { if (!threw) { threw = true; throw new Error('boom turn-end') } })
     const errors: Error[] = []
     ctx.on('agent/error', (_a, _t, _s, error) => void errors.push(error))
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -812,6 +816,9 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(c.errors).toBe(0) // NO session error event (it would be post-turn/end)
     expect(agent.session.events.at(-1)?.type).toBe('turn/end') // last event is the boundary
     expect(errors.map(e => e.message)).toEqual(['boom turn-end']) // surfaced via agent/error
+    // The late throw is also logged directly: failTurn's turn-already-ended
+    // branch warns so a throwing turn-end listener after turn/end never vanishes.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent/turn-end listener threw after turn 1 closed'))
     // The whole log is loadable (nothing dropped): a fresh replay sees the turn.
     const replay = new Session(SessionId('replay'), [...agent.session.events])
     expect(replay.deriveMessages().map(m => m.role)).toEqual(['user', 'assistant'])
@@ -840,11 +847,11 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     await waitForIdle(ctx, agent)
 
     const c = boundaryCounts(agent)
-    // step opened and closed; exactly one error; turn balanced; turn ends error.
+    // step opened and closed; exactly one error turn-end; turn balanced.
     expect(c).toMatchObject({ turnStart: 1, turnEnd: 1, stepStart: 1, stepEnd: 1, errors: 1 })
     expect(errors.map(e => e.message)).toEqual(['boom step-end'])
     expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason)
-      .toEqual({ kind: 'error', message: 'boom step-end' })
+      .toEqual({ kind: 'error', step: 1, message: 'boom step-end' })
 
     // step/end precedes turn/end (ordering contract)
     const e = [...agent.session.events]
@@ -882,53 +889,17 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     await waitForIdle(ctx, agent)
 
     const c = boundaryCounts(agent)
-    // exactly one error event + one agent/error emit, despite two failTurn calls.
+    // exactly one error turn-end + one agent/error emit, despite two failTurn calls.
     expect(c.errors).toBe(1)
     expect(errors.map(e => e.message)).toEqual(['provider down'])
     expect(c.turnStart).toBe(1)
     expect(c.turnEnd).toBe(1) // single turn/end, balanced
-    expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason).toMatchObject({ kind: 'error', message: 'provider down' })
+    expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason).toMatchObject({ kind: 'error', step: 1, message: 'provider down' })
 
     // loop survives the compound failure.
     send(agent, 'again')
     await waitForIdle(ctx, agent)
     expect(boundaryCounts(agent).turnEnd).toBe(2)
-  })
-
-  it('a throwing session/event listener on the error event still closes the turn (finalizer containment)', async () => {
-    // failTurn appends the `error` event; Session.append pushes it BEFORE
-    // notifying session/event listeners, so a throwing listener leaves `error`
-    // in the log but must NOT abort finalization — `reason` is set before the
-    // append and the throw is contained, so closeTurn(false) still runs and
-    // turn/end is appended (the turn is balanced, not left open).
-    // Plain harness (no invariants oracle): the throwing listener is itself a
-    // session/event subscriber. A finish-error drives the boundary-error path.
-    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', message: 'provider down' } }]
-    const adapter = new MockAdapter([errorStream, textResponse('turn 2 ok')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a-errthrow'), { model: 'mock' })
-
-    let threw = false
-    ctx.on('session/event', (_s, event) => {
-      if (!threw && event.type === 'error') { threw = true; throw new Error('boom error-event listener') }
-    })
-
-    send(agent, 'go')
-    await waitForIdle(ctx, agent)
-
-    const e = [...agent.session.events]
-    // The error event is in the log (pushed before the listener threw)…
-    expect(e.some(x => x.type === 'error')).toBe(true)
-    // …and the turn was still closed with the error reason (finalization did not
-    // abort): the last event is turn/end carrying the error reason.
-    const last = e.at(-1)
-    expect(last?.type).toBe('turn/end')
-    expect(last?.type === 'turn/end' && last.data.reason).toMatchObject({ kind: 'error', message: 'provider down' })
-
-    // loop survives: a second turn runs normally.
-    send(agent, 'again')
-    await waitForIdle(ctx, agent)
-    expect(adapter.requests).toHaveLength(2)
   })
 
   it('a throwing session/event listener on step/end during finalization still appends turn/end', async () => {

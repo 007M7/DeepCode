@@ -213,9 +213,9 @@ describe('toError normalization', () => {
     expect(errors).toHaveLength(1)
     expect(errors[0]!.message).toBe('naked string error')
     // A non-Error throw is wrapped in a HarnessError with code UNKNOWN, so the
-    // session error event carries a routable code instead of degrading.
-    const errorEvent = agent.session.events.find(e => e.type === 'error')
-    expect(errorEvent?.type === 'error' && errorEvent.data.code).toBe('UNKNOWN')
+    // turn-end error reason carries a routable code instead of degrading.
+    const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error' && turnEnd.data.reason.code).toBe('UNKNOWN')
   })
 
   it('normalizes non-Error throws from agent/request waterfall via inline toError in runStep catch', async () => {
@@ -240,8 +240,8 @@ describe('toError normalization', () => {
     expect(errors).toHaveLength(1)
     // String() of { code: 500 } is '[object Object]'
     expect(errors[0]!.message).toBe('[object Object]')
-    const errorEvent = agent.session.events.find(e => e.type === 'error')
-    expect(errorEvent?.type === 'error' && errorEvent.data.code).toBe('UNKNOWN')
+    const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error' && turnEnd.data.reason.code).toBe('UNKNOWN')
   })
 })
 
@@ -268,11 +268,11 @@ describe('coded error data emission', () => {
     expect(errors).toHaveLength(1)
     expect(errors[0]!.message).toBe('server overloaded')
 
-    // session error event includes the code
-    const errorEvent = agent.session.events.find(e => e.type === 'error')
-    expect(errorEvent).toBeDefined()
-    if (errorEvent!.type === 'error') {
-      expect(errorEvent!.data.code).toBe('RATE_LIMIT')
+    // turn-end error reason includes the code
+    const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
+    expect(turnEnd).toBeDefined()
+    if (turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error') {
+      expect(turnEnd.data.reason.code).toBe('RATE_LIMIT')
     }
   })
 })

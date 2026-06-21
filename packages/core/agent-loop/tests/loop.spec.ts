@@ -58,11 +58,13 @@ describe('agent loop', () => {
 
     const types = agent.session.events.map(e => e.type)
     // turn/start opens the turn, THEN the queued user message is recorded inside
-    // it (every event is turn-enclosed), then assembled message + usage.
+    // it (every event is turn-enclosed), then the assembled message (carrying the
+    // step's usage).
     expect(types[0]).toBe('turn/start')
     expect(types[1]).toBe('user/message')
     expect(types).toContain('assistant/message')
-    expect(types).toContain('usage')
+    const assistantMessage = agent.session.events.find(e => e.type === 'assistant/message')
+    expect(assistantMessage?.type === 'assistant/message' && assistantMessage.data.usage).toEqual({ inputTokens: 10, outputTokens: 'hello there'.length })
     expect(types.at(-1)).toBe('turn/end')
 
     // derived history: user + assistant
@@ -442,6 +444,66 @@ describe('agent loop', () => {
     expect(agent.session.events.some(e => e.type === 'tool/call')).toBe(false)
     expect(agent.session.deriveMessages()).toEqual([{ role: 'user', content: [{ type: 'text', text: 'go' }] }])
     expect(reasons).toEqual([{ kind: 'max-tokens' }])
+    // No-data-loss: a max-tokens step whose only content was a dropped tool call
+    // has EMPTY assistant content, but its usage must still be represented. It
+    // rides on an (empty-content) assistant/message — there is no standalone
+    // usage event — and that empty message is skipped by deriveMessages(), so
+    // the derived history above is NOT corrupted by a spurious assistant turn.
+    const assistantMessage = agent.session.events.find(e => e.type === 'assistant/message')
+    expect(assistantMessage?.type === 'assistant/message' && assistantMessage.data).toEqual({
+      turn: 1, step: 1, content: [], usage: { inputTokens: 10, outputTokens: 5 },
+    })
+  })
+
+  it('appends no assistant/message for a max-tokens step with empty content and no usage', async () => {
+    // A max-tokens step truncated to a dropped tool call AND with no usage chunk
+    // has nothing to record: empty content and no accounting → no assistant/message
+    // (the empty-content host exists only to carry usage). The turn still ends
+    // max-tokens.
+    const callId = CallId('c1')
+    const adapter = new MockAdapter([[
+      { type: 'block-start', index: 0, blockType: 'tool-call' },
+      { type: 'tool-call-delta', index: 0, id: callId, name: 'echo', argumentsDelta: '{"text":"x"}' },
+      { type: 'block-end', index: 0, block: { type: 'tool-call', id: callId, name: 'echo', arguments: '{"text":"x"}' } },
+      { type: 'finish', reason: { kind: 'max-tokens' } },
+    ]])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineTool({
+      name: 'echo',
+      description: '',
+      parameters: { text: { type: 'string' } },
+      async execute() { return [{ type: 'text', text: 'should not run' }] },
+    }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(reasons).toEqual([{ kind: 'max-tokens' }])
+    expect(agent.session.events.some(e => e.type === 'assistant/message')).toBe(false)
+    expect(agent.session.deriveMessages()).toEqual([{ role: 'user', content: [{ type: 'text', text: 'go' }] }])
+  })
+
+  it('appends no assistant/message for a normal stop finish with empty content and no usage', async () => {
+    // A clean `stop` finish that streamed nothing assembled (no blocks) and
+    // carried no usage chunk has nothing to record: the content-or-usage guard
+    // on the normal step path suppresses a pure trace-only empty assistant/message.
+    const adapter = new MockAdapter([[{ type: 'finish', reason: { kind: 'stop' } }]])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(reasons).toEqual([{ kind: 'completed' }])
+    expect(agent.session.events.some(e => e.type === 'assistant/message')).toBe(false)
+    expect(agent.session.deriveMessages()).toEqual([{ role: 'user', content: [{ type: 'text', text: 'go' }] }])
   })
 
   it('keeps safe max-tokens assistant content while dropping truncated tool calls', async () => {
@@ -563,7 +625,10 @@ describe('agent loop', () => {
     expect(errors).toHaveLength(1)
     expect(errors[0]!.message).toContain('script exhausted')
     expect(reasons[0]).toMatchObject({ kind: 'error' })
-    expect(agent.session.events.some(e => e.type === 'error')).toBe(true)
+    // The durable failure lives entirely on turn/end.reason (with the failing
+    // step), not a standalone error event.
+    const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toMatchObject({ kind: 'error', step: 1 })
   })
 
   it('disposing the loop fiber mid-turn stops the loop (HMR safety)', async () => {

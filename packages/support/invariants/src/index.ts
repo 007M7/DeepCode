@@ -192,8 +192,8 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
     // turn as its commit/replay boundary (the JSONL backend treats anything
     // after the last turn/end as a crash tail), so a bare event between turns is
     // silently dropped on reload. The loop records queued user messages after
-    // turn/start, an idle agent.inject() wraps its context/message in a one-shot
-    // turn, and usage/error are only appended inside an open turn. A `default`
+    // turn/start, and an idle agent.inject() wraps its context/message in a
+    // one-shot turn. A `default`
     // (not an enumerated list) is deliberate: SessionEventMap is
     // merge-extensible, so a PLUGIN-added event type appended while idle must
     // also fail here rather than fall through and be dropped on resume.

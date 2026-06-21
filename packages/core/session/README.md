@@ -37,7 +37,7 @@ Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 - `session.append(type, data): SessionEvent` — synchronous, never blocks on I/O. **Throws** if `data` is not losslessly JSON-serializable (BigInt, function, symbol, undefined, non-finite number, circular ref, or an exotic object like Map/Set/Date) — the event log is the durable source of truth, so this invariant is enforced at the source (exported as `isJsonValue` for backends to reuse on their replay/fork entry points).
 - `session.deriveMessages(): Message[]` — derive the LLM message history from the event log. Raw `assistant/chunk` events are skipped; `context/message` and `steering/message` render as tagged synthetic user messages.
 - `session.events`, `session.seq`, `session.id`
-- `session.header: SessionHeader` — immutable creation metadata (`version`, `id`, `createdAt`, optional `cwd`/`parentSession`). Kept out of the event log (a storage concern, not replayable state); a minimal v1 header is synthesized for bare `Session` construction.
+- `session.header: SessionHeader` — immutable creation metadata (`version`, `id`, `createdAt`, optional `cwd`/`parentSession`). Kept out of the event log (a storage concern, not replayable state); a minimal header (stamped with the current `SESSION_FORMAT_VERSION`) is synthesized for bare `Session` construction.
 
 ### Metadata types (`types.ts`)
 
@@ -45,7 +45,7 @@ Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 
 ### Session event vocabulary (`types.ts`)
 
-The append-only log: `turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `assistant/message`, `assistant/chunk`, `tool/call`, `tool/result`, `steering/message`, `context/message`, `usage`, `error`.
+The append-only log: `turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `assistant/message`, `assistant/chunk`, `tool/call`, `tool/result`, `steering/message`, `context/message`. Token usage rides on `assistant/message.usage`; an operational error's step is on `turn/end.reason` for `kind: 'error'`.
 
 Merge-extensible via `SessionEventMap` — a compaction plugin adds `compaction/marker`, etc.
 

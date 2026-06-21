@@ -775,7 +775,7 @@ function validateMcpServers(params: { mcpServers?: unknown[] }): void {
  * generic fallback (title = tool name, raw args as input) when no registry is
  * available (e.g. pure translator tests).
  *
- * Other event types (turn/step boundaries, context/message, usage, …) produce
+ * Other event types (turn/step boundaries, context/message, …) produce
  * no client update.
  */
 export function streamSessionEventUpdate(
@@ -873,7 +873,7 @@ export function streamSessionEventUpdate(
       })
       return
     }
-    // turn/step boundaries, context/message, steering, usage, error,
+    // turn/step boundaries, context/message, steering,
     // assistant/message — no direct ACP client update.
     default:
       return
