@@ -488,7 +488,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           // Validate the PERSISTED cwd BEFORE resuming — `list()` is a
           // metadata-only read (no full-log parse), so this rejects a session we
           // can't honor WITHOUT ever constructing/registering an agent (a
-          // post-resume reject would leak the registered agent — abort() does not
+          // post-resume reject would leak the registered agent — cancel() does not
           // unregister it — and wedge the id against re-load). The session's bash
           // workdir is derived from its persisted `header.cwd` and the request
           // `cwd` does NOT override it (resume takes no cwd), so a session with no
