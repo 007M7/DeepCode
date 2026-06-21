@@ -29,6 +29,8 @@ vendor/<dir>/
 
 `package.json` invariants: `"private": true` (vendored packages are never published), keep upstream's `name`/`version`/`exports`/`type`, point declaration metadata at `lib/types`, publish `.d.ts` and `.d.ts.map` declaration outputs, and list its cordis deps in `peerDependencies` (matching the upstream manifest). Transitive upstream deps must themselves be vendored or already present — vendoring one package often means vendoring its dependency tree (e.g. `@cordisjs/plugin-http` pulls `@cordisjs/fetch-file`).
 
+Local relative imports/exports in vendored TypeScript source use explicit `.ts` specifiers after copying. This is a repo-local build-shape divergence from upstream: `rewriteRelativeImportExtensions` emits `.js` runtime imports while declarations keep explicit `.ts` specifiers that NodeNext/Node16 TypeScript consumers can resolve.
+
 ## 2. Register it in the root configs
 
 | File | Change |

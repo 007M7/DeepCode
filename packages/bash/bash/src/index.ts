@@ -15,9 +15,9 @@
  */
 
 import { Context, Service } from 'cordis'
-import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskId, BashTaskListener, BashTaskRead, OwnerToken } from './types'
+import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskId, BashTaskListener, BashTaskRead, OwnerToken } from './types.ts'
 
-export { BashTaskId, OwnerToken } from './types'
+export { BashTaskId, OwnerToken } from './types.ts'
 export type {
   BashExecRequest,
   BashExecSpec,
@@ -27,7 +27,7 @@ export type {
   BashTaskRead,
   BashTaskStatus,
   CollectedOutput,
-} from './types'
+} from './types.ts'
 
 declare module 'cordis' {
   interface Context {

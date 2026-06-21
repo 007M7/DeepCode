@@ -7,9 +7,9 @@
 
 import { Context, Service } from 'cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { Agent, AgentId, AgentOptions } from './types'
+import type { Agent, AgentId, AgentOptions } from './types.ts'
 
-export * from './types'
+export * from './types.ts'
 
 declare module 'cordis' {
   interface Context {

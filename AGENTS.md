@@ -145,7 +145,7 @@ pnpm run lint:fix       # eslint . --fix
 pnpm run build          # tsc emits lib/types, then tsdown bundles runtime lib/index.*
 pnpm run knip           # dead-code / unused-dependency check
 pnpm run publint        # package.json publish-correctness check (every packages/*/* package)
-pnpm run hygiene        # knip + publint + workspace constraints
+pnpm run hygiene        # knip + publint + workspace constraints + NodeNext type-consumer check
 pnpm run doc-typecheck  # typecheck every ```ts block in README.md, docs/**/*.md,
                     # packages/*/*.md + packages/*/*/*.md (doc/code drift gate)
 pnpm run gen-cordis-catalog  # regenerate docs/cordis-catalog/events-and-services.md
@@ -160,6 +160,8 @@ pnpm run verify-package-paths  # assert every packages/<path> cited in Markdown 
 pnpm run verify-rfc-classification  # assert every RFC lives in a valid
                     # {lifecycle}/{class}/ folder and docs/rfc/README.md lists it
                     # under the matching heading (closed class set + index completeness)
+pnpm run verify-node-next-types  # assert built declarations typecheck for a
+                    # standard external NodeNext ESM TypeScript consumer
 pnpm run doc-sync       # doc-typecheck + verify-cordis-catalog + verify-md-wrap + verify-md-links + verify-doc-refs + verify-package-paths + verify-rfc-classification + verify-type-equiv (CI runs this)
 pnpm run demo:echo      # run examples/echo-agent (no API key; type "echo hi" to
                     # see a tool call) — the mock skeleton
@@ -188,7 +190,7 @@ Dev/test/demo run **unbuilt** via tsx + the source `paths` map in the root `tsco
 ## Conventions
 
 - **Package naming**: every npm package in this repo is `@deepseek-ai/dsh-<name>` (vendored packages keep their upstream names and are `private: true`).
-- **ESM everywhere** (`"type": "module"`); imports between workspace packages use package names, never relative paths across package boundaries. In-package relative imports are extensionless so generated `.d.ts` files stay extensionless; `lib/types/**/*.js` is a bundler-only intermediate, not a Node ESM entrypoint.
+- **ESM everywhere** (`"type": "module"`); imports between workspace packages use package names, never relative paths across package boundaries. In-package relative imports use explicit `.ts` extensions; `rewriteRelativeImportExtensions` turns those into `.js` in emitted JS, while declarations keep explicit `.ts` specifiers that NodeNext/Node16 TypeScript consumers can resolve to sibling `.d.ts` files. `lib/types/**/*.js` is a bundler-only intermediate, not a Node ESM entrypoint.
 - **`cordis` is a peerDependency** (+ devDependency) of every harness package, mirroring upstream convention.
 - **Registrations are effects**: anything a plugin contributes (adapter, tool, section, agent, event listener) goes through `ctx.effect()` / `ctx.on()` so disposal and HMR work. If you write a registry, `register()` must return the disposer.
 - **Typed events via declaration merging**: services declare their events in `declare module 'cordis' { interface Events { … } }`, and their ctx key in `interface Context`. Extensible unions use the merge-extensible-map pattern (see `ContentBlockMap`, `MessageSourceMap`).

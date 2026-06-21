@@ -24,7 +24,7 @@ export {
   type InferArgs,
   type DefineToolOptions,
   type JsonSchemaObject,
-} from './schema'
+} from './schema.ts'
 
 declare module 'cordis' {
   interface Context {

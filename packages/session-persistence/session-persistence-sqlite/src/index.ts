@@ -29,9 +29,9 @@ import {
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
   openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
-} from './schema'
+} from './schema.ts'
 
-export { SCHEMA_VERSION } from './schema'
+export { SCHEMA_VERSION } from './schema.ts'
 
 /** Plugin configuration. */
 export interface Config {

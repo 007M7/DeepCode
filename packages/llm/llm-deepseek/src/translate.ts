@@ -16,8 +16,8 @@
 
 import { CallId, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, FinishReason, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
-import { DONE } from './sse'
-import type { WireChunk, WireUsage } from './types'
+import { DONE } from './sse.ts'
+import type { WireChunk, WireUsage } from './types.ts'
 
 /** One open block under assembly. */
 interface OpenBlock {
