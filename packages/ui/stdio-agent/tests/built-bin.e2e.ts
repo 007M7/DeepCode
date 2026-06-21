@@ -53,8 +53,13 @@ async function pkgName(absDir: string): Promise<string> {
  * Build a temp consumer dir: `node_modules` with the workspace + vendor packages
  * symlinked in, a `src/` carrying the example mock backend, and a `cordis.yml`
  * that wires them onto the stdio app. Returns the dir (caller removes it).
+ *
+ * `disabledBrokenEntry` appends an entry that points at a non-existent plugin but
+ * is marked `disabled: true`. The Loader leaves a disabled entry fiber-less by
+ * design, so it exercises that the fail-loud entry-load guard does NOT mistake a
+ * valid disabled entry for a failed import.
  */
-async function makeConsumer(welcome: string): Promise<string> {
+async function makeConsumer(welcome: string, disabledBrokenEntry = false): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'stdio-built-bin-'))
   const nm = join(dir, 'node_modules')
   for (const rel of dshPackages) {
@@ -88,6 +93,9 @@ async function makeConsumer(welcome: string): Promise<string> {
     '    model: mock-echo',
     '    systemPrompt: \'demo\'',
     `    welcome: '${welcome}'`,
+    ...disabledBrokenEntry
+      ? ['- id: off', '  name: \'./src/does-not-exist.ts\'', '  disabled: true']
+      : [],
     '',
   ].join('\n'))
   return dir
@@ -139,6 +147,18 @@ describe.skipIf(!existsSync(stdioBin))('dsh-stdio-agent BUILT bin (node lib/bin.
     // exit 0 with empty stdout); the round-trip proves the whole app mounted.
     expect(stdout).toContain('BUILT-BIN-OK ready.')
     expect(stdout).toContain('[tool call] echo')
+    expect(stdout).toContain('[tool result] ECHO: HI')
+    expect(code).toBe(0)
+  }, 30_000)
+
+  it('boots cleanly when the config disables an (otherwise unresolvable) entry', async () => {
+    // A `disabled: true` entry settles without a fiber by design; the fail-loud
+    // entry-load guard must NOT mistake it for a failed import. Even though its
+    // plugin path does not exist, the app boots and the round-trip works.
+    consumer = await makeConsumer('DISABLED-OK ready.', true)
+    const { stdout, code, stderr } = await runBuiltBin(consumer, './cordis.yml', 'echo hi')
+    expect(stderr).not.toContain('failed to load')
+    expect(stdout).toContain('DISABLED-OK ready.')
     expect(stdout).toContain('[tool result] ECHO: HI')
     expect(code).toBe(0)
   }, 30_000)
