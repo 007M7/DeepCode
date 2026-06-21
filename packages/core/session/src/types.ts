@@ -88,7 +88,13 @@ export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap]
 export interface TurnEndReasonMap {
   completed: { kind: 'completed' }
   aborted: { kind: 'aborted'; reason?: string }
-  error: { kind: 'error'; message: string; code?: string }
+  /**
+   * The turn failed: a step threw or the model reported a failure. `step` is the
+   * step number the failure occurred on (the operational error's location — the
+   * single durable record of an in-turn failure; live diagnostics also fire via
+   * `agent/error`). `code` is the error's code when one was attached.
+   */
+  error: { kind: 'error'; step: number; message: string; code?: string }
   disposed: { kind: 'disposed' }
   'max-tokens': { kind: 'max-tokens' }
   /**
@@ -140,14 +146,17 @@ export interface SessionEventMap {
   'context/message': { content: ContentBlock[]; source: MessageSource }
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
-  /** Assembled assistant message for one step (derived history uses this). */
-  'assistant/message': { turn: number; step: number; content: ContentBlock[] }
+  /**
+   * Assembled assistant message for one step (derived history uses this).
+   * Carries the step's `usage` when the adapter reported token accounting, so
+   * the model output and its accounting travel together (there is no separate
+   * usage record). `usage` is absent when the adapter reported none.
+   */
+  'assistant/message': { turn: number; step: number; content: ContentBlock[]; usage?: TokenUsage }
   'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
   'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string } }
   /** Steering content injected between steps of a running turn. */
   'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
-  'usage': { turn: number; step: number; usage: TokenUsage }
-  'error': { turn: number; step: number; message: string; code?: string }
 }
 
 export type SessionEventType = keyof SessionEventMap

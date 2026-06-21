@@ -1,6 +1,6 @@
 # RFC: Fold trace-only session facts into load-bearing events
 
-Status: proposed
+Status: implemented (proposed and accepted 2026-06-20)
 
 ## Problem
 
@@ -31,3 +31,12 @@ If analytics become real, add a projection helper or a dedicated telemetry store
 ## What we give up
 
 A consumer can no longer filter the canonical log for standalone `usage` or step-level `error` rows. It must read those facts from the assistant/failure events that carry them. That is a reasonable simplification only if the implementing PR proves the same facts remain present; otherwise the standalone events should stay.
+
+## Implementation note
+
+Shipped as proposed, with two scope refinements (per AGENTS.md "RFCs are proposals, not golden truth"):
+
+- **No format-version bump.** The acceptance criterion "the session format version and recorded fixtures are refreshed" over-reached: the harness is pre-release with no persisted user data, so per the pre-release format policy there is nothing to migrate or reject. The session `version` stays `1`; only event shapes and recorded fixtures change. `turn/end.reason.error.step` is therefore optional-on-read for any hypothetical pre-existing log but guaranteed for newly-written ones — no migration shim.
+- **Empty-content `assistant/message` hosts usage with no data loss.** The proof the proposal demanded (no persisted usage chunk becomes unrepresented) lands on the max-tokens path: a step cut off with usage but empty content (e.g. only a dropped tool call) previously emitted a standalone `usage`. It now records an empty-content `assistant/message { content: [], usage }`. To keep that from injecting a spurious content-less assistant turn into the provider transcript, `deriveMessages()` skips empty-content `assistant/message` events. A regression test asserts usage stays represented AND derived history is uncorrupted.
+
+Usage is now observed on `assistant/message.usage`; an operational error's step on `turn/end.reason` for `kind: 'error'`. `agent/error` + logging are unchanged for live diagnostics.

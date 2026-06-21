@@ -24,6 +24,7 @@ const textContentArb = fc.array(
 const messageEventArb: fc.Arbitrary<Appendable> = fc.oneof(
   textContentArb.map((content): Appendable => ({ type: 'user/message', data: { content, source: { kind: 'user' } } })),
   textContentArb.map((content): Appendable => ({ type: 'assistant/message', data: { turn: 1, step: 1, content } })),
+  textContentArb.map((content): Appendable => ({ type: 'assistant/message', data: { turn: 1, step: 1, content, usage: { inputTokens: 1, outputTokens: 1 } } })),
   fc.record({ id: fc.string({ minLength: 1 }), content: textContentArb, isError: fc.boolean() })
     .map((r): Appendable => ({ type: 'tool/result', data: { turn: 1, step: 1, callId: CallId(r.id), content: r.content, isError: r.isError } })),
 )
@@ -35,8 +36,6 @@ const nonMessageEventArb: fc.Arbitrary<Appendable> = fc.oneof(
   fc.constant<Appendable>({ type: 'step/start', data: { turn: 1, step: 1 } }),
   fc.constant<Appendable>({ type: 'step/end', data: { turn: 1, step: 1 } }),
   fc.string().map((text): Appendable => ({ type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text } } })),
-  fc.constant<Appendable>({ type: 'usage', data: { turn: 1, step: 1, usage: { inputTokens: 1, outputTokens: 1 } } }),
-  fc.constant<Appendable>({ type: 'error', data: { turn: 1, step: 1, message: 'x' } }),
 )
 
 const anyEventArb = fc.oneof(messageEventArb, nonMessageEventArb)

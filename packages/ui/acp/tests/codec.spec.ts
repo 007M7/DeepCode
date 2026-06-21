@@ -16,7 +16,7 @@ describe('turnEndToStopReason', () => {
     expect(turnEndToStopReason({ kind: 'max-tokens' })).toBe('max_tokens')
     expect(turnEndToStopReason({ kind: 'aborted', reason: 'x' })).toBe('cancelled')
     expect(turnEndToStopReason({ kind: 'disposed' })).toBe('cancelled')
-    expect(turnEndToStopReason({ kind: 'error', message: 'boom' })).toBe('end_turn')
+    expect(turnEndToStopReason({ kind: 'error', step: 1, message: 'boom' })).toBe('end_turn')
   })
 
   it('falls back to end_turn for an unknown (merge-extensible) future kind', () => {

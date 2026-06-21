@@ -95,14 +95,12 @@ describe('session-log invariants', () => {
       .toThrow(/outside any open turn/)
   })
 
-  it('rejects usage/error and plugin-added events appended outside any open turn', async () => {
+  it('rejects steering and plugin-added events appended outside any open turn', async () => {
     const { ctx } = await setup({ freeze: false })
     const session = ctx.sessions.create()
-    // usage and error are turn-scoped: outside a turn they would land past the
+    // steering/message is turn-scoped: outside a turn it would land past the
     // commit boundary and be dropped on resume (the turn-enclosure RFC).
-    expect(() => session.append('usage', { turn: 1, step: 1, usage: { inputTokens: 1, outputTokens: 1 } }))
-      .toThrow(/outside any open turn/)
-    expect(() => session.append('error', { turn: 1, step: 1, message: 'boom' }))
+    expect(() => session.append('steering/message', { turn: 1, content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
       .toThrow(/outside any open turn/)
     // A PLUGIN-added (merge-extensible) event type is caught by the default too.
     expect(() => session.append('compaction/marker' as never, { foo: 'bar' } as never))
@@ -156,7 +154,7 @@ describe('session-log invariants', () => {
       session.append('step/start', { turn: 1, step: 1 })
       session.append('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'echo', arguments: '{}' })
       session.append('step/end', { turn: 1, step: 1 })
-      session.append('turn/end', { turn: 1, reason: { kind: 'error', message: 'boom' } })
+      session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, message: 'boom' } })
     }).not.toThrow()
   })
 

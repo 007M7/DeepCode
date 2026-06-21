@@ -160,7 +160,10 @@ export class Session {
    *
    * - `user/message` → user message
    * - `assistant/message` → assistant message (chunks are skipped — they are
-   *   replay/UI data; the assembled message is authoritative for history)
+   *   replay/UI data; the assembled message is authoritative for history). An
+   *   EMPTY-content assistant/message is skipped: a max-tokens step cut off with
+   *   no content still records an assistant/message to host its `usage`, but a
+   *   content-less assistant turn must not enter the provider transcript.
    * - `tool/result` → user message carrying a tool-result block
    * - `context/message` / `steering/message` → tagged synthetic user messages
    *   at their chronological position
@@ -186,6 +189,10 @@ export class Session {
           break
         }
         case 'assistant/message': {
+          // Skip an empty-content assistant/message: it exists only to host a
+          // max-tokens step's usage and must not inject a content-less assistant
+          // turn into the provider transcript.
+          if (event.data.content.length === 0) break
           messages.push({ role: 'assistant', content: structuredClone(event.data.content) })
           break
         }

@@ -83,7 +83,7 @@ Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta
 A `Session` is an append-only log of typed `SessionEvent`s — the single source of truth. The LLM message history is *derived* from the log (`deriveMessages()`):
 
 - `user/message` → user message
-- `assistant/message` → assistant message (raw `assistant/chunk` events are replay/UI data and are skipped in derivation)
+- `assistant/message` → assistant message (raw `assistant/chunk` events are replay/UI data and are skipped in derivation; an empty-content `assistant/message`, which exists only to host a max-tokens step's `usage`, is skipped too)
 - `tool/result` → user message carrying a `tool-result` block
 - `context/message`, `steering/message` → user-role messages wrapped in a tagged envelope (`<context source="…">…</context>`) at their chronological position — the "system-reminder" pattern; models distinguish them from real user prompts by the envelope. **TODO(review)**: the real adapters now exist (the original precondition); the envelope still wants a deliberate review against live model behavior (`TODO(review)` in dsh-session).
 
@@ -142,7 +142,7 @@ forever:
                                                          step error (turn ends error/aborted,
                                                          not a normal completed message)
       msg = waterfall agent/step-result               ⟵ runs BEFORE the log append, so the
-      session('assistant/message', 'usage')              log records what tool dispatch uses
+      session('assistant/message' {content, usage?})     log records what tool dispatch uses
       each tool-call (sequential, abort-checked between calls):
         session('tool/call'); ctx.tools.execute()     ⟵ waterfall tools/execute
         session('tool/result')
@@ -158,11 +158,11 @@ forever:
   emit agent/status(idle) unless more queued
 ```
 
-Error containment: a throwing `agent/turn-continuation` listener or a broken step ends the **turn** with an `error` event (appended INSIDE the turn, before `turn/end`) — never the driver loop. An adapter that ends its stream with a `finish {kind:'error'}` or `{kind:'aborted'}` chunk (the in-band error path, for adapters that can't throw mid-stream) is likewise translated into a step error, so the turn ends `error`/`aborted` instead of logging a normal `completed` assistant message. A `cancel()` is honored mid-stream **and** between tool calls; disposal mid-turn ends the turn with reason `disposed` and emits `agent/status('disposed')`.
+Error containment: a throwing `agent/turn-continuation` listener or a broken step ends the **turn** with `turn/end { reason: { kind: 'error', step, message, code? } }` — the failure's step number rides on the durable turn reason (there is no separate session `error` event); live diagnostics fire via `agent/error`. Never the driver loop. An adapter that ends its stream with a `finish {kind:'error'}` or `{kind:'aborted'}` chunk (the in-band error path, for adapters that can't throw mid-stream) is likewise translated into a step error, so the turn ends `error`/`aborted` instead of logging a normal `completed` assistant message. A `cancel()` is honored mid-stream **and** between tool calls; disposal mid-turn ends the turn with reason `disposed` and emits `agent/status('disposed')`.
 
 Turn-end reasons: a turn ends with one `TurnEndReason` — `completed`, `aborted`, `error`, `disposed`, or `max-tokens`. `max-tokens` mirrors the model-call `FinishReason` of the same name (DeepSeek's `length`): a step that hit the output-token ceiling makes the turn end `max-tokens` rather than `completed`, by the rule *any `max-tokens` step in the turn surfaces as `max-tokens`* (a continuation plugin may run further steps after one, but the cut-short fact wins; the `disposed`/`aborted`/`error` outcomes still take precedence). This lets a consumer distinguish a clean stop from a truncated one (the ACP bridge maps it to the `max_tokens` stop reason). `TurnEndReason` is merge-extensible; `refusal` and `max_turn_requests` are the next variants to add when an adapter/loop first emits them.
 
-A failure that happens once the turn is already closed has no in-turn position for a session `error` event (appending one after `turn/end` would put it past the persistence commit boundary, where it is dropped as a crash tail — [the turn-enclosure invariant](rfc/implemented/architecture/2026-06-15-turn-enclosure-invariant.md)). So a rejecting `session/flush` (the post-`turn/end` durability checkpoint) and a throwing `agent/turn-end` listener are reported via `agent/error` + the logger only, NOT as a session event; the turn stays balanced and the persistence backend keeps its buffered events for the next flush.
+A failure that happens once the turn is already closed has no in-turn position for a turn-end error reason (the turn already ended). So a rejecting `session/flush` (the post-`turn/end` durability checkpoint) and a throwing `agent/turn-end` listener are reported via `agent/error` + the logger only, NOT as a session event; the turn stays balanced and the persistence backend keeps its buffered events for the next flush.
 
 **Turn-enclosure invariant**: every session event lives inside a turn (between a `turn/start` and its `turn/end`). The loop appends queued `user/message` events *after* `turn/start`, and an idle `agent.inject()` wraps its `context/message` in a one-shot `injection` turn. This makes the turn the single durability/replay boundary: a persistence backend can treat anything after the last `turn/end` as an interrupted-crash tail without risking the loss of legitimately-recorded between-turn context. The `dsh-invariants` plugin enforces it in dev (a message event outside an open turn throws). See [the turn-enclosure invariant](rfc/implemented/architecture/2026-06-15-turn-enclosure-invariant.md).
 

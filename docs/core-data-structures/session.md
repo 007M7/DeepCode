@@ -24,14 +24,17 @@ interface SessionEventMap {
   'context/message': { content: ContentBlock[]; source: MessageSource }
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
-  /** Assembled assistant message for one step (derived history uses this). */
-  'assistant/message': { turn: number; step: number; content: ContentBlock[] }
+  /**
+   * Assembled assistant message for one step (derived history uses this).
+   * Carries the step's `usage` when the adapter reported token accounting, so
+   * the model output and its accounting travel together (there is no separate
+   * usage record). `usage` is absent when the adapter reported none.
+   */
+  'assistant/message': { turn: number; step: number; content: ContentBlock[]; usage?: TokenUsage }
   'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
   'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string } }
   /** Steering content injected between steps of a running turn. */
   'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
-  'usage': { turn: number; step: number; usage: TokenUsage }
-  'error': { turn: number; step: number; message: string; code?: string }
 }
 ```
 
@@ -59,11 +62,11 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 `Session.deriveMessages()` projects the event log into the `Message[]` the model sees. The projection rules:
 
 - `user/message` → a user message.
-- `assistant/message` → an assistant message. Raw `assistant/chunk` events are replay/UI data and are **skipped** in derivation (the assembled message is authoritative).
+- `assistant/message` → an assistant message. Raw `assistant/chunk` events are replay/UI data and are **skipped** in derivation (the assembled message is authoritative). An **empty-content** `assistant/message` is also skipped — a max-tokens step cut off with no content still records an `assistant/message` to host its `usage`, but a content-less assistant turn must not enter the provider transcript.
 - `tool/result` → a user message carrying a `tool-result` block.
 - `context/message`, `steering/message` → user-role messages wrapped in a tagged envelope (`<context source="…">…</context>`) at their chronological position — the "system-reminder" pattern; the model distinguishes them from real prompts by the envelope.
 
-Everything else (`turn/*`, `step/*`, `usage`, `error`) is structural/telemetry and does not project into a message.
+Everything else (`turn/*`, `step/*`) is structural and does not project into a message. Token usage is observed on `assistant/message.usage` (the step that produced it); an operational error's step number is on `turn/end.reason` for `kind: 'error'`.
 
 ## What started a turn: `TurnTriggerMap`
 
@@ -89,7 +92,13 @@ interface TurnTriggerMap {
 interface TurnEndReasonMap {
   completed: { kind: 'completed' }
   aborted: { kind: 'aborted'; reason?: string }
-  error: { kind: 'error'; message: string; code?: string }
+  /**
+   * The turn failed: a step threw or the model reported a failure. `step` is the
+   * step number the failure occurred on (the operational error's location — the
+   * single durable record of an in-turn failure; live diagnostics also fire via
+   * `agent/error`). `code` is the error's code when one was attached.
+   */
+  error: { kind: 'error'; step: number; message: string; code?: string }
   disposed: { kind: 'disposed' }
   'max-tokens': { kind: 'max-tokens' }
   /**
