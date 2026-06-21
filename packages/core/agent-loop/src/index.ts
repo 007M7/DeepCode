@@ -121,10 +121,6 @@ export class AgentLoop extends Service implements AgentFactory {
    * deliberate resume-or-create policy (resume the prior session if one exists,
    * else start fresh) or an explicit caller-chosen session id — revisit when the
    * UI/ACP path owns session selection.
-   *
-   * TODO(sub-agents): spawn/fork land here — accept a parent agent reference;
-   * fork seeds the new Session with the parent's event log, spawn starts
-   * fresh; the child is returned as a regular Agent handle.
    */
   create(id: AgentId, options: AgentOptions = {}): ReactLoopAgent {
     this.assertAgentIdFree(id)

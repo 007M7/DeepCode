@@ -99,6 +99,11 @@ export function startInProcessRun(
   }
 
   const childId = AgentId(randomUUID())
+  // The child's OWN events begin after the seed (fork seeds the parent's
+  // completed-turn prefix; spawn seeds nothing). `readResult` scopes to this
+  // boundary so a child that produces no message of its own never returns the
+  // SEEDED parent's last assistant message as its result.
+  const seedLength = options.seed?.length ?? 0
   const parentHeader = request.parent.session.header
   // Inherit the parent's model by default (a child with no model cannot run);
   // an explicit `request.agentOptions.model` overrides it. The parent's
@@ -124,14 +129,23 @@ export function startInProcessRun(
 
   // Bridge the request's abort signal to the child (the consumer also bridges
   // its own exec.signal, but a backend-level bridge keeps the contract local).
-  const onAbort = (): void => { child.cancel('subagent cancelled') }
+  // `cancelled` records that a cancel was requested at all, so the pre-turn
+  // cancel window — where the child clears the queued prompt before any
+  // `turn/end` is logged — settles as `aborted` (honoring the cancel contract)
+  // rather than falling through to the no-turn `error` mapping.
+  let cancelled = false
+  const requestCancel = (reason: string): void => {
+    cancelled = true
+    child.cancel(reason)
+  }
+  const onAbort = (): void => { requestCancel('subagent cancelled') }
   request.signal?.addEventListener('abort', onAbort, { once: true })
 
   const result: Promise<SubagentResult> = (async () => {
     try {
       child.send(request.prompt)
       await child.whenIdle()
-      return readResult(child)
+      return readResult(child, seedLength, cancelled)
     } finally {
       request.signal?.removeEventListener('abort', onAbort)
     }
@@ -141,7 +155,7 @@ export function startInProcessRun(
     id: childId,
     result,
     cancel(reason?: string): void {
-      child.cancel(reason ?? 'subagent cancelled')
+      requestCancel(reason ?? 'subagent cancelled')
     },
     async dispose(): Promise<void> {
       request.signal?.removeEventListener('abort', onAbort)
@@ -151,14 +165,22 @@ export function startInProcessRun(
 }
 
 /**
- * Read a settled child's terminal result from its session log: the last
- * `assistant/message` content (deep-cloned — the log is frozen) and the last
- * `turn/end` reason mapped to a {@link SubagentStopReason}.
+ * Read a settled child's terminal result from its session log, scoped to the
+ * child's OWN events (everything at or after `seedLength` — fork seeds the
+ * parent's completed-turn prefix, so a child that produced no message of its
+ * own must NOT return the seeded parent's last assistant message). The output
+ * is the child's last `assistant/message` content (deep-cloned — the log is
+ * frozen); the stop reason is the child's last `turn/end` reason mapped to a
+ * {@link SubagentStopReason}. When `cancelled` is set but no `turn/end` was
+ * logged (a cancel landed in the pre-turn window, before any turn ran), the
+ * run settles `aborted` per the {@link SubagentRun.cancel} contract rather than
+ * the generic no-turn `error`.
  */
-function readResult(child: Agent): SubagentResult {
-  const events = child.session.events
-  const lastMessage = events.findLast((e): e is SessionEvent<'assistant/message'> => e.type === 'assistant/message')
-  const lastEnd = events.findLast((e): e is SessionEvent<'turn/end'> => e.type === 'turn/end')
+function readResult(child: Agent, seedLength: number, cancelled: boolean): SubagentResult {
+  const own = child.session.events.slice(seedLength)
+  const lastMessage = own.findLast((e): e is SessionEvent<'assistant/message'> => e.type === 'assistant/message')
+  const lastEnd = own.findLast((e): e is SessionEvent<'turn/end'> => e.type === 'turn/end')
   const output: ContentBlock[] = lastMessage ? structuredClone(lastMessage.data.content) : []
+  if (lastEnd === undefined && cancelled) return { output, stopReason: 'aborted' }
   return { output, stopReason: toStopReason(lastEnd?.data.reason) }
 }

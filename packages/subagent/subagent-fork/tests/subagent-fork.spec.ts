@@ -10,10 +10,15 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as fork from '../src/index.ts'
 import { completedTurnPrefix } from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
+
+/** A bare `stop` finish that streams no content → the turn ends `completed`
+ * with NO `assistant/message` of its own. */
+const emptyStop: StreamChunk[] = [{ type: 'finish', reason: { kind: 'stop' } }]
 
 /**
  * Drives the REAL fork backend with a real loop + scripted mock MODEL + the
@@ -129,6 +134,26 @@ describe('dsh-subagent-fork', () => {
     expect(seedTurnEnds.length).toBe(2)
 
     parent.cancel()
+    await run.dispose()
+  })
+
+  it('does NOT return the seeded parent output when the child produces no message of its own', async () => {
+    // Regression: readResult must scope to the child's OWN events (after the
+    // seed). The parent completes a turn with a distinctive assistant message,
+    // then the fork child's own turn finishes with a bare `stop` and NO
+    // assistant/message. Scanning the whole (seeded) log would return the
+    // parent's "parent stale" message with stopReason 'completed'; scoped to the
+    // child's own events the output is empty.
+    const { ctx, parent } = await setup([textResponse('parent stale'), emptyStop])
+    parent.send([{ type: 'text', text: 'parent question' }])
+    await parent.whenIdle()
+
+    const run = ctx.subagents.start('fork', { prompt: [{ type: 'text', text: 'child question' }], parent })
+    const result = await run.result
+    // The child completed its own (empty) turn — completed, but with NO output
+    // borrowed from the seeded parent prefix.
+    expect(result.stopReason).toBe('completed')
+    expect(result.output).toEqual([])
     await run.dispose()
   })
 

@@ -273,11 +273,12 @@ interface Agent {
    */
   whenIdle(): Promise<void>
 
-  // TODO(sub-agents): spawn/fork seams — semantics deliberately deferred.
-  // The intended shape: a creation option referencing a parent agent
-  // (fork = seed the child Session with the parent's event log; spawn =
-  // fresh Session), with the child returned as an Agent handle so steer()
-  // and event subscription work uniformly. See docs/architecture.md.
+  // Subagent delegation is realized on top of this interface by the
+  // `@deepseek-ai/dsh-subagent` seam, not by a method here: a backend creates
+  // the child through `ctx.agents.create` (fork seeds the child Session with a
+  // balanced prefix of the parent's log via `CreateAgentOptions.seed`; spawn
+  // starts fresh) and drives it as an ordinary Agent handle, so steer() and
+  // event subscription work uniformly. See docs/core-data-structures/subagent.md.
 }
 ```
 

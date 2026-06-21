@@ -128,6 +128,22 @@ describe('dsh-subagent-spawn', () => {
     await run.dispose()
   })
 
+  it('cancelling BEFORE the child turn starts settles aborted, not error', async () => {
+    // Regression: a cancel landing in the pre-turn window clears the queued
+    // prompt before any `turn/end` is logged. Deriving the stop reason from
+    // `turn/end` alone then mis-maps the no-turn case to `error`; the run must
+    // honor the cancel contract and settle `aborted`. The cancel is synchronous
+    // (same tick as start, before the loop's queued-wait continuation runs), so
+    // the turn is dropped and the empty script is never consumed.
+    const { ctx, parent } = await setup([])
+    const run = ctx.subagents.start('spawn', { prompt: [{ type: 'text', text: 'p' }], parent })
+    run.cancel('early')
+    const result = await run.result
+    expect(result.stopReason).toBe('aborted')
+    expect(result.output).toEqual([])
+    await run.dispose()
+  })
+
   it('cancelling a running child settles the run as aborted (the abort bridge + cancel())', async () => {
     // 'hang' makes the child's model stream one chunk then wait until aborted.
     const controller = new AbortController()

@@ -44,7 +44,7 @@
     # under ./.sessions); unset starts a fresh session each run.
     resumeSessionId: !!js process.env.RESUME_SESSION_ID
     persistenceRoot: './.sessions'
-    welcome: 'coding-agent ready. Give it a coding task (bash is its only tool).'
+    welcome: 'coding-agent ready. Give it a coding task (its tools are bash and subagent).'
     systemPrompt: |
       You are coding-agent, a CLI coding assistant.
 

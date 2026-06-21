@@ -70,7 +70,7 @@ declare module 'cordis' {
 export interface SubagentRunInfo {
   /** The provider that started the run. */
   provider: string
-  /** The child agent/session id. */
+  /** The child agent's id. */
   id: AgentId
 }
 
@@ -78,7 +78,7 @@ export interface SubagentRunInfo {
 export interface SubagentRunEndInfo {
   /** The provider that ran it. */
   provider: string
-  /** The child agent/session id. */
+  /** The child agent's id. */
   id: AgentId
   /** The terminal stop reason. */
   stopReason: SubagentResult['stopReason']
