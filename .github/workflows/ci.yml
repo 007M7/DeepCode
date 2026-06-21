@@ -81,7 +81,7 @@ jobs:
       - name: Demo smoke test
         run: |
           set -euo pipefail
-          out=$(printf 'echo ci smoke\n' | timeout 60 node --expose-internals --import tsx examples/echo-agent/start.ts 2>&1)
+          out=$(printf 'echo ci smoke\n' | timeout 60 pnpm run demo:echo 2>&1)
           echo "$out"
           echo "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
           echo "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
