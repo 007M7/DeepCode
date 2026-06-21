@@ -56,7 +56,7 @@ The `dsh-tool-subagent` consumer awaits `run.result` and returns the child's fin
 
 ### Provider selection is config, not model-facing
 
-`dsh-tool-subagent` binds to exactly one provider name (`Config.provider`); the model sees only `{ description, prompt }`. To expose more than one transport, load the tool plugin more than once, each bound to a different provider. The *service* holds the multi-provider registry; the *tool* picks one — no provider/type parameter in the schema this cut.
+`dsh-tool-subagent` binds to exactly one provider name (`Config.provider`); the model sees only `{ description, prompt }`. To expose more than one transport, load the tool plugin more than once, each bound to a different provider and a distinct `toolName` (the tool registry rejects a duplicate name). The *service* holds the multi-provider registry; the *tool* picks one — no provider/type parameter in the schema this cut.
 
 ## Plan (three PRs, each converged with Codex separately)
 

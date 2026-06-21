@@ -45,6 +45,12 @@ describe('dsh-subagent-mock', () => {
     await expect(run.result).resolves.toMatchObject({ structured: { answer: 42 } })
   })
 
+  it('defaults structured output to { reply } when outputSchema is requested but no structured value is configured', async () => {
+    const ctx = await mount({ reply: 'fallback reply' })
+    const run = ctx.subagents.start('mock', baseRequest({ outputSchema: { answer: { type: 'number' } } }))
+    await expect(run.result).resolves.toMatchObject({ structured: { reply: 'fallback reply' } })
+  })
+
   it('omits structured output when outputSchema capability is off', async () => {
     const ctx = await mount({ capabilities: { outputSchema: false } })
     // The service rejects an outputSchema request against a no-cap provider, so

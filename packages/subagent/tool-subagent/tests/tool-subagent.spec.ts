@@ -68,11 +68,121 @@ describe('dsh-tool-subagent', () => {
     expect(Object.keys(props).sort()).toEqual(['description', 'prompt'])
   })
 
-  it('maps a non-completed stop reason to an isError result (not partial success)', async () => {
-    const ctx = await setup({ provider: 'mock' }, { stopReason: 'refusal' })
+  it.each([
+    { stopReason: 'aborted' as const, fragment: 'cancelled' },
+    { stopReason: 'error' as const, fragment: 'failed' },
+    { stopReason: 'max-tokens' as const, fragment: 'token limit' },
+    { stopReason: 'refusal' as const, fragment: 'declined' },
+  ])('maps stop reason $stopReason to an isError result (not partial success)', async ({ stopReason, fragment }) => {
+    const ctx = await setup({ provider: 'mock' }, { stopReason })
     const result = await callSubagent(ctx, { description: 'd', prompt: 'p' })
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('declined')
+    expect(text(result)).toContain(fragment)
+  })
+
+  it('registers under a configurable toolName so multiple providers can coexist', async () => {
+    // The defining multi-provider use case: two loads, two distinct tool names,
+    // each bound to a different provider — the tool registry rejects duplicate
+    // names, so a configurable name is what makes this work.
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    await ctx.plugin(mock, { name: 'spawn', reply: 'from spawn' })
+    await ctx.plugin(mock, { name: 'acp', reply: 'from acp' })
+    await ctx.plugin(tool, { provider: 'spawn', toolName: 'subagent' })
+    await ctx.plugin(tool, { provider: 'acp', toolName: 'subagent_acp' })
+
+    const names = ctx.tools.schemas().map(s => s.name).filter(n => n.startsWith('subagent')).sort()
+    expect(names).toEqual(['subagent', 'subagent_acp'])
+
+    const viaSpawn = await ctx.tools.execute({ callId: CallId('c-spawn'), name: 'subagent', arguments: { description: 'd', prompt: 'p' }, agent: fakeAgent() })
+    const viaAcp = await ctx.tools.execute({ callId: CallId('c-acp'), name: 'subagent_acp', arguments: { description: 'd', prompt: 'p' }, agent: fakeAgent() })
+    expect(text(viaSpawn)).toBe('from spawn')
+    expect(text(viaAcp)).toBe('from acp')
+  })
+
+  it('treats an unknown (plugin-added) stop reason as an isError result', async () => {
+    // SubagentStopReason is merge-extensible; the tool's stopReasonError default
+    // arm must treat an unrecognized terminal reason as a failure, not success.
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'weird',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      start: () => ({
+        id: AgentId('weird-child'),
+        result: Promise.resolve({ output: [{ type: 'text', text: 'partial' }], stopReason: 'frobnicated' as never }),
+        cancel() {},
+        dispose: async () => {},
+      }),
+    })
+    await ctx.plugin(tool, { provider: 'weird' })
+
+    const result = await callSubagent(ctx, { description: 'd', prompt: 'p' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('abnormally')
+  })
+
+  it('forwards configured agentOptions into the start request', async () => {
+    // Cover the `config.agentOptions ? … : {}` spread: a provider that captures
+    // the request lets us assert the agentOptions reached it.
+    let seen: { agentOptions?: { model?: string } } | undefined
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'capture',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      start: (request) => {
+        seen = request
+        return {
+          id: AgentId('capture-child'),
+          result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
+          cancel() {},
+          dispose: async () => {},
+        }
+      },
+    })
+    await ctx.plugin(tool, { provider: 'capture', agentOptions: { model: 'child-model', systemPrompt: 'be terse' } })
+
+    await callSubagent(ctx, { description: 'd', prompt: 'p' })
+    expect(seen?.agentOptions).toEqual({ model: 'child-model', systemPrompt: 'be terse' })
+  })
+
+  it('defaults toolName and omits agentOptions when apply() is called directly (schema bypass)', async () => {
+    // `ctx.plugin` validates+defaults config first (toolName→'subagent', the
+    // agentOptions object→{}), so the runtime `?? 'subagent'` fallback and the
+    // no-agentOptions branch are only reachable via a direct apply() that
+    // bypasses schemastery — the same pattern acp-agent uses for its defaults.
+    let seen: { agentOptions?: unknown } | undefined
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'bare',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      start: (request) => {
+        seen = request
+        return {
+          id: AgentId('bare-child'),
+          result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
+          cancel() {},
+          dispose: async () => {},
+        }
+      },
+    })
+    // Direct apply with only `provider` — no toolName, no agentOptions.
+    tool.apply(ctx, { provider: 'bare' })
+    await new Promise(r => setTimeout(r, 10))
+
+    expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(true)
+    await callSubagent(ctx, { description: 'd', prompt: 'p' })
+    expect(seen?.agentOptions).toBeUndefined()
   })
 
   it('fails loud when invoked without a calling agent', async () => {

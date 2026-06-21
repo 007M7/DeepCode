@@ -173,6 +173,60 @@ describe('SubagentService', () => {
     expect(ended).toHaveBeenCalledWith(expect.objectContaining({ provider: 'events', id: run.id, stopReason: 'completed' }))
   })
 
+  it('emits subagent/end with stopReason "error" when the run result promise rejects', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    // A provider whose run.result REJECTS (an infrastructure fault — the seam
+    // contract says child-level failures resolve with stopReason 'error', but a
+    // rejection is still surfaced as an 'error' telemetry event).
+    ctx.subagents.registerProvider({
+      name: 'rejecter',
+      capabilities: NO_CAPS,
+      start: () => ({
+        id: AgentId('rej-child'),
+        result: Promise.reject(new Error('infra fault')),
+        cancel() {},
+        dispose: async () => {},
+      }),
+    })
+
+    const ended = vi.fn()
+    ctx.on('subagent/end', ended)
+    const run = ctx.subagents.start('rejecter', baseRequest())
+    // Observe (and swallow) the rejection the consumer would see, then let the
+    // detached `.then` settle the telemetry emit.
+    await run.result.catch(() => {})
+    await Promise.resolve()
+    expect(ended).toHaveBeenCalledWith(expect.objectContaining({ provider: 'rejecter', id: run.id, stopReason: 'error' }))
+  })
+
+  it('contains a throwing subagent/start listener so start() still returns the run', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider(new StubProvider('contain'))
+    // A bad subscriber must not strand the live run: start() returns it anyway.
+    ctx.on('subagent/start', () => { throw new Error('bad start listener') })
+
+    const run = ctx.subagents.start('contain', baseRequest())
+    expect(run.id).toBeDefined()
+    await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
+  })
+
+  it('contains a throwing subagent/end listener (no unhandled rejection on the settle hook)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider(new StubProvider('contain-end'))
+    ctx.on('subagent/end', () => { throw new Error('bad end listener') })
+
+    const run = ctx.subagents.start('contain-end', baseRequest())
+    await run.result
+    // Let the detached `.then` + the contained emit run; a thrown listener here
+    // must be swallowed (logged), not escape as an unhandled rejection.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(run.id).toBeDefined()
+  })
+
   it('SubagentError extends the shared HarnessError base', () => {
     const err = new SubagentError('boom', 'NO_PROVIDER')
     expect(err).toBeInstanceOf(HarnessError)

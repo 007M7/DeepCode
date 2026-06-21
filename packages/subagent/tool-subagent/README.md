@@ -4,11 +4,12 @@ The model-facing `subagent` tool: delegate a self-contained task to a child agen
 
 ## Provider selection is config, not model-facing
 
-This plugin binds to **exactly one** provider (`Config.provider`). The model sees only `{ description, prompt }` — there is no provider/type parameter in the schema. To expose more than one transport, load the plugin more than once, each bound to a different provider. Keeping selection in config (not the schema) is the deliberate split: the *service* holds a multi-provider registry; the *tool* picks one.
+This plugin binds to **exactly one** provider (`Config.provider`). The model sees only `{ description, prompt }` — there is no provider/type parameter in the schema. To expose more than one transport, load the plugin more than once, each bound to a different provider **and a distinct `toolName`** (the tool registry rejects a duplicate name, so a second load that kept the default `subagent` name would throw). Keeping selection in config (not the schema) is the deliberate split: the *service* holds a multi-provider registry; the *tool* picks one.
 
 | Config key | Meaning |
 |---|---|
 | `provider` (required) | The `ctx.subagents` provider name to start runs on (`spawn`, `fork`, `acp`, …). |
+| `toolName` | The model-facing tool name to register (default `subagent`). Set a distinct value per load when exposing multiple providers, e.g. `subagent` + `subagent_acp`. |
 | `agentOptions` | Default per-child `{ model?, systemPrompt? }` applied to every spawned child. |
 
 ## Lifecycle (synchronous collect)

@@ -153,17 +153,49 @@ export class SubagentService extends Service {
     this.assertCapabilities(provider, request)
 
     const run = provider.start(request)
-    this.ctx.emit('subagent/start', { provider: name, id: run.id })
+    // CONTAIN lifecycle-listener throws: the run is already live, so a throwing
+    // `subagent/start` listener must NOT escape `start()` (the caller would
+    // never receive the run to dispose it — a leaked child). Emit defensively
+    // and log a thrown listener, mirroring the agent registry's `agent/created`
+    // /`agent/disposed` containment.
+    this.emitContainedStart({ provider: name, id: run.id })
     // Emit `subagent/end` when the run settles. The result promise does not
     // reject on a child-level failure (it resolves with stopReason 'error'),
     // so a rejection here is an infrastructure fault — surface its stop reason
     // as 'error' for the telemetry event without swallowing the rejection
-    // (the consumer still observes it via `run.result`).
+    // (the consumer still observes it via `run.result`). Containment also keeps
+    // a thrown `subagent/end` listener from becoming an unhandled rejection on
+    // this detached `.then`.
     void run.result.then(
-      (result) => { this.ctx.emit('subagent/end', { provider: name, id: run.id, stopReason: result.stopReason }) },
-      () => { this.ctx.emit('subagent/end', { provider: name, id: run.id, stopReason: 'error' }) },
+      (result) => { this.emitContainedEnd({ provider: name, id: run.id, stopReason: result.stopReason }) },
+      () => { this.emitContainedEnd({ provider: name, id: run.id, stopReason: 'error' }) },
     )
     return run
+  }
+
+  /**
+   * Emit `subagent/start`, containing a thrown listener (log, never propagate)
+   * so one bad subscriber cannot strand the already-live run before the caller
+   * receives it to dispose.
+   */
+  private emitContainedStart(info: SubagentRunInfo): void {
+    try {
+      this.ctx.emit('subagent/start', info)
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`subagent: subagent/start listener threw: ${String(error)}`)
+    }
+  }
+
+  /**
+   * Emit `subagent/end`, containing a thrown listener so it cannot surface as an
+   * unhandled rejection on the detached result-settle hook.
+   */
+  private emitContainedEnd(info: SubagentRunEndInfo): void {
+    try {
+      this.ctx.emit('subagent/end', info)
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`subagent: subagent/end listener threw: ${String(error)}`)
+    }
   }
 
   /**

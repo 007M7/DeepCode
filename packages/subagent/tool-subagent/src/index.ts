@@ -36,6 +36,14 @@ export interface Config {
   /** The `ctx.subagents` provider name to start runs on (e.g. `spawn`, `acp`). */
   provider: string
   /**
+   * The model-facing tool name to register (default `subagent`). To expose more
+   * than one transport, load this plugin once per provider — each load MUST set
+   * a distinct `toolName` (the tool registry rejects a duplicate name), e.g.
+   * `{ provider: 'spawn', toolName: 'subagent' }` and
+   * `{ provider: 'acp', toolName: 'subagent_acp' }`.
+   */
+  toolName?: string
+  /**
    * Default per-child agent options (model, system prompt) applied to every
    * spawned child. Omitted fields fall back to the child loop's own defaults.
    */
@@ -44,6 +52,7 @@ export interface Config {
 
 export const Config: z<Config> = z.object({
   provider: z.string().required(),
+  toolName: z.string().default('subagent'),
   agentOptions: z.object({
     model: z.string(),
     systemPrompt: z.string(),
@@ -85,7 +94,7 @@ function stopReasonError(result: SubagentResult): string | undefined {
 
 export function apply(ctx: Context, config: Config): void {
   ctx.tools.register(defineTool({
-    name: 'subagent',
+    name: config.toolName ?? 'subagent',
     description:
       'Delegate a self-contained task to a subagent (a separate agent that works in its own context) '
       + 'and return its final result. Use this to offload focused, independent work — research, a scoped '
