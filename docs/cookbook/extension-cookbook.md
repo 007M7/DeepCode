@@ -38,6 +38,7 @@ A UI plugin consumes `agent/stream-chunk` and session events for rendering, and 
 
 ```ts
 import type { Context } from 'cordis'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 
 declare function render(text: string): void
 declare function onUserInput(handler: (text: string) => void): void
@@ -49,7 +50,7 @@ export function apply(ctx: Context) {
   ctx.on('agent/stream-chunk', (agent, turn, step, chunk) => {
     if (chunk.type === 'text-delta') render(chunk.text)
   })
-  onUserInput(text => ctx.agents.get('main')?.send([{ type: 'text', text }]))
+  onUserInput(text => ctx.agents.get(AgentId('main'))?.send([{ type: 'text', text }]))
 }
 ```
 

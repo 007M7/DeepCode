@@ -20,9 +20,11 @@
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
+    "@deepseek-ai/dsh-brand": "^0.0.1",
     "cordis": "^4.0.0-rc.6"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-brand": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }
 }

@@ -274,8 +274,8 @@ describe('SessionPersistenceJsonl: write path (session/event → flush)', () => 
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionPersistenceJsonl, { root })
 
-    const a = ctx.sessions.create('sa')
-    const b = ctx.sessions.create('sb')
+    const a = ctx.sessions.create(SessionId('sa'))
+    const b = ctx.sessions.create(SessionId('sb'))
     a.append('user/message', { content: [{ type: 'text', text: 'A' }], source: { kind: 'user' } })
     b.append('user/message', { content: [{ type: 'text', text: 'B' }], source: { kind: 'user' } })
     a.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -451,7 +451,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
   it('a DIFFERENT live session object reusing a disposed id gets its own init (no stale cache)', async () => {
     // Session A materializes a log under id "reuse".
     const sessFiberA = await ctx.plugin(Object.assign((inner: Context) => {
-      const a = inner.sessions.create('reuse', { meta: { cwd: '/a' } })
+      const a = inner.sessions.create(SessionId('reuse'), { meta: { cwd: '/a' } })
       for (const e of oneTurnLog()) a.append(e.type, e.data)
     }, { inject: ['sessions'] }))
     // Drain A, then dispose ITS fiber (the live session A is gone) while the
@@ -466,7 +466,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     let b!: Session
     await ctx.plugin(Object.assign((inner: Context) => {
-      b = inner.sessions.create('reuse', { meta: { cwd: '/a' } })
+      b = inner.sessions.create(SessionId('reuse'), { meta: { cwd: '/a' } })
     }, { inject: ['sessions'] }))
     await expect(backend.inits.get(b)).rejects.toThrow(/already bound to a different live session|already has a persisted log on disk/)
   })
@@ -493,7 +493,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const backend = ctx2.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     let b!: Session
     await ctx2.plugin(Object.assign((inner: Context) => {
-      b = inner.sessions.create('x') // no cwd
+      b = inner.sessions.create(SessionId('x')) // no cwd
     }, { inject: ['sessions'] }))
     await expect(backend.inits.get(b)).rejects.toThrow(/already has a persisted log on disk/)
 
@@ -521,7 +521,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     if (userMsg?.type === 'user/message') userMsg.data.content = [{ type: 'text', text: 'DIFFERENT' }]
     let bad!: Session
     await ctx.plugin(Object.assign((inner: Context) => {
-      bad = inner.sessions.create('divergent', { seed: tampered, meta: { cwd: '/a' } })
+      bad = inner.sessions.create(SessionId('divergent'), { seed: tampered, meta: { cwd: '/a' } })
     }, { inject: ['sessions'] }))
     await expect(backend.inits.get(bad)).rejects.toThrow(/do not match this live session|already has a persisted log/)
   })
@@ -529,7 +529,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
   it('a second live session reusing a bound id is rejected', async () => {
     // A live session materializes and owns the id.
     const firstFiber = await ctx.plugin(Object.assign((inner: Context) => {
-      const a = inner.sessions.create('bound', { meta: { cwd: '/a' } })
+      const a = inner.sessions.create(SessionId('bound'), { meta: { cwd: '/a' } })
       a.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
       a.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     }, { inject: ['sessions'] }))
@@ -539,7 +539,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     let second!: Session
     await ctx.plugin(Object.assign((inner: Context) => {
-      second = inner.sessions.create('bound', { meta: { cwd: '/a' } })
+      second = inner.sessions.create(SessionId('bound'), { meta: { cwd: '/a' } })
     }, { inject: ['sessions'] }))
     await expect(backend.inits.get(second))
       .rejects.toThrow(/already bound to a different live session|already has a persisted log|do not match/)
@@ -580,7 +580,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const backend = ctx2.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     let s!: Session
     await ctx2.plugin(Object.assign((inner: Context) => {
-      s = inner.sessions.create('exists-fault', { meta: { cwd } })
+      s = inner.sessions.create(SessionId('exists-fault'), { meta: { cwd } })
     }, { inject: ['sessions'] }))
     await expect(backend.inits.get(s)).rejects.toThrow(/ENOTDIR/)
     await ctx2.fiber.dispose()
@@ -645,7 +645,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionPersistenceJsonl, { root })
-    const session = ctx2.sessions.create('flush-fail')
+    const session = ctx2.sessions.create(SessionId('flush-fail'))
     // A full turn lands in the write-behind buffer.
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -689,7 +689,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
   })
 
   it('Session.append rejects a non-serializable event at the source (never enters the log)', () => {
-    const session = ctx.sessions.create('reject-bad')
+    const session = ctx.sessions.create(SessionId('reject-bad'))
     // Serializability is enforced at the source: Session.append throws on a
     // BigInt-bearing event BEFORE it enters session.events, so the durable log
     // can never diverge from the live log. The throw surfaces at the caller's

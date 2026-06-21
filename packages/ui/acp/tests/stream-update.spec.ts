@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionNotification } from '@agentclientprotocol/sdk'
 import type { ToolDefinition, ToolRegistry } from '@deepseek-ai/dsh-tools'
 import { streamSessionEventUpdate, agentOptions, ToolPresenter } from '../src/index.ts'
@@ -8,14 +8,14 @@ import { streamSessionEventUpdate, agentOptions, ToolPresenter } from '../src/in
 /** Collect the updates a single event produces (no presenter → generic fallback). */
 function updatesFor(event: SessionEvent): SessionNotification['update'][] {
   const out: SessionNotification['update'][] = []
-  streamSessionEventUpdate('s1', event, n => out.push(n.update))
+  streamSessionEventUpdate(SessionId('s1'), event, n => out.push(n.update))
   return out
 }
 
 /** Collect the updates emitted by the live prompt stream (user echo suppressed). */
 function liveUpdatesFor(event: SessionEvent): SessionNotification['update'][] {
   const out: SessionNotification['update'][] = []
-  streamSessionEventUpdate('s1', event, n => out.push(n.update), undefined, undefined, { includeUserMessages: false })
+  streamSessionEventUpdate(SessionId('s1'), event, n => out.push(n.update), undefined, undefined, { includeUserMessages: false })
   return out
 }
 
@@ -138,7 +138,7 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
 
   function updatesWith(presenter: ToolPresenter, ...events: SessionEvent[]): SessionNotification['update'][] {
     const out: SessionNotification['update'][] = []
-    for (const event of events) streamSessionEventUpdate('s1', event, n => out.push(n.update), presenter)
+    for (const event of events) streamSessionEventUpdate(SessionId('s1'), event, n => out.push(n.update), presenter)
     return out
   }
 
@@ -324,7 +324,7 @@ describe('terminal-card mapping (capability-gated)', () => {
   function termUpdates(tool: ToolDefinition, enabled: boolean, cwd: string | undefined, ...events: SessionEvent[]): SessionNotification['update'][] {
     const presenter = new ToolPresenter(registryOf(tool))
     const out: SessionNotification['update'][] = []
-    for (const event of events) streamSessionEventUpdate('s1', event, n => out.push(n.update), presenter, { enabled, cwd })
+    for (const event of events) streamSessionEventUpdate(SessionId('s1'), event, n => out.push(n.update), presenter, { enabled, cwd })
     return out
   }
 

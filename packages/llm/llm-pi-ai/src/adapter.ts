@@ -14,6 +14,7 @@
 import { stream as piStream } from '@earendil-works/pi-ai'
 import type { Model } from '@earendil-works/pi-ai'
 import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
+import { CallId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { toPiContext, toStreamChunks } from './convert.ts'
 
@@ -69,8 +70,8 @@ type Payload = {
   stop?: unknown
 }
 
-function rawToolArguments(options: GenerateOptions): Map<string, string> {
-  const raw = new Map<string, string>()
+function rawToolArguments(options: GenerateOptions): Map<CallId, string> {
+  const raw = new Map<CallId, string>()
   for (const message of options.messages) {
     if (message.role !== 'assistant') continue
     for (const block of message.content) {
@@ -116,7 +117,7 @@ function patchPayload(payload: unknown, options: GenerateOptions, reasoning: PiA
     for (const call of message.tool_calls ?? []) {
       /* v8 ignore next -- malformed pi-ai payload guard: real tool calls always carry a string id */
       if (typeof call.id !== 'string') continue
-      const raw = rawById.get(call.id)
+      const raw = rawById.get(CallId(call.id))
       /* v8 ignore next -- pi-ai always emits a function object for assistant tool_calls; guard malformed payloads defensively */
       if (raw !== undefined && call.function !== undefined) call.function.arguments = raw
     }

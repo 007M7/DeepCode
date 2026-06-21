@@ -10,8 +10,7 @@
 import { Context, Service } from 'cordis'
 import { randomUUID } from 'node:crypto'
 import z from 'schemastery'
-import { AgentId } from '@deepseek-ai/dsh-agent'
-import type { AgentFactory, AgentHandle, AgentOptions, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
+import type { AgentFactory, AgentHandle, AgentId, AgentOptions, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -33,7 +32,7 @@ declare module 'cordis' {
 export interface Config {
   /** Agents created from configuration at startup. */
   agents: (AgentOptions & {
-    id: string
+    id: AgentId
     /**
      * If set, the config agent RESUMES this persisted session id instead of
      * starting a fresh `${id}-session-<uuid>`. Sourced from an env var in
@@ -42,8 +41,12 @@ export interface Config {
      * `dsh-session-persistence` backend; the resume is deferred until that
      * service is available (via `ctx.inject`) and the loaded session's events
      * seed the live session so history continues.
+     *
+     * The schema accepts a plain string at runtime (cordis.yml values are
+     * untyped); the brand is compile-time only — the config format is the
+     * boundary where an id enters, so the TYPE declares the brand here.
      */
-    resumeSessionId?: string
+    resumeSessionId?: SessionId
   })[]
 }
 
@@ -60,14 +63,19 @@ export interface Config {
 export class AgentLoop extends Service implements AgentFactory {
   static inject = ['agents', 'sessions', 'llm', 'tools', 'systemPrompt']
 
-  static Config: z<Config> = z.object({
+  // The schema validates plain strings (cordis.yml config values are untyped at
+  // runtime); the {@link Config} TYPE declares the branded `id`/`resumeSessionId`
+  // because the config format is the boundary where an id enters. The brand is a
+  // zero-cost compile-time cast, so the runtime schema stays string-based and we
+  // assert the branded view once here — the single schema boundary.
+  static Config = z.object({
     agents: z.array(z.object({
       id: z.string().required(),
       model: z.string(),
       systemPrompt: z.string(),
       resumeSessionId: z.string(),
     })).default([]),
-  })
+  }) as unknown as z<Config>
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'agentLoop')
@@ -118,14 +126,14 @@ export class AgentLoop extends Service implements AgentFactory {
    * fork seeds the new Session with the parent's event log, spawn starts
    * fresh; the child is returned as a regular Agent handle.
    */
-  create(id: string, options: AgentOptions = {}): ReactLoopAgent {
+  create(id: AgentId, options: AgentOptions = {}): ReactLoopAgent {
     this.assertAgentIdFree(id)
     // Config/programmatic path: prepare the session and let start() fold its
     // lifecycle into the agent's composite effect (so a fiber unload tears the
     // session + agent down as one ordered chain, capturing the loop's closing
     // flush). The whole effect is owned by THIS fiber; no AgentHandle is needed.
-    const session = this.ctx.sessions.prepare(`${id}-session-${randomUUID()}`, { meta: {} })
-    const { agent } = this.start(AgentId(id), options, session)
+    const session = this.ctx.sessions.prepare(SessionId(`${id}-session-${randomUUID()}`), { meta: {} })
+    const { agent } = this.start(id, options, session)
     return agent
   }
 
@@ -142,7 +150,7 @@ export class AgentLoop extends Service implements AgentFactory {
     // live session (and lazy persistence state) that blocks reuse of that id.
     this.assertAgentIdFree(options.agentId)
     const session = this.ctx.sessions.prepare(options.sessionId, { meta: options.meta ?? {} })
-    return this.startOwned(AgentId(options.agentId), options.agentOptions ?? {}, session)
+    return this.startOwned(options.agentId, options.agentOptions ?? {}, session)
   }
 
   /**
@@ -191,7 +199,7 @@ export class AgentLoop extends Service implements AgentFactory {
    */
   private async resumeWith(persistence: SessionPersistence, options: ResumeAgentOptions): Promise<AgentHandle> {
     this.assertAgentIdFree(options.agentId)
-    const { meta, events } = await persistence.load(SessionId(options.resumeSessionId))
+    const { meta, events } = await persistence.load(options.resumeSessionId)
     // Re-check the agent id AFTER the await: the pre-load check above can go
     // stale while load() is pending (a concurrent resume/create may register the
     // same id). Re-checking immediately before prepare()/start keeps the
@@ -211,7 +219,7 @@ export class AgentLoop extends Service implements AgentFactory {
         ...meta.parentSession !== undefined ? { parentSession: meta.parentSession } : {},
       },
     })
-    return this.startOwned(AgentId(options.agentId), options.agentOptions ?? {}, session)
+    return this.startOwned(options.agentId, options.agentOptions ?? {}, session)
   }
 
   /**
@@ -220,7 +228,7 @@ export class AgentLoop extends Service implements AgentFactory {
    * persistence state) behind. `register()` enforces the same uniqueness, but
    * only after the session has already entered the store.
    */
-  private assertAgentIdFree(id: string): void {
+  private assertAgentIdFree(id: AgentId): void {
     if (this.ctx.agents.get(id) !== undefined) {
       throw new Error(`agent "${id}" is already registered`)
     }

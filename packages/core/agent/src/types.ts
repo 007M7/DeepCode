@@ -9,7 +9,8 @@
  * @module @deepseek-ai/dsh-agent/types
  */
 
-import type { Branded, ContentBlock, GenerateOptions, Message, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { ContentBlock, GenerateOptions, Message, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
 
 /** Identifies one live agent in the registry. */
 export type AgentId = Branded<'AgentId'>

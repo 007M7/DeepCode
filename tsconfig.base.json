@@ -45,6 +45,7 @@
         "./packages/bash/*/src",
         "./packages/session-persistence/*/src",
         "./packages/ui/*/src",
+        "./packages/util/*/src",
         "./packages/support/*/src"
       ]
     }

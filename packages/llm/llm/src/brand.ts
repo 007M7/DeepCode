@@ -1,24 +1,15 @@
 /**
- * Branded (nominal) ID types.
+ * dsh-llm's owned branded id: `CallId` (tool-call correlation).
  *
- * A brand makes structurally-identical strings non-interchangeable at the
- * type level: an `AgentId` cannot be passed where a `CallId` is expected,
- * even though both are strings at runtime. Construction goes through the
- * per-type factory (a plain cast inside — zero runtime cost); comparison,
- * logging, and serialization all behave as ordinary strings.
- *
- * Policy: core packages brand the IDs they own — `CallId` here (tool-call
- * correlation), `SessionId` in dsh-session, `AgentId` in dsh-agent. Branding
- * is for IDs that cross package boundaries and could plausibly be confused;
- * not every string needs a brand.
+ * The `Branded<B>` primitive itself lives in `@deepseek-ai/dsh-brand` (a
+ * zero-dependency type-only package) so every owner of a cross-boundary id can
+ * brand it without depending on dsh-llm; see that package's README for the
+ * nominal-typing policy.
  *
  * @module @deepseek-ai/dsh-llm/brand
  */
 
-declare const BRAND: unique symbol
-
-/** A string carrying a compile-time-only brand `B`. */
-export type Branded<B extends string> = string & { readonly [BRAND]: B }
+import type { Branded } from '@deepseek-ai/dsh-brand'
 
 /**
  * Correlates a model-issued tool call with its result. Provider-issued for

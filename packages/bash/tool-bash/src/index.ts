@@ -43,6 +43,7 @@ import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolCallPresentation, ToolResult, ToolResultPresentation } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { BashTaskId, OwnerToken } from '@deepseek-ai/dsh-bash'
 import type { BashRunResult, BashTask, CollectedOutput } from '@deepseek-ai/dsh-bash'
 
 export const name = 'tool-bash'
@@ -79,11 +80,11 @@ function validateBashArgs(args: {
  * SchemaSpec validation (the arg-validation RFC); only the non-empty constraint, which the
  * DSL can't express, is left to check here.
  */
-function validateTaskId(value: string): string {
+function validateTaskId(value: string): BashTaskId {
   if (value.length === 0) {
     throw new Error(`invalid task_id: expected a string, got ${JSON.stringify(value)}`)
   }
-  return value
+  return BashTaskId(value)
 }
 
 /** Append the truncation notice (with the full-output spill path) to a stream's text. */
@@ -279,7 +280,8 @@ export function apply(ctx: Context): void {
    * the conventions flag. The two are equal in production, but the header is the
    * canonical identity.
    */
-  const callerToken = (exec: { agent?: Agent }): string | undefined => exec.agent?.session.header.id
+  const callerToken = (exec: { agent?: Agent }): OwnerToken | undefined =>
+    exec.agent ? OwnerToken(exec.agent.session.header.id) : undefined
 
   /**
    * Authorize a `bash_output`/`bash_kill` call against the task's stored owner
@@ -291,7 +293,7 @@ export function apply(ctx: Context): void {
    * `readOutput`/`kill` ("unknown bash task"). The conservative no-agent caller
    * (`callerToken` undefined) cannot match an owned task and is rejected.
    */
-  const assertTaskAccess = (taskId: string, exec: { agent?: Agent }): void => {
+  const assertTaskAccess = (taskId: BashTaskId, exec: { agent?: Agent }): void => {
     const owner = ctx.bash.ownerOf(taskId)
     if (owner !== undefined && owner !== callerToken(exec)) {
       throw new Error(`task ${taskId} belongs to another session`)
@@ -310,7 +312,7 @@ export function apply(ctx: Context): void {
   ctx.bash.onTaskDone((task) => {
     const ownerToken = ctx.bash.ownerOf(task.id)
     if (ownerToken === undefined) return
-    const agent = ctx.get('agents')?.list().find(a => a.session.header.id === ownerToken)
+    const agent = ctx.get('agents')?.list().find(a => OwnerToken(a.session.header.id) === ownerToken)
     if (!agent) return
     try {
       agent.inject(

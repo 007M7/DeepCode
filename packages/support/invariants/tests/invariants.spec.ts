@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { InvariantError } from '@deepseek-ai/dsh-invariants'
 
@@ -175,8 +175,8 @@ describe('session-log invariants', () => {
 
   it('tracks turns per session independently', async () => {
     const { ctx } = await setup({ freeze: false })
-    const a = ctx.sessions.create('a')
-    const b = ctx.sessions.create('b')
+    const a = ctx.sessions.create(SessionId('a'))
+    const b = ctx.sessions.create(SessionId('b'))
     a.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     // b is a fresh session — its own turn/start must not see a's open turn.
     expect(() => b.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })).not.toThrow()

@@ -5,9 +5,10 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import { BashTaskId } from '@deepseek-ai/dsh-bash'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
@@ -73,7 +74,7 @@ describe('bash tool through the agent loop', () => {
       textResponse('The command printed integration-ok.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('it-fg', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('it-fg'), { model: 'mock' })
 
     agent.send([{ type: 'text', text: 'run echo integration-ok' }])
     await waitForIdle(ctx, agent)
@@ -105,7 +106,7 @@ describe('bash tool through the agent loop', () => {
       textResponse('It failed with code 9.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('it-exit', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('it-exit'), { model: 'mock' })
 
     agent.send([{ type: 'text', text: 'run exit 9' }])
     await waitForIdle(ctx, agent)
@@ -126,7 +127,7 @@ describe('bash tool through the agent loop', () => {
     let taskId = ''
 
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create('it-bg', { model: 'mock' })
+    const agent = ctx.agentLoop.create(AgentId('it-bg'), { model: 'mock' })
 
     // Intercept the first tool result to capture the generated task id, then
     // rewrite the second scripted call's arguments to use it.
@@ -147,7 +148,7 @@ describe('bash tool through the agent loop', () => {
     await waitForIdle(ctx, agent)
 
     // Wait for the background task itself (completion may race turn end).
-    const task = ctx.bash.get(taskId)
+    const task = ctx.bash.get(BashTaskId(taskId))
     if (!task) throw new Error(`task ${taskId} not registered`)
     await task.done
 

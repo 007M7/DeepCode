@@ -7,7 +7,7 @@
 
 import { Context, Service } from 'cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { Agent, AgentOptions } from './types.ts'
+import type { Agent, AgentId, AgentOptions } from './types.ts'
 
 export * from './types.ts'
 
@@ -26,9 +26,9 @@ declare module 'cordis' {
  */
 export interface CreateAgentOptions {
   /** The agent's id (the registry handle). */
-  agentId: string
+  agentId: AgentId
   /** The live session's id (NOT derived from agentId). */
-  sessionId: string
+  sessionId: SessionId
   /**
    * Session creation metadata: validated absolute `cwd` and `parentSession`
    * fork lineage. Mirrors the `cwd`/`parentSession` fields of
@@ -47,9 +47,9 @@ export interface CreateAgentOptions {
  */
 export interface ResumeAgentOptions {
   /** The agent's id (the registry handle). */
-  agentId: string
+  agentId: AgentId
   /** The persisted session id to load and resume on. */
-  resumeSessionId: string
+  resumeSessionId: SessionId
   /** Per-agent options (model, system prompt). */
   agentOptions?: AgentOptions
 }
@@ -103,7 +103,7 @@ const NO_FACTORY_MESSAGE = 'no agent factory registered (load an agent-loop plug
  * {@link setFactory}.
  */
 export class AgentRegistry extends Service {
-  private store = new Map<string, Agent>()
+  private store = new Map<AgentId, Agent>()
   private factory: AgentFactory | undefined
 
   constructor(ctx: Context) {
@@ -188,7 +188,7 @@ export class AgentRegistry extends Service {
     return () => void dispose()
   }
 
-  get(id: string): Agent | undefined {
+  get(id: AgentId): Agent | undefined {
     return this.store.get(id)
   }
 

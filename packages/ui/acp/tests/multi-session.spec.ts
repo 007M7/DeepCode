@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import { makeBridgeHarness, textResponse, type BridgeHarness, type CapturedUpdate } from './harness.ts'
 
 /** Text of the agent_message_chunk updates scoped to one session id. */
@@ -101,8 +102,8 @@ describe('acp bridge — RFC 011 multi-session isolation', () => {
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const a = (await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })).sessionId
     const b = (await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })).sessionId
-    const agentA = harness.ctx.agents.get(a)!
-    const agentB = harness.ctx.agents.get(b)!
+    const agentA = harness.ctx.agents.get(AgentId(a))!
+    const agentB = harness.ctx.agents.get(AgentId(b))!
 
     // Wait deterministically for BOTH agents to enter `running` (not a fixed
     // sleep — agent startup latency is unbounded on a loaded worker).

@@ -25,7 +25,7 @@ An agent was registered in the AgentRegistry and is ready to receive messages.
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:140`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:141`](../../packages/core/agent/src/types.ts)
 
 #### `agent/disposed` — emit
 
@@ -37,7 +37,7 @@ An agent was disposed and removed from the registry; its fiber and any in-flight
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:146`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:147`](../../packages/core/agent/src/types.ts)
 
 #### `agent/error` — emit
 
@@ -49,7 +49,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:223`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:224`](../../packages/core/agent/src/types.ts)
 
 #### `agent/queued` — emit
 
@@ -61,7 +61,7 @@ A message entered the agent's inbox (queued or steering). `source` is the resolv
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:159`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:160`](../../packages/core/agent/src/types.ts)
 
 #### `agent/request` — waterfall
 
@@ -73,7 +73,7 @@ Waterfall: mutate the fully-assembled GenerateOptions before the model call (hoo
 
 Types: [Agent](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:192`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:193`](../../packages/core/agent/src/types.ts)
 
 #### `agent/status` — emit
 
@@ -85,7 +85,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive lifecycle 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:153`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:154`](../../packages/core/agent/src/types.ts)
 
 #### `agent/steering` — emit
 
@@ -97,7 +97,7 @@ Steering content was injected into a running turn.
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:217`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:218`](../../packages/core/agent/src/types.ts)
 
 #### `agent/step-end` — emit
 
@@ -109,7 +109,7 @@ A step ended.
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:183`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:184`](../../packages/core/agent/src/types.ts)
 
 #### `agent/step-result` — waterfall
 
@@ -121,7 +121,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:198`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:199`](../../packages/core/agent/src/types.ts)
 
 #### `agent/step-start` — emit
 
@@ -133,7 +133,7 @@ A step (one model call plus its tool dispatch) began. `step` is 1-based within t
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:178`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:179`](../../packages/core/agent/src/types.ts)
 
 #### `agent/stream-chunk` — emit
 
@@ -145,7 +145,7 @@ A raw StreamChunk arrived from the model (token-level UI/log feed).
 
 Types: [Agent](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/agent/src/types.ts:212`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:213`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-continuation` — waterfall
 
@@ -157,7 +157,7 @@ Waterfall: override the turn-continuation decision. The default (computed by the
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:205`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:206`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-end` — emit
 
@@ -169,7 +169,7 @@ A turn ended. `reason` distinguishes a clean stop from a truncated or aborted on
 
 Types: [Agent](../core-data-structures/core.md) · [TurnEndReason](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:172`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:173`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-start` — emit
 
@@ -181,7 +181,7 @@ A turn began. `turn` is the 1-based turn number within the session.
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:166`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:167`](../../packages/core/agent/src/types.ts)
 
 ### `llm/*`
 
@@ -288,12 +288,12 @@ The agent-loop plugin (`ctx.agentLoop`): creates ReactLoopAgents, runs their loo
 The loop itself is deliberately thin — every behavior beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy declared in @deepseek-ai/dsh-agent.
 
 ```ts cordis-catalog
-create(id: string, options: AgentOptions = {}): ReactLoopAgent
+create(id: AgentId, options: AgentOptions = {}): ReactLoopAgent
 createAgent(options: CreateAgentOptions): AgentHandle
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:60`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:63`](../../packages/core/agent-loop/src/index.ts)
 
 ### `ctx.agents` — `AgentRegistry`
 
@@ -304,7 +304,7 @@ setFactory(factory: AgentFactory): () => void
 create(options: CreateAgentOptions): AgentHandle
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 register(agent: Agent): () => void
-get(id: string): Agent | undefined
+get(id: AgentId): Agent | undefined
 list(): Agent[]
 ```
 
@@ -327,17 +327,17 @@ Semantics every implementation must honor:
 abstract resolve(request: BashExecRequest): BashExecSpec
 abstract run(spec: BashExecSpec): Promise<BashRunResult>
 abstract start(spec: BashExecSpec): BashTask
-abstract get(id: string): BashTask | undefined
-abstract ownerOf(id: string): string | undefined
+abstract get(id: BashTaskId): BashTask | undefined
+abstract ownerOf(id: BashTaskId): OwnerToken | undefined
 abstract list(): BashTask[]
-abstract readOutput(id: string): BashTaskRead
-abstract kill(id: string): boolean
+abstract readOutput(id: BashTaskId): BashTaskRead
+abstract kill(id: BashTaskId): boolean
 onTaskDone(listener: BashTaskListener): () => void
 ```
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [BashTask](../core-data-structures/bash.md) · [BashTaskRead](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:58`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:59`](../../packages/bash/bash/src/index.ts)
 
 ### `ctx.llm` — `LlmService`
 
@@ -382,11 +382,11 @@ In-memory session store (`ctx.sessions`).
 Persistence is intentionally not implemented here — persistence plugins subscribe to `session/event` and flush on `session/flush` / dispose.
 
 ```ts cordis-catalog
-create(id?: string, options?: CreateSessionOptions): Session
-prepare(id?: string, options?: CreateSessionOptions): Session
+create(id?: SessionId, options?: CreateSessionOptions): Session
+prepare(id?: SessionId, options?: CreateSessionOptions): Session
 enter(session: Session): () => void
 announce(session: Session): void
-get(id: string): Session | undefined
+get(id: SessionId): Session | undefined
 list(): Session[]
 ```
 

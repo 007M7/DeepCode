@@ -32,12 +32,12 @@ describe('AgentRegistry', () => {
     const agent = stubAgent('a1')
     const dispose = ctx.agents.register(agent)
     expect(created).toEqual(['a1'])
-    expect(ctx.agents.get('a1')).toBe(agent)
+    expect(ctx.agents.get(AgentId('a1'))).toBe(agent)
     expect(ctx.agents.list()).toEqual([agent])
 
     dispose()
     expect(disposed).toEqual(['a1'])
-    expect(ctx.agents.get('a1')).toBeUndefined()
+    expect(ctx.agents.get(AgentId('a1'))).toBeUndefined()
   })
 
   it('rejects duplicate ids and unregisters on fiber dispose (HMR safety)', async () => {
@@ -66,14 +66,14 @@ describe('AgentRegistry', () => {
 
     // The throwing emit must roll the entry back, not leak it.
     expect(() => ctx.agents.register(stubAgent('main'))).toThrow('boom created listener')
-    expect(ctx.agents.get('main')).toBeUndefined() // rolled back, not leaked
+    expect(ctx.agents.get(AgentId('main'))).toBeUndefined() // rolled back, not leaked
 
     // A subsequent listener-free register of the SAME id succeeds and is
     // tracked exactly once (the duplicate-id check is not wedged).
     const dispose = ctx.agents.register(stubAgent('main'))
     expect(ctx.agents.list().map(a => a.id)).toEqual(['main'])
     dispose()
-    expect(ctx.agents.get('main')).toBeUndefined()
+    expect(ctx.agents.get(AgentId('main'))).toBeUndefined()
   })
 })
 
@@ -97,8 +97,8 @@ describe('AgentRegistry factory seam', () => {
   it('create()/resume() throw when no factory is registered', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
-    expect(() => ctx.agents.create({ agentId: 'a', sessionId: 's' })).toThrow(/no agent factory/)
-    await expect(ctx.agents.resume({ agentId: 'a', resumeSessionId: 's' })).rejects.toThrow(/no agent factory/)
+    expect(() => ctx.agents.create({ agentId: AgentId('a'), sessionId: SessionId('s') })).toThrow(/no agent factory/)
+    await expect(ctx.agents.resume({ agentId: AgentId('a'), resumeSessionId: SessionId('s') })).rejects.toThrow(/no agent factory/)
   })
 
   it('setFactory registers a factory; create/resume delegate to it', async () => {
@@ -107,13 +107,13 @@ describe('AgentRegistry factory seam', () => {
     const { factory, calls } = stubFactory()
     ctx.agents.setFactory(factory)
 
-    const created = ctx.agents.create({ agentId: 'c1', sessionId: 'sess-1', meta: { cwd: '/w' } })
+    const created = ctx.agents.create({ agentId: AgentId('c1'), sessionId: SessionId('sess-1'), meta: { cwd: '/w' } })
     expect(created.agent.id).toBe('c1')
-    expect(calls.create).toEqual([{ agentId: 'c1', sessionId: 'sess-1', meta: { cwd: '/w' } }])
+    expect(calls.create).toEqual([{ agentId: AgentId('c1'), sessionId: SessionId('sess-1'), meta: { cwd: '/w' } }])
 
-    const resumed = await ctx.agents.resume({ agentId: 'r1', resumeSessionId: 'old-sess' })
+    const resumed = await ctx.agents.resume({ agentId: AgentId('r1'), resumeSessionId: SessionId('old-sess') })
     expect(resumed.agent.id).toBe('r1')
-    expect(calls.resume).toEqual([{ agentId: 'r1', resumeSessionId: 'old-sess' }])
+    expect(calls.resume).toEqual([{ agentId: AgentId('r1'), resumeSessionId: SessionId('old-sess') }])
   })
 
   it('setFactory rejects a second factory', async () => {
@@ -130,10 +130,10 @@ describe('AgentRegistry factory seam', () => {
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       dispose = inner.agents.setFactory(stubFactory().factory)
     }, { inject: ['agents'] }))
-    expect(() => ctx.agents.create({ agentId: 'a', sessionId: 's' })).not.toThrow()
+    expect(() => ctx.agents.create({ agentId: AgentId('a'), sessionId: SessionId('s') })).not.toThrow()
     void dispose
     await fiber.dispose()
     // factory slot cleared → create throws again
-    expect(() => ctx.agents.create({ agentId: 'a2', sessionId: 's2' })).toThrow(/no agent factory/)
+    expect(() => ctx.agents.create({ agentId: AgentId('a2'), sessionId: SessionId('s2') })).toThrow(/no agent factory/)
   })
 })

@@ -6,6 +6,31 @@
  * @module dsh-bash/types
  */
 
+import type { Branded } from '@deepseek-ai/dsh-brand'
+
+/** Identifies one background task within an executor (generated `bash-N`). */
+export type BashTaskId = Branded<'BashTaskId'>
+
+/** Brand a string as a {@link BashTaskId}. */
+export function BashTaskId(id: string): BashTaskId {
+  return id as BashTaskId
+}
+
+/**
+ * A background task's opaque isolation key — the CONSUMER's owner identity, not
+ * the bash seam's. The executor stores and returns it verbatim and never
+ * interprets it; the access policy lives in the consumer (`dsh-tool-bash`),
+ * which is the single boundary that casts its own id vocabulary into one. A
+ * DISTINCT brand (not a `SessionId` alias) keeps the seam decoupled — a
+ * sandboxed/remote executor inherits no session dependency.
+ */
+export type OwnerToken = Branded<'OwnerToken'>
+
+/** Brand a string as an {@link OwnerToken}. */
+export function OwnerToken(id: string): OwnerToken {
+  return id as OwnerToken
+}
+
 /**
  * A caller's execution REQUEST: `workdir` and `timeoutMs` are optional and
  * filled by {@link BashExecutor.resolve} from the implementation's config.
@@ -28,7 +53,7 @@ export interface BashExecRequest {
    * seam — that is the consumer's job). Absent for foreground runs and for an
    * ownerless background start (a non-agent caller).
    */
-  owner?: string | undefined
+  owner?: OwnerToken | undefined
 }
 
 /**
@@ -53,7 +78,7 @@ export interface BashExecSpec {
    * silently-absent property that yields an unowned (cross-session-readable)
    * task. `start()` stores it; `run()` (foreground) ignores it.
    */
-  owner: string | undefined
+  owner: OwnerToken | undefined
 }
 
 /** One captured stream: the (possibly truncated) text plus recovery info. */
@@ -87,7 +112,7 @@ export type BashTaskStatus = 'running' | 'completed' | 'killed'
 
 /** A tracked background task handle. */
 export interface BashTask {
-  readonly id: string
+  readonly id: BashTaskId
   readonly command: string
   status: BashTaskStatus
   /** Exit code once finished (null = killed by signal / still running). */

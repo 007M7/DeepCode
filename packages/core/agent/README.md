@@ -9,7 +9,7 @@ Tracks live agents so UI, hook, and orchestrator plugins can find them without i
 ### Public API
 
 - `ctx.agents.register(agent: Agent): () => void` — record an **already-constructed** agent. Disposed with the calling fiber.
-- `ctx.agents.get(id: string): Agent | undefined`
+- `ctx.agents.get(id: AgentId): Agent | undefined`
 - `ctx.agents.list(): Agent[]`
 
 #### Factory seam (creation)

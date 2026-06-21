@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import {
   errorResponse,
@@ -283,7 +284,7 @@ describe('acp bridge — turn outcomes', () => {
     // OWN turn with the real model answer.
     harness = await makeBridgeHarness({ storageDir, script: [textResponse('real answer')] })
     const sessionId = await newSession(harness)
-    const agent = harness.ctx.agents.get(sessionId)!
+    const agent = harness.ctx.agents.get(AgentId(sessionId))!
     // On the queued prompt, synchronously inject a one-shot context turn (idle
     // inject writes turn/start{injection} → context/message → turn/end). Fire
     // once so it lands between install and the prompt turn.
@@ -339,7 +340,7 @@ describe('acp bridge — turn outcomes', () => {
     await harness.client.cancel({ sessionId })
     const res = await promptDone
     expect(res.stopReason).toBe('cancelled')
-    const agent = harness.ctx.agents.get(sessionId)!
+    const agent = harness.ctx.agents.get(AgentId(sessionId))!
     await agent.whenIdle()
     // At most ONE turn ran (the cancelled one) — the cancel cleared the queue, so
     // no second turn was batched or leaked. (A best-effort abort that left queued
