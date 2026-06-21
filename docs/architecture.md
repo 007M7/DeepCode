@@ -39,7 +39,7 @@ For a catalog of the **data structures** this architecture moves around — the 
 └─────────────────────────────────────────────────────────────┘
 ```
 
-Dependency rule: plugins depend on interface packages, never on `dsh-agent-loop`. The loop itself is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced.
+Dependency rule: **extension** plugins depend on interface packages, never on `dsh-agent-loop`. The loop itself is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced. The one sanctioned exception is a **composition/bundle** package whose job IS to assemble the concrete spine: `dsh-agent-core` bundles `dsh-agent-loop` (and the other concrete spine plugins) by design, so it depends on the concrete loop on purpose. The rule constrains plugins that EXTEND the system, not the bundle that COMPOSES it — swapping the loop means publishing a different bundle, not rewiring every extension.
 
 ## Service map
 

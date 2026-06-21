@@ -134,19 +134,21 @@ describe('snapshot fixtures', () => {
   })
 
   it('every registered scenario has its required fixture files', async () => {
-    // Required files are per-KIND. Every scenario has an input script and an
-    // stdout golden. Only model scenarios persist a session log, so only they
-    // require `session.jsonl` (the replay source AND expected-log artifact);
-    // a no-model scenario boots `llm-replay` with an empty script and needs no
-    // session fixture. Authored scenarios additionally ship the
-    // `replay.override.json` sidecar that drives their model behavior.
+    // Every scenario has an input script and an stdout golden. EVERY scenario
+    // also needs `session.jsonl`: the harness boots `llm-replay` with that path
+    // as the replay source for ALL scenarios (acp.snapshot.ts passes
+    // `fixtureFile: <dir>/session.jsonl` unconditionally), and `loadReplayScript`
+    // throws "fixture not found" when it is absent and no override replaces it.
+    // A no-model scenario ships a header-only `session.jsonl` (it derives to an
+    // empty script — no model call is made); a model scenario's fixture also
+    // doubles as the expected-log artifact the run is diffed against. An authored
+    // (non-`recorded`) model scenario additionally ships a `replay.override.json`
+    // sidecar for the throw/hang cases a derived script cannot express.
     for (const { name, hasModelTurn, recorded } of SCENARIOS) {
       const dir = join(SNAPSHOTS_DIR, name)
       expect(existsSync(join(dir, 'input.json')), `${name}/input.json`).toBe(true)
       expect(existsSync(join(dir, 'stdout.golden.jsonl')), `${name}/stdout.golden.jsonl`).toBe(true)
-      if (hasModelTurn) {
-        expect(existsSync(join(dir, 'session.jsonl')), `${name}/session.jsonl`).toBe(true)
-      }
+      expect(existsSync(join(dir, 'session.jsonl')), `${name}/session.jsonl`).toBe(true)
       if (hasModelTurn && !recorded) {
         expect(existsSync(join(dir, 'replay.override.json')), `${name}/replay.override.json`).toBe(true)
       }

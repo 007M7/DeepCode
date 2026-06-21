@@ -31,7 +31,7 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 
 ## The bin
 
-`dsh-stdio-agent [path-to-cordis.yml]` (default `./cordis.yml`) loads a gitignored `.env` from the cwd (`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`), then drives the cordis Loader against the config — the boot glue the `examples/*/start.ts` files once each duplicated. The `demo:echo` / `demo:coding` scripts invoke it.
+`dsh-stdio-agent [path-to-cordis.yml]` (default `./cordis.yml`) loads a gitignored `.env` from the cwd (`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`), then drives the cordis Loader against the config and awaits the whole plugin tree before returning. Run it under `node --expose-internals`: the cordis Loader resolves the config's bare plugin specifiers (`@deepseek-ai/dsh-*`, npm packages) through its internal module loader, which is only active under that flag. The `demo:echo` / `demo:coding` scripts invoke it that way.
 
 ## Example leaf `cordis.yml`
 
