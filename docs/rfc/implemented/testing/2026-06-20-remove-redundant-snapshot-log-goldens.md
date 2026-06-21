@@ -1,6 +1,6 @@
 # RFC: Use `session.jsonl` as the only snapshot session-log artifact
 
-Status: proposed
+Status: implemented (proposed and accepted 2026-06-20)
 
 ## Problem
 
@@ -29,3 +29,7 @@ Stdout goldens remain unchanged; they are the editor-facing projection and are n
 ## What we give up
 
 Reviewers lose one artifact name that made the expected persisted log visually separate from the replay fixture. The stdout golden still protects the editor transcript, and comparing replay output to `session.jsonl` preserves the loop/persistence regression check without duplicating files.
+
+## Implementation note
+
+The comparison normalizes BOTH sides, but each against its OWN volatile values, not a shared context. A raw harvested `session.jsonl` bakes in the recording run's session id, cwd, and timestamps; the replay run produces fresh ones. `normalizeSessionLog` scrubs cwd by exact string match, so normalizing the fixture against the *replay* run's cwd would leave the recorded cwd in the header unscrubbed and the compare would fail. The harness therefore derives the fixture's normalize context from its OWN header line (`{ type:'session', id, cwd }`) — `fixtureContext()` in `acp.snapshot.ts` — so both sides scrub to the same `{{sessionId}}`/`{{cwd}}` tokens. An authored fixture copied from the old golden already carries the normalized header (`id:'{{sessionId}}'`, `cwd:'{{cwd}}'`), which yields those tokens as the volatile values and scrubs idempotently. The session-log side uses a plain normalized-string `toEqual`, NOT `toMatchFileSnapshot`, so a run never overwrites the fixture.
