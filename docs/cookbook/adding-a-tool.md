@@ -1,6 +1,6 @@
 # Cookbook: adding a tool
 
-How to give the model a new capability. Reference implementations: `examples/echo-agent/src/echo-tool.ts` (minimal) and `packages/tool-bash` (production-grade, three-package seam).
+How to give the model a new capability. Reference implementations: `examples/echo-agent/src/echo-tool.ts` (minimal) and `packages/bash/tool-bash` (production-grade, three-package seam).
 
 ## The minimal shape
 
@@ -33,7 +33,7 @@ Registration is effect-based: disposing the plugin fiber unregisters the tool (w
 
 ## Rules of the execute() contract
 
-- **Args are validated for you.** `defineTool` validates the model-generated `arguments` against the `SchemaSpec` before `execute` runs (type, required keys, enum membership, nested objects/arrays — [runtime arg validation](../rfc/implemented/2026-06-11-runtime-arg-validation.md)), so inside `execute` the args already match `InferArgs`. You still hand-check value constraints the DSL can't express (non-empty strings, positive numbers, cross-field rules); throw a descriptive Error for those. Raw JSON-Schema tools registered directly (MCP) are NOT validated by the harness — they validate their own input.
+- **Args are validated for you.** `defineTool` validates the model-generated `arguments` against the `SchemaSpec` before `execute` runs (type, required keys, enum membership, nested objects/arrays — [runtime arg validation](../rfc/implemented/architecture/2026-06-11-runtime-arg-validation.md)), so inside `execute` the args already match `InferArgs`. You still hand-check value constraints the DSL can't express (non-empty strings, positive numbers, cross-field rules); throw a descriptive Error for those. Raw JSON-Schema tools registered directly (MCP) are NOT validated by the harness — they validate their own input.
 - **Throwing means isError.** The registry catches anything `execute()` throws and returns `{isError: true}` to the model. Use that for infrastructure failures (bad input, spawn errors, aborts) — but REPORT domain failures in the result text instead (e.g. tool-bash returns `[exit code: 9]` with `isError: false`: the model decides what a failing command means).
 - **Honor `exec.signal`.** Cancel in-flight work when it fires.
 - **Use `exec.agent` for async notifications.** `agent.inject(content, {source: {kind: 'plugin', plugin: '<name>'}})` appends durable context the NEXT model request sees — it is not a wake-up (an idle agent stays idle). Guard against disposed agents (try/catch).
@@ -50,4 +50,4 @@ Prefer not to build policy into the tool. The seam is the `tools/execute` waterf
 
 ## Tests every tool needs
 
-Arg-validation rejections, result shaping for every outcome, the HMR disposal test, and — for tools with side effects — an integration spec that drives the tool through the agent loop with a scripted `MockAdapter` (`packages/agent-loop/tests/mock-adapter.ts`), asserting the `tool/call` / `tool/result` session events.
+Arg-validation rejections, result shaping for every outcome, the HMR disposal test, and — for tools with side effects — an integration spec that drives the tool through the agent loop with a scripted `MockAdapter` (`packages/core/agent-loop/tests/mock-adapter.ts`), asserting the `tool/call` / `tool/result` session events.

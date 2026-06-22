@@ -1,0 +1,107 @@
+# dsh-tools
+
+Tool registry and execution waterfall. Tool plugins register their schemas and executors; the agent loop executes calls through the `tools/execute` waterfall.
+
+## Service: `ToolRegistry` (ctx key: `tools`)
+
+### Public API
+
+- `ctx.tools.register(definition: ToolDefinition): () => void` Register a tool. Disposed with the calling fiber.
+- `ctx.tools.get(name: string): ToolDefinition | undefined`
+- `ctx.tools.schemas(): ToolSchema[]` Schemas of all registered tools (without the `execute` functions).
+- `ctx.tools.execute(exec: ToolExecution): Promise<ToolExecutionResult>` Execute one tool call through the `tools/execute` waterfall.
+
+### Injected services
+
+`SystemPrompt` — the registry automatically feeds its tool schemas into the system-prompt assembly via `ctx.systemPrompt.tools()`.
+
+### Events
+
+| Event | Mode | Purpose |
+|---|---|---|
+| `tools/execute` | waterfall | Wrap/veto tool execution (sandbox, permission, hooks, plan mode) |
+| `tools/change` | emit | A tool was registered or unregistered |
+
+### Key types
+
+- `ToolDefinition` — `ToolSchema` + `execute(args, exec): Promise<ContentBlock[]>`, plus optional `presentCall(args)` / `presentResult(args, result)` for tool-owned UI presentation (see below).
+- `ToolExecution` — one pending tool call: `{ callId, name, arguments, agent?, signal? }`.
+- `ToolExecutionResult` — outcome: `{ callId, content, isError, error? }`. On failure with a `HarnessError`, `error: { name, code }` carries the structured failure class alongside the model-facing text (the loop forwards it onto the `tool/result` session event for retry/sandbox plugins and replay).
+- `ToolCallPresentation` / `ToolResultPresentation` — provider-neutral shapes a tool returns from `presentCall` / `presentResult` to own how a UI renders ITS calls (see "Tool-owned UI presentation").
+
+### Extension points
+
+- Tool plugins call `ctx.tools.register()` — schemas flow into the assembly automatically.
+- The `tools/execute` waterfall is the single seam for sandbox, permission, hooks, and plan-mode plugins to wrap or veto a call. Listeners receive `(exec, next)`: call `next()` to proceed, or return a result without calling `next()` to short-circuit (veto).
+- MCP servers: one plugin per server, discover tools, call `ctx.tools.register()` with the server's schemas.
+
+### Typed tool parameter schemas
+
+First-party plugin authors can use the `defineTool()` helper (exported from this package) for typed tool parameter schemas:
+
+```ts
+import { readFile } from 'node:fs/promises'
+import type { Context } from 'cordis'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+
+declare const ctx: Context
+
+ctx.tools.register(defineTool({
+  name: 'read_file',
+  description: 'Read a file from disk.',
+  parameters: {
+    path: { type: 'string', required: true, description: 'Absolute file path' },
+    offset: { type: 'number' },
+    limit: { type: 'number' },
+  },
+  async execute(args, exec) {
+    // args is typed: { path: string; offset?: number; limit?: number }
+    const text = await readFile(args.path, 'utf8')
+    return [{ type: 'text', text }]
+  },
+}))
+```
+
+The helper converts the author-facing `SchemaSpec` (with `required: true` as a per-property boolean) to standard JSON Schema for the wire format. Raw JSON-Schema tool definitions (from MCP servers) are still accepted by the registry directly.
+
+A `defineTool` tool also **validates the model-generated arguments against its `SchemaSpec` before `execute` runs** (`validateArgs`). The model's JSON is untrusted — `InferArgs<S>` is a compile-time claim, not a runtime guarantee — so on a mismatch (missing required key, wrong primitive, bad enum member, nested violation) the tool throws a `ToolArgsError` (`code: 'INVALID_ARGS'`); the registry turns it into an `isError` result whose text lists the violations, which the model sees and self-corrects from. Validation mirrors the JSON Schema conversion exactly: extra keys are allowed, `default` is not applied, and an `object`/`array` prop without `properties`/`items` only type-checks. Raw-registered tools (MCP) are **not** validated by the harness — they validate their own input.
+
+See `defineTool`, `validateArgs`, `ToolArgsError`, `SchemaSpec`, `InferArgs`, and `schemaSpecToJsonSchema` in the public API for details.
+
+### Tool-owned UI presentation
+
+A tool owns how ITS calls render in a UI (an editor's tool-call card, a CLI log line) — a UI plugin must NOT special-case tool names. A `ToolDefinition` may declare two optional, pure, display-only methods:
+
+- `presentCall(args): ToolCallPresentation | undefined` — the PENDING state: a human-readable `title` (always-visible label), an optional `kind` (`read`/`edit`/`execute`/… for icon/treatment, default `other`), an optional `rawInput` (the salient input to show in a detail view — e.g. a shell command as a string, NOT the whole args object), an optional `content` (UI content shown alongside the title/card — e.g. a bash `description` as a text block above the terminal card), and an optional `terminal` (a neutral `{ cwd? }` asking a capable UI to render this call as a TERMINAL, e.g. for `bash`).
+- `presentResult(args, result): ToolResultPresentation | undefined` — the COMPLETED state, given the same `args` and the `{ content, isError }` result: an optional replacement `title`, reformatted `content` (e.g. wrap command output in a fenced ` ```console ` block — a UI-only affordance that must NOT appear in the model-facing `execute` result), and an optional `terminal` (the `{ output?, exitCode?, signal? }` for a terminal-rendered call). The `ToolTerminal` shape is provider-neutral; a UI bridge (the ACP bridge) maps it to a terminal card (with an exit-status pill) and a UI that can't ignores it and uses `content`.
+
+Returning `undefined` (or omitting a method) tells a UI to fall back to a generic presentation (title = tool name, raw args as input, raw result content). Both methods must be **pure and side-effect-free**: a UI may call them during live streaming AND during a session-log replay, so they depend only on their arguments. With `defineTool`, `args` is the typed `InferArgs<S>` shape; the helper soft-validates before calling (a malformed/older logged arg shape yields `undefined` rather than throwing, since display must never crash a replay). The shapes are provider-neutral — the ACP bridge (`dsh-acp`) maps them to ACP `tool_call`/`tool_call_update` wire fields, and `dsh-tool-bash` is the reference implementation.
+
+```ts
+import { defineTool } from '@deepseek-ai/dsh-tools'
+
+const bash = defineTool({
+  name: 'bash',
+  description: 'Run a shell command.',
+  parameters: {
+    command: { type: 'string', required: true, description: 'The command to run.' },
+    description: { type: 'string', required: true, description: 'One-line summary shown in the UI.' },
+  },
+  async execute(args) {
+    return [{ type: 'text', text: `ran: ${args.command}` }]
+  },
+  // The command is the readable title; the description rides as a content block.
+  presentCall: args => ({ title: args.command, kind: 'execute', rawInput: args.command, content: [{ type: 'text', text: args.description }] }),
+  // Wrap the output as a console block for the UI (not in the model-facing result).
+  presentResult: (_args, result) => {
+    const block = result.content.length === 1 ? result.content[0] : undefined
+    if (block === undefined || block.type !== 'text') return undefined
+    return { content: [{ type: 'text', text: '```console\n' + block.text + '\n```' }] }
+  },
+})
+```
+
+### What is NOT here (TODO)
+
+- **Tool shapes review** — when real tools land (e.g. a concurrency-safety hint for parallel execution); phase 1 executes tool calls sequentially.
+- **Parallel execution** — the loop currently iterates tool calls sequentially.

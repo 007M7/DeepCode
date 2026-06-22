@@ -6,5 +6,5 @@
     "composite": false,
     "types": ["node"]
   },
-  "include": ["vendor/*/src", "packages/*/src", "packages/*/tests", "examples"]
+  "include": ["vendor/*/src", "packages/*/*/src", "packages/*/*/tests", "examples"]
 }
