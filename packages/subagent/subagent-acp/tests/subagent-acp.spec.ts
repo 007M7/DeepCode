@@ -199,6 +199,10 @@ describe('dsh-subagent-acp', () => {
         cwd: process.cwd(),
         permission: 'reject',
         env: { MOCK_TRAP_SIGTERM: '1', MOCK_TEXT: 'x', MOCK_READY_FILE: ready, TSX_TSCONFIG_PATH: repoTsconfig },
+        // Short on BOTH tiers: the trap ignores EOF and SIGTERM, so dispose must
+        // burn the EOF window, then the SIGTERM window, then SIGKILL — keep each
+        // small so the whole ladder finishes well within the 4000ms bound.
+        disposeEofGraceMs: 150,
         disposeGraceMs: 150,
       }
       const run = startAcpRun({ prompt: [{ type: 'text', text: 'p' }], parent: fakeParent }, spec)
@@ -218,13 +222,16 @@ describe('dsh-subagent-acp', () => {
     }
   })
 
-  it('dispose gives the child an EOF window to quiesce before escalating (graceful flush)', async () => {
+  it('dispose gives the child an EOF window that outlasts the SIGTERM grace (graceful flush)', async () => {
     // The real acp-agent flushes ASYNCHRONOUSLY on stdin EOF (its bridge tears
     // down on connection close, NOT on a signal) — and it has no SIGTERM handler.
-    // The mock models that: on stdin 'end' it takes a beat to "flush", touches a
-    // marker, and exits on its own. dispose() must end stdin and WAIT for that
-    // natural exit before sending SIGTERM; a same-tick SIGTERM default-kills the
-    // child mid-flush and the marker never appears.
+    // Its EOF teardown can itself await a signal-trapping grandchild (a bash
+    // subprocess in its own SIGTERM→SIGKILL grace) plus a flush, so the EOF window
+    // must be a SEPARATE, WIDER grace than the SIGTERM tier — not the same value.
+    // The mock models a flush that takes LONGER than the SIGTERM grace but well
+    // under the EOF grace: it lands only because tier 1 waits eofGraceMs, not
+    // graceMs. (If dispose reused the small SIGTERM grace for the EOF wait — the
+    // round-2 bug — SIGTERM would fire mid-flush and the marker would be missing.)
     const tmp = mkdtempSync(join(tmpdir(), 'acp-eof-'))
     const ready = join(tmp, 'ready')
     const flushed = join(tmp, 'flushed')
@@ -235,16 +242,23 @@ describe('dsh-subagent-acp', () => {
         cwd: process.cwd(),
         permission: 'reject',
         // MOCK_HANG so the prompt never resolves on its own — we tear down a live
-        // child. MOCK_FLUSH_ON_EOF is the marker the child writes iff its EOF
-        // quiesce was allowed to finish.
-        env: { MOCK_HANG: '1', MOCK_TEXT: 'x', MOCK_READY_FILE: ready, MOCK_FLUSH_ON_EOF: flushed, TSX_TSCONFIG_PATH: repoTsconfig },
+        // child. The flush beat (400ms) outlasts the 50ms SIGTERM grace but fits
+        // the 2000ms EOF grace; the marker lands iff the EOF tier honored its own
+        // wider grace.
+        env: {
+          MOCK_HANG: '1', MOCK_TEXT: 'x', MOCK_READY_FILE: ready,
+          MOCK_FLUSH_ON_EOF: flushed, MOCK_FLUSH_DELAY_MS: '400', TSX_TSCONFIG_PATH: repoTsconfig,
+        },
+        disposeEofGraceMs: 2000,
+        disposeGraceMs: 50,
       }
       const run = startAcpRun({ prompt: [{ type: 'text', text: 'p' }], parent: fakeParent }, spec)
       // Wait until the child is fully booted with its prompt in flight (its ACP
       // stdin reader is attached), so dispose's stdin EOF reaches a live child.
       await waitForFile(ready)
       await run.dispose()
-      // dispose returned via the natural-exit tier — the EOF-driven flush landed.
+      // dispose returned via the natural-exit tier — the EOF-driven flush landed
+      // despite taking longer than the SIGTERM grace.
       expect(existsSync(flushed)).toBe(true)
     } finally {
       rmSync(tmp, { recursive: true, force: true })
@@ -253,27 +267,38 @@ describe('dsh-subagent-acp', () => {
 
   it('escalates to SIGTERM for a child that ignores EOF but is not SIGTERM-trapping', async () => {
     // A child that keeps its loop alive past stdin EOF (so the graceful window
-    // times out) but leaves SIGTERM at the default handler must die on the
-    // SIGTERM tier — dispose returns there, never reaching the SIGKILL tier.
+    // times out) but exits cooperatively on SIGTERM must die on the SIGTERM tier
+    // — dispose returns there, never reaching the SIGKILL tier. The child touches
+    // a SIGTERM marker from its signal handler: SIGKILL is uncatchable, so if
+    // dispose had skipped the middle rung (EOF→SIGKILL) the handler would never
+    // run and the marker would be absent — making this a GENUINE middle-tier guard.
     const tmp = mkdtempSync(join(tmpdir(), 'acp-ignore-eof-'))
     const ready = join(tmp, 'ready')
+    const sigterm = join(tmp, 'sigterm')
     try {
       const spec: AcpRunSpec = {
         command: process.execPath,
         args: ['--import', tsxLoader, mockServer],
         cwd: process.cwd(),
         permission: 'reject',
-        env: { MOCK_HANG: '1', MOCK_IGNORE_EOF: '1', MOCK_TEXT: 'x', MOCK_READY_FILE: ready, TSX_TSCONFIG_PATH: repoTsconfig },
-        disposeGraceMs: 150,
+        env: {
+          MOCK_HANG: '1', MOCK_IGNORE_EOF: '1', MOCK_TEXT: 'x',
+          MOCK_READY_FILE: ready, MOCK_SIGTERM_FILE: sigterm, TSX_TSCONFIG_PATH: repoTsconfig,
+        },
+        // Tiny EOF grace so the ignored-EOF window elapses fast, then SIGTERM.
+        disposeEofGraceMs: 150,
+        disposeGraceMs: 2000,
       }
       const run = startAcpRun({ prompt: [{ type: 'text', text: 'p' }], parent: fakeParent }, spec)
       await waitForFile(ready)
-      // Bound it: a regression (no SIGTERM tier, only EOF + SIGKILL) would still
-      // pass, but a hang would fail loud rather than stall the suite.
+      // Bound it so a hang fails loud rather than stalling the suite.
       await expect(Promise.race([
         run.dispose(),
-        new Promise((_r, reject) => { setTimeout(() => { reject(new Error('dispose did not return')) }, 4000) }),
+        new Promise((_r, reject) => { setTimeout(() => { reject(new Error('dispose did not return')) }, 5000) }),
       ])).resolves.toBeUndefined()
+      // The child caught SIGTERM and exited — proof the middle rung fired (not a
+      // jump straight to the uncatchable SIGKILL).
+      expect(existsSync(sigterm)).toBe(true)
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }

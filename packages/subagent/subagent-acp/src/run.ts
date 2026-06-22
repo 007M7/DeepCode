@@ -71,12 +71,32 @@ export interface AcpRunSpec {
    */
   env: Record<string, string>
   /**
+   * Grace period (ms) for the child's EOF-driven quiesce in
+   * {@link SubagentRun.dispose} — the window to flush persistence and tear down
+   * its OWN nested subprocesses before the parent escalates to a signal. Defaults
+   * to {@link DEFAULT_DISPOSE_EOF_GRACE_MS}; a test injects a small value.
+   */
+  disposeEofGraceMs?: number
+  /**
    * Grace period (ms) between `SIGTERM` and the `SIGKILL` escalation in
    * {@link SubagentRun.dispose}. Defaults to {@link DEFAULT_DISPOSE_GRACE_MS};
    * a test injects a small value to exercise the escalation without a long wait.
    */
   disposeGraceMs?: number
 }
+
+/**
+ * Default grace for the child's EOF-driven quiesce on dispose — the window for it
+ * to flush persistence and tear down its OWN nested subprocesses (which may run
+ * their own `SIGTERM`→`SIGKILL` escalation) before the parent escalates to a
+ * signal. Deliberately LARGER than {@link DEFAULT_DISPOSE_GRACE_MS}: a cooperative
+ * child whose teardown is itself waiting on a signal-trapping grandchild (e.g. a
+ * bash subprocess in its own ~3s SIGTERM→SIGKILL grace) plus a final flush needs
+ * MORE than a single signal-grace of headroom, or the parent's SIGTERM cuts it off
+ * exactly as it reaches its own SIGKILL+flush. The child is an arbitrary ACP agent,
+ * so this is a standalone generous default, NOT derived from any child's internals.
+ */
+export const DEFAULT_DISPOSE_EOF_GRACE_MS = 6_000
 
 /** Default grace between SIGTERM and SIGKILL on dispose (mirrors the bash executor). */
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
@@ -313,6 +333,7 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
       // Reach quiescence, not merely request it (dispose must AWAIT the child
       // actually stopping). If the child is already gone, nothing to do.
       if (child.exitCode !== null || child.signalCode !== null) return
+      const eofGraceMs = spec.disposeEofGraceMs ?? DEFAULT_DISPOSE_EOF_GRACE_MS
       const graceMs = spec.disposeGraceMs ?? DEFAULT_DISPOSE_GRACE_MS
       // 1. Graceful: end the ACP request stream (stdin EOF) and let the child
       //    quiesce ON ITS OWN. Our acp-agent has NO SIGTERM handler in a normal
@@ -321,10 +342,13 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
       //    stdin EOF, NOT by a signal. A prompt response can resolve from a
       //    turn/end BEFORE that post-turn flush lands, so the child still has
       //    durable work owed when dispose runs. Give the EOF-driven quiesce a real
-      //    window to finish (flush persistence, stop child-owned bash) and EXIT;
-      //    sending SIGTERM in the same tick would default-terminate it mid-flush.
+      //    window — wider than a single signal-grace, since the child's own
+      //    teardown may itself be awaiting a signal-trapping grandchild (a bash
+      //    subprocess in its own SIGTERM→SIGKILL grace) plus a flush — and only
+      //    escalate if it overruns. Sending SIGTERM in the same tick (or too soon)
+      //    would default-terminate the child mid-flush, orphaning its nested work.
       child.stdin.end()
-      if (await exitsWithin(child, graceMs)) return
+      if (await exitsWithin(child, eofGraceMs)) return
       // 2. SIGTERM, then escalate to SIGKILL if it still does not exit within the
       //    grace period — a child that ignores EOF and traps SIGTERM must not
       //    wedge dispose forever (the seam requires bounded quiescence).
