@@ -9,7 +9,7 @@ import { mkdtemp, readFile, rm, stat, symlink, writeFile, unlink } from 'node:fs
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from 'cordis'
-import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
+import { LocalFileSystem, probe } from '@deepseek-ai/dsh-fs-local'
 import type { FsExecContext } from '@deepseek-ai/dsh-fs'
 
 let dir: string
@@ -89,6 +89,19 @@ describe('read → write → edit lifecycle', () => {
     expect(outcome.view).toBe('partial')
   })
 
+  it('records an over-long-line read as partial, so write/edit stay blocked', async () => {
+    await writeFile(join(dir, 'long.txt'), 'x'.repeat(3000))
+    const owner = exec()
+    const target = await fs.resolve('long.txt')
+    const outcome = await fs.read(target, READ_ALL, owner)
+
+    expect(outcome.view).toBe('partial')
+    await expect(fs.write(target, 'new', owner)).rejects.toMatchObject({ code: 'FS_PARTIAL_OBSERVATION' })
+    await expect(
+      fs.edit(target, { oldString: 'x', newString: 'y', replaceAll: false }, owner),
+    ).rejects.toMatchObject({ code: 'FS_PARTIAL_OBSERVATION' })
+  })
+
   it('allows a follow-up edit without re-reading (write/edit refresh state)', async () => {
     await writeFile(join(dir, 'a.txt'), 'a b')
     const owner = exec()
@@ -141,6 +154,22 @@ describe('read-before-write policy', () => {
     const target = await fs.resolve('a.txt')
     await expect(fs.edit(target, { oldString: 'old', newString: 'new', replaceAll: false }, exec()))
       .rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
+  })
+
+  it('rejects invalid UTF-8 reads and edits without rewriting the file', async () => {
+    const path = join(dir, 'invalid-utf8.txt')
+    const bytes = Buffer.from([0x68, 0xff, 0x69])
+    await writeFile(path, bytes)
+    const owner = exec()
+    const target = await fs.resolve('invalid-utf8.txt')
+
+    await expect(fs.read(target, READ_ALL, owner)).rejects.toMatchObject({ code: 'FS_NOT_TEXT' })
+    const existing = await probe(target.targetKey)
+    if (!existing) throw new Error('expected invalid UTF-8 fixture to exist')
+    await expect(
+      fs.applyEdit(target, { oldString: 'h', newString: 'H', replaceAll: false }, { version: existing.version }),
+    ).rejects.toMatchObject({ code: 'FS_NOT_TEXT' })
+    expect(await readFile(path)).toEqual(bytes)
   })
 })
 

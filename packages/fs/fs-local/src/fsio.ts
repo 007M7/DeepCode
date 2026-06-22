@@ -6,8 +6,8 @@
  * The reader uses two code paths so a single huge line can never balloon
  * memory: a **fast path** (`readFile` + in-memory split) for files under
  * {@link FAST_PATH_MAX_SIZE}, and a **streaming path** (manual newline scan
- * with a capped line buffer) for larger files. Both reject NUL-byte binary
- * samples and keep only the requested page in memory.
+ * with a capped line buffer) for larger files. Both reject invalid UTF-8 and
+ * NUL-byte binary samples, and keep only the requested page in memory.
  *
  * Writes are atomic: content goes to a temp file opened exclusively (`wx`,
  * `0o600`, so a pre-existing path can never be clobbered and write-in-progress
@@ -23,6 +23,7 @@ import { createReadStream } from 'node:fs'
 import { chmod, mkdir, open, readFile, realpath, rename, rm, stat } from 'node:fs/promises'
 import type { Stats } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
+import { TextDecoder } from 'node:util'
 import { FsError } from '@deepseek-ai/dsh-fs'
 import type { FsReadRequest, FsTextLine, FsView } from '@deepseek-ai/dsh-fs'
 
@@ -41,7 +42,6 @@ export const FAST_PATH_MAX_SIZE = 10 * 1024 * 1024
 const READ_MAX_BYTES_LABEL = `${READ_MAX_BYTES / 1024} KB`
 const READ_MAX_LINE_SUFFIX = `... (line truncated to ${READ_MAX_LINE_LENGTH} chars)`
 const BINARY_SAMPLE_BYTES = 8192
-const NUL_CHAR = String.fromCharCode(0)
 const LINE_BUFFER_CAP = READ_MAX_LINE_LENGTH + 1
 
 /**
@@ -145,17 +145,18 @@ interface PageAccumulator {
   totalLines: number
   outputBytes: number
   truncatedByBytes: boolean
+  truncatedByLine: boolean
   done: boolean
 }
 
 function newAccumulator(): PageAccumulator {
-  return { lines: [], totalLines: 0, outputBytes: 0, truncatedByBytes: false, done: false }
+  return { lines: [], totalLines: 0, outputBytes: 0, truncatedByBytes: false, truncatedByLine: false, done: false }
 }
 
-function truncateReadLine(line: string): string {
+function truncateReadLine(line: string): { text: string; truncated: boolean } {
   return line.length > READ_MAX_LINE_LENGTH
-    ? `${line.substring(0, READ_MAX_LINE_LENGTH)}${READ_MAX_LINE_SUFFIX}`
-    : line
+    ? { text: `${line.substring(0, READ_MAX_LINE_LENGTH)}${READ_MAX_LINE_SUFFIX}`, truncated: true }
+    : { text: line, truncated: false }
 }
 
 function lineByteSize(line: string, currentLineCount: number): number {
@@ -166,7 +167,8 @@ function consumeLine(acc: PageAccumulator, rawLine: string, request: FsReadReque
   acc.totalLines += 1
   if (acc.totalLines < request.offset || acc.lines.length >= request.limit) return
 
-  const text = truncateReadLine(rawLine)
+  const { text, truncated } = truncateReadLine(rawLine)
+  if (truncated) acc.truncatedByLine = true
   const bytes = lineByteSize(text, acc.lines.length)
   if (acc.outputBytes + bytes > READ_MAX_BYTES) {
     acc.truncatedByBytes = true
@@ -195,13 +197,41 @@ function buildResult(acc: PageAccumulator, request: FsReadRequest, version: stri
     throw new FsError(`offset ${request.offset} is out of range for "${displayPath}" (${acc.totalLines} lines)`, 'FS_NOT_FOUND')
   }
   const endLine = acc.lines.at(-1)?.number ?? Math.max(0, request.offset - 1)
-  const view: FsView = request.offset === 1 && !acc.truncatedByBytes && endLine >= acc.totalLines ? 'full' : 'partial'
+  const view: FsView = request.offset === 1 && !acc.truncatedByBytes && !acc.truncatedByLine && endLine >= acc.totalLines ? 'full' : 'partial'
   return { lines: acc.lines, totalLines: acc.totalLines, truncatedByBytes: acc.truncatedByBytes, view, version }
 }
 
+function notTextError(verb: 'read' | 'edit', displayPath: string): FsError {
+  return new FsError(`cannot ${verb} "${displayPath}": invalid UTF-8 text`, 'FS_NOT_TEXT')
+}
+
+function decodeUtf8(buffer: Uint8Array, verb: 'read' | 'edit', displayPath: string): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer)
+  } catch (error: unknown) {
+    if (error instanceof TypeError) throw notTextError(verb, displayPath)
+    throw error
+  }
+}
+
+function decodeUtf8Stream(
+  decoder: TextDecoder,
+  chunk: Uint8Array | undefined,
+  verb: 'read' | 'edit',
+  displayPath: string,
+): string {
+  try {
+    return chunk ? decoder.decode(chunk, { stream: true }) : decoder.decode()
+  } catch (error: unknown) {
+    if (error instanceof TypeError) throw notTextError(verb, displayPath)
+    throw error
+  }
+}
+
 /**
- * Read a bounded UTF-8 text-file page. Rejects non-regular files and NUL-byte
- * binary samples; dispatches to the fast or streaming path by file size.
+ * Read a bounded UTF-8 text-file page. Rejects non-regular files, invalid
+ * UTF-8, and NUL-byte binary samples; dispatches to the fast or streaming path
+ * by file size.
  */
 export async function readTextPage(
   target: LocalTarget,
@@ -240,7 +270,7 @@ async function readTextPageFast(
     throw new FsError(`cannot read "${target.displayPath}": binary file`, 'FS_NOT_TEXT')
   }
 
-  const text = raw.toString('utf8')
+  const text = decodeUtf8(raw, 'read', target.displayPath)
   const acc = newAccumulator()
   let startPos = 0
   let newlinePos: number
@@ -261,10 +291,11 @@ async function readTextPageStreaming(
   version: string,
   signal?: AbortSignal,
 ): Promise<ReadPageResult> {
-  const stream = createReadStream(target.targetKey, { encoding: 'utf8', ...signal ? { signal } : {} })
+  const stream = createReadStream(target.targetKey, signal ? { signal } : {})
   const acc = newAccumulator()
   let lineBuffer = ''
-  let firstChunk = true
+  let sampledBytes = 0
+  const decoder = new TextDecoder('utf-8', { fatal: true })
 
   function appendToLineBuffer(segment: string): void {
     if (lineBuffer.length >= LINE_BUFFER_CAP) return
@@ -277,24 +308,36 @@ async function readTextPageStreaming(
     lineBuffer = ''
   }
 
-  try {
-    for await (const chunk of stream as AsyncIterable<string>) {
-      if (firstChunk) {
-        firstChunk = false
-        if (chunk.slice(0, BINARY_SAMPLE_BYTES).includes(NUL_CHAR)) {
-          throw new FsError(`cannot read "${target.displayPath}": binary file`, 'FS_NOT_TEXT')
-        }
-      }
-      let startPos = 0
-      let newlinePos: number
-      while ((newlinePos = chunk.indexOf('\n', startPos)) !== -1) {
-        appendToLineBuffer(chunk.slice(startPos, newlinePos))
-        flushLine()
-        startPos = newlinePos + 1
-        if (acc.done) return buildResult(acc, request, version, target.displayPath)
-      }
-      appendToLineBuffer(chunk.slice(startPos))
+  function scanBinarySample(chunk: Buffer): void {
+    if (sampledBytes >= BINARY_SAMPLE_BYTES) return
+    const sample = chunk.subarray(0, Math.min(chunk.length, BINARY_SAMPLE_BYTES - sampledBytes))
+    if (sample.includes(0)) {
+      throw new FsError(`cannot read "${target.displayPath}": binary file`, 'FS_NOT_TEXT')
     }
+    sampledBytes += sample.length
+  }
+
+  function consumeChunk(chunk: string): ReadPageResult | undefined {
+    let startPos = 0
+    let newlinePos: number
+    while ((newlinePos = chunk.indexOf('\n', startPos)) !== -1) {
+      appendToLineBuffer(chunk.slice(startPos, newlinePos))
+      flushLine()
+      startPos = newlinePos + 1
+      if (acc.done) return buildResult(acc, request, version, target.displayPath)
+    }
+    appendToLineBuffer(chunk.slice(startPos))
+    return undefined
+  }
+
+  try {
+    for await (const chunk of stream as AsyncIterable<Buffer>) {
+      scanBinarySample(chunk)
+      const result = consumeChunk(decodeUtf8Stream(decoder, chunk, 'read', target.displayPath))
+      if (result) return result
+    }
+    const finalResult = consumeChunk(decodeUtf8Stream(decoder, undefined, 'read', target.displayPath))
+    if (finalResult) return finalResult
   } catch (error: unknown) {
     /* v8 ignore next 4 -- mid-stream errors need an abort/IO fault racing the loop; pre-abort is caught by throwIfAborted. */
     if (isAbortError(error)) throw new FsError('read aborted', 'FS_ABORTED')
@@ -435,7 +478,7 @@ export async function readForEdit(
   const buffer = await readFile(absolutePath, signal ? { signal } : {})
   throwIfAborted(signal, 'edit')
   if (buffer.includes(0)) throw new FsError(`cannot edit "${displayPath}": binary file`, 'FS_NOT_TEXT')
-  const raw = buffer.toString('utf8')
+  const raw = decodeUtf8(buffer, 'edit', displayPath)
   return { content: normalizeLineEndings(raw), lineEndings: detectLineEndings(raw) }
 }
 

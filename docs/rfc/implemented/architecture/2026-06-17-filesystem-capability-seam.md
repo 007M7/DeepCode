@@ -121,21 +121,22 @@ The root plugin registers the full suite by composing the per-tool registration 
 
 ## Migration plan
 
-This RFC starts from `origin/master`, where no filesystem tool package exists yet. The final implementation should add the new three-package topology directly:
+This RFC starts from `origin/master`, where no filesystem tool package exists yet. The landed implementation adds the new three-package topology directly:
 
 1. Add `packages/fs/fs` with the `ctx.fs` abstract service and vocabulary types.
 2. Add `packages/fs/fs-local` with the local backend implementation and backend-level tests.
 3. Add `packages/fs/tool-fs` with the model-facing `read`, `write`, and `edit` tools over `ctx.fs`.
-4. Wire examples by loading a `ctx.fs` provider first (`dsh-fs-local`), then the consumer (`dsh-tool-fs` or one of its subpath plugins).
-5. Update `docs/architecture.md`, `packages/README.md`, package READMEs, build/typecheck config, and aggregate maintenance scripts such as `scripts/publint-all.ts`.
+4. Update `docs/architecture.md`, `packages/README.md`, package READMEs, build/typecheck config, and aggregate maintenance scripts such as `scripts/publint-all.ts`.
 
 This first pass does not add a separate `@deepseek-ai/dsh-file-context` package. The file-state store lives behind `ctx.fs` so root and subpath `tool-fs` plugins share the same read-before-write/edit policy automatically.
+
+Example leaf configs stay bash-only in this landing. Wiring `examples/coding-agent` or `examples/acp-agent` to `dsh-fs-local` + `dsh-tool-fs` changes the model prompt, visible tool schemas, and ACP snapshot transcript, so it should land as a follow-up UX/example change with prompt and snapshot updates in the same PR.
 
 If this work is split into multiple PRs, they should follow the seam order:
 
 1. Interface PR: `dsh-fs` only, with service registration and contract tests.
 2. Implementation PR: `dsh-fs-local`, with real filesystem behavior tests.
-3. Consumer PR: `dsh-tool-fs`, examples, docs, and integration tests.
+3. Consumer PR: `dsh-tool-fs`, docs, and integration tests; example wiring follows in a separate prompt/snapshot PR.
 
 The earlier combined package name `@deepseek-ai/dsh-fs-tools` should not become part of the new public surface.
 
@@ -159,7 +160,7 @@ Beyond the happy/sad paths above, `dsh-fs-local` tests must cover the defensive-
 
 Integration tests should load `dsh-fs-local` plus `dsh-tool-fs` and execute `read`, `write`, and `edit` through `ctx.tools.execute()` to prove the three packages work together without bypassing the tool registry. They must verify the world, not the tool's self-report: after a `write`/`edit`, read the file back from disk and assert byte-identical content (and that untouched files are unchanged), rather than trusting the returned `ContentBlock[]`. Each integration/e2e test owns its resources — create the harness in the test, run against a per-test temporary directory, and dispose the harness and remove the directory in `afterEach` even on failure or timeout.
 
-Repo gates for the implementation include the focused vitest suites, `yarn typecheck`, `yarn test:coverage` for runtime code, and build/publint coverage after adding package entrypoints.
+Repo gates for the implementation include the focused vitest suites, `pnpm run typecheck`, `pnpm run test:coverage` for runtime code, and build/publint coverage after adding package entrypoints.
 
 ## Risks
 

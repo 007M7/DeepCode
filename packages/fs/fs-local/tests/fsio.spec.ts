@@ -102,6 +102,7 @@ describe('readTextPage', () => {
     await writeFile(file, 'x'.repeat(3000))
     const result = await readTextPage(localTarget(file), READ_ALL)
     expect(result.lines[0]?.text).toContain('... (line truncated to 2000 chars)')
+    expect(result.view).toBe('partial')
   })
 
   it('caps output bytes and reports truncatedByBytes', async () => {
@@ -138,6 +139,12 @@ describe('readTextPage', () => {
   it('rejects a binary file (fast path)', async () => {
     const file = join(dir, 'bin')
     await writeFile(file, Buffer.from([0x68, 0x00, 0x69]))
+    await expect(readTextPage(localTarget(file), READ_ALL)).rejects.toMatchObject({ code: 'FS_NOT_TEXT' })
+  })
+
+  it('rejects invalid UTF-8 bytes (fast path)', async () => {
+    const file = join(dir, 'invalid-utf8.txt')
+    await writeFile(file, Buffer.from([0x68, 0xff, 0x69]))
     await expect(readTextPage(localTarget(file), READ_ALL)).rejects.toMatchObject({ code: 'FS_NOT_TEXT' })
   })
 
@@ -181,6 +188,13 @@ describe('readTextPage', () => {
       await writeFile(file, 'z'.repeat(5000))
       const result = await readTextPage(localTarget(file), READ_ALL, undefined, stream)
       expect(result.lines[0]?.text).toContain('... (line truncated to 2000 chars)')
+      expect(result.view).toBe('partial')
+    })
+
+    it('rejects invalid UTF-8 bytes on the streaming path', async () => {
+      const file = join(dir, 'invalid-utf8.txt')
+      await writeFile(file, Buffer.from([0x68, 0xff, 0x69]))
+      await expect(readTextPage(localTarget(file), READ_ALL, undefined, stream)).rejects.toMatchObject({ code: 'FS_NOT_TEXT' })
     })
 
     it('honors abort on the streaming path', async () => {
@@ -335,6 +349,12 @@ describe('readForEdit + restoreLineEndings', () => {
   it('rejects a binary file', async () => {
     const file = join(dir, 'bin')
     await writeFile(file, Buffer.from([0x00, 0x01]))
+    await expect(readForEdit(file, file)).rejects.toMatchObject({ code: 'FS_NOT_TEXT' })
+  })
+
+  it('rejects invalid UTF-8 bytes', async () => {
+    const file = join(dir, 'invalid-utf8.txt')
+    await writeFile(file, Buffer.from([0x68, 0xff, 0x69]))
     await expect(readForEdit(file, file)).rejects.toMatchObject({ code: 'FS_NOT_TEXT' })
   })
 
