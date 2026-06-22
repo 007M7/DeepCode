@@ -1,5 +1,5 @@
 import { defineProperty } from 'cosmokit'
-import type { Context, Service } from '.'
+import type { Context, Service } from './index.ts'
 
 /** Ordered collection of disposable values with O(1) deletion by value. */
 export class DisposableList<T extends WeakKey> {

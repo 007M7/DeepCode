@@ -12,13 +12,13 @@ vendor/<dir>/
   README.md LICENSE # if upstream ships them
 ```
 
-`tsconfig.json` mirrors the other vendored packages — `rootDir: src`, `outDir: lib`, the strictness relaxations upstream code needs, and a `references` entry for every other vendored package it imports:
+`tsconfig.json` mirrors the other vendored packages — `rootDir: src`, `outDir: lib/types`, the strictness relaxations upstream code needs, and a `references` entry for every other vendored package it imports:
 
 ```jsonc
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src", "outDir": "lib",
+    "rootDir": "src", "outDir": "lib/types",
     "noUncheckedIndexedAccess": false, "exactOptionalPropertyTypes": false,
     "noImplicitOverride": false, "noUnusedLocals": false, "noUnusedParameters": false
   },
@@ -27,19 +27,21 @@ vendor/<dir>/
 }
 ```
 
-`package.json` invariants: `"private": true` (vendored packages are never published), keep upstream's `name`/`version`/`exports`/`type`, and list its cordis deps in `peerDependencies` (matching the upstream manifest). Transitive upstream deps must themselves be vendored or already present — vendoring one package often means vendoring its dependency tree (e.g. `@cordisjs/plugin-http` pulls `@cordisjs/fetch-file`).
+`package.json` invariants: `"private": true` (vendored packages are never published), keep upstream's `name`/`version`/`exports`/`type`, point declaration metadata at `lib/types`, publish `.d.ts` and `.d.ts.map` declaration outputs, and list its cordis deps in `peerDependencies` (matching the upstream manifest). Transitive upstream deps must themselves be vendored or already present — vendoring one package often means vendoring its dependency tree (e.g. `@cordisjs/plugin-http` pulls `@cordisjs/fetch-file`).
+
+Local relative imports/exports in vendored TypeScript source use explicit `.ts` specifiers after copying. This is a repo-local build-shape divergence from upstream: `rewriteRelativeImportExtensions` emits `.js` runtime imports while declarations keep explicit `.ts` specifiers that NodeNext/Node16 TypeScript consumers can resolve.
 
 ## 2. Register it in the root configs
 
 | File | Change |
 |---|---|
 | `tsconfig.base.json` | add `"<npm-name>": ["./vendor/<dir>/src"]` to `paths` |
-| `tsconfig.typecheck.json` | add `"<npm-name>": ["./vendor/<dir>/lib"]` — this file points at built declarations, not src. If the package's `types` entry isn't `lib/index.d.ts`, point at that built file instead (e.g. `logger-console` maps to `./vendor/logger-console/lib/shared`, matching its `"types": "lib/shared.d.ts"`). |
+| `tsconfig.json` | add `{ "path": "./vendor/<dir>" }` to `references` |
 | `tsconfig.build.json` | add `{ "path": "./vendor/<dir>" }` to `references` (before the `packages/*` entries) |
 | `vendor/README.md` | add a manifest table row (dir, npm name, version, upstream repo, commit SHA) and log any local modifications |
 | `scripts/publint-all.ts` | only if the vendored package is itself published from here (vendored deps normally are not — skip) |
 
-Covered automatically by globs — no edits needed: root `package.json` workspaces (`vendor/*`), `tsdown.config.ts`, `vitest.config.ts`, `eslint.config.mjs`. A per-package `vendor/<dir>/tsdown.config.ts` is needed ONLY if the build shape diverges from the root default (dual ESM/CJS or multiple entries — see `vendor/schemastery` and `vendor/logger-console`).
+Covered automatically by globs — no edits needed: root `package.json` workspaces (`vendor/*`), `tsdown.config.ts`, `vitest.config.ts`, `eslint.config.mjs`. A per-package `vendor/<dir>/tsdown.config.ts` is needed ONLY if the build shape diverges from the root default (dual ESM/CJS or multiple entries — see `vendor/schemastery` and `vendor/logger-console`); its entry should read the JS emitted under `lib/types`.
 
 ## 3. Mind the manifest guard
 
@@ -49,8 +51,8 @@ Covered automatically by globs — no edits needed: root `package.json` workspac
 
 ```sh
 pnpm install        # registers the workspace
-pnpm run typecheck  # the base→lib path split means: run once after a fresh add
+pnpm run typecheck
 pnpm run build && pnpm run test && pnpm run constraints
 ```
 
-Note the `tsconfig` two-map split (called out in [AGENTS.md](../../AGENTS.md) § Secrets/.env): `lint`'s type-aware rules resolve vendored packages through their built `lib/` declarations, so run `pnpm run typecheck` (which builds them) once after adding the package or lint reports unresolved-type errors.
+The source `paths` map is shared by build and root typecheck configs. The important isolation boundary is the project-reference graph: vendored source must be referenced through its own `vendor/<dir>/tsconfig.json`, not pulled into a root strict program.
