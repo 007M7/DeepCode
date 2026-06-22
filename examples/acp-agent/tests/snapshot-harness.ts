@@ -369,8 +369,13 @@ async function harvestSessionLogs(root: string): Promise<HarvestedLog[]> {
     }
   }
   // Primary (no parentSession) first, then children by ascending createdAt. A
-  // scenario has exactly one top-level session; ties among children fall back to
-  // recorded id for a stable order.
+  // scenario has exactly one top-level session. In the synchronous cut sibling
+  // children are created strictly sequentially, so their createdAt values are
+  // strictly ordered; the recordedId tiebreak only keeps a degenerate
+  // same-millisecond collision (unreachable here) deterministic. This harvest
+  // order must match the replay load order in dsh-llm-replay's loadSessionScripts
+  // so session.<n>.jsonl maps to the same child on record and replay — replay
+  // re-sorts childFiles by the same key, so the two stay consistent.
   logs.sort((a, b) => {
     const ap = a.parentSession === undefined ? 0 : 1
     const bp = b.parentSession === undefined ? 0 : 1

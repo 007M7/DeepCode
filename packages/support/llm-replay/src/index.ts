@@ -266,10 +266,18 @@ export function loadSessionScripts(config: ReplayConfig): SessionScript[] {
   }
   // The primary (parent) always binds first — it issues the first model call,
   // because it must run a turn before it can delegate. Children follow in
-  // createdAt order (the order they were spawned in the synchronous nested cut),
-  // ties broken by recorded id for determinism. Keeping the primary at the head
-  // rather than sorting it among the children means a sub-millisecond
-  // parent/child createdAt collision can never reorder it behind a child.
+  // createdAt order. In the current synchronous cut sibling children are created
+  // STRICTLY SEQUENTIALLY — the subagent tool awaits one child's result and
+  // disposes it before the parent's next tool call can start the next — so their
+  // createdAt values are strictly ordered and match first-call order exactly.
+  // The recordedId tiebreak only makes a degenerate same-millisecond collision
+  // (unreachable in this cut) deterministic; it does NOT recover first-call
+  // order, so it is arbitrary if such a tie ever occurs.
+  // XXX(concurrent-subagents): a future cut that runs siblings concurrently or
+  // backgrounded could create two children in the same millisecond, where this
+  // createdAt+id order may diverge from first-call order. That cut must thread a
+  // real first-call ordinal (the order live sessions first stream) instead of
+  // leaning on createdAt — see the per-session-replay RFC.
   children.sort((a, b) => a.createdAt - b.createdAt || a.recordedId.localeCompare(b.recordedId))
   return [primary, ...children]
 }
