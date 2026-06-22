@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { AgentId } from '@deepseek-ai/dsh-agent'
-import { makeBridgeHarness, textResponse } from './harness'
+import { makeBridgeHarness, textResponse } from './harness.ts'
 
 describe('acp bridge — disposal & HMR safety', () => {
   let storageDir: string

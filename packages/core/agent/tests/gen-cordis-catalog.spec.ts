@@ -14,7 +14,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { collectEvents } from '../../../../scripts/gen-cordis-catalog'
+import { collectEvents } from '../../../../scripts/gen-cordis-catalog.ts'
 
 /** Write a fixture package exposing one `interface Events` block and return the
  * scan root to hand `collectEvents`. */

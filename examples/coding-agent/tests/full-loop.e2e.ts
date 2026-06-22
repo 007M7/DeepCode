@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
 import { AgentId } from '@deepseek-ai/dsh-agent'
-import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness'
+import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.ts'
 
 /**
  * The first place a REAL model meets the REAL bash tool: the cheap canary

@@ -7,7 +7,7 @@ import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
-import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter'
+import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 /**
  * Regression tests for the findings of the first architecture review

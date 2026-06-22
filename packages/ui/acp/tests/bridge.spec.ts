@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { AgentId } from '@deepseek-ai/dsh-agent'
-import { makeBridgeHarness, textResponse, type BridgeHarness } from './harness'
+import { makeBridgeHarness, textResponse, type BridgeHarness } from './harness.ts'
 
 /**
  * End-to-end bridge specs over an in-memory transport: a real

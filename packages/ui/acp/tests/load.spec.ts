@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import { AgentId } from '@deepseek-ai/dsh-agent'
-import { makeBridgeHarness, textResponse, toolCallResponse, type BridgeHarness, type CapturedUpdate } from './harness'
+import { makeBridgeHarness, textResponse, toolCallResponse, type BridgeHarness, type CapturedUpdate } from './harness.ts'
 
 /** Concatenate the text of all agent_message_chunk updates. */
 function messageText(updates: CapturedUpdate[]): string {

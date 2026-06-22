@@ -10,7 +10,7 @@ import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import { BashTaskId } from '@deepseek-ai/dsh-bash'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
-import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter'
+import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 /**
  * Full-loop integration: a scripted mock model drives the REAL bash tool

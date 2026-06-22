@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { AgentId } from '@deepseek-ai/dsh-agent'
-import { makeBridgeHarness, textResponse, type BridgeHarness, type CapturedUpdate } from './harness'
+import { makeBridgeHarness, textResponse, type BridgeHarness, type CapturedUpdate } from './harness.ts'
 
 /** Text of the agent_message_chunk updates scoped to one session id. */
 function messageTextFor(updates: { sessionId?: string; update: CapturedUpdate }[], sessionId: string): string {

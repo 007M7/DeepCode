@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
 import { AgentId } from '@deepseek-ai/dsh-agent'
-import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness'
+import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.ts'
 
 /**
  * The swebench-style smoke test: a real model fixes a real bug in a temp

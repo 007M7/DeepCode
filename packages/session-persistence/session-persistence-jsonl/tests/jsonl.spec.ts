@@ -6,9 +6,9 @@ import { join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import { encodeSegment, logPath, scanLog, sessionDir } from '../src/format'
-import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract'
-import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract'
+import { encodeSegment, logPath, scanLog, sessionDir } from '../src/format.ts'
+import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
+import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
 let root: string
 const dirs: string[] = []
