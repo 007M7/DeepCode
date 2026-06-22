@@ -218,6 +218,67 @@ describe('dsh-subagent-acp', () => {
     }
   })
 
+  it('dispose gives the child an EOF window to quiesce before escalating (graceful flush)', async () => {
+    // The real acp-agent flushes ASYNCHRONOUSLY on stdin EOF (its bridge tears
+    // down on connection close, NOT on a signal) — and it has no SIGTERM handler.
+    // The mock models that: on stdin 'end' it takes a beat to "flush", touches a
+    // marker, and exits on its own. dispose() must end stdin and WAIT for that
+    // natural exit before sending SIGTERM; a same-tick SIGTERM default-kills the
+    // child mid-flush and the marker never appears.
+    const tmp = mkdtempSync(join(tmpdir(), 'acp-eof-'))
+    const ready = join(tmp, 'ready')
+    const flushed = join(tmp, 'flushed')
+    try {
+      const spec: AcpRunSpec = {
+        command: process.execPath,
+        args: ['--import', tsxLoader, mockServer],
+        cwd: process.cwd(),
+        permission: 'reject',
+        // MOCK_HANG so the prompt never resolves on its own — we tear down a live
+        // child. MOCK_FLUSH_ON_EOF is the marker the child writes iff its EOF
+        // quiesce was allowed to finish.
+        env: { MOCK_HANG: '1', MOCK_TEXT: 'x', MOCK_READY_FILE: ready, MOCK_FLUSH_ON_EOF: flushed, TSX_TSCONFIG_PATH: repoTsconfig },
+      }
+      const run = startAcpRun({ prompt: [{ type: 'text', text: 'p' }], parent: fakeParent }, spec)
+      // Wait until the child is fully booted with its prompt in flight (its ACP
+      // stdin reader is attached), so dispose's stdin EOF reaches a live child.
+      await waitForFile(ready)
+      await run.dispose()
+      // dispose returned via the natural-exit tier — the EOF-driven flush landed.
+      expect(existsSync(flushed)).toBe(true)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('escalates to SIGTERM for a child that ignores EOF but is not SIGTERM-trapping', async () => {
+    // A child that keeps its loop alive past stdin EOF (so the graceful window
+    // times out) but leaves SIGTERM at the default handler must die on the
+    // SIGTERM tier — dispose returns there, never reaching the SIGKILL tier.
+    const tmp = mkdtempSync(join(tmpdir(), 'acp-ignore-eof-'))
+    const ready = join(tmp, 'ready')
+    try {
+      const spec: AcpRunSpec = {
+        command: process.execPath,
+        args: ['--import', tsxLoader, mockServer],
+        cwd: process.cwd(),
+        permission: 'reject',
+        env: { MOCK_HANG: '1', MOCK_IGNORE_EOF: '1', MOCK_TEXT: 'x', MOCK_READY_FILE: ready, TSX_TSCONFIG_PATH: repoTsconfig },
+        disposeGraceMs: 150,
+      }
+      const run = startAcpRun({ prompt: [{ type: 'text', text: 'p' }], parent: fakeParent }, spec)
+      await waitForFile(ready)
+      // Bound it: a regression (no SIGTERM tier, only EOF + SIGKILL) would still
+      // pass, but a hang would fail loud rather than stall the suite.
+      await expect(Promise.race([
+        run.dispose(),
+        new Promise((_r, reject) => { setTimeout(() => { reject(new Error('dispose did not return')) }, 4000) }),
+      ])).resolves.toBeUndefined()
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
   it('honors a cancel that races AHEAD of newSession (no session id yet) without running the prompt', async () => {
     // Gate the child at newSession: it signals `ready` and blocks until `go`.
     // We cancel WHILE newSession is pending (sessionId still undefined, so the

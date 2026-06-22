@@ -149,6 +149,15 @@ function waitForExit(child: ChildProcess): Promise<void> {
   return new Promise<void>(resolve => child.once('exit', () => { resolve() }))
 }
 
+/** Resolve `true` if the child exits within `ms`, `false` on timeout. */
+function exitsWithin(child: ChildProcess, ms: number): Promise<boolean> {
+  return Promise.race([
+    waitForExit(child).then(() => true),
+    // `.unref()` so a pending grace timer never keeps the parent's loop alive.
+    new Promise<boolean>(resolve => setTimeout(() => { resolve(false) }, ms).unref()),
+  ])
+}
+
 /**
  * Start an out-of-process ACP child for `request` and return a {@link SubagentRun}.
  *
@@ -304,26 +313,26 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
       // Reach quiescence, not merely request it (dispose must AWAIT the child
       // actually stopping). If the child is already gone, nothing to do.
       if (child.exitCode !== null || child.signalCode !== null) return
-      // 1. Graceful: end the ACP request stream (stdin EOF). Our own acp-agent
-      //    disposes its fiber on stdin 'end' — flushing persistence and stopping
-      //    child-owned work (e.g. bash subprocesses) — then exits, which the
-      //    server bridge's connection-close quiesce path drives. A child that
-      //    ignores EOF is handled by the signal escalation below.
-      child.stdin.end()
-      // 2. SIGTERM, then escalate to SIGKILL if it does not exit within the
-      //    grace period — a child that traps SIGTERM must not wedge dispose
-      //    forever (the seam requires bounded quiescence). Race the exit against
-      //    a grace timer; on timeout, SIGKILL and await the (now-certain) exit.
-      child.kill('SIGTERM')
       const graceMs = spec.disposeGraceMs ?? DEFAULT_DISPOSE_GRACE_MS
-      const exited = await Promise.race([
-        waitForExit(child).then(() => true),
-        new Promise<boolean>(resolve => setTimeout(() => { resolve(false) }, graceMs).unref()),
-      ])
-      if (!exited) {
-        child.kill('SIGKILL')
-        await waitForExit(child)
-      }
+      // 1. Graceful: end the ACP request stream (stdin EOF) and let the child
+      //    quiesce ON ITS OWN. Our acp-agent has NO SIGTERM handler in a normal
+      //    session — it tears down via the server bridge's connection-close path
+      //    (conn.closed → per-agent dispose → final session/flush), driven by the
+      //    stdin EOF, NOT by a signal. A prompt response can resolve from a
+      //    turn/end BEFORE that post-turn flush lands, so the child still has
+      //    durable work owed when dispose runs. Give the EOF-driven quiesce a real
+      //    window to finish (flush persistence, stop child-owned bash) and EXIT;
+      //    sending SIGTERM in the same tick would default-terminate it mid-flush.
+      child.stdin.end()
+      if (await exitsWithin(child, graceMs)) return
+      // 2. SIGTERM, then escalate to SIGKILL if it still does not exit within the
+      //    grace period — a child that ignores EOF and traps SIGTERM must not
+      //    wedge dispose forever (the seam requires bounded quiescence).
+      child.kill('SIGTERM')
+      if (await exitsWithin(child, graceMs)) return
+      // 3. Force-kill and await the (now-certain) exit.
+      child.kill('SIGKILL')
+      await waitForExit(child)
     },
   }
 }

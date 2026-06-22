@@ -14,6 +14,18 @@
  *                        handler is in flight (it has streamed its chunk). A test
  *                        polls for this file to cancel on a CONDITION rather than
  *                        an arbitrary timeout (subprocess cold-start is variable).
+ * - `MOCK_FLUSH_ON_EOF` — if set, on stdin EOF the agent takes an async beat
+ *                         (simulating the real acp-agent's EOF-driven
+ *                         quiesce+flush), then touches this path and exits ON ITS
+ *                         OWN — no signal. Stands in for a child whose durable
+ *                         flush completes only if dispose gives EOF a real window
+ *                         before escalating to SIGTERM.
+ * - `MOCK_IGNORE_EOF`   — if `1`, keep the event loop alive past stdin EOF (a bare
+ *                         timer) but leave SIGTERM at its DEFAULT handler, so the
+ *                         child ignores the graceful EOF window yet still dies on
+ *                         SIGTERM — exercising dispose's middle tier (exit during
+ *                         the SIGTERM grace, before the SIGKILL escalation). It
+ *                         touches MOCK_READY_FILE once the keepalive is armed.
  *
  * It is NOT a test spec (no `describe`/`it`) — it is spawned BY the specs as the
  * child process the ACP backend drives. Kept as a `.ts` run under tsx by the
@@ -50,6 +62,7 @@ const NO_ALLOW = process.env.MOCK_NO_ALLOW === '1'
 const THOUGHT = process.env.MOCK_THOUGHT === '1'
 const CRASH_ON_CANCEL = process.env.MOCK_CRASH_ON_CANCEL === '1'
 const READY_FILE = process.env.MOCK_READY_FILE
+const FLUSH_ON_EOF = process.env.MOCK_FLUSH_ON_EOF
 // When MOCK_NEWSESSION_READY/GO are set, newSession touches READY then blocks
 // until GO appears — letting a test cancel mid-newSession deterministically.
 const NEWSESSION_GATE = process.env.MOCK_NEWSESSION_READY !== undefined && process.env.MOCK_NEWSESSION_GO !== undefined
@@ -160,5 +173,30 @@ if (process.env.MOCK_TRAP_SIGTERM === '1') {
   // Keep the event loop alive (a bare timer) so nothing else lets it exit.
   setInterval(() => { /* stay alive until SIGKILL */ }, 1000)
   if (READY_FILE !== undefined) writeFileSync(READY_FILE, 'trap-armed')
+}
+
+// Under MOCK_FLUSH_ON_EOF, model the real acp-agent's EOF-driven quiesce: on
+// stdin 'end' (the dispose path's `child.stdin.end()`), take an ASYNC beat to
+// "flush", then touch the marker and exit ON OUR OWN — no signal involved. A
+// dispose that sends SIGTERM in the same tick as the EOF (no graceful window)
+// default-terminates this process before the beat completes, so the marker is
+// missing; a dispose that waits for natural exit first lets the flush land.
+if (FLUSH_ON_EOF !== undefined) {
+  process.stdin.on('end', () => {
+    setTimeout(() => {
+      writeFileSync(FLUSH_ON_EOF, 'flushed')
+      process.exit(0)
+    }, 150)
+  })
+}
+
+// Under MOCK_IGNORE_EOF, keep the loop alive past stdin EOF but leave SIGTERM at
+// its DEFAULT handler — the child ignores the graceful EOF window yet still dies
+// on SIGTERM, exercising dispose's middle tier (exit during the SIGTERM grace,
+// before the SIGKILL escalation). Touch the ready file once the keepalive is
+// armed, so a test disposes on that condition rather than a timeout.
+if (process.env.MOCK_IGNORE_EOF === '1') {
+  setInterval(() => { /* stay alive past EOF; default SIGTERM still kills us */ }, 1000)
+  if (READY_FILE !== undefined) writeFileSync(READY_FILE, 'ignore-eof-armed')
 }
 
