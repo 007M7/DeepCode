@@ -1,8 +1,8 @@
 import { Context } from 'cordis'
 import { Dict } from 'cosmokit'
-import { Entry } from './entry'
+import { Entry } from './entry.ts'
 
-declare module './entry' {
+declare module './entry.ts' {
   interface EntryOptions {
     intercept?: Dict | null
     isolate?: Dict<true | string> | null

@@ -69,12 +69,13 @@ jobs:
         run: pnpm run test:snapshot
 
       # Before hygiene: publint validates the packed artifacts (lib/index.js),
-      # which only the tsdown bundling step emits.
+      # which only the tsdown bundling step emits, and verify-node-next-types
+      # validates the built declarations.
       - name: Build (tsc -b + tsdown bundles)
         run: pnpm run build
 
-      - name: Hygiene (knip + publint)
-        run: pnpm run knip && pnpm run publint
+      - name: Hygiene (knip + publint + constraints + NodeNext types)
+        run: pnpm run hygiene
 
       - name: Demo smoke test
         run: |

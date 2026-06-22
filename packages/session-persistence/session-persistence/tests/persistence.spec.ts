@@ -5,9 +5,9 @@ import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-sess
 import {
   SessionPersistence, PersistenceCoordinator, assertSerializable, seedCoversPrefix,
   type PersistenceBackend, type StoredPrefix,
-} from '../src/index'
-import { runPersistenceContract, meta, oneTurnLog } from './contract'
-import { runCoordinatorContract, type CoordinatorFixture } from './coordinator-contract'
+} from '../src/index.ts'
+import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
+import { runCoordinatorContract, type CoordinatorFixture } from './coordinator-contract.ts'
 
 /** The durable store shape: materialized sessions only (no lazy entries). */
 type MemoryStore = Map<string, { meta: SessionHeader; events: SessionEvent[] }>

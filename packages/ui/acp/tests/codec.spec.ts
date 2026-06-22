@@ -6,7 +6,7 @@ import {
   harnessBlockToAcpContent,
   promptHasUnsupportedContent,
   turnEndToStopReason,
-} from '../src/codec'
+} from '../src/codec.ts'
 
 describe('turnEndToStopReason', () => {
   // The SDK rejects an unknown stopReason, so this must be total over every

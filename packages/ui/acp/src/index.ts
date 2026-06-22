@@ -74,7 +74,7 @@ import {
   harnessBlockToAcpContent,
   promptHasUnsupportedContent,
   turnEndToStopReason,
-} from './codec'
+} from './codec.ts'
 
 export const name = 'acp'
 // The bridge programs against the interface packages only (architecture rule:

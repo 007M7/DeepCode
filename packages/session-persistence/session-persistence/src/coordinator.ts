@@ -27,7 +27,7 @@
 import { Context } from 'cordis'
 import { interruptedTurnClosers, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
-import { assertSerializable, seedCoversPrefix } from './index'
+import { assertSerializable, seedCoversPrefix } from './index.ts'
 
 /**
  * A stored session's durable prefix as read back from a backend: its

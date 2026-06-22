@@ -7,11 +7,11 @@
 
 import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { serializeRequest } from './serialize'
-import type { RequestDefaults } from './serialize'
-import { parseSse } from './sse'
-import { translate } from './translate'
-import type { WireError } from './types'
+import { serializeRequest } from './serialize.ts'
+import type { RequestDefaults } from './serialize.ts'
+import { parseSse } from './sse.ts'
+import { translate } from './translate.ts'
+import type { WireError } from './types.ts'
 
 export interface DeepSeekAdapterOptions {
   apiKey: string

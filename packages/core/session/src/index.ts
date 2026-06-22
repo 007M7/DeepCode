@@ -9,13 +9,13 @@
 import { Context, Service } from 'cordis'
 import { isAbsolute } from 'node:path'
 import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
-import { SESSION_FORMAT_VERSION, SessionId } from './types'
-import type { CreateSessionOptions, SessionEvent, SessionEventMap, SessionEventType, SessionHeader } from './types'
-import { isJsonValue } from './json'
+import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
+import type { CreateSessionOptions, SessionEvent, SessionEventMap, SessionEventType, SessionHeader } from './types.ts'
+import { isJsonValue } from './json.ts'
 
-export * from './types'
-export { isJsonValue } from './json'
-export { interruptedTurnClosers } from './repair'
+export * from './types.ts'
+export { isJsonValue } from './json.ts'
+export { interruptedTurnClosers } from './repair.ts'
 
 declare module 'cordis' {
   interface Context {

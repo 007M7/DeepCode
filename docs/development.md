@@ -39,7 +39,7 @@ If you are preparing to push from a fresh clone or worktree, also build once:
 pnpm run build
 ```
 
-`pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files. A fresh worktree has no bundled JS until `pnpm run build` runs.
+`pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files, and `verify-node-next-types`, which validates built declarations against a temporary NodeNext consumer. A fresh worktree has no bundled JS or declarations until `pnpm run build` runs.
 
 ## Environment variables
 
@@ -101,7 +101,8 @@ pnpm run doc-sync       # doc-typecheck, cordis-catalog freshness, markdown wrap
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
 pnpm run build          # emit lib/types intermediates, then bundle lib/index.* runtime files
-pnpm run hygiene        # knip, publint, and workspace constraints
+pnpm run verify-node-next-types  # fail if built declarations are not NodeNext-consumable
+pnpm run hygiene        # knip, publint, workspace constraints, and NodeNext declaration check
 ```
 
 When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets, cordis events/services catalog drift, and hard-wrapped markdown prose, but broader prose/API sync still needs review.

@@ -36,7 +36,7 @@
  */
 
 import type { CallId } from '@deepseek-ai/dsh-llm'
-import type { SessionEvent } from './types'
+import type { SessionEvent } from './types.ts'
 
 /**
  * Scan `events` for an open turn/step at the tail and return the synthetic

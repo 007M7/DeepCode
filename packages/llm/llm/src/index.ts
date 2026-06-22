@@ -7,14 +7,14 @@
  */
 
 import { Context, Service } from 'cordis'
-import type { GenerateOptions, StreamChunk } from './types'
-import { HarnessError } from './error'
+import type { GenerateOptions, StreamChunk } from './types.ts'
+import { HarnessError } from './error.ts'
 
-export * from './brand'
-export * from './never'
-export * from './error'
-export * from './types'
-export { BlockAssembler } from './assembler'
+export * from './brand.ts'
+export * from './never.ts'
+export * from './error.ts'
+export * from './types.ts'
+export { BlockAssembler } from './assembler.ts'
 
 declare module 'cordis' {
   interface Context {

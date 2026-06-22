@@ -1,7 +1,7 @@
 import { composeError, Context } from 'cordis'
 import { Dict, isNonNullable } from 'cosmokit'
-import { Entry, EntryOptions } from './entry'
-import { EntryGroup } from './group'
+import { Entry, EntryOptions } from './entry.ts'
+import { EntryGroup } from './group.ts'
 
 /** Mutable tree of loader entries. Persistence is supplied by subclasses. */
 export abstract class EntryTree {

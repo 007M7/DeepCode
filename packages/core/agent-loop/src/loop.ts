@@ -13,7 +13,7 @@ import { BlockAssembler, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
-import type { ReactLoopAgent } from './agent'
+import type { ReactLoopAgent } from './agent.ts'
 
 /** An Error with an optional machine-readable code (e.g., from LlmError or a throwing plugin). */
 type CodedError = Error & { code?: string }

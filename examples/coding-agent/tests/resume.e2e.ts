@@ -6,7 +6,7 @@ import type { Context } from 'cordis'
 import type { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness'
+import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.ts'
 
 /**
  * Proves durable conversation continuity end-to-end: run 1 tells the REAL model

@@ -3,8 +3,8 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { type InputScript, runScenario } from './snapshot-harness'
-import { type NormalizeContext, normalizeSessionLog, normalizeStdout } from './snapshot-normalize'
+import { type InputScript, runScenario } from './snapshot-harness.ts'
+import { type NormalizeContext, normalizeSessionLog, normalizeStdout } from './snapshot-normalize.ts'
 
 /**
  * ACP snapshot tests (REPLAY by default, keyless). Each scenario under

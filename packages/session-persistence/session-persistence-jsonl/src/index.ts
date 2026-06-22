@@ -29,7 +29,7 @@ import {
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
   encodeSegment, eventLine, logPath, parseHeaderMeta, scanLog, sessionDir, toHeaderLine,
-} from './format'
+} from './format.ts'
 
 export interface Config {
   /**
