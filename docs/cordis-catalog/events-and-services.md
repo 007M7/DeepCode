@@ -363,6 +363,8 @@ async write(target: FsTarget, content: string, exec?: FsExecContext, signal?: Ab
 async edit(target: FsTarget, edit: FsEditRequest, exec?: FsExecContext, signal?: AbortSignal): Promise<FsEditOutcome>
 ```
 
+Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsExecContext](../core-data-structures/filesystem.md) · [FsExpectation](../core-data-structures/filesystem.md) · [FsReadOutcome](../core-data-structures/filesystem.md) · [FsReadRequest](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
+
 Source: [`packages/fs/fs/src/index.ts:94`](../../packages/fs/fs/src/index.ts)
 
 ### `ctx.llm` — `LlmService`
