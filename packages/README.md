@@ -11,6 +11,7 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`core/`](core/README.md) | Product API spine: session, system-prompt, tools, agent, and the concrete loop | Product — stable surface |
 | [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
 | [`bash/`](bash/README.md) | Bash capability family: the executor seam, a local impl, and the model-facing tool | Product — stable surface |
+| [`fs/`](fs/README.md) | Filesystem capability family: the abstract seam, a local impl, and the model-facing file tools | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
 | [`ui/`](ui/README.md) | Editor/client integration surfaces (the ACP bridge) | Product — stable surface |
 | [`support/`](support/README.md) | Dev/test/example infrastructure (invariants, stdio UI, replay adapter) | Support — lower compatibility expectations |
@@ -30,6 +31,9 @@ dsh-agent         ← dsh-llm, dsh-session, dsh-brand
 dsh-tools         ← dsh-llm, dsh-system-prompt, dsh-agent
 dsh-bash-local    ← dsh-bash                       (BashExecutor impl)
 dsh-tool-bash     ← dsh-bash, dsh-tools            (bash tool schemas)
+dsh-fs            ← dsh-llm                         (abstract filesystem seam)
+dsh-fs-local      ← dsh-fs                          (FileSystem impl)
+dsh-tool-fs       ← dsh-fs, dsh-tools               (file tool schemas)
 dsh-llm-deepseek  ← dsh-llm                        (DeepSeek adapter)
 dsh-llm-pi-ai     ← dsh-llm                        (pi-ai-backed adapter)
 dsh-agent-loop    ← dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent
@@ -58,6 +62,9 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `bash/` | `bash` | Abstract bash executor seam (interface + vocabulary) | `ctx.bash` |
 | `bash-local/` | `bash` | Local-subprocess `BashExecutor` implementation | (registers `ctx.bash`) |
 | `tool-bash/` | `bash` | Model-facing `bash`/`bash_output`/`bash_kill` tool schemas | (registers on `ctx.tools`) |
+| `fs/` | `fs` | Abstract filesystem seam (interface + vocabulary + observed-file policy) | `ctx.fs` |
+| `fs-local/` | `fs` | Local-filesystem `FileSystem` implementation | (registers `ctx.fs`) |
+| `tool-fs/` | `fs` | Model-facing `read`/`write`/`edit` tool schemas | (registers on `ctx.tools`) |
 | `llm-deepseek/` | `llm` | DeepSeek API adapter (hand-rolled fetch/SSE) | (registers on `ctx.llm`) |
 | `llm-pi-ai/` | `llm` | DeepSeek adapter via `@earendil-works/pi-ai` (design twin) | (registers on `ctx.llm`) |
 | `session-persistence/` | `session-persistence` | Persistence seam + write coordinator | `ctx.sessionPersistence` |

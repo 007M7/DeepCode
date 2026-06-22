@@ -81,6 +81,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 
 | Title | First proposed |
 |---|---|
+| [Filesystem tool schemas — model-facing read/write/edit shapes](implemented/feature/2026-06-17-filesystem-tool-schemas.md) | 2026-06-17 |
 | [Rich ACP bash rendering — the terminal card (`_meta`) and command classification](implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) | 2026-06-18 |
 
 ### Simplification
@@ -110,6 +111,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Two LLM adapters as a design-verification twin](implemented/architecture/2026-06-13-twin-llm-adapters.md) | 2026-06-13 |
 | [Session persistence as an abstract service over `SessionEvent`](implemented/architecture/2026-06-14-session-persistence.md) | 2026-06-14 |
 | [Every session event is enclosed in a turn](implemented/architecture/2026-06-15-turn-enclosure-invariant.md) | 2026-06-15 |
+| [Filesystem capability seam — ctx.fs, local backend, and model-facing filesystem tools](implemented/architecture/2026-06-17-filesystem-capability-seam.md) | 2026-06-17 |
 | [Shared persistence write coordinator](implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md) | 2026-06-18 |
 | [Agent lifecycle and ownership seams](implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md) | 2026-06-18 |
 | [Reorganize packages into a modular hierarchy](implemented/architecture/2026-06-20-package-hierarchy.md) | 2026-06-20 |

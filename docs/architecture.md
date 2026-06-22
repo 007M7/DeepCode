@@ -24,6 +24,8 @@ For a catalog of the **data structures** this architecture moves around — the 
 │  @deepseek-ai/dsh-agent-loop      (the ONE concrete plugin)  │
 │  @deepseek-ai/dsh-bash-local      (bash impl)                │
 │  @deepseek-ai/dsh-tool-bash       (bash tool schemas)        │
+│  @deepseek-ai/dsh-fs-local        (filesystem impl)          │
+│  @deepseek-ai/dsh-tool-fs         (filesystem tool schemas)  │
 │  @deepseek-ai/dsh-session-persistence-jsonl (persistence impl)│
 ├─────────────────────────────────────────────────────────────┤
 │  @deepseek-ai/dsh-agent           (vocabulary + registry)    │
@@ -33,6 +35,7 @@ For a catalog of the **data structures** this architecture moves around — the 
 │  @deepseek-ai/dsh-session-persistence (persistence seam)     │
 │  @deepseek-ai/dsh-llm             (abstract model service)   │
 │  @deepseek-ai/dsh-bash            (abstract bash executor)   │
+│  @deepseek-ai/dsh-fs              (abstract filesystem)      │
 ├─────────────────────────────────────────────────────────────┤
 │  vendor/: cordis, loader, include, group, timer, hmr,        │
 │           logger-console, cosmokit, schemastery              │
@@ -53,6 +56,7 @@ Dependency rule: **extension** plugins depend on interface packages, never on `d
 | `ctx.agents` | `AgentRegistry` | dsh-agent | live `Agent` handles + the create/resume factory seam (returns an `AgentHandle` = `{ agent, dispose() }` for owned per-agent teardown) |
 | `ctx.agentLoop` | `AgentLoop` | dsh-agent-loop | creates `ReactLoopAgent`s and drives their loops |
 | `ctx.bash` | `BashExecutor` (abstract) | dsh-bash | bash execution seam: foreground runs + background tasks |
+| `ctx.fs` | `FileSystem` (abstract) | dsh-fs | filesystem seam: path resolution, text reads, writes, edits, and observed-file policy |
 
 All registrations (`registerAdapter`, `section`, `tools`, `register`, …) go through `ctx.effect()` and return disposers, so plugin hot-reload (vendored HMR) and fiber disposal clean up automatically.
 
@@ -67,6 +71,8 @@ Swappable capabilities are split into **three packages** so each part evolves in
 3. **Consumer** (`dsh-tool-bash`) — what the model and other plugins program against (the `bash`/`bash_output`/`bash_kill` tool schemas). Consumers `inject` the interface's ctx key and never import implementation types.
 
 The LLM seam has the same topology folded differently: `dsh-llm` carries the interface (`LlmAdapter`) AND the consumer surface (`ctx.llm.stream()`), with adapters as implementation packages — there the consumer is the loop itself, not a swappable schema surface. Use the full three-package split when the consumer is independently replaceable; keep interface + consumer together when they are one concern. Don't split preemptively: a capability with one conceivable implementation and one consumer stays one package until proven otherwise.
+
+The filesystem capability follows the bash topology: `dsh-fs` owns the abstract `ctx.fs` service and observed-file policy, `dsh-fs-local` provides the local backend, and `dsh-tool-fs` exposes the model-facing `read`/`write`/`edit` schemas over the interface.
 
 > **"Capability" — two unrelated meanings.** (1) The *seam pattern* above ("one plugin provides a capability, another needs it") is realized by plain Cordis **services + `inject`**: a provider registers a service (`ctx.bash`, declared in `interface Context`); a consumer declares `inject: ['bash']` and its fiber stays pending until the service exists, tearing down via HMR if it later vanishes. No extra library is needed. (2) `@cordisjs/plugin-capability` is a different axis entirely — a **permission/capability-security** service (named permissions with inheritance/dependency, tested against a session via `ctx.capability.test`). It is a candidate for the deferred permissions/sandbox work (the `tools/execute` veto seam), NOT a mechanism for swapping implementations.
 

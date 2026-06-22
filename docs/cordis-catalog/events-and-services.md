@@ -279,7 +279,7 @@ Source: [`packages/core/tools/src/index.ts:43`](../../packages/core/tools/src/in
 
 ## Services
 
-The 8 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
+The 9 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
 
 ### `ctx.agentLoop` — `AgentLoop`
 
@@ -338,6 +338,32 @@ onTaskDone(listener: BashTaskListener): () => void
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [BashTask](../core-data-structures/bash.md) · [BashTaskRead](../core-data-structures/bash.md)
 
 Source: [`packages/bash/bash/src/index.ts:59`](../../packages/bash/bash/src/index.ts)
+
+### `ctx.fs` — `FileSystem` (abstract seam)
+
+Abstract filesystem service. Subclass, implement the four backend primitives (resolve, readPage, createOrReplace, applyEdit), and load the subclass as a plugin — it registers as `ctx.fs` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+
+Consumers call the concrete public API (read/write/ edit), which derives the file-state owner, enforces the read-before-write/edit policy, and refreshes recorded state — then delegates the actual I/O to the backend primitives.
+
+Semantics every backend must honor:
+
+- resolve returns a stable FsTarget; the same underlying file reached by different input paths must yield the same `targetKey` so stale guards and file-state lookup agree across paths (e.g. through symlinks).
+- readPage returns line-numbered UTF-8 content with a `version` and a `view` (`full` only when the page covered the whole file).
+- createOrReplace honors the FsExpectation: `observed` rejects with `FS_STALE_VERSION` if the file changed since `version`; `partial` rejects existing targets because the owner saw only a non-editable view; `unobserved` creates iff the target is absent and otherwise rejects.
+- applyEdit verifies the expected version (stale guard) and is atomic (read-modify-write must not interleave with a concurrent edit).
+
+```ts cordis-catalog
+abstract resolve(path: string): Promise<FsTarget>
+abstract readPage(target: FsTarget, request: FsReadRequest, signal?: AbortSignal): Promise<FsReadOutcome>
+abstract createOrReplace(target: FsTarget, content: string, expected: FsExpectation, signal?: AbortSignal): Promise<FsWriteOutcome>
+abstract applyEdit(target: FsTarget, edit: FsEditRequest, expected: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
+owner(exec?: FsExecContext): object | undefined
+async read(target: FsTarget, request: FsReadRequest, exec?: FsExecContext, signal?: AbortSignal): Promise<FsReadOutcome>
+async write(target: FsTarget, content: string, exec?: FsExecContext, signal?: AbortSignal): Promise<FsWriteOutcome>
+async edit(target: FsTarget, edit: FsEditRequest, exec?: FsExecContext, signal?: AbortSignal): Promise<FsEditOutcome>
+```
+
+Source: [`packages/fs/fs/src/index.ts:94`](../../packages/fs/fs/src/index.ts)
 
 ### `ctx.llm` — `LlmService`
 
