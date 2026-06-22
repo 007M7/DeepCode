@@ -15,19 +15,16 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../../../vendor/schemastery"
+      "path": "../../core/agent"
     },
     {
-      "path": "../../core/agent"
+      "path": "../../llm/llm"
     },
     {
       "path": "../../core/session"
     },
     {
       "path": "../subagent"
-    },
-    {
-      "path": "../subagent-inprocess"
     }
   ]
 }

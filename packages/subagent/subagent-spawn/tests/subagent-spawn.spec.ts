@@ -12,7 +12,7 @@ import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import { MockAdapter, maxTokensResponse, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import * as spawn from '../src/index.ts'
-import { depthOf, SubagentDepthError } from '../src/in-process.ts'
+import { depthOf, SubagentDepthError } from '@deepseek-ai/dsh-subagent-inprocess'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 

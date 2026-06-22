@@ -1,15 +1,16 @@
 /**
- * The shared in-process subagent run driver. A subagent backend that runs the
- * child as a child {@link Agent} on the SAME cordis context (`ctx.agents`) —
- * the cheapest transport, reusing the agent factory's quiescent
- * {@link AgentHandle} teardown. Both in-process backends use this:
- * `@deepseek-ai/dsh-subagent-spawn` (a fresh child) and
- * `@deepseek-ai/dsh-subagent-fork` (a child seeded with a prefix of the
- * parent's log) differ ONLY in the `seed` they pass — everything downstream
- * (drive the child, read its final output, map the stop reason, dispose) is
- * identical and lives here.
+ * The shared in-process subagent run driver: run a child as a child
+ * {@link Agent} on the SAME cordis context (`ctx.agents`) — the cheapest
+ * transport, reusing the agent factory's quiescent {@link AgentHandle}
+ * teardown. The concrete in-process backends are thin shells over this driver,
+ * differing ONLY in the `seed` they pass (a fresh child vs. a child seeded with
+ * a prefix of the parent's log); everything downstream — drive the child, read
+ * its final output, map the stop reason, dispose — is identical and lives here.
  *
- * @module @deepseek-ai/dsh-subagent-spawn/in-process
+ * This package owns no provider and registers nothing; it is a pure library the
+ * backend packages depend on, so neither backend needs to know about the other.
+ *
+ * @module @deepseek-ai/dsh-subagent-inprocess
  */
 
 import { randomUUID } from 'node:crypto'
