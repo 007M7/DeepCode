@@ -2,9 +2,9 @@ import { defineConfig } from 'tsdown'
 
 /**
  * JS bundling for all workspace packages (vendor and the packages hierarchy).
- * Declarations are NOT produced here — `tsc -b tsconfig.build.json` owns
- * .d.ts output (composite project references); hence `dts: false` and
- * `clean: false` (lib/ already holds tsc's declarations).
+ * TypeScript source is compiled first by `tsc -b tsconfig.build.json`; tsdown
+ * reads only the emitted JS under lib/types and writes lib/index.* runtime
+ * bundles. Declarations are NOT produced here, hence `dts: false`.
  *
  * Per-package shape overrides live in `<package>/tsdown.config.ts`
  * (schemastery: dual ESM+CJS; logger-console: extra browser entry).
@@ -14,7 +14,7 @@ export default defineConfig({
   // package.json), but only vendor and the packages hierarchy are pnpm
   // workspaces.
   workspace: ['vendor/*', 'packages/*/*'],
-  entry: ['src/index.ts'],
+  entry: ['lib/types/index.js'],
   outDir: 'lib',
   format: ['esm'],
   platform: 'node',

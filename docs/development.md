@@ -31,7 +31,7 @@ Run typecheck once after a fresh clone:
 pnpm run typecheck
 ```
 
-That first typecheck builds declaration output used by type-aware linting for vendored packages. Without it, `pnpm run lint` can report unresolved-type `no-unsafe-*` errors even when source code is fine.
+That first typecheck runs the package/vendor build graph and the root no-emit `tsconfig.json` graph for examples, tests, and scripts. The root graph uses the same source `paths` map but relies on project references so vendored code is checked under its own tsconfig settings.
 
 If you are preparing to push from a fresh clone or worktree, also build once:
 
@@ -39,7 +39,7 @@ If you are preparing to push from a fresh clone or worktree, also build once:
 pnpm run build
 ```
 
-`pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files. A fresh worktree has no bundled JS until `pnpm run build` runs.
+`pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files, and `verify-node-next-types`, which validates built declarations against a temporary NodeNext consumer. A fresh worktree has no bundled JS or declarations until `pnpm run build` runs.
 
 ## Environment variables
 
@@ -76,10 +76,10 @@ The GitHub workflow runs these gates on each pull request:
 - `pnpm run test:coverage`
 - `pnpm run test:snapshot`
 - `pnpm run build`
-- `pnpm run knip && pnpm run publint`
+- `pnpm run hygiene`
 - an echo-agent smoke test that checks the demo's tool call, tool result, and JSONL output
 
-`pnpm run hygiene` is the local shorthand for `pnpm run knip && pnpm run publint && pnpm run constraints`; CI splits `pnpm run constraints` into its own earlier step, then runs `pnpm run knip && pnpm run publint` after `pnpm run build`.
+`pnpm run hygiene` is the local shorthand for `pnpm run knip && pnpm run publint && pnpm run constraints && pnpm run verify-node-next-types`; CI also runs `pnpm run constraints` as an earlier fail-fast step, then runs the full hygiene script after `pnpm run build`.
 
 ## Daily commands
 
@@ -89,7 +89,7 @@ Use these from the repo root:
 pnpm run test           # unit tests
 pnpm run test:coverage  # unit tests with per-file coverage gates
 pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
-pnpm run typecheck      # build declarations, then typecheck source, tests, and examples
+pnpm run typecheck      # build package/vendor outputs, then typecheck examples, tests, and scripts
 pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
@@ -100,8 +100,9 @@ pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from i
 pnpm run doc-sync       # doc-typecheck, cordis-catalog freshness, markdown wrap/link, and type-equiv verification
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
-pnpm run build          # build declarations and JS bundles
-pnpm run hygiene        # knip, publint, and workspace constraints
+pnpm run build          # emit lib/types intermediates, then bundle lib/index.* runtime files
+pnpm run verify-node-next-types  # fail if built declarations are not NodeNext-consumable
+pnpm run hygiene        # knip, publint, workspace constraints, and NodeNext declaration check
 ```
 
 When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets, cordis events/services catalog drift, and hard-wrapped markdown prose, but broader prose/API sync still needs review.
