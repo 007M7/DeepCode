@@ -47,7 +47,7 @@ function workspacePackages(): WorkspacePackage[] {
 const declarationSpecifierPattern = /(?:from\s*|import\s*\(\s*|import\s+|declare\s+module\s*)["'](\.{0,2}(?:\/[^"']*)?)["']/g
 const hasExtension = /\.[^/.]+$/
 
-function extensionlessRelativeSpecifiers(): string[] {
+function relativeSpecifiersMissingExtensions(): string[] {
   const errors: string[] = []
   const files = [
     ...globSync('vendor/*/lib/types/**/*.d.ts', { cwd: root }),
@@ -88,9 +88,9 @@ function linkPackage(pkg: WorkspacePackage, nodeModules: string): void {
 }
 
 const packages = workspacePackages()
-const badSpecifiers = extensionlessRelativeSpecifiers()
+const badSpecifiers = relativeSpecifiersMissingExtensions()
 if (badSpecifiers.length > 0) {
-  console.error('verify-node-next-types: declaration files still contain extensionless relative specifiers.')
+  console.error('verify-node-next-types: declaration files still contain relative specifiers without file extensions.')
   console.error(badSpecifiers.join('\n'))
   process.exit(1)
 }
@@ -129,7 +129,7 @@ try {
       strict: true,
       // Third-party SDK declarations can have their own lib-check noise under a
       // symlinked temp install. The explicit scan above owns our regression:
-      // extensionless relative specifiers in built declarations.
+      // relative specifiers without file extensions in built declarations.
       skipLibCheck: true,
       preserveSymlinks: true,
       noEmit: true,
