@@ -2,7 +2,7 @@
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib"
+    "outDir": "lib/types"
   },
   "include": [
     "src"
@@ -27,7 +27,7 @@
       "path": "../subagent"
     },
     {
-      "path": "../subagent-spawn"
+      "path": "../subagent-inprocess"
     }
   ]
 }

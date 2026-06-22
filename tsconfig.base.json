@@ -4,12 +4,14 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "declaration": true,
-    "emitDeclarationOnly": true,
+    "sourceMap": true,
+    "declarationMap": true,
     "composite": true,
     "incremental": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
     "verbatimModuleSyntax": false,
     "strict": true,
     "noUncheckedIndexedAccess": true,
@@ -19,11 +21,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "types": ["node"],
-    // Source-level resolution for the build graph: without this, a fresh
-    // checkout's first `tsc -b` resolves sibling vendor plugins through their
-    // package.json types (vendor/*/lib/*.d.ts) which don't exist yet — TS2307
-    // until a second run. Derived configs that want lib resolution
-    // (tsconfig.typecheck.json) override this map wholesale.
+    // Source-level resolution for every repo-local graph. Project references,
+    // not declaration path aliases, keep each package/vendor source compiled
+    // under its own tsconfig boundary.
     "paths": {
       "cordis": ["./vendor/cordis/src"],
       "cosmokit": ["./vendor/cosmokit/src"],

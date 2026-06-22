@@ -12,10 +12,10 @@ This codebase is developed primarily by coding agents. Agents follow enforced ga
 
 Every AGENTS.md promise gets a command that exits non-zero, wired into git hooks and CI both calling the same package.json scripts:
 
-- Max-strict TypeScript (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, …); tests and examples typecheck in CI via `tsconfig.typecheck.json` (vendored packages resolve as built declarations).
+- Max-strict TypeScript (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, …); examples, tests, and scripts typecheck in CI via the root no-emit `tsconfig.json` while package/vendor code stays behind its own project-reference boundary.
 - ESLint strict-type-checked + @stylistic (the house style, enforced); vendored code excluded.
 - Per-file 100% coverage on `packages/*/src` (v8); unreachable defensive guards carry `/* v8 ignore */ ` with stated reasons instead of deletion.
-- knip (dead code/deps), publint (package correctness), workspace constraints (workspace rules: private, cordis peer+dev, uniform version, ESM).
+- knip (dead code/deps), publint (package correctness), workspace constraints (workspace rules: private, cordis peer+dev, uniform version, ESM), and a NodeNext consumer typecheck for built package declarations.
 - lefthook pre-commit (lint staged, typecheck, vendor-manifest guard) and pre-push (tests, hygiene); CI runs the full matrix on node 24/26 plus a demo smoke test driving the echo-agent end to end.
 
 ## Consequences

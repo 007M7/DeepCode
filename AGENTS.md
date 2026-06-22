@@ -139,14 +139,13 @@ pnpm run test:snapshot  # ACP snapshot tests (examples/*/tests/**/*.snapshot.ts)
 pnpm run test:snapshot:record  # re-record fixtures + goldens against the real
                     # API (needs DEEPSEEK_API_KEY); accept-the-diff = re-record
                     # (or `pnpm run test:snapshot -u` to refresh goldens only)
-pnpm run typecheck      # tsc -b tsconfig.build.json (declarations) + tsc -p
-                    # tsconfig.typecheck.json (tests/examples typecheck too)
+pnpm run typecheck      # tsc -b tsconfig.json
 pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix
-pnpm run build          # tsc -b tsconfig.build.json && tsdown (JS bundles into lib/)
+pnpm run build          # tsc emits lib/types, then tsdown bundles runtime lib/index.*
 pnpm run knip           # dead-code / unused-dependency check
 pnpm run publint        # package.json publish-correctness check (every packages/*/* package)
-pnpm run hygiene        # knip + publint + workspace constraints
+pnpm run hygiene        # knip + publint + workspace constraints + NodeNext type-consumer check
 pnpm run doc-typecheck  # typecheck every ```ts block in README.md, docs/**/*.md,
                     # packages/*/*.md + packages/*/*/*.md (doc/code drift gate)
 pnpm run gen-cordis-catalog  # regenerate docs/cordis-catalog/events-and-services.md
@@ -161,6 +160,8 @@ pnpm run verify-package-paths  # assert every packages/<path> cited in Markdown 
 pnpm run verify-rfc-classification  # assert every RFC lives in a valid
                     # {lifecycle}/{class}/ folder and docs/rfc/README.md lists it
                     # under the matching heading (closed class set + index completeness)
+pnpm run verify-node-next-types  # assert built declarations typecheck for a
+                    # standard external NodeNext ESM TypeScript consumer
 pnpm run doc-sync       # doc-typecheck + verify-cordis-catalog + verify-md-wrap + verify-md-links + verify-doc-refs + verify-package-paths + verify-rfc-classification + verify-type-equiv (CI runs this)
 pnpm run demo:echo      # run examples/echo-agent (no API key; type "echo hi" to
                     # see a tool call) — the mock skeleton
@@ -184,12 +185,12 @@ cordis.yml configs reference env vars with the `!!js` tag: `apiKey: !!js process
 
 **Lean on with-key e2e tests — we are DeepSeek and model inference is cheap.** A no-key test (mock adapter, or an operation that never reaches the model) is great for determinism and CI, but it can only prove the plumbing, not that the agent actually *works* against a real model. Do not ration real-API tests to save tokens: write many of them, cover the real flows (a real prompt that writes a file, a multi-turn conversation, tool use, cancellation mid-stream), and run them frequently while developing — locally and whenever you have a key in the environment. **Especially smoke tests**: a cheap with-key smoke test that boots the real example, sends one real prompt, and checks the world (a file on disk, a non-empty assistant turn) catches whole classes of "green unit tests, broken product" failures that mocks structurally cannot — the very gap that let the ACP inject bug ship (see [docs/postmortem/0001](docs/postmortem/0001-acp-default-export-drops-inject.md)). The self-skip rule is ONLY so CI (which has no secrets) stays green and so a contributor without a key isn't blocked — it is not a signal that real-API tests are expensive or second-class. When in doubt, add the with-key test AND run it.
 
-Dev/test/demo run **unbuilt** via tsx + the `paths` map in the root `tsconfig.json` (`vitest` resolves through `tsconfig.test.json`). Building is only needed for publishing/consumption outside the repo — with one exception: `pnpm run lint`'s type-aware rules resolve vendor packages through their built declarations (`tsconfig.typecheck.json` → `vendor/*/lib`), so run `pnpm run typecheck` once after a fresh clone (CI does the same) or lint reports unresolved-type `no-unsafe-*` errors.
+Dev/test/demo run **unbuilt** via tsx + the source `paths` map in the root `tsconfig.json` (`vitest` resolves through that same root config). Building is only needed for publishing/consumption outside the repo. Non-published code (`examples`, tests, and scripts) is checked by root `tsconfig.json`, which sets `noEmit` and references the package/vendor graph so those sources stay checked under their own tsconfig boundaries.
 
 ## Conventions
 
 - **Package naming**: every npm package in this repo is `@deepseek-ai/dsh-<name>` (vendored packages keep their upstream names and are `private: true`).
-- **ESM everywhere** (`"type": "module"`); imports between workspace packages use package names, never relative paths across package boundaries. In-package imports use explicit `.ts` extensions (allowImportingTsExtensions).
+- **ESM everywhere** (`"type": "module"`); imports between workspace packages use package names, never relative paths across package boundaries. In-package relative imports use explicit `.ts` extensions; `rewriteRelativeImportExtensions` turns those into `.js` in emitted JS, while declarations keep explicit `.ts` specifiers that NodeNext/Node16 TypeScript consumers can resolve to sibling `.d.ts` files. `lib/types/**/*.js` is a bundler-only intermediate, not a Node ESM entrypoint.
 - **`cordis` is a peerDependency** (+ devDependency) of every harness package, mirroring upstream convention.
 - **Registrations are effects**: anything a plugin contributes (adapter, tool, section, agent, event listener) goes through `ctx.effect()` / `ctx.on()` so disposal and HMR work. If you write a registry, `register()` must return the disposer.
 - **Typed events via declaration merging**: services declare their events in `declare module 'cordis' { interface Events { … } }`, and their ctx key in `interface Context`. Extensible unions use the merge-extensible-map pattern (see `ContentBlockMap`, `MessageSourceMap`).

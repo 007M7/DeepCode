@@ -2,8 +2,10 @@
  * The in-process FORK subagent backend: registers a {@link SubagentProvider} on
  * `ctx.subagents` that runs each child as a child {@link Agent} SEEDED with a
  * prefix of the parent's session log — so the child inherits the parent's
- * conversation context instead of starting fresh. Shares the run driver with
- * `@deepseek-ai/dsh-subagent-spawn`; the only difference is the seed.
+ * conversation context instead of starting fresh. The run mechanics live in
+ * `@deepseek-ai/dsh-subagent-inprocess` ({@link startInProcessRun}); this
+ * backend just computes the seed. The spawn backend is an independent peer over
+ * the same driver.
  *
  * The seed boundary is the crux: at the moment a subagent tool's `execute`
  * runs, the parent's CURRENT turn is open and unbalanced (it holds the
@@ -23,7 +25,7 @@ import z from 'schemastery'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
-import { startInProcessRun } from '@deepseek-ai/dsh-subagent-spawn'
+import { startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
 
 export const name = 'subagent-fork'
 export const inject = ['subagents', 'agents']

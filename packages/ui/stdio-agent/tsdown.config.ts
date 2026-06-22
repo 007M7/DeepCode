@@ -3,11 +3,12 @@ import { defineConfig } from 'tsdown'
 /**
  * stdio-agent ships TWO entries: the plugin (`index`) and the CLI `bin`
  * (`bin`), the latter referenced by package.json `bin`/`exports["./bin"]`.
- * The root tsdown builds only `src/index.ts`, so this override adds `bin.ts`.
- * Declarations come from `tsc -b` (dts: false), matching every package.
+ * The root tsdown builds only `lib/types/index.js`, so this override adds
+ * `lib/types/bin.js`. Declarations come from `tsc -b` (dts: false),
+ * matching every package.
  */
 export default defineConfig({
-  entry: ['src/index.ts', 'src/bin.ts'],
+  entry: ['lib/types/index.js', 'lib/types/bin.js'],
   outDir: 'lib',
   format: ['esm'],
   platform: 'node',
