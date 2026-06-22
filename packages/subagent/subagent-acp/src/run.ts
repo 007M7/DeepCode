@@ -83,6 +83,14 @@ export interface AcpRunSpec {
    * a test injects a small value to exercise the escalation without a long wait.
    */
   disposeGraceMs?: number
+  /**
+   * Sink for a child-level failure that the run flattened into a stop reason
+   * (the seam contract forbids `result` rejecting). The driver calls this with
+   * the original error and the chosen stop reason so the fault is preserved
+   * rather than silently lost; the provider wires it to `ctx.logger.warn`.
+   * Optional — omitted in a unit test that asserts the stop reason directly.
+   */
+  onError?: (error: Error, stopReason: SubagentStopReason) => void
 }
 
 /**
@@ -158,6 +166,15 @@ export function toAcpPrompt(prompt: ContentBlock[]): AcpContentBlock[] {
     if (block.type === 'text') blocks.push({ type: 'text', text: block.text })
   }
   return blocks
+}
+
+/** Normalize an unknown thrown value to an Error (the catch binding is `unknown`). */
+function toError(value: unknown): Error {
+  // The catch only sees rejections from the ACP SDK RPCs and the spawn `error`
+  // event, which are always `Error`s; the `String(value)` arm is a defensive
+  // fallback for a non-Error throw that the typed surfaces cannot produce.
+  /* v8 ignore next */
+  return value instanceof Error ? value : new Error(String(value))
 }
 
 /** Resolve once the child process exits (any code/signal); immediate if gone. */
@@ -264,8 +281,19 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
   )
 
   let sessionId: string | undefined
+  // Resolves when a cancel is requested, so `result` can settle `aborted` even
+  // if the child never cooperates with `session/cancel` (it ignores the notify,
+  // or the prompt wedges). The result path races this against the ACP drive: the
+  // FIRST to settle wins, so `cancel()` always honors the contract (`result`
+  // settles `aborted`) without waiting on a non-cooperative child. `dispose`
+  // still kills the process and reaps it; this only unblocks `result`. The
+  // executor runs synchronously, so `signalCancelSettled` is assigned before the
+  // Promise constructor returns (the `!` asserts the definite assignment).
+  let signalCancelSettled!: () => void
+  const cancelSettled = new Promise<void>((resolve) => { signalCancelSettled = resolve })
   const requestCancel = (): void => {
     flags.cancelled = true
+    signalCancelSettled()
     // Best-effort: tell the child to cancel the in-flight turn. Swallows a
     // rejection — the session may not exist yet, or the pipe may be gone; the
     // dispose path kills the process regardless. If the session has NOT been
@@ -289,9 +317,14 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
       return text.length > 0 ? [{ type: 'text', text }] : []
     }
     try {
-      // Race the ACP drive against a spawn failure: a bad command never speaks
-      // ACP, so `initialize` would hang forever — the spawn `error` event is the
-      // only signal, and a rejected race settles the run `error` via the catch.
+      // Race three outcomes, first to settle wins:
+      //  - driveAcp: the normal initialize → newSession → prompt path;
+      //  - spawnFailed: a bad command never speaks ACP, so `initialize` would
+      //    hang forever — the spawn `error` event is the only signal, and a
+      //    rejected race settles the run `error` via the catch;
+      //  - cancelSettled: a cancel was requested — settle `aborted` immediately
+      //    rather than waiting on a child that may ignore `session/cancel` or
+      //    wedge the prompt (the `cancel()` contract: `result` settles `aborted`).
       const driveAcp = async (): Promise<SubagentResult> => {
         await conn.initialize({
           protocolVersion: PROTOCOL_VERSION,
@@ -312,13 +345,19 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
       return await Promise.race([
         driveAcp(),
         spawnFailed.then((err): SubagentResult => { throw err }),
+        cancelSettled.then((): SubagentResult => ({ output: collectOutput(), stopReason: 'aborted' })),
       ])
-    } catch {
+    } catch (error: unknown) {
       // The seam contract: result resolves (never rejects) on a child-level
-      // failure. A spawn/transport/RPC error becomes an error/aborted result —
-      // `aborted` if a cancel was requested (the failure is the cancellation
-      // surfacing as a torn pipe / rejected RPC), else a genuine `error`.
-      return { output: collectOutput(), stopReason: flags.cancelled ? 'aborted' : 'error' }
+      // failure. Cancellation is handled by the `cancelSettled` race arm above
+      // (it settles `aborted` the instant cancel is requested, beating any
+      // rejection), so a rejection that reaches HERE is always a genuine
+      // child-level error — the awaited ACP RPCs or the spawn-failure race
+      // (initialize/newSession/prompt transport/RPC errors, or ENOENT), not a
+      // local bug. Flatten to `error` and surface the original via onError so a
+      // real fault is preserved rather than silently lost.
+      spec.onError?.(toError(error), 'error')
+      return { output: collectOutput(), stopReason: 'error' }
     }
   })()
 

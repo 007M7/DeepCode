@@ -8,6 +8,11 @@
  *                        (`end_turn` default, or `max_tokens`/`refusal`/…).
  * - `MOCK_HANG`        — if `1`, `prompt` never resolves on its own (it waits for
  *                        a `session/cancel`), to exercise the client's cancel path.
+ * - `MOCK_IGNORE_CANCEL` — if `1` (with MOCK_HANG), the agent receives
+ *                        `session/cancel` but NEVER resolves the pending prompt
+ *                        and never exits — a non-cooperative child. The backend's
+ *                        `result` must still settle `aborted` on its own and
+ *                        `dispose()` must still kill the process.
  * - `MOCK_PERMISSION`  — if `1`, the agent calls `session/request_permission`
  *                        before answering, to exercise the client's auto-answer.
  * - `MOCK_READY_FILE`  — if set, the path the agent touches once its `prompt`
@@ -63,6 +68,7 @@ const WANT_PERMISSION = process.env.MOCK_PERMISSION === '1'
 const NO_ALLOW = process.env.MOCK_NO_ALLOW === '1'
 const THOUGHT = process.env.MOCK_THOUGHT === '1'
 const CRASH_ON_CANCEL = process.env.MOCK_CRASH_ON_CANCEL === '1'
+const IGNORE_CANCEL = process.env.MOCK_IGNORE_CANCEL === '1'
 const READY_FILE = process.env.MOCK_READY_FILE
 const FLUSH_ON_EOF = process.env.MOCK_FLUSH_ON_EOF
 // When MOCK_NEWSESSION_READY/GO are set, newSession touches READY then blocks
@@ -149,6 +155,14 @@ function makeAgent(conn: AgentSideConnection): Agent {
         // pending prompt REJECTS (exercises the backend's catch-while-cancelled
         // path: a transport failure after a cancel settles `aborted`).
         process.exit(1)
+      }
+      if (IGNORE_CANCEL) {
+        // A NON-COOPERATIVE child: receive session/cancel but never resolve the
+        // pending prompt and never exit. The backend's `result` must still settle
+        // `aborted` on its own (the cancel-settle race), and `dispose()` must
+        // still kill the process — proving cancellation does not depend on the
+        // child cooperating.
+        return Promise.resolve()
       }
       resolveCancel?.('cancelled')
       return Promise.resolve()

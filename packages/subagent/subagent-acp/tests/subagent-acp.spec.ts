@@ -385,6 +385,20 @@ describe('dsh-subagent-acp', () => {
   })
 
   it('resolves error (not reject) when the spawn command does not exist', async () => {
+    // Direct startAcpRun with NO onError sink — the catch must still flatten the
+    // spawn failure to `error` (the onError call is optional, covering the
+    // absent-sink branch).
+    const run = startAcpRun(
+      { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent },
+      { command: '/nonexistent/acp-agent-binary', args: [], cwd: process.cwd(), permission: 'reject', env: {} },
+    )
+    const result = await run.result
+    // The seam contract: a child-level failure resolves error, never rejects.
+    expect(result.stopReason).toBe('error')
+    await run.dispose()
+  })
+
+  it('resolves error via the provider (real load path) when the command does not exist', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
     await ctx.plugin(acp, {
@@ -396,8 +410,32 @@ describe('dsh-subagent-acp', () => {
     })
     const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
     const result = await run.result
-    // The seam contract: a child-level failure resolves error, never rejects.
     expect(result.stopReason).toBe('error')
+    await run.dispose()
+  })
+
+  it('reports a flattened child failure through onError (preserved, not silently lost)', async () => {
+    // The seam forbids `result` rejecting, so a child-level failure is flattened
+    // to a stop reason — onError must still surface the original error so a real
+    // fault is logged, not swallowed. A nonexistent command triggers the spawn
+    // failure path; the spy records the error + the chosen stop reason.
+    const errors: { message: string; stopReason: string }[] = []
+    const run = startAcpRun(
+      { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent },
+      {
+        command: '/nonexistent/acp-agent-binary',
+        args: [],
+        cwd: process.cwd(),
+        permission: 'reject',
+        env: {},
+        onError: (error, stopReason) => { errors.push({ message: error.message, stopReason }) },
+      },
+    )
+    const result = await run.result
+    expect(result.stopReason).toBe('error')
+    expect(errors).toHaveLength(1)
+    expect(errors[0]!.stopReason).toBe('error')
+    expect(errors[0]!.message.length).toBeGreaterThan(0)
     await run.dispose()
   })
 
@@ -414,6 +452,31 @@ describe('dsh-subagent-acp', () => {
       await waitForFile(ready)
       run.cancel('crash it')
       const result = await run.result
+      expect(result.stopReason).toBe('aborted')
+      await run.dispose()
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('settles aborted on cancel even when the child IGNORES session/cancel (non-cooperative)', async () => {
+    // The contract: run.cancel() → result settles `aborted`. A child that hangs
+    // its prompt AND ignores session/cancel must not wedge the parent — the
+    // backend's own cancel-settle path resolves `aborted` without the child's
+    // cooperation, and dispose() still reaps the process.
+    const tmp = mkdtempSync(join(tmpdir(), 'acp-ignorecancel-'))
+    const ready = join(tmp, 'ready')
+    try {
+      const ctx = await setup({ MOCK_TEXT: 'partial', MOCK_HANG: '1', MOCK_IGNORE_CANCEL: '1', MOCK_READY_FILE: ready })
+      const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+      await waitForFile(ready)
+      run.cancel('test')
+      // Bound it: a regression (cancel only notifies the child, which ignores it)
+      // would hang result forever — fail loud instead of stalling the suite.
+      const result = await Promise.race([
+        run.result,
+        new Promise<never>((_r, reject) => { setTimeout(() => { reject(new Error('result did not settle on cancel — backend waited on the child')) }, 4000) }),
+      ])
       expect(result.stopReason).toBe('aborted')
       await run.dispose()
     } finally {

@@ -71,7 +71,7 @@ export const Config: z<Config> = z.object({
 class AcpProvider implements SubagentProvider {
   readonly capabilities: SubagentCapabilities = { outputSchema: false, depthLimit: false, toolFilter: false }
 
-  constructor(readonly name: string, private readonly config: Config) {}
+  constructor(readonly name: string, private readonly ctx: Context, private readonly config: Config) {}
 
   start(request: SubagentStartRequest) {
     const spec: AcpRunSpec = {
@@ -80,11 +80,16 @@ class AcpProvider implements SubagentProvider {
       cwd: this.config.cwd ?? process.cwd(),
       permission: this.config.permission,
       env: this.config.env,
+      onError: (error, stopReason) => {
+        // The seam forbids `result` rejecting, so a child-level failure is
+        // flattened to a stop reason — preserve it here rather than losing it.
+        this.ctx.logger.warn(`subagent-acp "${this.name}": child run failed (${stopReason}): ${error.message}`)
+      },
     }
     return startAcpRun(request, spec)
   }
 }
 
 export function apply(ctx: Context, config: Config): void {
-  ctx.subagents.registerProvider(new AcpProvider(config.providerName, config))
+  ctx.subagents.registerProvider(new AcpProvider(config.providerName, ctx, config))
 }
