@@ -136,6 +136,11 @@ export function apply(ctx: Context, config: Config): void {
       // aborted while the child is in flight, cancel the child too.
       const onAbort = (): void => { run.cancel('parent step aborted') }
       exec.signal?.addEventListener('abort', onAbort, { once: true })
+      // `addEventListener` does NOT fire for a signal already aborted before this
+      // line, so a step cancelled before the tool ran would never reach the
+      // child. Cancel explicitly in that case — the bridge must honor an
+      // already-aborted signal, not lean on each provider re-checking it.
+      if (exec.signal?.aborted) run.cancel('parent step aborted')
 
       try {
         const result = await run.result
