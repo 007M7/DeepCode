@@ -3,9 +3,10 @@ import { defineConfig } from 'tsdown'
 /**
  * logger-console ships two entries: the node exporter (index) and the
  * browser exporter (browser), selected via package.json `exports`
- * conditions. They are built as two single-entry passes so the shared
- * base class is inlined into each (matching upstream's published shape)
- * instead of split into a hash-named chunk.
+ * conditions. The entries are JS emitted by tsc under lib/types and are
+ * bundled as two single-entry passes so the shared base class is inlined into
+ * each (matching upstream's published shape) instead of split into a hash-named
+ * chunk.
  */
 const shared = {
   outDir: 'lib',
@@ -18,6 +19,6 @@ const shared = {
 } as const
 
 export default defineConfig([
-  { ...shared, entry: ['src/index.ts'] },
-  { ...shared, entry: ['src/browser.ts'] },
+  { ...shared, entry: ['lib/types/index.js'] },
+  { ...shared, entry: ['lib/types/browser.js'] },
 ])

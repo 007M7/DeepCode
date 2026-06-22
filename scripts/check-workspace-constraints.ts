@@ -33,6 +33,18 @@ interface PackageManifest {
   version?: string
   private?: boolean
   type?: string
+  main?: string
+  types?: string
+  bin?: string | Record<string, string>
+  exports?: Record<
+    string,
+    | {
+      types?: string
+      default?: string
+    }
+    | undefined
+  >
+  files?: string[]
   peerDependencies?: Record<string, string>
   devDependencies?: Record<string, string>
 }
@@ -73,6 +85,29 @@ function workspaceManifests(): WorkspaceManifest[] {
   return manifests
 }
 
+const dshPackageFiles = [
+  'lib/index.js',
+  'lib/types/**/*.d.ts',
+  'lib/types/**/*.d.ts.map',
+  'src',
+] as const
+
+const dshBinPackageFiles = [
+  'lib/index.js',
+  'lib/bin.js',
+  'lib/types/**/*.d.ts',
+  'lib/types/**/*.d.ts.map',
+  'src',
+] as const
+
+function sameStringList(actual: readonly string[] | undefined, expected: readonly string[]): boolean {
+  return !!actual && actual.length === expected.length && actual.every((value, index) => value === expected[index])
+}
+
+function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
+  return manifest.bin ? dshBinPackageFiles : dshPackageFiles
+}
+
 function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
   const errors: string[] = []
   const label = manifest.name ?? dir
@@ -99,6 +134,22 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     }
     if (manifest.type !== 'module') {
       errors.push(`${label}: package.json must set "type": "module"`)
+    }
+    if (manifest.main !== 'lib/index.js') {
+      errors.push(`${label}: package.json must set "main": "lib/index.js"`)
+    }
+    if (manifest.types !== 'lib/types/index.d.ts') {
+      errors.push(`${label}: package.json must set "types": "lib/types/index.d.ts"`)
+    }
+    if (manifest.exports?.['.']?.types !== './lib/types/index.d.ts') {
+      errors.push(`${label}: package.json exports["."].types must be "./lib/types/index.d.ts"`)
+    }
+    if (manifest.exports?.['.']?.default !== './lib/index.js') {
+      errors.push(`${label}: package.json exports["."].default must be "./lib/index.js"`)
+    }
+    const expectedFiles = expectedDshPackageFiles(manifest)
+    if (!sameStringList(manifest.files, expectedFiles)) {
+      errors.push(`${label}: package.json files must be ${JSON.stringify(expectedFiles)}`)
     }
   }
 

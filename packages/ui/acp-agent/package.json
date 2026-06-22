@@ -5,24 +5,27 @@
   "private": true,
   "type": "module",
   "main": "lib/index.js",
-  "types": "lib/index.d.ts",
+  "types": "lib/types/index.d.ts",
   "bin": {
     "dsh-acp-agent": "lib/bin.js"
   },
   "exports": {
     ".": {
-      "types": "./lib/index.d.ts",
+      "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
     "./bin": {
-      "types": "./lib/bin.d.ts",
+      "types": "./lib/types/bin.d.ts",
       "default": "./lib/bin.js"
     },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
-    "lib",
+    "lib/index.js",
+    "lib/bin.js",
+    "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
     "src"
   ],
   "license": "BSD-3-Clause",

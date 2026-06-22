@@ -33,19 +33,17 @@ jobs:
       - name: Constraints
         run: pnpm run constraints
 
-      # Before lint: the type-aware ESLint config resolves vendor packages via
-      # their built declarations (tsconfig.typecheck.json -> vendor/*/lib),
-      # which `pnpm run typecheck` emits. Lint on a fresh checkout would otherwise
-      # see unresolved types and erupt with no-unsafe-* errors.
+      # Before lint: root typecheck validates the package/vendor reference graph
+      # and refreshes TSC intermediates so type-aware ESLint sees the same project
+      # boundaries as the build.
       - name: Typecheck (src + tests + examples)
         run: pnpm run typecheck
 
       - name: Lint
         run: pnpm run lint
 
-      # Doc-sync gates (doc-sync-enforcement RFC). doc-typecheck compiles the fenced ts blocks in
-      # the docs and resolves vendor packages via their built declarations, which
-      # the typecheck step above emits — so it runs after typecheck. The cordis
+      # Doc-sync gates (doc-sync-enforcement RFC). doc-typecheck compiles the
+      # fenced ts blocks against the root project-reference graph. The cordis
       # catalog freshness check, type-equiv check, and markdown wrap/link checks
       # only read source. Same `doc-sync` script the pre-push hook runs
       # (quality-gates RFC: one source of truth).
@@ -71,12 +69,13 @@ jobs:
         run: pnpm run test:snapshot
 
       # Before hygiene: publint validates the packed artifacts (lib/index.js),
-      # which only the tsdown bundling step emits.
+      # which only the tsdown bundling step emits, and verify-node-next-types
+      # validates the built declarations.
       - name: Build (tsc -b + tsdown bundles)
         run: pnpm run build
 
-      - name: Hygiene (knip + publint)
-        run: pnpm run knip && pnpm run publint
+      - name: Hygiene (knip + publint + constraints + NodeNext types)
+        run: pnpm run hygiene
 
       - name: Demo smoke test
         run: |

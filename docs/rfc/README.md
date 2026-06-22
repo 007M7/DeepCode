@@ -125,6 +125,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [tsdown for JS bundling instead of dumble](implemented/process/2026-06-11-tsdown-over-dumble.md) | 2026-06-11 |
 | [Doc-sync enforcement](implemented/process/2026-06-11-doc-sync-enforcement.md) | 2026-06-11 |
 | [pnpm as the package manager instead of Yarn 4](implemented/process/2026-06-16-pnpm-over-yarn.md) | 2026-06-16 |
+| [TSC-first build and one tsconfig](implemented/process/2026-06-17-ts-build-config.md) | 2026-06-17 |
 | [Markdown cross-link validity linting](implemented/process/2026-06-18-markdown-cross-link-lint.md) | 2026-06-18 |
 | [Core-data-structures catalog and the `ts type-equiv` drift gate](implemented/process/2026-06-20-core-data-structures-catalog.md) | 2026-06-20 |
 | [Generated cordis events + services catalog](implemented/process/2026-06-20-generated-cordis-catalog.md) | 2026-06-20 |

@@ -79,5 +79,5 @@ Each package has its own `README.md` with purpose, service API, events, extensio
 - **Declaration merging for events and ctx**: services declare their events in `declare module 'cordis' { interface Events { ... } }` and their ctx key in `interface Context`.
 - **Waterfall semantics**: `ctx.waterfall` listeners receive `(...args, next)` and MUST call `next()` to delegate; returning without it short-circuits (the veto mechanism).
 - **Extensible unions**: `ContentBlockMap`, `MessageSourceMap`, `FinishReasonMap`, `TurnTriggerMap`, `TurnEndReasonMap`, and `SessionEventMap` use the merge-extensible-map pattern so plugins can add variants via declaration merging.
-- **ESM everywhere**; imports use package names across package boundaries, `.ts` extensions within a package.
+- **ESM everywhere**; imports use package names across package boundaries and explicit `.ts` relative specifiers within a package.
 - **Tests**: vitest, colocated under `packages/<group>/<pkg>/tests/*.spec.ts`. Every registry needs an HMR-safety test. Err on the side of more tests.

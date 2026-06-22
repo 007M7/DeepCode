@@ -24,7 +24,7 @@ if (process.env.DSH_SNAPSHOT === 'record') {
 export default defineConfig({
   // Same resolution note as vitest.config.ts: bare workspace names resolve
   // through the root tsconfig paths map; the native option cannot do this.
-  plugins: [tsconfigPaths({ projects: ['./tsconfig.test.json'] })],
+  plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
   test: {
     include: ['examples/*/tests/**/*.snapshot.ts'],
     // Each test boots a subprocess; give it room, and run files one at a time
