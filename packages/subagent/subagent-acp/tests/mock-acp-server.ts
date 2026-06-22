@@ -148,3 +148,17 @@ new AgentSideConnection(
     Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
   ),
 )
+
+// Under MOCK_TRAP_SIGTERM, ignore SIGTERM and keep stdin open so the process
+// neither quiesces on EOF nor dies on the graceful signal — exercising the
+// backend dispose path's SIGKILL escalation. Without this the process exits
+// normally on SIGTERM / stdin end. Touch READY_FILE once the trap is armed, so
+// a test waits for that CONDITION before disposing (the trap must be in place,
+// not merely the process spawned — otherwise SIGTERM hits the default handler).
+if (process.env.MOCK_TRAP_SIGTERM === '1') {
+  process.on('SIGTERM', () => { /* trapped: refuse to exit on the graceful signal */ })
+  // Keep the event loop alive (a bare timer) so nothing else lets it exit.
+  setInterval(() => { /* stay alive until SIGKILL */ }, 1000)
+  if (READY_FILE !== undefined) writeFileSync(READY_FILE, 'trap-armed')
+}
+

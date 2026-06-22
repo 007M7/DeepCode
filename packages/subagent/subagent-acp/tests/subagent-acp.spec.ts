@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as acp from '../src/index.ts'
-import { acpStopReason, acpContentText, buildChildEnv, SENSITIVE_ENV_PATTERN, toAcpPrompt } from '../src/run.ts'
+import { acpStopReason, acpContentText, buildChildEnv, SENSITIVE_ENV_PATTERN, startAcpRun, toAcpPrompt, type AcpRunSpec } from '../src/run.ts'
 
 /**
  * Keyless integration tests for the ACP subagent backend. Each spawns a REAL
@@ -159,15 +159,63 @@ describe('dsh-subagent-acp', () => {
     }
   })
 
-  it('settles aborted without running the child when the signal is already aborted', async () => {
-    const controller = new AbortController()
-    controller.abort()
-    const ctx = await setup({ MOCK_TEXT: 'never seen' })
-    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent, signal: controller.signal })
-    const result = await run.result
-    expect(result.stopReason).toBe('aborted')
-    expect(result.output).toEqual([])
-    await run.dispose()
+  it('settles aborted WITHOUT spawning the child when the signal is already aborted', async () => {
+    // A pre-aborted request must not even launch the configured binary. Point
+    // the command at one that would create a sentinel file if it ever ran, and
+    // assert the sentinel never appears.
+    const tmp = mkdtempSync(join(tmpdir(), 'acp-preabort-'))
+    const sentinel = join(tmp, 'spawned')
+    try {
+      const controller = new AbortController()
+      controller.abort()
+      const run = startAcpRun(
+        { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent, signal: controller.signal },
+        // `touch <sentinel>` — runs only if the process is actually spawned.
+        { command: 'touch', args: [sentinel], cwd: tmp, permission: 'reject', env: {} },
+      )
+      const result = await run.result
+      expect(result.stopReason).toBe('aborted')
+      expect(result.output).toEqual([])
+      // cancel/dispose on the inert run are safe no-ops.
+      run.cancel('noop')
+      await run.dispose()
+      // The binary was never launched — no sentinel.
+      expect(existsSync(sentinel)).toBe(false)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('dispose escalates SIGTERM → SIGKILL for a child that traps SIGTERM (bounded quiescence)', async () => {
+    // The child traps SIGTERM and keeps its event loop alive, so a graceful
+    // term alone would hang dispose forever. With a short grace, dispose must
+    // escalate to SIGKILL and return once the process is actually gone.
+    const tmp = mkdtempSync(join(tmpdir(), 'acp-trap-'))
+    const ready = join(tmp, 'trap-armed')
+    try {
+      const spec: AcpRunSpec = {
+        command: process.execPath,
+        args: ['--import', tsxLoader, mockServer],
+        cwd: process.cwd(),
+        permission: 'reject',
+        env: { MOCK_TRAP_SIGTERM: '1', MOCK_TEXT: 'x', MOCK_READY_FILE: ready, TSX_TSCONFIG_PATH: repoTsconfig },
+        disposeGraceMs: 150,
+      }
+      const run = startAcpRun({ prompt: [{ type: 'text', text: 'p' }], parent: fakeParent }, spec)
+      // Wait until the child has BOOTED AND ARMED THE TRAP (a condition, not a
+      // sleep) — otherwise SIGTERM races the trap install and the default handler
+      // terminates the child, never exercising the escalation.
+      await waitForFile(ready)
+      // Don't await result (the child hangs). Dispose must still return promptly
+      // via the SIGKILL escalation — bound it so a regression (no escalation)
+      // fails loud instead of hanging the suite.
+      await expect(Promise.race([
+        run.dispose(),
+        new Promise((_r, reject) => { setTimeout(() => { reject(new Error('dispose did not return — no SIGKILL escalation')) }, 4000) }),
+      ])).resolves.toBeUndefined()
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
   })
 
   it('honors a cancel that races AHEAD of newSession (no session id yet) without running the prompt', async () => {

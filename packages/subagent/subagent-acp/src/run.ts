@@ -70,7 +70,16 @@ export interface AcpRunSpec {
    * the credential-scrub pattern (an explicit opt-in for the child's own creds).
    */
   env: Record<string, string>
+  /**
+   * Grace period (ms) between `SIGTERM` and the `SIGKILL` escalation in
+   * {@link SubagentRun.dispose}. Defaults to {@link DEFAULT_DISPOSE_GRACE_MS};
+   * a test injects a small value to exercise the escalation without a long wait.
+   */
+  disposeGraceMs?: number
 }
+
+/** Default grace between SIGTERM and SIGKILL on dispose (mirrors the bash executor). */
+export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 
 /**
  * Credential-shaped ambient env vars are NOT forwarded to the child by default
@@ -133,6 +142,9 @@ export function toAcpPrompt(prompt: ContentBlock[]): AcpContentBlock[] {
 
 /** Resolve once the child process exits (any code/signal); immediate if gone. */
 function waitForExit(child: ChildProcess): Promise<void> {
+  // Already-exited fast path: dispose guards on exitCode before calling, so in
+  // tests the child is always still alive here.
+  /* v8 ignore next */
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
   return new Promise<void>(resolve => child.once('exit', () => { resolve() }))
 }
@@ -150,6 +162,18 @@ function waitForExit(child: ChildProcess): Promise<void> {
  */
 export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): SubagentRun {
   const id = AgentId(randomUUID())
+
+  // A request already aborted before it starts never spawns the child at all —
+  // return an inert run that settled `aborted`, rather than launching the
+  // configured binary just to tear it down. `dispose`/`cancel` are no-ops.
+  if (request.signal?.aborted) {
+    return {
+      id,
+      result: Promise.resolve({ output: [], stopReason: 'aborted' }),
+      cancel(_reason?: string): void { /* nothing was started */ },
+      dispose(): Promise<void> { return Promise.resolve() },
+    }
+  }
 
   // Spawn the child ACP agent. stdin = ACP request channel, stdout = ACP
   // response channel, stderr = INHERIT so the child's diagnostics surface on the
@@ -172,8 +196,11 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
   const output: string[] = []
   // `cancelled` records that a cancel was requested (signal or cancel()), so a
   // run torn down before the prompt resolves settles `aborted` rather than the
-  // generic error mapping.
-  let cancelled = false
+  // generic error mapping. Held on a mutable object so the async closures that
+  // set it (the abort listener) and the IIFE that reads it don't fight TS's
+  // control-flow narrowing of a bare `let` (which would type the catch-time read
+  // as always-`false`).
+  const flags = { cancelled: false }
 
   const makeClient = (_agent: AcpAgent): Client => ({
     sessionUpdate(params: SessionNotification): Promise<void> {
@@ -209,7 +236,7 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
 
   let sessionId: string | undefined
   const requestCancel = (): void => {
-    cancelled = true
+    flags.cancelled = true
     // Best-effort: tell the child to cancel the in-flight turn. Swallows a
     // rejection — the session may not exist yet, or the pipe may be gone; the
     // dispose path kills the process regardless. If the session has NOT been
@@ -233,11 +260,6 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
       return text.length > 0 ? [{ type: 'text', text }] : []
     }
     try {
-      // An already-aborted request never runs the child.
-      if (request.signal?.aborted) {
-        cancelled = true
-        return { output: [], stopReason: 'aborted' }
-      }
       // Race the ACP drive against a spawn failure: a bad command never speaks
       // ACP, so `initialize` would hang forever — the spawn `error` event is the
       // only signal, and a rejected race settles the run `error` via the catch.
@@ -254,7 +276,7 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
         // send `session/cancel` (no session id yet). Honor it here: settle
         // `aborted` without ever issuing the prompt, rather than running the child
         // to completion and ignoring the cancel.
-        if (cancelled) return { output: collectOutput(), stopReason: 'aborted' }
+        if (flags.cancelled) return { output: collectOutput(), stopReason: 'aborted' }
         const promptResult = await conn.prompt({ sessionId, prompt: toAcpPrompt(request.prompt) })
         return { output: collectOutput(), stopReason: acpStopReason(promptResult.stopReason) }
       }
@@ -267,7 +289,7 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
       // failure. A spawn/transport/RPC error becomes an error/aborted result —
       // `aborted` if a cancel was requested (the failure is the cancellation
       // surfacing as a torn pipe / rejected RPC), else a genuine `error`.
-      return { output: collectOutput(), stopReason: cancelled ? 'aborted' : 'error' }
+      return { output: collectOutput(), stopReason: flags.cancelled ? 'aborted' : 'error' }
     }
   })()
 
@@ -279,14 +301,29 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
     },
     async dispose(): Promise<void> {
       request.signal?.removeEventListener('abort', onAbort)
-      // Kill the subprocess and AWAIT its exit (quiescent teardown — dispose
-      // must reach quiescence, not merely request it). SIGTERM first; the child
-      // is our own short-lived ACP agent, so a graceful term is enough. Guard
-      // the kill: the process may already be gone.
-      if (child.exitCode === null && child.signalCode === null) {
-        child.kill('SIGTERM')
+      // Reach quiescence, not merely request it (dispose must AWAIT the child
+      // actually stopping). If the child is already gone, nothing to do.
+      if (child.exitCode !== null || child.signalCode !== null) return
+      // 1. Graceful: end the ACP request stream (stdin EOF). Our own acp-agent
+      //    disposes its fiber on stdin 'end' — flushing persistence and stopping
+      //    child-owned work (e.g. bash subprocesses) — then exits, which the
+      //    server bridge's connection-close quiesce path drives. A child that
+      //    ignores EOF is handled by the signal escalation below.
+      child.stdin.end()
+      // 2. SIGTERM, then escalate to SIGKILL if it does not exit within the
+      //    grace period — a child that traps SIGTERM must not wedge dispose
+      //    forever (the seam requires bounded quiescence). Race the exit against
+      //    a grace timer; on timeout, SIGKILL and await the (now-certain) exit.
+      child.kill('SIGTERM')
+      const graceMs = spec.disposeGraceMs ?? DEFAULT_DISPOSE_GRACE_MS
+      const exited = await Promise.race([
+        waitForExit(child).then(() => true),
+        new Promise<boolean>(resolve => setTimeout(() => { resolve(false) }, graceMs).unref()),
+      ])
+      if (!exited) {
+        child.kill('SIGKILL')
+        await waitForExit(child)
       }
-      await waitForExit(child)
     },
   }
 }
