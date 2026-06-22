@@ -76,10 +76,10 @@ The GitHub workflow runs these gates on each pull request:
 - `pnpm run test:coverage`
 - `pnpm run test:snapshot`
 - `pnpm run build`
-- `pnpm run knip && pnpm run publint`
+- `pnpm run hygiene`
 - an echo-agent smoke test that checks the demo's tool call, tool result, and JSONL output
 
-`pnpm run hygiene` is the local shorthand for `pnpm run knip && pnpm run publint && pnpm run constraints`; CI splits `pnpm run constraints` into its own earlier step, then runs `pnpm run knip && pnpm run publint` after `pnpm run build`.
+`pnpm run hygiene` is the local shorthand for `pnpm run knip && pnpm run publint && pnpm run constraints && pnpm run verify-node-next-types`; CI also runs `pnpm run constraints` as an earlier fail-fast step, then runs the full hygiene script after `pnpm run build`.
 
 ## Daily commands
 
