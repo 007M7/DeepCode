@@ -282,6 +282,43 @@ describe('dsh-tool-subagent', () => {
     expect(result.isError).toBe(true)
   })
 
+  it('cancels the run when the tool signal is ALREADY aborted before execute (no missed abort)', async () => {
+    // `addEventListener('abort')` does not fire for a signal already aborted
+    // before the listener is added, so a step cancelled before the tool ran
+    // would never reach the child unless the bridge re-checks `signal.aborted`.
+    // A provider that leans only on the abort EVENT (this spy never inspects
+    // request.signal) proves the bridge itself must cancel.
+    const cancelled = vi.fn()
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'spy',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      start: () => {
+        let resolveResult: (r: { output: never[]; stopReason: 'aborted' }) => void
+        const result = new Promise<{ output: never[]; stopReason: 'aborted' }>((res) => { resolveResult = res })
+        return {
+          id: AgentId('spy-child'),
+          result,
+          cancel: () => {
+            cancelled()
+            resolveResult({ output: [], stopReason: 'aborted' })
+          },
+          dispose: async () => {},
+        }
+      },
+    })
+    await ctx.plugin(tool, { provider: 'spy' })
+
+    const controller = new AbortController()
+    controller.abort() // already aborted BEFORE the tool runs
+    const result = await callSubagent(ctx, { description: 'd', prompt: 'p' }, { signal: controller.signal })
+    expect(cancelled).toHaveBeenCalledTimes(1)
+    expect(result.isError).toBe(true)
+  })
+
   it('tools depend on the service: no `subagent` tool without ctx.subagents', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
