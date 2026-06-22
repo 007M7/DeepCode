@@ -34,6 +34,6 @@ Unlike the bash seam (one executor per context, second load throws), **multiple 
 
 ## Scope (first cut)
 
-The consumer collects **synchronously**: it starts a run and awaits `result`. Steering (`sendMessage`) is part of the contract but intentionally unused. Background / poll / spill semantics are deferred to a future redesign unifying long-running-tool handling across subagents and bash. See the RFC: [docs/rfc/proposed/feature/2026-06-21-subagent-capability-seam.md](../../../docs/rfc/proposed/feature/2026-06-21-subagent-capability-seam.md).
+The consumer collects **synchronously**: it starts a run and awaits `result`. Steering (`sendMessage`) is part of the contract but intentionally unused. Background / poll / spill semantics are deferred to a future redesign unifying long-running-tool handling across subagents and bash. See the RFC: [docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md).
 
 See `src/types.ts` for the full contracts.

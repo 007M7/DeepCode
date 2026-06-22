@@ -42,6 +42,7 @@ dsh-subagent      ← dsh-agent, dsh-llm, dsh-tools    (abstract subagent provid
 dsh-subagent-mock ← dsh-subagent                     (scripted provider for tests)
 dsh-subagent-spawn ← dsh-subagent, dsh-agent, dsh-session, dsh-llm  (in-process fresh child + shared run driver)
 dsh-subagent-fork ← dsh-subagent-spawn, dsh-agent, dsh-session      (in-process child seeded from parent log)
+dsh-subagent-acp  ← dsh-subagent, dsh-agent, dsh-llm, @agentclientprotocol/sdk  (out-of-process child over ACP)
 dsh-tool-subagent ← dsh-subagent, dsh-tools, dsh-agent (model-facing delegation tool)
 dsh-agent-core    ← timer, dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent, dsh-invariants, dsh-tool-bash, dsh-agent-loop  (the providerless spine, as one bundle plugin)
 dsh-stdio-agent   ← dsh-agent-core, dsh-ui-stdio, dsh-session-persistence-jsonl, dsh-agent, dsh-session  (stdio chat APP + bin)
@@ -78,6 +79,7 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `subagent/` | `subagent` | Abstract subagent seam: named-provider registry for delegating to child agents | `ctx.subagents` |
 | `subagent-spawn/` | `subagent` | In-process backend: a fresh child agent (+ the shared in-process run driver) | (registers on `ctx.subagents`) |
 | `subagent-fork/` | `subagent` | In-process backend: a child agent seeded with the parent's completed-turn prefix | (registers on `ctx.subagents`) |
+| `subagent-acp/` | `subagent` | Out-of-process backend: a child agent in a spawned subprocess, driven over the Agent Client Protocol | (registers on `ctx.subagents`) |
 | `subagent-mock/` | `support` | Scripted `SubagentProvider` for testing the seam through the real load path | (registers on `ctx.subagents`) |
 | `tool-subagent/` | `subagent` | Model-facing `subagent` delegation tool over `ctx.subagents` | (registers on `ctx.tools`) |
 | `brand/` | `util` | Type-only `Branded<B>` nominal-typing primitive (no runtime code, no harness deps) | (none — type-only) |

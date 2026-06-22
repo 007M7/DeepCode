@@ -16,4 +16,4 @@ This plugin binds to **exactly one** provider (`Config.provider`). The model see
 
 `execute` starts a run on the configured provider and **awaits `run.result` inside a `try/finally` that always `dispose()`s the run** — the owned child agent/session is torn down on every path (success, error, abort), never leaked. The tool's abort signal (`exec.signal`) is bridged to `run.cancel()`. A non-`completed` stop reason (aborted/error/max-tokens/refusal) maps to an `isError` tool result rather than returning partial output as success.
 
-Background / poll collection is deferred (see the [RFC](../../../docs/rfc/proposed/feature/2026-06-21-subagent-capability-seam.md)); this cut blocks the parent turn until the child finishes.
+Background / poll collection is deferred (see the [RFC](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md)); this cut blocks the parent turn until the child finishes.

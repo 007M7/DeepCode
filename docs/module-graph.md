@@ -60,6 +60,9 @@ graph TD
   agent-core --> system-prompt
   agent-core --> tool-bash
   agent-core --> tools
+  subagent-acp --> agent
+  subagent-acp --> llm
+  subagent-acp --> subagent
   subagent-mock --> agent
   subagent-mock --> llm
   subagent-mock --> subagent
@@ -108,6 +111,7 @@ graph TD
 | `subagent` | `agent`, `llm`, `tools` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |
 | `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `system-prompt`, `tool-bash`, `tools` |
+| `subagent-acp` | `agent`, `llm`, `subagent` |
 | `subagent-mock` | `agent`, `llm`, `subagent` |
 | `subagent-spawn` | `agent`, `llm`, `session`, `subagent` |
 | `tool-subagent` | `agent`, `llm`, `subagent`, `tools` |

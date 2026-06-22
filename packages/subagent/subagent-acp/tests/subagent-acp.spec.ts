@@ -1,0 +1,315 @@
+import { describe, expect, it } from 'vitest'
+import { Context } from 'cordis'
+import Loader from '@cordisjs/plugin-loader'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import SubagentService from '@deepseek-ai/dsh-subagent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import * as acp from '../src/index.ts'
+import { acpStopReason, acpContentText, buildChildEnv, SENSITIVE_ENV_PATTERN, toAcpPrompt } from '../src/run.ts'
+
+/**
+ * Keyless integration tests for the ACP subagent backend. Each spawns a REAL
+ * subprocess — the scripted mock ACP server (tests/mock-acp-server.ts) — and
+ * drives it through the REAL backend over real ACP JSON-RPC stdio, so the
+ * connection setup, the client callbacks, the prompt round-trip, the stop-reason
+ * mapping, cancellation, and quiescent disposal are all exercised end to end.
+ * No model, no key.
+ */
+
+const mockServer = fileURLToPath(new URL('./mock-acp-server.ts', import.meta.url))
+const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
+const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
+
+/** A throwaway parent Agent — the ACP backend ignores it, but the seam requires one. */
+const fakeParent = { id: 'parent', session: { header: {} } } as unknown as Agent
+
+interface SetupEnv {
+  /** Mock-server scripting env: MOCK_TEXT / MOCK_STOP / MOCK_HANG / MOCK_PERMISSION. */
+  [key: string]: string
+}
+
+/**
+ * Mount the ACP backend pointed at the mock server, scripted by `mockEnv`.
+ * `permission` selects the backend's auto-answer policy.
+ */
+async function setup(mockEnv: SetupEnv = {}, permission: 'allow' | 'reject' = 'reject') {
+  const ctx = new Context()
+  await ctx.plugin(SubagentService)
+  await ctx.plugin(acp, {
+    providerName: 'acp',
+    command: process.execPath,
+    args: ['--import', tsxLoader, mockServer],
+    permission,
+    // The mock-server scripting vars must reach the child; TSX_TSCONFIG_PATH lets
+    // tsx resolve @deepseek-ai/* from a child cwd outside the repo.
+    env: { ...mockEnv, TSX_TSCONFIG_PATH: repoTsconfig },
+  })
+  return ctx
+}
+
+function text(blocks: { type: string; text?: string }[]): string {
+  return blocks.filter(b => b.type === 'text').map(b => b.text).join('')
+}
+
+/**
+ * Poll until `file` exists (the mock touches it once its prompt is in flight),
+ * so a cancel test waits on a CONDITION rather than an arbitrary timeout — the
+ * subprocess cold-start under tsx is variable, and a fixed sleep both flakes and
+ * slows the suite. Fails loud if the child never signals readiness.
+ */
+async function waitForFile(file: string, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!existsSync(file)) {
+    if (Date.now() > deadline) throw new Error(`mock child never became ready (${file})`)
+    await new Promise(r => setTimeout(r, 10))
+  }
+}
+
+describe('acpStopReason', () => {
+  it('maps each ACP stop reason to the harness vocabulary', () => {
+    expect(acpStopReason('end_turn')).toBe('completed')
+    expect(acpStopReason('max_tokens')).toBe('max-tokens')
+    expect(acpStopReason('refusal')).toBe('refusal')
+    expect(acpStopReason('cancelled')).toBe('aborted')
+    expect(acpStopReason('max_turn_requests')).toBe('error')
+  })
+
+  it('treats an unknown terminal reason as an error', () => {
+    expect(acpStopReason('something-new' as never)).toBe('error')
+  })
+})
+
+describe('acpContentText / toAcpPrompt', () => {
+  it('extracts text from a text content block, empty for non-text', () => {
+    expect(acpContentText({ type: 'text', text: 'hi' })).toBe('hi')
+    // A non-text ACP content block (e.g. an image) contributes no text.
+    expect(acpContentText({ type: 'image', data: 'x', mimeType: 'image/png' })).toBe('')
+  })
+
+  it('keeps text prompt blocks and drops non-text ones', () => {
+    expect(toAcpPrompt([{ type: 'text', text: 'a' }])).toEqual([{ type: 'text', text: 'a' }])
+    // A non-text harness block (e.g. reasoning) is dropped from the ACP prompt.
+    expect(toAcpPrompt([{ type: 'text', text: 'a' }, { type: 'reasoning', text: 'think' }]))
+      .toEqual([{ type: 'text', text: 'a' }])
+  })
+})
+
+describe('buildChildEnv', () => {
+  it('drops credential-shaped ambient vars but keeps the explicit extras', () => {
+    process.env.DSH_ACP_TEST_SECRET_TOKEN = 'leak-me'
+    try {
+      const env = buildChildEnv({ DEEPSEEK_API_KEY: 'explicit' })
+      // The credential-shaped ambient var is scrubbed.
+      expect(env.DSH_ACP_TEST_SECRET_TOKEN).toBeUndefined()
+      // The explicitly-supplied key survives (an opt-in for the child's creds).
+      expect(env.DEEPSEEK_API_KEY).toBe('explicit')
+      // A normal ambient var is forwarded.
+      expect(SENSITIVE_ENV_PATTERN.test('PATH')).toBe(false)
+      expect(env.PATH).toBe(process.env.PATH)
+    } finally {
+      delete process.env.DSH_ACP_TEST_SECRET_TOKEN
+    }
+  })
+})
+
+describe('dsh-subagent-acp', () => {
+  it('drives a child process to completion and returns its streamed output', async () => {
+    const ctx = await setup({ MOCK_TEXT: 'hello from acp child', MOCK_STOP: 'end_turn' })
+    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'do X' }], parent: fakeParent })
+    const result = await run.result
+    expect(result.stopReason).toBe('completed')
+    expect(text(result.output)).toBe('hello from acp child')
+    await run.dispose()
+  })
+
+  it('maps a max_tokens stop reason', async () => {
+    const ctx = await setup({ MOCK_TEXT: 'cut off', MOCK_STOP: 'max_tokens' })
+    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+    const result = await run.result
+    expect(result.stopReason).toBe('max-tokens')
+    await run.dispose()
+  })
+
+  it('maps a refusal stop reason', async () => {
+    const ctx = await setup({ MOCK_TEXT: '', MOCK_STOP: 'refusal' })
+    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+    const result = await run.result
+    expect(result.stopReason).toBe('refusal')
+    await run.dispose()
+  })
+
+  it('cancelling a running child settles aborted (session/cancel via run.cancel)', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'acp-cancel-'))
+    const readyFile = join(tmp, 'ready')
+    try {
+      const ctx = await setup({ MOCK_TEXT: 'partial', MOCK_HANG: '1', MOCK_READY_FILE: readyFile })
+      const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+      // Wait until the child's prompt is in flight (condition, not a sleep),
+      // then cancel — so we exercise the mid-run session/cancel path.
+      await waitForFile(readyFile)
+      run.cancel('test')
+      const result = await run.result
+      expect(result.stopReason).toBe('aborted')
+      await run.dispose()
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('settles aborted without running the child when the signal is already aborted', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const ctx = await setup({ MOCK_TEXT: 'never seen' })
+    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent, signal: controller.signal })
+    const result = await run.result
+    expect(result.stopReason).toBe('aborted')
+    expect(result.output).toEqual([])
+    await run.dispose()
+  })
+
+  it('honors a cancel that races AHEAD of newSession (no session id yet) without running the prompt', async () => {
+    // Gate the child at newSession: it signals `ready` and blocks until `go`.
+    // We cancel WHILE newSession is pending (sessionId still undefined, so the
+    // backend cannot send session/cancel) — the `cancelled` flag alone must
+    // settle the run aborted after newSession resolves, never issuing the prompt.
+    const tmp = mkdtempSync(join(tmpdir(), 'acp-early-'))
+    const ready = join(tmp, 'ready')
+    const go = join(tmp, 'go')
+    try {
+      const ctx = await setup({ MOCK_NEWSESSION_READY: ready, MOCK_NEWSESSION_GO: go, MOCK_TEXT: 'should not run' })
+      const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+      await waitForFile(ready) // newSession is now in flight, sessionId undefined
+      run.cancel('early') // sets cancelled; cannot send session/cancel yet
+      writeFileSync(go, 'go') // let newSession resolve
+      const result = await run.result
+      expect(result.stopReason).toBe('aborted')
+      expect(result.output).toEqual([])
+      await run.dispose()
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('bridges the request signal to a session/cancel mid-run', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'acp-signal-'))
+    const readyFile = join(tmp, 'ready')
+    try {
+      const controller = new AbortController()
+      const ctx = await setup({ MOCK_TEXT: 'partial', MOCK_HANG: '1', MOCK_READY_FILE: readyFile })
+      const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent, signal: controller.signal })
+      await waitForFile(readyFile)
+      controller.abort()
+      const result = await run.result
+      expect(result.stopReason).toBe('aborted')
+      await run.dispose()
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('auto-rejects a permission prompt by default (child settles cancelled→aborted)', async () => {
+    const ctx = await setup({ MOCK_TEXT: 'x', MOCK_PERMISSION: '1' }, 'reject')
+    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+    const result = await run.result
+    // The child asked permission, the backend rejected, the child returned cancelled.
+    expect(result.stopReason).toBe('aborted')
+    await run.dispose()
+  })
+
+  it('auto-approves a permission prompt under the allow policy', async () => {
+    const ctx = await setup({ MOCK_TEXT: 'approved answer', MOCK_PERMISSION: '1', MOCK_STOP: 'end_turn' }, 'allow')
+    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+    const result = await run.result
+    expect(result.stopReason).toBe('completed')
+    expect(text(result.output)).toBe('approved answer')
+    await run.dispose()
+  })
+
+  it('falls back to cancelled under the allow policy when the child offers no allow option', async () => {
+    // The child asks permission but offers ONLY reject-shaped options, so an
+    // allow-policy client finds nothing to select and must answer cancelled.
+    const ctx = await setup({ MOCK_PERMISSION: '1', MOCK_NO_ALLOW: '1' }, 'allow')
+    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+    const result = await run.result
+    expect(result.stopReason).toBe('aborted')
+    await run.dispose()
+  })
+
+  it('consumes a non-message update (a thought) without adding it to the output', async () => {
+    // The child streams an agent_thought_chunk before its answer; the backend
+    // must consume it but NOT include it in the result output.
+    const ctx = await setup({ MOCK_THOUGHT: '1', MOCK_TEXT: 'final answer', MOCK_STOP: 'end_turn' })
+    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+    const result = await run.result
+    expect(result.stopReason).toBe('completed')
+    // Only the message text, NOT the thought.
+    expect(text(result.output)).toBe('final answer')
+    await run.dispose()
+  })
+
+  it('resolves error (not reject) when the spawn command does not exist', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    await ctx.plugin(acp, {
+      providerName: 'acp',
+      command: '/nonexistent/acp-agent-binary',
+      args: [],
+      permission: 'reject',
+      env: {},
+    })
+    const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+    const result = await run.result
+    // The seam contract: a child-level failure resolves error, never rejects.
+    expect(result.stopReason).toBe('error')
+    await run.dispose()
+  })
+
+  it('settles aborted when the child crashes (tears the pipe) AFTER a cancel', async () => {
+    // The child hangs, we cancel, and instead of answering the child exits hard
+    // — the pending prompt RPC rejects. With a cancel already requested, the
+    // backend's catch path must settle `aborted` (the failure is the cancel
+    // surfacing as a torn pipe), not `error`.
+    const tmp = mkdtempSync(join(tmpdir(), 'acp-crash-'))
+    const ready = join(tmp, 'ready')
+    try {
+      const ctx = await setup({ MOCK_TEXT: 'partial', MOCK_HANG: '1', MOCK_CRASH_ON_CANCEL: '1', MOCK_READY_FILE: ready })
+      const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+      await waitForFile(ready)
+      run.cancel('crash it')
+      const result = await run.result
+      expect(result.stopReason).toBe('aborted')
+      await run.dispose()
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('advertises no start-time capabilities (out-of-process child)', async () => {
+    const ctx = await setup()
+    const provider = ctx.subagents.getProvider('acp')!
+    expect(provider.capabilities).toEqual({ outputSchema: false, depthLimit: false, toolFilter: false })
+  })
+
+  it('unregisters the provider when its fiber is disposed (HMR safety)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const fiber = await ctx.plugin(acp, { providerName: 'acp', command: 'x', args: [], permission: 'reject', env: {} })
+    expect(ctx.subagents.list()).toEqual(['acp'])
+    await fiber.dispose()
+    expect(ctx.subagents.list()).toEqual([])
+  })
+
+  it('has the namespace-plugin export shape (no stray default)', () => {
+    expect('default' in acp).toBe(false)
+    expect(acp.name).toBe('subagent-acp')
+    expect(acp.inject).toEqual(['subagents'])
+    const loader = Object.create(Loader.prototype) as Loader
+    const unwrapped = loader.unwrapExports(acp) as Record<string, unknown>
+    expect(unwrapped).toBe(acp)
+    expect(unwrapped.name).toBe('subagent-acp')
+    expect(typeof unwrapped.apply).toBe('function')
+  })
+})
