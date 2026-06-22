@@ -140,18 +140,21 @@ export function parseSessionLog(text: string): SessionEvent[] {
 
 /**
  * Read the identifying facts off a session log's header line (line 0): the
- * recorded session `id` (diagnostics) and `createdAt` (the deterministic
- * ordering key that binds a recorded script to a live session — see
- * {@link SessionScript}). A header missing either field falls back to a stable
- * default (`''` / `0`) rather than throwing: a no-model fixture is header-only
- * and still orders fine as the single (primary) script.
+ * recorded session `id` (diagnostics), `createdAt` (the deterministic ordering
+ * key that binds a recorded script to a live session — see
+ * {@link SessionScript}), and `seedLength` (the seed boundary — how many leading
+ * events were INHERITED via a fork seed rather than produced by this session's
+ * own model calls; absent ⇒ 0). A header missing a field falls back to a stable
+ * default (`''` / `0` / `0`) rather than throwing: a no-model fixture is
+ * header-only and still orders fine as the single (primary) script.
  */
-export function parseSessionHeader(text: string): { id: string; createdAt: number } {
+export function parseSessionHeader(text: string): { id: string; createdAt: number; seedLength: number } {
   const firstLine = text.split('\n').find(line => line.trim().length > 0) ?? '{}'
-  const parsed = JSON.parse(firstLine) as { id?: unknown; createdAt?: unknown }
+  const parsed = JSON.parse(firstLine) as { id?: unknown; createdAt?: unknown; seedLength?: unknown }
   return {
     id: typeof parsed.id === 'string' ? parsed.id : '',
     createdAt: typeof parsed.createdAt === 'number' ? parsed.createdAt : 0,
+    seedLength: typeof parsed.seedLength === 'number' ? parsed.seedLength : 0,
   }
 }
 
@@ -257,10 +260,17 @@ export function loadSessionScripts(config: ReplayConfig): SessionScript[] {
     }
     const text = readFileSync(childFile, 'utf8')
     const header = parseSessionHeader(text)
+    // Derive the child's script from its OWN events only — events AT OR AFTER
+    // the seed boundary. A FORK child's log begins with the seeded parent prefix
+    // (the parent's events, including its `assistant/chunk`s); replaying those as
+    // the child's model calls would feed the child the PARENT's recorded
+    // responses. `seedLength` is 0 for a fresh (spawn) child, so this is a no-op
+    // there.
+    const ownEvents = parseSessionLog(text).slice(header.seedLength)
     children.push({
       recordedId: header.id,
       createdAt: header.createdAt,
-      entries: deriveReplayScript(parseSessionLog(text)),
+      entries: deriveReplayScript(ownEvents),
       primary: false,
     })
   }

@@ -142,6 +142,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Real-API e2e in CI against the external DeepSeek API](implemented/testing/2026-06-19-real-api-e2e-ci.md) | 2026-06-19 |
 | [Use `session.jsonl` as the only snapshot session-log artifact](implemented/testing/2026-06-20-remove-redundant-snapshot-log-goldens.md) | 2026-06-20 |
 | [Per-session snapshot replay for nested agents](implemented/testing/2026-06-22-subagent-snapshot-replay.md) | 2026-06-22 |
+| [Persist the seed boundary so fork-child replay routes correctly](implemented/testing/2026-06-22-fork-child-replay-seed-boundary.md) | 2026-06-22 |
 
 ## Rejected
 

@@ -30,13 +30,14 @@ export interface CreateAgentOptions {
   /** The live session's id (NOT derived from agentId). */
   sessionId: SessionId
   /**
-   * Session creation metadata: validated absolute `cwd` and `parentSession`
-   * fork lineage. Mirrors the `cwd`/`parentSession` fields of
+   * Session creation metadata: validated absolute `cwd`, `parentSession`
+   * fork lineage, and the `seedLength` seed boundary. Mirrors the
+   * `cwd`/`parentSession`/`seedLength` fields of
    * {@link CreateSessionOptions.meta} in dsh-session (the internal-only
    * `createdAt`, used when reconstructing a persisted session, is deliberately
    * excluded — a factory caller never sets it).
    */
-  meta?: { cwd?: string; parentSession?: SessionId }
+  meta?: { cwd?: string; parentSession?: SessionId; seedLength?: number }
   /**
    * Seed events to reconstruct the child session's log from (the fork lineage
    * primitive). When present, the factory creates the session with this event

@@ -106,6 +106,10 @@ describe('dsh-subagent-fork', () => {
     expect(seededUser).toBeDefined()
     // Lineage stamped.
     expect(child.session.header.parentSession).toBe(parent.session.header.id)
+    // The seed boundary is recorded on the header (= the seeded prefix length),
+    // so a reload / replay harness can tell the inherited prefix from the
+    // child's own events.
+    expect(child.session.header.seedLength).toBe(parentPrefixLen)
     await run.dispose()
   })
 

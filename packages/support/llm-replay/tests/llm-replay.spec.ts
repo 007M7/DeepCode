@@ -35,12 +35,13 @@ const TEXT_CHUNKS: StreamChunk[] = [
 ]
 
 /** Build a minimal session-JSONL string: a header line + the given events. */
-function sessionJsonl(events: SessionEvent[], header?: { id?: string; createdAt?: number }): string {
+function sessionJsonl(events: SessionEvent[], header?: { id?: string; createdAt?: number; seedLength?: number }): string {
   const headerLine = JSON.stringify({
     type: 'session',
     version: 0,
     id: header?.id ?? 's1',
     createdAt: header?.createdAt ?? 0,
+    ...header?.seedLength !== undefined ? { seedLength: header.seedLength } : {},
   })
   return [headerLine, ...events.map(e => JSON.stringify(e))].join('\n') + '\n'
 }
@@ -370,17 +371,22 @@ describe('installLlmReplay (through the real waterfall)', () => {
 })
 
 describe('parseSessionHeader', () => {
-  it('reads id and createdAt off the header line', () => {
+  it('reads id, createdAt, and seedLength off the header line', () => {
     expect(parseSessionHeader(sessionJsonl([], { id: 'abc', createdAt: 42 })))
-      .toEqual({ id: 'abc', createdAt: 42 })
+      .toEqual({ id: 'abc', createdAt: 42, seedLength: 0 })
   })
 
-  it('falls back to id="" / createdAt=0 when the header lacks them', () => {
-    expect(parseSessionHeader('{"type":"session","version":0}\n')).toEqual({ id: '', createdAt: 0 })
+  it('reads a non-zero seedLength (a fork child header)', () => {
+    expect(parseSessionHeader('{"type":"session","version":0,"id":"child","createdAt":7,"seedLength":4}\n'))
+      .toEqual({ id: 'child', createdAt: 7, seedLength: 4 })
+  })
+
+  it('falls back to id="" / createdAt=0 / seedLength=0 when the header lacks them', () => {
+    expect(parseSessionHeader('{"type":"session","version":0}\n')).toEqual({ id: '', createdAt: 0, seedLength: 0 })
   })
 
   it('falls back on an empty buffer (no header line)', () => {
-    expect(parseSessionHeader('')).toEqual({ id: '', createdAt: 0 })
+    expect(parseSessionHeader('')).toEqual({ id: '', createdAt: 0, seedLength: 0 })
   })
 })
 
@@ -418,6 +424,32 @@ describe('loadSessionScripts', () => {
     const f = writeSession('session.jsonl', { id: 'p', createdAt: 1 }, [TEXT_CHUNKS])
     expect(() => loadSessionScripts({ file: f, childFiles: [join(dir, 'absent.jsonl')] }))
       .toThrow(/child fixture not found/)
+  })
+
+  it('derives a FORK child script from its OWN events only (skips the seeded parent prefix)', () => {
+    // A fork child's log begins with the seeded parent prefix — the parent's
+    // events, INCLUDING its assistant/chunk events. Deriving the child script
+    // from the whole log would replay the PARENT's recorded responses as the
+    // child's model calls. With seedLength recorded, the child script must
+    // contain only the child's OWN chunks (those after the boundary).
+    const parentChunk: StreamChunk = { type: 'text-delta', index: 0, text: 'PARENT-RESPONSE' }
+    const childChunks: StreamChunk[] = [{ type: 'text-delta', index: 0, text: 'CHILD-RESPONSE' }, { type: 'finish', reason: { kind: 'stop' } }]
+    const f = writeSession('session.jsonl', { id: 'parent', createdAt: 100 }, [TEXT_CHUNKS])
+    // The child fixture: 2 seeded parent events (a chunk + its finish) then the
+    // child's own turn. seedLength = 2 marks where the inherited prefix ends.
+    const childEvents: SessionEvent[] = [
+      chunkEvent(0, 1, 1, parentChunk),
+      chunkEvent(1, 1, 1, { type: 'finish', reason: { kind: 'stop' } }),
+      chunkEvent(2, 2, 1, childChunks[0]!),
+      chunkEvent(3, 2, 1, childChunks[1]!),
+    ]
+    const childPath = join(dir, 'session.1.jsonl')
+    writeFileSync(childPath, sessionJsonl(childEvents, { id: 'child', createdAt: 200, seedLength: 2 }), 'utf8')
+
+    const scripts = loadSessionScripts({ file: f, childFiles: [childPath] })
+    // The child script is ONLY the child's own model call — the parent's seeded
+    // chunk is gone.
+    expect(scripts[1]?.entries).toEqual([{ kind: 'chunks', chunks: childChunks }])
   })
 
   it('uses the override for the primary and still derives children', () => {

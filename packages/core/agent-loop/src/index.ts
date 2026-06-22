@@ -219,6 +219,9 @@ export class AgentLoop extends Service implements AgentFactory {
         createdAt: meta.createdAt,
         ...meta.cwd !== undefined ? { cwd: meta.cwd } : {},
         ...meta.parentSession !== undefined ? { parentSession: meta.parentSession } : {},
+        // Reconstruct the seed boundary from the persisted header, NOT from
+        // `events.length` (the resume seeds the WHOLE stored log).
+        ...meta.seedLength !== undefined ? { seedLength: meta.seedLength } : {},
       },
     })
     return this.startOwned(options.agentId, options.agentOptions ?? {}, session)
