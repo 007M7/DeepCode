@@ -2,7 +2,7 @@
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib"
+    "outDir": "lib/types"
   },
   "include": [
     "src"
@@ -18,16 +18,10 @@
       "path": "../../../vendor/schemastery"
     },
     {
-      "path": "../../core/agent"
-    },
-    {
-      "path": "../../llm/llm"
-    },
-    {
-      "path": "../../core/session"
-    },
-    {
       "path": "../subagent"
+    },
+    {
+      "path": "../subagent-inprocess"
     }
   ]
 }

@@ -5,9 +5,9 @@
  * context). The cheapest transport, reusing the agent factory's quiescent
  * teardown.
  *
- * The fork sibling (`@deepseek-ai/dsh-subagent-fork`) shares this package's run
- * driver ({@link startInProcessRun}) and differs ONLY in seeding the child with
- * a prefix of the parent's log.
+ * The run mechanics live in `@deepseek-ai/dsh-subagent-inprocess`
+ * ({@link startInProcessRun}); this backend just passes NO seed (a fresh
+ * child). The fork backend is an independent peer over the same driver.
  *
  * Plugin export shape: named `name`/`inject`/`Config`/`apply`, NO default.
  *
@@ -17,10 +17,7 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
-import { startInProcessRun } from './in-process.ts'
-
-export { startInProcessRun, depthOf, SubagentDepthError } from './in-process.ts'
-export type { InProcessRunOptions } from './in-process.ts'
+import { startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
 
 export const name = 'subagent-spawn'
 export const inject = ['subagents', 'agents']

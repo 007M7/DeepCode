@@ -63,13 +63,13 @@ graph TD
   subagent-acp --> agent
   subagent-acp --> llm
   subagent-acp --> subagent
+  subagent-inprocess --> agent
+  subagent-inprocess --> llm
+  subagent-inprocess --> session
+  subagent-inprocess --> subagent
   subagent-mock --> agent
   subagent-mock --> llm
   subagent-mock --> subagent
-  subagent-spawn --> agent
-  subagent-spawn --> llm
-  subagent-spawn --> session
-  subagent-spawn --> subagent
   tool-subagent --> agent
   tool-subagent --> llm
   tool-subagent --> subagent
@@ -85,7 +85,9 @@ graph TD
   subagent-fork --> agent
   subagent-fork --> session
   subagent-fork --> subagent
-  subagent-fork --> subagent-spawn
+  subagent-fork --> subagent-inprocess
+  subagent-spawn --> subagent
+  subagent-spawn --> subagent-inprocess
 ```
 
 | Package | Depends on |
@@ -112,9 +114,10 @@ graph TD
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |
 | `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `system-prompt`, `tool-bash`, `tools` |
 | `subagent-acp` | `agent`, `llm`, `subagent` |
+| `subagent-inprocess` | `agent`, `llm`, `session`, `subagent` |
 | `subagent-mock` | `agent`, `llm`, `subagent` |
-| `subagent-spawn` | `agent`, `llm`, `session`, `subagent` |
 | `tool-subagent` | `agent`, `llm`, `subagent`, `tools` |
 | `acp-agent` | `acp`, `agent-core`, `session-persistence-jsonl` |
 | `stdio-agent` | `agent`, `agent-core`, `session`, `session-persistence-jsonl`, `ui-stdio` |
-| `subagent-fork` | `agent`, `session`, `subagent`, `subagent-spawn` |
+| `subagent-fork` | `agent`, `session`, `subagent`, `subagent-inprocess` |
+| `subagent-spawn` | `subagent`, `subagent-inprocess` |
