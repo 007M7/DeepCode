@@ -140,6 +140,20 @@ interface GenerateOptions {
    */
   stop?: string[]
   signal?: AbortSignal
+  /**
+   * The id of the session this request belongs to — stamped by the agent loop
+   * from `agent.session.id`. Adapters ignore it; it lets an `llm/stream` listener
+   * route a call by WHICH session issued it (the replay adapter keys its per-call
+   * cursor by session, so a parent and its in-process subagent — each with its
+   * own session on one context — replay from their own recorded scripts).
+   *
+   * Typed as `Branded<'SessionId'>` rather than importing `SessionId` from
+   * `dsh-session`: that package imports `Message` from here, so importing its
+   * `SessionId` back would cycle. `SessionId` IS `Branded<'SessionId'>`, so a
+   * real session id assigns with no cast. (A future ids package could own the
+   * brand and dissolve this note.)
+   */
+  sessionId?: Branded<'SessionId'>
 }
 ```
 

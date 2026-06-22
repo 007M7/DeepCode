@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { type InputScript, runScenario } from './snapshot-harness.ts'
+import { type HarvestedLog, type InputScript, runScenario } from './snapshot-harness.ts'
 import { type NormalizeContext, normalizeSessionLog, normalizeStdout } from './snapshot-normalize.ts'
 
 /**
@@ -37,6 +37,14 @@ interface Scenario {
    * coaxed into deterministically) are NEVER re-recorded.
    */
   recorded: boolean
+  /**
+   * How many SUBAGENT child sessions this scenario records beyond the top-level
+   * one (0 for a single-session scenario). Each child rides in a sibling fixture
+   * `session.<n>.jsonl` (1-based); replay forwards them to `dsh-llm-replay` so
+   * each child session replays from its own script, and record mode writes the
+   * harvested child logs back to those files. Defaults to 0.
+   */
+  childSessions?: number
 }
 
 const SCENARIOS: Scenario[] = [
@@ -48,7 +56,14 @@ const SCENARIOS: Scenario[] = [
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
   { name: 'error-finish', hasModelTurn: true, recorded: false },
   { name: 'cancel', hasModelTurn: true, recorded: false },
+  { name: 'subagent-spawn', hasModelTurn: true, recorded: true, childSessions: 1 },
+  { name: 'subagent-multi', hasModelTurn: true, recorded: true, childSessions: 2 },
 ]
+
+/** The sibling child-fixture paths for a scenario (`session.1.jsonl` …). */
+function childFixturePaths(dir: string, childSessions: number): string[] {
+  return Array.from({ length: childSessions }, (_, i) => join(dir, `session.${i + 1}.jsonl`))
+}
 
 /**
  * Derive the {@link NormalizeContext} for a `session.jsonl` fixture from its own
@@ -81,42 +96,59 @@ for (const scenario of SCENARIOS) {
       const input = JSON.parse(await readFile(join(dir, 'input.json'), 'utf8')) as InputScript
       const overrideFile = join(dir, 'replay.override.json')
       const workspaceDir = join(dir, 'workspace')
+      const childSessions = scenario.childSessions ?? 0
       const result = await runScenario(input, {
         mode: RECORDING ? 'record' : 'replay',
         fixtureFile: join(dir, 'session.jsonl'),
         ...existsSync(overrideFile) ? { overrideFile } : {},
+        // In REPLAY, forward the recorded child fixtures so each subagent session
+        // replays from its own script. In RECORD they are harvested, not read.
+        ...!RECORDING && childSessions > 0 ? { childFiles: childFixturePaths(dir, childSessions) } : {},
         ...existsSync(workspaceDir) ? { workspaceDir } : {},
       })
 
+      // Scrub every volatile id the run produced: the ACP server-issued session
+      // id plus every harvested log's recorded id (a subagent child id never
+      // surfaces over ACP, but it appears in the child's own log header). The
+      // normalizer's UUID catch-all covers any we don't enumerate.
       const ctx: NormalizeContext = {
-        sessionIds: result.sessionId !== undefined ? [result.sessionId] : [],
+        sessionIds: [
+          ...result.sessionId !== undefined ? [result.sessionId] : [],
+          ...result.sessionLogs.map(l => l.id),
+        ],
         cwd: result.cwd,
       }
 
-      // RECORD mode (recorded scenarios only): persist the freshly-harvested log
-      // back to the scenario's session.jsonl fixture. `--update` refreshes the
-      // Vitest goldens but NOT this fixture, so write it here.
+      // RECORD mode (recorded model scenarios only): persist the freshly-harvested
+      // logs back to their fixtures — the primary to session.jsonl, each child to
+      // session.<n>.jsonl in harvest order. `--update` refreshes the Vitest
+      // goldens but NOT these fixtures, so write them here.
       if (RECORDING && scenario.recorded && scenario.hasModelTurn) {
-        expect(result.sessionLog, 'record produced no session log to harvest').toBeDefined()
-        await writeFile(join(dir, 'session.jsonl'), result.sessionLog as string)
+        expect(result.sessionLogs.length, 'record produced no session log to harvest').toBeGreaterThan(0)
+        expect(result.sessionLogs.length, `expected ${childSessions + 1} session logs (parent + children)`)
+          .toBe(childSessions + 1)
+        await writeFile(join(dir, 'session.jsonl'), (result.sessionLogs[0] as HarvestedLog).content)
+        for (let i = 1; i < result.sessionLogs.length; i++) {
+          await writeFile(join(dir, `session.${i}.jsonl`), (result.sessionLogs[i] as HarvestedLog).content)
+        }
       }
 
       await expect(normalizeStdout(result.rawStdout, ctx))
         .toMatchFileSnapshot(join(dir, 'stdout.golden.jsonl'))
 
       if (scenario.hasModelTurn) {
-        expect(result.sessionLog, 'a model scenario must persist a session log').toBeDefined()
-        // Compare the replay run's persisted log against the `session.jsonl`
-        // fixture — there is no separate session golden. Both sides pass through
-        // normalizeSessionLog so the comparison is on normalized form: the
-        // fixture is raw-harvested (its own real session id / cwd / timestamps),
-        // the replay output has fresh ones, and each is scrubbed against ITS OWN
-        // volatile values. The fixture's are read from its header line (a
-        // committed file cannot share the live run's ctx), so the stale recorded
-        // cwd/id are scrubbed too, not left to leak past the run's `ctx`.
-        const fixture = await readFile(join(dir, 'session.jsonl'), 'utf8')
-        expect(normalizeSessionLog(result.sessionLog as string, ctx))
-          .toEqual(normalizeSessionLog(fixture, fixtureContext(fixture)))
+        // The harvested logs (primary-first) must match their committed fixtures
+        // 1:1. Each side passes through normalizeSessionLog, scrubbed against ITS
+        // OWN volatile values — the live run's via `ctx`, the committed fixture's
+        // via its own header (a committed file cannot share the live run's ids).
+        expect(result.sessionLogs.length, 'a model scenario must persist a session log').toBe(childSessions + 1)
+        const fixtureFiles = ['session.jsonl', ...Array.from({ length: childSessions }, (_, i) => `session.${i + 1}.jsonl`)]
+        for (let i = 0; i < fixtureFiles.length; i++) {
+          const harvested = (result.sessionLogs[i] as HarvestedLog).content
+          const fixture = await readFile(join(dir, fixtureFiles[i] as string), 'utf8')
+          expect(normalizeSessionLog(harvested, ctx), `${fixtureFiles[i]} mismatch`)
+            .toEqual(normalizeSessionLog(fixture, fixtureContext(fixture)))
+        }
       }
     })
   })
@@ -144,13 +176,18 @@ describe('snapshot fixtures', () => {
     // doubles as the expected-log artifact the run is diffed against. An authored
     // (non-`recorded`) model scenario additionally ships a `replay.override.json`
     // sidecar for the throw/hang cases a derived script cannot express.
-    for (const { name, hasModelTurn, recorded } of SCENARIOS) {
+    for (const { name, hasModelTurn, recorded, childSessions } of SCENARIOS) {
       const dir = join(SNAPSHOTS_DIR, name)
       expect(existsSync(join(dir, 'input.json')), `${name}/input.json`).toBe(true)
       expect(existsSync(join(dir, 'stdout.golden.jsonl')), `${name}/stdout.golden.jsonl`).toBe(true)
       expect(existsSync(join(dir, 'session.jsonl')), `${name}/session.jsonl`).toBe(true)
       if (hasModelTurn && !recorded) {
         expect(existsSync(join(dir, 'replay.override.json')), `${name}/replay.override.json`).toBe(true)
+      }
+      // A nested-agent scenario ships one child fixture per recorded subagent
+      // session (`session.1.jsonl` …), the replay source for that child session.
+      for (const childFixture of childFixturePaths(dir, childSessions ?? 0)) {
+        expect(existsSync(childFixture), childFixture).toBe(true)
       }
     }
   })
