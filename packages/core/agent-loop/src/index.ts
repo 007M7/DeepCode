@@ -121,10 +121,6 @@ export class AgentLoop extends Service implements AgentFactory {
    * deliberate resume-or-create policy (resume the prior session if one exists,
    * else start fresh) or an explicit caller-chosen session id — revisit when the
    * UI/ACP path owns session selection.
-   *
-   * TODO(sub-agents): spawn/fork land here — accept a parent agent reference;
-   * fork seeds the new Session with the parent's event log, spawn starts
-   * fresh; the child is returned as a regular Agent handle.
    */
   create(id: AgentId, options: AgentOptions = {}): ReactLoopAgent {
     this.assertAgentIdFree(id)
@@ -140,16 +136,22 @@ export class AgentLoop extends Service implements AgentFactory {
   /**
    * Programmatic factory create ({@link AgentFactory}): an agent on a
    * caller-supplied `sessionId` (NOT `${id}-session`), with optional session
-   * metadata (validated `cwd`, lineage). The ACP bridge uses this so the
-   * client-generated session id becomes the live/persisted session id. Returns
-   * an {@link AgentHandle} the owner disposes to tear down exactly this agent.
+   * metadata (validated `cwd`, lineage) and an optional `seed` event prefix. The
+   * ACP bridge uses this so the client-generated session id becomes the
+   * live/persisted session id; the in-process FORK subagent backend passes a
+   * `seed` (a balanced completed-turn prefix of the parent's log) so the child
+   * starts with the parent's context. Returns an {@link AgentHandle} the owner
+   * disposes to tear down exactly this agent.
    */
   createAgent(options: CreateAgentOptions): AgentHandle {
     // Check the agent id BEFORE preparing the session: register() would reject a
     // duplicate id only AFTER the session enters the store, leaving an orphaned
     // live session (and lazy persistence state) that blocks reuse of that id.
     this.assertAgentIdFree(options.agentId)
-    const session = this.ctx.sessions.prepare(options.sessionId, { meta: options.meta ?? {} })
+    const session = this.ctx.sessions.prepare(options.sessionId, {
+      ...options.seed !== undefined ? { seed: options.seed } : {},
+      meta: options.meta ?? {},
+    })
     return this.startOwned(options.agentId, options.agentOptions ?? {}, session)
   }
 

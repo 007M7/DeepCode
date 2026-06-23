@@ -122,7 +122,7 @@ export interface SubagentResult {
  * presence of the method IS the capability — narrow before calling.
  */
 export interface SubagentRun {
-  /** The child agent's id (also its session id token, for correlation). */
+  /** The child agent's id (use `ctx.agents.get(id)` to reach the live child). */
   readonly id: AgentId
   /**
    * Resolves with the child's terminal {@link SubagentResult} when the run
