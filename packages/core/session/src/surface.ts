@@ -55,7 +55,7 @@ export interface SurfaceNode {
 export class SurfaceManager {
   /** Surface nodes in linked-list order (head to tail). Empty until first access. */
   private _nodes: SurfaceNode[] = []
-  /** Map from event seq → node for O(1) lookup during replacements. */
+  /** Map from event seq → node. */
   private _nodeBySeq = new Map<number, SurfaceNode>()
   /** The last processed seq. -1 forces a full rebuild on first access. */
   private _lastProcessedSeq = -1
@@ -100,7 +100,7 @@ export class SurfaceManager {
         this._nodes.push(node)
         this._nodeBySeq.set(event.seq, node)
       } else {
-        this._replace(this._nodes, this._nodeBySeq, event.seq, event.surfaceOp)
+        this._replace(event.seq, event.surfaceOp)
       }
     }
     this._lastProcessedSeq = this.log.length - 1
@@ -108,31 +108,31 @@ export class SurfaceManager {
 
   /** Apply a replace operation to the in-progress surface. */
   private _replace(
-    nodes: SurfaceNode[],
-    nodeBySeq: Map<number, SurfaceNode>,
     newSeq: number,
     op: Extract<SurfaceOp, { op: 'replace' }>,
   ): void {
-    const startIdx = nodes.findIndex(n => n.seq === op.start)
-    if (startIdx === -1) {
+    const startNode = this._nodeBySeq.get(op.start)
+    if (!startNode) {
       throw new Error(`surface replace: start seq ${op.start} not found in surface`)
     }
-    const endIdx = nodes.findIndex(n => n.seq === op.end)
-    if (endIdx === -1) {
+    const endNode = this._nodeBySeq.get(op.end)
+    if (!endNode) {
       throw new Error(`surface replace: end seq ${op.end} not found in surface`)
     }
+    const startIdx = this._nodes.indexOf(startNode)
+    const endIdx = this._nodes.indexOf(endNode)
     if (startIdx > endIdx) {
       throw new Error(`surface replace: start seq ${op.start} (index ${startIdx}) is after end seq ${op.end} (index ${endIdx})`)
     }
 
     // Remove shadowed nodes from `[startIdx, endIdx]` inclusive.
     const count = endIdx - startIdx + 1
-    const removed = nodes.splice(startIdx, count)
-    for (const r of removed) nodeBySeq.delete(r.seq)
+    const removed = this._nodes.splice(startIdx, count)
+    for (const r of removed) this._nodeBySeq.delete(r.seq)
 
     // Insert the new node where the removed range was.
-    const prevNode = startIdx > 0 ? nodes[startIdx - 1] : undefined
-    const nextNode = startIdx < nodes.length ? nodes[startIdx] : undefined
+    const prevNode = startIdx > 0 ? this._nodes[startIdx - 1] : undefined
+    const nextNode = startIdx < this._nodes.length ? this._nodes[startIdx] : undefined
 
     const newNode: SurfaceNode = {
       seq: newSeq,
@@ -141,7 +141,7 @@ export class SurfaceManager {
     }
     if (prevNode) prevNode.next = newSeq
     if (nextNode) nextNode.prev = newSeq
-    nodes.splice(startIdx, 0, newNode)
-    nodeBySeq.set(newSeq, newNode)
+    this._nodes.splice(startIdx, 0, newNode)
+    this._nodeBySeq.set(newSeq, newNode)
   }
 }

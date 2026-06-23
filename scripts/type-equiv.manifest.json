@@ -19,6 +19,10 @@
     { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "TurnTriggerMap", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "TurnEndReasonMap", "source": "packages/core/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceEventType", "source": "packages/core/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceOp", "source": "packages/core/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceIntent", "source": "packages/core/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceNode", "source": "packages/core/session/src/surface.ts" },
 
     { "doc": "docs/core-data-structures/persistence.md", "symbol": "SessionHeader", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/persistence.md", "symbol": "CreateSessionOptions", "source": "packages/core/session/src/types.ts" },
