@@ -22,7 +22,7 @@ Per the [capability-seams RFC](../../implemented/architecture/2026-06-13-capabil
 
 ### The contract depends on `dsh-session` and `dsh-llm` — a deliberate deviation
 
-The capability-seams RFC states the interface package "depends only on cordis" (true of `dsh-bash`, whose vocabulary is self-contained). Compaction **cannot** honor that: its verbs are defined *over* a `Session` (`compactRegion(session, start, end)`) and its output *is* the content vocabulary (`CompactionResult.summary: ContentBlock[]`). There is no way to express the contract without naming `Session`/`SessionEvent` (from `dsh-session`) and `ContentBlock` (from `dsh-llm`). 
+The capability-seams RFC states the interface package "depends only on cordis" (true of `dsh-bash`, whose vocabulary is self-contained). Compaction **cannot** honor that: its verbs are defined *over* a `Session` (`compactRegion(session, start, end)`) and its output *is* the content vocabulary (`CompactionResult.summary: ContentBlock[]`). There is no way to express the contract without naming `Session`/`SessionEvent` (from `dsh-session`) and `ContentBlock` (from `dsh-llm`).
 
 This is not a coupling smell — it is the contract's domain. The "only cordis" guidance was always shorthand for "the interface depends only on what the contract genuinely names, and never on an implementation." `dsh-session` and `dsh-llm` are themselves interface/vocabulary packages, not implementations; `dsh-compact` still imports no backend. The seam's real invariant — *consumers and implementations evolve independently behind an abstract service* — holds intact. We record the deviation here so a future reader doesn't mistake it for an accident or "fix" it by smuggling `Session` behind an opaque handle.
 

@@ -36,9 +36,9 @@ class StubCompactService extends CompactService {
     const startEvent = session.append('compact/start', { turn: 0 })
     const summaryEvent = session.append('compact/summary', {
       summary: [{ type: 'text', text: 'stub' }],
-      compactedRange: { startSeq: start, endSeq: end },
-      compactedEventSeqs: [],
-      tokenCount: 0,
+      shadowedRange: { start, end },
+      shadowedSeqs: [],
+      shadowedTokenCount: 0,
     })
     const endEvent = session.append('compact/end', { turn: 0 })
     return {
@@ -48,7 +48,7 @@ class StubCompactService extends CompactService {
       summary: [{ type: 'text', text: 'stub' }],
       shadowedRange: { start, end },
       shadowedSeqs: [],
-      compactedTokenCount: 0,
+      shadowedTokenCount: 0,
     }
   }
 }

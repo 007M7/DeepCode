@@ -29,9 +29,9 @@ declare module '@deepseek-ai/dsh-session' {
      */
     'compact/summary': {
       summary: ContentBlock[]
-      compactedRange: { startSeq: number; endSeq: number }
-      compactedEventSeqs: number[]
-      tokenCount: number
+      shadowedRange: { start: number; end: number }
+      shadowedSeqs: number[]
+      shadowedTokenCount: number
     }
     /** Marks the end of a compaction — log-only, releases the lock. `error` set if summarization failed. */
     'compact/end': { turn: number; error?: string }
@@ -53,5 +53,5 @@ export interface CompactionResult {
   /** The seq numbers of all shadowed surface nodes. */
   shadowedSeqs: number[]
   /** Estimated token count of the shadowed content. */
-  compactedTokenCount: number
+  shadowedTokenCount: number
 }

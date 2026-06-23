@@ -48,7 +48,7 @@ The `compact/*` events extend `SessionEventMap` (merge-extensible) via declarati
 | Event | Payload | On surface? |
 |---|---|---|
 | `compact/start` | `{ turn }` | no (log-only) |
-| `compact/summary` | `{ summary, compactedRange, compactedEventSeqs, tokenCount }` | no (log-only) |
+| `compact/summary` | `{ summary, shadowedRange, shadowedSeqs, shadowedTokenCount }` | no (log-only) |
 | `compact/end` | `{ turn, error? }` | no (log-only) |
 
 ## Implementing a backend
