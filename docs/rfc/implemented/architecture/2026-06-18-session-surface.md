@@ -49,7 +49,7 @@ The `repair.ts` module synthesizes `tool/result` closers for orphaned tool calls
 
 ### Invariants
 
-The dev-mode invariants plugin validates: `sourceEventSeqs` references (non-empty, no duplicates, references earlier events, references known seqs) and `surfaceOp` (replace start ≤ end).
+The dev-mode invariants plugin validates: `sourceEventSeqs` references (non-empty, no duplicates, references earlier events, references known seqs) and `surfaceOp` (replace `start ≤ end`, both endpoints are on the tracked surface, the range is non-reversed in surface position, and `sourceEventSeqs` includes every node the range shadows).
 
 ## Consequences
 
