@@ -32,22 +32,24 @@ An earlier draft put the full algorithm (the retention walk, token-summing, text
 
 ### Surface replacement: `compact/*` events are log-only; one `user/message` carries the summary
 
-Because `SurfaceEventType` is closed, the summary cannot ride on a `compact/*` event. The backend instead appends a **single `user/message`** with `surfaceOp: { op: 'replace', start, end }` whose `content` is the summary `ContentBlock[]` and whose `sourceEventSeqs` covers the shadowed nodes *and* the bookkeeping events. The `compact/*` events are pure log records (lock + provenance), never on the surface:
+Because `SurfaceEventType` is closed, the summary cannot ride on a `compact/*` event. The backend instead appends a **single `user/message`** with `surfaceOp: { op: 'replace', start, end }` whose `content` is the summary `ContentBlock[]` and whose `sourceEventSeqs` covers the shadowed nodes *and* the bookkeeping events. The `compact/*` events are pure log records (lock + provenance), never on the surface. The surface mutation sits **inside** the lock — `compact/end` is the last event appended:
 
 ```
 compact/start    → log-only. Acquires the lock.
 [summarize older range via the backend]
 compact/summary  → log-only. Provenance: summary, range, shadowed seqs, token count.
-compact/end      → log-only. Releases the lock.
 user/message     → surfaceOp { op:'replace', start, end }. THE surface mutation.
                    deriveMessages() renders it as a user-role message.
+compact/end      → log-only. Releases the lock.
 ```
+
+Ordering the surface mutation **before** `compact/end` is deliberate: `session.append()` commits one event at a time, so there is no multi-event transaction to make the sequence atomic. Releasing the lock last converts the crash window from *silent corruption* (a `compact/end` that claims compaction finished while the surface was never shadowed) into a *detectable orphaned lock* (a `compact/start` with no matching `compact/end`), which a persistence backend already detects on reload. A `session/event` listener on `compact/end` likewise never sees the lock free before the replacement has landed.
 
 `deriveMessages()` then yields `[summary_as_user_message, ...retained_nodes]`. An alternative — extending `SurfaceEventType` to admit a `compact/*` type — was rejected: the closed union is a deliberate safety boundary (only message-producing events reach the model), and a summary genuinely *is* user-role context, so reusing `user/message` is honest rather than a workaround.
 
 ### Blocking via a log-recorded lock, not a mutex
 
-Compaction must be serialized: no second compaction starts before the first finishes, and no ordinary events interleave the slow summarization. Rather than an in-memory mutex (invisible to replay, lost on crash), the lock **is** the log: `compactRegion` refuses to start if the last `compact/start` has no matching `compact/end` after it. `compact/start` is appended first (fast, synchronous), the slow model call runs, then `compact/end` is appended — in a `catch` that records the error, so a failed summarization can never wedge the lock. Because the backend runs compaction synchronously inside the `agent/request` waterfall, the loop is single-threaded for that window; the lock additionally gives observability and lets a persistence backend detect an orphaned `compact/start` on reload.
+Compaction must be serialized: no second compaction starts before the first finishes, and no ordinary events interleave the slow summarization. Rather than an in-memory mutex (invisible to replay, lost on crash), the lock **is** the log: `compactRegion` refuses to start if the last `compact/start` has no matching `compact/end` after it. `compact/start` is appended first (fast, synchronous), the slow model call runs, then the `compact/summary` and `user/message` replacement land, and only then is `compact/end` appended — in a `catch` that records the error, so a failed summarization can never wedge the lock. Because the backend runs compaction synchronously inside the `agent/request` waterfall, the loop is single-threaded for that window; the lock additionally gives observability and lets a persistence backend detect an orphaned `compact/start` on reload.
 
 ## Consequences
 

@@ -30,14 +30,16 @@ Both methods take an optional `signal: AbortSignal`. A backend that summarizes v
 1. appends `compact/start` (log-only) — acquires the lock,
 2. summarizes the range,
 3. appends `compact/summary` (log-only) — provenance: summary, range, shadowed seqs, token count,
-4. appends `compact/end` (log-only) — releases the lock,
-5. appends a single `user/message` with `surfaceOp: { op: 'replace', start, end }` carrying the summary — **the only surface mutation**.
+4. appends a single `user/message` with `surfaceOp: { op: 'replace', start, end }` carrying the summary — **the only surface mutation**,
+5. appends `compact/end` (log-only) — releases the lock.
+
+The surface mutation (step 4) sits **inside** the lock bracket: `compact/end` is the last event, so the lock is never released before the mutation lands. A crash between `compact/start` and `compact/end` therefore leaves a detectable orphaned lock (a `compact/start` with no matching `compact/end`) rather than a `compact/end` that falsely claims compaction finished while the surface was never shadowed.
 
 `deriveMessages()` then renders the summary as a user-role message followed by the retained nodes. The shadowed events remain in the raw log, so replay is deterministic.
 
 ## Blocking
 
-Compaction is serialized via a log-recorded lock: `compactRegion` refuses to start if the last `compact/start` has no matching `compact/end` after it. The lock is the log (not an in-memory mutex), so it survives replay and a persistence backend can detect an orphaned `compact/start` on reload. `compact/end` is appended even when summarization throws, so a failure can never wedge the lock.
+Compaction is serialized via a log-recorded lock: `compactRegion` refuses to start if the last `compact/start` has no matching `compact/end` after it. The lock is the log (not an in-memory mutex), so it survives replay and a persistence backend can detect an orphaned `compact/start` on reload. The lock brackets the **whole** operation — summarization, the `compact/summary` provenance record, *and* the `user/message` surface replacement all happen before `compact/end` — so a `session/event` listener firing on `compact/end` never observes the lock free while the surface mutation is still pending. `compact/end` is appended even when summarization throws, so a failure can never wedge the lock.
 
 ## Events
 
