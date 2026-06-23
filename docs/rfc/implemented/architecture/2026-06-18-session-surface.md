@@ -60,4 +60,4 @@ The dev-mode invariants plugin validates: `sourceEventSeqs` references (non-empt
 - **`packages/session-persistence/session-persistence-jsonl`**: No changes required.
 - **`packages/session-persistence/session-persistence`**: Abstract interface unchanged.
 
-The surface is the foundation for future compaction: a compaction plugin appends a new event (e.g., `compaction/marker`, added to `SessionEventMap` via declaration merging) with `surfaceOp: { op: 'replace', start, end }` and `sourceEventSeqs` covering the shadowed nodes. Replay preserves the compaction decision deterministically.
+The surface is the foundation for future history manipulation. A compaction or tool-result-prune plugin appends one of the existing message-producing event types (a `user/message` carrying the summary, say) with `surfaceOp: { op: 'replace', start, end }` and `sourceEventSeqs` covering the shadowed nodes — the new node takes the range's place on the surface while the plugin's own trace events (e.g. `compaction/start`, `compaction/end`) stay off it. Replay preserves the decision deterministically.
