@@ -79,20 +79,6 @@ export class SurfaceManager {
     return this._nodes
   }
 
-  /** Whether any event in the log carries `surfaceOp` markers. */
-  get hasSurface(): boolean {
-    if (this._nodes.length > 0) return true
-    // Never processed anything — scan the whole log.
-    if (this._lastProcessedSeq === -1) return this.log.some(e => isSurfaceEvent(e))
-    // Processed up to _lastProcessedSeq without finding surface nodes; check
-    // only new events.
-    for (let i = this._lastProcessedSeq + 1; i < this.log.length; i++) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      if (isSurfaceEvent(this.log[i]!)) return true
-    }
-    return false
-  }
-
   /**
    * Process events from `_lastProcessedSeq + 1` through the end of the log,
    * folding new surface markers into the existing linked list.

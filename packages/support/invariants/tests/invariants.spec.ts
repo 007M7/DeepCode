@@ -25,12 +25,12 @@ describe('session-log invariants', () => {
     const session = ctx.sessions.create()
     expect(() => {
       session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-      session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+      session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
       session.append('step/start', { turn: 1, step: 1 })
       session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'h' } })
-      session.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'tool-call', id: CallId('c1'), name: 'echo', arguments: '{}' }] })
+      session.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'tool-call', id: CallId('c1'), name: 'echo', arguments: '{}' }] }, { surfaceOp: 'append' })
       session.append('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'echo', arguments: '{}' })
-      session.append('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false })
+      session.append('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false }, { surfaceOp: 'append' })
       session.append('step/end', { turn: 1, step: 1 })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     }).not.toThrow()
@@ -89,9 +89,9 @@ describe('session-log invariants', () => {
     const { ctx } = await setup({ freeze: false })
     const session = ctx.sessions.create()
     // No turn open: every message-bearing event must be turn-enclosed (the turn-enclosure RFC).
-    expect(() => session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
+    expect(() => session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' }))
       .toThrow(/outside any open turn/)
-    expect(() => session.append('context/message', { content: [{ type: 'text', text: 'ctx' }], source: { kind: 'user' } }))
+    expect(() => session.append('context/message', { content: [{ type: 'text', text: 'ctx' }], source: { kind: 'user' } }, { surfaceOp: 'append' }))
       .toThrow(/outside any open turn/)
   })
 
@@ -100,7 +100,7 @@ describe('session-log invariants', () => {
     const session = ctx.sessions.create()
     // steering/message is turn-scoped: outside a turn it would land past the
     // commit boundary and be dropped on resume (the turn-enclosure RFC).
-    expect(() => session.append('steering/message', { turn: 1, content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    expect(() => session.append('steering/message', { turn: 1, content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }, { surfaceOp: 'append' }))
       .toThrow(/outside any open turn/)
     // A PLUGIN-added (merge-extensible) event type is caught by the default too.
     // Cast through `any`: 'compaction/marker' is not in SessionEventType (it's
@@ -115,7 +115,7 @@ describe('session-log invariants', () => {
     const { ctx } = await setup({ freeze: false })
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    expect(() => session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
+    expect(() => session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' }))
       .not.toThrow()
   })
 
@@ -124,7 +124,7 @@ describe('session-log invariants', () => {
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
-    expect(() => session.append('tool/result', { turn: 1, step: 1, callId: CallId('ghost'), content: [], isError: false }))
+    expect(() => session.append('tool/result', { turn: 1, step: 1, callId: CallId('ghost'), content: [], isError: false }, { surfaceOp: 'append' }))
       .toThrow(/no prior tool\/call/)
   })
 
@@ -136,7 +136,7 @@ describe('session-log invariants', () => {
       session.append('step/start', { turn: 1, step: 1 })
       session.append('assistant/message', { turn: 1, step: 1, content: [
         { type: 'tool-call', id: CallId('crashed'), name: 'bash', arguments: '{}' },
-      ] })
+      ] }, { surfaceOp: 'append' })
       session.append('tool/result', {
         turn: 1,
         step: 1,
@@ -144,7 +144,7 @@ describe('session-log invariants', () => {
         content: [{ type: 'text', text: 'interrupted' }],
         isError: true,
         error: { name: 'InterruptedError', code: 'interrupted' },
-      })
+      }, { surfaceOp: 'append' })
       session.append('step/end', { turn: 1, step: 1 })
       session.append('turn/end', { turn: 1, reason: { kind: 'interrupted' } })
     }).not.toThrow()
@@ -190,10 +190,10 @@ describe('session-log invariants', () => {
     expect(() => {
       session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
       session.append('step/start', { turn: 1, step: 1 })
-      session.append('assistant/message', { turn: 1, step: 1, content: [] })
+      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append' })
       session.append('step/end', { turn: 1, step: 1 })
       session.append('step/start', { turn: 1, step: 2 })
-      session.append('assistant/message', { turn: 1, step: 2, content: [] })
+      session.append('assistant/message', { turn: 1, step: 2, content: [] }, { surfaceOp: 'append' })
       session.append('step/end', { turn: 1, step: 2 })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -246,7 +246,7 @@ describe('session-log invariants', () => {
     // step ends with the call unresolved — pendingCalls is cleared.
     session.append('step/end', { turn: 1, step: 1 })
     session.append('step/start', { turn: 1, step: 2 })
-    expect(() => session.append('tool/result', { turn: 1, step: 2, callId: CallId('c1'), content: [], isError: false }))
+    expect(() => session.append('tool/result', { turn: 1, step: 2, callId: CallId('c1'), content: [], isError: false }, { surfaceOp: 'append' }))
       .toThrow(/no prior tool\/call in this step/)
   })
 
@@ -255,7 +255,7 @@ describe('session-log invariants', () => {
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
-    expect(() => session.append('assistant/message', { turn: 1, step: 2, content: [] }))
+    expect(() => session.append('assistant/message', { turn: 1, step: 2, content: [] }, { surfaceOp: 'append' }))
       .toThrow(/open is turn 1\/step 1/)
   })
 })
@@ -287,7 +287,7 @@ describe('dev-freeze', () => {
     const { ctx } = await setup() // freeze defaults true
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    const event = session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+    const event = session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     expect(Object.isFrozen(event)).toBe(true)
     expect(Object.isFrozen(event.data)).toBe(true)
     expect(Object.isFrozen(event.data.content)).toBe(true)
@@ -298,7 +298,7 @@ describe('dev-freeze', () => {
     const { ctx } = await setup({ freeze: false })
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    const event = session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+    const event = session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     expect(Object.isFrozen(event)).toBe(false)
   })
 
@@ -324,7 +324,7 @@ describe('dev-freeze', () => {
     // the caller's input — read the event back and assert on its data.
     const innerContent: { type: 'text'; text: string }[] = [{ type: 'text', text: 'inner' }]
     const block = Object.freeze({ type: 'tool-result' as const, toolCallId: CallId('c1'), content: innerContent, isError: false })
-    const event = session.append('user/message', { content: [block], source: { kind: 'user' } })
+    const event = session.append('user/message', { content: [block], source: { kind: 'user' } }, { surfaceOp: 'append' })
     const logged = event.data.content[0] as { content: { type: 'text'; text: string }[] }
     expect(Object.isFrozen(logged.content)).toBe(true)
     expect(Object.isFrozen(logged.content[0])).toBe(true)
@@ -424,7 +424,7 @@ describe('HMR safety', () => {
     const spy = vi.fn()
     ctx.on('session/event', spy)
     const session = ctx.sessions.create()
-    session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } })
+    session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     // our own spy fires, proving events still flow — but the plugin's frozen.
     expect(spy).toHaveBeenCalledOnce()
     expect(Object.isFrozen(session.events[0])).toBe(false)

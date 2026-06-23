@@ -53,7 +53,7 @@ The dev-mode invariants plugin validates: `sourceEventSeqs` references (non-empt
 
 ## Consequences
 
-- **`packages/core/session`**: New `surface.ts` (`SurfaceManager`), new types (`SurfaceOp`, `SurfaceAppendOpts`), new fields on `SessionEvent`, modified `append()` (third optional `SurfaceAppendOpts` param), refactored `deriveMessages()` (surface path + legacy fallback), surface-aware `repair.ts`.
+- **`packages/core/session`**: New `surface.ts` (`SurfaceManager`), new types (`SurfaceOp`, `SurfaceIntent`), new fields on `SessionEvent`, modified `append()` (third required `SurfaceIntent` param), refactored `deriveMessages()` (surface path + legacy fallback), surface-aware `repair.ts`.
 - **`packages/core/agent-loop`**: All surface-capable appends pass surface opts. Chunk seqs are collected for `assistant/message` provenance; `tool/call` seqs are captured for `tool/result` provenance.
 - **`packages/session-persistence/session-persistence-sqlite`**: Two new nullable TEXT columns (`source_event_seqs`, `surface_op`) on the `events` table; `SCHEMA_VERSION` bumped (bump-and-reject, no migration).
 - **`packages/support/invariants`**: Surface-related validation rules.

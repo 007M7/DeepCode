@@ -34,8 +34,8 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 
 Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 
-- `session.append(type, data, opts?): SessionEvent` — synchronous, never blocks on I/O. **Throws** if `data` is not losslessly JSON-serializable (BigInt, function, symbol, undefined, non-finite number, circular ref, or an exotic object like Map/Set/Date) — the event log is the durable source of truth, so this invariant is enforced at the source (exported as `isJsonValue` for backends to reuse on their replay/fork entry points). An optional third parameter `opts: SurfaceAppendOpts` carries surface metadata: `surfaceOp` controls how the event enters the surface linked list, and `sourceEventSeqs` records provenance (the seq numbers of events this one derives from).
-- `session.deriveMessages(): Message[]` — derive the LLM message history. If any event in the log carries `surfaceOp`, derivation walks the surface linked list (skipping non-surface events). Otherwise, falls back to a linear scan of the raw log (legacy sessions without surface markers).
+- `session.append(type, data, opts?): SessionEvent` — synchronous, never blocks on I/O. **Throws** if `data` is not losslessly JSON-serializable (BigInt, function, symbol, undefined, non-finite number, circular ref, or an exotic object like Map/Set/Date) — the event log is the durable source of truth, so this invariant is enforced at the source (exported as `isJsonValue` for backends to reuse on their replay/fork entry points). A third parameter `opts: SurfaceIntent` carries surface metadata: `surfaceOp` controls how the event enters the surface linked list, and `sourceEventSeqs` records provenance (the seq numbers of events this one derives from). It is **required** for the five `SurfaceEventType` events (every message-producing event must declare how it joins the surface) and rejected by the compiler for non-surface types.
+- `session.deriveMessages(): Message[]` — derive the LLM message history by walking the surface linked list (skipping non-surface events like chunks and boundaries; a `replace` shadows the nodes it covers). The surface is the single source of derived history — there is no raw-log fallback.
 - `session.surface: SurfaceManager` — the derived surface, lazily rebuilt from `surfaceOp` markers in the log. Processes only new events (delta) on each access — the log is append-only, so prior events never change.
 - `session.events`, `session.seq`, `session.id`
 - `session.header: SessionHeader` — immutable creation metadata (`version`, `id`, `createdAt`, optional `cwd`/`parentSession`). Kept out of the event log (a storage concern, not replayable state); a minimal header (stamped with the current `SESSION_FORMAT_VERSION`) is synthesized for bare `Session` construction.
@@ -43,7 +43,7 @@ Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 ### Surface types
 
 - `SurfaceOp` — how a surface node entered the linked list: `'append'` (normal tail append) or `{ op: 'replace', start, end }` (replace nodes from `start` through `end` inclusive — both must be valid surface node seqs; `start === end` replaces a single node). Used by compaction to shadow old nodes without deleting them.
-- `SurfaceAppendOpts` — `{ surfaceOp?: SurfaceOp; sourceEventSeqs?: number[] }`, the optional third parameter to `session.append()`.
+- `SurfaceIntent` — `{ surfaceOp: SurfaceOp; sourceEventSeqs?: number[] }`, the required third parameter to `session.append()` for surface-eligible types.
 - `SurfaceNode` — `{ seq: number; prev: number | null; next: number | null }`, one node in the surface linked list.
 
 ### Session event vocabulary (`types.ts`)
