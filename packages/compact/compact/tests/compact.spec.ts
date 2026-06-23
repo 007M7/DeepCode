@@ -11,11 +11,27 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
  * declaration merge.
  */
 class StubCompactService extends CompactService {
-  override async compactIfNeeded(_session: Session, _systemPrompt?: string, _model?: string): Promise<CompactionResult | null> {
+  /** Records the signal handed to the most recent call, to prove it threads through. */
+  lastSignal: AbortSignal | undefined
+
+  override async compactIfNeeded(
+    _session: Session,
+    _systemPrompt?: string,
+    _model?: string,
+    signal?: AbortSignal,
+  ): Promise<CompactionResult | null> {
+    this.lastSignal = signal
     return null
   }
 
-  override async compactRegion(session: Session, start: number, end: number, _model: string): Promise<CompactionResult> {
+  override async compactRegion(
+    session: Session,
+    start: number,
+    end: number,
+    _model: string,
+    signal?: AbortSignal,
+  ): Promise<CompactionResult> {
+    this.lastSignal = signal
     // Minimal stub honoring the lock + log-only event contract.
     const startEvent = session.append('compact/start', { turn: 0 })
     const summaryEvent = session.append('compact/summary', {
@@ -74,5 +90,18 @@ describe('CompactService seam', () => {
     expect(raw.surfaceOp).toBeUndefined()
     expect(result.summarySeq).toBeGreaterThan(result.startSeq)
     expect(result.endSeq).toBeGreaterThan(result.summarySeq)
+  })
+
+  it('threads the cancellation signal through to the backend', async () => {
+    const ctx = new Context()
+    const svc = new StubCompactService(ctx)
+    const session = new Session(SessionId('s'))
+    const controller = new AbortController()
+
+    await svc.compactRegion(session, 0, 0, 'm', controller.signal)
+    expect(svc.lastSignal).toBe(controller.signal)
+
+    await svc.compactIfNeeded(session, undefined, undefined, controller.signal)
+    expect(svc.lastSignal).toBe(controller.signal)
   })
 })

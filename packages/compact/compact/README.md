@@ -18,8 +18,10 @@ Both methods are **abstract** — the backend owns the entire strategy (token es
 
 | Member | Semantics |
 |---|---|
-| `compactIfNeeded(session, systemPrompt?, model?)` | Estimate the history size; if over the backend's threshold, compact an older range via `compactRegion`, keeping recent context intact. Returns the `CompactionResult`, or `null` if nothing needed compacting. |
-| `compactRegion(session, start, end, model)` | Forcibly summarize surface nodes `[start, end]` (inclusive seqs) into a single replacement node. **Throws** if a compaction is already in progress, if `start`/`end` aren't surface nodes, or if `start > end`. |
+| `compactIfNeeded(session, systemPrompt?, model?, signal?)` | Estimate the history size; if over the backend's threshold, compact an older range via `compactRegion`, keeping recent context intact. Returns the `CompactionResult`, or `null` if nothing needed compacting. |
+| `compactRegion(session, start, end, model, signal?)` | Forcibly summarize surface nodes `[start, end]` (inclusive seqs) into a single replacement node. **Throws** if a compaction is already in progress, if `start`/`end` aren't surface nodes, or if `start > end`. |
+
+Both methods take an optional `signal: AbortSignal`. A backend that summarizes via `ctx.llm.stream()` **must** forward it into the call's `GenerateOptions.signal`, so an abort or fiber dispose tears down the in-flight summarization instead of leaving an orphaned model call running past the cancellation. The turn that the `compact/*` events belong to is not a parameter — it is recoverable from the log (the currently-open turn), so the backend stamps it without the caller supplying it.
 
 ## Surface contract
 

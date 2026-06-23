@@ -69,12 +69,17 @@ export abstract class CompactService extends Service {
    * @param session - the session whose surface may be compacted.
    * @param systemPrompt - optional system prompt, counted toward the estimate.
    * @param model - optional summarization model (falls back to backend config).
+   * @param signal - optional cancellation signal. A backend that summarizes via
+   *   `ctx.llm.stream()` MUST forward this into the call's `GenerateOptions.signal`
+   *   so an abort/dispose tears down the in-flight summarization rather than
+   *   leaving an orphaned model call running past the cancellation.
    * @returns the compaction result, or `null` if no compaction was needed.
    */
   abstract compactIfNeeded(
     session: Session,
     systemPrompt?: string,
     model?: string,
+    signal?: AbortSignal,
   ): Promise<CompactionResult | null>
 
   /**
@@ -88,6 +93,10 @@ export abstract class CompactService extends Service {
    * @param start - inclusive seq of the first surface node to compact.
    * @param end - inclusive seq of the last surface node to compact.
    * @param model - summarization model.
+   * @param signal - optional cancellation signal. A backend that summarizes via
+   *   `ctx.llm.stream()` MUST forward this into the call's `GenerateOptions.signal`
+   *   so an abort/dispose tears down the in-flight summarization rather than
+   *   leaving an orphaned model call running past the cancellation.
    * @throws if compaction is already in progress, or if `start`/`end` are not
    *   valid surface nodes, or if `start > end`.
    */
@@ -96,6 +105,7 @@ export abstract class CompactService extends Service {
     start: number,
     end: number,
     model: string,
+    signal?: AbortSignal,
   ): Promise<CompactionResult>
 }
 
