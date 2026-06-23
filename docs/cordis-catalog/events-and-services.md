@@ -332,7 +332,7 @@ list(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:116`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:117`](../../packages/core/agent/src/index.ts)
 
 ### `ctx.bash` — `BashExecutor` (abstract seam)
 

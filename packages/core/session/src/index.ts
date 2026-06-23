@@ -289,6 +289,7 @@ export class SessionStore extends Service {
       createdAt: options?.meta?.createdAt ?? Date.now(),
       ...cwd !== undefined ? { cwd } : {},
       ...options?.meta?.parentSession !== undefined ? { parentSession: options.meta.parentSession } : {},
+      ...options?.meta?.seedLength !== undefined ? { seedLength: options.meta.seedLength } : {},
     }
     return new Session(sessionId, options?.seed, header)
   }

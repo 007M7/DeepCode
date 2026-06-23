@@ -24,6 +24,7 @@ export interface HeaderLine {
   createdAt: number
   cwd?: string
   parentSession?: SessionId
+  seedLength?: number
 }
 
 /** Build the header line object from a {@link SessionHeader}. */
@@ -35,6 +36,7 @@ export function toHeaderLine(header: SessionHeader): HeaderLine {
     createdAt: header.createdAt,
     ...header.cwd !== undefined ? { cwd: header.cwd } : {},
     ...header.parentSession !== undefined ? { parentSession: header.parentSession } : {},
+    ...header.seedLength !== undefined ? { seedLength: header.seedLength } : {},
   }
 }
 
@@ -46,6 +48,7 @@ export function fromHeaderLine(line: HeaderLine): SessionHeader {
     createdAt: line.createdAt,
     ...line.cwd !== undefined ? { cwd: line.cwd } : {},
     ...line.parentSession !== undefined ? { parentSession: line.parentSession } : {},
+    ...line.seedLength !== undefined ? { seedLength: line.seedLength } : {},
   }
 }
 

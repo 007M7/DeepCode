@@ -15,7 +15,7 @@ import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-se
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 /**
  * A row of the `sessions` table — the out-of-log metadata ({@link SessionHeader}).
@@ -30,6 +30,7 @@ export interface SessionRow {
   created_at: number
   cwd: string | null
   parent_session: string | null
+  seed_length: number | null
 }
 
 /** An `events` table row: one `SessionEvent` mapped 1:1 (`data` is JSON text). */
@@ -51,8 +52,8 @@ export interface EventRow {
  * current {@link SCHEMA_VERSION}; an existing database whose version is NOT the
  * current one (written by a different, incompatible build — older or newer) is
  * REJECTED rather than opened against a layout this build does not understand.
- * There are no migrations: v1 had a different `sessions` layout and is not
- * upgraded in place.
+ * There are no migrations: an earlier layout (v1's different `sessions` shape,
+ * v2 without the `seed_length` column) is not upgraded in place — it is rejected.
  */
 export function openDatabase(path: string): DatabaseSync {
   const db = new DatabaseSync(path)
@@ -76,7 +77,8 @@ export function openDatabase(path: string): DatabaseSync {
       version        INTEGER NOT NULL,
       created_at     INTEGER NOT NULL,
       cwd            TEXT,
-      parent_session TEXT
+      parent_session TEXT,
+      seed_length    INTEGER
     ) STRICT
   `)
   db.exec(`
@@ -100,6 +102,7 @@ export function rowToMeta(row: SessionRow): SessionHeader {
     createdAt: row.created_at,
     ...row.cwd !== null ? { cwd: row.cwd } : {},
     ...row.parent_session !== null ? { parentSession: row.parent_session as SessionId } : {},
+    ...row.seed_length !== null ? { seedLength: row.seed_length } : {},
   }
 }
 

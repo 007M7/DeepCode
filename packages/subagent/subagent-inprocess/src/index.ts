@@ -122,6 +122,9 @@ export function startInProcessRun(
     meta: {
       ...parentHeader.cwd !== undefined ? { cwd: parentHeader.cwd } : {},
       parentSession: parentHeader.id,
+      // Record the seed boundary so a reload (and a replay harness) can tell the
+      // inherited prefix from the child's OWN events. 0 for a fresh spawn.
+      ...seedLength > 0 ? { seedLength } : {},
     },
     ...options.seed !== undefined ? { seed: options.seed } : {},
     agentOptions,

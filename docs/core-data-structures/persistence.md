@@ -34,12 +34,22 @@ interface SessionHeader {
   cwd?: string
   /** The session this one was forked from (seed lineage), if any. */
   parentSession?: SessionId
+  /**
+   * How many leading events were INHERITED via a seed rather than produced by
+   * this session — the seed boundary. Set when a fork seeds a child with a
+   * prefix of the parent's log (= the seeded prefix length); absent/0 means the
+   * session produced all its own events. Persisted so a reload reconstructs the
+   * boundary instead of re-deriving it from the full stored log, and so a replay
+   * harness can skip the inherited prefix when deriving the child's OWN script
+   * (the seeded events are the parent's, not this child's model calls).
+   */
+  seedLength?: number
 }
 ```
 
 ## `CreateSessionOptions` — seeding and metadata
 
-Creating a `Session` through the store takes a `seed` (replay/fork an existing event log) and `meta` (the storage-level fields the store folds into a `SessionHeader`). The store fills in `version`/`id` and defaults `createdAt`; the caller supplies the validated absolute `cwd`, the `parentSession` lineage, and — only when reconstructing a persisted session — the original `createdAt` to preserve it.
+Creating a `Session` through the store takes a `seed` (replay/fork an existing event log) and `meta` (the storage-level fields the store folds into a `SessionHeader`). The store fills in `version`/`id` and defaults `createdAt`; the caller supplies the validated absolute `cwd`, the `parentSession` lineage, the `seedLength` seed boundary, and — only when reconstructing a persisted session — the original `createdAt` to preserve it.
 
 ```ts type-equiv
 interface CreateSessionOptions {
@@ -48,10 +58,16 @@ interface CreateSessionOptions {
   /**
    * Creation metadata. The store fills in `version`/`id` and defaults
    * `createdAt` to now; the caller supplies the storage-level fields (validated
-   * absolute `cwd`, `parentSession` lineage, and — when reconstructing a
-   * persisted session — the original `createdAt` to preserve it).
+   * absolute `cwd`, `parentSession` lineage, the seed boundary `seedLength`, and
+   * — when reconstructing a persisted session — the original `createdAt` to
+   * preserve it).
+   *
+   * `seedLength` is EXPLICIT, not inferred from `seed.length`: a reconstruction
+   * (resume/load) seeds the WHOLE stored log, so its `seed.length` is the full
+   * length, not the original boundary — the caller must pass the persisted
+   * boundary back. A fresh fork passes its actual seeded-prefix length.
    */
-  meta?: { cwd?: string; parentSession?: SessionId; createdAt?: number }
+  meta?: { cwd?: string; parentSession?: SessionId; createdAt?: number; seedLength?: number }
 }
 ```
 
