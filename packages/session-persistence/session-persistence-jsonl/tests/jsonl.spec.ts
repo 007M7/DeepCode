@@ -276,8 +276,8 @@ describe('SessionPersistenceJsonl: write path (session/event → flush)', () => 
 
     const a = ctx.sessions.create(SessionId('sa'))
     const b = ctx.sessions.create(SessionId('sb'))
-    a.append('user/message', { content: [{ type: 'text', text: 'A' }], source: { kind: 'user' } })
-    b.append('user/message', { content: [{ type: 'text', text: 'B' }], source: { kind: 'user' } })
+    a.append('user/message', { content: [{ type: 'text', text: 'A' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    b.append('user/message', { content: [{ type: 'text', text: 'B' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     a.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     b.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await ctx.parallel('session/flush', a)
@@ -647,7 +647,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     const session = ctx2.sessions.create(SessionId('flush-fail'))
     // A full turn lands in the write-behind buffer.
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     // Make the durable materialize fail on the next flush.
     const backend = ctx2.sessionPersistence as unknown as { materialize: (...args: unknown[]) => Promise<void> }
@@ -695,7 +695,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     // can never diverge from the live log. The throw surfaces at the caller's
     // append site, not asynchronously in a backend flush.
     expect(() => {
-      session.append('user/message', { content: [{ type: 'text', text: 'bad' }], source: { kind: 'user' }, bad: 1n } as never)
+      session.append('user/message', { content: [{ type: 'text', text: 'bad' }], source: { kind: 'user' }, bad: 1n } as never, { surfaceOp: 'append' })
     }).toThrow(/non-JSON-serializable/)
     // The bad event was rejected, so the log stayed empty.
     expect(session.events.length).toBe(0)

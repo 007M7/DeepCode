@@ -49,15 +49,15 @@ The `repair.ts` module synthesizes `tool/result` closers for orphaned tool calls
 
 ### Invariants
 
-The dev-mode invariants plugin validates: `sourceEventSeqs` references (non-empty, no duplicates, references earlier events, references known seqs) and `surfaceOp` (replace start ≤ end).
+The dev-mode invariants plugin validates: `sourceEventSeqs` references (non-empty, no duplicates, references earlier events, references known seqs) and `surfaceOp` (replace `start ≤ end`, both endpoints are on the tracked surface, the range is non-reversed in surface position, and `sourceEventSeqs` includes every node the range shadows).
 
 ## Consequences
 
-- **`packages/core/session`**: New `surface.ts` (`SurfaceManager`), new types (`SurfaceOp`, `SurfaceAppendOpts`), new fields on `SessionEvent`, modified `append()` (third optional `SurfaceAppendOpts` param), refactored `deriveMessages()` (surface path + legacy fallback), surface-aware `repair.ts`.
+- **`packages/core/session`**: New `surface.ts` (`SurfaceManager`), new types (`SurfaceOp`, `SurfaceIntent`), new fields on `SessionEvent`, modified `append()` (third required `SurfaceIntent` param), refactored `deriveMessages()` (surface path + legacy fallback), surface-aware `repair.ts`.
 - **`packages/core/agent-loop`**: All surface-capable appends pass surface opts. Chunk seqs are collected for `assistant/message` provenance; `tool/call` seqs are captured for `tool/result` provenance.
 - **`packages/session-persistence/session-persistence-sqlite`**: Two new nullable TEXT columns (`source_event_seqs`, `surface_op`) on the `events` table; `SCHEMA_VERSION` bumped (bump-and-reject, no migration).
 - **`packages/support/invariants`**: Surface-related validation rules.
 - **`packages/session-persistence/session-persistence-jsonl`**: No changes required.
 - **`packages/session-persistence/session-persistence`**: Abstract interface unchanged.
 
-The surface is the foundation for future compaction: a compaction plugin appends a new event (e.g., `compaction/marker`, added to `SessionEventMap` via declaration merging) with `surfaceOp: { op: 'replace', start, end }` and `sourceEventSeqs` covering the shadowed nodes. Replay preserves the compaction decision deterministically.
+The surface is the foundation for future history manipulation. A compaction or tool-result-prune plugin appends one of the existing message-producing event types (a `user/message` carrying the summary, say) with `surfaceOp: { op: 'replace', start, end }` and `sourceEventSeqs` covering the shadowed nodes — the new node takes the range's place on the surface while the plugin's own trace events (e.g. `compaction/start`, `compaction/end`) stay off it. Replay preserves the decision deterministically.

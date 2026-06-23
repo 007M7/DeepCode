@@ -28,38 +28,6 @@ describe('SurfaceManager', () => {
     expect(nodes[1]!.next).toBeNull()
   })
 
-  it('hasSurface returns false when no events have surfaceOp', () => {
-    const s = new Session(SessionId('nosurface'))
-    s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    s.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
-    s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    expect(s.surface.hasSurface).toBe(false)
-  })
-
-  it('hasSurface returns true when any event has surfaceOp', () => {
-    const s = surfaceSession()
-    expect(s.surface.hasSurface).toBe(true)
-  })
-
-  it('hasSurface detects surface markers that arrive after initial processing', () => {
-    // Start with no surface markers. Access nodes first to set _lastProcessedSeq
-    // (via delta processing), keeping _nodes empty. Then append a mix of non-surface
-    // and surface events, and verify hasSurface detects via the delta-only check.
-    const s = new Session(SessionId('late'))
-    s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    s.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
-    // Access nodes to trigger processing: sets _lastProcessedSeq = 1, _nodes = [].
-    expect(s.surface.nodes.length).toBe(0)
-    // Append non-surface events first (exercises the loop-continue branch), then
-    // a surface event (exercises the return-true branch).
-    s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    s.append('turn/start', { turn: 2, trigger: { kind: 'continuation' } })
-    s.append('assistant/message', { turn: 2, step: 1, content: [] }, { surfaceOp: 'append' })
-    // hasSurface checks only new seqs [2, 3, 4]; skips 2 and 3 (non-surface),
-    // finds surfaceOp on seq 4 and returns true.
-    expect(s.surface.hasSurface).toBe(true)
-  })
-
   it('invalidate resets to full rebuild', () => {
     const s = surfaceSession()
     expect(s.surface.nodes.length).toBe(2)
@@ -76,7 +44,6 @@ describe('SurfaceManager', () => {
     s.append('step/end', { turn: 1, step: 1 })
     s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     expect(s.surface.nodes.length).toBe(0)
-    expect(s.surface.hasSurface).toBe(false)
     // deriveMessages returns empty array
     expect(s.deriveMessages()).toEqual([])
   })
@@ -235,16 +202,6 @@ describe('deriveMessages with surface', () => {
     expect(messages[1]!.content[0]).toMatchObject({ type: 'text', text: 'hi' })
   })
 
-  it('falls back to linear scan when no surface markers exist', () => {
-    const s = new Session(SessionId('legacy'))
-    s.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
-    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'a' }] })
-    const messages = s.deriveMessages()
-    expect(messages).toHaveLength(2)
-    expect(messages[0]!.role).toBe('user')
-    expect(messages[1]!.role).toBe('assistant')
-  })
-
   it('surface path skips non-surface events (chunks, boundaries)', () => {
     const s = new Session(SessionId('filter'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -308,9 +265,9 @@ describe('Session.append surface opts', () => {
     expect(s.deriveMessages()).toHaveLength(0)
   })
 
-  it('append without surface opts produces an event without surface fields', () => {
+  it('a non-surface event carries no surface fields', () => {
     const s = new Session(SessionId('noopts'))
-    s.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } })
+    s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     expect((s.events[0] as SessionEvent<SurfaceEventType>).sourceEventSeqs).toBeUndefined()
     expect((s.events[0] as SessionEvent<SurfaceEventType>).surfaceOp).toBeUndefined()
   })

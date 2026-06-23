@@ -7,7 +7,7 @@ describe('Session', () => {
   it('derives message history from the event log', () => {
     const session = new Session(SessionId('s1'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('user/message', { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
+    session.append('user/message', { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'hi' } })
     session.append('assistant/message', {
       turn: 1, step: 1,
@@ -15,8 +15,8 @@ describe('Session', () => {
         { type: 'text', text: 'let me check' },
         { type: 'tool-call', id: CallId('c1'), name: 'echo', arguments: '{}' },
       ],
-    })
-    session.append('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false })
+    }, { surfaceOp: 'append' })
+    session.append('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false }, { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 
     const messages = session.deriveMessages()
@@ -44,12 +44,12 @@ describe('Session', () => {
     session.append('context/message', {
       content: [{ type: 'text', text: 'file changed: a.ts' }],
       source: { kind: 'plugin', plugin: 'watcher' },
-    })
+    }, { surfaceOp: 'append' })
     session.append('steering/message', {
       turn: 1,
       content: [{ type: 'text', text: 'focus on tests' }],
       source: { kind: 'user' },
-    })
+    }, { surfaceOp: 'append' })
 
     const [contextMessage, steeringMessage] = session.deriveMessages()
     expect(contextMessage!.role).toBe('user')
@@ -60,8 +60,8 @@ describe('Session', () => {
 
   it('replays identically from a seeded event log', () => {
     const original = new Session(SessionId('s3'))
-    original.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
-    original.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'a' }] })
+    original.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    original.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'a' }] }, { surfaceOp: 'append' })
 
     const replayed = new Session(SessionId('s3-replay'), [...original.events])
     expect(replayed.deriveMessages()).toEqual(original.deriveMessages())
@@ -70,11 +70,11 @@ describe('Session', () => {
 
   it('isolates the log from mutation through a derived message (append-only contract)', () => {
     const session = new Session(SessionId('s4'))
-    session.append('user/message', { content: [{ type: 'text', text: 'original' }], source: { kind: 'user' } })
+    session.append('user/message', { content: [{ type: 'text', text: 'original' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     session.append('tool/result', {
       turn: 1, step: 1, callId: CallId('c1'),
       content: [{ type: 'text', text: 'tool out' }], isError: false,
-    })
+    }, { surfaceOp: 'append' })
     const before = structuredClone(session.events)
 
     // A request middleware / adapter mutates the messages it was handed.
@@ -95,7 +95,7 @@ describe('Session', () => {
 
   it('rejects non-JSON-serializable event data at the source (incl. sparse arrays)', () => {
     const session = new Session(SessionId('s5'))
-    const bad = (extra: unknown) => () => session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra } as never)
+    const bad = (extra: unknown) => () => session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra } as never, { surfaceOp: 'append' })
     expect(bad(1n)).toThrow(/non-JSON-serializable/)
     expect(bad(() => 0)).toThrow(/non-JSON-serializable/)
     expect(bad(Symbol('s'))).toThrow(/non-JSON-serializable/)
@@ -122,7 +122,7 @@ describe('Session', () => {
 
   it('accepts dense arrays and nested plain objects', () => {
     const session = new Session(SessionId('s6'))
-    expect(() => session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra: [1, 2, [3, { a: null, b: true }]] } as never)).not.toThrow()
+    expect(() => session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra: [1, 2, [3, { a: null, b: true }]] } as never, { surfaceOp: 'append' })).not.toThrow()
     expect(session.events).toHaveLength(1)
   })
 
@@ -174,7 +174,7 @@ describe('Session', () => {
   it('snapshots append data: mutating the passed object after append does not affect session.events', () => {
     const session = new Session(SessionId('append-snapshot'))
     const data = { content: [{ type: 'text' as const, text: 'original' }], source: { kind: 'user' as const } }
-    const event = session.append('user/message', data)
+    const event = session.append('user/message', data, { surfaceOp: 'append' })
     // Mutate the caller's object after append returns. A shared reference would
     // make session.events diverge from the value that passed validation.
     data.content[0]!.text = 'HACKED'
@@ -201,7 +201,7 @@ describe('SessionStore', () => {
     const session = ctx.sessions.create()
     expect(created).toEqual([session])
 
-    session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } })
+    session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     expect(events).toHaveLength(1)
     expect(events[0]![0]).toBe(session)
     expect(events[0]![1].type).toBe('user/message')
@@ -216,7 +216,7 @@ describe('SessionStore', () => {
     const a = ctx.sessions.create(SessionId('fixed'))
     expect(() => ctx.sessions.create(SessionId('fixed'))).toThrow('already exists')
 
-    a.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
+    a.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     const forked = ctx.sessions.create(SessionId('fork'), { seed: [...a.events] })
     expect(forked.deriveMessages()).toEqual(a.deriveMessages())
   })
@@ -309,7 +309,7 @@ describe('SessionStore', () => {
 
     await fiber.dispose()
     expect(ctx.sessions.get(SessionId('scoped'))).toBeUndefined()
-    session.append('user/message', { content: [{ type: 'text', text: 'late' }], source: { kind: 'user' } })
+    session.append('user/message', { content: [{ type: 'text', text: 'late' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     expect(observed).toBe(0)
   })
 
@@ -332,7 +332,7 @@ describe('SessionStore', () => {
     ctx.on('session/event', (_session, event) => void events.push(event))
     const session = ctx.sessions.create(SessionId('fixed'))
     expect(ctx.sessions.get(SessionId('fixed'))).toBe(session)
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     expect(events).toHaveLength(1)
   })
 })

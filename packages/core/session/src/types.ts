@@ -222,17 +222,19 @@ export type SurfaceOp =
   | { op: 'replace'; start: number; end: number }
 
 /**
- * Optional surface metadata passed to {@link Session.append}.
+ * Surface metadata passed to {@link Session.append}.
  * `surfaceOp` controls how the event enters the surface linked list;
  * `sourceEventSeqs` records the seq numbers of events that are provenance
  * sources of this one (e.g. the `assistant/chunk` seqs behind an
  * `assistant/message`, or the shadowed nodes behind a compaction replacement).
  *
- * Only accepted for {@link SurfaceEventType} events — non-surface event types
- * (`turn/start`, `assistant/chunk`, `error`, …) cannot carry surface metadata.
+ * Required for {@link SurfaceEventType} events — every message-producing event
+ * MUST declare how it enters the surface, because the surface is the sole
+ * source of derived history. Non-surface event types (`turn/start`,
+ * `assistant/chunk`, `error`, …) cannot carry surface metadata.
  */
-export interface SurfaceAppendOpts {
-  surfaceOp?: SurfaceOp
+export interface SurfaceIntent {
+  surfaceOp: SurfaceOp
   sourceEventSeqs?: number[]
 }
 

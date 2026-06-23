@@ -69,6 +69,13 @@ interface SessionTrace {
   pendingCalls: Set<CallId>
   /** Every seq seen so far — validates `sourceEventSeqs` references. */
   knownSeqs: Set<number>
+  /**
+   * The seqs currently on the surface linked list, in linked-list order
+   * (head to tail). A replace reorders this relative to seq order (the new
+   * node takes the replaced range's position), so range validation is
+   * positional, not by seq comparison.
+   */
+  surface: number[]
 }
 
 /**
@@ -147,9 +154,39 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       }
     }
   }
-  if (se.surfaceOp !== undefined && typeof se.surfaceOp !== 'string') {
-    if (se.surfaceOp.start > se.surfaceOp.end) {
-      throw new InvariantError(`surface replace: start ${se.surfaceOp.start} must be <= end ${se.surfaceOp.end}`)
+  // Fold this event into the tracked surface linked list, validating the
+  // replace contract as we go. `append` adds a tail node; `replace` shadows a
+  // positional range — every shadowed node must appear in sourceEventSeqs.
+  if (se.surfaceOp !== undefined) {
+    if (se.surfaceOp === 'append') {
+      trace.surface.push(event.seq)
+    } else {
+      const { start, end } = se.surfaceOp
+      if (start > end) {
+        throw new InvariantError(`surface replace: start ${start} must be <= end ${end}`)
+      }
+      const startIdx = trace.surface.indexOf(start)
+      if (startIdx === -1) {
+        throw new InvariantError(`surface replace: start seq ${start} is not on the surface`)
+      }
+      const endIdx = trace.surface.indexOf(end)
+      if (endIdx === -1) {
+        throw new InvariantError(`surface replace: end seq ${end} is not on the surface`)
+      }
+      if (startIdx > endIdx) {
+        throw new InvariantError(`surface replace: start seq ${start} (pos ${startIdx}) is after end seq ${end} (pos ${endIdx}) on the surface`)
+      }
+      // Every node the replace shadows (surface positions [startIdx, endIdx]
+      // inclusive) must appear in sourceEventSeqs — the provenance contract.
+      const shadowed = trace.surface.slice(startIdx, endIdx + 1)
+      const recorded = new Set(se.sourceEventSeqs ?? [])
+      const missing = shadowed.filter(seq => !recorded.has(seq))
+      if (missing.length > 0) {
+        throw new InvariantError(`surface replace: sourceEventSeqs must include every shadowed surface node; missing ${missing.join(', ')}`)
+      }
+      // Apply the replace to the tracked surface: the new node takes the
+      // range's position so order stays in sync for later replaces.
+      trace.surface.splice(startIdx, shadowed.length, event.seq)
     }
   }
 
@@ -288,6 +325,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     nextStep: 1,
     pendingCalls: new Set(),
     knownSeqs: new Set(),
+    surface: [],
   })
 
   /** Build (or rebuild) a session's trace by replaying its whole log; freeze it. */
