@@ -1,8 +1,8 @@
 # RFC: Subagent capability seam
 
-Status: proposed
+Status: implemented
 
-> **Implementation status:** PR1 (this proposal + the `dsh-subagent` interface, the `dsh-subagent-mock` test backend, and the `dsh-tool-subagent` consumer) is the first of three PRs. The two in-process backends (`dsh-subagent-spawn`, `dsh-subagent-fork`) and the out-of-process `dsh-subagent-acp` backend land in PR2 and PR3. Status stays `proposed` until all three ship; the file moves to `implemented/feature/` then, amended to describe what actually landed.
+> **Implementation status:** shipped across four PRs. PR1 landed this proposal + the `dsh-subagent` interface, the `dsh-subagent-mock` test backend, and the `dsh-tool-subagent` consumer; PR2 the two in-process backends (`dsh-subagent-spawn`, `dsh-subagent-fork`); PR2.5 the nested-agent snapshot infrastructure (see [Per-session snapshot replay for nested agents](../testing/2026-06-22-subagent-snapshot-replay.md)); PR3 the out-of-process `dsh-subagent-acp` backend (see [ACP subagent backend](2026-06-22-acp-subagent-backend.md)). The design below is amended to describe what actually landed.
 
 ## Problem
 
