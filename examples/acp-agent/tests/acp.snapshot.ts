@@ -58,6 +58,8 @@ const SCENARIOS: Scenario[] = [
   { name: 'cancel', hasModelTurn: true, recorded: false },
   { name: 'subagent-spawn', hasModelTurn: true, recorded: true, childSessions: 1 },
   { name: 'subagent-multi', hasModelTurn: true, recorded: true, childSessions: 2 },
+  { name: 'subagent-fork', hasModelTurn: true, recorded: true, childSessions: 1 },
+  { name: 'subagent-mixed', hasModelTurn: true, recorded: true, childSessions: 2 },
 ]
 
 /** The sibling child-fixture paths for a scenario (`session.1.jsonl` …). */

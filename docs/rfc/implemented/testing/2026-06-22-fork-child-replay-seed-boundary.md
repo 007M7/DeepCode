@@ -33,7 +33,7 @@ The SQLite change is a breaking table-layout change, so `SCHEMA_VERSION` bumps *
 
 `dsh-llm-replay`'s `parseSessionHeader` now also reads `seedLength` (absent ⇒ 0), and `loadSessionScripts` derives a child's entries from `parseSessionLog(text).slice(seedLength)` — the events at or after the boundary, i.e. the child's own model calls. For a spawn child `seedLength` is 0 and this is a no-op, so spawn scenarios are byte-for-byte unchanged.
 
-This closes the routing correctness gap; an actual fork *scenario* (a recorded `subagent-multi`-style fixture with a fork child) is still a future addition, but it can now be recorded and replayed correctly rather than mis-routing.
+This closes the routing correctness gap, and two recorded fork scenarios exercise it end to end — see [Record fork and mixed spawn+fork snapshot scenarios](2026-06-22-fork-snapshot-scenarios.md).
 
 ## Alternatives considered
 
