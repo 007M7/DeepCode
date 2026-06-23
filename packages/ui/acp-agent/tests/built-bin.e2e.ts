@@ -1,0 +1,195 @@
+import { spawn } from 'node:child_process'
+import { mkdtemp, mkdir, rm, symlink, writeFile, readFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import {
+  ClientSideConnection,
+  ndJsonStream,
+  PROTOCOL_VERSION,
+  type Agent as AcpAgent,
+  type Client,
+  type RequestPermissionRequest,
+  type RequestPermissionResponse,
+  type SessionNotification,
+} from '@agentclientprotocol/sdk'
+import { Readable, Writable } from 'node:stream'
+import { afterEach, describe, expect, it } from 'vitest'
+
+/**
+ * BUILT-ARTIFACT smoke for the published `dsh-acp-agent` bin. `load-path.e2e.ts`
+ * boots `src/bin.ts` under tsx — but the package's `bin` field points at
+ * `lib/bin.js`, run under plain `node` by a real consumer. This runs the REAL
+ * `lib/bin.js` under `node` (NOT tsx) and asserts it answers an `initialize`
+ * JSON-RPC frame, so a regression in the published entry (a settle race that
+ * exits before the bridge attaches, a stdout logger leaking onto the protocol)
+ * fails here.
+ *
+ * It build-gates: SKIPS if `lib/bin.js` is absent (suite run without
+ * `pnpm run build`); CI runs it after the build step. Setup mirrors a real
+ * install (a temp dir whose `node_modules` symlinks the built packages) and runs
+ * `node --expose-internals` (the cordis Loader resolves bare plugin specifiers
+ * via its internal module loader, active only under that flag). KEYLESS:
+ * `initialize` never reaches the model; a dummy key lets `llm-deepseek` boot.
+ */
+
+const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
+const acpBin = join(repoRoot, 'packages/ui/acp-agent/lib/bin.js')
+
+const dshPackages = [
+  'core/agent-core', 'core/agent', 'core/session', 'core/system-prompt',
+  'core/tools', 'core/agent-loop', 'llm/llm', 'llm/llm-deepseek', 'bash/bash',
+  'bash/bash-local', 'bash/tool-bash', 'support/invariants',
+  'session-persistence/session-persistence',
+  'session-persistence/session-persistence-jsonl', 'ui/acp', 'ui/acp-agent',
+]
+const vendorPackages = [
+  'cordis', 'loader', 'include', 'timer', 'hmr', 'logger-console',
+  'schemastery', 'cosmokit',
+]
+// Third-party deps the ACP bridge needs at runtime. They are declared by
+// `dsh-acp` (NOT by `acp-agent`), so they live under `packages/ui/acp/node_modules`
+// and are NOT necessarily hoisted where THIS test file can resolve them — pnpm's
+// strict layout only exposes a package's deps under that package. Resolve each
+// from the `ui/acp` package directory (the one that declares it) so the lookup
+// works regardless of hoisting, then symlink it into the consumer for plain node.
+const npmDeps = ['@agentclientprotocol/sdk', 'zod']
+const acpPkgDir = join(repoRoot, 'packages/ui/acp')
+
+async function pkgName(absDir: string): Promise<string> {
+  const json = JSON.parse(await readFile(join(absDir, 'package.json'), 'utf8')) as { name: string }
+  return json.name
+}
+
+async function link(target: string, name: string, nm: string): Promise<void> {
+  const dest = join(nm, name)
+  await mkdir(dirname(dest), { recursive: true })
+  await symlink(target, dest)
+}
+
+/** Build a temp consumer dir + a minimal acp `cordis.yml`. Returns the dir. */
+async function makeConsumer(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'acp-built-bin-'))
+  const nm = join(dir, 'node_modules')
+  for (const rel of dshPackages) {
+    const abs = join(repoRoot, 'packages', rel)
+    await link(abs, await pkgName(abs), nm)
+  }
+  for (const v of vendorPackages) {
+    const abs = join(repoRoot, 'vendor', v)
+    await link(abs, await pkgName(abs), nm)
+  }
+  for (const dep of npmDeps) {
+    // Resolve from `ui/acp`'s package.json URL (the package that declares the
+    // dep), not this test file's location — `acp-agent` does not depend on these.
+    const fromAcp = pathToFileURL(join(acpPkgDir, 'package.json')).href
+    const resolved = fileURLToPath(import.meta.resolve(`${dep}/package.json`, fromAcp))
+    await link(dirname(resolved), dep, nm)
+  }
+  await writeFile(join(dir, 'cordis.yml'), [
+    '- id: llm-deepseek',
+    '  name: \'@deepseek-ai/dsh-llm-deepseek\'',
+    '  config:',
+    '    apiKey: !!js process.env.DEEPSEEK_API_KEY',
+    '    models: [deepseek-v4-flash]',
+    '- id: bash',
+    '  name: \'@deepseek-ai/dsh-bash-local\'',
+    '- id: acp-agent',
+    '  name: \'@deepseek-ai/dsh-acp-agent\'',
+    '  config:',
+    '    model: deepseek-v4-flash',
+    '    systemPrompt: \'test agent\'',
+    '',
+  ].join('\n'))
+  return dir
+}
+
+let consumer: string | undefined
+let child: ReturnType<typeof spawn> | undefined
+
+afterEach(async () => {
+  if (child !== undefined) { child.kill('SIGKILL'); child = undefined }
+  if (consumer !== undefined) await rm(consumer, { recursive: true, force: true })
+  consumer = undefined
+})
+
+describe.skipIf(!existsSync(acpBin))('dsh-acp-agent BUILT bin (node lib/bin.js, no tsx)', () => {
+  it('boots the published bin and answers an initialize JSON-RPC frame on stdout', async () => {
+    consumer = await makeConsumer()
+    child = spawn(process.execPath, ['--expose-internals', acpBin, './cordis.yml'], {
+      cwd: consumer,
+      // Dummy key: initialize never reaches the model, so it is never used.
+      env: { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    const stderr: string[] = []
+    child.stderr!.setEncoding('utf8')
+    child.stderr!.on('data', (c: string) => stderr.push(c))
+    // Tee raw stdout for a protocol-purity check, and feed it to the SDK client.
+    const rawOut: string[] = []
+    const passthrough = new Readable({ read() {} })
+    child.stdout!.on('data', (buf: Buffer) => { rawOut.push(buf.toString('utf8')); passthrough.push(buf) })
+    child.stdout!.on('end', () => passthrough.push(null))
+    const stream = ndJsonStream(
+      Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>,
+      Readable.toWeb(passthrough) as ReadableStream<Uint8Array>,
+    )
+    const makeClient = (_a: AcpAgent): Client => ({
+      sessionUpdate(_p: SessionNotification): Promise<void> { return Promise.resolve() },
+      requestPermission(_p: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+        return Promise.resolve({ outcome: { outcome: 'cancelled' } })
+      },
+    })
+    const client = new ClientSideConnection(makeClient, stream)
+
+    const init = await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    // A response at all proves the built bin booted the bridge (the settle-race
+    // regression would exit before answering); loadSession proves the real app
+    // mounted, not a collapsed export shape.
+    expect(init.agentCapabilities?.loadSession).toBe(true)
+    expect(stderr.join('')).not.toContain('without inject')
+    // stdout purity: every emitted line is a JSON-RPC frame, no logger leak.
+    for (const line of rawOut.join('').split('\n').filter(l => l.trim().length > 0)) {
+      expect(() => JSON.parse(line) as unknown).not.toThrow()
+    }
+  }, 30_000)
+
+  it('fails LOUD (non-zero exit + stderr) on a config whose directory does not exist', async () => {
+    // A typo'd config path must fail clearly, not exit 0. The include plugin
+    // itself cannot be imported from a non-existent dir; the Loader logs that and
+    // leaves the entry with no fiber, which boot()'s entry-load check throws on.
+    const { code, stderr } = await runBinExpectingExit('/nonexistent/dir/cordis.yml')
+    expect(code).not.toBe(0)
+    expect(stderr).toContain('failed to load')
+  }, 30_000)
+
+  it('fails LOUD (non-zero exit + stderr) on a missing config file in a real directory', async () => {
+    // The directory exists (the include imports), but the file does not — the
+    // include's init throws "config file not found", which surfaces as an
+    // unhandled rejection the fail-loud guard turns into a non-zero exit.
+    consumer = await makeConsumer()
+    const { code, stderr } = await runBinExpectingExit('./does-not-exist.yml', consumer)
+    expect(code).not.toBe(0)
+    expect(stderr).toContain('config file not found')
+  }, 30_000)
+})
+
+/** Spawn the built acp bin against `configArg` and resolve with its exit code + stderr. */
+function runBinExpectingExit(configArg: string, cwd: string = tmpdir()): Promise<{ code: number; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(process.execPath, ['--expose-internals', acpBin, configArg], {
+      cwd,
+      env: { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'sk-dummy-for-boot' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    child = proc
+    let stderr = ''
+    proc.stderr.setEncoding('utf8')
+    proc.stderr.on('data', (c: string) => { stderr += c })
+    const timer = setTimeout(() => { proc.kill('SIGKILL'); reject(new Error(`bin did not exit within 25s. stderr:\n${stderr}`)) }, 25_000)
+    proc.on('exit', (code) => { clearTimeout(timer); resolve({ code: code ?? -1, stderr }) })
+    proc.on('error', (err) => { clearTimeout(timer); reject(err) })
+    proc.stdin.end()
+  })
+}

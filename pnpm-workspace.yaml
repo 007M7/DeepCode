@@ -1,6 +1,6 @@
 packages:
   - vendor/*
-  - packages/*
+  - packages/*/*
 
 peerDependencyRules:
   allowedVersions:

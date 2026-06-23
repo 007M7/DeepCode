@@ -4,12 +4,14 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "declaration": true,
-    "emitDeclarationOnly": true,
+    "sourceMap": true,
+    "declarationMap": true,
     "composite": true,
     "incremental": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
     "verbatimModuleSyntax": false,
     "strict": true,
     "noUncheckedIndexedAccess": true,
@@ -19,11 +21,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "types": ["node"],
-    // Source-level resolution for the build graph: without this, a fresh
-    // checkout's first `tsc -b` resolves sibling vendor plugins through their
-    // package.json types (vendor/*/lib/*.d.ts) which don't exist yet — TS2307
-    // until a second run. Derived configs that want lib resolution
-    // (tsconfig.typecheck.json) override this map wholesale.
+    // Source-level resolution for every repo-local graph. Project references,
+    // not declaration path aliases, keep each package/vendor source compiled
+    // under its own tsconfig boundary.
     "paths": {
       "cordis": ["./vendor/cordis/src"],
       "cosmokit": ["./vendor/cosmokit/src"],
@@ -34,22 +34,20 @@
       "@cordisjs/plugin-timer": ["./vendor/timer/src"],
       "@cordisjs/plugin-hmr": ["./vendor/hmr/src"],
       "@cordisjs/plugin-logger-console": ["./vendor/logger-console/src"],
-      "@deepseek-ai/dsh-llm": ["./packages/llm/src"],
-      "@deepseek-ai/dsh-session": ["./packages/session/src"],
-      "@deepseek-ai/dsh-session-persistence": ["./packages/session-persistence/src"],
-      "@deepseek-ai/dsh-session-persistence-jsonl": ["./packages/session-persistence-jsonl/src"],
-      "@deepseek-ai/dsh-session-persistence-sqlite": ["./packages/session-persistence-sqlite/src"],
-      "@deepseek-ai/dsh-system-prompt": ["./packages/system-prompt/src"],
-      "@deepseek-ai/dsh-tools": ["./packages/tools/src"],
-      "@deepseek-ai/dsh-agent": ["./packages/agent/src"],
-      "@deepseek-ai/dsh-agent-loop": ["./packages/agent-loop/src"],
-      "@deepseek-ai/dsh-bash": ["./packages/bash/src"],
-      "@deepseek-ai/dsh-llm-deepseek": ["./packages/llm-deepseek/src"],
-      "@deepseek-ai/dsh-llm-pi-ai": ["./packages/llm-pi-ai/src"],
-      "@deepseek-ai/dsh-bash-local": ["./packages/bash-local/src"],
-      "@deepseek-ai/dsh-tool-bash": ["./packages/tool-bash/src"],
-      "@deepseek-ai/dsh-invariants": ["./packages/invariants/src"],
-      "@deepseek-ai/dsh-acp": ["./packages/acp/src"]
+      // One wildcard maps every @deepseek-ai/dsh-<name> to its source. Package
+      // dir names are unique across groups, so first-on-disk-wins resolution is
+      // unambiguous; adding a package under an existing group needs no edit
+      // here. The build graph's project references (tsconfig.build.json) stay
+      // explicit — TS project references have no wildcard form.
+      "@deepseek-ai/dsh-*": [
+        "./packages/core/*/src",
+        "./packages/llm/*/src",
+        "./packages/bash/*/src",
+        "./packages/session-persistence/*/src",
+        "./packages/ui/*/src",
+        "./packages/util/*/src",
+        "./packages/support/*/src"
+      ]
     }
   }
 }

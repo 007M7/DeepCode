@@ -1,0 +1,143 @@
+/**
+ * Incremental chunk-to-message assembler. This is the single canonical assembly
+ * algorithm used by the agent loop to build an assistant message from a chunk
+ * stream while logging the raw chunks for replay fidelity.
+ *
+ * @module @deepseek-ai/dsh-llm/assembler
+ */
+
+import { CallId } from './brand.ts'
+import { assertNever } from './never.ts'
+import type { ContentBlock, FinishReason, Message, StreamChunk, TokenUsage } from './types.ts'
+
+interface PartialBlock {
+  blockType: string
+  text: string
+  toolCallId?: CallId
+  toolCallName?: string
+  toolCallArguments: string
+  /** Set by `block-end` — authoritative, and freezes the partial. */
+  block?: ContentBlock
+}
+
+/**
+ * Incrementally assembles raw {@link StreamChunk}s into complete
+ * {@link ContentBlock}s and a final assistant {@link Message}.
+ *
+ * The agent loop feeds it while logging raw chunks for replay fidelity, then
+ * reads `blocks()` / `message()` / `usage` / `finish` once the stream ends.
+ *
+ * Tolerant of delta-only protocols (no block-start/end); deltas arriving for
+ * an index already closed by `block-end` are ignored (malformed stream) so a
+ * misbehaving adapter cannot grow memory or corrupt a completed block.
+ */
+export class BlockAssembler {
+  private partials = new Map<number, PartialBlock>()
+  private order: number[] = []
+  private _usage: TokenUsage | undefined
+  private _finish: FinishReason | undefined
+
+  /**
+   * Feed one chunk. Returns the completed block when the chunk closes one
+   * (an explicit `block-end`), otherwise undefined.
+   */
+  push(chunk: StreamChunk): ContentBlock | undefined {
+    switch (chunk.type) {
+      case 'block-start': {
+        if (!this.partials.has(chunk.index)) {
+          this.order.push(chunk.index)
+          this.partials.set(chunk.index, {
+            blockType: chunk.blockType,
+            text: '',
+            toolCallArguments: '',
+          })
+        }
+        return
+      }
+      case 'text-delta':
+      case 'reasoning-delta': {
+        const partial = this.ensure(chunk.index, chunk.type === 'text-delta' ? 'text' : 'reasoning')
+        if (partial.block) return // closed by block-end; ignore stragglers
+        partial.text += chunk.text
+        return
+      }
+      case 'tool-call-delta': {
+        const partial = this.ensure(chunk.index, 'tool-call')
+        if (partial.block) return // closed by block-end; ignore stragglers
+        partial.toolCallId = chunk.id
+        if (chunk.name) partial.toolCallName = chunk.name
+        partial.toolCallArguments += chunk.argumentsDelta
+        return
+      }
+      case 'block-end': {
+        const partial = this.ensure(chunk.index, chunk.block.type)
+        // First close wins: a second block-end for an already-closed index is
+        // a straggler (same rule as post-close deltas). Ignoring it keeps the
+        // streamed prefix and the final blocks() in agreement — otherwise a
+        // re-close could rewrite a block already flushed downstream.
+        if (partial.block) return
+        partial.block = chunk.block
+        return chunk.block
+      }
+      case 'usage': {
+        this._usage = chunk.usage
+        return
+      }
+      case 'finish': {
+        this._finish = chunk.reason
+        return
+      }
+      default: return assertNever(chunk, 'BlockAssembler.push')
+    }
+  }
+
+  private ensure(index: number, blockType: string): PartialBlock {
+    let partial = this.partials.get(index)
+    if (!partial) {
+      partial = { blockType, text: '', toolCallArguments: '' }
+      this.partials.set(index, partial)
+      this.order.push(index)
+    }
+    return partial
+  }
+
+  private assemble(partial: PartialBlock, index: number): ContentBlock {
+    if (partial.block) return partial.block
+    switch (partial.blockType) {
+      case 'text': return { type: 'text', text: partial.text }
+      case 'reasoning': return { type: 'reasoning', text: partial.text }
+      case 'tool-call': return {
+        type: 'tool-call',
+        id: partial.toolCallId ?? CallId(`call-${index}`),
+        name: partial.toolCallName ?? '',
+        arguments: partial.toolCallArguments,
+      }
+      default: throw new Error(`cannot assemble incomplete block of type "${partial.blockType}"`)
+    }
+  }
+
+  /** Invariant accessor: every index in `order` has a partial. */
+  private mustGet(index: number): PartialBlock {
+    const partial = this.partials.get(index)
+    if (!partial) throw new Error(`BlockAssembler invariant violated: no partial for index ${index}`)
+    return partial
+  }
+
+  /** Assemble all blocks seen so far, in stream order. */
+  blocks(): ContentBlock[] {
+    return this.order.map(index => this.assemble(this.mustGet(index), index))
+  }
+
+  get usage(): TokenUsage | undefined {
+    return this._usage
+  }
+
+  get finish(): FinishReason {
+    return this._finish ?? { kind: 'stop' }
+  }
+
+  /** The assembled assistant message. */
+  message(): Message {
+    return { role: 'assistant', content: this.blocks() }
+  }
+}

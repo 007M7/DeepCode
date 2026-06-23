@@ -1,4 +1,47 @@
 {
   "extends": "./tsconfig.base.json",
-  "files": []
+  "compilerOptions": {
+    "noEmit": true,
+    "rewriteRelativeImportExtensions": false
+  },
+  "include": [
+    "examples/*/src/**/*.ts",
+    "examples/*/start.ts",
+    "examples/*/tests/**/*.ts",
+    "packages/*/*/tests/**/*.ts",
+    "scripts/**/*.ts"
+  ],
+  "references": [
+    { "path": "./vendor/cosmokit" },
+    { "path": "./vendor/schemastery" },
+    { "path": "./vendor/cordis" },
+    { "path": "./vendor/loader" },
+    { "path": "./vendor/include" },
+    { "path": "./vendor/group" },
+    { "path": "./vendor/timer" },
+    { "path": "./vendor/hmr" },
+    { "path": "./vendor/logger-console" },
+    { "path": "./packages/util/brand" },
+    { "path": "./packages/llm/llm" },
+    { "path": "./packages/core/session" },
+    { "path": "./packages/session-persistence/session-persistence" },
+    { "path": "./packages/session-persistence/session-persistence-jsonl" },
+    { "path": "./packages/session-persistence/session-persistence-sqlite" },
+    { "path": "./packages/core/system-prompt" },
+    { "path": "./packages/core/agent" },
+    { "path": "./packages/core/tools" },
+    { "path": "./packages/core/agent-loop" },
+    { "path": "./packages/core/agent-core" },
+    { "path": "./packages/bash/bash" },
+    { "path": "./packages/llm/llm-deepseek" },
+    { "path": "./packages/llm/llm-pi-ai" },
+    { "path": "./packages/bash/bash-local" },
+    { "path": "./packages/bash/tool-bash" },
+    { "path": "./packages/support/invariants" },
+    { "path": "./packages/ui/acp" },
+    { "path": "./packages/ui/acp-agent" },
+    { "path": "./packages/ui/stdio-agent" },
+    { "path": "./packages/support/ui-stdio" },
+    { "path": "./packages/support/llm-replay" }
+  ]
 }

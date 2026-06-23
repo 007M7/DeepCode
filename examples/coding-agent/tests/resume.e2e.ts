@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
-import type { LoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import type { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import { AgentId } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.ts'
 
 /**
@@ -15,7 +17,7 @@ import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.
  */
 
 const SECRET = 'plum-galaxy-1791'
-const SESSION_ID = 'resume-e2e-session'
+const SESSION_ID = SessionId('resume-e2e-session')
 
 let ctx: Context | undefined
 let root: string | undefined
@@ -38,10 +40,10 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('resume: continue a persisted ses
     // log on disk survives.
     ctx = await codingHarness(process.cwd(), root)
     const first = ctx.agents.create({
-      agentId: 'resume-1',
+      agentId: AgentId('resume-1'),
       sessionId: SESSION_ID,
       agentOptions: { model: 'deepseek-v4-flash', systemPrompt: SYSTEM_PROMPT },
-    }) as LoopAgent
+    }).agent as ReactLoopAgent
     first.send([{ type: 'text', text: `Remember this code for later: ${SECRET}. Just acknowledge it.` }])
     await waitForIdle(ctx, first)
     await ctx.fiber.dispose()
@@ -51,11 +53,11 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('resume: continue a persisted ses
     // session. The loaded event log seeds the live session, so the model sees
     // run 1's exchange as conversation history.
     ctx = await codingHarness(process.cwd(), root)
-    const resumed = await ctx.agents.resume({
-      agentId: 'resume-2',
+    const resumed = (await ctx.agents.resume({
+      agentId: AgentId('resume-2'),
       resumeSessionId: SESSION_ID,
       agentOptions: { model: 'deepseek-v4-flash', systemPrompt: SYSTEM_PROMPT },
-    }) as LoopAgent
+    })).agent as ReactLoopAgent
     expect(resumed.session.id).toBe(SESSION_ID)
     // The prior user turn is in the rehydrated log before the model is asked.
     expect(JSON.stringify(resumed.session.deriveMessages())).toContain(SECRET)

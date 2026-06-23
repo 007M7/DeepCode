@@ -30,13 +30,13 @@ export default tseslint.config(
 
   // --- our packages: full strictness -------------------------------------
   {
-    files: ['packages/*/src/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts'],
+    files: ['packages/*/*/src/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts'],
     extends: [
       ...tseslint.configs.strictTypeChecked,
     ],
     languageOptions: {
       parserOptions: {
-        project: ['./tsconfig.typecheck.json'],
+        project: ['./packages/*/*/tsconfig.json', './tsconfig.json'],
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -81,13 +81,13 @@ export default tseslint.config(
 
   // --- tests: same rules, minus the friction that fights test ergonomics --
   {
-    files: ['packages/*/tests/**/*.ts'],
+    files: ['packages/*/*/tests/**/*.ts', 'examples/*/tests/**/*.ts'],
     extends: [
       ...tseslint.configs.strictTypeChecked,
     ],
     languageOptions: {
       parserOptions: {
-        project: ['./tsconfig.typecheck.json'],
+        project: ['./tsconfig.json'],
         tsconfigRootDir: import.meta.dirname,
       },
     },

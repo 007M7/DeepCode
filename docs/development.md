@@ -31,7 +31,7 @@ Run typecheck once after a fresh clone:
 pnpm run typecheck
 ```
 
-That first typecheck builds declaration output used by type-aware linting for vendored packages. Without it, `pnpm run lint` can report unresolved-type `no-unsafe-*` errors even when source code is fine.
+That first typecheck runs the package/vendor build graph and the root no-emit `tsconfig.json` graph for examples, tests, and scripts. The root graph uses the same source `paths` map but relies on project references so vendored code is checked under its own tsconfig settings.
 
 If you are preparing to push from a fresh clone or worktree, also build once:
 
@@ -39,7 +39,7 @@ If you are preparing to push from a fresh clone or worktree, also build once:
 pnpm run build
 ```
 
-`pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files. A fresh worktree has no bundled JS until `pnpm run build` runs.
+`pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files, and `verify-node-next-types`, which validates built declarations against a temporary NodeNext consumer. A fresh worktree has no bundled JS or declarations until `pnpm run build` runs.
 
 ## Environment variables
 
@@ -57,7 +57,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 lefthook is configured in `lefthook.yml` as an early local checkpoint before review:
 
 - `pre-commit` runs staged-file ESLint fixes, `pnpm run typecheck`, and the vendor manifest guard.
-- `pre-push` runs `pnpm run test`, `pnpm run hygiene`, `pnpm run doc-sync`, and `pnpm run verify-module-graph`.
+- `pre-push` runs `pnpm run test`, `pnpm run test:snapshot`, `pnpm run hygiene`, `pnpm run doc-sync`, and `pnpm run verify-module-graph`.
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 
@@ -74,11 +74,12 @@ The GitHub workflow runs these gates on each pull request:
 - `pnpm run doc-sync`
 - `pnpm run verify-module-graph`
 - `pnpm run test:coverage`
+- `pnpm run test:snapshot`
 - `pnpm run build`
-- `pnpm run knip && pnpm run publint`
+- `pnpm run hygiene`
 - an echo-agent smoke test that checks the demo's tool call, tool result, and JSONL output
 
-`pnpm run hygiene` is the local shorthand for `pnpm run knip && pnpm run publint && pnpm run constraints`; CI splits `pnpm run constraints` into its own earlier step, then runs `pnpm run knip && pnpm run publint` after `pnpm run build`.
+`pnpm run hygiene` is the local shorthand for `pnpm run knip && pnpm run publint && pnpm run constraints && pnpm run verify-node-next-types`; CI also runs `pnpm run constraints` as an earlier fail-fast step, then runs the full hygiene script after `pnpm run build`.
 
 ## Daily commands
 
@@ -88,20 +89,23 @@ Use these from the repo root:
 pnpm run test           # unit tests
 pnpm run test:coverage  # unit tests with per-file coverage gates
 pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
-pnpm run typecheck      # build declarations, then typecheck source, tests, and examples
+pnpm run typecheck      # build package/vendor outputs, then typecheck examples, tests, and scripts
 pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
-pnpm run verify-event-taxonomy  # compare docs/architecture.md event names with source
+pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events-and-services.md from source
+pnpm run verify-cordis-catalog  # fail if the cordis events/services catalog is stale
 pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
-pnpm run doc-sync       # doc-typecheck, event taxonomy, and markdown wrap verification
+pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
+pnpm run doc-sync       # doc-typecheck, cordis-catalog freshness, markdown wrap/link, and type-equiv verification
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
-pnpm run build          # build declarations and JS bundles
-pnpm run hygiene        # knip, publint, and workspace constraints
+pnpm run build          # emit lib/types intermediates, then bundle lib/index.* runtime files
+pnpm run verify-node-next-types  # fail if built declarations are not NodeNext-consumable
+pnpm run hygiene        # knip, publint, workspace constraints, and NodeNext declaration check
 ```
 
-When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets, event-taxonomy drift, and hard-wrapped markdown prose, but broader prose/API sync still needs review.
+When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets, cordis events/services catalog drift, and hard-wrapped markdown prose, but broader prose/API sync still needs review.
 
 ## Demos
 
@@ -126,6 +130,16 @@ Use one of three comment tags to flag known issues in the code, ordered by urgen
 - `XXX` — an issue that we may fix someday; lowest priority, no commitment.
 
 Pick the tag that matches the urgency so anyone scanning the code can tell a release blocker from a someday-maybe.
+
+## Documenting types verbatim (`ts type-equiv`)
+
+The [core data structures](core-data-structures/core.md) docs paste real type definitions so a reader sees the exact shape. To keep a paste from drifting when source changes, fence it as ` ```ts type-equiv ` (instead of ` ```ts `) and register it in `scripts/type-equiv.manifest.json` with the source file and symbol it mirrors:
+
+```json
+{ "doc": "docs/core-data-structures/session.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" }
+```
+
+`pnpm run verify-type-equiv` (part of `doc-sync`) then extracts that symbol's declaration from source via the TypeScript parser and asserts the block matches it (whitespace- and comment-insensitive, so a doc block may show a clean definition and the prose can carry the semantics). It also enforces a 1:1 correspondence: every `ts type-equiv` block has exactly one manifest entry and vice-versa, so a block can't go silently unchecked and a stale entry can't linger. `doc-typecheck` skips `ts type-equiv` blocks (they aren't standalone-compilable) and excludes them from its opt-out ratio. When you change a documented type, the gate fails until you update the paste; when you add or remove a block, update the manifest in the same change.
 
 ## Architecture context
 

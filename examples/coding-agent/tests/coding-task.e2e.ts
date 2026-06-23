@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.ts'
 
 /**
@@ -53,7 +54,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('coding task: fix a failing test 
     expect(before.status).not.toBe(0)
 
     ctx = await codingHarness(workdir)
-    const agent = ctx.agentLoop.create('e2e-task', {
+    const agent = ctx.agentLoop.create(AgentId('e2e-task'), {
       model: 'deepseek-v4-flash',
       systemPrompt: SYSTEM_PROMPT,
     })

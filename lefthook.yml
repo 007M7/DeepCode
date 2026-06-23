@@ -25,6 +25,9 @@ pre-push:
     - name: test
       run: pnpm run test
 
+    - name: snapshot
+      run: pnpm run test:snapshot
+
     - name: hygiene
       run: pnpm run hygiene
 

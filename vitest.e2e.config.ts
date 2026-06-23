@@ -22,9 +22,9 @@ try {
 export default defineConfig({
   // Same resolution note as vitest.config.ts: bare workspace names resolve
   // through the root tsconfig paths map; the native option cannot do this.
-  plugins: [tsconfigPaths({ projects: ['./tsconfig.test.json'] })],
+  plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
   test: {
-    include: ['packages/*/tests/**/*.e2e.ts', 'examples/*/tests/**/*.e2e.ts'],
+    include: ['packages/*/*/tests/**/*.e2e.ts', 'examples/*/tests/**/*.e2e.ts'],
     // Real model calls: generous timeouts, and retries for transient flakes
     // (the shared internal key hits concurrency quotas). No coverage — the
     // unit suites own the coverage gate.
