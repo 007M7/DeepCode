@@ -53,6 +53,7 @@ Dependency rule: **extension** plugins depend on interface packages, never on `d
 | `ctx.agents` | `AgentRegistry` | dsh-agent | live `Agent` handles + the create/resume factory seam (returns an `AgentHandle` = `{ agent, dispose() }` for owned per-agent teardown) |
 | `ctx.agentLoop` | `AgentLoop` | dsh-agent-loop | creates `ReactLoopAgent`s and drives their loops |
 | `ctx.bash` | `BashExecutor` (abstract) | dsh-bash | bash execution seam: foreground runs + background tasks |
+| `ctx.compact` | `CompactService` (abstract) | dsh-compact | compaction seam: decide when history is too large, summarize an older range into a single surface node |
 
 All registrations (`registerAdapter`, `section`, `tools`, `register`, …) go through `ctx.effect()` and return disposers, so plugin hot-reload (vendored HMR) and fiber disposal clean up automatically.
 
@@ -191,7 +192,7 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 | `/loop` | on `agent/turn-end`, `send()` the next iteration; or force-continue |
 | Dynamic workflow | orchestrator plugin on `agent/turn-end` / `agent/step-end` driving `send`/`steer` (+ sub-agents later) |
 | Queued + steering messages | core `Agent.send()` / `Agent.steer()` |
-| Context compaction (auto + manual) | wrap `agent/request`: measure tokens, rewrite `req.messages`, append merged `compaction/*` session events; manual = a command plugin invoking the same routine |
+| Context compaction (auto + manual) | the `ctx.compact` seam ([dsh-compact](../packages/compact/compact)): a backend summarizes an older surface range into a single `user/message` `replace` op, bracketed by log-only `compact/*` events; auto = check token pressure at turn boundaries, manual = a `/compact` tool. See the [compaction capability-seam RFC](rfc/proposed/feature/2026-06-18-compaction-capability-seam.md) |
 | System prompt configurability | `ctx.systemPrompt.section()` with ordering |
 | AGENTS.md (root) | a section provider reading the file |
 | AGENTS.md (subdir, on-touch) + file-change notices | `agent.inject()` from a watcher / tool-result listener |
