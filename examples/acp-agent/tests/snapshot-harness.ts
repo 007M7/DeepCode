@@ -17,7 +17,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { cp, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, delimiter } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Readable, Writable } from 'node:stream'
 import {
@@ -71,7 +71,19 @@ export interface InputScript {
   steps: InputStep[]
 }
 
-/** The result of running a scenario: raw stdout + the harvested session log. */
+/** One harvested session log plus the identifying facts off its header line. */
+export interface HarvestedLog {
+  /** The recorded session id (header `id`). */
+  id: string
+  /** Session creation time (header `createdAt`) — the child-ordering key. */
+  createdAt: number
+  /** The parent session id, if this log is a subagent child (header `parentSession`). */
+  parentSession?: string
+  /** The full `.jsonl` file content. */
+  content: string
+}
+
+/** The result of running a scenario: raw stdout + the harvested session log(s). */
 export interface RunResult {
   /** Raw stdout bytes (decoded utf8), every newline-delimited JSON-RPC frame. */
   rawStdout: string
@@ -81,8 +93,13 @@ export interface RunResult {
   sessionId?: string
   /** The temp cwd the session ran in (the bash workspace). */
   cwd: string
-  /** The persisted session log's content, if one was produced. */
-  sessionLog?: string
+  /**
+   * Every persisted session log harvested after the run, ordered primary-first:
+   * the top-level (parent) session — the one with no `parentSession` — then each
+   * subagent child by ascending `createdAt`. A single-session scenario harvests
+   * exactly one; a nested-agent scenario harvests the parent plus one per child.
+   */
+  sessionLogs: HarvestedLog[]
 }
 
 interface RunOptions {
@@ -92,6 +109,14 @@ interface RunOptions {
   fixtureFile: string
   /** Optional sidecar override path (replay). */
   overrideFile?: string
+  /**
+   * Recorded SUBAGENT child-session fixture paths (replay). A nested-agent
+   * scenario ships one per child (`session.1.jsonl`, …); the harness forwards
+   * them to `dsh-llm-replay` via `$DSH_SNAPSHOT_CHILD_FILES` so each child
+   * session replays from its own recorded script. Empty for single-session
+   * scenarios. Ignored in record mode (children are harvested, not replayed).
+   */
+  childFiles?: string[]
   /**
    * Optional `<scenario>/workspace/` directory whose contents are copied into
    * the temp cwd BEFORE the run — the standard way to seed files the agent
@@ -114,7 +139,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   // never leaks them (the "e2e tests own their resources" rule).
   let child: ChildProcessWithoutNullStreams | undefined
   let sessionId: string | undefined
-  let sessionLog: string | undefined
+  let sessionLogs: HarvestedLog[] = []
   const rawBuffers: Buffer[] = []
   const stderrChunks: string[] = []
   try {
@@ -131,6 +156,9 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
       DSH_SNAPSHOT_FILE: opts.fixtureFile,
       DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
       ...opts.overrideFile !== undefined ? { DSH_SNAPSHOT_OVERRIDE: opts.overrideFile } : {},
+      ...opts.childFiles !== undefined && opts.childFiles.length > 0
+        ? { DSH_SNAPSHOT_CHILD_FILES: opts.childFiles.join(delimiter) }
+        : {},
     }
 
     child = spawn(
@@ -189,9 +217,9 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     // persistence) and exits. Then await exit so the harvested log is complete.
     child.stdin.end()
     await waitForExit(child)
-    // Harvest the persisted log (if any) while the temp dirs still exist.
-    const sessionLogPath = await findSessionLog(sessionsRoot)
-    if (sessionLogPath !== undefined) sessionLog = await readFile(sessionLogPath, 'utf8')
+    // Harvest EVERY persisted log (parent + any subagent children) while the
+    // temp dirs still exist, ordered primary-first.
+    sessionLogs = await harvestSessionLogs(sessionsRoot)
   } finally {
     // Failure-safe teardown: kill a still-running child and drop the temp dirs
     // even if seeding/spawn/a step/harvest threw, so a flaky run never leaks a
@@ -209,7 +237,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     stderr: stderrChunks.join(''),
     cwd,
     ...sessionId !== undefined ? { sessionId } : {},
-    ...sessionLog !== undefined ? { sessionLog } : {},
+    sessionLogs,
   }
 }
 
@@ -300,14 +328,25 @@ function waitForExit(child: ChildProcessWithoutNullStreams): Promise<void> {
   return new Promise<void>(resolve => child.once('exit', () => { resolve() }))
 }
 
-/** Find the single produced `.jsonl` session log under a sessions root, if any. */
-async function findSessionLog(root: string): Promise<string | undefined> {
+/**
+ * Harvest EVERY persisted `.jsonl` session log under a sessions root, parse each
+ * header line, and return them ordered primary-first: the top-level session (no
+ * `parentSession`) leads, then each subagent child by ascending `createdAt`.
+ *
+ * The JSONL backend lays sessions out as `<root>/<cwd-bucket>/<encoded-id>.jsonl`
+ * (one bucket per cwd), so a parent and its same-cwd in-process child land in
+ * the SAME bucket — collecting all files across all buckets catches both (the
+ * old first-match short-circuit silently dropped the child). Returns `[]` if no
+ * log was produced (a no-session scenario).
+ */
+async function harvestSessionLogs(root: string): Promise<HarvestedLog[]> {
   let cwdDirs: string[]
   try {
     cwdDirs = await readdir(root)
   } catch {
-    return undefined
+    return []
   }
+  const logs: HarvestedLog[] = []
   for (const dir of cwdDirs) {
     const sub = join(root, dir)
     let files: string[]
@@ -316,8 +355,31 @@ async function findSessionLog(root: string): Promise<string | undefined> {
     } catch {
       continue
     }
-    const jsonl = files.find(f => f.endsWith('.jsonl'))
-    if (jsonl !== undefined) return join(sub, jsonl)
+    for (const f of files) {
+      if (!f.endsWith('.jsonl')) continue
+      const content = await readFile(join(sub, f), 'utf8')
+      const firstLine = content.split('\n').find(line => line.trim().length > 0) ?? '{}'
+      const header = JSON.parse(firstLine) as { id?: unknown; createdAt?: unknown; parentSession?: unknown }
+      logs.push({
+        id: typeof header.id === 'string' ? header.id : '',
+        createdAt: typeof header.createdAt === 'number' ? header.createdAt : 0,
+        ...typeof header.parentSession === 'string' ? { parentSession: header.parentSession } : {},
+        content,
+      })
+    }
   }
-  return undefined
+  // Primary (no parentSession) first, then children by ascending createdAt. A
+  // scenario has exactly one top-level session. In the synchronous cut sibling
+  // children are created strictly sequentially, so their createdAt values are
+  // strictly ordered; the recordedId tiebreak only keeps a degenerate
+  // same-millisecond collision (unreachable here) deterministic. This harvest
+  // order must match the replay load order in dsh-llm-replay's loadSessionScripts
+  // so session.<n>.jsonl maps to the same child on record and replay — replay
+  // re-sorts childFiles by the same key, so the two stay consistent.
+  logs.sort((a, b) => {
+    const ap = a.parentSession === undefined ? 0 : 1
+    const bp = b.parentSession === undefined ? 0 : 1
+    return ap - bp || a.createdAt - b.createdAt || a.id.localeCompare(b.id)
+  })
+  return logs
 }

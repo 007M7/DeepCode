@@ -1,0 +1,35 @@
+{"type":"session","version":0,"id":"4d76c4bd-1fca-418f-b2fe-b938d7398666","createdAt":1782087699201,"cwd":"/tmp/acp-snap-cwd-s06Syv","parentSession":"9b045576-92f1-48ca-b854-9ba160449992"}
+{"type":"turn/start","seq":0,"time":1782087699202,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
+{"type":"user/message","seq":1,"time":1782087699202,"data":{"content":[{"type":"text","text":"Reply with exactly the word CHILD_OK and nothing else."}],"source":{"kind":"user"}}}
+{"type":"step/start","seq":2,"time":1782087699202,"data":{"turn":1,"step":1}}
+{"type":"assistant/chunk","seq":3,"time":1782087699839,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
+{"type":"assistant/chunk","seq":4,"time":1782087699839,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"The"}}}
+{"type":"assistant/chunk","seq":5,"time":1782087699947,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" user"}}}
+{"type":"assistant/chunk","seq":6,"time":1782087699977,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" wants"}}}
+{"type":"assistant/chunk","seq":7,"time":1782087699977,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" me"}}}
+{"type":"assistant/chunk","seq":8,"time":1782087699977,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" to"}}}
+{"type":"assistant/chunk","seq":9,"time":1782087699977,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" reply"}}}
+{"type":"assistant/chunk","seq":10,"time":1782087699977,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" with"}}}
+{"type":"assistant/chunk","seq":11,"time":1782087699977,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" exactly"}}}
+{"type":"assistant/chunk","seq":12,"time":1782087700016,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" the"}}}
+{"type":"assistant/chunk","seq":13,"time":1782087700016,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" word"}}}
+{"type":"assistant/chunk","seq":14,"time":1782087700017,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" \""}}}
+{"type":"assistant/chunk","seq":15,"time":1782087700017,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"CH"}}}
+{"type":"assistant/chunk","seq":16,"time":1782087700034,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"ILD"}}}
+{"type":"assistant/chunk","seq":17,"time":1782087700035,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"_OK"}}}
+{"type":"assistant/chunk","seq":18,"time":1782087700035,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"\""}}}
+{"type":"assistant/chunk","seq":19,"time":1782087700035,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" and"}}}
+{"type":"assistant/chunk","seq":20,"time":1782087700035,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" nothing"}}}
+{"type":"assistant/chunk","seq":21,"time":1782087700035,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":" else"}}}
+{"type":"assistant/chunk","seq":22,"time":1782087700064,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"."}}}
+{"type":"assistant/chunk","seq":23,"time":1782087700064,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":1,"blockType":"text"}}}
+{"type":"assistant/chunk","seq":24,"time":1782087700064,"data":{"turn":1,"step":1,"chunk":{"type":"text-delta","index":1,"text":"CH"}}}
+{"type":"assistant/chunk","seq":25,"time":1782087700064,"data":{"turn":1,"step":1,"chunk":{"type":"text-delta","index":1,"text":"ILD"}}}
+{"type":"assistant/chunk","seq":26,"time":1782087700107,"data":{"turn":1,"step":1,"chunk":{"type":"text-delta","index":1,"text":"_OK"}}}
+{"type":"assistant/chunk","seq":27,"time":1782087700108,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"reasoning","text":"The user wants me to reply with exactly the word \"CHILD_OK\" and nothing else."}}}}
+{"type":"assistant/chunk","seq":28,"time":1782087700108,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":1,"block":{"type":"text","text":"CHILD_OK"}}}}
+{"type":"assistant/chunk","seq":29,"time":1782087700108,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":964,"outputTokens":23,"cacheReadTokens":0,"reasoningTokens":19}}}}
+{"type":"assistant/chunk","seq":30,"time":1782087700108,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
+{"type":"assistant/message","seq":31,"time":1782087700108,"data":{"turn":1,"step":1,"content":[{"type":"reasoning","text":"The user wants me to reply with exactly the word \"CHILD_OK\" and nothing else."},{"type":"text","text":"CHILD_OK"}],"usage":{"inputTokens":964,"outputTokens":23,"cacheReadTokens":0,"reasoningTokens":19}}}
+{"type":"step/end","seq":32,"time":1782087700108,"data":{"turn":1,"step":1}}
+{"type":"turn/end","seq":33,"time":1782087700108,"data":{"turn":1,"reason":{"kind":"completed"}}}

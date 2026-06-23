@@ -14,6 +14,15 @@
  * therefore "run the real agent once and harvest the `.jsonl`", done by the
  * snapshot harness — this plugin does not record.
  *
+ * A NESTED-agent scenario records more than one log: the parent plus one per
+ * in-process subagent (each subagent runs as its own {@link Session} on the same
+ * context). Replay loads them all ({@link loadSessionScripts}), derives a script
+ * per recorded session, and keys each live call by its calling session id
+ * (`GenerateOptions.sessionId`, stamped by the loop). Live session ids are fresh
+ * random values, so a live session binds to a recorded script by FIRST-CALL
+ * order (parent first — it streams before it delegates); see
+ * {@link installLlmReplay}.
+ *
  * Two failure modes are NOT reconstructable from `assistant/chunk` alone — a
  * pure throw before any chunk (e.g. an HTTP 401: the log holds only a
  * `turn/end {error}`, no chunks) and a cancel/hang (timing, not chunk content).
@@ -36,6 +45,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs'
+import { delimiter as pathDelimiter } from 'node:path'
 import type { Context } from 'cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -65,14 +75,49 @@ export type ReplayEntry =
 
 /** Resolved plugin configuration. */
 export interface ReplayConfig {
-  /** Path to the per-scenario `session.jsonl` fixture (the recorded log). */
+  /**
+   * Path to the PRIMARY (parent) `session.jsonl` fixture. For a single-session
+   * scenario this is the only log; for a nested-agent scenario it is the parent,
+   * and the child logs ride in {@link childFiles}.
+   */
   file: string
   /**
-   * Optional path to a `ReplayEntry[]` sidecar that REPLACES the derived
-   * script. Used by the two scenarios not expressible as `assistant/chunk`
-   * (pure throw-before-chunk, cancel/hang). Absent for normal scenarios.
+   * Optional `ReplayEntry[]` sidecar that REPLACES the derived script for the
+   * PRIMARY session. Used by the two single-session scenarios not expressible as
+   * `assistant/chunk` (pure throw-before-chunk, cancel/hang). Absent for normal
+   * and nested scenarios.
    */
   overrideFile?: string
+  /**
+   * Additional recorded child-session logs (a nested-agent scenario's subagent
+   * sessions). Each is derived independently; the full set is ordered by
+   * `createdAt` so the parent (earliest) binds to the first live session. Empty
+   * for a single-session scenario.
+   */
+  childFiles?: string[]
+}
+
+/**
+ * One recorded session's replay script: the per-call entries plus the header
+ * facts needed to ORDER and key it. Live session ids are freshly random at
+ * replay time and never equal the recorded `id`, so the recorded id is only a
+ * diagnostic; `createdAt` is the load-bearing field — scripts are ordered by it
+ * (a parent is created before its children) and each newly-seen live session is
+ * bound to the next script in that order (= first-call order in the synchronous
+ * nested cut, where the parent streams before it delegates).
+ */
+export interface SessionScript {
+  /** The recorded session id (diagnostics only — the live id differs). */
+  recordedId: string
+  /** Session creation time; the deterministic ordering key (parent < child). */
+  createdAt: number
+  /** The per-`stream()`-call replay entries, in recorded call order. */
+  entries: ReplayEntry[]
+  /**
+   * Whether this is the PRIMARY (parent) session. Breaks a `createdAt` tie in
+   * favor of the parent, which always issues the first model call.
+   */
+  primary: boolean
 }
 
 /**
@@ -91,6 +136,23 @@ export function parseSessionLog(text: string): SessionEvent[] {
     events.push(parsed as SessionEvent)
   }
   return events
+}
+
+/**
+ * Read the identifying facts off a session log's header line (line 0): the
+ * recorded session `id` (diagnostics) and `createdAt` (the deterministic
+ * ordering key that binds a recorded script to a live session — see
+ * {@link SessionScript}). A header missing either field falls back to a stable
+ * default (`''` / `0`) rather than throwing: a no-model fixture is header-only
+ * and still orders fine as the single (primary) script.
+ */
+export function parseSessionHeader(text: string): { id: string; createdAt: number } {
+  const firstLine = text.split('\n').find(line => line.trim().length > 0) ?? '{}'
+  const parsed = JSON.parse(firstLine) as { id?: unknown; createdAt?: unknown }
+  return {
+    id: typeof parsed.id === 'string' ? parsed.id : '',
+    createdAt: typeof parsed.createdAt === 'number' ? parsed.createdAt : 0,
+  }
 }
 
 /**
@@ -144,11 +206,11 @@ export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
 }
 
 /**
- * Build the replay script for a scenario: the sidecar override if present,
- * otherwise the script derived from the recorded session JSONL. Fail-loud if
- * the JSONL fixture is missing (the scenario was never recorded) — never
- * silently returns an empty script, so a coverage hole can't masquerade as a
- * passing replay.
+ * Build the replay script for the PRIMARY session: the sidecar override if
+ * present, otherwise the script derived from the recorded session JSONL.
+ * Fail-loud if the JSONL fixture is missing (the scenario was never recorded) —
+ * never silently returns an empty script, so a coverage hole can't masquerade
+ * as a passing replay.
  */
 export function loadReplayScript(config: ReplayConfig): ReplayEntry[] {
   if (config.overrideFile !== undefined && existsSync(config.overrideFile)) {
@@ -162,6 +224,62 @@ export function loadReplayScript(config: ReplayConfig): ReplayEntry[] {
     throw new Error(`llm-replay: fixture not found: ${config.file} — run \`pnpm run test:snapshot:record\` first`)
   }
   return deriveReplayScript(parseSessionLog(readFileSync(config.file, 'utf8')))
+}
+
+/**
+ * Load every recorded session's script for a scenario, ordered by `createdAt`
+ * (earliest first), ready to bind to live sessions in first-call order.
+ *
+ * The PRIMARY session (`config.file`, with its optional `overrideFile`) is the
+ * parent; each `config.childFiles` entry is a recorded subagent session. A
+ * single-session scenario has no `childFiles`, so this returns one script and
+ * behaves exactly like the old single-cursor replay. The primary always sorts
+ * first when ties occur (a sub-millisecond parent/child `createdAt` collision):
+ * the parent issues the FIRST model call (it must stream before it can delegate
+ * in the synchronous nested cut), so binding it to the first live session is
+ * correct regardless of a timestamp tie.
+ */
+export function loadSessionScripts(config: ReplayConfig): SessionScript[] {
+  const primaryEntries = loadReplayScript(config)
+  // The override path replaces the derived script but carries no header; read
+  // the header off the JSONL when it exists, else use a stable default so an
+  // override-only fixture (header-less) still orders first as the primary.
+  const primaryHeader = existsSync(config.file)
+    ? parseSessionHeader(readFileSync(config.file, 'utf8'))
+    : { id: '', createdAt: 0 }
+  const primary: SessionScript = {
+    recordedId: primaryHeader.id, createdAt: primaryHeader.createdAt, entries: primaryEntries, primary: true,
+  }
+  const children: SessionScript[] = []
+  for (const childFile of config.childFiles ?? []) {
+    if (!existsSync(childFile)) {
+      throw new Error(`llm-replay: child fixture not found: ${childFile} — re-record the scenario`)
+    }
+    const text = readFileSync(childFile, 'utf8')
+    const header = parseSessionHeader(text)
+    children.push({
+      recordedId: header.id,
+      createdAt: header.createdAt,
+      entries: deriveReplayScript(parseSessionLog(text)),
+      primary: false,
+    })
+  }
+  // The primary (parent) always binds first — it issues the first model call,
+  // because it must run a turn before it can delegate. Children follow in
+  // createdAt order. In the current synchronous cut sibling children are created
+  // STRICTLY SEQUENTIALLY — the subagent tool awaits one child's result and
+  // disposes it before the parent's next tool call can start the next — so their
+  // createdAt values are strictly ordered and match first-call order exactly.
+  // The recordedId tiebreak only makes a degenerate same-millisecond collision
+  // (unreachable in this cut) deterministic; it does NOT recover first-call
+  // order, so it is arbitrary if such a tie ever occurs.
+  // XXX(concurrent-subagents): a future cut that runs siblings concurrently or
+  // backgrounded could create two children in the same millisecond, where this
+  // createdAt+id order may diverge from first-call order. That cut must thread a
+  // real first-call ordinal (the order live sessions first stream) instead of
+  // leaning on createdAt — see the per-session-replay RFC.
+  children.sort((a, b) => a.createdAt - b.createdAt || a.recordedId.localeCompare(b.recordedId))
+  return [primary, ...children]
 }
 
 /** Yield a recorded stream back, honoring abort like a real adapter. */
@@ -206,32 +324,70 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined)
  * disposer (so a fiber dispose removes it — HMR safety). Exported separately
  * from {@link apply} so unit tests can drive it without the Loader or env vars.
  *
- * Replay is POSITIONAL: the Nth `stream()` call serves the Nth script entry.
- * This is deterministic only with at most one model stream in flight at a time;
- * the snapshot harness runs one ACP session per scenario to guarantee that. The
- * cursor is advanced synchronously at listener-invocation time (not lazily
- * inside the generator) so call ORDER, not iteration order, fixes the mapping.
+ * Replay is PER-SESSION POSITIONAL: each recorded session has its own script
+ * (parent + any subagent children, loaded by {@link loadSessionScripts} ordered
+ * by `createdAt`), and the Nth `stream()` call FROM A GIVEN SESSION serves that
+ * session's Nth entry. The calling session is read off `options.sessionId` (the
+ * agent loop stamps it from `agent.session.id`).
  *
- * TODO(subagent-snapshots): this single global cursor cannot route calls to the
- * right agent when a parent and an in-process subagent both stream on one ctx.
- * Snapshot coverage of nested agents needs either per-session-keyed replay (a
- * `Map<sessionId, cursor>` fed by the calling agent on the `agent/request`
- * waterfall, which carries the agent) or a call-ordered merge of the parent and
- * child session logs (sound because subagent execution is strictly nested —
- * the parent blocks on the child). Tracked as a stacked follow-up to the
- * in-process subagent backends; see the subagent RFC's "Snapshot coverage of
- * nested agents" deferral.
+ * Live session ids are freshly random and never equal the recorded ones, so a
+ * live session binds to a recorded script by FIRST-CALL ORDER: the first live
+ * session to make any call takes the first ordered script (the parent — earliest
+ * `createdAt`, and the first to stream because it must run before it delegates),
+ * the next new live session takes the next script, and so on. This keys by WHO
+ * calls rather than global call order, so it stays correct even if subagents
+ * ever run concurrently/backgrounded (a global cursor would interleave them).
+ *
+ * A call with no `sessionId` (a direct unit-test `ctx.llm.stream` that omits it)
+ * is treated as one anonymous session — it binds to the first script, so the
+ * single-session path behaves exactly as the old global cursor did.
+ *
+ * Each per-session cursor advances synchronously at listener-invocation time
+ * (not lazily inside the generator) so call ORDER within a session, not
+ * iteration order, fixes the mapping.
  */
 export function installLlmReplay(ctx: Context, config: ReplayConfig): () => void {
-  const entries = loadReplayScript(config)
-  let cursor = 0
+  const scripts = loadSessionScripts(config)
+  // Live-session → its bound script + cursor. A new live session id claims the
+  // next not-yet-bound script (scripts are in bind order); `nextScript` is the
+  // index of the next unclaimed one.
+  const bound = new Map<string, { entries: ReplayEntry[]; cursor: number }>()
+  let nextScript = 0
+  const ANON = '\0anon\0' // the key for a call that carries no sessionId
   return ctx.on('llm/stream', (options: GenerateOptions, _next) => {
-    const index = cursor++
-    const entry: ReplayEntry | undefined = entries[index]
+    const key = options.sessionId ?? ANON
+    let state = bound.get(key)
+    let unrecorded = false
+    if (state === undefined) {
+      const script = scripts[nextScript]
+      if (script === undefined) {
+        // More distinct live sessions made calls than the scenario recorded —
+        // an unrecorded subagent appeared. Defer the throw into the returned
+        // generator (the listener must return an AsyncIterable, not throw).
+        unrecorded = true
+        state = { entries: [], cursor: 0 }
+      } else {
+        nextScript++
+        state = { entries: script.entries, cursor: 0 }
+        bound.set(key, state)
+      }
+    }
+    const boundState = state
+    const seenSessions = nextScript
+    const totalScripts = scripts.length
+    const index = boundState.cursor++
+    const entry: ReplayEntry | undefined = boundState.entries[index]
     return (async function* () {
+      if (unrecorded) {
+        throw new Error(
+          `llm-replay: a model call arrived from an unrecorded session (#${seenSessions + 1}); `
+          + `the scenario recorded only ${totalScripts} session(s) — re-record it`,
+        )
+      }
       if (entry === undefined) {
         throw new Error(
-          `llm-replay: script exhausted — requested model call #${index + 1} but the fixture has only ${entries.length}; re-record the scenario`,
+          `llm-replay: script exhausted — session requested model call #${index + 1} `
+          + `but its script has only ${boundState.entries.length}; re-record the scenario`,
         )
       }
       yield* replayEntry(entry, options.signal)
@@ -247,6 +403,12 @@ export interface Config {
   file?: string
   /** Override the sidecar path; defaults to `$DSH_SNAPSHOT_OVERRIDE`. */
   overrideFile?: string
+  /**
+   * Override the child-log paths; defaults to `$DSH_SNAPSHOT_CHILD_FILES` (a
+   * path-separator-delimited list). Each is a recorded subagent session log for
+   * a nested-agent scenario; absent/empty for a single-session scenario.
+   */
+  childFiles?: string[]
 }
 
 export function apply(ctx: Context, config: Config = {}): void {
@@ -255,5 +417,12 @@ export function apply(ctx: Context, config: Config = {}): void {
     throw new Error('llm-replay: a fixture path is required (Config.file or $DSH_SNAPSHOT_FILE)')
   }
   const overrideFile = config.overrideFile ?? process.env.DSH_SNAPSHOT_OVERRIDE
-  installLlmReplay(ctx, overrideFile === undefined || overrideFile.length === 0 ? { file } : { file, overrideFile })
+  const childEnv = process.env.DSH_SNAPSHOT_CHILD_FILES
+  const childFiles = config.childFiles
+    ?? (childEnv !== undefined && childEnv.length > 0 ? childEnv.split(pathDelimiter) : [])
+  installLlmReplay(ctx, {
+    file,
+    ...overrideFile !== undefined && overrideFile.length > 0 ? { overrideFile } : {},
+    ...childFiles.length > 0 ? { childFiles } : {},
+  })
 }
