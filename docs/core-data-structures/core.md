@@ -20,6 +20,7 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | [persistence.md](persistence.md) | the durability seam: `SessionPersistence`, JSONL + SQLite backends, `session/flush`, crash recovery, `SessionHeader` |
 | [tools.md](tools.md) | `ToolDefinition` full fields, the schema DSL, `ToolExecution`/`ToolResult`, tool-presentation UI types, the `tools/execute` waterfall |
 | [bash.md](bash.md) | the bash executor seam: `BashExecRequest`/`Spec`, `BashRunResult`, background `BashTask`s |
+| [subagent.md](subagent.md) | the subagent seam: the named-provider registry, `SubagentStartRequest`/`Result`/`Run`, the start-time-vs-runtime capability split |
 
 > Type definitions on this page are pasted **verbatim** from source and drift-checked by `pnpm run verify-type-equiv` (see [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)). Inline JSDoc is omitted for readability; follow the source link for the full contracts.
 
@@ -139,6 +140,20 @@ interface GenerateOptions {
    */
   stop?: string[]
   signal?: AbortSignal
+  /**
+   * The id of the session this request belongs to — stamped by the agent loop
+   * from `agent.session.id`. Adapters ignore it; it lets an `llm/stream` listener
+   * route a call by WHICH session issued it (the replay adapter keys its per-call
+   * cursor by session, so a parent and its in-process subagent — each with its
+   * own session on one context — replay from their own recorded scripts).
+   *
+   * Typed as `Branded<'SessionId'>` rather than importing `SessionId` from
+   * `dsh-session`: that package imports `Message` from here, so importing its
+   * `SessionId` back would cycle. `SessionId` IS `Branded<'SessionId'>`, so a
+   * real session id assigns with no cast. (A future ids package could own the
+   * brand and dissolve this note.)
+   */
+  sessionId?: Branded<'SessionId'>
 }
 ```
 
@@ -281,11 +296,12 @@ interface Agent {
    */
   whenIdle(): Promise<void>
 
-  // TODO(sub-agents): spawn/fork seams — semantics deliberately deferred.
-  // The intended shape: a creation option referencing a parent agent
-  // (fork = seed the child Session with the parent's event log; spawn =
-  // fresh Session), with the child returned as an Agent handle so steer()
-  // and event subscription work uniformly. See docs/architecture.md.
+  // Subagent delegation is realized on top of this interface by the
+  // `@deepseek-ai/dsh-subagent` seam, not by a method here: a backend creates
+  // the child through `ctx.agents.create` (fork seeds the child Session with a
+  // balanced prefix of the parent's log via `CreateAgentOptions.seed`; spawn
+  // starts fresh) and drives it as an ordinary Agent handle, so steer() and
+  // event subscription work uniformly. See docs/core-data-structures/subagent.md.
 }
 ```
 

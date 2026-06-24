@@ -570,6 +570,7 @@ async function runStep(
     messages: session.deriveMessages(),
     ...system ? { system } : {},
     ...assembly.tools.length > 0 ? { tools: assembly.tools } : {},
+    sessionId: session.id,
     signal,
   }
   request = await ctx.waterfall('agent/request', agent, turn, step, request, () => Promise.resolve(request))

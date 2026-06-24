@@ -31,6 +31,13 @@
     { "path": "./packages/ui/acp-agent" },
     { "path": "./packages/ui/stdio-agent" },
     { "path": "./packages/support/ui-stdio" },
-    { "path": "./packages/support/llm-replay" }
+    { "path": "./packages/support/llm-replay" },
+    { "path": "./packages/subagent/subagent" },
+    { "path": "./packages/support/subagent-mock" },
+    { "path": "./packages/subagent/tool-subagent" },
+    { "path": "./packages/subagent/subagent-inprocess" },
+    { "path": "./packages/subagent/subagent-spawn" },
+    { "path": "./packages/subagent/subagent-fork" },
+    { "path": "./packages/subagent/subagent-acp" }
   ]
 }

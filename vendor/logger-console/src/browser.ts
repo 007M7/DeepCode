@@ -1,8 +1,8 @@
 import { Message } from 'cordis'
-import { ConsoleExporter as Base } from './shared.js'
+import { ConsoleExporter as Base } from './shared.ts'
 
 /** Re-export shared console exporter config and base implementation. */
-export * from './shared.js'
+export * from './shared.ts'
 
 /** Browser console exporter that dispatches to native console methods. */
 export class ConsoleExporter extends Base {

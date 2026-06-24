@@ -94,9 +94,9 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.fiber.dispose()
   })
 
-  it('resume of a forked session preserves the parentSession lineage in the header', async () => {
-    // Lifecycle 1: persist a FORKED session (carries parentSession in its
-    // header) by creating it with a complete-turn seed — the write path
+  it('resume of a forked session preserves the parentSession lineage and seed boundary in the header', async () => {
+    // Lifecycle 1: persist a FORKED session (carries parentSession + seedLength
+    // in its header) by creating it with a complete-turn seed — the write path
     // materializes the fork (header + seed) on disk.
     const seed: SessionEvent[] = [
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
@@ -104,12 +104,18 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     ]
     const adapter1 = new MockAdapter([textResponse('a')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
-    const forked = ctx1.sessions.create(SessionId('forked-sess'), { seed, meta: { cwd: '/w', parentSession: SessionId('parent-sess') } })
+    const forked = ctx1.sessions.create(SessionId('forked-sess'), {
+      seed,
+      meta: { cwd: '/w', parentSession: SessionId('parent-sess'), seedLength: seed.length },
+    })
     await ctx1.parallel('session/flush', forked)
     await ctx1.fiber.dispose()
 
-    // Lifecycle 2: resume it; the parentSession header survives the round-trip
-    // (exercises resume's parentSession-present branch).
+    // Lifecycle 2: resume it; the parentSession + seedLength header survives the
+    // round-trip (exercises resume's parentSession- and seedLength-present
+    // branches). seedLength must come from the PERSISTED header, not from the
+    // resume seed length (which is the whole stored log, not the original
+    // boundary).
     const adapter2 = new MockAdapter([textResponse('b')])
     const ctx2 = new Context()
     await ctx2.plugin(LlmService)
@@ -123,6 +129,7 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     const a2 = (await ctx2.agents.resume({ agentId: AgentId('m'), resumeSessionId: SessionId('forked-sess') })).agent as ReactLoopAgent
     expect(a2.session.header.parentSession).toBe('parent-sess')
     expect(a2.session.header.cwd).toBe('/w')
+    expect(a2.session.header.seedLength).toBe(seed.length)
     await ctx2.fiber.dispose()
   })
 

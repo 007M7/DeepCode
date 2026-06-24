@@ -123,6 +123,26 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
+    it('round-trips the seed boundary (seedLength) through persistence', async () => {
+      // A forked child records how many leading events were inherited via the
+      // seed; the boundary must survive a reload (so a resume/replay can tell the
+      // inherited prefix from the child's own events). Both backends carry it on
+      // the header — JSONL on the header line, SQLite in the seed_length column.
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const session = ctx.sessions.create(SessionId('forked-child'), { meta: { cwd: WORK, seedLength: 3 } })
+        send(session, oneTurnLog())
+        await ctx.parallel('session/flush', session)
+
+        const loaded = await ctx.sessionPersistence.load(SessionId('forked-child'))
+        expect(loaded.meta.seedLength).toBe(3)
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
     it('snapshot-on-buffer: mutating an event after session/event does not corrupt the persisted copy', async () => {
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
