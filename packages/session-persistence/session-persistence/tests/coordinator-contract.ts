@@ -31,7 +31,7 @@ import { Context, type Fiber } from 'cordis'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '../src/index.ts'
-import { meta, oneTurnLog } from './contract.ts'
+import { meta, oneTurnLog, appendLog } from './contract.ts'
 
 /**
  * The backend-specific capabilities the orchestration suite needs beyond the
@@ -76,7 +76,7 @@ function inits(persistence: SessionPersistence): Map<Session, Promise<void>> {
 
 /** Append a whole event log to a live session, event by event (drives session/event). */
 function send(session: Session, events: readonly SessionEvent[]): void {
-  for (const e of events) session.append(e.type, e.data)
+  appendLog(session, events)
 }
 
 /** A live session created inside its OWN fiber, so it survives a backend reload. */
