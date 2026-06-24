@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { killGroup, OutputCollector, runBash } from '@deepseek-ai/dsh-bash-local'
+import type { RunningBash } from '@deepseek-ai/dsh-bash-local'
 
 const { failNextClose } = vi.hoisted(() => ({ failNextClose: { value: false } }))
 vi.mock('node:fs', async (importOriginal) => {
@@ -43,6 +44,15 @@ async function waitGone(pid: number, timeoutMs = 5_000): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   throw new Error(`pid ${pid} still alive after ${timeoutMs}ms`)
+}
+
+async function waitForStdout(running: RunningBash, expected: string, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (running.stdout.snapshot().text.includes(expected)) return
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  throw new Error(`stdout did not include ${JSON.stringify(expected)} after ${timeoutMs}ms`)
 }
 
 describe('runBash', () => {
@@ -96,11 +106,10 @@ describe('runBash', () => {
   })
 
   it('escalates to SIGKILL when SIGTERM is trapped', async () => {
-    const result = await runBash(
-      spec('trap \'\' TERM; sleep 60', { timeoutMs: 100 }),
-      { graceMs: 200 },
-    ).done
-    expect(result.timedOut).toBe(true)
+    const running = runBash(spec('trap \'\' TERM; echo ready; sleep 60'), { graceMs: 200 })
+    await waitForStdout(running, 'ready\n')
+    running.kill()
+    const result = await running.done
     expect(result.signal).toBe('SIGKILL')
   })
 

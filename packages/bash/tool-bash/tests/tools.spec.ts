@@ -66,6 +66,23 @@ function text(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(block => block.type === 'text').map(block => block.text).join('')
 }
 
+async function callUntilText(
+  ctx: Context,
+  name: string,
+  args: unknown,
+  expected: string,
+  timeoutMs = 5_000,
+): Promise<Awaited<ReturnType<typeof call>>> {
+  const deadline = Date.now() + timeoutMs
+  let last: Awaited<ReturnType<typeof call>> | undefined
+  while (Date.now() < deadline) {
+    last = await call(ctx, name, args)
+    if (text(last).includes(expected)) return last
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  throw new Error(`${name} output did not include ${JSON.stringify(expected)}; last text was ${JSON.stringify(last !== undefined ? text(last) : '')}`)
+}
+
 class LossyReadBashExecutor extends BashExecutor {
   private readonly task: BashTask = {
     id: BashTaskId('bash-lossy'),
@@ -278,11 +295,10 @@ describe('background tools', () => {
 
   it('bash_output polls incrementally and reports status', async () => {
     const ctx = await setup()
-    const started = await call(ctx, 'bash', { command: 'echo first; sleep 0.3; echo second', description: 'test command', run_in_background: true })
+    const started = await call(ctx, 'bash', { command: 'echo first; sleep 1; echo second', description: 'test command', run_in_background: true })
     const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
 
-    await new Promise(resolve => setTimeout(resolve, 150))
-    const first = await call(ctx, 'bash_output', { task_id: id })
+    const first = await callUntilText(ctx, 'bash_output', { task_id: id }, 'first')
     expect(text(first)).toContain('first')
     expect(text(first)).toContain('[status: running]')
 
