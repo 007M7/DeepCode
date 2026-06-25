@@ -248,12 +248,6 @@ function resolveRedirect(location: string, base: URL): URL {
 /**
  * Translate a thrown fetch/stream error into a `WebError`. Our own
  * `WEB_FETCH_TIMEOUT` (passed to `controller.abort(reason)`) and any other
- * already-typed `WebError` pass through; an `AbortError` becomes `WEB_ABORTED`;
- * anything else is a transport/network failure (`WEB_PROVIDER_ERROR`).
- */
-/**
- * Translate a thrown fetch/stream error into a `WebError`. Our own
- * `WEB_FETCH_TIMEOUT` (passed to `controller.abort(reason)`) and any other
  * already-typed `WebError` pass through; an `AbortError` becomes `WEB_ABORTED`,
  * UNLESS the abort was our timeout — the body-read reader surfaces a generic
  * `AbortError` rather than the abort reason, so we recover the timeout's
