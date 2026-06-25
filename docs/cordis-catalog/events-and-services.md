@@ -301,7 +301,7 @@ Source: [`packages/core/tools/src/index.ts:43`](../../packages/core/tools/src/in
 
 ## Services
 
-The 9 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
+The 10 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
 
 ### `ctx.agentLoop` — `AgentLoop`
 
@@ -310,12 +310,12 @@ The agent-loop plugin (`ctx.agentLoop`): creates ReactLoopAgents, runs their loo
 The loop itself is deliberately thin — every behavior beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy declared in @deepseek-ai/dsh-agent.
 
 ```ts cordis-catalog
-create(id: AgentId, options: AgentOptions = {}): ReactLoopAgent
+create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent
 createAgent(options: CreateAgentOptions): AgentHandle
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:63`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:65`](../../packages/core/agent-loop/src/index.ts)
 
 ### `ctx.agents` — `AgentRegistry`
 
@@ -413,6 +413,17 @@ list(): Session[]
 ```
 
 Source: [`packages/core/session/src/index.ts:229`](../../packages/core/session/src/index.ts)
+
+### `ctx.skills` — `SkillService`
+
+```ts cordis-catalog
+register(skill: SkillRegistration): () => void
+async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
+async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
+async renderModelListing(options: SkillLookupOptions = {}): Promise<string>
+```
+
+Source: [`packages/core/skill/src/index.ts:106`](../../packages/core/skill/src/index.ts)
 
 ### `ctx.subagents` — `SubagentService`
 

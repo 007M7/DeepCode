@@ -29,6 +29,8 @@ dsh-session       ← dsh-llm, dsh-brand
 dsh-system-prompt ← dsh-llm
 dsh-agent         ← dsh-llm, dsh-session, dsh-brand
 dsh-tools         ← dsh-llm, dsh-system-prompt, dsh-agent
+dsh-skill         ← dsh-llm, dsh-agent
+dsh-tool-skill    ← dsh-skill, dsh-tools, dsh-agent, dsh-llm
 dsh-bash-local    ← dsh-bash                       (BashExecutor impl)
 dsh-tool-bash     ← dsh-bash, dsh-tools            (bash tool schemas)
 dsh-llm-deepseek  ← dsh-llm                        (DeepSeek adapter)
@@ -44,7 +46,7 @@ dsh-subagent-spawn ← dsh-subagent, dsh-agent, dsh-session, dsh-llm  (in-proces
 dsh-subagent-fork ← dsh-subagent-spawn, dsh-agent, dsh-session      (in-process child seeded from parent log)
 dsh-subagent-acp  ← dsh-subagent, dsh-agent, dsh-llm, @agentclientprotocol/sdk  (out-of-process child over ACP)
 dsh-tool-subagent ← dsh-subagent, dsh-tools, dsh-agent (model-facing delegation tool)
-dsh-agent-core    ← timer, dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent, dsh-invariants, dsh-tool-bash, dsh-agent-loop  (the providerless spine, as one bundle plugin)
+dsh-agent-core    ← timer, dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-skill, dsh-agent, dsh-invariants, dsh-tool-bash, dsh-tool-skill, dsh-agent-loop  (the providerless spine, as one bundle plugin)
 dsh-stdio-agent   ← dsh-agent-core, dsh-ui-stdio, dsh-session-persistence-jsonl, dsh-agent, dsh-session  (stdio chat APP + bin)
 dsh-acp-agent     ← dsh-agent-core, dsh-acp, dsh-session-persistence-jsonl     (ACP server APP + bin)
 ```
@@ -59,6 +61,8 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `session/` | `core` | Event-sourced session log + in-memory store | `ctx.sessions` |
 | `system-prompt/` | `core` | Prompt-section + tool-schema assembly registry | `ctx.systemPrompt` |
 | `tools/` | `core` | Tool registry + `tools/execute` waterfall | `ctx.tools` |
+| `skill/` | `core` | Skill discovery + request-time model listing | `ctx.skills` |
+| `tool-skill/` | `core` | Model-facing `skill` loader tool | (registers on `ctx.tools`) |
 | `agent/` | `core` | Agent interface, registry, `agent/*` event vocabulary | `ctx.agents` |
 | `agent-loop/` | `core` | THE concrete loop plugin: `ReactLoopAgent` + the loop driver | `ctx.agentLoop` |
 | `agent-core/` | `core` | Bundle plugin: the providerless/executor-less/UI-less spine as code (forwards `agent-loop`'s `agents`) | (loads the spine) |

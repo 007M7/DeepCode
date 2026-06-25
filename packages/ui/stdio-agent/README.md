@@ -11,7 +11,7 @@ A terminal chat always wants the same cluster, so the package owns it rather tha
 | Plugin | Why it is here |
 |---|---|
 | `@cordisjs/plugin-logger-console` | the console logger — stdout is just the terminal here, so logging to it is correct (the ACP app must NOT have this) |
-| `@deepseek-ai/dsh-agent-core` | the spine, pre-creating a `main` agent from this app's `model`/`systemPrompt` |
+| `@deepseek-ai/dsh-agent-core` | the spine, pre-creating a `main` agent from this app's `model`/`systemPrompt` with `process.cwd()` as the fresh session cwd |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log under `persistenceRoot` |
 | `@deepseek-ai/dsh-ui-stdio` | the readline UI, bound to the `main` agent |
 
@@ -28,6 +28,8 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
 | `welcome` | `ready.` | the stdin-chat banner |
 | `resumeSessionId` | — | resume a persisted session id instead of starting fresh (sourced from an env var in the leaf) |
+
+Fresh stdio sessions use the process launch directory as `session.header.cwd`, so project-scoped features such as skill discovery and default bash workdir follow the directory where `dsh-stdio-agent` was started. Resumed sessions keep the cwd stored in the persisted session header.
 
 ## The bin
 

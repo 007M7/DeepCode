@@ -27,6 +27,12 @@
       "path": "../../core/tools"
     },
     {
+      "path": "../../core/skill"
+    },
+    {
+      "path": "../../core/tool-skill"
+    },
+    {
       "path": "../../core/agent"
     },
     {

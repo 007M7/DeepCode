@@ -8,7 +8,7 @@ This is the only package in the harness that contains concrete loop logic. Every
 
 ### Public API
 
-- `ctx.agentLoop.create(id: string, options?: AgentOptions): ReactLoopAgent` — config-driven create: an agent on a fresh per-run session id `${id}-session-<uuid>` (no cwd). Used for `cordis.yml`-configured agents. The per-run uuid avoids colliding with the on-disk log a prior run materialized once a durable persistence backend is loaded; each run is a new session (a deliberate demo simplification — a real resume-or-create policy is a TODO). Disposed with the calling fiber.
+- `ctx.agentLoop.create(id: string, options?: AgentOptions, meta?: { cwd?: string }): ReactLoopAgent` — config-driven create: an agent on a fresh per-run session id `${id}-session-<uuid>` with optional session metadata. Used for `cordis.yml`-configured agents. The per-run uuid avoids colliding with the on-disk log a prior run materialized once a durable persistence backend is loaded; each run is a new session (a deliberate demo simplification — a real resume-or-create policy is a TODO). Disposed with the calling fiber.
 
 `AgentLoop` also implements the `AgentFactory` seam and registers itself via `ctx.agents.setFactory(this)`, so plugins create/resume agents through `ctx.agents` (the interface):
 
@@ -29,11 +29,12 @@ interface Config {
     id: string                 // required
     model?: string
     systemPrompt?: string
+    cwd?: string               // optional workspace cwd for the fresh session
   }>
 }
 ```
 
-Agents listed in config are auto-created at startup.
+Agents listed in config are auto-created at startup. `cwd` applies only to fresh config-created sessions; `resumeSessionId` keeps the persisted session header.
 
 ### Classes
 

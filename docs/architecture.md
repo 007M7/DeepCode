@@ -24,10 +24,12 @@ For a catalog of the **data structures** this architecture moves around — the 
 │  @deepseek-ai/dsh-agent-loop      (the ONE concrete plugin)  │
 │  @deepseek-ai/dsh-bash-local      (bash impl)                │
 │  @deepseek-ai/dsh-tool-bash       (bash tool schemas)        │
+│  @deepseek-ai/dsh-tool-skill      (skill loader tool)        │
 │  @deepseek-ai/dsh-session-persistence-jsonl (persistence impl)│
 ├─────────────────────────────────────────────────────────────┤
 │  @deepseek-ai/dsh-agent           (vocabulary + registry)    │
 │  @deepseek-ai/dsh-tools           (registry + exec waterfall)│
+│  @deepseek-ai/dsh-skill           (skill discovery + listing)│
 │  @deepseek-ai/dsh-system-prompt   (assembly registry)        │
 │  @deepseek-ai/dsh-session         (event-sourced log)        │
 │  @deepseek-ai/dsh-session-persistence (persistence seam)     │
@@ -50,6 +52,7 @@ Dependency rule: **extension** plugins depend on interface packages, never on `d
 | `ctx.sessionPersistence` | `SessionPersistence` (abstract) | dsh-session-persistence | durable persistence seam: create/append/load/list sessions |
 | `ctx.systemPrompt` | `SystemPrompt` | dsh-system-prompt | ordered sections + tool schemas → `assemble()` |
 | `ctx.tools` | `ToolRegistry` | dsh-tools | tool definitions; `execute()` through waterfall |
+| `ctx.skills` | `SkillService` | dsh-skill | discovers user/project/system skills and adds request-time skill guidance |
 | `ctx.agents` | `AgentRegistry` | dsh-agent | live `Agent` handles + the create/resume factory seam (returns an `AgentHandle` = `{ agent, dispose() }` for owned per-agent teardown) |
 | `ctx.agentLoop` | `AgentLoop` | dsh-agent-loop | creates `ReactLoopAgent`s and drives their loops |
 | `ctx.bash` | `BashExecutor` (abstract) | dsh-bash | bash execution seam: foreground runs + background tasks |
@@ -202,7 +205,7 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 | Plan mode | wrap `tools/execute` (deny writes) + `agent/request` (inject mode prompt) |
 | Sub-agents (spawn / fork / steer) | TODO seam on `AgentLoop.create()`; fork = seed Session with parent events; `steer()` on the child handle |
 | MCP | one plugin per server: discover tools → `ctx.tools.register()` |
-| Skills | section + tool registration; `inject()` skill content on invocation |
+| Skills | `dsh-skill` discovers `~/.dsh/skills`, `~/.agents/skills`, project `.dsh/skills`/`.agents/skills`, and system `~/.dsh/skills/.system`; `agent/request` appends the model-visible listing; `dsh-tool-skill` loads full skill content on demand |
 | Memory | section provider + tool |
 | Scheduled tasks (cron) | plugin registers model-callable scheduling tools; timer fires → `send(…, {source: {kind: 'cron', …}})` when idle / `inject()` notification when busy |
 | UI (GUI; CLI emits JSONL) | listen `agent/stream-chunk` + `session/event`; input → `send()` |

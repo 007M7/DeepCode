@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto'
 import z from 'schemastery'
 import type { AgentFactory, AgentHandle, AgentId, AgentOptions, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionHeader } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -33,6 +33,8 @@ export interface Config {
   /** Agents created from configuration at startup. */
   agents: (AgentOptions & {
     id: AgentId
+    /** Optional workspace cwd for the config-created fresh session. */
+    cwd?: string
     /**
      * If set, the config agent RESUMES this persisted session id instead of
      * starting a fresh `${id}-session-<uuid>`. Sourced from an env var in
@@ -73,6 +75,7 @@ export class AgentLoop extends Service implements AgentFactory {
       id: z.string().required(),
       model: z.string(),
       systemPrompt: z.string(),
+      cwd: z.string(),
       resumeSessionId: z.string(),
     })).default([]),
   }) as unknown as z<Config>
@@ -82,7 +85,7 @@ export class AgentLoop extends Service implements AgentFactory {
     // Provide the agent-creation factory to the registry (effect-scoped: the
     // slot is cleared on dispose).
     ctx.effect(() => this.ctx.agents.setFactory(this), 'agentLoop.setFactory()')
-    for (const { id, resumeSessionId, ...options } of config.agents) {
+    for (const { id, cwd, resumeSessionId, ...options } of config.agents) {
       if (resumeSessionId !== undefined && resumeSessionId !== '') {
         // Resume a prior session instead of starting fresh. resume() needs
         // `ctx.sessionPersistence`, which may load AFTER this plugin (cordis.yml
@@ -101,15 +104,15 @@ export class AgentLoop extends Service implements AgentFactory {
           return () => void fiber.dispose()
         }, `agentLoop.resume(${id})`)
       } else {
-        this.create(id, options)
+        this.create(id, options, cwd === undefined ? {} : { cwd })
       }
     }
   }
 
   /**
    * Config-driven create: an agent on a FRESH, non-colliding session id per run
-   * (`${id}-session-<uuid>`, no cwd). Used for `cordis.yml`-configured agents
-   * and as the shared core for the programmatic factory {@link createAgent}.
+   * (`${id}-session-<uuid>`). Used for `cordis.yml`-configured agents and as
+   * the shared core for the programmatic factory {@link createAgent}.
    *
    * Why a per-run id, not a fixed `${id}-session`: once a durable persistence
    * backend is loaded, a fixed id collides on the second run — the backend
@@ -122,13 +125,13 @@ export class AgentLoop extends Service implements AgentFactory {
    * else start fresh) or an explicit caller-chosen session id — revisit when the
    * UI/ACP path owns session selection.
    */
-  create(id: AgentId, options: AgentOptions = {}): ReactLoopAgent {
+  create(id: AgentId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): ReactLoopAgent {
     this.assertAgentIdFree(id)
     // Config/programmatic path: prepare the session and let start() fold its
     // lifecycle into the agent's composite effect (so a fiber unload tears the
     // session + agent down as one ordered chain, capturing the loop's closing
     // flush). The whole effect is owned by THIS fiber; no AgentHandle is needed.
-    const session = this.ctx.sessions.prepare(SessionId(`${id}-session-${randomUUID()}`), { meta: {} })
+    const session = this.ctx.sessions.prepare(SessionId(`${id}-session-${randomUUID()}`), { meta })
     const { agent } = this.start(id, options, session)
     return agent
   }

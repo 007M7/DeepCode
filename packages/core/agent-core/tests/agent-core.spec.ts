@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { mkdtemp } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import * as agentCore from '../src/index.ts'
@@ -15,12 +18,22 @@ import { AgentId } from '@deepseek-ai/dsh-agent'
  * bin smokes; here we assert the composition + config forwarding.
  */
 async function mount(config?: agentCore.Config): Promise<Context> {
+  const oldDshHome = process.env.DSH_HOME
+  process.env.DSH_HOME = await mkdtemp(join(tmpdir(), 'dsh-agent-core-home-'))
   const ctx = new Context()
-  await ctx.plugin(agentCore, config)
-  // The bundle mounts its children inside apply() (not awaited there); let their
-  // fibers settle so the spine services and any pre-created agent are ready.
-  await new Promise(resolve => setTimeout(resolve, 50))
-  return ctx
+  try {
+    await ctx.plugin(agentCore, config)
+    // The bundle mounts its children inside apply() (not awaited there); let their
+    // fibers settle so the spine services and any pre-created agent are ready.
+    await new Promise(resolve => setTimeout(resolve, 50))
+    return ctx
+  } finally {
+    if (oldDshHome === undefined) {
+      delete process.env.DSH_HOME
+    } else {
+      process.env.DSH_HOME = oldDshHome
+    }
+  }
 }
 
 describe('dsh-agent-core bundle', () => {
@@ -32,8 +45,22 @@ describe('dsh-agent-core bundle', () => {
     expect(ctx.get('sessions')).toBeDefined()
     expect(ctx.get('systemPrompt')).toBeDefined()
     expect(ctx.get('tools')).toBeDefined()
+    expect(ctx.get('skills')).toBeDefined()
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('includes the default skill system and skill tool', async () => {
+    const ctx = await mount()
+
+    expect(ctx.skills).toBeDefined()
+    expect(ctx.tools.schemas().map(tool => tool.name)).toContain('skill')
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(expect.arrayContaining([
+      'dsh-plugin-creator',
+      'dsh-skill-creator',
+    ]))
+
     await ctx.fiber.dispose()
   })
 

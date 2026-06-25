@@ -48,8 +48,10 @@ export const name = 'stdio-agent'
 /**
  * App config: the swappable per-demo values, each routed to where the app wires
  * it. `model`/`systemPrompt`/`resumeSessionId` configure the pre-created `main`
- * agent (through {@link @deepseek-ai/dsh-agent-core}'s forwarded `agents` list);
- * `persistenceRoot` is the JSONL backend's directory; `welcome` is the UI banner.
+ * agent (through {@link @deepseek-ai/dsh-agent-core}'s forwarded `agents` list).
+ * Fresh sessions use `process.cwd()` as their workspace cwd; resumed sessions
+ * keep their persisted cwd. `persistenceRoot` is the JSONL backend's directory;
+ * `welcome` is the UI banner.
  */
 export interface Config {
   /** Model name for the `main` agent (must have a registered adapter). */
@@ -90,6 +92,7 @@ export function apply(ctx: Context, config: Config): void {
       id: AgentId('main'),
       model: config.model,
       systemPrompt: config.systemPrompt,
+      cwd: process.cwd(),
       ...config.resumeSessionId !== undefined ? { resumeSessionId: SessionId(config.resumeSessionId) } : {},
     }],
   })

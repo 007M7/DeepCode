@@ -28,6 +28,8 @@ graph TD
   session-persistence-jsonl --> session-persistence
   session-persistence-sqlite --> session
   session-persistence-sqlite --> session-persistence
+  skill --> agent
+  skill --> llm
   tools --> agent
   tools --> llm
   tools --> system-prompt
@@ -52,13 +54,19 @@ graph TD
   tool-bash --> bash
   tool-bash --> llm
   tool-bash --> tools
+  tool-skill --> agent
+  tool-skill --> llm
+  tool-skill --> skill
+  tool-skill --> tools
   agent-core --> agent
   agent-core --> agent-loop
   agent-core --> invariants
   agent-core --> llm
   agent-core --> session
+  agent-core --> skill
   agent-core --> system-prompt
   agent-core --> tool-bash
+  agent-core --> tool-skill
   agent-core --> tools
   subagent-acp --> agent
   subagent-acp --> llm
@@ -106,13 +114,15 @@ graph TD
 | `invariants` | `agent`, `llm`, `session` |
 | `session-persistence-jsonl` | `session`, `session-persistence` |
 | `session-persistence-sqlite` | `session`, `session-persistence` |
+| `skill` | `agent`, `llm` |
 | `tools` | `agent`, `llm`, `system-prompt` |
 | `ui-stdio` | `agent`, `llm`, `session` |
 | `acp` | `agent`, `llm`, `session`, `session-persistence`, `tools` |
 | `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
 | `subagent` | `agent`, `llm`, `tools` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |
-| `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `system-prompt`, `tool-bash`, `tools` |
+| `tool-skill` | `agent`, `llm`, `skill`, `tools` |
+| `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `skill`, `system-prompt`, `tool-bash`, `tool-skill`, `tools` |
 | `subagent-acp` | `agent`, `llm`, `subagent` |
 | `subagent-inprocess` | `agent`, `llm`, `session`, `subagent` |
 | `subagent-mock` | `agent`, `llm`, `subagent` |

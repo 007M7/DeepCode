@@ -3,8 +3,8 @@
  *
  * Loads the fixed set of services every harness agent needs — `timer`, the LLM
  * service, the session store, system-prompt assembly, the tool registry, the
- * agent registry, the dev-mode invariants, the model-facing `bash` tool
- * schemas, and the concrete `agent-loop` — and forwards the loop's `agents`
+ * skill registry, the agent registry, the dev-mode invariants, the model-facing
+ * `bash` and `skill` tool schemas, and the concrete `agent-loop` — and forwards the loop's `agents`
  * list as its OWN config (default `[]`), so each app supplies its own
  * pre-created agents.
  *
@@ -48,9 +48,11 @@ import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
+import SkillService from '@deepseek-ai/dsh-skill'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import * as invariants from '@deepseek-ai/dsh-invariants'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
+import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
 import AgentLoop, { type Config as AgentLoopConfig } from '@deepseek-ai/dsh-agent-loop'
 
 export const name = 'agent-core'
@@ -81,8 +83,10 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(SessionStore)
   ctx.plugin(SystemPrompt)
   ctx.plugin(ToolRegistry)
+  ctx.plugin(SkillService)
   ctx.plugin(AgentRegistry)
   ctx.plugin(invariants)
   ctx.plugin(toolBash)
+  ctx.plugin(toolSkill)
   ctx.plugin(AgentLoop, { agents: config.agents })
 }
