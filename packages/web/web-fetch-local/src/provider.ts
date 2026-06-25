@@ -71,7 +71,7 @@ export class LocalFetchProvider implements WebFetchProvider {
     const timer = setTimeout(() => { controller.abort(new WebError('web fetch timed out', 'WEB_FETCH_TIMEOUT')) }, timeoutMs)
 
     try {
-      return await this.followAndRead(request.url, controller, timeoutMs)
+      return await this.followAndRead(request.url, controller)
     } finally {
       clearTimeout(timer)
       if (exec?.signal !== undefined) exec.signal.removeEventListener('abort', onAbort)
@@ -79,41 +79,50 @@ export class LocalFetchProvider implements WebFetchProvider {
   }
 
   /** Follow same-origin redirects up to the hop cap, then read the final response. */
-  private async followAndRead(initialUrl: string, controller: AbortController, timeoutMs: number): Promise<WebFetchResult> {
+  private async followAndRead(initialUrl: string, controller: AbortController): Promise<WebFetchResult> {
     let currentUrl = validateFetchUrl(initialUrl, this.limits.maxUrlLength)
 
     for (let hop = 0; hop <= this.limits.maxRedirects; hop++) {
-      const response = await this.requestOnce(currentUrl, controller, timeoutMs)
+      const response = await this.requestOnce(currentUrl, controller)
 
       if (isRedirectStatus(response.status)) {
         const location = response.headers.get('location')
         if (location === null) {
-          // A redirect status with no Location is not a usable resource.
+          // A redirect status with no Location is not a usable resource. Cancel
+          // the (possibly streaming) body before throwing so no socket leaks.
+          await response.body?.cancel()
           throw new WebError(`redirect response (HTTP ${response.status}) without a Location header`, 'WEB_PROVIDER_ERROR')
         }
         const target = resolveRedirect(location, currentUrl)
         // Re-validate the target against the same transport hygiene a direct
         // request gets: a redirect must not be a back door to a credentialed,
-        // non-http(s), or over-long URL that validateFetchUrl would reject.
-        const validatedTarget = validateFetchUrl(target.toString(), this.limits.maxUrlLength)
-        if (!isSameOrigin(validatedTarget, currentUrl)) {
-          throw new WebError(
-            `cross-origin redirect to ${validatedTarget.origin} is not followed automatically; retry against that URL directly`,
-            'WEB_REDIRECT_BLOCKED',
-          )
+        // non-http(s), or over-long URL that validateFetchUrl would reject. A
+        // rejection here must still cancel the body first (see below).
+        let validatedTarget: URL
+        try {
+          validatedTarget = validateFetchUrl(target.toString(), this.limits.maxUrlLength)
+          if (!isSameOrigin(validatedTarget, currentUrl)) {
+            throw new WebError(
+              `cross-origin redirect to ${validatedTarget.origin} is not followed automatically; retry against that URL directly`,
+              'WEB_REDIRECT_BLOCKED',
+            )
+          }
+        } catch (error: unknown) {
+          await response.body?.cancel()
+          throw error
         }
         await response.body?.cancel()
         currentUrl = validatedTarget
         continue
       }
 
-      return await this.readBody(response, currentUrl)
+      return await this.readBody(response, currentUrl, controller.signal)
     }
 
     throw new WebError(`exceeded the maximum of ${this.limits.maxRedirects} redirects`, 'WEB_REDIRECT_BLOCKED')
   }
 
-  private async requestOnce(url: URL, controller: AbortController, _timeoutMs: number): Promise<Response> {
+  private async requestOnce(url: URL, controller: AbortController): Promise<Response> {
     try {
       return await fetch(url, {
         method: 'GET',
@@ -122,12 +131,12 @@ export class LocalFetchProvider implements WebFetchProvider {
         signal: controller.signal,
       })
     } catch (error: unknown) {
-      throw translateAbortOrNetwork(error)
+      throw translateAbortOrNetwork(error, controller.signal)
     }
   }
 
   /** Read, byte-cap, classify, and decode the final response body. */
-  private async readBody(response: Response, finalUrl: URL): Promise<WebFetchResult> {
+  private async readBody(response: Response, finalUrl: URL, signal: AbortSignal): Promise<WebFetchResult> {
     const contentType = response.headers.get('content-type')
     const kind = classifyContentType(contentType)
     if (kind === undefined) {
@@ -136,9 +145,16 @@ export class LocalFetchProvider implements WebFetchProvider {
     }
 
     // Resolve the decoder BEFORE reading the body so an unsupported charset
-    // fails without consuming the stream.
-    const decoder = decoderForCharset(parseCharset(contentType))
-    const { bytes, truncatedByBytes } = await this.readCapped(response)
+    // fails without consuming the stream — but cancel the body on that failure
+    // so the socket does not leak (matching the unsupported-content-type path).
+    let decoder: TextDecoder
+    try {
+      decoder = decoderForCharset(parseCharset(contentType))
+    } catch (error: unknown) {
+      await response.body?.cancel()
+      throw error
+    }
+    const { bytes, truncatedByBytes } = await this.readCapped(response, signal)
     const decoded = decoder.decode(bytes)
     const truncatedByChars = decoded.length > this.limits.maxBodyChars
     const content = truncatedByChars ? decoded.slice(0, this.limits.maxBodyChars) : decoded
@@ -159,7 +175,7 @@ export class LocalFetchProvider implements WebFetchProvider {
    * past the cap is cut short (`truncatedByBytes`) rather than rejected, so a
    * server that under-reports still yields a bounded usable body.
    */
-  private async readCapped(response: Response): Promise<{ bytes: Uint8Array; truncatedByBytes: boolean }> {
+  private async readCapped(response: Response, signal: AbortSignal): Promise<{ bytes: Uint8Array; truncatedByBytes: boolean }> {
     const declared = response.headers.get('content-length')
     if (declared !== null) {
       const length = Number(declared)
@@ -195,7 +211,7 @@ export class LocalFetchProvider implements WebFetchProvider {
       }
     } catch (error: unknown) {
       /* v8 ignore next -- mid-stream read fault needs a network drop after headers; translate path covered by request-phase tests. */
-      throw translateAbortOrNetwork(error)
+      throw translateAbortOrNetwork(error, signal)
     } finally {
       /* v8 ignore next 4 -- cancel() after a completed/broken read settles without rejecting; unobserved best-effort cleanup. */
       await reader.cancel().catch(() => {
@@ -235,9 +251,24 @@ function resolveRedirect(location: string, base: URL): URL {
  * already-typed `WebError` pass through; an `AbortError` becomes `WEB_ABORTED`;
  * anything else is a transport/network failure (`WEB_PROVIDER_ERROR`).
  */
-function translateAbortOrNetwork(error: unknown): WebError {
+/**
+ * Translate a thrown fetch/stream error into a `WebError`. Our own
+ * `WEB_FETCH_TIMEOUT` (passed to `controller.abort(reason)`) and any other
+ * already-typed `WebError` pass through; an `AbortError` becomes `WEB_ABORTED`,
+ * UNLESS the abort was our timeout — the body-read reader surfaces a generic
+ * `AbortError` rather than the abort reason, so we recover the timeout's
+ * `WebError` from `signal.reason`; anything else is a transport/network failure
+ * (`WEB_PROVIDER_ERROR`).
+ */
+function translateAbortOrNetwork(error: unknown, signal?: AbortSignal): WebError {
   if (error instanceof WebError) return error
   if (error instanceof DOMException && error.name === 'AbortError') {
+    // A timeout abort carries its WebError as the signal reason; honor the
+    // WEB_FETCH_TIMEOUT contract instead of reporting a generic cancellation.
+    // (Node rejects WITH the reason — the WebError branch above — so this only
+    // fires on a runtime that surfaces a bare AbortError while reason is set.)
+    /* v8 ignore next */
+    if (signal?.reason instanceof WebError) return signal.reason
     return new WebError('web fetch aborted', 'WEB_ABORTED', { cause: error })
   }
   return new WebError(`web fetch failed: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })

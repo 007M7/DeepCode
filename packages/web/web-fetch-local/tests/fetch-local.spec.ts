@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { AddressInfo } from 'node:net'
 import { Context } from 'cordis'
@@ -32,6 +32,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.unstubAllGlobals()
   await new Promise<void>(resolve => server.close(() => { resolve() }))
 })
 
@@ -250,6 +251,20 @@ describe('LocalFetchProvider invalid URLs and abort', () => {
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_FETCH_TIMEOUT' }))
   })
 
+  it('classifies a timeout DURING the body read as WEB_FETCH_TIMEOUT, not WEB_ABORTED', async () => {
+    // Promise body that resolves headers (so fetch() returns) but a content-length
+    // that outlasts the bytes sent, so readCapped()'s reader awaits more and the
+    // timeout fires mid-read — the reader then surfaces a generic AbortError that
+    // must still be recovered as the timeout reason via signal.reason.
+    handler = (_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain', 'content-length': '100' })
+      res.write('partial')
+      // never send the remaining bytes nor end the response
+    }
+    await expect(provider({ timeoutMs: 80 }).fetch({ url: base }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_FETCH_TIMEOUT' }))
+  })
+
   it('maps a connection failure to WEB_PROVIDER_ERROR', async () => {
     // Port 1 on loopback is not listening: a real connection failure (not abort).
     await expect(provider().fetch({ url: 'http://127.0.0.1:1/' }))
@@ -260,6 +275,46 @@ describe('LocalFetchProvider invalid URLs and abort', () => {
     handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('ok') }
     const result = await provider({ maxTimeoutMs: 10_000 }).fetch({ url: base, timeoutMs: 999_999 })
     expect(result.statusCode).toBe(200)
+  })
+})
+
+describe('LocalFetchProvider body cancellation on error paths', () => {
+  /** A fake Response whose body.cancel is observable. */
+  type FakeInit = { status: number; headers: Record<string, string>; location?: string }
+  function fakeResponse(init: FakeInit): { response: Response; cancelled: () => boolean } {
+    let cancelled = false
+    const headers = new Headers(init.headers)
+    if (init.location !== undefined) headers.set('location', init.location)
+    const response = {
+      status: init.status,
+      headers,
+      body: { cancel: () => { cancelled = true; return Promise.resolve() } },
+    } as unknown as Response
+    return { response, cancelled: () => cancelled }
+  }
+
+  it('cancels the body when a cross-origin redirect is blocked', async () => {
+    const { response, cancelled } = fakeResponse({ status: 302, headers: {}, location: 'https://elsewhere.test/' })
+    vi.stubGlobal('fetch', vi.fn(async () => response))
+    await expect(provider().fetch({ url: 'http://127.0.0.1:9/' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED' }))
+    expect(cancelled()).toBe(true)
+  })
+
+  it('cancels the body when an unsupported charset is rejected', async () => {
+    const { response, cancelled } = fakeResponse({ status: 200, headers: { 'content-type': 'text/plain; charset=not-a-charset' } })
+    vi.stubGlobal('fetch', vi.fn(async () => response))
+    await expect(provider().fetch({ url: 'http://127.0.0.1:9/' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_UNSUPPORTED_CONTENT_TYPE' }))
+    expect(cancelled()).toBe(true)
+  })
+
+  it('cancels the body when a redirect has no Location header', async () => {
+    const { response, cancelled } = fakeResponse({ status: 302, headers: {} })
+    vi.stubGlobal('fetch', vi.fn(async () => response))
+    await expect(provider().fetch({ url: 'http://127.0.0.1:9/' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+    expect(cancelled()).toBe(true)
   })
 })
 
