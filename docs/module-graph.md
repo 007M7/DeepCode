@@ -24,6 +24,8 @@ graph TD
   invariants --> agent
   invariants --> llm
   invariants --> session
+  project-instructions --> agent
+  project-instructions --> llm
   session-persistence-jsonl --> session
   session-persistence-jsonl --> session-persistence
   session-persistence-sqlite --> session
@@ -56,6 +58,7 @@ graph TD
   agent-core --> agent-loop
   agent-core --> invariants
   agent-core --> llm
+  agent-core --> project-instructions
   agent-core --> session
   agent-core --> system-prompt
   agent-core --> tool-bash
@@ -76,9 +79,11 @@ graph TD
   tool-subagent --> tools
   acp-agent --> acp
   acp-agent --> agent-core
+  acp-agent --> project-instructions
   acp-agent --> session-persistence-jsonl
   stdio-agent --> agent
   stdio-agent --> agent-core
+  stdio-agent --> project-instructions
   stdio-agent --> session
   stdio-agent --> session-persistence-jsonl
   stdio-agent --> ui-stdio
@@ -104,6 +109,7 @@ graph TD
 | `llm-replay` | `llm`, `session` |
 | `session-persistence` | `session` |
 | `invariants` | `agent`, `llm`, `session` |
+| `project-instructions` | `agent`, `llm` |
 | `session-persistence-jsonl` | `session`, `session-persistence` |
 | `session-persistence-sqlite` | `session`, `session-persistence` |
 | `tools` | `agent`, `llm`, `system-prompt` |
@@ -112,12 +118,12 @@ graph TD
 | `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
 | `subagent` | `agent`, `llm`, `tools` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |
-| `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `system-prompt`, `tool-bash`, `tools` |
+| `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `project-instructions`, `session`, `system-prompt`, `tool-bash`, `tools` |
 | `subagent-acp` | `agent`, `llm`, `subagent` |
 | `subagent-inprocess` | `agent`, `llm`, `session`, `subagent` |
 | `subagent-mock` | `agent`, `llm`, `subagent` |
 | `tool-subagent` | `agent`, `llm`, `subagent`, `tools` |
-| `acp-agent` | `acp`, `agent-core`, `session-persistence-jsonl` |
-| `stdio-agent` | `agent`, `agent-core`, `session`, `session-persistence-jsonl`, `ui-stdio` |
+| `acp-agent` | `acp`, `agent-core`, `project-instructions`, `session-persistence-jsonl` |
+| `stdio-agent` | `agent`, `agent-core`, `project-instructions`, `session`, `session-persistence-jsonl`, `ui-stdio` |
 | `subagent-fork` | `agent`, `session`, `subagent`, `subagent-inprocess` |
 | `subagent-spawn` | `subagent`, `subagent-inprocess` |

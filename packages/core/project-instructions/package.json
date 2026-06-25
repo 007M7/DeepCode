@@ -1,6 +1,6 @@
 {
-  "name": "@deepseek-ai/dsh-agent-core",
-  "description": "The providerless/executor-less/UI-less agent spine as one Cordis bundle plugin (timer + llm + sessions + system-prompt + tools + agents + invariants + tool-bash + project-instructions + agent-loop)",
+  "name": "@deepseek-ai/dsh-project-instructions",
+  "description": "Project instruction file loader for AGENTS.md with CLAUDE.md fallback",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -22,28 +22,20 @@
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
-    "@cordisjs/plugin-timer": "^1.1.2",
     "@deepseek-ai/dsh-agent": "^0.0.1",
-    "@deepseek-ai/dsh-agent-loop": "^0.0.1",
-    "@deepseek-ai/dsh-invariants": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
-    "@deepseek-ai/dsh-project-instructions": "^0.0.1",
-    "@deepseek-ai/dsh-session": "^0.0.1",
-    "@deepseek-ai/dsh-system-prompt": "^0.0.1",
-    "@deepseek-ai/dsh-tool-bash": "^0.0.1",
-    "@deepseek-ai/dsh-tools": "^0.0.1",
     "cordis": "^4.0.0-rc.6"
   },
+  "dependencies": {
+    "schemastery": "^3.18.0"
+  },
   "devDependencies": {
-    "@cordisjs/plugin-timer": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
-    "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
-    "@deepseek-ai/dsh-project-instructions": "workspace:^",
+    "@deepseek-ai/dsh-llm-deepseek": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
-    "@deepseek-ai/dsh-tool-bash": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }

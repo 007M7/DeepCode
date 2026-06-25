@@ -34,6 +34,7 @@
     "@cordisjs/plugin-loader": "^1.0.0-rc.4",
     "@deepseek-ai/dsh-acp": "^0.0.1",
     "@deepseek-ai/dsh-agent-core": "^0.0.1",
+    "@deepseek-ai/dsh-project-instructions": "^0.0.1",
     "@deepseek-ai/dsh-session-persistence-jsonl": "^0.0.1",
     "cordis": "^4.0.0-rc.6",
     "schemastery": "^3.17.0"
@@ -43,6 +44,7 @@
     "@cordisjs/plugin-loader": "workspace:^",
     "@deepseek-ai/dsh-acp": "workspace:^",
     "@deepseek-ai/dsh-agent-core": "workspace:^",
+    "@deepseek-ai/dsh-project-instructions": "workspace:^",
     "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:^",
     "cordis": "^4.0.0-rc.6",
     "schemastery": "^3.17.0"

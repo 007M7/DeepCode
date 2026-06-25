@@ -40,6 +40,7 @@ import z from 'schemastery'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import * as agentCore from '@deepseek-ai/dsh-agent-core'
+import * as projectInstructions from '@deepseek-ai/dsh-project-instructions'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as uiStdio from '@deepseek-ai/dsh-ui-stdio'
 
@@ -66,6 +67,8 @@ export interface Config {
    * (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`).
    */
   resumeSessionId?: string
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; set `false` for hermetic prompts. */
+  projectInstructions?: agentCore.Config['projectInstructions']
 }
 
 export const Config: z<Config> = z.object({
@@ -74,7 +77,8 @@ export const Config: z<Config> = z.object({
   persistenceRoot: z.string().default('./.sessions'),
   welcome: z.string().default('ready.'),
   resumeSessionId: z.string(),
-})
+  projectInstructions: z.union([z.const(false), projectInstructions.Config]),
+}) as unknown as z<Config>
 
 /**
  * Compose the spine with the stdio front door. The console logger comes first
@@ -92,6 +96,7 @@ export function apply(ctx: Context, config: Config): void {
       systemPrompt: config.systemPrompt,
       ...config.resumeSessionId !== undefined ? { resumeSessionId: SessionId(config.resumeSessionId) } : {},
     }],
+    ...config.projectInstructions !== undefined ? { projectInstructions: config.projectInstructions } : {},
   })
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
   ctx.plugin(uiStdio, { welcome: config.welcome ?? 'ready.', agent: 'main' })

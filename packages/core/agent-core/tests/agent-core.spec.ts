@@ -1,8 +1,14 @@
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import * as agentCore from '../src/index.ts'
 import { AgentId } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { MockAdapter, textResponse } from '../../agent-loop/tests/mock-adapter.ts'
+import type { Message } from '@deepseek-ai/dsh-llm'
 
 /**
  * Unit coverage for the @deepseek-ai/dsh-agent-core bundle: mounting it brings
@@ -21,6 +27,22 @@ async function mount(config?: agentCore.Config): Promise<Context> {
   // fibers settle so the spine services and any pre-created agent are ready.
   await new Promise(resolve => setTimeout(resolve, 50))
   return ctx
+}
+
+function waitForMainIdle(ctx: Context): Promise<void> {
+  return new Promise((resolve) => {
+    const dispose = ctx.on('agent/status', (agent, status) => {
+      if (agent.id === 'main' && status === 'idle') {
+        dispose()
+        resolve()
+      }
+    })
+  })
+}
+
+function firstText(message: Message | undefined): string | undefined {
+  const block = message?.content[0]
+  return block?.type === 'text' ? block.text : undefined
 }
 
 describe('dsh-agent-core bundle', () => {
@@ -49,6 +71,61 @@ describe('dsh-agent-core bundle', () => {
     })
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
     await ctx.fiber.dispose()
+  })
+
+  it('loads project instructions into requests through the bundled spine', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-agent-core-project-instructions-'))
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await writeFile(join(root, 'AGENTS.md'), 'bundled project rule')
+      const adapter = new MockAdapter([textResponse('ok')])
+      const ctx = await mount()
+      ctx.llm.registerAdapter(['mock'], adapter)
+      const handle = ctx.agents.create({
+        agentId: AgentId('main'),
+        sessionId: SessionId('main-session'),
+        meta: { cwd: root },
+        agentOptions: { model: 'mock' },
+      })
+      const agent = handle.agent
+
+      agent.send([{ type: 'text', text: 'hi' }])
+      await waitForMainIdle(ctx)
+
+      expect(adapter.requests[0]?.messages[0]?.role).toBe('user')
+      expect(firstText(adapter.requests[0]?.messages[0])).toContain('bundled project rule')
+      expect(adapter.requests[0]?.system).toBeUndefined()
+      await handle.dispose()
+      await ctx.fiber.dispose()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('forwards project-instructions config to the bundled loader', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-agent-core-project-instructions-disabled-'))
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await writeFile(join(root, 'AGENTS.md'), 'must not be injected')
+      const adapter = new MockAdapter([textResponse('ok')])
+      const ctx = await mount({ projectInstructions: { baselineMaxBytes: 0 } })
+      ctx.llm.registerAdapter(['mock'], adapter)
+      const handle = ctx.agents.create({
+        agentId: AgentId('main'),
+        sessionId: SessionId('main-disabled-session'),
+        meta: { cwd: root },
+        agentOptions: { model: 'mock' },
+      })
+
+      handle.agent.send([{ type: 'text', text: 'hi' }])
+      await waitForMainIdle(ctx)
+
+      expect(adapter.requests[0]?.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }])
+      await handle.dispose()
+      await ctx.fiber.dispose()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it('re-exports the loop config schema as its own', () => {

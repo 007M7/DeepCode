@@ -17,6 +17,7 @@ This is the package to read to see **the whole plugin tree at once** — the tea
 @deepseek-ai/dsh-agent            agent registry + agent/* event vocabulary
 @deepseek-ai/dsh-invariants       dev-mode event-contract assertions
 @deepseek-ai/dsh-tool-bash        the model-facing bash/bash_output/bash_kill schemas
+@deepseek-ai/dsh-project-instructions  AGENTS.md/CLAUDE.md workspace context loader
 @deepseek-ai/dsh-agent-loop       THE concrete loop (gets the forwarded `agents`)
 ```
 

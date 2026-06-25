@@ -22,6 +22,7 @@ For a catalog of the **data structures** this architecture moves around — the 
 │  future plugins: hooks, compaction, sandbox, UI, MCP…        │
 ├─────────────────────────────────────────────────────────────┤
 │  @deepseek-ai/dsh-agent-loop      (the ONE concrete plugin)  │
+│  @deepseek-ai/dsh-project-instructions (AGENTS.md loader)     │
 │  @deepseek-ai/dsh-bash-local      (bash impl)                │
 │  @deepseek-ai/dsh-tool-bash       (bash tool schemas)        │
 │  @deepseek-ai/dsh-session-persistence-jsonl (persistence impl)│
@@ -193,8 +194,8 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 | Queued + steering messages | core `Agent.send()` / `Agent.steer()` |
 | Context compaction (auto + manual) | wrap `agent/request`: measure tokens, rewrite `req.messages`, append merged `compaction/*` session events; manual = a command plugin invoking the same routine |
 | System prompt configurability | `ctx.systemPrompt.section()` with ordering |
-| AGENTS.md (root) | a section provider reading the file |
-| AGENTS.md (subdir, on-touch) + file-change notices | `agent.inject()` from a watcher / tool-result listener |
+| AGENTS.md (baseline) | `dsh-project-instructions` wraps `agent/request`, discovers `$DSH_HOME/AGENTS.md` plus the project-root→cwd ancestor chain, and prepends fenced workspace context |
+| AGENTS.md (subdir, on-touch) + file-change notices | deferred until structured file tools can report touched paths; late context should use `agent.inject()` |
 | Built-in tools (Read/Write/Edit/Bash/…) | `ctx.tools.register()`; schemas flow into the assembly automatically. **Bash: implemented** — `dsh-bash` (seam) + `dsh-bash-local` (subprocesses) + `dsh-tool-bash` (`bash`/`bash_output`/`bash_kill`, incl. background tasks) |
 | ToolSearch / progressive disclosure | wrap `agent/request`, filter `req.tools` |
 | Tool sandbox (landlock / sandbox-exec) | wrap `tools/execute`, or implement a sandboxing `BashExecutor` (the dsh-bash seam) |

@@ -33,6 +33,7 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import * as acp from '@deepseek-ai/dsh-acp'
 import * as agentCore from '@deepseek-ai/dsh-agent-core'
+import * as projectInstructions from '@deepseek-ai/dsh-project-instructions'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 
 export const name = 'acp-agent'
@@ -50,13 +51,16 @@ export interface Config {
   systemPrompt: string
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; set `false` for hermetic prompts. */
+  projectInstructions?: agentCore.Config['projectInstructions']
 }
 
 export const Config: z<Config> = z.object({
   model: z.string().required(),
   systemPrompt: z.string().required(),
   persistenceRoot: z.string().default('./.sessions'),
-})
+  projectInstructions: z.union([z.const(false), projectInstructions.Config]),
+}) as unknown as z<Config>
 
 /**
  * Compose the spine with the ACP front door. The agent-core bundle pre-creates
@@ -66,7 +70,7 @@ export const Config: z<Config> = z.object({
  * stdout stays pure.
  */
 export function apply(ctx: Context, config: Config): void {
-  ctx.plugin(agentCore)
+  ctx.plugin(agentCore, config.projectInstructions === undefined ? {} : { projectInstructions: config.projectInstructions })
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
   ctx.plugin(acp, { model: config.model, systemPrompt: config.systemPrompt })
 }

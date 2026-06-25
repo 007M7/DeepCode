@@ -4,9 +4,9 @@
  * Loads the fixed set of services every harness agent needs — `timer`, the LLM
  * service, the session store, system-prompt assembly, the tool registry, the
  * agent registry, the dev-mode invariants, the model-facing `bash` tool
- * schemas, and the concrete `agent-loop` — and forwards the loop's `agents`
- * list as its OWN config (default `[]`), so each app supplies its own
- * pre-created agents.
+ * schemas, project instruction loading, and the concrete `agent-loop` — and
+ * forwards the loop's `agents` list as its OWN config (default `[]`), so each
+ * app supplies its own pre-created agents.
  *
  * It is deliberately NOT the whole app: the swappable choices stay OUTSIDE the
  * bundle, picked by whatever loads it.
@@ -44,6 +44,7 @@
 
 import type { Context } from 'cordis'
 import Timer from '@cordisjs/plugin-timer'
+import z from 'schemastery'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -51,29 +52,41 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import * as invariants from '@deepseek-ai/dsh-invariants'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
+import * as projectInstructions from '@deepseek-ai/dsh-project-instructions'
 import AgentLoop, { type Config as AgentLoopConfig } from '@deepseek-ai/dsh-agent-loop'
 
 export const name = 'agent-core'
 
 /**
- * Bundle config: the agent-loop `agents` list, forwarded verbatim. Default `[]`
- * — an app that pre-creates no agents (the ACP bridge creates them on demand at
- * `session/new`) simply omits it; an app that needs a pre-created `main` (the
- * stdio chat) supplies one. This IS {@link AgentLoopConfig}, so the schema and
- * the forwarded shape can never drift.
+ * Bundle config: the agent-loop `agents` list plus project-instruction loader
+ * controls. `agents` defaults to `[]` — an app that pre-creates no agents (the
+ * ACP bridge creates them on demand at `session/new`) simply omits it; an app
+ * that needs a pre-created `main` (the stdio chat) supplies one.
  */
-export type Config = AgentLoopConfig
+export interface Config {
+  agents?: AgentLoopConfig['agents']
+  projectInstructions?: projectInstructions.Config | false
+}
 
-/** Forward the loop's own schema so validation + defaulting stay identical. */
-export const Config = AgentLoop.Config
+const AgentsConfig = z.array(z.object({
+  id: z.string().required(),
+  model: z.string(),
+  systemPrompt: z.string(),
+  resumeSessionId: z.string(),
+})).default([])
+
+export const Config: z<Config> = z.object({
+  agents: AgentsConfig,
+  projectInstructions: z.union([z.const(false), projectInstructions.Config]),
+}) as unknown as z<Config>
 
 /**
  * Load the spine. Each `ctx.plugin(...)` mounts one child of the bundle fiber;
  * `agent-loop` receives the forwarded `agents` list. Load order is irrelevant
  * (cordis pends each fiber on its `inject` until the services it needs exist),
  * but the listing mirrors the dependency layering for readability: the LLM
- * vocabulary and core registries first, then the dev tripwire and the bash tool
- * consumer, then the loop that drives them.
+ * vocabulary and core registries first, then extension plugins that wrap the
+ * request/tool seams, then the loop that drives them.
  */
 export function apply(ctx: Context, config: Config): void {
   ctx.plugin(Timer)
@@ -84,5 +97,8 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(AgentRegistry)
   ctx.plugin(invariants)
   ctx.plugin(toolBash)
-  ctx.plugin(AgentLoop, { agents: config.agents })
+  if (config.projectInstructions !== false) {
+    ctx.plugin(projectInstructions, config.projectInstructions ?? {})
+  }
+  ctx.plugin(AgentLoop, { agents: config.agents ?? [] })
 }

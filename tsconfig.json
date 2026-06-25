@@ -30,6 +30,7 @@
     { "path": "./packages/core/system-prompt" },
     { "path": "./packages/core/agent" },
     { "path": "./packages/core/tools" },
+    { "path": "./packages/core/project-instructions" },
     { "path": "./packages/core/agent-loop" },
     { "path": "./packages/core/agent-core" },
     { "path": "./packages/bash/bash" },
