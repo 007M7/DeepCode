@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import { BashTaskId } from '@deepseek-ai/dsh-bash'
+import type { BashTaskRead } from '@deepseek-ai/dsh-bash'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-bash-exec-spec-'))
 
@@ -28,6 +29,22 @@ async function waitGone(pid: number, timeoutMs = 5_000): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   throw new Error(`pid ${pid} still alive after ${timeoutMs}ms`)
+}
+
+async function readUntil(
+  bash: LocalBashExecutor,
+  id: BashTaskId,
+  expected: string,
+  timeoutMs = 5_000,
+): Promise<BashTaskRead> {
+  const deadline = Date.now() + timeoutMs
+  let last: BashTaskRead | undefined
+  while (Date.now() < deadline) {
+    last = bash.readOutput(id)
+    if (last.delta.includes(expected)) return last
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  throw new Error(`task ${id} output did not include ${JSON.stringify(expected)}; last delta was ${JSON.stringify(last?.delta ?? '')}`)
 }
 
 describe('LocalBashExecutor.run', () => {
@@ -116,9 +133,8 @@ describe('LocalBashExecutor background tasks', () => {
 
   it('readOutput returns increments without re-delivery', async () => {
     const { bash } = await setup()
-    const task = bash.start(bash.resolve({ command: 'echo first; sleep 0.3; echo second' }))
-    await new Promise(resolve => setTimeout(resolve, 150))
-    const first = bash.readOutput(task.id)
+    const task = bash.start(bash.resolve({ command: 'echo first; sleep 1; echo second' }))
+    const first = await readUntil(bash, task.id, 'first\n')
     expect(first.delta).toBe('first\n')
     expect(first.lossy).toBe(false)
     await task.done
