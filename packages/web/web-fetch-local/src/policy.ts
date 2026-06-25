@@ -57,3 +57,29 @@ export function classifyContentType(contentType: string | null): FetchableKind |
   if (mime === 'application/json' || mime === 'application/xml' || mime.endsWith('+json') || mime.endsWith('+xml')) return 'text'
   return undefined
 }
+
+/**
+ * Extract the `charset` parameter from a response `Content-Type`, lower-cased,
+ * or `undefined` when absent. The provider feeds this label to `TextDecoder`
+ * so a non-UTF-8 response is decoded with its declared encoding rather than
+ * silently mangled into replacement characters.
+ */
+export function parseCharset(contentType: string | null): string | undefined {
+  const match = /;\s*charset\s*=\s*"?([^";]+)"?/i.exec(contentType ?? '')
+  return match?.[1]?.trim().toLowerCase()
+}
+
+/**
+ * Build a `TextDecoder` for the declared charset, falling back to UTF-8 when
+ * none is declared. Throws {@link WebError} `WEB_UNSUPPORTED_CONTENT_TYPE` when
+ * the label is present but not a charset `TextDecoder` recognizes — better to
+ * fail loudly than return mojibake.
+ */
+export function decoderForCharset(charset: string | undefined): TextDecoder {
+  if (charset === undefined) return new TextDecoder('utf-8')
+  try {
+    return new TextDecoder(charset)
+  } catch (error: unknown) {
+    throw new WebError(`unsupported charset "${charset}"`, 'WEB_UNSUPPORTED_CONTENT_TYPE', { cause: error })
+  }
+}

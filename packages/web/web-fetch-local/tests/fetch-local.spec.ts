@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { AddressInfo } from 'node:net'
 import { Context } from 'cordis'
 import WebService from '@deepseek-ai/dsh-web'
-import { LocalFetchProvider, LOCAL_FETCH_PROVIDER_ID, classifyContentType, isSameOrigin, validateFetchUrl } from '@deepseek-ai/dsh-web-fetch-local'
+import { LocalFetchProvider, LOCAL_FETCH_PROVIDER_ID, classifyContentType, decoderForCharset, isSameOrigin, parseCharset, validateFetchUrl } from '@deepseek-ai/dsh-web-fetch-local'
 import type { LocalFetchLimits } from '@deepseek-ai/dsh-web-fetch-local'
 import * as fetchPlugin from '@deepseek-ai/dsh-web-fetch-local'
 
@@ -62,6 +62,19 @@ describe('policy helpers', () => {
     expect(isSameOrigin(new URL('https://a.com'), new URL('https://b.com'))).toBe(false)
     expect(isSameOrigin(new URL('http://a.com'), new URL('https://a.com'))).toBe(false)
   })
+
+  it('parses the charset parameter', () => {
+    expect(parseCharset('text/html; charset=UTF-8')).toBe('utf-8')
+    expect(parseCharset('text/plain; charset="iso-8859-1"')).toBe('iso-8859-1')
+    expect(parseCharset('text/plain')).toBeUndefined()
+    expect(parseCharset(null)).toBeUndefined()
+  })
+
+  it('builds a decoder for a charset and defaults to UTF-8', () => {
+    expect(decoderForCharset(undefined).encoding).toBe('utf-8')
+    expect(decoderForCharset('iso-8859-1').encoding).toBe('windows-1252')
+    expect(() => decoderForCharset('not-a-charset')).toThrow(expect.objectContaining({ code: 'WEB_UNSUPPORTED_CONTENT_TYPE' }))
+  })
 })
 
 describe('LocalFetchProvider success', () => {
@@ -109,6 +122,13 @@ describe('LocalFetchProvider caps', () => {
     expect(result.truncated).toBe(true)
   })
 
+  it('does not flag a body that exactly fills the byte cap as truncated', async () => {
+    handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('abcd') }
+    const result = await provider({ maxResponseBytes: 4 }).fetch({ url: base })
+    expect(result.body.content).toBe('abcd')
+    expect(result.truncated).toBe(false)
+  })
+
   it('truncates a decoded body past the character cap', async () => {
     handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('abcdefghij') }
     const result = await provider({ maxBodyChars: 3 }).fetch({ url: base })
@@ -133,6 +153,19 @@ describe('LocalFetchProvider caps', () => {
     const result = await provider().fetch({ url: base })
     expect(result.body.content).toBe('sized')
   })
+
+  it('decodes a non-UTF-8 declared charset', async () => {
+    // 0xE9 is "é" in ISO-8859-1; decoded as UTF-8 it would be a replacement char.
+    handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/plain; charset=iso-8859-1' }); res.end(Buffer.from([0x63, 0x61, 0x66, 0xE9])) }
+    const result = await provider().fetch({ url: base })
+    expect(result.body.content).toBe('café')
+  })
+
+  it('rejects an unsupported declared charset', async () => {
+    handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/plain; charset=not-a-charset' }); res.end('x') }
+    await expect(provider().fetch({ url: base }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_UNSUPPORTED_CONTENT_TYPE' }))
+  })
 })
 
 describe('LocalFetchProvider redirects', () => {
@@ -150,6 +183,13 @@ describe('LocalFetchProvider redirects', () => {
     handler = (_req, res) => { res.writeHead(302, { location: 'https://example.com/' }); res.end() }
     await expect(provider().fetch({ url: base }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED' }))
+  })
+
+  it('re-validates a redirect target, rejecting same-origin credentials in the Location', async () => {
+    const { port } = server.address() as AddressInfo
+    handler = (_req, res) => { res.writeHead(302, { location: `http://user:pass@127.0.0.1:${port}/` }); res.end() }
+    await expect(provider().fetch({ url: base }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_BLOCKED_URL' }))
   })
 
   it('rejects exceeding the redirect hop cap', async () => {

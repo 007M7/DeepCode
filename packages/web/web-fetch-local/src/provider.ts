@@ -21,7 +21,7 @@
 
 import { WebError } from '@deepseek-ai/dsh-web'
 import type { WebFetchBody, WebFetchProvider, WebFetchRequest, WebFetchResult, WebProviderStatus } from '@deepseek-ai/dsh-web'
-import { classifyContentType, isSameOrigin, validateFetchUrl } from './policy.ts'
+import { classifyContentType, decoderForCharset, isSameOrigin, parseCharset, validateFetchUrl } from './policy.ts'
 
 /** Resolved provider limits (the plugin's schemastery Config supplies defaults). */
 export interface LocalFetchLimits {
@@ -92,14 +92,18 @@ export class LocalFetchProvider implements WebFetchProvider {
           throw new WebError(`redirect response (HTTP ${response.status}) without a Location header`, 'WEB_PROVIDER_ERROR')
         }
         const target = resolveRedirect(location, currentUrl)
-        if (!isSameOrigin(target, currentUrl)) {
+        // Re-validate the target against the same transport hygiene a direct
+        // request gets: a redirect must not be a back door to a credentialed,
+        // non-http(s), or over-long URL that validateFetchUrl would reject.
+        const validatedTarget = validateFetchUrl(target.toString(), this.limits.maxUrlLength)
+        if (!isSameOrigin(validatedTarget, currentUrl)) {
           throw new WebError(
-            `cross-origin redirect to ${target.origin} is not followed automatically; retry against that URL directly`,
+            `cross-origin redirect to ${validatedTarget.origin} is not followed automatically; retry against that URL directly`,
             'WEB_REDIRECT_BLOCKED',
           )
         }
         await response.body?.cancel()
-        currentUrl = target
+        currentUrl = validatedTarget
         continue
       }
 
@@ -124,14 +128,18 @@ export class LocalFetchProvider implements WebFetchProvider {
 
   /** Read, byte-cap, classify, and decode the final response body. */
   private async readBody(response: Response, finalUrl: URL): Promise<WebFetchResult> {
-    const kind = classifyContentType(response.headers.get('content-type'))
+    const contentType = response.headers.get('content-type')
+    const kind = classifyContentType(contentType)
     if (kind === undefined) {
       await response.body?.cancel()
-      throw new WebError(`unsupported content type "${response.headers.get('content-type') ?? 'unknown'}"`, 'WEB_UNSUPPORTED_CONTENT_TYPE')
+      throw new WebError(`unsupported content type "${contentType ?? 'unknown'}"`, 'WEB_UNSUPPORTED_CONTENT_TYPE')
     }
 
+    // Resolve the decoder BEFORE reading the body so an unsupported charset
+    // fails without consuming the stream.
+    const decoder = decoderForCharset(parseCharset(contentType))
     const { bytes, truncatedByBytes } = await this.readCapped(response)
-    const decoded = new TextDecoder('utf-8').decode(bytes)
+    const decoded = decoder.decode(bytes)
     const truncatedByChars = decoded.length > this.limits.maxBodyChars
     const content = truncatedByChars ? decoded.slice(0, this.limits.maxBodyChars) : decoded
     const body: WebFetchBody = kind === 'html' ? { kind: 'html', content } : { kind: 'text', content }
@@ -173,7 +181,10 @@ export class LocalFetchProvider implements WebFetchProvider {
         const { done, value } = await reader.read()
         if (done) break
         const remaining = this.limits.maxResponseBytes - total
-        if (value.byteLength >= remaining) {
+        // Only DROPPED bytes count as truncation: a chunk that exactly fills the
+        // remaining capacity keeps all its bytes and we read on to observe EOF,
+        // so an exactly-at-cap body is not falsely flagged truncated.
+        if (value.byteLength > remaining) {
           chunks.push(value.subarray(0, remaining))
           total += remaining
           truncatedByBytes = true

@@ -18,7 +18,7 @@ export {
   LocalFetchProvider,
 } from './provider.ts'
 export type { LocalFetchLimits } from './provider.ts'
-export { classifyContentType, isSameOrigin, validateFetchUrl } from './policy.ts'
+export { classifyContentType, decoderForCharset, isSameOrigin, parseCharset, validateFetchUrl } from './policy.ts'
 export type { FetchableKind } from './policy.ts'
 
 /** Default `User-Agent`: an explicit product agent, never a browser disguise. */
