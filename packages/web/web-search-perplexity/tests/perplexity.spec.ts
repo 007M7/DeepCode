@@ -75,6 +75,11 @@ describe('PerplexitySearchProvider status', () => {
   it('is available with a key', () => {
     expect(new PerplexitySearchProvider(options).status()).toEqual({ available: true })
   })
+
+  it('is misconfigured when the base URL is unparseable', () => {
+    expect(new PerplexitySearchProvider({ ...options, baseURL: 'not a url' }).status())
+      .toEqual({ available: false, reason: 'misconfigured' })
+  })
 })
 
 describe('PerplexitySearchProvider request mapping', () => {
@@ -133,6 +138,20 @@ describe('PerplexitySearchProvider error handling', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('not json', { status: 200 })))
     await expect(new PerplexitySearchProvider(options).search({ query: 'q' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+  })
+
+  it('surfaces an abort during success-body parse as WEB_ABORTED, not provider error', async () => {
+    const body = { json: () => Promise.reject(new DOMException('aborted', 'AbortError')), ok: true, status: 200 }
+    vi.stubGlobal('fetch', vi.fn(async () => body as unknown as Response))
+    await expect(new PerplexitySearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
+  })
+
+  it('surfaces an abort during error-body parse as WEB_ABORTED', async () => {
+    const body = { json: () => Promise.reject(new DOMException('aborted', 'AbortError')), ok: false, status: 500 }
+    vi.stubGlobal('fetch', vi.fn(async () => body as unknown as Response))
+    await expect(new PerplexitySearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
   })
 
   it('maps a network failure to WEB_PROVIDER_ERROR', async () => {

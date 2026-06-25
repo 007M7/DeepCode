@@ -9,7 +9,7 @@ This is an **implementation** package: it registers a provider into `ctx.web`, i
 | Key | Default | Meaning |
 |---|---|---|
 | `apiKey` | `$EXA_API_KEY` | Exa API key. Empty/absent → provider `status()` reports `missing-credential` (the seam reports `configured-unavailable`/`none`). |
-| `baseURL` | `https://api.exa.ai` | Endpoint base; `/search` is appended. |
+| `baseURL` | `https://api.exa.ai` | Endpoint base; `/search` is appended. An unparseable value makes `status()` report `misconfigured`. |
 
 ```yaml
 - id: web-search-exa

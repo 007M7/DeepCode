@@ -9,7 +9,7 @@ This is an **implementation** package: it registers a provider into `ctx.web`, i
 | Key | Default | Meaning |
 |---|---|---|
 | `apiKey` | `$PERPLEXITY_API_KEY` | Perplexity API key. Empty/absent → provider `status()` reports `missing-credential`. |
-| `baseURL` | `https://api.perplexity.ai` | Endpoint base; `/chat/completions` is appended. |
+| `baseURL` | `https://api.perplexity.ai` | Endpoint base; `/chat/completions` is appended. An unparseable value makes `status()` report `misconfigured`. |
 | `model` | `sonar` | Search model name. |
 
 ```yaml

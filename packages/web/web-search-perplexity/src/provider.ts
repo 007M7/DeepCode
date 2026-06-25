@@ -81,6 +81,7 @@ export class PerplexitySearchProvider implements WebSearchProvider {
 
   status(): WebProviderStatus {
     if (this.options.apiKey.length === 0) return { available: false, reason: 'missing-credential' }
+    if (!URL.canParse(this.options.baseURL)) return { available: false, reason: 'misconfigured' }
     return { available: true }
   }
 
@@ -113,11 +114,14 @@ export class PerplexitySearchProvider implements WebSearchProvider {
         const parsed = await response.json() as PerplexityError
         const detail = typeof parsed.error === 'string' ? parsed.error : parsed.error?.message ?? parsed.message
         if (detail !== undefined && detail.length > 0) message = detail
-      } catch {
-        // The HTTP status is already captured in `message` above; a malformed or
-        // non-JSON error body (normal for gateway 5xx/429s) can only cost a
-        // richer provider message, never the real error. `response.json()` is
-        // the sole statement and nothing else of consequence reaches here.
+      } catch (error: unknown) {
+        // An abort fired mid-body must surface as WEB_ABORTED, not be swallowed
+        // into a generic HTTP-error message — cancellation is not a provider
+        // error (the seam's cancellation contract).
+        if (isAbortError(error)) throw new WebError('Perplexity search aborted', 'WEB_ABORTED', { cause: error })
+        // Otherwise: the HTTP status is already captured in `message` above; a
+        // malformed/non-JSON error body (normal for gateway 5xx/429s) can only
+        // cost a richer provider message, never the real error.
       }
       throw new WebError(message, 'WEB_PROVIDER_ERROR')
     }
@@ -126,6 +130,7 @@ export class PerplexitySearchProvider implements WebSearchProvider {
     try {
       payload = await response.json() as PerplexityResponse
     } catch (error: unknown) {
+      if (isAbortError(error)) throw new WebError('Perplexity search aborted', 'WEB_ABORTED', { cause: error })
       throw new WebError(`Perplexity returned an unparseable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
     }
     return mapPerplexityResponse(request.query, payload)
