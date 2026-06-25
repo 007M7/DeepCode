@@ -48,9 +48,16 @@ export interface CompactionResult {
   endSeq: number
   /** The summary content blocks produced by the backend. */
   summary: ContentBlock[]
-  /** The seq range that was shadowed [start, end] inclusive. */
+  /**
+   * The surface-boundary pair that was shadowed: the seqs of the first
+   * (`start`) and last (`end`) surface nodes of the replaced range. A
+   * surface-POSITION span, not a numeric seq interval — after a prior replace
+   * lands a fresh high-seq summary node at an older range's position, `start`
+   * can be GREATER than `end`. {@link CompactionResult.shadowedSeqs} is the
+   * authoritative set of shadowed nodes, in surface order.
+   */
   shadowedRange: { start: number; end: number }
-  /** The seq numbers of all shadowed surface nodes. */
+  /** The seqs of all shadowed surface nodes, in surface order. */
   shadowedSeqs: number[]
   /** Estimated token count of the shadowed content. */
   shadowedTokenCount: number

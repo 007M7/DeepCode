@@ -192,7 +192,7 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 | `/loop` | on `agent/turn-end`, `send()` the next iteration; or force-continue |
 | Dynamic workflow | orchestrator plugin on `agent/turn-end` / `agent/step-end` driving `send`/`steer` (+ sub-agents later) |
 | Queued + steering messages | core `Agent.send()` / `Agent.steer()` |
-| Context compaction (auto + manual) | the `ctx.compact` seam ([dsh-compact](../packages/compact/compact)): a backend summarizes an older surface range into a single `user/message` `replace` op, bracketed by log-only `compact/*` events; auto = check token pressure at turn boundaries, manual = a `/compact` tool. See the [compaction capability-seam RFC](rfc/proposed/feature/2026-06-18-compaction-capability-seam.md) |
+| Context compaction (auto + manual) | the `dsh-compact` seam (`ctx.compact`) + a backend (`dsh-compact-basic`) wrapping `agent/request`: a backend summarizes an older surface range into a single `user/message` `replace` op, bracketed by log-only `compact/*` events; auto = check token pressure before each model call, manual = a (deferred) `/compact` tool invoking the same `ctx.compact` routine. See the [compaction capability-seam RFC](rfc/proposed/feature/2026-06-18-compaction-capability-seam.md) |
 | System prompt configurability | `ctx.systemPrompt.section()` with ordering |
 | AGENTS.md (root) | a section provider reading the file |
 | AGENTS.md (subdir, on-touch) + file-change notices | `agent.inject()` from a watcher / tool-result listener |
@@ -220,6 +220,6 @@ Code skeletons for the three plugin shapes (tool, hook/permission-gate, UI) and 
 Tracked here deliberately — each is designed-for but not implemented:
 
 - **Sub-agent spawn/fork semantics** (seam: `AgentLoop.create()`); inter-agent channels beyond `send`/`steer`/events.
-- **Compaction implementation** (auto thresholds, summarization prompts) on the `agent/request` seam, with its session-event types added by declaration merging.
+- **Compaction** — the `dsh-compact` seam (`ctx.compact`) and the `dsh-compact-basic` backend exist (auto thresholds, summarization on the `agent/request` seam, `compact/*` session events via declaration merging). The model-facing `/compact` consumer tool is still deferred. See [the compaction capability-seam RFC](rfc/proposed/feature/2026-06-18-compaction-capability-seam.md).
 - **Parallel tool execution** (concurrency-safety hints on ToolDefinition).
 - **Session branching/tree** (pi-style entry tree) if needed beyond seed-based forking.

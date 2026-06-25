@@ -38,6 +38,7 @@
     { "path": "./packages/bash/bash-local" },
     { "path": "./packages/bash/tool-bash" },
     { "path": "./packages/compact/compact" },
+    { "path": "./packages/compact/compact-basic" },
     { "path": "./packages/support/invariants" },
     { "path": "./packages/ui/acp" },
     { "path": "./packages/ui/acp-agent" },

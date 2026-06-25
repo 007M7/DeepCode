@@ -89,6 +89,16 @@ export abstract class CompactService extends Service {
    * summarizes their content and appends a replacement surface node. Used by the
    * (future) `/compact` tool and internally by {@link compactIfNeeded}.
    *
+   * The region MUST contain whole steps — `start` and `end` must each sit on a
+   * step boundary (the first / last surface node of a step) or on a node that
+   * belongs to no step (a pre-step user message, inter-step steering, or an
+   * injection context message). A boundary that falls INSIDE a step would split
+   * that step's `assistant/message` tool-calls from their `tool/result`s, leaving
+   * the rehydrated transcript with a dangling tool-call or an orphaned
+   * tool-result that every provider rejects. An `end` inside an open (unclosed)
+   * tail step is likewise invalid — its tool-calls have no results yet.
+   * `dsh-session` exports `isStepAlignedStart` / `isStepAlignedEnd` for this check.
+   *
    * @param session - the session whose surface is mutated.
    * @param start - inclusive seq of the first surface node to compact.
    * @param end - inclusive seq of the last surface node to compact.
@@ -97,8 +107,12 @@ export abstract class CompactService extends Service {
    *   `ctx.llm.stream()` MUST forward this into the call's `GenerateOptions.signal`
    *   so an abort/dispose tears down the in-flight summarization rather than
    *   leaving an orphaned model call running past the cancellation.
-   * @throws if compaction is already in progress, or if `start`/`end` are not
-   *   valid surface nodes, or if `start > end`.
+   * @throws if compaction is already in progress, if `start`/`end` are not
+   *   valid surface nodes, if `start` is positioned after `end` on the surface
+   *   (the range is a surface-POSITION span, not a numeric seq interval — a
+   *   prior replace can leave the surface non-monotonic in seq order), or if
+   *   either boundary is not step-aligned (would split a step's tool-call/result
+   *   pair).
    */
   abstract compactRegion(
     session: Session,

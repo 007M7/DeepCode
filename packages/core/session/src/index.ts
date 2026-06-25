@@ -19,6 +19,7 @@ export { isJsonValue } from './json.ts'
 export { interruptedTurnClosers } from './repair.ts'
 export type { SurfaceNode } from './surface.ts'
 export { isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
+export { isStepAlignedStart, isStepAlignedEnd } from './step-boundary.ts'
 
 declare module 'cordis' {
   interface Context {
