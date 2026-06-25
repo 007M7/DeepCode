@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEventType } from '@deepseek-ai/dsh-session'
 
 describe('Session', () => {
   it('derives message history from the event log', () => {
@@ -120,6 +121,21 @@ describe('Session', () => {
     expect(session.events).toHaveLength(0)
   })
 
+  it('rejects a surface-eligible append with no surfaceOp marker (runtime guard for the union-widening loophole)', () => {
+    const session = new Session(SessionId('s5b'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    // The typed overload makes surfaceOp mandatory only when the type argument is
+    // a SPECIFIC SurfaceEventType literal. A caller iterating raw events widens it
+    // to the SessionEventType union, where the conditional rest collapses to
+    // optional — the exact shape `for (const e of log) append(e.type, e.data)`
+    // produces. Reproduce that here and assert the runtime guard rejects it.
+    const widenedType = 'user/message' as SessionEventType
+    expect(() => session.append(widenedType, { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
+      .toThrow(/surface-eligible and requires a surfaceOp marker/)
+    // The rejected append never entered the log (only turn/start is present).
+    expect(session.events).toHaveLength(1)
+  })
+
   it('accepts dense arrays and nested plain objects', () => {
     const session = new Session(SessionId('s6'))
     expect(() => session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra: [1, 2, [3, { a: null, b: true }]] } as never, { surfaceOp: 'append' })).not.toThrow()
@@ -143,10 +159,23 @@ describe('Session', () => {
     expect(() => new Session(SessionId('seed-gap'), gapSeed)).toThrow(/contiguous|seq/)
   })
 
+  it('validates seed events: rejects a surface-eligible event missing its surfaceOp marker', () => {
+    // A surface-eligible event (user/message) with no surfaceOp would load fine
+    // but vanish from deriveMessages() (the surface is the sole derivation path),
+    // so a resume/fork would silently lose history. append() forbids this at
+    // compile time; a raw seed must be rejected at runtime to match.
+    const markerlessSeed = [
+      { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
+      { type: 'user/message' as const, seq: 1, time: 2, data: { content: [{ type: 'text' as const, text: 'hi' }], source: { kind: 'user' as const } } },
+      { type: 'turn/end' as const, seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' as const } } },
+    ] as SessionEvent[]
+    expect(() => new Session(SessionId('seed-no-marker'), markerlessSeed)).toThrow(/surface-eligible but carries no surfaceOp/)
+  })
+
   it('accepts a well-formed contiguous serializable seed', () => {
     const goodSeed = [
       { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
-      { type: 'user/message' as const, seq: 1, time: 2, data: { content: [{ type: 'text' as const, text: 'hi' }], source: { kind: 'user' as const } } },
+      { type: 'user/message' as const, seq: 1, time: 2, data: { content: [{ type: 'text' as const, text: 'hi' }], source: { kind: 'user' as const } }, surfaceOp: 'append' as const },
       { type: 'turn/end' as const, seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' as const } } },
     ] as SessionEvent[]
     const session = new Session(SessionId('seed-ok'), goodSeed)
@@ -156,7 +185,7 @@ describe('Session', () => {
   it('snapshots the seed: mutating the original after construction does not affect session.events', () => {
     const seed = [
       { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
-      { type: 'user/message' as const, seq: 1, time: 2, data: { content: [{ type: 'text' as const, text: 'original' }], source: { kind: 'user' as const } } },
+      { type: 'user/message' as const, seq: 1, time: 2, data: { content: [{ type: 'text' as const, text: 'original' }], source: { kind: 'user' as const } }, surfaceOp: 'append' as const },
       { type: 'turn/end' as const, seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' as const } } },
     ] as SessionEvent[]
     const session = new Session(SessionId('seed-snapshot'), seed)

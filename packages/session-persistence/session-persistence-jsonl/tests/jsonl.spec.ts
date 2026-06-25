@@ -7,7 +7,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { encodeSegment, logPath, scanLog, sessionDir } from '../src/format.ts'
-import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
+import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
 let root: string
@@ -121,7 +121,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
       { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
       { type: 'assistant/chunk', seq: 2, time: 3, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'he' } } },
       { type: 'assistant/chunk', seq: 3, time: 4, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'llo' } } },
-      { type: 'assistant/message', seq: 4, time: 5, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }] } },
+      { type: 'assistant/message', seq: 4, time: 5, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }] }, surfaceOp: 'append', sourceEventSeqs: [2, 3] },
       { type: 'step/end', seq: 5, time: 6, data: { turn: 1, step: 1 } },
       { type: 'turn/end', seq: 6, time: 7, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
@@ -452,7 +452,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     // Session A materializes a log under id "reuse".
     const sessFiberA = await ctx.plugin(Object.assign((inner: Context) => {
       const a = inner.sessions.create(SessionId('reuse'), { meta: { cwd: '/a' } })
-      for (const e of oneTurnLog()) a.append(e.type, e.data)
+      appendLog(a, oneTurnLog())
     }, { inject: ['sessions'] }))
     // Drain A, then dispose ITS fiber (the live session A is gone) while the
     // backend stays loaded.

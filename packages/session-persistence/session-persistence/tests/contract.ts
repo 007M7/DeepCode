@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionHeader, SurfaceEventType, SurfaceIntent } from '@deepseek-ai/dsh-session'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { SessionPersistence } from '../src/index.ts'
 
@@ -34,12 +34,38 @@ export function meta(id: string, cwd?: string): SessionHeader {
 export function oneTurnLog(): SessionEvent[] {
   return [
     { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
-    { type: 'user/message', seq: 1, time: 2, data: { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } } },
+    { type: 'user/message', seq: 1, time: 2, data: { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, surfaceOp: 'append' },
     { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } },
-    { type: 'assistant/message', seq: 3, time: 4, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }] } },
+    { type: 'assistant/message', seq: 3, time: 4, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }] }, surfaceOp: 'append' },
     { type: 'step/end', seq: 4, time: 5, data: { turn: 1, step: 1 } },
     { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, reason: { kind: 'completed' } } },
   ]
+}
+
+/**
+ * Append a whole event log to a LIVE session, event by event, forwarding the
+ * surface metadata each event already carries. A bare `append(e.type, e.data)`
+ * over a `SessionEvent[]` widens the type argument to the union, where the
+ * typed overload's mandatory-marker rule collapses to optional — and `append`'s
+ * runtime guard then rejects a surface-eligible event with no marker. This
+ * helper forwards the `surfaceOp`/`sourceEventSeqs` VERBATIM from the source
+ * event (it does not synthesize a default), so a well-formed recorded log
+ * round-trips through a live session intact and a fixture that forgot a marker
+ * still trips the guard.
+ */
+export function appendLog(session: Session, events: readonly SessionEvent[]): void {
+  for (const e of events) {
+    const se = e as SessionEvent<SurfaceEventType>
+    if (se.surfaceOp !== undefined) {
+      const intent: SurfaceIntent = {
+        surfaceOp: se.surfaceOp,
+        ...se.sourceEventSeqs !== undefined ? { sourceEventSeqs: se.sourceEventSeqs } : {},
+      }
+      session.append(e.type, e.data, intent)
+    } else {
+      session.append(e.type, e.data)
+    }
+  }
 }
 
 /**

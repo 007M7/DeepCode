@@ -11,22 +11,29 @@ import { describe, expect, it } from 'vitest'
 import fc from 'fast-check'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEventMap, SessionEventType } from '@deepseek-ai/dsh-session'
+import type { SessionEventMap, SessionEventType, SurfaceIntent } from '@deepseek-ai/dsh-session'
 
-type Appendable = { [T in SessionEventType]: { type: T; data: SessionEventMap[T] } }[SessionEventType]
+// An appendable event: its type/data plus, for surface-eligible types, the
+// explicit surface intent the generator declares (mirroring how a real caller
+// passes it). The intent is part of the generated fixture, NOT synthesized by
+// `build`, so each arbitrary states the marker it produces.
+type Appendable = {
+  [T in SessionEventType]: { type: T; data: SessionEventMap[T]; intent?: SurfaceIntent }
+}[SessionEventType]
 
 const textContentArb = fc.array(
   fc.record({ type: fc.constant<'text'>('text'), text: fc.string() }),
   { maxLength: 3 },
 )
 
-// A message-producing event (these DO affect derived history).
+// A message-producing event (these DO affect derived history). Each carries an
+// explicit `surfaceOp: 'append'` intent — the marker the real loop passes.
 const messageEventArb: fc.Arbitrary<Appendable> = fc.oneof(
-  textContentArb.map((content): Appendable => ({ type: 'user/message', data: { content, source: { kind: 'user' } } })),
-  textContentArb.map((content): Appendable => ({ type: 'assistant/message', data: { turn: 1, step: 1, content } })),
-  textContentArb.map((content): Appendable => ({ type: 'assistant/message', data: { turn: 1, step: 1, content, usage: { inputTokens: 1, outputTokens: 1 } } })),
+  textContentArb.map((content): Appendable => ({ type: 'user/message', data: { content, source: { kind: 'user' } }, intent: { surfaceOp: 'append' } })),
+  textContentArb.map((content): Appendable => ({ type: 'assistant/message', data: { turn: 1, step: 1, content }, intent: { surfaceOp: 'append' } })),
+  textContentArb.map((content): Appendable => ({ type: 'assistant/message', data: { turn: 1, step: 1, content, usage: { inputTokens: 1, outputTokens: 1 } }, intent: { surfaceOp: 'append' } })),
   fc.record({ id: fc.string({ minLength: 1 }), content: textContentArb, isError: fc.boolean() })
-    .map((r): Appendable => ({ type: 'tool/result', data: { turn: 1, step: 1, callId: CallId(r.id), content: r.content, isError: r.isError } })),
+    .map((r): Appendable => ({ type: 'tool/result', data: { turn: 1, step: 1, callId: CallId(r.id), content: r.content, isError: r.isError }, intent: { surfaceOp: 'append' } })),
 )
 
 // A non-message event (trace/replay data — must NOT affect derived history).
@@ -44,7 +51,11 @@ const logArb = fc.array(anyEventArb, { maxLength: 25 })
 let counter = 0
 function build(events: Appendable[]): Session {
   const session = new Session(SessionId(`prop-${counter++}`))
-  for (const e of events) session.append(e.type, e.data)
+  for (const e of events) {
+    // Forward the generated intent verbatim; non-surface events carry none.
+    if (e.intent !== undefined) session.append(e.type, e.data, e.intent)
+    else session.append(e.type, e.data)
+  }
   return session
 }
 

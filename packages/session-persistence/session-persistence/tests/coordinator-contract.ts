@@ -31,7 +31,7 @@ import { Context, type Fiber } from 'cordis'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '../src/index.ts'
-import { meta, oneTurnLog } from './contract.ts'
+import { meta, oneTurnLog, appendLog } from './contract.ts'
 
 /**
  * The backend-specific capabilities the orchestration suite needs beyond the
@@ -76,7 +76,7 @@ function inits(persistence: SessionPersistence): Map<Session, Promise<void>> {
 
 /** Append a whole event log to a live session, event by event (drives session/event). */
 function send(session: Session, events: readonly SessionEvent[]): void {
-  for (const e of events) session.append(e.type, e.data)
+  appendLog(session, events)
 }
 
 /** A live session created inside its OWN fiber, so it survives a backend reload. */
@@ -117,6 +117,26 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         const loaded = await ctx.sessionPersistence.load(SessionId('live'))
         expect(loaded.events).toHaveLength(6)
         expect(loaded.meta.cwd).toBe(WORK)
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('round-trips the seed boundary (seedLength) through persistence', async () => {
+      // A forked child records how many leading events were inherited via the
+      // seed; the boundary must survive a reload (so a resume/replay can tell the
+      // inherited prefix from the child's own events). Both backends carry it on
+      // the header — JSONL on the header line, SQLite in the seed_length column.
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const session = ctx.sessions.create(SessionId('forked-child'), { meta: { cwd: WORK, seedLength: 3 } })
+        send(session, oneTurnLog())
+        await ctx.parallel('session/flush', session)
+
+        const loaded = await ctx.sessionPersistence.load(SessionId('forked-child'))
+        expect(loaded.meta.seedLength).toBe(3)
       } finally {
         await fiber.dispose()
         await fix.cleanup()

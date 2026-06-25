@@ -306,7 +306,7 @@ describe('dev-freeze', () => {
     const { ctx } = await setup()
     const seed = [
       { type: 'turn/start' as const, seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
-      { type: 'user/message' as const, seq: 1, time: 0, data: { content: [{ type: 'text' as const, text: 'seeded' }], source: { kind: 'user' as const } } },
+      { type: 'user/message' as const, seq: 1, time: 0, data: { content: [{ type: 'text' as const, text: 'seeded' }], source: { kind: 'user' as const } }, surfaceOp: 'append' as const },
     ]
     const session = ctx.sessions.create(undefined, { seed })
     expect(Object.isFrozen(session.events[0])).toBe(true)

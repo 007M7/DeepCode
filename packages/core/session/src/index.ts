@@ -12,13 +12,13 @@ import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
 import type { CreateSessionOptions, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { isJsonValue } from './json.ts'
-import { SurfaceManager } from './surface.ts'
+import { SurfaceManager, isSurfaceEligibleType } from './surface.ts'
 
 export * from './types.ts'
 export { isJsonValue } from './json.ts'
 export { interruptedTurnClosers } from './repair.ts'
 export type { SurfaceNode } from './surface.ts'
-export { isSurfaceEvent } from './surface.ts'
+export { isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -120,6 +120,16 @@ export class Session {
         if (!isJsonValue(event.data)) {
           throw new Error(`seed event "${event.type}" (seq ${event.seq}) carries non-JSON-serializable data`)
         }
+        // Surface-eligible events MUST carry a surfaceOp marker — the surface is
+        // the sole source of derived history, so a marker-less message event
+        // would load fine yet vanish from deriveMessages(). `append` enforces
+        // this at compile time via its typed overload; a seed arrives as raw
+        // SessionEvent[] (replay/fork/load), bypassing that, so re-check at
+        // runtime here rather than silently resuming with empty history.
+        if (isSurfaceEligibleType(event.type)
+          && (event as SessionEvent<SurfaceEventType>).surfaceOp === undefined) {
+          throw new Error(`seed event "${event.type}" (seq ${event.seq}) is surface-eligible but carries no surfaceOp marker`)
+        }
       })
       // Deep-clone each seed event, NOT just the array: the seed events and
       // their `data` are still owned by the caller (or the source session of a
@@ -172,6 +182,18 @@ export class Session {
     if (!isJsonValue(data)) {
       throw new Error(`session event "${type}" carries non-JSON-serializable data`)
     }
+    const surfaceOpts: SurfaceIntent | undefined = opts[0]
+    // Surface-eligible events MUST carry a surfaceOp marker — the surface is the
+    // sole source of derived history, so a marker-less message event would be
+    // logged yet vanish from deriveMessages(). The typed `opts` overload makes
+    // the marker mandatory only when `T` is a SPECIFIC SurfaceEventType literal;
+    // when `T` widens to the SessionEventType union (a caller iterating raw
+    // events: `for (const e of log) append(e.type, e.data)`), the conditional
+    // rest collapses to optional and the compiler stops enforcing it. Re-check
+    // at runtime so that loophole can't silently drop history.
+    if (isSurfaceEligibleType(type) && surfaceOpts?.surfaceOp === undefined) {
+      throw new Error(`session event "${type}" is surface-eligible and requires a surfaceOp marker`)
+    }
     // Snapshot `data` into the log, NOT the caller's reference: the validation
     // above proves it is JSON-serializable AT THIS MOMENT, but the caller still
     // owns the object and could mutate it afterwards (before a persistence
@@ -185,7 +207,6 @@ export class Session {
     // Surface metadata is snapshot separately: sourceEventSeqs (number[] —
     // primitives, so array spread is a complete copy) and surfaceOp (a string
     // primitive, or cloned if it's a replace object).
-    const surfaceOpts: SurfaceIntent | undefined = opts[0]
     // Build the event shape with conditional surface fields via spreading.
     // The result is cast through `unknown` because the conditional spreads
     // produce an intersection type that the assignability checker can't
@@ -360,6 +381,7 @@ export class SessionStore extends Service {
       createdAt: options?.meta?.createdAt ?? Date.now(),
       ...cwd !== undefined ? { cwd } : {},
       ...options?.meta?.parentSession !== undefined ? { parentSession: options.meta.parentSession } : {},
+      ...options?.meta?.seedLength !== undefined ? { seedLength: options.meta.seedLength } : {},
     }
     return new Session(sessionId, options?.seed, header)
   }

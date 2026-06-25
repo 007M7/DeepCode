@@ -47,6 +47,9 @@ graph TD
   agent-loop --> session-persistence
   agent-loop --> system-prompt
   agent-loop --> tools
+  subagent --> agent
+  subagent --> llm
+  subagent --> tools
   tool-bash --> agent
   tool-bash --> bash
   tool-bash --> llm
@@ -59,6 +62,20 @@ graph TD
   agent-core --> system-prompt
   agent-core --> tool-bash
   agent-core --> tools
+  subagent-acp --> agent
+  subagent-acp --> llm
+  subagent-acp --> subagent
+  subagent-inprocess --> agent
+  subagent-inprocess --> llm
+  subagent-inprocess --> session
+  subagent-inprocess --> subagent
+  subagent-mock --> agent
+  subagent-mock --> llm
+  subagent-mock --> subagent
+  tool-subagent --> agent
+  tool-subagent --> llm
+  tool-subagent --> subagent
+  tool-subagent --> tools
   acp-agent --> acp
   acp-agent --> agent-core
   acp-agent --> session-persistence-jsonl
@@ -67,6 +84,12 @@ graph TD
   stdio-agent --> session
   stdio-agent --> session-persistence-jsonl
   stdio-agent --> ui-stdio
+  subagent-fork --> agent
+  subagent-fork --> session
+  subagent-fork --> subagent
+  subagent-fork --> subagent-inprocess
+  subagent-spawn --> subagent
+  subagent-spawn --> subagent-inprocess
 ```
 
 | Package | Depends on |
@@ -90,7 +113,14 @@ graph TD
 | `ui-stdio` | `agent`, `llm`, `session` |
 | `acp` | `agent`, `llm`, `session`, `session-persistence`, `tools` |
 | `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
+| `subagent` | `agent`, `llm`, `tools` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |
 | `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `system-prompt`, `tool-bash`, `tools` |
+| `subagent-acp` | `agent`, `llm`, `subagent` |
+| `subagent-inprocess` | `agent`, `llm`, `session`, `subagent` |
+| `subagent-mock` | `agent`, `llm`, `subagent` |
+| `tool-subagent` | `agent`, `llm`, `subagent`, `tools` |
 | `acp-agent` | `acp`, `agent-core`, `session-persistence-jsonl` |
 | `stdio-agent` | `agent`, `agent-core`, `session`, `session-persistence-jsonl`, `ui-stdio` |
+| `subagent-fork` | `agent`, `session`, `subagent`, `subagent-inprocess` |
+| `subagent-spawn` | `subagent`, `subagent-inprocess` |

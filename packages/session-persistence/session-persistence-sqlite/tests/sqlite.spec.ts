@@ -7,7 +7,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
 import SessionPersistenceSqlite, { SCHEMA_VERSION } from '@deepseek-ai/dsh-session-persistence-sqlite'
 import { openDatabase, rowToEvent, scanRows, type EventRow } from '../src/schema.ts'
-import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
+import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
 const dirs: string[] = []
@@ -66,9 +66,17 @@ runCoordinatorContract('sqlite', async (): Promise<CoordinatorFixture> => {
 
 describe('scanRows', () => {
   // scanRows works off EventRows (data is a JSON string column); build them from
-  // SessionEvents so the unit tests read in terms of the event vocabulary.
+  // SessionEvents so the unit tests read in terms of the event vocabulary. Surface
+  // fields are serialized to their nullable columns so a round trip is faithful.
   const rows = (events: SessionEvent[]): EventRow[] =>
-    events.map(e => ({ seq: e.seq, type: e.type, time: e.time, data: JSON.stringify(e.data), source_event_seqs: null, surface_op: null }))
+    events.map((e) => {
+      const se = e as SessionEvent<SurfaceEventType>
+      return {
+        seq: e.seq, type: e.type, time: e.time, data: JSON.stringify(e.data),
+        source_event_seqs: se.sourceEventSeqs !== undefined ? JSON.stringify(se.sourceEventSeqs) : null,
+        surface_op: se.surfaceOp !== undefined ? JSON.stringify(se.surfaceOp) : null,
+      }
+    })
 
   it('preserves the full log when it ends exactly on a turn/end (no torn tail)', () => {
     const { preserved, tornFrom } = scanRows(rows(oneTurnLog()))
@@ -246,6 +254,20 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     expect(() => openDatabase(olderPath)).toThrow(/incompatible with this build/)
   })
 
+  it('rejects a sibling v3 database (the merge-collided version) rather than opening it against missing columns', async () => {
+    // Two unmerged branches each shipped a DISTINCT layout under user_version 3
+    // (one added only `seed_length`, the other only the surface columns). The
+    // merged build is v4; an on-disk v3 is ambiguous and is missing at least one
+    // of this build's columns, so it MUST be rejected, not opened. Stamp a v3
+    // database and confirm the version check refuses it.
+    const path = await freshDbPath()
+    openDatabase(path).close() // creates + stamps user_version = SCHEMA_VERSION (4)
+    const db = openDatabase(path)
+    db.exec('PRAGMA user_version = 3')
+    db.close()
+    expect(() => openDatabase(path)).toThrow(/schema version 3, incompatible with this build/)
+  })
+
   it('a corrupt-JSON row in the uncommitted tail is discarded on load, not unloadable', async () => {
     const path = await freshDbPath()
     const m = meta('corrupt-tail')
@@ -315,7 +337,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   })
 
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(3)
+    expect(SCHEMA_VERSION).toBe(4)
   })
 })
 
@@ -353,7 +375,7 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     // Instance 1 materializes a session and disposes.
     const b1 = await backend(path)
     const s1 = b1.ctx.sessions.create(SessionId('hmr-collide'))
-    for (const e of oneTurnLog()) s1.append(e.type, e.data)
+    appendLog(s1, oneTurnLog())
     await b1.ctx.parallel('session/flush', s1)
     await b1.dispose()
 

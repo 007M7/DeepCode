@@ -44,16 +44,55 @@
     # under ./.sessions); unset starts a fresh session each run.
     resumeSessionId: !!js process.env.RESUME_SESSION_ID
     persistenceRoot: './.sessions'
-    welcome: 'coding-agent ready. Give it a coding task (bash is its only tool).'
+    welcome: 'coding-agent ready. Give it a coding task (its tools are bash and subagent).'
     systemPrompt: |
       You are coding-agent, a CLI coding assistant.
 
-      Your only tools are bash (plus bash_output/bash_kill for background
-      tasks). Do ALL file operations through bash: read with cat/sed/head,
-      search with grep, write with heredocs (cat <<'EOF' > file), edit
-      with sed or a rewrite. Each bash call runs in a fresh shell — pass
-      workdir instead of cd, and never rely on shell state between calls.
+      Your tools are bash (plus bash_output/bash_kill for background
+      tasks) and subagent. Do ALL file operations through bash: read with
+      cat/sed/head, search with grep, write with heredocs (cat <<'EOF' >
+      file), edit with sed or a rewrite. Each bash call runs in a fresh
+      shell — pass workdir instead of cd, and never rely on shell state
+      between calls.
+
+      Use the subagent tool to delegate a focused, self-contained subtask
+      to a fresh child agent (it works in its own context and returns only
+      its final result) — give it a complete, standalone instruction. Use
+      subagent_fork instead when the subtask needs THIS conversation's
+      context: the child inherits the log so far.
 
       Check the [exit code: N] marker on every command; investigate
       failures before moving on. Verify your work by running the code or
       tests. Keep answers brief and factual.
+
+# The subagent seam + BOTH in-process backends + two model-facing tools, as leaf
+# entries after the app (which provides ctx.agents/ctx.tools). spawn (a fresh
+# child) and fork (a child seeded with the parent's completed-turn prefix) are
+# independent backends over the shared dsh-subagent-inprocess driver. Exposing
+# both transports is pure config: load each backend, then load dsh-tool-subagent
+# once per backend with a distinct toolName (the tool registry rejects a
+# duplicate name) — no code change.
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+
+- id: subagent-spawn
+  name: '@deepseek-ai/dsh-subagent-spawn'
+  config:
+    providerName: spawn
+
+- id: subagent-fork
+  name: '@deepseek-ai/dsh-subagent-fork'
+  config:
+    providerName: fork
+
+- id: tool-subagent
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: spawn
+    toolName: subagent
+
+- id: tool-subagent-fork
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: fork
+    toolName: subagent_fork

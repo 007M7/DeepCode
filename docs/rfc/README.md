@@ -83,6 +83,8 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | Title | First proposed |
 |---|---|
 | [Rich ACP bash rendering — the terminal card (`_meta`) and command classification](implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) | 2026-06-18 |
+| [Subagent capability seam](implemented/feature/2026-06-21-subagent-capability-seam.md) | 2026-06-21 |
+| [ACP subagent backend (out-of-process delegation)](implemented/feature/2026-06-22-acp-subagent-backend.md) | 2026-06-22 |
 
 ### Simplification
 
@@ -127,6 +129,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [tsdown for JS bundling instead of dumble](implemented/process/2026-06-11-tsdown-over-dumble.md) | 2026-06-11 |
 | [Doc-sync enforcement](implemented/process/2026-06-11-doc-sync-enforcement.md) | 2026-06-11 |
 | [pnpm as the package manager instead of Yarn 4](implemented/process/2026-06-16-pnpm-over-yarn.md) | 2026-06-16 |
+| [TSC-first build and one tsconfig](implemented/process/2026-06-17-ts-build-config.md) | 2026-06-17 |
 | [Markdown cross-link validity linting](implemented/process/2026-06-18-markdown-cross-link-lint.md) | 2026-06-18 |
 | [Core-data-structures catalog and the `ts type-equiv` drift gate](implemented/process/2026-06-20-core-data-structures-catalog.md) | 2026-06-20 |
 | [Generated cordis events + services catalog](implemented/process/2026-06-20-generated-cordis-catalog.md) | 2026-06-20 |
@@ -140,6 +143,9 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [ACP snapshot tests — record-once / replay-deterministic](implemented/testing/2026-06-19-acp-snapshot-tests.md) | 2026-06-19 |
 | [Real-API e2e in CI against the external DeepSeek API](implemented/testing/2026-06-19-real-api-e2e-ci.md) | 2026-06-19 |
 | [Use `session.jsonl` as the only snapshot session-log artifact](implemented/testing/2026-06-20-remove-redundant-snapshot-log-goldens.md) | 2026-06-20 |
+| [Per-session snapshot replay for nested agents](implemented/testing/2026-06-22-subagent-snapshot-replay.md) | 2026-06-22 |
+| [Persist the seed boundary so fork-child replay routes correctly](implemented/testing/2026-06-22-fork-child-replay-seed-boundary.md) | 2026-06-22 |
+| [Record fork and mixed spawn+fork snapshot scenarios](implemented/testing/2026-06-22-fork-snapshot-scenarios.md) | 2026-06-22 |
 
 ## Rejected
 
