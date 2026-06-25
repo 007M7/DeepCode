@@ -18,16 +18,19 @@
       "path": "../../../vendor/schemastery"
     },
     {
-      "path": "../../core/agent"
-    },
-    {
-      "path": "../../core/user-interaction"
-    },
-    {
       "path": "../../llm/llm"
     },
     {
-      "path": "../../core/session"
+      "path": "../agent"
+    },
+    {
+      "path": "../system-prompt"
+    },
+    {
+      "path": "../tools"
+    },
+    {
+      "path": "../user-interaction"
     }
   ]
 }

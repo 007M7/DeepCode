@@ -28,7 +28,9 @@ dsh-bash          ← dsh-brand                       (abstract executor seam; b
 dsh-session       ← dsh-llm, dsh-brand
 dsh-system-prompt ← dsh-llm
 dsh-agent         ← dsh-llm, dsh-session, dsh-brand
+dsh-user-interaction ← dsh-agent
 dsh-tools         ← dsh-llm, dsh-system-prompt, dsh-agent
+dsh-tool-ask-user ← dsh-tools, dsh-user-interaction
 dsh-bash-local    ← dsh-bash                       (BashExecutor impl)
 dsh-tool-bash     ← dsh-bash, dsh-tools            (bash tool schemas)
 dsh-llm-deepseek  ← dsh-llm                        (DeepSeek adapter)
@@ -36,7 +38,7 @@ dsh-llm-pi-ai     ← dsh-llm                        (pi-ai-backed adapter)
 dsh-agent-loop    ← dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent
 dsh-invariants    ← dsh-llm, dsh-session, dsh-agent (dev-mode contract checks)
 dsh-acp           ← dsh-agent, dsh-llm, dsh-session, dsh-session-persistence  (ACP JSON-RPC bridge)
-dsh-ui-stdio      ← dsh-agent, dsh-llm, dsh-session (stdio readline UI plugin)
+dsh-ui-stdio      ← dsh-agent, dsh-session, dsh-user-interaction (stdio readline UI plugin + user-interaction provider)
 dsh-llm-replay    ← dsh-llm, dsh-session            (record/replay adapter for keyless snapshot tests)
 dsh-subagent      ← dsh-agent, dsh-llm, dsh-tools    (abstract subagent provider-registry seam)
 dsh-subagent-mock ← dsh-subagent                     (scripted provider for tests)
@@ -45,7 +47,7 @@ dsh-subagent-fork ← dsh-subagent-spawn, dsh-agent, dsh-session      (in-proces
 dsh-subagent-acp  ← dsh-subagent, dsh-agent, dsh-llm, @agentclientprotocol/sdk  (out-of-process child over ACP)
 dsh-tool-subagent ← dsh-subagent, dsh-tools, dsh-agent (model-facing delegation tool)
 dsh-agent-core    ← timer, dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent, dsh-invariants, dsh-tool-bash, dsh-agent-loop  (the providerless spine, as one bundle plugin)
-dsh-stdio-agent   ← dsh-agent-core, dsh-ui-stdio, dsh-session-persistence-jsonl, dsh-agent, dsh-session  (stdio chat APP + bin)
+dsh-stdio-agent   ← dsh-agent-core, dsh-user-interaction, dsh-tool-ask-user, dsh-ui-stdio, dsh-session-persistence-jsonl, dsh-agent, dsh-session  (stdio chat APP + bin)
 dsh-acp-agent     ← dsh-agent-core, dsh-acp, dsh-session-persistence-jsonl     (ACP server APP + bin)
 ```
 
@@ -59,6 +61,8 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `session/` | `core` | Event-sourced session log + in-memory store | `ctx.sessions` |
 | `system-prompt/` | `core` | Prompt-section + tool-schema assembly registry | `ctx.systemPrompt` |
 | `tools/` | `core` | Tool registry + `tools/execute` waterfall | `ctx.tools` |
+| `user-interaction/` | `core` | Abstract human question/answer seam | `ctx.userInteraction` |
+| `tool-ask-user/` | `core` | Model-facing `ask_user_question` tool | (registers on `ctx.tools`) |
 | `agent/` | `core` | Agent interface, registry, `agent/*` event vocabulary | `ctx.agents` |
 | `agent-loop/` | `core` | THE concrete loop plugin: `ReactLoopAgent` + the loop driver | `ctx.agentLoop` |
 | `agent-core/` | `core` | Bundle plugin: the providerless/executor-less/UI-less spine as code (forwards `agent-loop`'s `agents`) | (loads the spine) |

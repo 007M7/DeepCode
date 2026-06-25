@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-stdio-agent
 
+Terminal stdio chat app. It composes the agent-core spine with JSONL persistence, the readline stdio UI, the user-interaction seam, and the `ask_user_question` tool so the demo/coding front door can pause for human confirmation.
+
 The **terminal stdio chat app**: a Cordis app plugin that composes the providerless agent spine ([`@deepseek-ai/dsh-agent-core`](../../core/agent-core/README.md)) with the front-door cluster a terminal chat needs, and a `bin` that boots a leaf `cordis.yml`.
 
 It is the readline counterpart to [`@deepseek-ai/dsh-acp-agent`](../acp-agent/README.md): both consume the same spine, but each bakes in the OPPOSITE front-door cluster.
@@ -13,7 +15,9 @@ A terminal chat always wants the same cluster, so the package owns it rather tha
 | `@cordisjs/plugin-logger-console` | the console logger — stdout is just the terminal here, so logging to it is correct (the ACP app must NOT have this) |
 | `@deepseek-ai/dsh-agent-core` | the spine, pre-creating a `main` agent from this app's `model`/`systemPrompt` |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log under `persistenceRoot` |
-| `@deepseek-ai/dsh-ui-stdio` | the readline UI, bound to the `main` agent |
+| `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by confirmation tools |
+| `@deepseek-ai/dsh-tool-ask-user` | the model-facing `ask_user_question` tool |
+| `@deepseek-ai/dsh-ui-stdio` | the readline UI, bound to the `main` agent, and the user-interaction provider |
 
 `@cordisjs/plugin-hmr` (the dev/demo edit-reload loop) is deliberately a **leaf** entry, NOT baked in here: it is a Loader-only, subprocess-only dev plugin — its constructor throws without `node --expose-internals` + a live `loader`, and the in-process test tier cannot even import it (so a package whose `apply` statically pulled it in could never carry the per-file coverage gate). Unlike the console logger, a stray `hmr` is not a stdout-purity footgun, so leaving it at the leaf costs no safety. The `demo:echo` / `demo:coding` leaves load it and pass `--expose-internals`.
 

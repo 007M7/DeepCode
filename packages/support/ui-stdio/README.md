@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-ui-stdio
 
-A minimal stdio (readline) UI, as a plugin. It reads lines from stdin and feeds them to an agent (`send` when idle, `steer` while a turn is running), and renders that agent's streamed output and tool activity to stdout. A UI is "just a plugin" here — it only consumes the `agent/*` event taxonomy plus the `agents` service (`inject: ['agents']`), so the same plugin drives any example or product surface.
+A minimal stdio (readline) UI, as a plugin. It reads lines from stdin and feeds them to an agent (`send` when idle, `steer` while a turn is running), renders that agent's streamed output and tool activity to stdout, and provides the `ctx.userInteraction` answer provider for `ask_user_question`. A UI is "just a plugin" here — it consumes the `agent/*` event taxonomy plus the `agents` and `userInteraction` services (`inject: ['agents', 'userInteraction']`), so the same plugin drives any example or product surface with the required seam loaded.
 
 This package consolidates what were two near-identical copies under `examples/echo-agent` and `examples/coding-agent`. The coding copy was a superset; this package IS that superset — dimmed chain-of-thought rendering plus robust piped-stdin EOF handling — with the per-consumer differences moved into `Config`.
 
@@ -25,6 +25,10 @@ Rendering is **global** — every agent's events are written to stdout, not just
 - `agent/stream-chunk` — `text-delta` is written verbatim; `reasoning-delta` is wrapped in the dim SGR (`\x1B[2m … \x1B[0m`) so the chain-of-thought is visually subordinate to the answer. Reasoning rendering is inert when no `reasoning-delta` chunks arrive (e.g. a mock model), so it is always on.
 - `agent/turn-start` / `agent/turn-end` — a `[<agent> turn N]` header and a trailing `> ` prompt.
 - `session/event` — `tool/call` renders `[tool call] name(args)`; `tool/result` renders the joined text blocks as `[tool result] …`.
+
+## User Questions
+
+When `ctx.userInteraction.ask()` is called, the UI writes the question, renders numbered options when provided, and treats the next stdin line as the answer instead of sending it to the agent. Recommended options render first, option details render from `description`, a numeric line selects the displayed option, an empty line selects the recommended option when one exists, and a non-empty free-form line is accepted when `allowCustom` is not `false`.
 
 ## The I/O seam
 

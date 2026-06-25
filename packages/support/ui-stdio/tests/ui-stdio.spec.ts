@@ -5,6 +5,7 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { createStdioChat, type Config, type StdioRuntime } from '../src/index.ts'
 
 /**
@@ -66,10 +67,11 @@ const CONFIG: Config = { welcome: 'hi there', agent: 'main' }
 async function setup(config: Config = CONFIG, runtimeOver: Partial<StdioRuntime> = {}) {
   const ctx = new Context()
   await ctx.plugin(AgentRegistry)
+  await ctx.plugin(UserInteractionService)
   const { runtime, input, out, exit } = makeRuntime(runtimeOver)
   const fiber = await ctx.plugin(Object.assign((inner: Context) => {
     createStdioChat(inner, config, runtime)
-  }, { inject: ['agents'] }))
+  }, { inject: ['agents', 'userInteraction'] }))
   return { ctx, fiber, input, out, exit }
 }
 
@@ -171,9 +173,236 @@ describe('createStdioChat rendering', () => {
     } as SessionEvent)
     expect(out.text()).toBe(before)
   })
+
+  it('renders agent errors so failed model requests are visible in stdio', async () => {
+    const { ctx, out } = await setup()
+    const agent = makeAgent('main')
+
+    ctx.emit('agent/error', agent, 1, 1, new Error('fetch failed'))
+
+    expect(out.text()).toContain('\n[main turn 1 step 1 error] fetch failed\n> ')
+  })
+
+  it('resets dim styling when an agent error interrupts reasoning', async () => {
+    const { ctx, out } = await setup()
+    const agent = makeAgent('main')
+
+    ctx.emit('agent/stream-chunk', agent, 1, 0, { type: 'reasoning-delta', index: 0, text: 'thinking' })
+    ctx.emit('agent/error', agent, 1, 1, new Error('fetch failed'))
+
+    expect(out.text()).toContain('\x1B[2mthinking\x1B[0m\n[main turn 1 step 1 error] fetch failed')
+  })
 })
 
 describe('createStdioChat input', () => {
+  it('answers a pending user question instead of sending the line to the agent', async () => {
+    const { ctx, input, out } = await setup()
+    const agent = makeAgent('main', 'idle')
+    ctx.agents.register(agent)
+
+    const answer = ctx.userInteraction.ask({
+      header: 'Confirm',
+      question: 'Proceed with the edit?',
+      options: [{ label: 'Yes', value: 'Proceed', description: 'Apply the edit now.', recommended: true }],
+    })
+    await new Promise(r => setImmediate(r))
+    input.feed('Use a smaller change')
+
+    await expect(answer).resolves.toEqual({ answer: 'Use a smaller change' })
+    expect(agent.sent).toEqual([])
+    expect(out.text()).toContain('[Confirm] Proceed with the edit?')
+    expect(out.text()).toContain('1. Yes (recommended)')
+    expect(out.text()).toContain('Apply the edit now.')
+  })
+
+  it('answers a pending user question by numeric option selection', async () => {
+    const { ctx, input } = await setup()
+    const answer = ctx.userInteraction.ask({
+      question: 'Which mode?',
+      options: [
+        { label: 'Safe', value: 'Use safe mode', recommended: true },
+        { label: 'Fast', value: 'Use fast mode' },
+      ],
+      allowCustom: false,
+    })
+    await new Promise(r => setImmediate(r))
+    input.feed('2')
+
+    await expect(answer).resolves.toEqual({
+      answer: 'Use fast mode',
+      option: { label: 'Fast', value: 'Use fast mode' },
+    })
+  })
+
+  it('renders recommended options first and selects by displayed number', async () => {
+    const { ctx, input, out } = await setup()
+    const answer = ctx.userInteraction.ask({
+      question: 'Which topic?',
+      options: [
+        { label: 'Hobbies', value: 'hobbies' },
+        { label: 'Work', value: 'work', description: 'Questions about current projects.' },
+        { label: 'Casual', value: 'casual', recommended: true, description: 'Easy conversation.' },
+      ],
+      allowCustom: false,
+    })
+    await new Promise(r => setImmediate(r))
+
+    expect(out.text()).toContain([
+      '[question] Which topic?',
+      '  1. Casual (recommended)',
+      '     Easy conversation.',
+      '  2. Hobbies',
+      '  3. Work',
+      '     Questions about current projects.',
+    ].join('\n'))
+    input.feed('1')
+
+    await expect(answer).resolves.toEqual({
+      answer: 'casual',
+      option: { label: 'Casual', value: 'casual', recommended: true, description: 'Easy conversation.' },
+    })
+  })
+
+  it('uses the recommended option when the user submits an empty answer', async () => {
+    const { ctx, input } = await setup()
+    const answer = ctx.userInteraction.ask({
+      question: 'Continue?',
+      options: [
+        { label: 'No' },
+        { label: 'Yes', value: 'Continue', recommended: true },
+      ],
+      allowCustom: false,
+    })
+    await new Promise(r => setImmediate(r))
+    input.feed('')
+
+    await expect(answer).resolves.toEqual({
+      answer: 'Continue',
+      option: { label: 'Yes', value: 'Continue', recommended: true },
+    })
+  })
+
+  it('re-prompts when options are required and the input is invalid', async () => {
+    const { ctx, input, out } = await setup()
+    const answer = ctx.userInteraction.ask({
+      question: 'Which mode?',
+      options: [{ label: 'Safe' }],
+      allowCustom: false,
+    })
+    await new Promise(r => setImmediate(r))
+    input.feed('custom')
+    await new Promise(r => setImmediate(r))
+    expect(out.text()).toContain('Please enter one of the option numbers.')
+    input.feed('1')
+
+    await expect(answer).resolves.toEqual({
+      answer: 'Safe',
+      option: { label: 'Safe' },
+    })
+  })
+
+  it('re-prompts with custom-answer guidance when options also allow free-form input', async () => {
+    const { ctx, input, out } = await setup()
+    const answer = ctx.userInteraction.ask({
+      question: 'Which mode?',
+      options: [{ label: 'Safe' }],
+    })
+    await new Promise(r => setImmediate(r))
+    input.feed('')
+    await new Promise(r => setImmediate(r))
+    expect(out.text()).toContain('Please enter one of the option numbers or a custom answer.')
+    input.feed('Use custom mode')
+
+    await expect(answer).resolves.toEqual({ answer: 'Use custom mode' })
+  })
+
+  it('re-prompts when a free-form question receives an empty answer', async () => {
+    const { ctx, input, out } = await setup()
+    const answer = ctx.userInteraction.ask({ question: 'What should I use?' })
+    await new Promise(r => setImmediate(r))
+    input.feed('')
+    await new Promise(r => setImmediate(r))
+    expect(out.text()).toContain('Please enter an answer.')
+    input.feed('Use defaults')
+
+    await expect(answer).resolves.toEqual({ answer: 'Use defaults' })
+  })
+
+  it('rejects an active question when its signal aborts', async () => {
+    const { ctx } = await setup()
+    const controller = new AbortController()
+    const answer = ctx.userInteraction.ask({ question: 'Continue?', signal: controller.signal })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await new Promise(r => setImmediate(r))
+
+    controller.abort()
+
+    await rejected
+  })
+
+  it('continues to the next queued question when the active question aborts', async () => {
+    const { ctx, input, out } = await setup()
+    const controller = new AbortController()
+    const first = ctx.userInteraction.ask({ question: 'First?', signal: controller.signal })
+    const firstRejected = expect(first).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    const second = ctx.userInteraction.ask({ question: 'Second?' })
+    await new Promise(r => setImmediate(r))
+
+    controller.abort()
+    await firstRejected
+    await new Promise(r => setImmediate(r))
+    expect(out.text()).toContain('[question] Second?')
+    input.feed('second answer')
+
+    await expect(second).resolves.toEqual({ answer: 'second answer' })
+  })
+
+  it('skips a queued question whose signal aborted before it became active', async () => {
+    const { ctx, input, out } = await setup()
+    const controller = new AbortController()
+    const first = ctx.userInteraction.ask({ question: 'First?' })
+    const second = ctx.userInteraction.ask({ question: 'Second?', signal: controller.signal })
+    const secondRejected = expect(second).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await new Promise(r => setImmediate(r))
+
+    controller.abort()
+    input.feed('first answer')
+
+    await expect(first).resolves.toEqual({ answer: 'first answer' })
+    await secondRejected
+    expect(out.text()).not.toContain('[question] Second?')
+  })
+
+  it('rejects active and queued questions when the UI is disposed', async () => {
+    const { ctx, fiber } = await setup()
+    const active = ctx.userInteraction.ask({ question: 'Active?' })
+    const queued = ctx.userInteraction.ask({ question: 'Queued?' })
+    const activeRejected = expect(active).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    const queuedRejected = expect(queued).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await new Promise(r => setImmediate(r))
+
+    await fiber.dispose()
+
+    await activeRejected
+    await queuedRejected
+  })
+
+  it('rejects active and queued questions when stdin closes before the user answers', async () => {
+    const { ctx, input, exit } = await setup()
+    const active = ctx.userInteraction.ask({ question: 'Active?' })
+    const queued = ctx.userInteraction.ask({ question: 'Queued?' })
+    const activeRejected = expect(active).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    const queuedRejected = expect(queued).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await new Promise(r => setImmediate(r))
+
+    input.finish()
+    await new Promise(r => setImmediate(r))
+
+    await activeRejected
+    await queuedRejected
+    expect(exit).not.toHaveBeenCalled()
+  })
+
   it('sends a typed line to an idle agent', async () => {
     const { ctx, input } = await setup()
     const agent = makeAgent('main', 'idle')

@@ -23,9 +23,15 @@ import type { Readable, Writable } from 'node:stream'
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import { AgentId } from '@deepseek-ai/dsh-agent'
+import {
+  UserInteractionError,
+  type AskUserQuestionAnswer,
+  type AskUserQuestionOption,
+  type AskUserQuestionRequest,
+} from '@deepseek-ai/dsh-user-interaction'
 
 export const name = 'ui-stdio'
-export const inject = ['agents']
+export const inject = ['agents', 'userInteraction']
 
 /** Serializable plugin configuration (cordis-native, schemastery). */
 export interface Config {
@@ -58,6 +64,27 @@ export interface StdioRuntime {
 
 function isTTYPair(input: Readable, output: Writable): boolean {
   return Boolean((input as { isTTY?: boolean }).isTTY && (output as { isTTY?: boolean }).isTTY)
+}
+
+function optionAnswer(option: AskUserQuestionOption): string {
+  return option.value ?? option.label
+}
+
+function displayOptions(options: AskUserQuestionOption[] = []): AskUserQuestionOption[] {
+  return options
+    .map((option, index) => ({ option, index }))
+    .sort((left, right) => {
+      if (left.option.recommended === right.option.recommended) return left.index - right.index
+      return left.option.recommended ? -1 : 1
+    })
+    .map(({ option }) => option)
+}
+
+interface PendingQuestion {
+  request: AskUserQuestionRequest
+  resolve(answer: AskUserQuestionAnswer): void
+  reject(error: unknown): void
+  onAbort: () => void
 }
 
 /**
@@ -100,6 +127,12 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
     output.write('\n> ')
   })
 
+  ctx.on('agent/error', (agent, turn, step, error) => {
+    if (inReasoning) output.write('\x1B[0m')
+    inReasoning = false
+    output.write(`\n[${agent.id} turn ${turn} step ${step} error] ${error.message}\n> `)
+  })
+
   ctx.on('session/event', (_session, event) => {
     if (event.type === 'tool/call') {
       const { name: toolName, arguments: args } = event.data
@@ -130,6 +163,8 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
     let submittedWork = false
     let sawRunning = false
     let exitTimer: ReturnType<typeof setTimeout> | undefined
+    let activeQuestion: PendingQuestion | undefined
+    const questionQueue: PendingQuestion[] = []
 
     const maybeExit = (): void => {
       if (disposed || !stdinClosed) return
@@ -156,7 +191,113 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       if (status === 'idle') maybeExit()
     })
 
+    const renderQuestion = (pending: PendingQuestion): void => {
+      const { request } = pending
+      output.write('\n')
+      output.write(request.header ? `[${request.header}] ${request.question}\n` : `[question] ${request.question}\n`)
+      displayOptions(request.options).forEach((option, index) => {
+        output.write(`  ${index + 1}. ${option.label}${option.recommended ? ' (recommended)' : ''}\n`)
+        if (option.description) output.write(`     ${option.description}\n`)
+      })
+      output.write('> ')
+    }
+
+    const removeAbortListener = (pending: PendingQuestion): void => {
+      pending.request.signal?.removeEventListener('abort', pending.onAbort)
+    }
+
+    const startNextQuestion = (): void => {
+      if (activeQuestion !== undefined) return
+      const pending = questionQueue.shift()
+      if (pending === undefined) return
+      if (pending.request.signal?.aborted) {
+        pending.reject(new UserInteractionError('ask_user_question was aborted before the user answered', 'ASK_ABORTED'))
+        startNextQuestion()
+        return
+      }
+      activeQuestion = pending
+      pending.request.signal?.addEventListener('abort', pending.onAbort, { once: true })
+      renderQuestion(pending)
+    }
+
+    const disposeQuestion = (pending: PendingQuestion): void => {
+      removeAbortListener(pending)
+      pending.reject(new UserInteractionError('ask_user_question was interrupted before the user answered', 'ASK_ABORTED'))
+    }
+
+    const disposePendingQuestions = (): void => {
+      if (activeQuestion !== undefined) {
+        disposeQuestion(activeQuestion)
+        activeQuestion = undefined
+      }
+      for (const pending of questionQueue.splice(0)) {
+        disposeQuestion(pending)
+      }
+    }
+
+    const finishQuestion = (pending: PendingQuestion, answer: AskUserQuestionAnswer): void => {
+      removeAbortListener(pending)
+      activeQuestion = undefined
+      pending.resolve(answer)
+      output.write('\n')
+      startNextQuestion()
+    }
+
+    const answerQuestion = (line: string): void => {
+      const pending = activeQuestion as PendingQuestion
+
+      const text = line.trim()
+      const options = displayOptions(pending.request.options)
+      const selectedIndex = /^\d+$/.test(text) ? Number(text) - 1 : -1
+      const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined
+      if (selected !== undefined) {
+        finishQuestion(pending, { answer: optionAnswer(selected), option: selected })
+        return
+      }
+
+      const recommended = options.find(option => option.recommended)
+      if (text === '' && recommended !== undefined) {
+        finishQuestion(pending, { answer: optionAnswer(recommended), option: recommended })
+        return
+      }
+
+      const allowCustom = pending.request.allowCustom ?? true
+      if (allowCustom && text !== '') {
+        finishQuestion(pending, { answer: text })
+        return
+      }
+
+      output.write(options.length > 0
+        ? 'Please enter one of the option numbers'
+          + (allowCustom ? ' or a custom answer' : '')
+          + '.\n> '
+        : 'Please enter an answer.\n> ')
+    }
+
+    const disposeUserInteractionProvider = ctx.userInteraction.registerProvider({
+      ask(request) {
+        return new Promise<AskUserQuestionAnswer>((resolve, reject) => {
+          const pending: PendingQuestion = {
+            request,
+            resolve,
+            reject,
+            onAbort: () => {
+              activeQuestion = undefined
+              disposeQuestion(pending)
+              startNextQuestion()
+            },
+          }
+          questionQueue.push(pending)
+          startNextQuestion()
+        })
+      },
+    })
+
     reader.on('line', (line) => {
+      if (activeQuestion !== undefined) {
+        answerQuestion(line)
+        return
+      }
       const text = line.trim()
       if (!text) return
       const agent = ctx.agents.get(agentId)
@@ -175,12 +316,15 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       // Fires for BOTH stdin EOF and plugin disposal (reader.close() below);
       // `disposed` guards teardown so HMR/dispose never exits the process.
       stdinClosed = true
+      if (!disposed) disposePendingQuestions()
       maybeExit()
     })
     output.write(`${welcome}\n> `)
     return () => {
       disposed = true
       if (exitTimer !== undefined) clearTimeout(exitTimer)
+      disposePendingQuestions()
+      disposeUserInteractionProvider()
       disposeStatusListener()
       reader.close()
     }

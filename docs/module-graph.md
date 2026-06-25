@@ -31,9 +31,7 @@ graph TD
   tools --> agent
   tools --> llm
   tools --> system-prompt
-  ui-stdio --> agent
-  ui-stdio --> llm
-  ui-stdio --> session
+  user-interaction --> agent
   acp --> agent
   acp --> llm
   acp --> session
@@ -48,10 +46,16 @@ graph TD
   subagent --> agent
   subagent --> llm
   subagent --> tools
+  tool-ask-user --> agent
+  tool-ask-user --> tools
+  tool-ask-user --> user-interaction
   tool-bash --> agent
   tool-bash --> bash
   tool-bash --> llm
   tool-bash --> tools
+  ui-stdio --> agent
+  ui-stdio --> session
+  ui-stdio --> user-interaction
   agent-core --> agent
   agent-core --> agent-loop
   agent-core --> invariants
@@ -81,7 +85,9 @@ graph TD
   stdio-agent --> agent-core
   stdio-agent --> session
   stdio-agent --> session-persistence-jsonl
+  stdio-agent --> tool-ask-user
   stdio-agent --> ui-stdio
+  stdio-agent --> user-interaction
   subagent-fork --> agent
   subagent-fork --> session
   subagent-fork --> subagent
@@ -107,17 +113,19 @@ graph TD
 | `session-persistence-jsonl` | `session`, `session-persistence` |
 | `session-persistence-sqlite` | `session`, `session-persistence` |
 | `tools` | `agent`, `llm`, `system-prompt` |
-| `ui-stdio` | `agent`, `llm`, `session` |
+| `user-interaction` | `agent` |
 | `acp` | `agent`, `llm`, `session`, `session-persistence`, `tools` |
 | `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
 | `subagent` | `agent`, `llm`, `tools` |
+| `tool-ask-user` | `agent`, `tools`, `user-interaction` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |
+| `ui-stdio` | `agent`, `session`, `user-interaction` |
 | `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `system-prompt`, `tool-bash`, `tools` |
 | `subagent-acp` | `agent`, `llm`, `subagent` |
 | `subagent-inprocess` | `agent`, `llm`, `session`, `subagent` |
 | `subagent-mock` | `agent`, `llm`, `subagent` |
 | `tool-subagent` | `agent`, `llm`, `subagent`, `tools` |
 | `acp-agent` | `acp`, `agent-core`, `session-persistence-jsonl` |
-| `stdio-agent` | `agent`, `agent-core`, `session`, `session-persistence-jsonl`, `ui-stdio` |
+| `stdio-agent` | `agent`, `agent-core`, `session`, `session-persistence-jsonl`, `tool-ask-user`, `ui-stdio`, `user-interaction` |
 | `subagent-fork` | `agent`, `session`, `subagent`, `subagent-inprocess` |
 | `subagent-spawn` | `subagent`, `subagent-inprocess` |

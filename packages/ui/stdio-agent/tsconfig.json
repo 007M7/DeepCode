@@ -30,6 +30,12 @@
       "path": "../../core/agent-core"
     },
     {
+      "path": "../../core/user-interaction"
+    },
+    {
+      "path": "../../core/tool-ask-user"
+    },
+    {
       "path": "../../session-persistence/session-persistence-jsonl"
     },
     {

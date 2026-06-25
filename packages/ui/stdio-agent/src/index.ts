@@ -41,6 +41,8 @@ import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import * as agentCore from '@deepseek-ai/dsh-agent-core'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as uiStdio from '@deepseek-ai/dsh-ui-stdio'
 
 export const name = 'stdio-agent'
@@ -94,5 +96,7 @@ export function apply(ctx: Context, config: Config): void {
     }],
   })
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
+  ctx.plugin(UserInteractionService)
+  ctx.plugin(toolAskUser)
   ctx.plugin(uiStdio, { welcome: config.welcome ?? 'ready.', agent: 'main' })
 }

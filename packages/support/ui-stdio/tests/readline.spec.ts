@@ -16,6 +16,7 @@ function fakeContext(): Context {
   return {
     on: vi.fn(() => vi.fn()),
     effect: vi.fn((callback: () => () => void) => callback()),
+    userInteraction: { registerProvider: vi.fn(() => vi.fn()) },
   } as unknown as Context
 }
 

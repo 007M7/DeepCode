@@ -301,7 +301,7 @@ Source: [`packages/core/tools/src/index.ts:43`](../../packages/core/tools/src/in
 
 ## Services
 
-The 9 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
+The 10 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
 
 ### `ctx.agentLoop` — `AgentLoop`
 
@@ -453,6 +453,17 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:277`](../../packages/core/tools/src/index.ts)
+
+### `ctx.userInteraction` — `UserInteractionService`
+
+`ctx.userInteraction`: one active UI provider plus an `ask()` surface.
+
+```ts cordis-catalog
+registerProvider(provider: UserInteractionProvider): () => void
+async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
+```
+
+Source: [`packages/core/user-interaction/src/index.ts:72`](../../packages/core/user-interaction/src/index.ts)
 
 ## Inherited tier (cordis core + loader/hmr/timer)
 

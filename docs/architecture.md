@@ -50,6 +50,7 @@ Dependency rule: **extension** plugins depend on interface packages, never on `d
 | `ctx.sessionPersistence` | `SessionPersistence` (abstract) | dsh-session-persistence | durable persistence seam: create/append/load/list sessions |
 | `ctx.systemPrompt` | `SystemPrompt` | dsh-system-prompt | ordered sections + tool schemas → `assemble()` |
 | `ctx.tools` | `ToolRegistry` | dsh-tools | tool definitions; `execute()` through waterfall |
+| `ctx.userInteraction` | `UserInteractionService` | dsh-user-interaction | UI-backed human question/answer seam for tools and permission flows |
 | `ctx.agents` | `AgentRegistry` | dsh-agent | live `Agent` handles + the create/resume factory seam (returns an `AgentHandle` = `{ agent, dispose() }` for owned per-agent teardown) |
 | `ctx.agentLoop` | `AgentLoop` | dsh-agent-loop | creates `ReactLoopAgent`s and drives their loops |
 | `ctx.bash` | `BashExecutor` (abstract) | dsh-bash | bash execution seam: foreground runs + background tasks |
@@ -198,7 +199,7 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 | Built-in tools (Read/Write/Edit/Bash/…) | `ctx.tools.register()`; schemas flow into the assembly automatically. **Bash: implemented** — `dsh-bash` (seam) + `dsh-bash-local` (subprocesses) + `dsh-tool-bash` (`bash`/`bash_output`/`bash_kill`, incl. background tasks) |
 | ToolSearch / progressive disclosure | wrap `agent/request`, filter `req.tools` |
 | Tool sandbox (landlock / sandbox-exec) | wrap `tools/execute`, or implement a sandboxing `BashExecutor` (the dsh-bash seam) |
-| Permission system / AskUserQuestion | wrap `tools/execute` (veto or ask); register an ask tool |
+| Permission system / AskUserQuestion | `dsh-user-interaction` provides `ctx.userInteraction`; `dsh-tool-ask-user` registers `ask_user_question`; permission plugins can also wrap `tools/execute` and ask before delegating |
 | Plan mode | wrap `tools/execute` (deny writes) + `agent/request` (inject mode prompt) |
 | Sub-agents (spawn / fork / steer) | TODO seam on `AgentLoop.create()`; fork = seed Session with parent events; `steer()` on the child handle |
 | MCP | one plugin per server: discover tools → `ctx.tools.register()` |
