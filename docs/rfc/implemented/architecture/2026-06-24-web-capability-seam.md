@@ -1,6 +1,6 @@
 # RFC: Web capability seam - stable tools over multiple providers
 
-Status: proposed
+Status: implemented
 
 ## Problem
 
@@ -64,7 +64,7 @@ flowchart LR
 
 `@deepseek-ai/dsh-web` depends only on Cordis and low-level harness support. It declares `ctx.web`, provider interfaces, request/result types, status types, and error codes. It does not import tool, agent, session, LLM, or provider packages.
 
-Provider packages depend on `@deepseek-ai/dsh-web` and Cordis. They own credentials, endpoint config, provider-specific request mapping, provider-specific response parsing, and provider-specific error translation into `WebError`. They issue network requests with the platform-native `fetch` (Node 24), mirroring `@deepseek-ai/dsh-llm-deepseek`'s adapter, NOT a cordis HTTP-client service (`ctx.http`/`@cordisjs/plugin-http`) — even where a Perplexity provider's request is shaped like an OpenAI-compatible chat completion, that wire shape is a provider-private detail and does not make the provider depend on `ctx.llm`.
+Provider packages depend on `@deepseek-ai/dsh-web` and Cordis. They own credentials, endpoint config, provider-specific request mapping, provider-specific response parsing, and provider-specific error translation into `WebError`. They issue network requests with the platform-native `fetch` (Node 24), mirroring `@deepseek-ai/dsh-llm-deepseek`'s adapter, NOT a cordis HTTP-client service (`ctx.http`/`@cordisjs/plugin-http`) — even where a Perplexity provider's request is shaped like an OpenAI-compatible chat completion, that wire shape is a provider-private detail and does not make the provider depend on `ctx.llm`. A provider does NOT own the `ctx.web` key (two search providers cannot both own it): like `dsh-llm-deepseek`, each provider package is a function/namespace plugin (`inject: ['web']`) whose `apply` constructs the backend and calls `ctx.web.registerSearchProvider` / `registerFetchProvider`. `@deepseek-ai/dsh-web` is the `export default` service that owns the key.
 
 `@deepseek-ai/dsh-tool-web` depends on `@deepseek-ai/dsh-web`, `@deepseek-ai/dsh-tools`, `@deepseek-ai/dsh-system-prompt`, and Cordis. It never imports concrete provider packages.
 
@@ -267,11 +267,11 @@ SSRF / private-network protection (blocking private, loopback, link-local, multi
 
 Tool registration in the first version is a minimal stable sync:
 
-1. On plugin startup, read the product/app config that enables or disables web search and web fetch.
-2. If web search is enabled, register `web_search` and keep that tool's disposer.
-3. If web fetch is enabled, register `web_fetch` and keep that tool's disposer.
+1. On plugin startup, read the `dsh-tool-web` `Config` (`search?: boolean`, `fetch?: boolean`, both default `true`) that enables or disables each web tool.
+2. If web search is enabled, register `web_search` (its disposer is fiber-scoped via the effect-based registry).
+3. If web fetch is enabled, register `web_fetch` (likewise fiber-scoped).
 4. Do not dispose either tool merely because `ctx.web.searchStatus()` or `ctx.web.fetchStatus()` is unavailable.
-5. Dispose registered tools when the `tool-web` fiber is disposed.
+5. Disposing the `tool-web` fiber tears down its registrations automatically.
 
 Provider status changes affect execution results and diagnostics, not whether the model-facing schema exists. If a product wants no web tools at all, it disables `dsh-tool-web` or the individual web tool in config; if it wants web tools but the backend is misconfigured, the model sees a structured tool error at execution time.
 
@@ -315,7 +315,7 @@ Search provider tests cover request mapping, response parsing into `content` plu
 
 Integration tests should load the real seam, provider, and tool packages together and execute through `ctx.tools.execute()` rather than calling providers directly. If wiring the tools into an ACP-facing example changes editor-visible transcripts, add or update the relevant snapshot scenario in the same change.
 
-At least one test must drive these packages through their REAL cordis Loader/export path, not a hand-built `ctx.plugin({...})` mount, so a broken export shape is caught (see [docs/postmortem/0001](../../../postmortem/0001-acp-default-export-drops-inject.md) and `packages/AGENTS.md` § plugin-export-shape). The two shapes need different guards: `dsh-web` and the provider packages are **services** (`export default` the class) and a stray extra export would surface as a missing service; `dsh-tool-web` is a **namespace plugin** (named `name`/`inject`/`apply`, NO default), and because it has `inject`, a stray `export default apply` makes `unwrapExports` drop the `inject` and the plugin throws `cannot get property … without inject` the moment it loads — so a Loader smoke that boots tool-web over `ctx.web` catches it. Prove the guard bites: add `export default apply` to `tool-web`, watch the smoke go red, revert.
+At least one test must drive these packages through their REAL cordis Loader/export path, not a hand-built `ctx.plugin({...})` mount, so a broken export shape is caught (see [docs/postmortem/0001](../../../postmortem/0001-acp-default-export-drops-inject.md) and `packages/AGENTS.md` § plugin-export-shape). The two shapes need different guards: `dsh-web` is a **service** (`export default` the class) and a stray extra export would surface as a missing service; the provider packages and `dsh-tool-web` are **namespace plugins** (named `name`/`inject`/`apply`, NO default), and because each has `inject`, a stray `export default apply` makes `unwrapExports` drop the `inject` and the plugin throws `cannot get property … without inject` the moment it loads — so a Loader smoke that boots tool-web over `ctx.web` catches it (and each provider's registration test mounts it the real way and asserts no default export). Prove the guard bites: add `export default apply` to `tool-web`, watch the smoke go red, revert.
 
 ## Migration plan
 

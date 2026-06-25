@@ -59,7 +59,6 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 |---|---|
 | [Runtime schemas for the event vocabulary (Zod vs the merge-extensible-map pattern)](proposed/architecture/2026-06-16-typed-event-schemas.md) | 2026-06-16 |
 | [Extract a generic long-running tool runtime](proposed/architecture/2026-06-20-generic-long-running-tool-runtime.md) | 2026-06-20 |
-| [Web capability seam - provider registry and model-facing web tools](proposed/architecture/2026-06-24-web-capability-seam.md) | 2026-06-24 |
 
 ### Process
 
@@ -120,6 +119,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Reorganize packages into a modular hierarchy](implemented/architecture/2026-06-20-package-hierarchy.md) | 2026-06-20 |
 | [Branded IDs everywhere they belong](implemented/architecture/2026-06-20-branded-ids.md) | 2026-06-20 |
 | [Extract example apps into packages](implemented/architecture/2026-06-20-extract-example-app-packages.md) | 2026-06-20 |
+| [Web capability seam — provider registry and model-facing web tools](implemented/architecture/2026-06-24-web-capability-seam.md) | 2026-06-24 |
 
 ### Process
 

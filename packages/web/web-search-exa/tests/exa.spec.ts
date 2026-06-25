@@ -1,0 +1,193 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Context } from 'cordis'
+import WebService from '@deepseek-ai/dsh-web'
+import { ExaSearchProvider, mapExaResponse, mapExaResult, EXA_PROVIDER_ID } from '@deepseek-ai/dsh-web-search-exa'
+import * as exaPlugin from '@deepseek-ai/dsh-web-search-exa'
+
+const options = { apiKey: 'exa-key', baseURL: 'https://api.exa.test' }
+
+function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
+  return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' }, ...init })
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+describe('Exa result mapping', () => {
+  it('maps a full result entry', () => {
+    expect(mapExaResult({
+      url: 'https://a.test',
+      title: 'A',
+      publishedDate: '2026-01-01',
+      highlights: ['salient sentence', 'second'],
+    })).toEqual({ url: 'https://a.test', title: 'A', snippet: 'salient sentence', publishedAt: '2026-01-01' })
+  })
+
+  it('drops a result with no usable highlight', () => {
+    expect(mapExaResult({ url: 'https://a.test', highlights: [] })).toBeUndefined()
+    expect(mapExaResult({ url: 'https://a.test' })).toBeUndefined()
+    expect(mapExaResult({ url: 'https://a.test', highlights: ['  '] })).toBeUndefined()
+  })
+
+  it('omits null/empty optional fields rather than emitting them', () => {
+    expect(mapExaResult({ url: 'https://a.test', title: null, publishedDate: null, highlights: ['hi'] }))
+      .toEqual({ url: 'https://a.test', snippet: 'hi' })
+    expect(mapExaResult({ url: 'https://a.test', title: '', publishedDate: '', highlights: ['hi'] }))
+      .toEqual({ url: 'https://a.test', snippet: 'hi' })
+  })
+
+  it('maps a response to a result with no content and filtered sources', () => {
+    const result = mapExaResponse('q', {
+      results: [
+        { url: 'https://a.test', highlights: ['one'] },
+        { url: 'https://b.test' },
+        { url: 'https://c.test', title: 'C', highlights: ['three'] },
+      ],
+    })
+    expect(result).toEqual({
+      providerId: EXA_PROVIDER_ID,
+      query: 'q',
+      sources: [
+        { url: 'https://a.test', snippet: 'one' },
+        { url: 'https://c.test', title: 'C', snippet: 'three' },
+      ],
+      truncated: false,
+    })
+    expect(result.content).toBeUndefined()
+  })
+
+  it('tolerates a missing results array', () => {
+    expect(mapExaResponse('q', {}).sources).toEqual([])
+  })
+})
+
+describe('ExaSearchProvider status', () => {
+  it('is unavailable without a key', () => {
+    expect(new ExaSearchProvider({ apiKey: '', baseURL: options.baseURL }).status())
+      .toEqual({ available: false, reason: 'missing-credential' })
+  })
+
+  it('is available with a key', () => {
+    expect(new ExaSearchProvider(options).status()).toEqual({ available: true })
+  })
+})
+
+describe('ExaSearchProvider request mapping', () => {
+  it('sends query, highlights, numResults and bearer auth', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ results: [{ url: 'https://a.test', highlights: ['hi'] }] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const provider = new ExaSearchProvider(options)
+    await provider.search({ query: 'hello', maxResults: 5 })
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('https://api.exa.test/search')
+    expect((init.headers as Record<string, string>)['authorization']).toBe('Bearer exa-key')
+    expect(JSON.parse(init.body as string)).toEqual({ query: 'hello', contents: { highlights: true }, numResults: 5 })
+  })
+
+  it('omits numResults when maxResults is absent', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ results: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+    await new ExaSearchProvider(options).search({ query: 'q' })
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(JSON.parse(init.body as string)).not.toHaveProperty('numResults')
+  })
+
+  it('forwards the abort signal', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ results: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+    await new ExaSearchProvider(options).search({ query: 'q' }, { signal: controller.signal })
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(init.signal).toBe(controller.signal)
+  })
+})
+
+describe('ExaSearchProvider error handling', () => {
+  it('maps an HTTP error to WEB_PROVIDER_ERROR with the provider message', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'bad key' }, { status: 401 })))
+    await expect(new ExaSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: 'bad key' }))
+  })
+
+  it('keeps a status-line message when the error body is not JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('gateway down', { status: 502 })))
+    await expect(new ExaSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: 'Exa API error (HTTP 502)' }))
+  })
+
+  it('keeps the status-line message when the JSON error body carries no detail', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({}, { status: 500 })))
+    await expect(new ExaSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ message: 'Exa API error (HTTP 500)' }))
+  })
+
+  it('maps a network failure to WEB_PROVIDER_ERROR', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new TypeError('connection refused'))))
+    await expect(new ExaSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+  })
+
+  it('maps an abort to WEB_ABORTED', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new DOMException('aborted', 'AbortError'))))
+    await expect(new ExaSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
+  })
+
+  it('maps an unparseable success body to WEB_PROVIDER_ERROR', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('not json', { status: 200 })))
+    await expect(new ExaSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+  })
+})
+
+describe('web-search-exa plugin registration', () => {
+  it('registers the provider into ctx.web (HMR-safe)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebService, { searchProvider: EXA_PROVIDER_ID })
+    const fiber = await ctx.plugin(exaPlugin, { apiKey: 'exa-key' })
+    expect(ctx.web.searchStatus()).toEqual({ available: true, providerId: EXA_PROVIDER_ID })
+    await fiber.dispose()
+    expect(ctx.web.searchStatus()).toEqual({ available: false, reason: 'configured-missing' })
+  })
+
+  it('has no default export (namespace plugin export shape)', () => {
+    expect('default' in exaPlugin).toBe(false)
+  })
+
+  it('falls back to $EXA_API_KEY and the default base URL when config omits them', async () => {
+    const prev = process.env.EXA_API_KEY
+    process.env.EXA_API_KEY = 'env-key'
+    try {
+      const fetchMock = vi.fn(async () => jsonResponse({ results: [] }))
+      vi.stubGlobal('fetch', fetchMock)
+      const ctx = new Context()
+      await ctx.plugin(WebService, { searchProvider: EXA_PROVIDER_ID })
+      const fiber = await ctx.plugin(exaPlugin, {})
+      expect(ctx.web.searchStatus()).toEqual({ available: true, providerId: EXA_PROVIDER_ID })
+      await ctx.web.search({ query: 'q' })
+      const [url] = fetchMock.mock.calls[0] as unknown as [string]
+      expect(url).toBe('https://api.exa.ai/search')
+      await fiber.dispose()
+    } finally {
+      if (prev === undefined) delete process.env.EXA_API_KEY
+      else process.env.EXA_API_KEY = prev
+    }
+  })
+
+  it('is unavailable when neither config nor env supplies a key', async () => {
+    const prev = process.env.EXA_API_KEY
+    delete process.env.EXA_API_KEY
+    try {
+      const ctx = new Context()
+      await ctx.plugin(WebService, { searchProvider: EXA_PROVIDER_ID })
+      await ctx.plugin(exaPlugin, {})
+      expect(ctx.web.searchStatus()).toEqual({ available: false, reason: 'configured-unavailable' })
+    } finally {
+      if (prev !== undefined) process.env.EXA_API_KEY = prev
+    }
+  })
+})

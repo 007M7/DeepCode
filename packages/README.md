@@ -13,6 +13,7 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`bash/`](bash/README.md) | Bash capability family: the executor seam, a local impl, and the model-facing tool | Product — stable surface |
 | [`compact/`](compact/README.md) | Compaction capability family: the abstract seam (backend + tool deferred) | Product — stable surface |
 | [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
+| [`web/`](web/README.md) | Web capability family: the abstract seam, search/fetch provider impls, and the model-facing web tools | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
 | [`ui/`](ui/README.md) | Editor/client integration surfaces (the ACP bridge) | Product — stable surface |
 | [`support/`](support/README.md) | Dev/test/example infrastructure (invariants, stdio UI, replay adapter) | Support — lower compatibility expectations |
@@ -33,6 +34,11 @@ dsh-compact       ← dsh-session, dsh-llm                (abstract compaction s
 dsh-tools         ← dsh-llm, dsh-system-prompt, dsh-agent
 dsh-bash-local    ← dsh-bash                       (BashExecutor impl)
 dsh-tool-bash     ← dsh-bash, dsh-tools            (bash tool schemas)
+dsh-web           ← dsh-llm                          (abstract web seam; search/fetch registries, WebError)
+dsh-web-search-exa        ← dsh-web                  (Exa WebSearchProvider)
+dsh-web-search-perplexity ← dsh-web                  (Perplexity WebSearchProvider)
+dsh-web-fetch-local       ← dsh-web                  (anonymous public HTTP(S) WebFetchProvider)
+dsh-tool-web      ← dsh-web, dsh-tools, dsh-system-prompt  (web tool schemas)
 dsh-llm-deepseek  ← dsh-llm                        (DeepSeek adapter)
 dsh-llm-pi-ai     ← dsh-llm                        (pi-ai-backed adapter)
 dsh-agent-loop    ← dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent
@@ -68,6 +74,11 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `bash-local/` | `bash` | Local-subprocess `BashExecutor` implementation | (registers `ctx.bash`) |
 | `tool-bash/` | `bash` | Model-facing `bash`/`bash_output`/`bash_kill` tool schemas | (registers on `ctx.tools`) |
 | `compact/` | `compact` | Abstract compaction seam + `compact/*` events + `CompactionResult` | `ctx.compact` |
+| `web/` | `web` | Abstract web seam (search/fetch provider registries + selection + vocabulary + `WebError`) | `ctx.web` |
+| `web-search-exa/` | `web` | Exa-backed `WebSearchProvider` | (registers on `ctx.web`) |
+| `web-search-perplexity/` | `web` | Perplexity-backed `WebSearchProvider` | (registers on `ctx.web`) |
+| `web-fetch-local/` | `web` | Anonymous public HTTP(S) `WebFetchProvider` | (registers on `ctx.web`) |
+| `tool-web/` | `web` | Model-facing `web_search`/`web_fetch` tool schemas | (registers on `ctx.tools`) |
 | `llm-deepseek/` | `llm` | DeepSeek API adapter (hand-rolled fetch/SSE) | (registers on `ctx.llm`) |
 | `llm-pi-ai/` | `llm` | DeepSeek adapter via `@earendil-works/pi-ai` (design twin) | (registers on `ctx.llm`) |
 | `session-persistence/` | `session-persistence` | Persistence seam + write coordinator | `ctx.sessionPersistence` |

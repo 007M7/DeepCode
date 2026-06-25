@@ -24,6 +24,9 @@ For a catalog of the **data structures** this architecture moves around — the 
 │  @deepseek-ai/dsh-agent-loop      (the ONE concrete plugin)  │
 │  @deepseek-ai/dsh-bash-local      (bash impl)                │
 │  @deepseek-ai/dsh-tool-bash       (bash tool schemas)        │
+│  @deepseek-ai/dsh-web-search-exa  (web search impl)          │
+│  @deepseek-ai/dsh-web-fetch-local (web fetch impl)           │
+│  @deepseek-ai/dsh-tool-web        (web tool schemas)         │
 │  @deepseek-ai/dsh-session-persistence-jsonl (persistence impl)│
 ├─────────────────────────────────────────────────────────────┤
 │  @deepseek-ai/dsh-agent           (vocabulary + registry)    │
@@ -33,6 +36,7 @@ For a catalog of the **data structures** this architecture moves around — the 
 │  @deepseek-ai/dsh-session-persistence (persistence seam)     │
 │  @deepseek-ai/dsh-llm             (abstract model service)   │
 │  @deepseek-ai/dsh-bash            (abstract bash executor)   │
+│  @deepseek-ai/dsh-web             (abstract web access)      │
 ├─────────────────────────────────────────────────────────────┤
 │  vendor/: cordis, loader, include, group, timer, hmr,        │
 │           logger-console, cosmokit, schemastery              │
@@ -54,6 +58,7 @@ Dependency rule: **extension** plugins depend on interface packages, never on `d
 | `ctx.agentLoop` | `AgentLoop` | dsh-agent-loop | creates `ReactLoopAgent`s and drives their loops |
 | `ctx.bash` | `BashExecutor` (abstract) | dsh-bash | bash execution seam: foreground runs + background tasks |
 | `ctx.compact` | `CompactService` (abstract) | dsh-compact | compaction seam: decide when history is too large, summarize an older range into a single surface node |
+| `ctx.web` | `WebService` | dsh-web | web access seam: search/fetch provider registries, registration-order-independent selection, the `WebError` taxonomy |
 
 All registrations (`registerAdapter`, `section`, `tools`, `register`, …) go through `ctx.effect()` and return disposers, so plugin hot-reload (vendored HMR) and fiber disposal clean up automatically.
 
@@ -68,6 +73,8 @@ Swappable capabilities are split into **three packages** so each part evolves in
 3. **Consumer** (`dsh-tool-bash`) — what the model and other plugins program against (the `bash`/`bash_output`/`bash_kill` tool schemas). Consumers `inject` the interface's ctx key and never import implementation types.
 
 The LLM seam has the same topology folded differently: `dsh-llm` carries the interface (`LlmAdapter`) AND the consumer surface (`ctx.llm.stream()`), with adapters as implementation packages — there the consumer is the loop itself, not a swappable schema surface. Use the full three-package split when the consumer is independently replaceable; keep interface + consumer together when they are one concern. Don't split preemptively: a capability with one conceivable implementation and one consumer stays one package until proven otherwise.
+
+The web capability uses the same three-package split but folds two capabilities onto one seam: `dsh-web` owns the abstract `ctx.web` service, which is a provider REGISTRY (`registerSearchProvider`/`registerFetchProvider`, registration-order-independent selection, the `WebError` taxonomy) rather than a single backend. Providers register capabilities, not tools — `dsh-web-search-exa`, `dsh-web-search-perplexity`, and `dsh-web-fetch-local` each register into `ctx.web` the way an `LlmAdapter` registers into `ctx.llm`, so they are namespace plugins (`inject: ['web']`), not key-owning services. `dsh-tool-web` is the single consumer that owns the model-facing `web_search`/`web_fetch` schemas, prompt sections, and presentation; it reads only the aggregated `ctx.web.searchStatus()`/`fetchStatus()` and executes through `ctx.web.search()`/`fetch()`, so provider selection has one owner. Search and fetch are deliberately one seam (one thing to inject and configure, one selection policy, one abort/error vocabulary) despite sharing no request schema — see the [web capability seam RFC](rfc/implemented/architecture/2026-06-24-web-capability-seam.md).
 
 > **"Capability" — two unrelated meanings.** (1) The *seam pattern* above ("one plugin provides a capability, another needs it") is realized by plain Cordis **services + `inject`**: a provider registers a service (`ctx.bash`, declared in `interface Context`); a consumer declares `inject: ['bash']` and its fiber stays pending until the service exists, tearing down via HMR if it later vanishes. No extra library is needed. (2) `@cordisjs/plugin-capability` is a different axis entirely — a **permission/capability-security** service (named permissions with inheritance/dependency, tested against a session via `ctx.capability.test`). It is a candidate for the deferred permissions/sandbox work (the `tools/execute` veto seam), NOT a mechanism for swapping implementations.
 
