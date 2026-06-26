@@ -181,30 +181,37 @@ declare module 'cordis' {
 
     // ---- interception seams (waterfall) ----
     /**
-     * Awaited surface-mutation checkpoint, fired BEFORE the step's message
-     * history is derived (and thus before {@link agent/request}). The loop
-     * awaits `ctx.parallel('agent/pre-request', …)` after assembling the system
-     * prompt but before `session.deriveMessages()`, then derives ONCE from
-     * whatever the surface now holds. This is where compaction belongs: it
-     * mutates the session surface in place (shadowing an older range with a
-     * summary node), and the single subsequent derive reflects the mutation —
-     * so there is no double-derive and no listener can see (or be expected to
-     * act on) an assembled `messages` array that does not exist yet.
+     * Awaited pre-step surface-mutation checkpoint, fired once per step AFTER
+     * `turn/start` (and after the prior step closed) but BEFORE this step's
+     * `step/start` — so anything a listener appends lands OUTSIDE the step,
+     * between `turn/start`/`step/end` and the upcoming `step/start`. `step` is
+     * the number of the step about to start. The loop awaits
+     * `ctx.serial('agent/pre-step', …)` after assembling the system prompt, then
+     * opens the step and derives the request history ONCE from whatever the
+     * surface now holds. This is where compaction belongs: it mutates the session
+     * surface in place (shadowing an older range with a summary node) with its
+     * log-only `compact/*` records cleanly outside any step, and the single
+     * subsequent derive reflects the mutation — so there is no double-derive and
+     * no listener can see (or be expected to act on) an assembled `messages`
+     * array that does not exist yet.
      *
-     * Awaited (parallel), not a waterfall: a listener mutates the surface as a
-     * side effect; there is nothing to transform or veto, but the loop must wait
-     * for the mutation to complete before deriving. `system`/`model` are the
-     * assembled values a listener needs to measure pressure (system counts
-     * toward the budget) and to summarize (the model). `signal` cancels any
-     * in-flight work a listener starts (e.g. a summarization model call).
-     * @mode parallel
+     * Serial (awaited, in registration order, no veto), not a waterfall: a
+     * listener mutates the surface as a side effect; there is nothing to
+     * transform or veto, but the loop must wait for the mutation to complete
+     * before opening the step and deriving, and serial isolates listeners from
+     * each other (one finishes its surface append before the next runs).
+     * `system`/`model` are the assembled values a listener needs to measure
+     * pressure (system counts toward the budget) and to summarize (the model).
+     * `signal` cancels any in-flight work a listener starts (e.g. a summarization
+     * model call).
+     * @mode serial
      */
-    'agent/pre-request'(agent: Agent, turn: number, step: number, system: string, model: string, signal: AbortSignal): Promise<void> | void
+    'agent/pre-step'(agent: Agent, turn: number, step: number, system: string, model: string, signal: AbortSignal): Promise<void> | void
     /**
      * Waterfall: mutate the fully-assembled {@link GenerateOptions} before the
      * model call (hooks, model switching, tool filtering, …). Call `next()` to
      * delegate, or return without it to short-circuit. For surface mutation that
-     * must precede history derivation (compaction), use {@link agent/pre-request}
+     * must precede history derivation (compaction), use {@link agent/pre-step}
      * instead — by the time this fires, `options.messages` is already derived.
      * @mode waterfall
      */

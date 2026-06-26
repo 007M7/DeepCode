@@ -194,6 +194,36 @@ describe('Agent.cancel()', () => {
     expect(reasons).toEqual([{ kind: 'aborted', reason: 'from turn-start' }])
   })
 
+  it('cancel from a synchronous agent/step-start listener drops the step (post-step-start window)', async () => {
+    const adapter = new MockAdapter([textResponse('should not stream')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    // A step-start listener fires AFTER step/start is appended (and after the
+    // pre-step seam), so cancelling there lands in the SECOND cancel check (the
+    // one that must closeStep() to balance the already-open step) — distinct
+    // from a turn-start cancel, which is caught before the step opens.
+    let streamed = false
+    ctx.on('agent/stream-chunk', () => { streamed = true })
+    const dispose = ctx.on('agent/step-start', (subject) => {
+      if (subject === agent) agent.cancel('from step-start')
+    })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+    dispose()
+
+    // No step streamed, the turn ended aborted with the caller's reason, and the
+    // log is balanced (the open step was closed by the cancel branch).
+    expect(streamed).toBe(false)
+    expect(reasons).toEqual([{ kind: 'aborted', reason: 'from step-start' }])
+    const types = agent.session.events.map(e => e.type)
+    expect(types.filter(t => t === 'step/start').length).toBe(types.filter(t => t === 'step/end').length)
+  })
+
   it('cancel during the continuation window ends the turn aborted and runs no further step', async () => {
     // A continuation-waterfall listener cancels DURING the continuation decision
     // (the finished step's AbortController is already cleared), and votes to

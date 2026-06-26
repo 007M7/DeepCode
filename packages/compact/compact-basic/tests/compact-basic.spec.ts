@@ -49,9 +49,9 @@ function createTestService(config: BasicCompactConfig = {}): TestCompactService 
 /**
  * Build a multi-turn session with surface markers (simulating real agent-loop
  * output). Compaction always runs inside an OPEN turn (the loop fires the
- * `agent/request` waterfall between a turn's start and its end), so by default
- * the session is left with a trailing open turn: turns `1..turns` close, then
- * one more `turn/start` opens with no matching `turn/end`. Pass
+ * `agent/pre-step` seam after a turn's start and before a step's start), so by
+ * default the session is left with a trailing open turn: turns `1..turns`
+ * close, then one more `turn/start` opens with no matching `turn/end`. Pass
  * `{ leaveOpen: false }` for a fully-closed session (e.g. to assert that manual
  * compaction is rejected when no turn is open).
  */
@@ -219,7 +219,7 @@ describe('BasicCompactService step-alignment (never split a tool-call/result pai
     expect(s.events.some(e => e.type === 'compact/start')).toBe(false)
   })
 
-  it('compactRegion rejects a start that is not a step boundary (splits a step)', async () => {
+  it('compactRegion rejects a start that splits a step (unbalanced boundary)', async () => {
     const svc = createTestService()
     const session = toolTurnSession(1)
     const nodes = session.surface.nodes // [user, asst(tool-call), result]
@@ -228,11 +228,11 @@ describe('BasicCompactService step-alignment (never split a tool-call/result pai
     // start = the tool/result: its issuing assistant precedes it IN THE SAME STEP,
     // so starting here would orphan that assistant's tool-call. end is fine (user).
     await expect(svc.compactRegion(session, resultSeq, resultSeq, 'm'))
-      .rejects.toThrow(/start seq .* is not on a step boundary/)
+      .rejects.toThrow(/start seq .* is not a balanced boundary/)
     expect(userSeq).toBeLessThan(resultSeq) // sanity: ordering as expected
   })
 
-  it('compactRegion rejects an end that is not a step boundary (splits a step)', async () => {
+  it('compactRegion rejects an end that splits a step (unbalanced boundary)', async () => {
     const svc = createTestService()
     const session = toolTurnSession(1)
     const nodes = session.surface.nodes
@@ -241,7 +241,7 @@ describe('BasicCompactService step-alignment (never split a tool-call/result pai
     // end = the assistant/message: its tool/result follows IN THE SAME STEP, so
     // ending here would strand that result. start is fine (the pre-step user).
     await expect(svc.compactRegion(session, userSeq, asstSeq, 'm'))
-      .rejects.toThrow(/end seq .* is not on a step boundary/)
+      .rejects.toThrow(/end seq .* is not a balanced boundary/)
   })
 
   it('compactRegion rejects an end inside an open tail step', async () => {
@@ -258,7 +258,7 @@ describe('BasicCompactService step-alignment (never split a tool-call/result pai
     const userSeq = nodes[0]!.seq
     const asstSeq = nodes[1]!.seq
     await expect(svc.compactRegion(s, userSeq, asstSeq, 'm'))
-      .rejects.toThrow(/end seq .* is not on a step boundary/)
+      .rejects.toThrow(/end seq .* is not a balanced boundary/)
   })
 
   it('compactRegion accepts step-aligned boundaries (pre-step user → last result of a closed step)', async () => {
@@ -883,10 +883,10 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
   })
 })
 
-describe('BasicCompactService auto-compaction (agent/pre-request listener)', () => {
-  /** Fire the agent/pre-request parallel checkpoint as the loop does. */
-  function firePreRequest(ctx: Context, agent: Agent, step: number, system: string, model: string): Promise<unknown> {
-    return ctx.parallel('agent/pre-request', agent, 1, step, system, model, SIGNAL)
+describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => {
+  /** Fire the agent/pre-step serial checkpoint as the loop does. */
+  function firePreStep(ctx: Context, agent: Agent, step: number, system: string, model: string): Promise<unknown> {
+    return ctx.serial('agent/pre-step', agent, 1, step, system, model, SIGNAL)
   }
 
   it('compacts (mutating the surface) when over threshold', async () => {
@@ -896,7 +896,7 @@ describe('BasicCompactService auto-compaction (agent/pre-request listener)', () 
     const agent = stubAgent(session, 'test-model')
     const before = session.surface.nodes.length
 
-    await firePreRequest(ctx, agent, 1, '', 'test-model')
+    await firePreStep(ctx, agent, 1, '', 'test-model')
 
     // The surface shrank in place, and a summary checkpoint landed.
     expect(session.surface.nodes.length).toBeLessThan(before)
@@ -913,7 +913,7 @@ describe('BasicCompactService auto-compaction (agent/pre-request listener)', () 
 
     // A step-2 checkpoint (a tool-heavy turn's later step) must still compact —
     // the surface accumulated assistant/message + tool/result nodes since step 1.
-    await firePreRequest(ctx, agent, 2, '', 'test-model')
+    await firePreStep(ctx, agent, 2, '', 'test-model')
     expect(session.events.some(e => e.type === 'compact/start')).toBe(true)
   })
 
@@ -923,7 +923,7 @@ describe('BasicCompactService auto-compaction (agent/pre-request listener)', () 
     const session = multiTurnSession(1, 1)
     const agent = stubAgent(session, 'test-model')
 
-    await firePreRequest(ctx, agent, 1, '', 'test-model')
+    await firePreStep(ctx, agent, 1, '', 'test-model')
     expect(session.events.some(e => e.type === 'compact/start')).toBe(false)
   })
 
@@ -937,7 +937,7 @@ describe('BasicCompactService auto-compaction (agent/pre-request listener)', () 
     const agent = stubAgent(session, 'missing-model')
     const before = session.surface.nodes.length
 
-    await firePreRequest(ctx, agent, 1, '', 'missing-model')
+    await firePreStep(ctx, agent, 1, '', 'missing-model')
     // No summary landed; the surface is unchanged.
     expect(session.events.some(e => e.type === 'compact/summary')).toBe(false)
     expect(session.surface.nodes.length).toBe(before)
@@ -949,7 +949,7 @@ describe('BasicCompactService auto-compaction (agent/pre-request listener)', () 
     const session = multiTurnSession(3, 1)
     const agent = stubAgent(session, 'test-model')
 
-    await firePreRequest(ctx, agent, 1, '', 'test-model')
+    await firePreStep(ctx, agent, 1, '', 'test-model')
     expect(session.events.some(e => e.type === 'compact/start')).toBe(false)
   })
 })
@@ -992,6 +992,10 @@ describe('BasicCompactService._extractText branches', () => {
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('step/start', { turn: 1, step: 1 })
     s.append('user/message', { content: [{ type: 'text', text: 'run it' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    s.append('assistant/message', {
+      turn: 1, step: 1,
+      content: [{ type: 'tool-call', id: CallId('c9'), name: 'bash', arguments: '{}' }],
+    }, { surfaceOp: 'append' })
     s.append('tool/call', { turn: 1, step: 1, callId: CallId('c9'), name: 'bash', arguments: '{}' })
     s.append('tool/result', {
       turn: 1, step: 1, callId: CallId('c9'),
@@ -1014,12 +1018,15 @@ describe('BasicCompactService edge cases', () => {
     const s = new Session(SessionId('toolresult'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('step/start', { turn: 1, step: 1 })
-    // assistant/message carrying a nested tool-result block and an unknown block.
+    // assistant/message carrying a nested tool-result block, an unknown block,
+    // and the tool-call that the following tool/result answers (so the surface
+    // is tool-pairing balanced).
     s.append('assistant/message', {
       turn: 1, step: 1,
       content: [
         { type: 'tool-result', toolCallId: CallId('n1'), content: [{ type: 'image', url: 'https://x/n.png' }] },
         { type: 'custom-widget', payload: 'x' } as unknown as ContentBlock,
+        { type: 'tool-call', id: CallId('b1'), name: 'bash', arguments: '{}' },
       ],
     }, { surfaceOp: 'append' })
     // tool/result whose content is itself only non-text → bare '[tool-result]'.
@@ -1059,7 +1066,7 @@ describe('BasicCompactService edge cases', () => {
     const session = multiTurnSession(4, 1)
     const agent = stubAgent(session, 'test-model')
 
-    await ctx.parallel('agent/pre-request', agent, 1, 1, '', 'test-model', SIGNAL)
+    await ctx.serial('agent/pre-step', agent, 1, 1, '', 'test-model', SIGNAL)
     expect(session.events.some(e => e.type === 'compact/summary')).toBe(true)
     // The surface was mutated; the head message is the framed summary checkpoint.
     expect(session.deriveMessages()[0]!.content).toContainEqual({ type: 'text', text: 'SUMMARY' })
@@ -1140,7 +1147,7 @@ describe('BasicCompactService edge cases', () => {
     const agent = stubAgent(session, 'test-model')
     const before = session.surface.nodes.length
 
-    await ctx.parallel('agent/pre-request', agent, 1, 1, '', 'test-model', SIGNAL)
+    await ctx.serial('agent/pre-step', agent, 1, 1, '', 'test-model', SIGNAL)
     // The failure was swallowed; the surface is untouched and a warning logged.
     expect(session.surface.nodes.length).toBe(before)
     expect(session.events.some(e => e.type === 'compact/summary')).toBe(false)
@@ -1157,7 +1164,7 @@ describe('BasicCompactService edge cases', () => {
     const agent = stubAgent(session, 'test-model')
     const bigSystem = 'x'.repeat(900) // ceil(900/4)=225 > threshold 200
 
-    await ctx.parallel('agent/pre-request', agent, 1, 1, bigSystem, 'test-model', SIGNAL)
+    await ctx.serial('agent/pre-step', agent, 1, 1, bigSystem, 'test-model', SIGNAL)
     expect(session.events.some(e => e.type === 'compact/start')).toBe(false)
     expect(svc.summarizeCalls.length).toBe(0)
   })
@@ -1166,23 +1173,37 @@ describe('BasicCompactService edge cases', () => {
     const svc = createTestService()
     const s = new Session(SessionId('empties'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    // Step 1: an empty-text user, an empty-reasoning assistant with NO tool-call
+    // (balanced: nothing to answer), and empty context/steering — all extract to
+    // nothing and are skipped.
     s.append('step/start', { turn: 1, step: 1 })
-    // Empty-text text/reasoning blocks contribute nothing → message skipped.
     s.append('user/message', { content: [{ type: 'text', text: '' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'reasoning', text: '' }] }, { surfaceOp: 'append' })
-    // tool/result with empty content → empty extraction → skipped.
-    s.append('tool/call', { turn: 1, step: 1, callId: CallId('z1'), name: 'bash', arguments: '{}' })
-    s.append('tool/result', { turn: 1, step: 1, callId: CallId('z1'), content: [], isError: false }, { surfaceOp: 'append' })
     s.append('context/message', { content: [], source: { kind: 'user' } }, { surfaceOp: 'append' })
     s.append('steering/message', { turn: 1, content: [{ type: 'text', text: '' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     s.append('step/end', { turn: 1, step: 1 })
+    // Step 2: a tool exchange whose tool/result has empty content → empty
+    // extraction → skipped. The assistant carries the matching tool-call so the
+    // surface stays tool-pairing balanced; its text extracts to the tool-call
+    // placeholder (the one surviving line).
+    s.append('step/start', { turn: 1, step: 2 })
+    s.append('assistant/message', {
+      turn: 1, step: 2,
+      content: [{ type: 'tool-call', id: CallId('z1'), name: 'bash', arguments: '{}' }],
+    }, { surfaceOp: 'append' })
+    s.append('tool/call', { turn: 1, step: 2, callId: CallId('z1'), name: 'bash', arguments: '{}' })
+    s.append('tool/result', { turn: 1, step: 2, callId: CallId('z1'), content: [], isError: false }, { surfaceOp: 'append' })
+    s.append('step/end', { turn: 1, step: 2 })
     s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     s.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
 
     const nodes = s.surface.nodes
     await svc.compactRegion(s, nodes[0]!.seq, nodes[nodes.length - 1]!.seq, 'm')
-    // Every message extracted to empty text — the conversation is empty.
-    expect(svc.summarizeCalls[0]!.text).toBe('')
+    // Every empty-content message (user text, empty reasoning, empty-content
+    // tool/result, empty context, empty steering) extracted to nothing and was
+    // skipped — the only surviving line is the assistant's tool-call (which a
+    // balanced surface requires to answer the tool/result).
+    expect(svc.summarizeCalls[0]!.text).toBe('Assistant: [tool-call: bash({})]')
   })
 
   it('renders non-text blocks as type-tagged placeholders across all message kinds', async () => {
@@ -1192,8 +1213,15 @@ describe('BasicCompactService edge cases', () => {
     s.append('step/start', { turn: 1, step: 1 })
     // user/message with only an image block → '[image]' placeholder.
     s.append('user/message', { content: [{ type: 'image', url: 'https://x/y.png' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    // assistant/message with only an image block → '[image]' placeholder.
-    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'image', url: 'https://x/z.png' }] }, { surfaceOp: 'append' })
+    // assistant/message with an image block AND the tool-call its tool/result
+    // answers (so the surface is tool-pairing balanced) → '[image]' placeholder.
+    s.append('assistant/message', {
+      turn: 1, step: 1,
+      content: [
+        { type: 'image', url: 'https://x/z.png' },
+        { type: 'tool-call', id: CallId('e1'), name: 'bash', arguments: '{}' },
+      ],
+    }, { surfaceOp: 'append' })
     // tool/result with an image block → '[image]' placeholder.
     s.append('tool/call', { turn: 1, step: 1, callId: CallId('e1'), name: 'bash', arguments: '{}' })
     s.append('tool/result', { turn: 1, step: 1, callId: CallId('e1'), content: [{ type: 'image', url: 'https://x/r.png' }], isError: false }, { surfaceOp: 'append' })

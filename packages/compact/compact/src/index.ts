@@ -73,7 +73,8 @@ export abstract class CompactService extends Service {
    *   Non-surface context injected downstream (into the request `messages` by a
    *   later listener) is out of this accounting by construction.
    * - **Head-anchored, best-effort.** Auto-compaction consolidates from the
-   *   surface HEAD up to a step-aligned cutoff, so a prior head checkpoint is
+   *   surface HEAD up to a balanced tool-pairing cutoff, so a prior head
+   *   checkpoint is
    *   re-summarized into one fresh checkpoint (the surface holds at most one
    *   auto-generated checkpoint, always at the head). It is best-effort over
    *   CLOSED steps: when the only compactable content left is an un-splittable
@@ -106,15 +107,15 @@ export abstract class CompactService extends Service {
    * summarizes their content and appends a replacement surface node. Used by the
    * (future) `/compact` tool and internally by {@link compactIfNeeded}.
    *
-   * The region MUST contain whole steps — `start` and `end` must each sit on a
-   * step boundary (the first / last surface node of a step) or on a node that
-   * belongs to no step (a pre-step user message, inter-step steering, or an
-   * injection context message). A boundary that falls INSIDE a step would split
-   * that step's `assistant/message` tool-calls from their `tool/result`s, leaving
-   * the rehydrated transcript with a dangling tool-call or an orphaned
-   * tool-result that every provider rejects. An `end` inside an open (unclosed)
-   * tail step is likewise invalid — its tool-calls have no results yet.
-   * `dsh-session` exports `isStepAlignedStart` / `isStepAlignedEnd` for this check.
+   * The region MUST NOT split a step's `assistant/message` tool-calls from their
+   * `tool/result`s, leaving the rehydrated transcript with a dangling tool-call
+   * or an orphaned tool-result that every provider rejects. A region is safe iff
+   * both its edges are balanced cuts on the surface: the cut before `start` and
+   * the cut after `end` each have no unanswered tool-call before them. A node
+   * that belongs to no step (a pre-step user message, inter-step steering, or an
+   * injection context message) is a balanced (free) boundary; an `end` inside an
+   * open (unclosed) tail step is invalid — its tool-calls have no results yet.
+   * `dsh-session` exports `isToolPairingBalanced` for this check.
    *
    * @param session - the session whose surface is mutated.
    * @param start - inclusive seq of the first surface node to compact.
@@ -128,8 +129,8 @@ export abstract class CompactService extends Service {
    *   valid surface nodes, if `start` is positioned after `end` on the surface
    *   (the range is a surface-POSITION span, not a numeric seq interval — a
    *   prior replace can leave the surface non-monotonic in seq order), or if
-   *   either boundary is not step-aligned (would split a step's tool-call/result
-   *   pair).
+   *   either boundary is not a balanced tool-pairing cut (would split a step's
+   *   tool-call/result pair).
    */
   abstract compactRegion(
     session: Session,

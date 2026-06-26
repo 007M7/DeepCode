@@ -5,18 +5,18 @@
  * - **Token estimation** — char/4 heuristic with per-block structural overhead.
  * - **Retention policy** — walk surface nodes tail→head, keep recent nodes up
  *   to a token budget, compact everything older. The cutoff is snapped forward
- *   to the next step boundary so a compacted region never splits a step's
- *   tool-call/result pair (an open tail step is never crossed — compaction
- *   declines and retries once it closes).
+ *   to the next balanced tool-pairing boundary so a compacted region never
+ *   splits a step's tool-call/result pair (an open tail step is never crossed —
+ *   compaction declines and retries once it closes).
  * - **Summarization** — `ctx.llm.stream()` assembled via `BlockAssembler`
  *   (the single model-call surface; same path the loop uses) with a fixed
  *   condense-the-history system prompt.
  * - **Surface mutation** — a single `user/message` replace node carries the
  *   summary; `compact/*` events are log-only lock + provenance records.
- * - **Auto-compaction** — an `agent/request` waterfall listener delegates to
- *   {@link BasicCompactService.compactIfNeeded} before EVERY model call (every
- *   step, so a tool-heavy turn that grows the surface mid-turn still compacts);
- *   it owns the sole token-pressure check.
+ * - **Auto-compaction** — an `agent/pre-step` listener delegates to
+ *   {@link BasicCompactService.compactIfNeeded} before EVERY step (so a
+ *   tool-heavy turn that grows the surface mid-turn still compacts); it owns the
+ *   sole token-pressure check.
  *
  * A different backend (real tokenizer, template summarizer, turn-count
  * retention) either subclasses this and overrides the {@link
@@ -33,7 +33,7 @@ import type { CompactionResult } from '@deepseek-ai/dsh-compact'
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, FinishReason, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { isStepAlignedStart, isStepAlignedEnd } from '@deepseek-ai/dsh-session'
+import { isToolPairingBalanced } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { BasicCompactConfig, ResolvedConfig } from './types.ts'
 import { resolveConfig } from './types.ts'
@@ -169,23 +169,26 @@ export class BasicCompactService extends CompactService {
     this.config = resolveConfig(config)
 
     if (this.config.auto) {
-      // Auto-compaction: delegate to compactIfNeeded before EVERY model call —
-      // every step, not just the first. This is LOAD-BEARING for runaway-turn
-      // survival: a tool-heavy ReAct turn appends an assistant/message and a
-      // tool/result per step, so the surface (and the derived token count) grows
-      // WITHIN a turn. The only moment to rescue a turn that alone approaches the
-      // window is the next step's pre-request; gating to a turn's first step
-      // would let a runaway turn overflow before the next turn's check. The
-      // listener owns NO threshold logic — compactIfNeeded is the single place
-      // that decides whether to compact, and its in-progress lock serializes
-      // concurrent attempts.
+      // Auto-compaction: delegate to compactIfNeeded before EVERY step. This is
+      // LOAD-BEARING for runaway-turn survival: a tool-heavy ReAct turn appends
+      // an assistant/message and a tool/result per step, so the surface (and the
+      // derived token count) grows WITHIN a turn. The only moment to rescue a
+      // turn that alone approaches the window is the next step's pre-step
+      // checkpoint; gating to a turn's first step would let a runaway turn
+      // overflow before the next turn's check. The listener owns NO threshold
+      // logic — compactIfNeeded is the single place that decides whether to
+      // compact, and its in-progress lock serializes concurrent attempts.
       //
-      // It runs on `agent/pre-request` (a parallel surface-mutation checkpoint),
-      // NOT `agent/request`: compaction mutates the session surface, and the loop
-      // derives the request `messages` AFTER this fires — so a single derive
-      // already reflects the compaction, with no double-derive and no need to
-      // rewrite an already-assembled `messages` array.
-      ctx.on('agent/pre-request', async (agent: Agent, _turn: number, _step: number, system: string, model: string, signal: AbortSignal) => {
+      // It runs on `agent/pre-step` (a serial surface-mutation checkpoint fired
+      // AFTER turn/start but BEFORE step/start), NOT `agent/request`: compaction
+      // mutates the session surface, and the loop derives the request `messages`
+      // AFTER this fires — so a single derive already reflects the compaction,
+      // with no double-derive and no need to rewrite an already-assembled
+      // `messages` array. Firing pre-step (outside any open step) keeps the
+      // log-only `compact/*` records and the replacement node cleanly outside a
+      // step, so a crash mid-compaction leaves an inert orphan the turn-repair
+      // closes — never a half-open step.
+      ctx.on('agent/pre-step', async (agent: Agent, _turn: number, _step: number, system: string, model: string, signal: AbortSignal) => {
         try {
           const result = await this.compactIfNeeded(agent.session, system, model, signal)
           if (result) {
@@ -321,17 +324,19 @@ export class BasicCompactService extends CompactService {
    * Retention is a UNIFORM tail→head walk over the whole surface — turn
    * boundaries play NO role. Walking node-by-node from the tail and summing
    * token estimates, once the retained total reaches `retainTokens` the cutoff
-   * is rounded to a step-aligned boundary: if the walk stopped INSIDE a step,
-   * it continues head-ward past that step's `step/start` so the whole step is
-   * retained (never splitting a step's tool-calls from their results); if it
-   * stopped on a free node (a node belonging to no step), that is already a
-   * clean boundary. This always rounds toward retaining MORE (retained ≥
-   * `retainTokens`) and is step-aligned by construction — no separate snap pass.
+   * is rounded to a balanced tool-pairing boundary: if the cut before the
+   * retained node is unbalanced (an unanswered tool-call sits before it — i.e.
+   * it is mid-step), the walk continues head-ward until the cut is balanced so
+   * the whole step is retained (never splitting a step's tool-calls from their
+   * results); if it stopped on a free node (a node belonging to no step), that
+   * cut is already balanced. This always rounds toward retaining MORE (retained
+   * ≥ `retainTokens`) and is boundary-safe by construction — no separate snap
+   * pass.
    *
    * The compacted range is always anchored at the surface HEAD (`nodes[0]`):
    * auto-compaction re-consolidates any prior head checkpoint into one fresh
    * checkpoint. Declines (`null`) when nothing is over threshold, when the whole
-   * surface fits the retain budget, or when no step-aligned cutoff exists in the
+   * surface fits the retain budget, or when no balanced cutoff exists in the
    * compactable range (its only content is an open tail step — retry once it
    * closes).
    */
@@ -371,24 +376,26 @@ export class BasicCompactService extends CompactService {
     // The whole surface fits the retain budget — nothing to compact.
     if (keepFromIdx === 0) return null
 
-    // Round the cutoff to a step boundary: if `keepFromIdx` sits INSIDE a step,
-    // extend the retained side head-ward until the boundary is a step-aligned
-    // start, so the compacted range ends on a clean step edge. A node that
-    // belongs to no step is already a valid start. Decline if no step-aligned
-    // start exists at or below `keepFromIdx` (the compactable range is only an
-    // un-splittable open tail step — retry once it closes).
+    // Round the cutoff to a tool-pairing boundary: if the cut before
+    // `nodes[keepFromIdx]` is unbalanced (an unanswered tool-call sits before
+    // it — i.e. it is mid-step), extend the retained side head-ward until the
+    // cut is balanced, so the compacted range ends without splitting an
+    // assistant↔result pair. A node that belongs to no step is already a
+    // balanced (free) boundary. Decline if no balanced cut exists at or below
+    // `keepFromIdx` (the compactable range is only an un-splittable open tail
+    // step — retry once it closes).
     while (keepFromIdx > 0) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      if (isStepAlignedStart(events, nodes[keepFromIdx]!.seq)) break
+      if (isToolPairingBalanced(nodes, events, nodes[keepFromIdx]!.seq)) break
       keepFromIdx -= 1
     }
     if (keepFromIdx === 0) return null
 
     // The compacted range is [head … keepFromIdx - 1], anchored at the head.
-    // The cutoff node `nodes[keepFromIdx - 1]` is necessarily a step-aligned END:
-    // the retained start `nodes[keepFromIdx]` is a step-aligned START (a boundary
-    // marker sits between them in the log), and that same boundary makes the node
-    // before it a step-aligned end — so no separate end check is needed.
+    // The cutoff node `nodes[keepFromIdx - 1]` is necessarily a balanced END:
+    // the retained start `nodes[keepFromIdx]` opens on a balanced cut, and that
+    // same cut is the cut AFTER `nodes[keepFromIdx - 1]` — so no separate end
+    // check is needed.
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const firstSeq = nodes[0]!.seq
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
@@ -420,19 +427,24 @@ export class BasicCompactService extends CompactService {
       throw new Error(`compactRegion: start seq ${start} (position ${startIdx}) is after end seq ${end} (position ${endIdx}) on the surface`)
     }
 
-    // The region must contain whole steps, never split a step's
-    // assistant-message tool-calls from their tool/results (which would orphan
-    // one side and produce a transcript every provider rejects). A boundary is
-    // valid when it sits on a step edge or on a node that belongs to no step
-    // (pre-step user message, inter-step steering, injection context); an `end`
-    // inside an open (unclosed) tail step is also rejected — its tool-calls have
-    // no results yet. See dsh-session's step-boundary predicates.
+    // The region must never split a step's assistant-message tool-calls from
+    // their tool/results (which would orphan one side and produce a transcript
+    // every provider rejects). A region is safe iff BOTH its edges are balanced
+    // cuts: the cut before `start`, and the cut after `end`. A node that belongs
+    // to no step (pre-step user message, inter-step steering, injection context)
+    // is a balanced (free) boundary; an `end` inside an open (unclosed) tail step
+    // leaves the cut after it unbalanced (the open tool-call has no result yet),
+    // so it is rejected. See dsh-session's tool-pairing balance check.
     const events = session.events
-    if (!isStepAlignedStart(events, start)) {
-      throw new Error(`compactRegion: start seq ${start} is not on a step boundary (would split a step's tool-call/result pair)`)
+    if (!isToolPairingBalanced(nodes, events, start)) {
+      throw new Error(`compactRegion: start seq ${start} is not a balanced boundary (would split a step's tool-call/result pair)`)
     }
-    if (!isStepAlignedEnd(events, end)) {
-      throw new Error(`compactRegion: end seq ${end} is not on a step boundary (would split a step, or the step is still open)`)
+    // The cut after `end` is named by `end`'s surface successor, or `null` when
+    // `end` is the tail.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const afterEnd: number | null = nodes[endIdx]!.next
+    if (!isToolPairingBalanced(nodes, events, afterEnd)) {
+      throw new Error(`compactRegion: end seq ${end} is not a balanced boundary (would split a step, or the step is still open)`)
     }
 
     if (this._isCompactionInProgress(session)) {
@@ -441,10 +453,11 @@ export class BasicCompactService extends CompactService {
 
     // Compaction's events (compact/* and the replacement user/message) must be
     // turn-enclosed: the session-log contract rejects any plugin event appended
-    // outside an open turn. Auto-compaction satisfies this — it runs inside the
-    // `agent/request` waterfall, strictly between a turn's start and end. A
-    // manual call on a fully-closed session has no turn to enclose the events,
-    // so reject rather than emit an un-enclosed run.
+    // outside an open turn. Auto-compaction satisfies this — it runs on the
+    // `agent/pre-step` seam, after `turn/start` and before `step/start`, so
+    // strictly inside the open turn (but outside any step). A manual call on a
+    // fully-closed session has no turn to enclose the events, so reject rather
+    // than emit an un-enclosed run.
     const turn = this._openTurn(session)
     if (turn === null) {
       throw new Error('compactRegion: no open turn — compaction events must be enclosed in a turn')
