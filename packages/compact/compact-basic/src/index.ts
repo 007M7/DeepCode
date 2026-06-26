@@ -601,8 +601,11 @@ export class BasicCompactService extends CompactService {
 
   /**
    * Extract plain-text conversation from a set of surface node seqs, for
-   * feeding into the summarization model. Walks events in log order so the
-   * summary captures chronological flow.
+   * feeding into the summarization model. Walks the seqs in the order given
+   * (surface order, as `compactRegion` slices the surface-node list) so the
+   * summary follows the conversation as the model sees it — which, after a
+   * `replace`, is NOT ascending log-seq order (a high-seq summary node heads the
+   * surface before older retained lower-seq nodes).
    */
   private _extractText(session: Session, seqs: number[]): string {
     const lines: string[] = []

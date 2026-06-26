@@ -735,6 +735,21 @@ describe('BasicCompactService HMR safety', () => {
     expect(ctx.compact).toBeDefined()
     expect(ctx.compact).toBeInstanceOf(BasicCompactService)
   })
+
+  it('disposing the plugin fiber unregisters ctx.compact', async () => {
+    // Mount through the real plugin fiber (the Loader path), then dispose it and
+    // confirm the service registration is torn down. LlmService is mounted first
+    // so the service's `inject: ['llm']` resolves and the fiber activates. (The
+    // sibling-fiber ctx.llm resolution this same setup also exercises is covered
+    // under the "llm inject (real plugin-load path)" suite.)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const fiber = await ctx.plugin(BasicCompactService, { auto: false })
+    expect(ctx.get('compact')).toBeInstanceOf(BasicCompactService)
+
+    await fiber.dispose()
+    expect(ctx.get('compact')).toBeUndefined()
+  })
 })
 
 describe('BasicCompactService convergence invariant (config)', () => {
@@ -1343,7 +1358,8 @@ describe('BasicCompactService llm inject (real plugin-load path)', () => {
     const result = await svc.compactRegion(session, nodes[0]!.seq, nodes[1]!.seq, 'test-model')
     expect(result.summary).toEqual([{ type: 'text', text: 'CONDENSED' }])
 
-    // HMR: disposing the fiber tears the service registration down.
+    // Tear the fiber down so this test owns no leaked registration; the
+    // dedicated cleanup assertion lives in the "HMR safety" suite.
     await fiber.dispose()
     expect(ctx.get('compact')).toBeUndefined()
   })
