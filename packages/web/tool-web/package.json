@@ -5,16 +5,29 @@
   "private": true,
   "type": "module",
   "main": "lib/index.js",
-  "types": "lib/index.d.ts",
+  "types": "lib/types/index.d.ts",
   "exports": {
-    ".":       { "types": "./lib/index.d.ts",  "default": "./lib/index.js" },
-    "./search": { "types": "./lib/search.d.ts", "default": "./lib/search.js" },
-    "./fetch":  { "types": "./lib/fetch.d.ts",  "default": "./lib/fetch.js" },
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./search": {
+      "types": "./lib/types/search.d.ts",
+      "default": "./lib/search.js"
+    },
+    "./fetch": {
+      "types": "./lib/types/fetch.d.ts",
+      "default": "./lib/fetch.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
-    "lib",
+    "lib/index.js",
+    "lib/search.js",
+    "lib/fetch.js",
+    "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
     "src"
   ],
   "license": "BSD-3-Clause",
