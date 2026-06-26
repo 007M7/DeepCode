@@ -33,21 +33,23 @@ afterEach(async () => {
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compacts mid-flight and keeps running', () => {
   it('summarizes older history into a checkpoint without breaking the task', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-compaction-'))
-    // A few files for the model to read, so multiple bash steps accumulate
-    // surface nodes (tool calls + results) and grow the history.
-    for (let i = 1; i <= 4; i++) {
+    // A handful of files for the model to read, so multiple bash steps
+    // accumulate surface nodes (tool calls + results) and grow the history past
+    // the (deliberately tiny) window.
+    for (let i = 1; i <= 6; i++) {
       await writeFile(join(workdir, `file${i}.txt`), `This is file number ${i}. `.repeat(40))
     }
 
-    // Tiny window so a handful of steps crosses the threshold. The convergence
-    // invariant requires summarizationMaxTokens + retainTokens <= window *
-    // ratio = floor(8000 * 0.5) = 4000; 1500 + 2000 = 3500 <= 4000.
+    // Tiny window so a couple of steps crosses the threshold. The convergence
+    // invariant requires summarizationMaxTokens + retainTokens to be strictly
+    // BELOW the threshold = floor(contextWindow * thresholdRatio) =
+    // floor(2400 * 0.5) = 1200; 300 + 500 = 800 < 1200.
     ctx = await codingHarness(workdir, {
       compact: {
-        contextWindow: 8000,
+        contextWindow: 2400,
         thresholdRatio: 0.5,
-        retainTokens: 2000,
-        summarizationMaxTokens: 1500,
+        retainTokens: 500,
+        summarizationMaxTokens: 300,
       },
     })
     const agent = ctx.agentLoop.create(AgentId('e2e-compaction'), {
@@ -57,9 +59,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
 
     agent.send([{
       type: 'text',
-      text: 'Read file1.txt, file2.txt, file3.txt, and file4.txt one at a time using cat '
-        + '(a separate bash command for each). After reading all four, tell me how many '
-        + 'files you read and the number mentioned in file1.txt.',
+      text: 'Read file1.txt, file2.txt, file3.txt, file4.txt, file5.txt, and file6.txt one at a '
+        + 'time using cat (a separate bash command for each). After reading all six, tell me how '
+        + 'many files you read and the number mentioned in file1.txt.',
     }])
     await waitForIdle(ctx, agent)
 
@@ -87,9 +89,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
     expect(summaryData.shadowedSeqs.length).toBeGreaterThan(0)
 
     // The conversation survived compaction: the agent produced a final answer
-    // that reflects the work (it read four files).
+    // that reflects the work (it read six files).
     const answer = finalText(events).toLowerCase()
     expect(answer.length).toBeGreaterThan(0)
-    expect(answer).toMatch(/\b(4|four)\b/)
+    expect(answer).toMatch(/\b(6|six)\b/)
   }, 240_000)
 })
