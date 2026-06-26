@@ -25,6 +25,7 @@ For a catalog of the **data structures** this architecture moves around — the 
 │  @deepseek-ai/dsh-bash-local      (bash impl)                │
 │  @deepseek-ai/dsh-tool-bash       (bash tool schemas)        │
 │  @deepseek-ai/dsh-fs-local        (filesystem impl)          │
+│  @deepseek-ai/dsh-file-context    (filesystem policy)        │
 │  @deepseek-ai/dsh-tool-fs         (filesystem tool schemas)  │
 │  @deepseek-ai/dsh-session-persistence-jsonl (persistence impl)│
 ├─────────────────────────────────────────────────────────────┤
@@ -35,7 +36,7 @@ For a catalog of the **data structures** this architecture moves around — the 
 │  @deepseek-ai/dsh-session-persistence (persistence seam)     │
 │  @deepseek-ai/dsh-llm             (abstract model service)   │
 │  @deepseek-ai/dsh-bash            (abstract bash executor)   │
-│  @deepseek-ai/dsh-fs              (abstract filesystem)      │
+│  @deepseek-ai/dsh-fs              (filesystem provider seam)  │
 ├─────────────────────────────────────────────────────────────┤
 │  vendor/: cordis, loader, include, group, timer, hmr,        │
 │           logger-console, cosmokit, schemastery              │
@@ -56,7 +57,8 @@ Dependency rule: **extension** plugins depend on interface packages, never on `d
 | `ctx.agents` | `AgentRegistry` | dsh-agent | live `Agent` handles + the create/resume factory seam (returns an `AgentHandle` = `{ agent, dispose() }` for owned per-agent teardown) |
 | `ctx.agentLoop` | `AgentLoop` | dsh-agent-loop | creates `ReactLoopAgent`s and drives their loops |
 | `ctx.bash` | `BashExecutor` (abstract) | dsh-bash | bash execution seam: foreground runs + background tasks |
-| `ctx.fs` | `FileSystem` (abstract) | dsh-fs | filesystem seam: path resolution, text reads, writes, edits, and observed-file policy |
+| `ctx.fs` | `FileSystem` (abstract) | dsh-fs | filesystem provider seam: path resolution, stat, text read/stream, guarded writes/edits |
+| `ctx.fileContext` | `FileContext` | dsh-file-context | filesystem policy: read windowing, observed-state, write/edit freshness over `ctx.fs` |
 
 All registrations (`registerAdapter`, `section`, `tools`, `register`, …) go through `ctx.effect()` and return disposers, so plugin hot-reload (vendored HMR) and fiber disposal clean up automatically.
 
@@ -72,7 +74,7 @@ Swappable capabilities are split into **three packages** so each part evolves in
 
 The LLM seam has the same topology folded differently: `dsh-llm` carries the interface (`LlmAdapter`) AND the consumer surface (`ctx.llm.stream()`), with adapters as implementation packages — there the consumer is the loop itself, not a swappable schema surface. Use the full three-package split when the consumer is independently replaceable; keep interface + consumer together when they are one concern. Don't split preemptively: a capability with one conceivable implementation and one consumer stays one package until proven otherwise.
 
-The filesystem capability follows the bash topology: `dsh-fs` owns the abstract `ctx.fs` service and observed-file policy, `dsh-fs-local` provides the local backend, and `dsh-tool-fs` exposes the model-facing `read`/`write`/`edit` schemas over the interface.
+The filesystem capability follows the bash topology with a fourth layer: `dsh-fs` owns the abstract `ctx.fs` provider seam (text IO + guarded mutation primitives), `dsh-fs-local` provides the local backend, `dsh-file-context` is a concrete `ctx.fileContext` policy service (read windowing + observed-state + write/edit freshness, injecting `fs`), and `dsh-tool-fs` exposes the model-facing `read`/`write`/`edit` schemas over `ctx.fileContext`. The policy layer is a concrete service, not a second swappable seam — it owns the model-facing observation policy a sandboxed/remote backend has no business carrying.
 
 > **"Capability" — two unrelated meanings.** (1) The *seam pattern* above ("one plugin provides a capability, another needs it") is realized by plain Cordis **services + `inject`**: a provider registers a service (`ctx.bash`, declared in `interface Context`); a consumer declares `inject: ['bash']` and its fiber stays pending until the service exists, tearing down via HMR if it later vanishes. No extra library is needed. (2) `@cordisjs/plugin-capability` is a different axis entirely — a **permission/capability-security** service (named permissions with inheritance/dependency, tested against a session via `ctx.capability.test`). It is a candidate for the deferred permissions/sandbox work (the `tools/execute` veto seam), NOT a mechanism for swapping implementations.
 

@@ -32,6 +32,7 @@
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
+    "@deepseek-ai/dsh-file-context": "^0.0.1",
     "@deepseek-ai/dsh-fs": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
     "@deepseek-ai/dsh-system-prompt": "^0.0.1",
@@ -40,6 +41,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
+    "@deepseek-ai/dsh-file-context": "workspace:^",
     "@deepseek-ai/dsh-fs": "workspace:^",
     "@deepseek-ai/dsh-fs-local": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",

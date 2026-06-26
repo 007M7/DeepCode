@@ -1,10 +1,11 @@
 /**
- * Local-filesystem implementation of the `ctx.fs` seam. {@link LocalFileSystem}
- * subclasses {@link FileSystem} and backs the four primitives with the host
- * filesystem via {@link module:@deepseek-ai/dsh-fs-local/fsio}. Path resolution
- * uses `realpath`, so the stable `targetKey` is the real file identity (two
- * input paths reaching the same file through symlinks share one key, and writes
- * land on the link target — preserving the link).
+ * Local-filesystem implementation of the `ctx.fs` provider seam.
+ * {@link LocalFileSystem} subclasses {@link FileSystem} and backs the six
+ * text-storage primitives with the host filesystem via
+ * {@link module:@deepseek-ai/dsh-fs-local/fsio}. Path resolution uses
+ * `realpath`, so the stable `targetKey` is the real file identity (two input
+ * paths reaching the same file through symlinks share one key, and writes land
+ * on the link target — preserving the link).
  *
  * Future sandboxed/remote/virtual backends are sibling packages implementing
  * the same interface; loading this one populates `ctx.fs`.
@@ -14,43 +15,39 @@
 
 import { Context } from 'cordis'
 import z from 'schemastery'
-import { FileSystem, FsError } from '@deepseek-ai/dsh-fs'
+import { FileSystem, FsError, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
   FsEditOutcome,
   FsEditRequest,
-  FsExpectation,
-  FsReadOutcome,
-  FsReadRequest,
+  FsInfo,
   FsTarget,
-  FsVersion,
+  FsWriteExpectation,
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
 import {
   applyLiteralEdit,
   probe,
   readForEdit,
-  readTextPage,
+  readWholeText,
   resolveLocalTarget,
   restoreLineEndings,
+  streamWholeText,
   writeFileAtomic,
 } from './fsio.ts'
 import type { FsIoInternals } from './fsio.ts'
 
 export {
-  FAST_PATH_MAX_SIZE,
-  READ_LIMIT,
-  READ_MAX_BYTES,
-  READ_MAX_LINE_LENGTH,
+  STREAM_MIN_SIZE,
   applyLiteralEdit,
-  formatReadBody,
   probe,
   readForEdit,
-  readTextPage,
+  readWholeText,
   resolveLocalTarget,
   restoreLineEndings,
+  streamWholeText,
   writeFileAtomic,
 } from './fsio.ts'
-export type { FsIoInternals, LineEndings, LocalTarget, PathInfo, ReadPageResult } from './fsio.ts'
+export type { FsIoInternals, LineEndings, LocalTarget, PathInfo } from './fsio.ts'
 
 /** Configuration for the local filesystem backend. */
 export interface Config {
@@ -105,47 +102,41 @@ export class LocalFileSystem extends FileSystem {
     return { inputPath: path, targetKey: local.targetKey, displayPath: local.displayPath }
   }
 
-  override async readPage(target: FsTarget, request: FsReadRequest, signal?: AbortSignal): Promise<FsReadOutcome> {
-    const result = await readTextPage(
-      { displayPath: target.displayPath, targetKey: target.targetKey },
-      request,
-      signal,
-      this.internals,
-    )
-    return {
-      offset: request.offset,
-      limit: request.limit,
-      lines: result.lines,
-      totalLines: result.totalLines,
-      version: result.version,
-      view: result.view,
-      ...result.truncatedByBytes ? { truncatedByBytes: true } : {},
-    }
+  override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
+    if (signal?.aborted) throw new FsError('stat aborted', 'FS_ABORTED')
+    const info = await probe(target.targetKey)
+    if (!info) return undefined
+    return { version: info.version, type: info.type, size: info.size }
   }
 
-  override async createOrReplace(
+  override async readText(target: FsTarget, signal?: AbortSignal): Promise<string> {
+    return readWholeText({ displayPath: target.displayPath, targetKey: target.targetKey }, signal)
+  }
+
+  override streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
+    return Promise.resolve(streamWholeText({ displayPath: target.displayPath, targetKey: target.targetKey }, signal))
+  }
+
+  override async writeText(
     target: FsTarget,
     content: string,
-    expected: FsExpectation,
+    expected: FsWriteExpectation,
     signal?: AbortSignal,
   ): Promise<FsWriteOutcome> {
     return this.withLock(target.targetKey, async () => {
       const existing = await probe(target.targetKey)
-      if (existing && !existing.isFile) {
+      if (existing && existing.type !== 'file') {
         throw new FsError(`cannot write "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
       }
 
-      if (expected.kind === 'observed') {
-        // Stale guard: the file must still be at the version the owner observed.
+      if (expected.kind === 'replaceIfVersion') {
+        // Stale guard: the file must still exist at the version the owner observed.
         if (!existing) throw new FsError(`cannot write "${target.displayPath}": file no longer exists`, 'FS_STALE_VERSION')
         if (existing.version !== expected.version) {
           throw new FsError(`cannot write "${target.displayPath}": file changed since it was read`, 'FS_STALE_VERSION')
         }
-      } else if (expected.kind === 'partial') {
-        if (!existing) throw new FsError(`cannot write "${target.displayPath}": file no longer exists`, 'FS_STALE_VERSION')
-        throw new FsError(`cannot overwrite existing "${target.displayPath}" after only a partial read`, 'FS_PARTIAL_OBSERVATION')
       } else if (existing) {
-        // Unobserved write onto an existing file: a blind overwrite — require a read first.
+        // createIfAbsent onto an existing file: a blind overwrite — require a read first.
         throw new FsError(`cannot overwrite existing "${target.displayPath}" without reading it first`, 'FS_NOT_OBSERVED')
       }
 
@@ -158,7 +149,7 @@ export class LocalFileSystem extends FileSystem {
     })
   }
 
-  override async applyEdit(
+  override async editText(
     target: FsTarget,
     edit: FsEditRequest,
     expected: { version: FsVersion },
@@ -166,8 +157,10 @@ export class LocalFileSystem extends FileSystem {
   ): Promise<FsEditOutcome> {
     return this.withLock(target.targetKey, async () => {
       const existing = await probe(target.targetKey)
-      if (!existing) throw new FsError(`cannot edit "${target.displayPath}": not found`, 'FS_NOT_FOUND')
-      if (!existing.isFile) throw new FsError(`cannot edit "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
+      // Stale guard BEFORE literal matching: an edit based on an old read reports
+      // FS_STALE_VERSION, not FS_EDIT_NOT_FOUND/FS_AMBIGUOUS_EDIT against newer content.
+      if (!existing) throw new FsError(`cannot edit "${target.displayPath}": file changed since it was read`, 'FS_STALE_VERSION')
+      if (existing.type !== 'file') throw new FsError(`cannot edit "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
       if (existing.version !== expected.version) {
         throw new FsError(`cannot edit "${target.displayPath}": file changed since it was read`, 'FS_STALE_VERSION')
       }
@@ -188,9 +181,9 @@ export class LocalFileSystem extends FileSystem {
 
   /* v8 ignore next 5 -- the post-write probe finding the file absent requires a
    * concurrent unlink between rename and stat; fall back to a sentinel version. */
-  private versionAfterWrite(after: { version: string } | null, target: FsTarget): string {
+  private versionAfterWrite(after: { version: FsVersion } | null, target: FsTarget): FsVersion {
     if (after) return after.version
-    return `missing:${target.targetKey}`
+    return FsVersion(`missing:${target.targetKey}`)
   }
 }
 

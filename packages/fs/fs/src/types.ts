@@ -1,34 +1,49 @@
 /**
- * Vocabulary for the filesystem capability seam (`ctx.fs`): the request/outcome
- * shapes backends produce and consumers format, the opaque target/version
- * identities, the per-owner file-state record, and the typed error taxonomy.
+ * Vocabulary for the filesystem provider seam (`ctx.fs`): the opaque
+ * target/version identities, the metadata `stat` returns, the write-expectation
+ * and outcome shapes, the literal-edit request/outcome, and the typed error
+ * taxonomy.
  *
  * These types are shared by every backend (`@deepseek-ai/dsh-fs-local` and
- * future sandboxed/remote backends) and by the model-facing consumer
- * (`@deepseek-ai/dsh-tool-fs`). They deliberately avoid host-path assumptions:
- * `targetKey` and `version` are opaque tokens, and `displayPath` is the only
- * field a consumer may show.
+ * future sandboxed/remote backends) and by the policy layer
+ * (`@deepseek-ai/dsh-file-context`). They are deliberately a *text-storage*
+ * vocabulary half a level above byte-level fsspec: `readText`/`streamText` hand
+ * back decoded text, never raw bytes. Host-path assumptions stay out — `targetKey`
+ * and `version` are opaque branded tokens, and `displayPath` is the only field a
+ * consumer may show.
+ *
+ * Model-facing concepts (line windows, numbered lines, observed-state) do NOT
+ * live here; they belong to the policy layer (`ctx.fileContext`).
  *
  * @module @deepseek-ai/dsh-fs/types
  */
 
 import { HarnessError } from '@deepseek-ai/dsh-llm'
+import type { Branded } from '@deepseek-ai/dsh-brand'
 
 /**
- * Minimal structural view of a tool execution the filesystem seam needs to
- * derive a file-state owner. `@deepseek-ai/dsh-tools`' `ToolExecution`
- * satisfies this shape, so the consumer passes its `exec` straight through
- * without `dsh-fs` importing `dsh-tools`, `dsh-agent`, or `dsh-session`.
- *
- * The owner is `agent.session` when present. It is treated as an opaque object
- * identity (a `WeakMap` key); `dsh-fs` never reads any of its fields.
+ * Opaque key for stale guards and target lookup. The local backend uses a
+ * realpath-like string; a remote backend might use a workspace URI or file id.
+ * Consumers MUST NOT parse it or assume it is a local absolute path.
  */
-export interface FsExecContext {
-  /** The agent on whose behalf the call runs, when there is one. */
-  agent?: {
-    /** The session that owns observed-file state, used as an opaque key. */
-    session?: object
-  }
+export type FsTargetKey = Branded<'FsTargetKey'>
+
+/** Brand a string as an {@link FsTargetKey}. */
+export function FsTargetKey(key: string): FsTargetKey {
+  return key as FsTargetKey
+}
+
+/**
+ * Opaque file-version token — the freshness token a write/edit guards against.
+ * The local backend derives it from mtime+size; a remote backend might use a
+ * revision id. The policy layer records it for stale checks; consumers may
+ * display related metadata but MUST NOT interpret this token.
+ */
+export type FsVersion = Branded<'FsVersion'>
+
+/** Brand a string as an {@link FsVersion}. */
+export function FsVersion(v: string): FsVersion {
+  return v as FsVersion
 }
 
 /**
@@ -38,12 +53,8 @@ export interface FsExecContext {
 export interface FsTarget {
   /** The original model/plugin-supplied path, for diagnostics only. */
   inputPath: string
-  /**
-   * Opaque key for stale guards and file-state lookup. The local backend uses
-   * a realpath-like string; a remote backend might use a workspace URI or file
-   * id. Consumers MUST NOT parse it or assume it is a local absolute path.
-   */
-  targetKey: string
+  /** Opaque key for stale guards and target lookup. */
+  targetKey: FsTargetKey
   /**
    * Path for model/UI-facing output. May be a local absolute path,
    * workspace-relative path, or remote URI depending on the backend.
@@ -52,64 +63,30 @@ export interface FsTarget {
 }
 
 /**
- * Opaque file-version token. The local backend derives it from mtime+size; a
- * remote backend might use a revision id. `ctx.fs` records it for stale checks;
- * consumers may display related metadata but MUST NOT interpret this token.
+ * Metadata about a target — what {@link FileSystem.stat} returns. Lets the
+ * policy layer reject directories/special files before reading and choose
+ * `readText` vs `streamText` from `size` without probing by failure. `version`
+ * is the freshness token. `undefined` from `stat` means the target is absent.
  */
-export type FsVersion = string
-
-/** Resolved read window. The consumer applies its defaults/caps before calling. */
-export interface FsReadRequest {
-  /** 1-based first line to return. */
-  offset: number
-  /** Maximum number of lines to return. */
-  limit: number
-}
-
-/** One line returned from a text file. */
-export interface FsTextLine {
-  /** 1-based line number in the file. */
-  number: number
-  /** Line text without its trailing newline. */
-  text: string
-}
-
-/** Whether a recorded/returned view covers the whole file or only part of it. */
-export type FsView = 'full' | 'partial'
-
-/** Outcome of a bounded text read. */
-export interface FsReadOutcome {
-  /** 1-based first line requested. */
-  offset: number
-  /** Maximum number of lines requested. */
-  limit: number
-  /** Returned lines, already numbered. */
-  lines: FsTextLine[]
-  /** Total line count in the file, unless `truncatedByBytes` stopped scanning early. */
-  totalLines: number
-  /** Whether selected output hit the byte cap before EOF or the requested limit. */
-  truncatedByBytes?: true
-  /** Opaque version of the file at read time. */
+export interface FsInfo {
+  /** Opaque freshness token of the target right now. */
   version: FsVersion
-  /**
-   * Whether this read saw the whole file (`full`) or only part of it
-   * (`partial`). Only a `full` view authorizes a later write/edit.
-   */
-  view: FsView
+  /** Whether the target is a regular file, a directory, or something else. */
+  type: 'file' | 'directory' | 'other'
+  /** Byte size of a regular file, when the backend can report it. */
+  size?: number
 }
 
 /**
- * The read-before-write decision the base service hands to a backend for a
- * full-file write. `observed` means the owner has a `full` view recorded at
- * `version` (the backend rejects if the file has since changed); `partial`
- * means the owner saw only a non-editable view of that target; `unobserved`
- * means there is no prior view (the backend may create iff the target is
- * absent, else rejects as not observed).
+ * The explicit intent of a {@link FileSystem.writeText} call. `createIfAbsent`
+ * creates a missing target and rejects an existing one with `FS_NOT_OBSERVED`
+ * (the path used when the owner has no prior read). `replaceIfVersion` replaces
+ * only when the target exists at the observed version; a missing target or a
+ * version mismatch throws `FS_STALE_VERSION`.
  */
-export type FsExpectation =
-  | { kind: 'observed'; version: FsVersion }
-  | { kind: 'partial'; version: FsVersion }
-  | { kind: 'unobserved' }
+export type FsWriteExpectation =
+  | { kind: 'createIfAbsent' }
+  | { kind: 'replaceIfVersion'; version: FsVersion }
 
 /** Outcome of a full-file write. */
 export interface FsWriteOutcome {
@@ -139,29 +116,6 @@ export interface FsEditOutcome {
   version: FsVersion
 }
 
-/** Source that last touched a recorded {@link FileState}. */
-export type FsStateSource = 'read' | 'write' | 'edit'
-
-/**
- * What an owner has observed about one target. Keyed (inside the service) first
- * by the owner object, then by {@link FsTarget.targetKey}. Only a `full` view
- * authorizes write/edit.
- */
-export interface FileState {
-  /** Backend target identity this state describes. */
-  targetKey: string
-  /** Display path captured when the state was recorded. */
-  displayPath: string
-  /** Opaque version the owner last saw. */
-  version: FsVersion
-  /** Whether the owner saw the whole file or only part of it. */
-  view: FsView
-  /** Wall-clock time the state was last updated (ms since epoch). */
-  updatedAt: number
-  /** Operation that produced this state. */
-  source: FsStateSource
-}
-
 /**
  * Stable, machine-routable codes for filesystem failures. Carried on
  * {@link FsError}; the tool registry surfaces `{ name, code }` on `isError`
@@ -173,7 +127,6 @@ export type FsErrorCode =
   | 'FS_NOT_REGULAR_FILE'
   | 'FS_STALE_VERSION'
   | 'FS_NOT_OBSERVED'
-  | 'FS_PARTIAL_OBSERVATION'
   | 'FS_AMBIGUOUS_EDIT'
   | 'FS_EDIT_NOT_FOUND'
   | 'FS_ABORTED'

@@ -1,6 +1,6 @@
 {
-  "name": "@deepseek-ai/dsh-fs",
-  "description": "Abstract filesystem capability seam (ctx.fs) for the DeepSeek Harness — vocabulary types, the FileSystem service, and the read-before-write/edit file-state contract",
+  "name": "@deepseek-ai/dsh-file-context",
+  "description": "File-context policy layer (ctx.fileContext) for the DeepSeek Harness — read windowing and write/edit freshness over the ctx.fs provider seam",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -20,12 +20,11 @@
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
-    "@deepseek-ai/dsh-brand": "^0.0.1",
-    "@deepseek-ai/dsh-llm": "^0.0.1",
+    "@deepseek-ai/dsh-fs": "^0.0.1",
     "cordis": "^4.0.0-rc.6"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-brand": "workspace:^",
+    "@deepseek-ai/dsh-fs": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }

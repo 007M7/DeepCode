@@ -1,8 +1,8 @@
 /**
  * The model-facing `edit` tool: update an existing UTF-8 text file by replacing
  * literal text, requiring a unique match by default. Execution goes through
- * `ctx.fs`, which enforces prior observation and the stale-version guard and
- * owns the literal-match semantics.
+ * `ctx.fileContext`, which enforces prior observation (the freshness policy)
+ * and delegates the literal-match + stale-guard critical section to `ctx.fs`.
  *
  * @module @deepseek-ai/dsh-tool-fs/edit
  */
@@ -60,8 +60,8 @@ export function apply(ctx: Context): void {
     },
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseEditArgs(args)
-      const target = await ctx.fs.resolve(input.filePath)
-      const outcome = await ctx.fs.edit(
+      const target = await ctx.fileContext.resolve(input.filePath)
+      const outcome = await ctx.fileContext.edit(
         target,
         { oldString: input.oldString, newString: input.newString, replaceAll: input.replaceAll },
         exec,
@@ -76,7 +76,7 @@ export function apply(ctx: Context): void {
 export const name = 'fs-edit'
 
 /** Services required by the `edit` tool plugin. */
-export const inject = ['tools', 'fs', 'systemPrompt']
+export const inject = ['tools', 'fileContext', 'systemPrompt']
 
 /** Named helper for direct registration in the root plugin and tests. */
 export const applyEditTool = apply

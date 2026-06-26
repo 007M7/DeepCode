@@ -94,6 +94,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Prune dead methods from the persistence seam](implemented/simplification/2026-06-20-prune-dead-seam-methods.md) | 2026-06-20 |
 | [Keep one public stop primitive](implemented/simplification/2026-06-20-public-agent-stop-surface.md) | 2026-06-20 |
 | [Fold trace-only session facts into load-bearing events](implemented/simplification/2026-06-20-collapse-trace-only-session-events.md) | 2026-06-20 |
+| [Split the filesystem seam — provider text mutations plus policy `ctx.fileContext`](implemented/simplification/2026-06-26-fsspec-style-fs-seam.md) | 2026-06-26 |
 
 ### Architecture
 

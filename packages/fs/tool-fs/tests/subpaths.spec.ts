@@ -1,36 +1,43 @@
 /**
  * Tests for the per-tool subpath plugins (`@deepseek-ai/dsh-tool-fs/read`,
  * `/write`, `/edit`): each registers exactly one tool, injects the same
- * services, and cleans up on disposal.
+ * services (`tools`, `fileContext`, `systemPrompt`), and cleans up on disposal.
  */
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import { FileSystem } from '@deepseek-ai/dsh-fs'
+import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
   FsEditOutcome,
-  FsReadOutcome,
+  FsInfo,
   FsTarget,
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
+import FileContext from '@deepseek-ai/dsh-file-context'
 import * as readPlugin from '@deepseek-ai/dsh-tool-fs/read'
 import * as writePlugin from '@deepseek-ai/dsh-tool-fs/write'
 import * as editPlugin from '@deepseek-ai/dsh-tool-fs/edit'
 
 class StubFs extends FileSystem {
   override async resolve(path: string): Promise<FsTarget> {
-    return { inputPath: path, targetKey: path, displayPath: path }
+    return { inputPath: path, targetKey: FsTargetKey(path), displayPath: path }
   }
-  override async readPage(): Promise<FsReadOutcome> {
-    return { offset: 1, limit: 1, lines: [], totalLines: 0, version: 'v', view: 'full' }
+  override async stat(): Promise<FsInfo | undefined> {
+    return { version: FsVersion('v'), type: 'file', size: 0 }
   }
-  override async createOrReplace(): Promise<FsWriteOutcome> {
-    return { operation: 'create', version: 'v' }
+  override async readText(): Promise<string> {
+    return ''
   }
-  override async applyEdit(): Promise<FsEditOutcome> {
-    return { replacements: 1, replaceAll: false, version: 'v' }
+  override async streamText(): Promise<AsyncIterable<string>> {
+    return (async function* () { yield '' })()
+  }
+  override async writeText(): Promise<FsWriteOutcome> {
+    return { operation: 'create', version: FsVersion('v') }
+  }
+  override async editText(): Promise<FsEditOutcome> {
+    return { replacements: 1, replaceAll: false, version: FsVersion('v') }
   }
 }
 
@@ -39,6 +46,7 @@ async function base() {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(StubFs)
+  await ctx.plugin(FileContext)
   return ctx
 }
 
@@ -64,7 +72,7 @@ describe('subpath plugins', () => {
     expect(ctx.tools.schemas()).toHaveLength(0)
   })
 
-  it('stays pending without a ctx.fs provider', async () => {
+  it('stays pending without a ctx.fileContext provider', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)

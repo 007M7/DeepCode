@@ -1,13 +1,13 @@
 /**
  * Cordis-free local-filesystem I/O for `@deepseek-ai/dsh-fs-local`. Kept
  * separate from the service class (mirroring `dsh-bash-local`'s `run.ts`) so
- * the raw read/write/edit mechanics can be unit-tested without a Context.
+ * the raw stat/read/write/edit mechanics can be unit-tested without a Context.
  *
- * The reader uses two code paths so a single huge line can never balloon
- * memory: a **fast path** (`readFile` + in-memory split) for files under
- * {@link FAST_PATH_MAX_SIZE}, and a **streaming path** (manual newline scan
- * with a capped line buffer) for larger files. Both reject invalid UTF-8 and
- * NUL-byte binary samples, and keep only the requested page in memory.
+ * This is the PROVIDER layer: it hands back decoded whole-file text (validated
+ * UTF-8, binary rejected) — never line windows or numbered lines, which are
+ * model-facing read policy owned by `@deepseek-ai/dsh-file-context`. Large files
+ * stream their text in chunks so a huge file never has to be held whole in
+ * memory; the binary/NUL sample and cross-chunk UTF-8 decoding stay here.
  *
  * Writes are atomic: content goes to a temp file opened exclusively (`wx`,
  * `0o600`, so a pre-existing path can never be clobbered and write-in-progress
@@ -24,56 +24,12 @@ import { chmod, mkdir, open, readFile, realpath, rename, rm, stat } from 'node:f
 import type { Stats } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { TextDecoder } from 'node:util'
-import { FsError } from '@deepseek-ai/dsh-fs'
-import type { FsReadRequest, FsTextLine, FsView } from '@deepseek-ai/dsh-fs'
+import { FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 
-/** Default and maximum number of lines returned by one read. */
-export const READ_LIMIT = 2000
+/** Files at or above this size stream their text; smaller files read whole. */
+export const STREAM_MIN_SIZE = 10 * 1024 * 1024
 
-/** Maximum characters returned for a single line. */
-export const READ_MAX_LINE_LENGTH = 2000
-
-/** Maximum bytes returned for selected file lines. */
-export const READ_MAX_BYTES = 50 * 1024
-
-/** Files smaller than this use the in-memory fast path; larger files stream. */
-export const FAST_PATH_MAX_SIZE = 10 * 1024 * 1024
-
-const READ_MAX_BYTES_LABEL = `${READ_MAX_BYTES / 1024} KB`
-const READ_MAX_LINE_SUFFIX = `... (line truncated to ${READ_MAX_LINE_LENGTH} chars)`
 const BINARY_SAMPLE_BYTES = 8192
-const LINE_BUFFER_CAP = READ_MAX_LINE_LENGTH + 1
-
-/**
- * Test seam: lets specs force the streaming path (via a small
- * `fastPathMaxSize`) and pin the temp-file name (to prove exclusive-open
- * behavior) without a 10 MB fixture or a name race.
- */
-export interface FsIoInternals {
-  /** Override {@link FAST_PATH_MAX_SIZE} for routing. */
-  fastPathMaxSize?: number
-  /** Override the generated private staging-dir name (relative to the target dir). */
-  tempDirName?: (writePath: string) => string
-  /** Override the generated temp-file name (relative to the private staging dir). */
-  tempName?: (writePath: string) => string
-  /** Test hook after the temp file is written/synced but before final chmod+rename. */
-  inspectTemp?: (paths: { stagingDir: string; tempPath: string }) => void | Promise<void>
-}
-
-/** A resolved local path: the absolute path shown to callers and its realpath identity. */
-export interface LocalTarget {
-  /** Absolute path (symlinks not resolved) — used for display. */
-  displayPath: string
-  /** Realpath identity — used as the stable target key and the I/O path. */
-  targetKey: string
-}
-
-/** Result of probing a path: null when it does not exist. */
-export interface PathInfo {
-  version: string
-  mode: number
-  isFile: boolean
-}
 
 function isENOENT(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
@@ -94,8 +50,40 @@ function throwIfAborted(signal: AbortSignal | undefined, verb: string): void {
 }
 
 /** Opaque version token from a stat: mtime (ns precision) + size. */
-function versionOf(info: Stats): string {
-  return `${info.mtimeMs}:${info.size}`
+function versionOf(info: Stats): FsVersion {
+  return FsVersion(`${info.mtimeMs}:${info.size}`)
+}
+
+/**
+ * Test seam: lets specs force the streaming read path (via a small
+ * `streamMinSize`) and pin the temp-file name (to prove exclusive-open
+ * behavior) without a 10 MB fixture or a name race.
+ */
+export interface FsIoInternals {
+  /** Override {@link STREAM_MIN_SIZE} for read routing. */
+  streamMinSize?: number
+  /** Override the generated private staging-dir name (relative to the target dir). */
+  tempDirName?: (writePath: string) => string
+  /** Override the generated temp-file name (relative to the private staging dir). */
+  tempName?: (writePath: string) => string
+  /** Test hook after the temp file is written/synced but before final chmod+rename. */
+  inspectTemp?: (paths: { stagingDir: string; tempPath: string }) => void | Promise<void>
+}
+
+/** A resolved local path: the absolute path shown to callers and its realpath identity. */
+export interface LocalTarget {
+  /** Absolute path (symlinks not resolved) — used for display. */
+  displayPath: string
+  /** Realpath identity — used as the stable target key and the I/O path. */
+  targetKey: FsTargetKey
+}
+
+/** Result of probing a path: null when it does not exist. */
+export interface PathInfo {
+  version: FsVersion
+  mode: number
+  type: 'file' | 'directory' | 'other'
+  size: number
 }
 
 /**
@@ -111,26 +99,27 @@ export async function resolveLocalTarget(cwd: string, path: string): Promise<Loc
   const displayPath = resolve(cwd, path)
   try {
     // Prefer the file's own realpath (resolves a symlinked file to its target).
-    return { displayPath, targetKey: await realpath(displayPath) }
+    return { displayPath, targetKey: FsTargetKey(await realpath(displayPath)) }
   } catch (error: unknown) {
     /* v8 ignore next -- non-ENOENT realpath failure needs a permission/IO fault; ENOENT falls through to parent-dir resolution. */
     if (!isENOENT(error)) throw error
   }
   try {
     // File absent: realpath the parent dir + basename so creates get a stable key.
-    return { displayPath, targetKey: join(await realpath(dirname(displayPath)), basename(displayPath)) }
+    return { displayPath, targetKey: FsTargetKey(join(await realpath(dirname(displayPath)), basename(displayPath))) }
   } catch (error: unknown) {
     /* v8 ignore next -- parent-dir realpath failing needs the dir itself to be missing/unreadable; fall back to the absolute path. */
     if (!isENOENT(error)) throw error
-    return { displayPath, targetKey: displayPath }
+    return { displayPath, targetKey: FsTargetKey(displayPath) }
   }
 }
 
-/** Probe a path for its version, mode, and regular-file status. Null if absent. */
+/** Probe a path for its version, mode, type, and size. Null if absent. */
 export async function probe(absolutePath: string): Promise<PathInfo | null> {
   try {
     const info = await stat(absolutePath)
-    return { version: versionOf(info), mode: info.mode & 0o777, isFile: info.isFile() }
+    const type = info.isFile() ? 'file' : info.isDirectory() ? 'directory' : 'other'
+    return { version: versionOf(info), mode: info.mode & 0o777, type, size: info.size }
   } catch (error: unknown) {
     /* v8 ignore next 2 -- a non-ENOENT stat failure needs a permission/IO fault; surface it. */
     if (!isENOENT(error)) throw error
@@ -140,67 +129,6 @@ export async function probe(absolutePath: string): Promise<PathInfo | null> {
 
 // --- Reading ---
 
-interface PageAccumulator {
-  lines: FsTextLine[]
-  totalLines: number
-  outputBytes: number
-  truncatedByBytes: boolean
-  truncatedByLine: boolean
-  done: boolean
-}
-
-function newAccumulator(): PageAccumulator {
-  return { lines: [], totalLines: 0, outputBytes: 0, truncatedByBytes: false, truncatedByLine: false, done: false }
-}
-
-function truncateReadLine(line: string): { text: string; truncated: boolean } {
-  return line.length > READ_MAX_LINE_LENGTH
-    ? { text: `${line.substring(0, READ_MAX_LINE_LENGTH)}${READ_MAX_LINE_SUFFIX}`, truncated: true }
-    : { text: line, truncated: false }
-}
-
-function lineByteSize(line: string, currentLineCount: number): number {
-  return Buffer.byteLength(line, 'utf8') + (currentLineCount > 0 ? 1 : 0)
-}
-
-function consumeLine(acc: PageAccumulator, rawLine: string, request: FsReadRequest): void {
-  acc.totalLines += 1
-  if (acc.totalLines < request.offset || acc.lines.length >= request.limit) return
-
-  const { text, truncated } = truncateReadLine(rawLine)
-  if (truncated) acc.truncatedByLine = true
-  const bytes = lineByteSize(text, acc.lines.length)
-  if (acc.outputBytes + bytes > READ_MAX_BYTES) {
-    acc.truncatedByBytes = true
-    acc.done = true
-    return
-  }
-  acc.outputBytes += bytes
-  acc.lines.push({ number: acc.totalLines, text })
-}
-
-function stripCarriageReturn(line: string): string {
-  return line.endsWith('\r') ? line.slice(0, -1) : line
-}
-
-/** The outcome shape `readTextPage` returns (minus the offset/limit echo, which the caller adds). */
-export interface ReadPageResult {
-  lines: FsTextLine[]
-  totalLines: number
-  truncatedByBytes: boolean
-  view: FsView
-  version: string
-}
-
-function buildResult(acc: PageAccumulator, request: FsReadRequest, version: string, displayPath: string): ReadPageResult {
-  if (!acc.truncatedByBytes && request.offset > acc.totalLines && !(acc.totalLines === 0 && request.offset === 1)) {
-    throw new FsError(`offset ${request.offset} is out of range for "${displayPath}" (${acc.totalLines} lines)`, 'FS_NOT_FOUND')
-  }
-  const endLine = acc.lines.at(-1)?.number ?? Math.max(0, request.offset - 1)
-  const view: FsView = request.offset === 1 && !acc.truncatedByBytes && !acc.truncatedByLine && endLine >= acc.totalLines ? 'full' : 'partial'
-  return { lines: acc.lines, totalLines: acc.totalLines, truncatedByBytes: acc.truncatedByBytes, view, version }
-}
-
 function notTextError(verb: 'read' | 'edit', displayPath: string): FsError {
   return new FsError(`cannot ${verb} "${displayPath}": invalid UTF-8 text`, 'FS_NOT_TEXT')
 }
@@ -209,8 +137,9 @@ function decodeUtf8(buffer: Uint8Array, verb: 'read' | 'edit', displayPath: stri
   try {
     return new TextDecoder('utf-8', { fatal: true }).decode(buffer)
   } catch (error: unknown) {
-    if (error instanceof TypeError) throw notTextError(verb, displayPath)
-    throw error
+    /* v8 ignore next 2 -- TextDecoder({fatal}) only throws TypeError on invalid bytes; any other throw is an unreachable runtime fault. */
+    if (!(error instanceof TypeError)) throw error
+    throw notTextError(verb, displayPath)
   }
 }
 
@@ -223,90 +152,50 @@ function decodeUtf8Stream(
   try {
     return chunk ? decoder.decode(chunk, { stream: true }) : decoder.decode()
   } catch (error: unknown) {
-    if (error instanceof TypeError) throw notTextError(verb, displayPath)
-    throw error
+    /* v8 ignore next 2 -- TextDecoder({fatal}) only throws TypeError on invalid bytes; any other throw is an unreachable runtime fault. */
+    if (!(error instanceof TypeError)) throw error
+    throw notTextError(verb, displayPath)
   }
 }
 
-/**
- * Read a bounded UTF-8 text-file page. Rejects non-regular files, invalid
- * UTF-8, and NUL-byte binary samples; dispatches to the fast or streaming path
- * by file size.
- */
-export async function readTextPage(
-  target: LocalTarget,
-  request: FsReadRequest,
-  signal?: AbortSignal,
-  internals: FsIoInternals = {},
-): Promise<ReadPageResult> {
-  throwIfAborted(signal, 'read')
-  const absolutePath = target.targetKey
+async function statRegularFile(target: LocalTarget, verb: 'read', signal?: AbortSignal): Promise<Stats> {
+  throwIfAborted(signal, verb)
   let info: Stats
   try {
-    info = await stat(absolutePath)
+    info = await stat(target.targetKey)
   } catch (error: unknown) {
     /* v8 ignore next 2 -- a non-ENOENT stat failure needs a permission/IO fault; only the not-found path is reachable in tests. */
     if (!isENOENT(error)) throw error
-    throw new FsError(`cannot read "${target.displayPath}": not found`, 'FS_NOT_FOUND')
+    throw new FsError(`cannot ${verb} "${target.displayPath}": not found`, 'FS_NOT_FOUND')
   }
-  if (!info.isFile()) throw new FsError(`cannot read "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
-
-  const version = versionOf(info)
-  const fastPathMax = internals.fastPathMaxSize ?? FAST_PATH_MAX_SIZE
-  return info.size < fastPathMax
-    ? readTextPageFast(target, request, version, signal)
-    : readTextPageStreaming(target, request, version, signal)
+  if (!info.isFile()) throw new FsError(`cannot ${verb} "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
+  return info
 }
 
-async function readTextPageFast(
-  target: LocalTarget,
-  request: FsReadRequest,
-  version: string,
-  signal?: AbortSignal,
-): Promise<ReadPageResult> {
+/**
+ * Read a whole regular UTF-8 text file into a single decoded string. Rejects
+ * non-regular files, invalid UTF-8, and NUL-byte binary samples.
+ */
+export async function readWholeText(target: LocalTarget, signal?: AbortSignal): Promise<string> {
+  await statRegularFile(target, 'read', signal)
   const raw = await readFile(target.targetKey, signal ? { signal } : {})
   throwIfAborted(signal, 'read')
   if (raw.subarray(0, BINARY_SAMPLE_BYTES).includes(0)) {
     throw new FsError(`cannot read "${target.displayPath}": binary file`, 'FS_NOT_TEXT')
   }
-
-  const text = decodeUtf8(raw, 'read', target.displayPath)
-  const acc = newAccumulator()
-  let startPos = 0
-  let newlinePos: number
-  while ((newlinePos = text.indexOf('\n', startPos)) !== -1) {
-    consumeLine(acc, stripCarriageReturn(text.slice(startPos, newlinePos)), request)
-    if (acc.done) break
-    startPos = newlinePos + 1
-  }
-  if (!acc.done && startPos < text.length) {
-    consumeLine(acc, stripCarriageReturn(text.slice(startPos)), request)
-  }
-  return buildResult(acc, request, version, target.displayPath)
+  return decodeUtf8(raw, 'read', target.displayPath)
 }
 
-async function readTextPageStreaming(
-  target: LocalTarget,
-  request: FsReadRequest,
-  version: string,
-  signal?: AbortSignal,
-): Promise<ReadPageResult> {
+/**
+ * Stream a whole regular UTF-8 text file as decoded text chunks. Same text
+ * semantics as {@link readWholeText} (regular-file check, binary/NUL rejection,
+ * cross-chunk UTF-8 decoding), but never holds the whole file in memory.
+ */
+export async function* streamWholeText(target: LocalTarget, signal?: AbortSignal): AsyncIterable<string> {
+  await statRegularFile(target, 'read', signal)
   const stream = createReadStream(target.targetKey, signal ? { signal } : {})
-  const acc = newAccumulator()
-  let lineBuffer = ''
-  let sampledBytes = 0
   const decoder = new TextDecoder('utf-8', { fatal: true })
-
-  function appendToLineBuffer(segment: string): void {
-    if (lineBuffer.length >= LINE_BUFFER_CAP) return
-    lineBuffer += segment
-    if (lineBuffer.length > LINE_BUFFER_CAP) lineBuffer = lineBuffer.slice(0, LINE_BUFFER_CAP)
-  }
-
-  function flushLine(): void {
-    consumeLine(acc, stripCarriageReturn(lineBuffer), request)
-    lineBuffer = ''
-  }
+  let sampledBytes = 0
 
   function scanBinarySample(chunk: Buffer): void {
     if (sampledBytes >= BINARY_SAMPLE_BYTES) return
@@ -317,51 +206,17 @@ async function readTextPageStreaming(
     sampledBytes += sample.length
   }
 
-  function consumeChunk(chunk: string): ReadPageResult | undefined {
-    let startPos = 0
-    let newlinePos: number
-    while ((newlinePos = chunk.indexOf('\n', startPos)) !== -1) {
-      appendToLineBuffer(chunk.slice(startPos, newlinePos))
-      flushLine()
-      startPos = newlinePos + 1
-      if (acc.done) return buildResult(acc, request, version, target.displayPath)
-    }
-    appendToLineBuffer(chunk.slice(startPos))
-    return undefined
-  }
-
   try {
     for await (const chunk of stream as AsyncIterable<Buffer>) {
       scanBinarySample(chunk)
-      const result = consumeChunk(decodeUtf8Stream(decoder, chunk, 'read', target.displayPath))
-      if (result) return result
+      yield decodeUtf8Stream(decoder, chunk, 'read', target.displayPath)
     }
-    const finalResult = consumeChunk(decodeUtf8Stream(decoder, undefined, 'read', target.displayPath))
-    if (finalResult) return finalResult
+    yield decodeUtf8Stream(decoder, undefined, 'read', target.displayPath)
   } catch (error: unknown) {
     /* v8 ignore next 4 -- mid-stream errors need an abort/IO fault racing the loop; pre-abort is caught by throwIfAborted. */
     if (isAbortError(error)) throw new FsError('read aborted', 'FS_ABORTED')
     throw error
   }
-
-  if (lineBuffer.length > 0) flushLine()
-  return buildResult(acc, request, version, target.displayPath)
-}
-
-/** Format the line-numbered body + pagination footer for a read page. */
-export function formatReadBody(result: ReadPageResult, offset: number): string {
-  const endLine = result.lines.at(-1)?.number ?? Math.max(0, offset - 1)
-  let footer: string
-  if (result.truncatedByBytes) {
-    footer = `(Output capped at ${READ_MAX_BYTES_LABEL}. Showing lines ${offset}-${endLine}. Use offset=${endLine + 1} to continue.)`
-  } else if (endLine < result.totalLines) {
-    footer = `(Showing lines ${offset}-${endLine} of ${result.totalLines}. Use offset=${endLine + 1} to continue.)`
-  } else {
-    footer = `(End of file - total ${result.totalLines} lines)`
-  }
-  return result.lines.length > 0
-    ? `${result.lines.map(line => `${line.number}: ${line.text}`).join('\n')}\n\n${footer}`
-    : footer
 }
 
 // --- Writing ---

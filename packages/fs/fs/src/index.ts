@@ -1,62 +1,62 @@
 /**
- * The filesystem seam (`ctx.fs`): an abstract service defining WHAT a
- * filesystem backend does — resolve paths into stable targets, read bounded
- * text pages, create/replace files, and apply literal edits — without saying
- * HOW. Implementations subclass {@link FileSystem} and register themselves as
- * the `fs` service; `@deepseek-ai/dsh-fs-local` (the host filesystem) is the
- * first. Future implementations swap in sandboxed, remote, virtual, or
- * project-scoped backends without touching the tool schemas that consume them
+ * The filesystem provider seam (`ctx.fs`): an abstract service defining the
+ * text-storage primitives a backend provides — resolve a path into a stable
+ * target, stat its metadata, read/stream its text, write it atomically with an
+ * explicit expectation, and apply a guarded literal edit — without saying HOW.
+ * Implementations subclass {@link FileSystem} and register themselves as the
+ * `fs` service; `@deepseek-ai/dsh-fs-local` (the host filesystem) is the first.
+ * Future implementations swap in sandboxed, remote, virtual, or project-scoped
+ * backends without touching the model-facing tool schemas
  * (`@deepseek-ai/dsh-tool-fs`).
  *
- * The split mirrors the bash seam (`BashExecutor`/`LocalBashExecutor`). See
- * the capability-seam RFC for why a swappable capability is three packages.
+ * The split mirrors the bash seam (`BashExecutor`/`LocalBashExecutor`). See the
+ * capability-seam RFC for why a swappable capability is three (here four)
+ * packages.
  *
- * ## Read-before-write/edit lives here, not in the tools
+ * ## This is a provider seam, not the policy layer
  *
- * Write/edit safety depends on backend-defined target identity and version
- * tokens, so the seam — not the consumer — records what each owner has observed
- * and enforces the policy. The base class owns owner derivation, the file-state
- * store, and the decision of *which* {@link FsExpectation} to hand a backend;
- * the backend owns version comparison and the actual I/O. A consumer passes its
- * execution context through {@link read}/{@link write}/{@link edit} and never
- * touches the cache, owner key, or version tokens.
+ * `ctx.fs` is deliberately close to fsspec-style storage primitives. It owns
+ * UTF-8 decoding, binary/NUL rejection, atomic full-file writes, and the
+ * version-guarded literal-edit critical section — but NOT line windows,
+ * numbered lines, rendered footers, or observed-state. Those model-facing
+ * read-windowing and read-before-write/edit policies live one layer up in the
+ * concrete `ctx.fileContext` service (`@deepseek-ai/dsh-file-context`), so a
+ * sandboxed/remote backend inherits no model-facing observation policy it has
+ * no business carrying.
+ *
+ * `editText` stays on this seam (not composed in the policy layer from a read
+ * plus a write) because version guard + literal match + atomic rewrite must
+ * stay inside one mutation critical section for correct error attribution and
+ * one-wins/one-stale concurrency, and a remote backend may implement it as a
+ * native compare-and-edit.
  *
  * @module @deepseek-ai/dsh-fs
  */
 
 import { Context, Service } from 'cordis'
-import { FsError } from './types.ts'
 import type {
   FsEditOutcome,
   FsEditRequest,
-  FsExecContext,
-  FsExpectation,
-  FsReadOutcome,
-  FsReadRequest,
+  FsInfo,
   FsTarget,
   FsVersion,
+  FsWriteExpectation,
   FsWriteOutcome,
-  FileState,
 } from './types.ts'
 
 export {
   FsError,
+  FsTargetKey,
+  FsVersion,
 } from './types.ts'
 export type {
   FsEditOutcome,
   FsEditRequest,
   FsErrorCode,
-  FsExecContext,
-  FsExpectation,
-  FsReadOutcome,
-  FsReadRequest,
-  FsStateSource,
+  FsInfo,
   FsTarget,
-  FsTextLine,
-  FsVersion,
-  FsView,
+  FsWriteExpectation,
   FsWriteOutcome,
-  FileState,
 } from './types.ts'
 
 declare module 'cordis' {
@@ -66,49 +66,31 @@ declare module 'cordis' {
 }
 
 /**
- * Abstract filesystem service. Subclass, implement the four backend primitives
- * ({@link resolve}, {@link readPage}, {@link createOrReplace},
- * {@link applyEdit}), and load the subclass as a plugin — it registers as
- * `ctx.fs` (one implementation per context; loading a second throws, cordis'
- * standard duplicate-service behavior).
- *
- * Consumers call the concrete public API ({@link read}/{@link write}/
- * {@link edit}), which derives the file-state owner, enforces the
- * read-before-write/edit policy, and refreshes recorded state — then delegates
- * the actual I/O to the backend primitives.
+ * Abstract filesystem provider service. Subclass, implement the six text-storage
+ * primitives, and load the subclass as a plugin — it registers as `ctx.fs` (one
+ * implementation per context; loading a second throws, cordis' standard
+ * duplicate-service behavior).
  *
  * Semantics every backend must honor:
  * - {@link resolve} returns a stable {@link FsTarget}; the same underlying file
  *   reached by different input paths must yield the same `targetKey` so stale
- *   guards and file-state lookup agree across paths (e.g. through symlinks).
- * - {@link readPage} returns line-numbered UTF-8 content with a `version` and a
- *   `view` (`full` only when the page covered the whole file).
-   * - {@link createOrReplace} honors the {@link FsExpectation}: `observed`
-   *   rejects with `FS_STALE_VERSION` if the file changed since `version`;
-   *   `partial` rejects existing targets because the owner saw only a
-   *   non-editable view; `unobserved` creates iff the target is absent and
-   *   otherwise rejects.
- * - {@link applyEdit} verifies the expected version (stale guard) and is atomic
- *   (read-modify-write must not interleave with a concurrent edit).
+ *   guards and target lookup agree across paths (e.g. through symlinks).
+ * - {@link stat} returns {@link FsInfo} metadata (never content) or `undefined`
+ *   when the target is absent.
+ * - {@link readText}/{@link streamText} read the whole regular text file (the
+ *   stream for large files); both own regular-file checks, UTF-8 decoding,
+ *   binary/NUL rejection, and `FS_NOT_TEXT`.
+ * - {@link writeText} is atomic temp-file + rename honoring the
+ *   {@link FsWriteExpectation}.
+ * - {@link editText} verifies `expected.version` BEFORE literal matching (so a
+ *   stale edit reports `FS_STALE_VERSION`, not `FS_EDIT_NOT_FOUND`/
+ *   `FS_AMBIGUOUS_EDIT` against newer content), then applies literal replacement
+ *   and writes atomically — all inside one mutation critical section.
  */
 export abstract class FileSystem extends Service {
-  /**
-   * Observed-file state, keyed first by the owner object (weakly held, so a
-   * collected session frees its state), then by {@link FsTarget.targetKey}.
-   */
-  private fileStates = new WeakMap<object, Map<string, FileState>>()
-
   constructor(ctx: Context) {
     super(ctx, 'fs')
-    ctx.effect(() => () => {
-      // Drop all recorded state on disposal so a reloaded backend starts clean
-      // (HMR safety). The WeakMap itself would be GC'd, but replacing it makes
-      // the release observable and immediate for tests.
-      this.fileStates = new WeakMap()
-    }, 'fs file-state teardown')
   }
-
-  // --- Backend primitives (subclass implements; all backend I/O lives here) ---
 
   /**
    * Resolve a model/plugin-supplied path into a stable {@link FsTarget}. May
@@ -118,139 +100,32 @@ export abstract class FileSystem extends Service {
    */
   abstract resolve(path: string): Promise<FsTarget>
 
-  /** Read a bounded UTF-8 text page from a target. */
-  abstract readPage(target: FsTarget, request: FsReadRequest, signal?: AbortSignal): Promise<FsReadOutcome>
+  /** Return target metadata, or `undefined` when the target does not exist. */
+  abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>
+
+  /** Read the whole regular text file as a single decoded string. */
+  abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
 
   /**
-   * Create or fully replace a UTF-8 text file, honoring `expected` as the
-   * stale guard / create-vs-update decision.
+   * Stream the whole regular text file as decoded text chunks (same text
+   * semantics as {@link readText}, for large files). The backend owns
+   * cross-chunk UTF-8 decoding and binary rejection so the policy layer never
+   * touches raw bytes.
    */
-  abstract createOrReplace(target: FsTarget, content: string, expected: FsExpectation, signal?: AbortSignal): Promise<FsWriteOutcome>
+  abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
 
   /**
-   * Apply a literal edit to an existing UTF-8 text file, verifying
-   * `expected.version` as the stale guard. Atomic read-modify-write.
+   * Create or fully replace a UTF-8 text file atomically, honoring `expected`
+   * as the create-vs-replace decision and stale guard.
    */
-  abstract applyEdit(target: FsTarget, edit: FsEditRequest, expected: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
-
-  // --- Owner + file-state machinery (shared by all backends) ---
+  abstract writeText(target: FsTarget, content: string, expected: FsWriteExpectation, signal?: AbortSignal): Promise<FsWriteOutcome>
 
   /**
-   * Derive the file-state owner from an execution context — normally the active
-   * agent session. Returns `undefined` when no owner can be derived (e.g. a
-   * direct tool call with no agent); such calls read freely but cannot satisfy
-   * the write/edit prior-observation policy.
+   * Apply a literal edit to an existing UTF-8 text file. Verifies
+   * `expected.version` as the stale guard BEFORE literal matching, then applies
+   * the replacement and writes atomically — one mutation critical section.
    */
-  owner(exec?: FsExecContext): object | undefined {
-    return exec?.agent?.session
-  }
-
-  /** Look up recorded state for an owner+target, if any. */
-  protected getState(owner: object, targetKey: string): FileState | undefined {
-    return this.fileStates.get(owner)?.get(targetKey)
-  }
-
-  /** Record (or replace) one owner's observed state for a target. */
-  protected recordState(owner: object, state: FileState): void {
-    let byTarget = this.fileStates.get(owner)
-    if (!byTarget) {
-      byTarget = new Map()
-      this.fileStates.set(owner, byTarget)
-    }
-    byTarget.set(state.targetKey, state)
-  }
-
-  // --- Concrete public API (orchestration; consumers call these) ---
-
-  /**
-   * Read a bounded text page and, when an owner is derivable, record the
-   * observed state (a `full` view authorizes later write/edit; a `partial` view
-   * does not).
-   */
-  async read(target: FsTarget, request: FsReadRequest, exec?: FsExecContext, signal?: AbortSignal): Promise<FsReadOutcome> {
-    const outcome = await this.readPage(target, request, signal)
-    const owner = this.owner(exec)
-    if (owner) {
-      this.recordState(owner, {
-        targetKey: target.targetKey,
-        displayPath: target.displayPath,
-        version: outcome.version,
-        view: outcome.view,
-        updatedAt: this.now(),
-        source: 'read',
-      })
-    }
-    return outcome
-  }
-
-  /**
-   * Create or fully replace a file. Updating an existing file requires a `full`
-   * prior observation by this owner; a create (no prior state, target absent)
-   * does not. After a successful write the recorded state refreshes to `full`
-   * at the new version so a follow-up modification needs no re-read.
-   */
-  async write(target: FsTarget, content: string, exec?: FsExecContext, signal?: AbortSignal): Promise<FsWriteOutcome> {
-    const owner = this.owner(exec)
-    const prior = owner ? this.getState(owner, target.targetKey) : undefined
-    const expected: FsExpectation = prior
-      ? prior.view === 'full'
-        ? { kind: 'observed', version: prior.version }
-        : { kind: 'partial', version: prior.version }
-      : { kind: 'unobserved' }
-
-    const outcome = await this.createOrReplace(target, content, expected, signal)
-    if (owner) {
-      this.recordState(owner, {
-        targetKey: target.targetKey,
-        displayPath: target.displayPath,
-        version: outcome.version,
-        view: 'full',
-        updatedAt: this.now(),
-        source: 'write',
-      })
-    }
-    return outcome
-  }
-
-  /**
-   * Apply a literal edit. Always requires a `full` prior observation by this
-   * owner. No owner or absent state rejects with `FS_NOT_OBSERVED`; a partial
-   * view rejects with `FS_PARTIAL_OBSERVATION`; an empty `oldString` rejects
-   * before backend I/O. There is no "create via edit". Refreshes recorded
-   * state to `full` at the new version on success.
-   */
-  async edit(target: FsTarget, edit: FsEditRequest, exec?: FsExecContext, signal?: AbortSignal): Promise<FsEditOutcome> {
-    if (edit.oldString.length === 0) {
-      throw new FsError('old_string must be a non-empty string', 'FS_EDIT_NOT_FOUND')
-    }
-    const owner = this.owner(exec)
-    const prior = owner ? this.getState(owner, target.targetKey) : undefined
-    if (!owner || !prior) {
-      throw new FsError(`edit requires reading "${target.displayPath}" first`, 'FS_NOT_OBSERVED')
-    }
-    if (prior.view !== 'full') {
-      throw new FsError(`edit requires a full read of "${target.displayPath}" first`, 'FS_PARTIAL_OBSERVATION')
-    }
-
-    const outcome = await this.applyEdit(target, edit, { version: prior.version }, signal)
-    this.recordState(owner, {
-      targetKey: target.targetKey,
-      displayPath: target.displayPath,
-      version: outcome.version,
-      view: 'full',
-      updatedAt: this.now(),
-      source: 'edit',
-    })
-    return outcome
-  }
-
-  /**
-   * Wall-clock now (ms). A protected seam so tests can use deterministic
-   * timestamps; production uses `Date.now()`.
-   */
-  protected now(): number {
-    return Date.now()
-  }
+  abstract editText(target: FsTarget, edit: FsEditRequest, expected: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
 }
 
 export default FileSystem

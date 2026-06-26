@@ -1,8 +1,9 @@
 /**
  * The model-facing `read` tool: inspect a UTF-8 text file and return
  * line-numbered content with pagination guidance. Execution goes through
- * `ctx.fs` — this module owns only the model-facing schema, argument
- * validation, and result formatting, never filesystem I/O.
+ * `ctx.fileContext` (which records observed state and owns read windowing) —
+ * this module owns only the model-facing schema, argument validation, and
+ * result formatting, never filesystem I/O.
  *
  * @module @deepseek-ai/dsh-tool-fs/read
  */
@@ -10,7 +11,7 @@
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { FsReadOutcome } from '@deepseek-ai/dsh-fs'
+import type { FileReadOutcome } from '@deepseek-ai/dsh-file-context'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
 /** Default and maximum number of lines returned by one `read` call. */
@@ -40,7 +41,7 @@ export function parseReadArgs(args: { file_path: string; offset?: number; limit?
 }
 
 /** Format a read outcome as one OpenCode-style line-numbered text block body. */
-export function formatReadOutput(displayPath: string, outcome: FsReadOutcome): string {
+export function formatReadOutput(displayPath: string, outcome: FileReadOutcome): string {
   const endLine = outcome.lines.at(-1)?.number ?? Math.max(0, outcome.offset - 1)
   let footer: string
   if (outcome.truncatedByBytes) {
@@ -78,8 +79,8 @@ export function apply(ctx: Context): void {
     },
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseReadArgs(args)
-      const target = await ctx.fs.resolve(input.filePath)
-      const outcome = await ctx.fs.read(target, { offset: input.offset, limit: input.limit }, exec, exec.signal)
+      const target = await ctx.fileContext.resolve(input.filePath)
+      const outcome = await ctx.fileContext.read(target, { offset: input.offset, limit: input.limit }, exec, exec.signal)
       return [{ type: 'text', text: formatReadOutput(target.displayPath, outcome) }]
     },
   }))
@@ -89,7 +90,7 @@ export function apply(ctx: Context): void {
 export const name = 'fs-read'
 
 /** Services required by the `read` tool plugin. */
-export const inject = ['tools', 'fs', 'systemPrompt']
+export const inject = ['tools', 'fileContext', 'systemPrompt']
 
 /** Named helper for direct registration in the root plugin and tests. */
 export const applyReadTool = apply

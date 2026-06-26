@@ -8,7 +8,7 @@
   "references": [
     { "path": "../../../vendor/cosmokit" },
     { "path": "../../../vendor/cordis" },
-    { "path": "../../util/brand" },
-    { "path": "../../llm/llm" }
+    { "path": "../../llm/llm" },
+    { "path": "../fs" }
   ]
 }

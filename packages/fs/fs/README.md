@@ -1,38 +1,37 @@
 # @deepseek-ai/dsh-fs
 
-The **filesystem seam**: an abstract `FileSystem` service (`ctx.fs`) defining WHAT a filesystem backend does — resolve paths, read bounded text pages, create/replace files, apply literal edits — without saying HOW.
+The **filesystem provider seam**: an abstract `FileSystem` service (`ctx.fs`) defining the text-storage primitives a backend provides — resolve a path, stat metadata, read/stream text, write atomically, and apply a guarded literal edit — without saying HOW.
 
-This package is one third of the filesystem capability, split so each concern can evolve (and be swapped) independently (see [the capability-seam RFC](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md) and [the filesystem capability-seam RFC](../../../docs/rfc/implemented/architecture/2026-06-17-filesystem-capability-seam.md)):
+This package is the provider-seam layer of the four-layer filesystem stack, split so each concern can evolve (and be swapped) independently (see [the capability-seam RFC](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md), [the filesystem capability-seam RFC](../../../docs/rfc/implemented/architecture/2026-06-17-filesystem-capability-seam.md), and [the split-the-filesystem-seam RFC](../../../docs/rfc/implemented/simplification/2026-06-26-fsspec-style-fs-seam.md)):
 
-| Package | Role |
-|---|---|
-| `@deepseek-ai/dsh-fs` (this) | the interface: abstract service + vocabulary types + read-before-write/edit policy |
-| `@deepseek-ai/dsh-fs-local` | an implementation: the host filesystem |
-| `@deepseek-ai/dsh-tool-fs` | the model-facing `read`/`write`/`edit` tool schemas over `ctx.fs` |
+| Layer | Package | Role |
+|---|---|---|
+| tool | `@deepseek-ai/dsh-tool-fs` | model-facing `read`/`write`/`edit` schemas + text rendering |
+| policy | `@deepseek-ai/dsh-file-context` | `ctx.fileContext`: observed-state, read windowing, write/edit freshness |
+| provider seam | `@deepseek-ai/dsh-fs` (this) | `ctx.fs`: text IO + guarded mutation primitives |
+| provider | `@deepseek-ai/dsh-fs-local` | the host-filesystem implementation |
 
-A future sandboxed, virtual, or remote backend implements this interface and the tool schemas don't change.
+A future sandboxed, virtual, or remote backend implements this interface and the policy/tool layers don't change.
 
 ## Service API (`ctx.fs`)
 
-Consumers call the concrete public API; backends implement the four primitives.
+A backend subclasses `FileSystem` and implements six primitives.
 
-| Member | Kind | Semantics |
-|---|---|---|
-| `resolve(path)` | primitive | Resolve a path into a stable `FsTarget` (`inputPath`, opaque `targetKey`, `displayPath`). Async — a remote backend may need I/O. The same file via different paths must yield the same `targetKey`. |
-| `readPage(target, request, signal?)` | primitive | Read a bounded UTF-8 text page. Returns line-numbered content, `totalLines`, an opaque `version`, and a `view` (`full` only when the page covered the whole file). |
-| `createOrReplace(target, content, expected, signal?)` | primitive | Create/replace a file honoring the `FsExpectation` stale guard. |
-| `applyEdit(target, edit, expected, signal?)` | primitive | Atomic literal read-modify-write, verifying the expected version. `oldString` must be non-empty. |
-| `read(target, request, exec?, signal?)` | public | Calls `readPage`, then records observed state for the derived owner. |
-| `write(target, content, exec?, signal?)` | public | Builds the `FsExpectation` from recorded state, calls `createOrReplace`, refreshes state to `full`. Updating an existing file needs a prior `full` read; a create does not. |
-| `edit(target, edit, exec?, signal?)` | public | Requires a prior `full` read by this owner (else `FS_NOT_OBSERVED` / `FS_PARTIAL_OBSERVATION`), rejects empty `oldString`, calls `applyEdit`, refreshes state. |
-| `owner(exec?)` | helper | Derives the file-state owner (`exec.agent.session`) — `undefined` when there is none. |
+| Member | Semantics |
+|---|---|
+| `resolve(path)` | Resolve a path into a stable `FsTarget` (`inputPath`, opaque `targetKey`, `displayPath`). Async — a remote backend may need I/O. The same file via different paths must yield the same `targetKey`. |
+| `stat(target, signal?)` | Return `FsInfo` metadata (`version`, `type`, optional `size`), or `undefined` when the target is absent. Never content. |
+| `readText(target, signal?)` | Read the whole regular text file as one decoded string. Owns regular-file checks, UTF-8 decoding, binary/NUL rejection (`FS_NOT_TEXT`). |
+| `streamText(target, signal?)` | Stream the same text as decoded chunks for large files (cross-chunk UTF-8 decoding stays here). |
+| `writeText(target, content, expected, signal?)` | Atomic create/replace honoring the `FsWriteExpectation` (`createIfAbsent` or `replaceIfVersion`). |
+| `editText(target, edit, expected, signal?)` | Version-guarded literal edit. Verifies `expected.version` BEFORE matching, then applies the replacement and writes atomically — one mutation critical section. |
 
-## Read-before-write/edit lives in the seam
+## A provider seam, not the policy layer
 
-Write/edit safety depends on backend-defined target identity and version tokens, so `ctx.fs` — not the tool layer — records what each owner has observed (keyed by an opaque owner object, normally the agent session, then by `targetKey`) and enforces the policy. The base class owns owner derivation, the file-state store, and *which* `FsExpectation` to hand the backend; the backend owns version comparison and I/O. Only a `full` view authorizes write/edit; a `partial` view (paged/truncated read) records context but does not.
+`ctx.fs` is deliberately close to fsspec-style storage primitives — half a level above byte-level `cat`/`open`, because it decodes text and rejects binaries so the policy layer never touches raw bytes. It owns UTF-8 decoding, binary rejection, atomic writes, and the version-guarded literal-edit critical section. It does **not** own line windows, numbered lines, rendered footers, or observed-state — those model-facing read-windowing and read-before-write/edit policies live one layer up in `ctx.fileContext` ([`@deepseek-ai/dsh-file-context`](../file-context)), so a sandboxed/remote backend inherits no model-facing observation policy.
 
-State is held in a `WeakMap` keyed by the owner object and dropped on disposal (HMR safety). Persistence across sessions is deferred — a resumed session must read files again before write/edit.
+`editText` stays on this seam (not composed in the policy layer from a read plus a write) because version guard + literal match + atomic rewrite must stay inside one critical section for correct error attribution and one-wins/one-stale concurrency, and a remote backend may implement it as a native compare-and-edit.
 
 ## Vocabulary
 
-`FsTarget` / `FsVersion` are opaque — consumers must not parse `targetKey` or interpret `version`; only `displayPath` is for model/UI output. Failures throw `FsError` (extends `HarnessError`, [the structured error taxonomy RFC](../../../docs/rfc/implemented/architecture/2026-06-11-structured-error-taxonomy.md)) carrying a stable `FsErrorCode` (`FS_NOT_FOUND`, `FS_NOT_TEXT`, `FS_NOT_REGULAR_FILE`, `FS_STALE_VERSION`, `FS_NOT_OBSERVED`, `FS_PARTIAL_OBSERVATION`, `FS_AMBIGUOUS_EDIT`, `FS_EDIT_NOT_FOUND`, `FS_ABORTED`); the tool registry surfaces `{ name, code }` on `isError` results. See `src/types.ts` for the full contracts.
+`FsTargetKey` / `FsVersion` are branded opaque ids ([the branded-ids RFC](../../../docs/rfc/implemented/architecture/2026-06-20-branded-ids.md)) — consumers must not parse `targetKey` or interpret `version`; only `displayPath` is for model/UI output. `FsWriteExpectation` is the explicit write intent (`createIfAbsent` creates a missing target and rejects an existing one with `FS_NOT_OBSERVED`; `replaceIfVersion` replaces only at the observed version, else `FS_STALE_VERSION`). Failures throw `FsError` (extends `HarnessError`, [the structured error taxonomy RFC](../../../docs/rfc/implemented/architecture/2026-06-11-structured-error-taxonomy.md)) carrying a stable `FsErrorCode` (`FS_NOT_FOUND`, `FS_NOT_TEXT`, `FS_NOT_REGULAR_FILE`, `FS_STALE_VERSION`, `FS_NOT_OBSERVED`, `FS_AMBIGUOUS_EDIT`, `FS_EDIT_NOT_FOUND`, `FS_ABORTED`); the tool registry surfaces `{ name, code }` on `isError` results. See `src/types.ts` for the full contracts.

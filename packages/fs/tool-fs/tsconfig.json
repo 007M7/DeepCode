@@ -11,6 +11,7 @@
     { "path": "../../llm/llm" },
     { "path": "../../core/tools" },
     { "path": "../../core/system-prompt" },
-    { "path": "../fs" }
+    { "path": "../fs" },
+    { "path": "../file-context" }
   ]
 }

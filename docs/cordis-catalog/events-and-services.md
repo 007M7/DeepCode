@@ -279,7 +279,7 @@ Source: [`packages/core/tools/src/index.ts:43`](../../packages/core/tools/src/in
 
 ## Services
 
-The 9 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
+The 10 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
 
 ### `ctx.agentLoop` — `AgentLoop`
 
@@ -339,33 +339,46 @@ Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../c
 
 Source: [`packages/bash/bash/src/index.ts:59`](../../packages/bash/bash/src/index.ts)
 
+### `ctx.fileContext` — `FileContext`
+
+The file-context policy service. Injects `fs`, registers as `ctx.fileContext`, and is the only read/write/edit path the model-facing tools use.
+
+```ts cordis-catalog
+owner(exec?: FileContextExec): object | undefined
+async resolve(path: string): Promise<FsTarget>
+async read(target: FsTarget, request: FileReadRequest, exec?: FileContextExec, signal?: AbortSignal): Promise<FileReadOutcome>
+async write(target: FsTarget, content: string, exec?: FileContextExec, signal?: AbortSignal): Promise<FsWriteOutcome>
+async edit(target: FsTarget, edit: FsEditRequest, exec?: FileContextExec, signal?: AbortSignal): Promise<FsEditOutcome>
+```
+
+Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
+
+Source: [`packages/fs/file-context/src/index.ts:65`](../../packages/fs/file-context/src/index.ts)
+
 ### `ctx.fs` — `FileSystem` (abstract seam)
 
-Abstract filesystem service. Subclass, implement the four backend primitives (resolve, readPage, createOrReplace, applyEdit), and load the subclass as a plugin — it registers as `ctx.fs` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
-
-Consumers call the concrete public API (read/write/ edit), which derives the file-state owner, enforces the read-before-write/edit policy, and refreshes recorded state — then delegates the actual I/O to the backend primitives.
+Abstract filesystem provider service. Subclass, implement the six text-storage primitives, and load the subclass as a plugin — it registers as `ctx.fs` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
 
 Semantics every backend must honor:
 
-- resolve returns a stable FsTarget; the same underlying file reached by different input paths must yield the same `targetKey` so stale guards and file-state lookup agree across paths (e.g. through symlinks).
-- readPage returns line-numbered UTF-8 content with a `version` and a `view` (`full` only when the page covered the whole file).
-- createOrReplace honors the FsExpectation: `observed` rejects with `FS_STALE_VERSION` if the file changed since `version`; `partial` rejects existing targets because the owner saw only a non-editable view; `unobserved` creates iff the target is absent and otherwise rejects.
-- applyEdit verifies the expected version (stale guard) and is atomic (read-modify-write must not interleave with a concurrent edit).
+- resolve returns a stable FsTarget; the same underlying file reached by different input paths must yield the same `targetKey` so stale guards and target lookup agree across paths (e.g. through symlinks).
+- stat returns FsInfo metadata (never content) or `undefined` when the target is absent.
+- readText/streamText read the whole regular text file (the stream for large files); both own regular-file checks, UTF-8 decoding, binary/NUL rejection, and `FS_NOT_TEXT`.
+- writeText is atomic temp-file + rename honoring the FsWriteExpectation.
+- editText verifies `expected.version` BEFORE literal matching (so a stale edit reports `FS_STALE_VERSION`, not `FS_EDIT_NOT_FOUND`/ `FS_AMBIGUOUS_EDIT` against newer content), then applies literal replacement and writes atomically — all inside one mutation critical section.
 
 ```ts cordis-catalog
 abstract resolve(path: string): Promise<FsTarget>
-abstract readPage(target: FsTarget, request: FsReadRequest, signal?: AbortSignal): Promise<FsReadOutcome>
-abstract createOrReplace(target: FsTarget, content: string, expected: FsExpectation, signal?: AbortSignal): Promise<FsWriteOutcome>
-abstract applyEdit(target: FsTarget, edit: FsEditRequest, expected: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
-owner(exec?: FsExecContext): object | undefined
-async read(target: FsTarget, request: FsReadRequest, exec?: FsExecContext, signal?: AbortSignal): Promise<FsReadOutcome>
-async write(target: FsTarget, content: string, exec?: FsExecContext, signal?: AbortSignal): Promise<FsWriteOutcome>
-async edit(target: FsTarget, edit: FsEditRequest, exec?: FsExecContext, signal?: AbortSignal): Promise<FsEditOutcome>
+abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>
+abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
+abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
+abstract writeText(target: FsTarget, content: string, expected: FsWriteExpectation, signal?: AbortSignal): Promise<FsWriteOutcome>
+abstract editText(target: FsTarget, edit: FsEditRequest, expected: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
 ```
 
-Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsExecContext](../core-data-structures/filesystem.md) · [FsExpectation](../core-data-structures/filesystem.md) · [FsReadOutcome](../core-data-structures/filesystem.md) · [FsReadRequest](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
+Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:94`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:90`](../../packages/fs/fs/src/index.ts)
 
 ### `ctx.llm` — `LlmService`
 

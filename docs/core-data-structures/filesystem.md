@@ -1,80 +1,49 @@
 # Filesystem
 
-The filesystem execution seam is split across three packages: interface ([dsh-fs](../../packages/fs/fs), `ctx.fs`), implementation ([dsh-fs-local](../../packages/fs/fs-local), local disk), and consumer ([dsh-tool-fs](../../packages/fs/tool-fs), the model-facing `read`/`write`/`edit` tools). Filesystem access is an optional capability, not part of the agent-loop spine, so its vocabulary lives here rather than in [core.md](core.md). A sandboxed, remote, virtual, or project-scoped backend can implement the same `FileSystem` service without changing the tool schemas.
+The filesystem stack is split across four packages: a provider seam ([dsh-fs](../../packages/fs/fs), `ctx.fs`, text IO + guarded mutation), a local implementation ([dsh-fs-local](../../packages/fs/fs-local), local disk), a policy layer ([dsh-file-context](../../packages/fs/file-context), `ctx.fileContext`, read windowing + write/edit freshness), and a consumer ([dsh-tool-fs](../../packages/fs/tool-fs), the model-facing `read`/`write`/`edit` tools). Filesystem access is an optional capability, not part of the agent-loop spine, so its vocabulary lives here rather than in [core.md](core.md). A sandboxed, remote, virtual, or project-scoped backend can implement the same `FileSystem` service without changing the policy layer or the tool schemas.
 
-Source: [`packages/fs/fs/src/types.ts`](../../packages/fs/fs/src/types.ts) and [`packages/fs/fs/src/index.ts`](../../packages/fs/fs/src/index.ts)
+Provider source: [`packages/fs/fs/src/types.ts`](../../packages/fs/fs/src/types.ts) and [`packages/fs/fs/src/index.ts`](../../packages/fs/fs/src/index.ts). Policy source: [`packages/fs/file-context/src/types.ts`](../../packages/fs/file-context/src/types.ts).
 
-## Execution context and target identity
+## Target identity and metadata (provider seam)
 
-The filesystem seam needs just enough execution context to derive the observed-file owner. `ToolExecution` satisfies this shape, so `dsh-tool-fs` passes its execution object through without making `dsh-fs` import the tool, agent, or session packages.
-
-```ts type-equiv
-interface FsExecContext {
-  agent?: {
-    session?: object
-  }
-}
-```
-
-Every operation resolves a user-supplied path to an opaque backend target first. Consumers may display `displayPath`, but must not parse `targetKey` or assume it is a local absolute path.
+Every operation resolves a user-supplied path to an opaque backend target first. Consumers may display `displayPath`, but must not parse `targetKey` (a branded opaque id) or assume it is a local absolute path.
 
 ```ts type-equiv
 interface FsTarget {
   inputPath: string
-  targetKey: string
+  targetKey: FsTargetKey
   displayPath: string
 }
 ```
 
-The backend also owns file-version tokens. `ctx.fs` stores them for stale checks; consumers do not interpret them.
+The backend owns file-version tokens — the freshness token a write/edit guards against. The policy layer stores them for stale checks; consumers do not interpret them. Both ids are branded opaque strings.
 
 ```ts type-equiv
-type FsVersion = string
-```
-
-## Reads and editable views
-
-A text read is bounded by line window, byte cap, and backend limits. The returned view records whether the owner saw the whole file or only a partial page; only a `full` view authorizes later write/edit.
-
-```ts type-equiv
-interface FsReadRequest {
-  offset: number
-  limit: number
-}
+type FsTargetKey = Branded<'FsTargetKey'>
 ```
 
 ```ts type-equiv
-interface FsTextLine {
-  number: number
-  text: string
-}
+type FsVersion = Branded<'FsVersion'>
 ```
 
-```ts type-equiv
-type FsView = 'full' | 'partial'
-```
+`stat` returns metadata (never content), or `undefined` when the target is absent. `type` lets the policy layer reject directories/special files before reading, and `size` lets it choose `readText` vs `streamText` without probing by failure.
 
 ```ts type-equiv
-interface FsReadOutcome {
-  offset: number
-  limit: number
-  lines: FsTextLine[]
-  totalLines: number
-  truncatedByBytes?: true
+interface FsInfo {
   version: FsVersion
-  view: FsView
+  type: 'file' | 'directory' | 'other'
+  size?: number
 }
 ```
 
-## Write and edit guards
+## Write and edit guards (provider seam)
 
-The base `FileSystem` service converts recorded state into an `FsExpectation` before calling the backend. `observed` carries the stale guard, `partial` means the owner saw a non-editable view, and `unobserved` allows create-if-absent but rejects blind overwrite.
+`writeText` takes an explicit write expectation rather than inferring intent. `createIfAbsent` creates a missing target and rejects an existing one with `FS_NOT_OBSERVED`; `replaceIfVersion` replaces only when the target exists at the observed version, else `FS_STALE_VERSION`.
 
 ```ts type-equiv
-type FsExpectation =
-  | { kind: 'observed'; version: FsVersion }
-  | { kind: 'partial'; version: FsVersion }
-  | { kind: 'unobserved' }
+type FsWriteExpectation =
+  | { kind: 'createIfAbsent' }
+  | { kind: 'replaceIfVersion'; version: FsVersion }
 ```
 
 ```ts type-equiv
@@ -84,7 +53,7 @@ interface FsWriteOutcome {
 }
 ```
 
-Literal edit is a backend operation, not a `read` plus `write` composed in the tool wrapper. That keeps matching, line-ending handling, stale checks, and atomic replacement inside the filesystem seam.
+`editText` is a provider-level guarded mutation, not a `read` plus `write` composed in the policy layer. It verifies the expected version BEFORE literal matching (so a stale edit reports `FS_STALE_VERSION`, not a match failure against newer content), then applies the replacement and writes atomically — keeping matching, line-ending handling, stale checks, and atomic replacement inside one mutation critical section.
 
 ```ts type-equiv
 interface FsEditRequest {
@@ -102,26 +71,43 @@ interface FsEditOutcome {
 }
 ```
 
-## Observed-file state
+## Execution context and read outcome (policy layer)
 
-Observed state is keyed inside the service by owner object and `FsTarget.targetKey`. The owner is normally `exec.agent.session`, but `dsh-fs` treats it as opaque and never reads its fields. A successful read/write/edit refreshes this state for that owner.
-
-```ts type-equiv
-type FsStateSource = 'read' | 'write' | 'edit'
-```
+The policy layer needs just enough execution context to derive the observed-state owner. `ToolExecution` satisfies this shape, so `dsh-tool-fs` passes its execution object through without making `dsh-file-context` import the tool, agent, or session packages.
 
 ```ts type-equiv
-interface FileState {
-  targetKey: string
-  displayPath: string
-  version: FsVersion
-  view: FsView
-  updatedAt: number
-  source: FsStateSource
+interface FileContextExec {
+  agent?: {
+    session?: object
+  }
 }
 ```
 
-## Error taxonomy
+A text read is bounded by line window, byte cap, and backend limits. The outcome the model-facing `read` tool renders carries the file's version at read time; there is no `full`/`partial` view — authorization is freshness-based, so any windowed read can authorize a later write/edit when the file is unchanged.
+
+```ts type-equiv
+interface FileReadRequest {
+  offset: number
+  limit: number
+}
+```
+
+```ts type-equiv
+interface FileReadOutcome {
+  offset: number
+  limit: number
+  lines: FileTextLine[]
+  totalLines: number
+  truncatedByBytes?: true
+  version: FsVersion
+}
+```
+
+## Observed-file state (policy layer)
+
+Observed state is a `WeakMap<owner, Map<targetKey, { version }>>` inside `ctx.fileContext`. An entry exists **iff** the owner has read that target through `ctx.fileContext.read`, so its presence *is* the read record — there is no separate `hasRead` flag and no view distinction. The owner is normally `exec.agent.session`, but the policy layer treats it as opaque and never reads its fields. A successful read/write/edit refreshes the recorded version for that owner; disposal drops everything (HMR safety).
+
+## Error taxonomy (provider seam)
 
 Filesystem failures use stable `FsErrorCode` strings carried by `FsError` (`HarnessError`). The tool registry preserves `{ name, code }` on error results, so retry, permission, and UI layers can branch without parsing text.
 
@@ -132,14 +118,13 @@ type FsErrorCode =
   | 'FS_NOT_REGULAR_FILE'
   | 'FS_STALE_VERSION'
   | 'FS_NOT_OBSERVED'
-  | 'FS_PARTIAL_OBSERVATION'
   | 'FS_AMBIGUOUS_EDIT'
   | 'FS_EDIT_NOT_FOUND'
   | 'FS_ABORTED'
 ```
 
-`FS_NOT_OBSERVED` means no usable prior observation exists. `FS_PARTIAL_OBSERVATION` means the owner saw only a partial read. `FS_STALE_VERSION` means there was a prior full observation, but the backend version no longer matches.
+`FS_NOT_OBSERVED` means no recorded read exists for this owner (or a `createIfAbsent` hit an existing file). `FS_STALE_VERSION` means the backend version no longer matches the observed one. Freshness authorization has no partial/full distinction, so there is no `FS_PARTIAL_OBSERVATION`.
 
-## The service
+## The services
 
-`FileSystem` (`ctx.fs`, abstract) owns the shared orchestration: `resolve`, `readPage`, `createOrReplace`, and `applyEdit` are backend primitives; public `read`, `write`, and `edit` derive/record owner state and enforce the read-before-write/edit policy before delegating to the backend. The generated wiring catalog shows the exact service signatures on [events-and-services.md](../cordis-catalog/events-and-services.md#ctxfs--filesystem-abstract-seam).
+`FileSystem` (`ctx.fs`, abstract) owns the provider primitives: `resolve`, `stat`, `readText`, `streamText`, `writeText`, and `editText`. `FileContext` (`ctx.fileContext`, concrete) injects `fs` and owns the model-facing policy: `read` windows text and records observed state, `write`/`edit` derive the freshness expectation and refresh state. The generated wiring catalog shows the exact service signatures on [events-and-services.md](../cordis-catalog/events-and-services.md#ctxfs--filesystem-abstract-seam).

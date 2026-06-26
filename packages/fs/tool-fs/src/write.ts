@@ -1,8 +1,8 @@
 /**
  * The model-facing `write` tool: create or fully replace a UTF-8 text file.
- * Execution goes through `ctx.fs`, which enforces the read-before-overwrite
- * policy (updating an existing file requires a prior read in the same
- * execution context; creating a new file does not).
+ * Execution goes through `ctx.fileContext`, which enforces the freshness policy
+ * (creating a new file needs no prior read; replacing an existing file requires
+ * a prior read in the same execution context at the unchanged version).
  *
  * @module @deepseek-ai/dsh-tool-fs/write
  */
@@ -46,8 +46,8 @@ export function apply(ctx: Context): void {
     },
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseWriteArgs(args)
-      const target = await ctx.fs.resolve(input.filePath)
-      const outcome = await ctx.fs.write(target, input.content, exec, exec.signal)
+      const target = await ctx.fileContext.resolve(input.filePath)
+      const outcome = await ctx.fileContext.write(target, input.content, exec, exec.signal)
       return [{ type: 'text', text: formatWriteOutput(target.displayPath, outcome) }]
     },
   }))
@@ -57,7 +57,7 @@ export function apply(ctx: Context): void {
 export const name = 'fs-write'
 
 /** Services required by the `write` tool plugin. */
-export const inject = ['tools', 'fs', 'systemPrompt']
+export const inject = ['tools', 'fileContext', 'systemPrompt']
 
 /** Named helper for direct registration in the root plugin and tests. */
 export const applyWriteTool = apply
