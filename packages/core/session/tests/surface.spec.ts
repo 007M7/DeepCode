@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, isSurfaceEligibleType, isSurfaceEvent } from '@deepseek-ai/dsh-session'
 import { CallId } from '@deepseek-ai/dsh-llm'
 
 /** Build a minimal session with turn boundaries and a single user message. */
@@ -277,5 +277,43 @@ describe('Session.append surface opts', () => {
     const event = s.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append' })
     // The string 'append' is a primitive — identity-preserving is fine.
     expect(event.surfaceOp).toBe('append')
+  })
+})
+
+describe('surface type guards', () => {
+  it('isSurfaceEligibleType is true only for message-producing types', () => {
+    expect(isSurfaceEligibleType('user/message')).toBe(true)
+    expect(isSurfaceEligibleType('assistant/message')).toBe(true)
+    expect(isSurfaceEligibleType('tool/result')).toBe(true)
+    expect(isSurfaceEligibleType('context/message')).toBe(true)
+    expect(isSurfaceEligibleType('steering/message')).toBe(true)
+    expect(isSurfaceEligibleType('turn/start')).toBe(false)
+    expect(isSurfaceEligibleType('assistant/chunk')).toBe(false)
+  })
+
+  it('isSurfaceEvent narrows a fully-formed surface event', () => {
+    const s = surfaceSession()
+    const userMessage = s.events.find(e => e.type === 'user/message')!
+    expect(isSurfaceEvent(userMessage)).toBe(true)
+  })
+
+  it('isSurfaceEvent rejects a non-surface-eligible type', () => {
+    const s = surfaceSession()
+    const turnStart = s.events.find(e => e.type === 'turn/start')!
+    expect(isSurfaceEvent(turnStart)).toBe(false)
+  })
+
+  it('isSurfaceEvent rejects a surface-eligible type missing its surfaceOp marker', () => {
+    // A surface-eligible type whose mandatory surfaceOp is absent — the state a
+    // seed/load log can carry before the marker is validated. surfaceOp is
+    // optional on SessionEvent, so this is a representable runtime value.
+    const markerless: SessionEvent = {
+      type: 'user/message',
+      seq: 0,
+      time: 0,
+      data: { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } },
+    }
+    expect(isSurfaceEligibleType(markerless.type)).toBe(true)
+    expect(isSurfaceEvent(markerless)).toBe(false)
   })
 })
