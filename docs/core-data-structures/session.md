@@ -51,11 +51,66 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /** Unix epoch milliseconds. */
     time: number
     data: SessionEventMap[K]
-  }
+  } & (K extends SurfaceEventType ? {
+    /**
+     * Seq numbers of events that are provenance sources of this event
+     * (e.g. the `assistant/chunk` seqs that built an `assistant/message`,
+     * or the surface nodes shadowed by a compaction marker).
+     */
+    sourceEventSeqs?: number[]
+    /** How this event entered the surface; absent for non-surface events. */
+    surfaceOp?: SurfaceOp
+  } : object)
 }[T]
 ```
 
 `SessionEventType = keyof SessionEventMap`. Because `SessionEventMap` is merge-extensible, switches over `SessionEvent` must NOT use `assertNever` — a plugin-added variant is a valid unknown value; handle the known cases and fall through `default`.
+
+## Surface types
+
+The five message-producing types (`SurfaceEventType` — `user/message`, `assistant/message`, `tool/result`, `context/message`, `steering/message`) carry surface metadata declaring how they join the derived surface linked list. See the [session surface RFC](../rfc/implemented/architecture/2026-06-18-session-surface.md).
+
+### `SurfaceEventType` — the message-producing subset of event types
+
+```ts type-equiv
+export type SurfaceEventType =
+  | 'user/message'
+  | 'assistant/message'
+  | 'tool/result'
+  | 'context/message'
+  | 'steering/message'
+```
+
+### `SurfaceOp` — how an event entered the surface
+
+```ts type-equiv
+export type SurfaceOp =
+  | 'append'
+  | { op: 'replace'; start: number; end: number }
+```
+
+`'append'` is the normal tail-append path. `replace` shadows surface nodes from `start` through `end` inclusive (both must be valid surface node seqs; `start === end` replaces a single node) and inserts the new node in their place.
+
+### `SurfaceIntent` — the parameter to `session.append()`
+
+```ts type-equiv
+export interface SurfaceIntent {
+  surfaceOp: SurfaceOp
+  sourceEventSeqs?: number[]
+}
+```
+
+Required for `SurfaceEventType` events — every message-producing event must declare how it joins the surface, the sole source of derived history. Non-surface types reject it at compile time.
+
+### `SurfaceNode` — a node in the surface linked list
+
+```ts type-equiv
+export interface SurfaceNode {
+  seq: number
+  prev: number | null
+  next: number | null
+}
+```
 
 ## Derived history: `deriveMessages()`
 

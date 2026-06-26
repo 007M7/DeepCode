@@ -27,7 +27,7 @@ Record where a session's **inherited** prefix ends, persist it, and have the rep
 - **JSONL**: a `seedLength` field on the header line (`toHeaderLine`/`fromHeaderLine`).
 - **SQLite**: a `seed_length` column on the `sessions` table.
 
-The SQLite change is a breaking table-layout change, so `SCHEMA_VERSION` bumps **2 → 3**. Per the repo's pre-release stance (§ "Pre-release stance" in AGENTS.md) the backend **rejects** a non-current `user_version` on open rather than migrating it — there is no persisted user data to preserve, so no migration code is written (the existing reject-not-migrate path at `openDatabase` already enforces this; v1 and now v2 are both rejected).
+The SQLite change is a breaking table-layout change, so `SCHEMA_VERSION` bumps. This branch added `seed_length` under version **3**; it later merged with the session-surface branch, which had independently shipped its OWN version-3 layout (the `source_event_seqs`/`surface_op` columns). Because an on-disk `3` is ambiguous between the two sibling layouts, the merged build is version **4** (every column), and an on-disk `3` is rejected like any other non-current version. Per the repo's pre-release stance (§ "Pre-release stance" in AGENTS.md) the backend **rejects** a non-current `user_version` on open rather than migrating it — there is no persisted user data to preserve, so no migration code is written (the existing reject-not-migrate path at `openDatabase` already enforces this; v1, v2, and the collided v3 are all rejected).
 
 ### 3. Replay derives a child script after the boundary
 

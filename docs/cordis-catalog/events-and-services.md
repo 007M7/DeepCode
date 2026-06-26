@@ -207,7 +207,7 @@ A session was created in the store.
 'session/created'(session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:30`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:33`](../../packages/core/session/src/index.ts)
 
 #### `session/event` — emit
 
@@ -219,7 +219,7 @@ An event was appended to a session log (sync, fire-and-forget). This is the per-
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:36`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:39`](../../packages/core/session/src/index.ts)
 
 #### `session/flush` — parallel
 
@@ -229,7 +229,7 @@ Awaited durability checkpoint. The agent loop awaits `ctx.parallel('session/flus
 'session/flush'(session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:45`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:48`](../../packages/core/session/src/index.ts)
 
 ### `subagent/*`
 
@@ -412,7 +412,7 @@ get(id: SessionId): Session | undefined
 list(): Session[]
 ```
 
-Source: [`packages/core/session/src/index.ts:229`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:321`](../../packages/core/session/src/index.ts)
 
 ### `ctx.subagents` — `SubagentService`
 

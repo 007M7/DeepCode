@@ -375,7 +375,7 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
     // every event in the log is turn-enclosed. turn/end is now owed, so a throw
     // while appending these is caught below and the turn is still closed.
     for (const message of queued) {
-      session.append('user/message', { content: message.content, source: message.source })
+      session.append('user/message', { content: message.content, source: message.source }, { surfaceOp: 'append' })
     }
     ctx.emit('agent/turn-start', agent, turn)
 
@@ -543,7 +543,7 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
 function drainSteering(ctx: Context, agent: ReactLoopAgent, turn: number): boolean {
   const messages = agent.inbox.drainSteering()
   for (const message of messages) {
-    agent.session.append('steering/message', { turn, content: message.content, source: message.source })
+    agent.session.append('steering/message', { turn, content: message.content, source: message.source }, { surfaceOp: 'append' })
     ctx.emit('agent/steering', agent, turn, message.content, message.source)
   }
   return messages.length > 0
@@ -580,10 +580,12 @@ async function runStep(
 
   // --- Model call (streaming-first; raw chunks are the replay record) ---
   const assembler = new BlockAssembler()
+  const chunkSeqs: number[] = []
   for await (const chunk of ctx.llm.stream(request)) {
     /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-    session.append('assistant/chunk', { turn, step, chunk })
+    const chunkEvent = session.append('assistant/chunk', { turn, step, chunk })
+    chunkSeqs.push(chunkEvent.seq)
     ctx.emit('agent/stream-chunk', agent, turn, step, chunk)
     assembler.push(chunk)
   }
@@ -606,7 +608,13 @@ async function runStep(
     // deriveMessages(), so hosting usage on it never injects a spurious assistant
     // turn into derived history.
     if (message.content.length > 0 || assembler.usage) {
-      session.append('assistant/message', { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) })
+      // A max-tokens finish is itself a streamed `finish` chunk, so chunkSeqs is
+      // never empty here — pass the provenance unconditionally.
+      session.append(
+        'assistant/message',
+        { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) },
+        { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
+      )
     }
     return { hadToolCalls: false, finish: assembler.finish }
   }
@@ -622,8 +630,15 @@ async function runStep(
   // streamed nothing) records no assistant/message — an empty-content message
   // exists only to host usage, and deriveMessages() skips it either way, so
   // appending one with no usage would be a pure trace-only row.
+  //
+  // sourceEventSeqs records the assistant/chunk provenance, but is omitted when
+  // no chunks streamed (the surface invariant rejects an empty sourceEventSeqs).
   if (message.content.length > 0 || assembler.usage) {
-    session.append('assistant/message', { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) })
+    session.append(
+      'assistant/message',
+      { turn, step, content: message.content, ...(assembler.usage ? { usage: assembler.usage } : {}) },
+      { surfaceOp: 'append', ...(chunkSeqs.length > 0 ? { sourceEventSeqs: chunkSeqs } : {}) },
+    )
   }
 
   // --- Tool execution (sequential; parallel execution is a TODO) ---
@@ -633,7 +648,7 @@ async function runStep(
   for (const call of toolCalls) {
     /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
-    session.append('tool/call', { turn, step, callId: call.id, name: call.name, arguments: call.arguments })
+    const callEvent = session.append('tool/call', { turn, step, callId: call.id, name: call.name, arguments: call.arguments })
     let parsedArguments: unknown
     try {
       parsedArguments = call.arguments ? JSON.parse(call.arguments) : {}
@@ -659,7 +674,7 @@ async function runStep(
       content: result.content,
       isError: result.isError,
       ...result.error ? { error: result.error } : {},
-    })
+    }, { surfaceOp: 'append', sourceEventSeqs: [callEvent.seq] })
     // signal CAN flip during the await above (abort() inside a tool);
     // the analyzer can't see through the await boundary.
     /* v8 ignore start -- signal.reason default unreachable: cancel()/disposal always set it */
