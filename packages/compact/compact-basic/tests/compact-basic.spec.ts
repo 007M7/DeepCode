@@ -530,13 +530,13 @@ describe('BasicCompactService.compactIfNeeded', () => {
   })
 
   it('returns null when the whole surface fits the retain budget (over threshold by role/system overhead)', async () => {
-    // threshold = floor(460*0.1) = 46. The 4 surface nodes weigh 10 each (raw 40
+    // threshold = floor(470*0.1) = 47. The 4 surface nodes weigh 10 each (raw 40
     // for the retention walk), but the derived estimate adds 4 role tokens per
-    // message → 56 ≥ 46, so the threshold check passes and the walk runs. The
+    // message → 56 ≥ 47, so the threshold check passes and the walk runs. The
     // walk accumulates all 40 < retainTokens (45) without crossing the budget,
     // so keepFromIdx reaches 0 and compaction declines. The invariant holds:
-    // summarizationMaxTokens (1) + retainTokens (45) = 46 ≤ threshold 46.
-    const svc = createTestService({ contextWindow: 460, thresholdRatio: 0.1, retainTokens: 45 })
+    // summarizationMaxTokens (1) + retainTokens (45) = 46 < threshold 47.
+    const svc = createTestService({ contextWindow: 470, thresholdRatio: 0.1, retainTokens: 45 })
     const session = multiTurnSession(2, 1)
     expect(await svc.compactIfNeeded(session, '', 'm', SIGNAL)).toBeNull()
   })
@@ -739,16 +739,24 @@ describe('BasicCompactService HMR safety', () => {
 
 describe('BasicCompactService convergence invariant (config)', () => {
   it('throws when summarizationMaxTokens + retainTokens exceeds the threshold', () => {
-    // threshold = floor(1000 * 0.5) = 500; 200 + 400 = 600 > 500 → reject.
+    // threshold = floor(1000 * 0.5) = 500; 200 + 400 = 600 is not below 500 → reject.
     expect(() => new BasicCompactService(new Context(), {
       auto: false, contextWindow: 1000, thresholdRatio: 0.5, retainTokens: 400, summarizationMaxTokens: 200,
-    })).toThrow(/exceeds the compaction threshold/)
+    })).toThrow(/not below the compaction threshold/)
   })
 
-  it('accepts the boundary case (sum equals the threshold)', () => {
-    // threshold = floor(1000 * 0.5) = 500; 100 + 400 = 500 ≤ 500 → allowed.
+  it('rejects the boundary case (sum equals the threshold — would re-trigger)', () => {
+    // threshold = floor(1000 * 0.5) = 500; 100 + 400 = 500 is NOT below 500, so
+    // post-compaction history would sit exactly at threshold and re-compact.
     expect(() => new BasicCompactService(new Context(), {
       auto: false, contextWindow: 1000, thresholdRatio: 0.5, retainTokens: 400, summarizationMaxTokens: 100,
+    })).toThrow(/not below the compaction threshold/)
+  })
+
+  it('accepts the case just below the threshold', () => {
+    // threshold = floor(1000 * 0.5) = 500; 99 + 400 = 499 < 500 → allowed.
+    expect(() => new BasicCompactService(new Context(), {
+      auto: false, contextWindow: 1000, thresholdRatio: 0.5, retainTokens: 400, summarizationMaxTokens: 99,
     })).not.toThrow()
   })
 
