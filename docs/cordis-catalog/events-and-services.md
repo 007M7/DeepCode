@@ -11,7 +11,7 @@ The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary
 
 ## Events
 
-Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out, no veto). The harness declares 24 events across 6 scopes.
+Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out, no veto). The harness declares 25 events across 7 scopes.
 
 ### `agent/*`
 
@@ -299,9 +299,21 @@ Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult
 
 Source: [`packages/core/tools/src/index.ts:43`](../../packages/core/tools/src/index.ts)
 
+### `web/*`
+
+#### `web/providers-change` — emit
+
+Fired after the provider registry changes — a search or fetch provider was registered or disposed. Carries no payload and no capability graph: it means only "the provider registry changed; observers may recompute status from `ctx.web`". `searchStatus()` / `fetchStatus()` stay derived, not stored.
+
+```ts cordis-catalog
+'web/providers-change'(this: WebService): void
+```
+
+Source: [`packages/web/web/src/index.ts:66`](../../packages/web/web/src/index.ts)
+
 ## Services
 
-The 10 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
+The 11 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
 
 ### `ctx.agentLoop` — `AgentLoop`
 
@@ -471,6 +483,30 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:277`](../../packages/core/tools/src/index.ts)
+
+### `ctx.web` — `WebService`
+
+The web access service. Registered as `ctx.web` (one instance per context).
+
+Selection semantics (identical for status and execution, never order- dependent):
+
+- A configured id that is registered and `status().available` → that provider.
+- A configured id not registered → `configured-missing` / `WEB_PROVIDER_CONFIGURED_MISSING`.
+- A configured id registered but unavailable → `configured-unavailable` / `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`.
+- No id configured, exactly one registered usable provider → that provider.
+- No id configured, multiple usable providers → `ambiguous` / `WEB_PROVIDER_AMBIGUOUS`.
+- No id configured, no usable provider → `none` / `WEB_PROVIDER_UNAVAILABLE`.
+
+```ts cordis-catalog
+registerSearchProvider(provider: WebSearchProvider): () => void
+registerFetchProvider(provider: WebFetchProvider): () => void
+searchStatus(): WebCapabilityStatus
+fetchStatus(): WebCapabilityStatus
+async search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>
+async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>
+```
+
+Source: [`packages/web/web/src/index.ts:106`](../../packages/web/web/src/index.ts)
 
 ## Inherited tier (cordis core + loader/hmr/timer)
 
