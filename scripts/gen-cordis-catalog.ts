@@ -77,13 +77,14 @@ const LINK_MAP: Record<string, string> = {
   BashTaskRead: 'bash.md',
   FsEditOutcome: 'filesystem.md',
   FsEditRequest: 'filesystem.md',
-  FsExecContext: 'filesystem.md',
-  FsExpectation: 'filesystem.md',
-  FsReadOutcome: 'filesystem.md',
-  FsReadRequest: 'filesystem.md',
+  FsInfo: 'filesystem.md',
   FsTarget: 'filesystem.md',
   FsVersion: 'filesystem.md',
+  FsWriteExpectation: 'filesystem.md',
   FsWriteOutcome: 'filesystem.md',
+  FileContextExec: 'filesystem.md',
+  FileReadRequest: 'filesystem.md',
+  FileReadOutcome: 'filesystem.md',
 }
 
 /** One harness event, extracted from an `interface Events` block. */

@@ -351,7 +351,7 @@ async write(target: FsTarget, content: string, exec?: FileContextExec, signal?: 
 async edit(target: FsTarget, edit: FsEditRequest, exec?: FileContextExec, signal?: AbortSignal): Promise<FsEditOutcome>
 ```
 
-Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
+Types: [FileContextExec](../core-data-structures/filesystem.md) · [FileReadOutcome](../core-data-structures/filesystem.md) · [FileReadRequest](../core-data-structures/filesystem.md) · [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
 
 Source: [`packages/fs/file-context/src/index.ts:65`](../../packages/fs/file-context/src/index.ts)
 
@@ -376,7 +376,7 @@ abstract writeText(target: FsTarget, content: string, expected: FsWriteExpectati
 abstract editText(target: FsTarget, edit: FsEditRequest, expected: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
 ```
 
-Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
+Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteExpectation](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
 
 Source: [`packages/fs/fs/src/index.ts:90`](../../packages/fs/fs/src/index.ts)
 

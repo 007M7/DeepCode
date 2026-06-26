@@ -118,27 +118,36 @@ export class FileContext extends Service {
   /**
    * Read a bounded line window from a target. Stats first (rejecting an absent
    * target with `FS_NOT_FOUND` and a non-regular one with `FS_NOT_REGULAR_FILE`),
-   * chooses `readText` vs `streamText` by size, builds the window, and — when an
-   * owner is derivable — records the version so a later write/edit is authorized.
+   * chooses `readText` vs `streamText` by size — streaming when the size is
+   * large OR unknown so a size-less backend never buffers an arbitrarily large
+   * file — builds the window, then records the version observed AFTER the read
+   * so the recorded freshness token corresponds to the bytes actually returned
+   * (a writer racing between the routing stat and the read can't make a
+   * follow-up edit spuriously stale against a pre-read version).
    */
   async read(target: FsTarget, request: FileReadRequest, exec?: FileContextExec, signal?: AbortSignal): Promise<FileReadOutcome> {
     const info = await this.ctx.fs.stat(target, signal)
     if (!info) throw new FsError(`cannot read "${target.displayPath}": not found`, 'FS_NOT_FOUND')
     if (info.type !== 'file') throw new FsError(`cannot read "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
 
-    const chunks = info.size !== undefined && info.size >= STREAM_MIN_SIZE
+    const chunks = info.size === undefined || info.size >= STREAM_MIN_SIZE
       ? await this.ctx.fs.streamText(target, signal)
       : [await this.ctx.fs.readText(target, signal)]
     const window = await buildWindow(chunks, request, target.displayPath)
 
+    // The version that matches the bytes just read: a stat taken after the read
+    // (falling back to the routing stat if the file vanished in the interim).
+    const after = await this.ctx.fs.stat(target, signal)
+    const version = after?.version ?? info.version
+
     const owner = this.owner(exec)
-    if (owner) this.record(owner, target.targetKey, info.version)
+    if (owner) this.record(owner, target.targetKey, version)
     return {
       offset: request.offset,
       limit: request.limit,
       lines: window.lines,
       totalLines: window.totalLines,
-      version: info.version,
+      version,
       ...window.truncatedByBytes ? { truncatedByBytes: true } : {},
     }
   }

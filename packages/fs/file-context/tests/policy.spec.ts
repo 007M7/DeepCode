@@ -27,6 +27,8 @@ class FakeFs extends FileSystem {
   versions = new Map<string, number>()
   /** Size to report from stat (lets a test push read onto the streaming path). */
   reportSize?: number
+  /** When true, stat omits `size` entirely (a size-less backend). */
+  omitSize = false
   /** Whether streamText was used for the last read (vs readText). */
   lastReadStreamed = false
   writeExpectations: FsWriteExpectation[] = []
@@ -47,7 +49,7 @@ class FakeFs extends FileSystem {
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
     const content = this.files.get(target.targetKey)
     if (content === undefined) return undefined
-    return { version: this.ver(target.targetKey), type: 'file', size: this.reportSize ?? content.length }
+    return { version: this.ver(target.targetKey), type: 'file', ...this.omitSize ? {} : { size: this.reportSize ?? content.length } }
   }
   override async readText(target: FsTarget): Promise<string> {
     this.lastReadStreamed = false
@@ -152,6 +154,48 @@ describe('read', () => {
     fs.reportSize = STREAM_MIN_SIZE
     await fileContext.read(await fs.resolve('a.txt'), READ_ALL)
     expect(fs.lastReadStreamed).toBe(true)
+  })
+
+  it('streams when the backend reports no size (never buffers a size-less file)', async () => {
+    const { fs, fileContext } = await setup()
+    fs.files.set('a.txt', 'one\ntwo')
+    fs.omitSize = true
+    await fileContext.read(await fs.resolve('a.txt'), READ_ALL)
+    expect(fs.lastReadStreamed).toBe(true)
+  })
+
+  it('records the version observed after the read, not the routing stat', async () => {
+    const { fs, fileContext } = await setup()
+    const exec = ownerExec({})
+    fs.files.set('a.txt', 'hello')
+    fs.versions.set('a.txt', 1)
+    const target = await fs.resolve('a.txt')
+    // A writer bumps the version after the routing stat but before the post-read stat.
+    const realReadText = fs.readText.bind(fs)
+    fs.readText = async (t) => {
+      const text = await realReadText(t)
+      fs.versions.set('a.txt', 5) // file changed during the read
+      return text
+    }
+    const outcome = await fileContext.read(target, READ_ALL, exec)
+    expect(outcome.version).toBe('v5')
+    // The recorded (post-read) version authorizes an edit without going stale.
+    await fileContext.edit(target, { oldString: 'hello', newString: 'bye', replaceAll: false }, exec)
+    expect(fs.editExpectedVersions).toEqual(['v5'])
+  })
+
+  it('falls back to the routing-stat version if the file vanishes after the read', async () => {
+    const { fs, fileContext } = await setup()
+    fs.files.set('a.txt', 'hello')
+    const target = await fs.resolve('a.txt')
+    const realReadText = fs.readText.bind(fs)
+    fs.readText = async (t) => {
+      const text = await realReadText(t)
+      fs.files.delete('a.txt') // vanishes → post-read stat returns undefined
+      return text
+    }
+    const outcome = await fileContext.read(target, READ_ALL)
+    expect(outcome.version).toBe('v0') // the routing-stat version
   })
 
   it('surfaces truncatedByBytes when the window hits the byte cap', async () => {
