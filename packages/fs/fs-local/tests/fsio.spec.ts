@@ -94,7 +94,10 @@ describe('probe', () => {
   it('reports a socket/special file as type "other"', async () => {
     const sockPath = join(dir, 'sock')
     const server = createServer()
-    await new Promise<void>((resolve) => { server.listen(sockPath, () => { resolve() }) })
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(sockPath, () => { resolve() })
+    })
     try {
       expect((await probe(sockPath))?.type).toBe('other')
     } finally {
@@ -132,6 +135,17 @@ describe('readWholeText', () => {
     const file = join(dir, 'a.txt')
     await writeFile(file, 'one\ntwo')
     expect(await readWholeText(localTarget(file), new AbortController().signal)).toBe('one\ntwo')
+  })
+
+  it('translates a mid-read AbortError into FS_ABORTED', async () => {
+    const file = join(dir, 'a.txt')
+    await writeFile(file, 'one\ntwo')
+    const ac = new AbortController()
+    // Abort after the synchronous entry check but before readFile runs (the
+    // stat await yields control back here), so readFile rejects AbortError.
+    const pending = readWholeText(localTarget(file), ac.signal)
+    ac.abort()
+    await expect(pending).rejects.toMatchObject({ code: 'FS_ABORTED' })
   })
 })
 
@@ -280,5 +294,15 @@ describe('readForEdit + restoreLineEndings', () => {
     await writeFile(file, 'one\ntwo')
     const original = await readForEdit(file, file, new AbortController().signal)
     expect(original.content).toBe('one\ntwo')
+  })
+
+  it('translates a mid-read AbortError into FS_ABORTED', async () => {
+    const file = join(dir, 'a.txt')
+    await writeFile(file, 'one\ntwo')
+    const ac = new AbortController()
+    // Abort after the synchronous entry check, while readFile is pending.
+    const pending = readForEdit(file, file, ac.signal)
+    ac.abort()
+    await expect(pending).rejects.toMatchObject({ code: 'FS_ABORTED' })
   })
 })

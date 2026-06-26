@@ -49,6 +49,22 @@ function throwIfAborted(signal: AbortSignal | undefined, verb: string): void {
   if (signal?.aborted) throw new FsError(`${verb} aborted`, 'FS_ABORTED')
 }
 
+/**
+ * `readFile` with the supplied signal, translating a mid-read `AbortError` into
+ * the seam's structured `FsError('FS_ABORTED')` (Node rejects an aborted
+ * `readFile` with a bare `AbortError`, which would otherwise escape the seam's
+ * error taxonomy — the streaming/write paths translate it the same way).
+ */
+async function readFileAbortable(absolutePath: string, verb: 'read' | 'edit', signal?: AbortSignal): Promise<Buffer> {
+  try {
+    return await readFile(absolutePath, signal ? { signal } : {})
+  } catch (error: unknown) {
+    /* v8 ignore next 2 -- a non-abort readFile rejection needs a permission/IO fault racing an open file. */
+    if (!isAbortError(error)) throw error
+    throw new FsError(`${verb} aborted`, 'FS_ABORTED')
+  }
+}
+
 /** Opaque version token from a stat: mtime (ns precision) + size. */
 function versionOf(info: Stats): FsVersion {
   return FsVersion(`${info.mtimeMs}:${info.size}`)
@@ -178,7 +194,7 @@ async function statRegularFile(target: LocalTarget, verb: 'read', signal?: Abort
  */
 export async function readWholeText(target: LocalTarget, signal?: AbortSignal): Promise<string> {
   await statRegularFile(target, 'read', signal)
-  const raw = await readFile(target.targetKey, signal ? { signal } : {})
+  const raw = await readFileAbortable(target.targetKey, 'read', signal)
   throwIfAborted(signal, 'read')
   if (raw.subarray(0, BINARY_SAMPLE_BYTES).includes(0)) {
     throw new FsError(`cannot read "${target.displayPath}": binary file`, 'FS_NOT_TEXT')
@@ -330,7 +346,7 @@ export async function readForEdit(
   signal?: AbortSignal,
 ): Promise<{ content: string; lineEndings: LineEndings }> {
   throwIfAborted(signal, 'edit')
-  const buffer = await readFile(absolutePath, signal ? { signal } : {})
+  const buffer = await readFileAbortable(absolutePath, 'edit', signal)
   throwIfAborted(signal, 'edit')
   if (buffer.includes(0)) throw new FsError(`cannot edit "${displayPath}": binary file`, 'FS_NOT_TEXT')
   const raw = decodeUtf8(buffer, 'edit', displayPath)
