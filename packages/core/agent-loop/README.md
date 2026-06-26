@@ -52,6 +52,8 @@ forever:
     STEP loop:
       drain steering
       assembly = systemPrompt.assemble()
+      await serial agent/pre-step        ⟵ surface mutation (compaction) outside the step
+      session('step/start')
       request = waterfall agent/request
       stream llm.stream(request) → session('assistant/chunk')
       message = waterfall agent/step-result
@@ -73,8 +75,8 @@ Cancellation: `agent.cancel()` is the single public stop primitive — it clears
 ### What is NOT here
 
 Everything that goes beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy:
-- Hooks: `agent/request`, `agent/step-result`, `tools/execute`, `agent/turn-continuation`
-- Compaction: `agent/request`
+- Hooks: `agent/pre-step`, `agent/request`, `agent/step-result`, `tools/execute`, `agent/turn-continuation`
+- Compaction: `agent/pre-step`
 - Sandbox, permission, plan mode: `tools/execute`
 - Sub-agents: TODO seam on `AgentLoop.create()`
 - Persistence: `session/event` + `session/flush`

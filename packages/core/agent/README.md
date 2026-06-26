@@ -37,11 +37,12 @@ The full `agent/*` event taxonomy is declared via declaration merging in `dsh-ag
 - `agent/turn-start`, `agent/turn-end` (carries `TurnEndReason`)
 - `agent/step-start`, `agent/step-end`
 
-#### Interception seams (waterfall)
+#### Interception seams
 
-- `agent/request` — mutate `GenerateOptions` before the model call (hooks, compaction, model switching, tool filtering)
-- `agent/step-result` — post-process the assembled assistant message before tool dispatch (validates what the log records)
-- `agent/turn-continuation` — override the continue/stop decision (force-continue /loop, force-stop budget guard)
+- `agent/pre-step` (serial) — mutate the session surface before the step opens and history is derived (compaction). Fires after `turn/start` and before `step/start`, so a listener's appended events land outside the step.
+- `agent/request` (waterfall) — mutate `GenerateOptions` before the model call (hooks, model switching, tool filtering)
+- `agent/step-result` (waterfall) — post-process the assembled assistant message before tool dispatch (validates what the log records)
+- `agent/turn-continuation` (waterfall) — override the continue/stop decision (force-continue /loop, force-stop budget guard)
 
 #### Streaming + tool (emit)
 
