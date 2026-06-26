@@ -39,8 +39,13 @@ jobs:
       - name: Typecheck (src + tests + examples)
         run: pnpm run typecheck
 
+      # Type-aware ESLint loads every package tsconfig through the project
+      # service and peaks at ~3.4GB; the default V8 old-space ceiling (~2GB)
+      # OOMs it (exit 134). Raise the ceiling well above the peak.
       - name: Lint
         run: pnpm run lint
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
 
       # Doc-sync gates (doc-sync-enforcement RFC). doc-typecheck compiles the
       # fenced ts blocks against the root project-reference graph. The cordis
