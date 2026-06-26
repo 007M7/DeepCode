@@ -104,11 +104,13 @@ export interface PathInfo {
 
 /**
  * Resolve a path to its absolute display path and realpath identity. Relative
- * paths are based on `cwd`. The `targetKey` realpaths the parent directory and
- * re-appends the basename, so a not-yet-created file gets the same stable key
- * it will have after creation (the directory exists even when the file does
- * not). Two input paths reaching the same file via symlinks share one key.
- * Falls back to the absolute path when even the parent cannot be resolved.
+ * paths are based on `cwd`. When the file itself does not yet exist, the
+ * `targetKey` realpaths the nearest EXISTING ancestor directory and re-appends
+ * the still-missing suffix, so a not-yet-created file gets the same stable key
+ * it will have after creation — even when an ancestor (e.g. `cwd`) is a symlink
+ * and intermediate directories are created by the write. Two input paths
+ * reaching the same file via symlinks share one key. Falls back to the absolute
+ * path only when no ancestor (not even the filesystem root) can be resolved.
  */
 export async function resolveLocalTarget(cwd: string, path: string): Promise<LocalTarget> {
   if (path.trim().length === 0) throw new FsError('file_path must be a non-empty string', 'FS_NOT_FOUND')
@@ -117,16 +119,27 @@ export async function resolveLocalTarget(cwd: string, path: string): Promise<Loc
     // Prefer the file's own realpath (resolves a symlinked file to its target).
     return { displayPath, targetKey: FsTargetKey(await realpath(displayPath)) }
   } catch (error: unknown) {
-    /* v8 ignore next -- non-ENOENT realpath failure needs a permission/IO fault; ENOENT falls through to parent-dir resolution. */
+    /* v8 ignore next -- non-ENOENT realpath failure needs a permission/IO fault; ENOENT falls through to ancestor resolution. */
     if (!isENOENT(error)) throw error
   }
-  try {
-    // File absent: realpath the parent dir + basename so creates get a stable key.
-    return { displayPath, targetKey: FsTargetKey(join(await realpath(dirname(displayPath)), basename(displayPath))) }
-  } catch (error: unknown) {
-    /* v8 ignore next -- parent-dir realpath failing needs the dir itself to be missing/unreadable; fall back to the absolute path. */
-    if (!isENOENT(error)) throw error
-    return { displayPath, targetKey: FsTargetKey(displayPath) }
+  // File absent: realpath the nearest existing ancestor and re-append the
+  // missing suffix (the file basename plus any not-yet-created intermediate
+  // dirs), so the key is stable across creation of those dirs.
+  const missing = [basename(displayPath)]
+  let ancestor = dirname(displayPath)
+  while (true) {
+    try {
+      const realAncestor = await realpath(ancestor)
+      return { displayPath, targetKey: FsTargetKey(join(realAncestor, ...missing)) }
+    } catch (error: unknown) {
+      /* v8 ignore next -- a non-ENOENT realpath failure needs a permission/IO fault. */
+      if (!isENOENT(error)) throw error
+      const parent = dirname(ancestor)
+      /* v8 ignore next -- the filesystem root always realpaths, so the walk terminates before parent === ancestor. */
+      if (parent === ancestor) return { displayPath, targetKey: FsTargetKey(displayPath) }
+      missing.unshift(basename(ancestor))
+      ancestor = parent
+    }
   }
 }
 

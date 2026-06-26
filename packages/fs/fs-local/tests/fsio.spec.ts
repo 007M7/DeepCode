@@ -64,9 +64,25 @@ describe('resolveLocalTarget', () => {
     expect(viaLink.displayPath).toBe(link)
   })
 
-  it('falls back to the absolute path when even the parent dir is absent', async () => {
+  it('realpaths the nearest existing ancestor when intermediate dirs are missing', async () => {
     const target = await resolveLocalTarget(dir, 'no-such-dir/child.txt')
-    expect(target.targetKey).toBe(join(dir, 'no-such-dir', 'child.txt'))
+    expect(target.targetKey).toBe(join(await realpath(dir), 'no-such-dir', 'child.txt'))
+  })
+
+  it('keeps the key stable across create when an ancestor is a symlink', async () => {
+    // A symlinked workspace root with a not-yet-created subdirectory: the
+    // pre-create key (via the symlink, missing parent) must equal the
+    // post-create key (file exists, realpathed) so observed-state survives.
+    const realRoot = join(dir, 'real-root')
+    await mkdir(realRoot)
+    const linkRoot = join(dir, 'link-root')
+    await symlink(realRoot, linkRoot)
+
+    const before = await resolveLocalTarget(linkRoot, 'sub/file.txt')
+    await mkdir(join(realRoot, 'sub'), { recursive: true })
+    await writeFile(join(realRoot, 'sub', 'file.txt'), 'hi') // create through the real path
+    const after = await resolveLocalTarget(linkRoot, 'sub/file.txt')
+    expect(before.targetKey).toBe(after.targetKey)
   })
 
   it('rejects a blank path', async () => {
@@ -94,10 +110,18 @@ describe('probe', () => {
   it('reports a socket/special file as type "other"', async () => {
     const sockPath = join(dir, 'sock')
     const server = createServer()
-    await new Promise<void>((resolve, reject) => {
-      server.once('error', reject)
-      server.listen(sockPath, () => { resolve() })
-    })
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject)
+        server.listen(sockPath, () => { resolve() })
+      })
+    } catch (error: unknown) {
+      // A restricted sandbox may forbid unix-domain sockets; that is an
+      // environment limit, not a filesystem regression — skip rather than fail.
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'EPERM' || code === 'EACCES' || code === 'ENOTSUP') return
+      throw error
+    }
     try {
       expect((await probe(sockPath))?.type).toBe('other')
     } finally {
