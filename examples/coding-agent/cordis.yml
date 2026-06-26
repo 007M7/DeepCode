@@ -68,7 +68,7 @@
 # Automatic context compaction: when the derived history approaches the model's
 # context window, summarize an older range into a checkpoint so a long-running
 # or tool-heavy session keeps fitting. A leaf entry (needs ctx.llm + the
-# agent-loop's `agent/pre-request` seam from the app above).
+# agent-loop's `agent/pre-step` seam from the app above).
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
   config:
