@@ -301,7 +301,7 @@ Source: [`packages/core/tools/src/index.ts:43`](../../packages/core/tools/src/in
 
 ## Services
 
-The 9 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
+The 10 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
 
 ### `ctx.agentLoop` — `AgentLoop`
 
@@ -360,6 +360,24 @@ onTaskDone(listener: BashTaskListener): () => void
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [BashTask](../core-data-structures/bash.md) · [BashTaskRead](../core-data-structures/bash.md)
 
 Source: [`packages/bash/bash/src/index.ts:59`](../../packages/bash/bash/src/index.ts)
+
+### `ctx.compact` — `CompactService` (abstract seam)
+
+Abstract compaction service. Subclass implement the two abstract methods, and load the subclass as a plugin — it registers as `ctx.compact` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
+
+Both core methods are abstract: the contract states WHAT compaction does, while the entire strategy — token estimation, retention policy, event sequencing, summarization — is a HOW decision owned by the implementation.
+
+Implementations MUST honor:
+
+- **Surface contract**: a successful compaction shadows the compacted surface nodes with a SINGLE replacement node carrying the summary. Because `SurfaceEventType` is a closed union, that node is a `user/message` with `surfaceOp: { op:'replace', start, end }`; the `compact/*` events are log-only (lock + provenance).
+- **Blocking**: no compaction begins while another is in progress for the same session. The recommended mechanism is the log-recorded lock — append `compact/start` before the slow work and `compact/end` after (even on failure) — so the lock is visible to replay and crash recovery.
+
+```ts cordis-catalog
+abstract compactIfNeeded( session: Session, systemPrompt?: string, model?: string, signal?: AbortSignal, ): Promise<CompactionResult | null>
+abstract compactRegion( session: Session, start: number, end: number, model: string, signal?: AbortSignal, ): Promise<CompactionResult>
+```
+
+Source: [`packages/compact/compact/src/index.ts:57`](../../packages/compact/compact/src/index.ts)
 
 ### `ctx.llm` — `LlmService`
 

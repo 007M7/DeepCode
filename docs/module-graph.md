@@ -18,6 +18,8 @@ graph TD
   agent --> brand
   agent --> llm
   agent --> session
+  compact --> llm
+  compact --> session
   llm-replay --> llm
   llm-replay --> session
   session-persistence --> session
@@ -101,6 +103,7 @@ graph TD
 | `session` | `brand`, `llm` |
 | `system-prompt` | `llm` |
 | `agent` | `brand`, `llm`, `session` |
+| `compact` | `llm`, `session` |
 | `llm-replay` | `llm`, `session` |
 | `session-persistence` | `session` |
 | `invariants` | `agent`, `llm`, `session` |
