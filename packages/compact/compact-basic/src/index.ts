@@ -32,7 +32,7 @@ import { CompactService } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, FinishReason, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent, SurfaceNode } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { isStepAlignedStart, isStepAlignedEnd } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { BasicCompactConfig, ResolvedConfig } from './types.ts'
@@ -170,40 +170,40 @@ export class BasicCompactService extends CompactService {
 
     if (this.config.auto) {
       // Auto-compaction: delegate to compactIfNeeded before EVERY model call —
-      // every step, not just the first. A tool-heavy ReAct turn appends an
-      // assistant/message and a tool/result per step, so the surface (and the
-      // derived token count) grows within a turn; gating to step 1 would let a
-      // runaway turn overflow the window before the next turn's check. The
-      // listener stays agnostic — it owns NO threshold logic; compactIfNeeded is
-      // the single place that decides whether to compact, and its in-progress
-      // lock serializes concurrent attempts.
-      ctx.on('agent/request', async (agent: Agent, _turn, _step, request, next) => {
-        const before = this.estimateTokens(request.messages, request.system)
+      // every step, not just the first. This is LOAD-BEARING for runaway-turn
+      // survival: a tool-heavy ReAct turn appends an assistant/message and a
+      // tool/result per step, so the surface (and the derived token count) grows
+      // WITHIN a turn. The only moment to rescue a turn that alone approaches the
+      // window is the next step's pre-request; gating to a turn's first step
+      // would let a runaway turn overflow before the next turn's check. The
+      // listener owns NO threshold logic — compactIfNeeded is the single place
+      // that decides whether to compact, and its in-progress lock serializes
+      // concurrent attempts.
+      //
+      // It runs on `agent/pre-request` (a parallel surface-mutation checkpoint),
+      // NOT `agent/request`: compaction mutates the session surface, and the loop
+      // derives the request `messages` AFTER this fires — so a single derive
+      // already reflects the compaction, with no double-derive and no need to
+      // rewrite an already-assembled `messages` array.
+      ctx.on('agent/pre-request', async (agent: Agent, _turn: number, _step: number, system: string, model: string, signal: AbortSignal) => {
         try {
-          const result = await this.compactIfNeeded(agent.session, request.system, request.model, request.signal)
+          const result = await this.compactIfNeeded(agent.session, system, model, signal)
           if (result) {
-            // The surface has been mutated — re-derive messages for the call.
-            const rederived = agent.session.deriveMessages()
-            const afterTokens = this.estimateTokens(rederived, request.system)
-
+            const after = this.estimateTokens(agent.session.deriveMessages(), system)
             ctx.logger.info(
               `compaction: shadowed ${result.shadowedSeqs.length} surface nodes ` +
               `(seqs ${result.shadowedRange.start}-${result.shadowedRange.end}, ` +
               `~${result.shadowedTokenCount} tokens) ` +
-              `→ ${afterTokens} estimated tokens after compaction ` +
-              `(pressure was ~${before})`,
+              `→ ${after} estimated tokens after compaction`,
             )
-
-            request.messages = rederived
           }
         } catch (error: unknown) {
-          // A failed compaction must not prevent the model call — proceed
-          // with the original messages.
+          // A failed compaction must not prevent the model call — the surface is
+          // untouched on failure, so the loop derives the full history and the
+          // call proceeds.
           const msg = error instanceof Error ? error.message : String(error)
           ctx.logger.warn(`compaction failed: ${msg}; proceeding with full history`)
         }
-
-        return next()
       })
     }
   }
@@ -312,89 +312,89 @@ export class BasicCompactService extends CompactService {
   // ---- Core API (implements the abstract contract) ----
 
   /**
-   * The sole token-pressure gate: estimate the current history, and if it
-   * exceeds the threshold (`contextWindow * thresholdRatio`), compact the oldest
-   * surface nodes outside the `retainTokens` budget. The auto-compaction listener
-   * delegates here rather than pre-checking, so this is the only place the
-   * decision lives.
+   * The sole token-pressure gate: estimate the current surface-derived history,
+   * and if it exceeds the threshold (`contextWindow * thresholdRatio`), compact
+   * the oldest surface nodes outside the `retainTokens` budget. The auto-
+   * compaction listener delegates here rather than pre-checking, so this is the
+   * only place the decision lives.
+   *
+   * Retention is a UNIFORM tail→head walk over the whole surface — turn
+   * boundaries play NO role. Walking node-by-node from the tail and summing
+   * token estimates, once the retained total reaches `retainTokens` the cutoff
+   * is rounded to a step-aligned boundary: if the walk stopped INSIDE a step,
+   * it continues head-ward past that step's `step/start` so the whole step is
+   * retained (never splitting a step's tool-calls from their results); if it
+   * stopped on a free node (a node belonging to no step), that is already a
+   * clean boundary. This always rounds toward retaining MORE (retained ≥
+   * `retainTokens`) and is step-aligned by construction — no separate snap pass.
+   *
+   * The compacted range is always anchored at the surface HEAD (`nodes[0]`):
+   * auto-compaction re-consolidates any prior head checkpoint into one fresh
+   * checkpoint. Declines (`null`) when nothing is over threshold, when the whole
+   * surface fits the retain budget, or when no step-aligned cutoff exists in the
+   * compactable range (its only content is an open tail step — retry once it
+   * closes).
    */
   override async compactIfNeeded(
     session: Session,
-    systemPrompt?: string,
-    model?: string,
-    signal?: AbortSignal,
+    system: string,
+    model: string,
+    signal: AbortSignal,
   ): Promise<CompactionResult | null> {
     const messages = session.deriveMessages()
-    const totalTokens = this.estimateTokens(messages, systemPrompt)
+    const totalTokens = this.estimateTokens(messages, system)
 
     const threshold = Math.floor(this.config.contextWindow * this.config.thresholdRatio)
     if (totalTokens < threshold) return null
 
-    // Walk surface nodes tail→head, accumulating token estimates.
     const nodes = session.surface.nodes
     if (nodes.length === 0) return null
 
+    const events = session.events
     const retainBudget = this.config.retainTokens
-    // ALWAYS retain the IN-FLIGHT turn's surface nodes verbatim — its initiating
-    // user request and any mid-turn tool results are the exact input/observation
-    // the model is acting on right now, even if they exceed the soft retain
-    // budget. Compacting them would hand the model a lossy summary of its own
-    // current task. Only nodes in PRIOR (closed) turns are eligible to compact;
-    // `protectedIdx` is the first surface node of the open turn (or `nodes.length`
-    // when the open turn has no surface nodes yet, e.g. before step 1).
-    const protectedIdx = this._openTurnFirstSurfaceIdx(session, nodes)
-    if (protectedIdx === 0) return null
 
+    // Walk tail→head summing per-node token estimates. `keepFromIdx` is the
+    // index of the OLDEST node we retain verbatim; everything strictly older
+    // (`[0, keepFromIdx - 1]`) is the compactable range.
     let accumulated = 0
-    let cutoffIdx = -1
-    // Seed the accumulator with the protected suffix so the retain budget is
-    // measured against what actually stays, then look for a cutoff only among
-    // the older (compactable) nodes.
-    for (let i = nodes.length - 1; i >= protectedIdx; i--) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const event = session.events[nodes[i]!.seq]
-      if (event) accumulated += this.estimateEventTokens(event)
-    }
-
-    for (let i = protectedIdx - 1; i >= 0; i--) {
-      // nodes[i] bounded by i >= 0 and i < nodes.length — never undefined.
+    let keepFromIdx = nodes.length // nothing retained yet
+    for (let i = nodes.length - 1; i >= 0; i--) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const node = nodes[i]!
-      const event = session.events[node.seq]
+      const event = events[node.seq]
       /* v8 ignore next -- node.seq is a surface-node seq, always a valid log index by construction */
-      if (!event) continue
-      accumulated += this.estimateEventTokens(event)
-      if (accumulated > retainBudget) {
-        cutoffIdx = i
-        break
-      }
+      if (event) accumulated += this.estimateEventTokens(event)
+      keepFromIdx = i
+      if (accumulated >= retainBudget) break
     }
 
-    // If we walked the entire compactable range without exceeding the budget,
-    // everything outside the protected in-flight turn fits — no compaction
-    // needed.
-    if (cutoffIdx === -1) return null
+    // The whole surface fits the retain budget — nothing to compact.
+    if (keepFromIdx === 0) return null
 
-    // Snap the cutoff to a step-aligned end so the compacted region never splits
-    // a step (which would orphan a tool-call or its tool/result). The token
-    // budget is a soft target. PREFER snapping FORWARD (compact slightly more
-    // recent context to reach a clean boundary), but never into the protected
-    // in-flight turn: if the forward snap would reach `protectedIdx`, fall back
-    // to snapping BACKWARD to the previous step-aligned end (compact slightly
-    // less), and decline only if no step-aligned end exists in the compactable
-    // range at all.
-    const events = session.events
-    cutoffIdx = this._snapCutoff(events, nodes, cutoffIdx, protectedIdx)
-    if (cutoffIdx === -1) return null
+    // Round the cutoff to a step boundary: if `keepFromIdx` sits INSIDE a step,
+    // extend the retained side head-ward until the boundary is a step-aligned
+    // start, so the compacted range ends on a clean step edge. A node that
+    // belongs to no step is already a valid start. Decline if no step-aligned
+    // start exists at or below `keepFromIdx` (the compactable range is only an
+    // un-splittable open tail step — retry once it closes).
+    while (keepFromIdx > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      if (isStepAlignedStart(events, nodes[keepFromIdx]!.seq)) break
+      keepFromIdx -= 1
+    }
+    if (keepFromIdx === 0) return null
 
-    // nodes is non-empty (checked above) and cutoffIdx is a valid index.
+    // The compacted range is [head … keepFromIdx - 1], anchored at the head.
+    // The cutoff node `nodes[keepFromIdx - 1]` is necessarily a step-aligned END:
+    // the retained start `nodes[keepFromIdx]` is a step-aligned START (a boundary
+    // marker sits between them in the log), and that same boundary makes the node
+    // before it a step-aligned end — so no separate end check is needed.
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const firstSeq = nodes[0]!.seq
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const cutoffSeq = nodes[cutoffIdx]!.seq
-    const resolvedModel = model ?? ''
+    const cutoffSeq = nodes[keepFromIdx - 1]!.seq
 
-    return this.compactRegion(session, firstSeq, cutoffSeq, resolvedModel, signal)
+    return this.compactRegion(session, firstSeq, cutoffSeq, model, signal)
   }
 
   override async compactRegion(
@@ -521,74 +521,6 @@ export class BasicCompactService extends CompactService {
   // ---- Internal helpers ----
 
   /**
-   * The index of the first surface node that belongs to the currently-open turn
-   * — the boundary of the protected, never-compacted suffix. Returns
-   * `nodes.length` when the open turn has contributed no verbatim surface node
-   * yet (e.g. before step 1 appends anything), so the whole surface is
-   * compaction-eligible up to the tail.
-   *
-   * The in-flight turn's verbatim nodes (its request, mid-turn assistant
-   * messages, tool results — all `append` ops) form a CONTIGUOUS run at the TAIL
-   * of the surface. A compaction replacement node, though also appended during
-   * the open turn (seq > `turn/start`), lands at the position of the older range
-   * it shadowed — earlier in the surface, NOT in the tail run — so it is itself
-   * compaction-eligible (a later cycle can merge it). The protected suffix is
-   * therefore the contiguous tail run of nodes whose seq exceeds the open turn's
-   * `turn/start`, found by walking from the tail. With no open turn (a closed
-   * session — only manual `compactRegion`, never the auto path), nothing is
-   * protected and this returns `nodes.length`.
-   */
-  private _openTurnFirstSurfaceIdx(session: Session, nodes: readonly SurfaceNode[]): number {
-    const openTurn = this._openTurn(session)
-    if (openTurn === null) return nodes.length
-    // Find the open turn's turn/start seq (scanning back from the tail).
-    let turnStartSeq = -1
-    for (let i = session.events.length - 1; i >= 0; i--) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const e = session.events[i]!
-      if (e.type === 'turn/start' && e.data.turn === openTurn) { turnStartSeq = e.seq; break }
-    }
-    /* v8 ignore next -- _openTurn returned non-null, so its turn/start exists */
-    if (turnStartSeq === -1) return nodes.length
-    // Walk from the tail while nodes belong to the open turn (seq > turn/start),
-    // taking only the CONTIGUOUS run — a compaction summary node appended this
-    // turn but sitting earlier in the surface stops the run and stays eligible.
-    let idx = nodes.length
-    while (idx > 0 && nodes[idx - 1]!.seq > turnStartSeq) idx -= 1 // eslint-disable-line @typescript-eslint/no-non-null-assertion
-    return idx
-  }
-
-  /**
-   * Snap a raw token-budget cutoff index to a step-aligned end among the nodes
-   * BELOW the protected suffix (`protectedIdx`, the first node of the in-flight
-   * turn). Returns the snapped index, or `-1` if no step-aligned end exists in
-   * the compactable range (e.g. it is empty, or its only content is an open tail
-   * step).
-   *
-   * Prefers snapping FORWARD to the next step-aligned end (compact slightly more
-   * recent context for a clean boundary); if the forward scan reaches
-   * `protectedIdx` without finding one, falls back to scanning BACKWARD from the
-   * raw cutoff (compact slightly less). The protected suffix is never returned —
-   * it stays verbatim so the model sees its current task, not a summary.
-   */
-  private _snapCutoff(
-    events: readonly SessionEvent[],
-    nodes: readonly SurfaceNode[],
-    rawCutoffIdx: number,
-    protectedIdx: number,
-  ): number {
-    // Forward: the next step-aligned end strictly below the protected suffix.
-    for (let i = rawCutoffIdx; i < protectedIdx; i++) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      if (isStepAlignedEnd(events, nodes[i]!.seq)) return i
-    }
-    // Backward: the nearest step-aligned end at or below the raw cutoff.
-    for (let i = rawCutoffIdx - 1; i >= 0; i--) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      if (isStepAlignedEnd(events, nodes[i]!.seq)) return i
-    }
-    return -1
-  }
 
   /**
    * Frame the raw summary blocks into the content that lands on the surface:

@@ -38,7 +38,35 @@ export const DEFAULTS: ResolvedConfig = {
   auto: true,
 }
 
-/** Apply defaults to a partial config. */
+/**
+ * Apply defaults to a partial config and enforce the single-pass convergence
+ * invariant.
+ *
+ * `summarizationMaxTokens + retainTokens` must not exceed the compaction
+ * threshold (`contextWindow * thresholdRatio`). The invariant guarantees that
+ * after a compaction the derived history — the (bounded) summary plus the
+ * retained recent tail — is structurally BELOW the threshold, so the very next
+ * pre-request check passes and a second compaction cannot fire on the same
+ * content. Without it, a too-large summary budget or retain budget would leave
+ * the post-compaction history still over threshold, triggering compaction again
+ * and again. Pre-release we reject rather than clamp: a config that cannot
+ * guarantee convergence is a bug at the call site, not something to silently
+ * paper over.
+ *
+ * @throws if `summarizationMaxTokens + retainTokens > contextWindow * thresholdRatio`.
+ */
 export function resolveConfig(config: BasicCompactConfig): ResolvedConfig {
-  return { ...DEFAULTS, ...config }
+  const resolved = { ...DEFAULTS, ...config }
+  const threshold = Math.floor(resolved.contextWindow * resolved.thresholdRatio)
+  const postCompactionFloor = resolved.summarizationMaxTokens + resolved.retainTokens
+  if (postCompactionFloor > threshold) {
+    throw new Error(
+      `BasicCompactConfig: summarizationMaxTokens (${resolved.summarizationMaxTokens}) + `
+      + `retainTokens (${resolved.retainTokens}) = ${postCompactionFloor} exceeds the compaction `
+      + `threshold contextWindow * thresholdRatio = ${threshold}; post-compaction history would `
+      + 'stay over threshold and re-compact endlessly. Lower retainTokens/summarizationMaxTokens '
+      + 'or raise contextWindow/thresholdRatio.',
+    )
+  }
+  return resolved
 }

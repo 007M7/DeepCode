@@ -6,7 +6,7 @@
  * events are log-only markers (lock + provenance); only the five
  * surface-eligible types can carry `surfaceOp`. The actual surface mutation is
  * performed by a separate `user/message` event carrying the summary (see the
- * [compaction capability-seam RFC](../../../../docs/rfc/proposed/feature/2026-06-18-compaction-capability-seam.md)).
+ * [compaction capability-seam RFC](../../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md)).
  *
  * Configuration lives in the backend, not here: the contract states WHAT
  * compaction produces, while every tunable (context window, thresholds,

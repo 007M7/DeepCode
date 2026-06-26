@@ -149,8 +149,9 @@ export interface LoopHandle {
  *       drain steering → session('steering/message')  ⟵ catches late steering
  *       session('step/start'); emit agent/step-start    ⟵ append before emit (the event-sourcing RFC)
  *       assembly = ctx.systemPrompt.assemble()        ⟵ waterfall system-prompt/assemble
+ *       await ctx.parallel('agent/pre-request')       ⟵ surface mutation (compaction) BEFORE derive
  *       req = {model, system, tools, messages: session.deriveMessages(), signal}
- *       req = waterfall agent/request                 ⟵ hooks/compaction/model-switch
+ *       req = waterfall agent/request                 ⟵ hooks/model-switch
  *       stream ctx.llm.stream(req)                    ⟵ waterfall llm/stream (raw chunks)
  *         session('assistant/chunk'); emit agent/stream-chunk
  *       msg = waterfall agent/step-result             ⟵ BEFORE the log append, so the
@@ -564,6 +565,13 @@ async function runStep(
   const system = [renderPrompt(assembly), options.systemPrompt ?? '']
     .filter(text => text.length > 0)
     .join('\n\n')
+
+  // Surface-mutation checkpoint BEFORE deriving history: compaction shadows an
+  // older range with a summary node here, and the single derive below reflects
+  // it. Awaited (no veto) — a listener mutates the surface as a side effect.
+  // `model` is resolved to '' when unset; a compaction listener that needs a
+  // model falls back to its own config.
+  await ctx.parallel('agent/pre-request', agent, turn, step, system, options.model ?? '', signal)
 
   let request: GenerateOptions = {
     model: options.model ?? '',

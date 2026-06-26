@@ -9,6 +9,9 @@ import type { SessionEvent, SurfaceEvent } from '@deepseek-ai/dsh-session'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
+/** A never-aborted signal for the required `compactIfNeeded`/listener arg. */
+const SIGNAL = new AbortController().signal
+
 /**
  * A BasicCompactService with summarize() stubbed (no real model call) and a
  * predictable token estimate, for deterministic unit tests of the algorithm.
@@ -33,31 +36,14 @@ class TestCompactService extends BasicCompactService {
   }
 }
 
-/** Create a test service with a throwaway context (auto disabled — no model). */
-function createTestService(config: BasicCompactConfig = {}): TestCompactService {
-  return new TestCompactService(new Context(), { auto: false, ...config })
-}
-
 /**
- * A test service where specific surface seqs (in `bigSeqs`) weigh 1000 tokens
- * and every other message-producing event weighs 10 — for exercising the
- * "newest node alone exceeds retainTokens" retention path. summarize() is
- * stubbed (no model call).
+ * Create a test service with a throwaway context (auto disabled — no model).
+ * A small `summarizationMaxTokens` baseline keeps the convergence invariant
+ * (`summarizationMaxTokens + retainTokens <= contextWindow * thresholdRatio`)
+ * satisfied for the tiny windows these tests use; a test may override it.
  */
-class TestCompactServiceVarTokens extends BasicCompactService {
-  bigSeqs = new Set<number>()
-  constructor(config: BasicCompactConfig = {}) {
-    super(new Context(), { auto: false, ...config })
-  }
-
-  override estimateEventTokens(event: SessionEvent): number {
-    if (this.bigSeqs.has(event.seq)) return 1000
-    return super.estimateEventTokens(event)
-  }
-
-  override async summarize(): Promise<ContentBlock[]> {
-    return [{ type: 'text', text: 'summary' }]
-  }
+function createTestService(config: BasicCompactConfig = {}): TestCompactService {
+  return new TestCompactService(new Context(), { auto: false, summarizationMaxTokens: 1, ...config })
 }
 
 /**
@@ -188,44 +174,48 @@ function expectNoOrphanToolResults(messages: Message[]): void {
 }
 
 describe('BasicCompactService step-alignment (never split a tool-call/result pair)', () => {
-  it('compactIfNeeded snaps the cutoff forward past a mid-step boundary (no orphaned tool-result)', async () => {
-    // 3 turns, each one step = { assistant(tool-call) , tool/result }. Surface
+  it('compactIfNeeded rounds the retained boundary head-ward to keep a whole step (no orphaned tool-result)', async () => {
+    // 3 turns, each one step = { assistant(tool-call), tool/result }. Surface
     // (9 nodes): user1, asst1, res1, user2, asst2, res2, user3, asst3, res3 —
-    // 10/20/10 tokens. With retainTokens=55 the tail→head walk overflows at
-    // asst2 (idx4), so the RAW cutoff falls BETWEEN asst2 and its result res2
-    // (idx5) — splitting turn 2's step. The fix snaps the cutoff forward to res2
-    // so the whole step is compacted and no dangling result survives.
+    // 10/20/10 tokens. The tail→head walk retains by whole units; the compacted
+    // region always ends on a step boundary, so no step's tool-call is split
+    // from its result. retainTokens=55 keeps the recent tail; the older steps
+    // compact intact.
     const svc = createTestService({ contextWindow: 200, thresholdRatio: 0.5, retainTokens: 55 })
     const session = toolTurnSession(3)
 
-    const result = await svc.compactIfNeeded(session)
+    const result = await svc.compactIfNeeded(session, '', 'm', SIGNAL)
     expect(result).not.toBeNull()
-    // res2 (idx5) was pulled into the compacted region by the snap, not stranded.
+    expect(result!.shadowedSeqs.length).toBeGreaterThan(0)
+    // No dangling tool-result: every compacted/retained step stayed whole.
     expectNoOrphanToolResults(session.deriveMessages())
-    // Turn 3's step is retained intact (summary + user3 + asst3 + res3 = 4 msgs).
-    expect(session.deriveMessages().length).toBe(4)
+    // The most-recent step's result is retained verbatim (still on the surface).
+    const lastResultSeq = session.events.findLast(e => e.type === 'tool/result')!.seq
+    expect(result!.shadowedSeqs).not.toContain(lastResultSeq)
   })
 
-  it('compactIfNeeded returns null when the only cutoff would enter an open tail step', async () => {
-    // A pre-step user/message then an OPEN step (assistant issued a tool-call, no
-    // tool/result / step/end yet — mid-flight). The token walk wants to compact
-    // into that open step, but its tool-call has no result yet; compacting it
-    // would defer the orphan. With no safe step-aligned cutoff, compactIfNeeded
-    // declines (returns null) rather than summarizing a pending tool-call away.
-    const s = new Session(SessionId('open-step'))
+  it('compactIfNeeded returns null when the only compactable region is an un-splittable single step', async () => {
+    // The surface is exactly ONE step: [assistant(tool-call), tool/result]. Over
+    // threshold (by the derived role overhead), the tail→head walk stops with the
+    // retained boundary at the tool/result — which is NOT a step-aligned start (its
+    // issuing assistant precedes it in the same step). Rounding head-ward to find a
+    // clean boundary reaches index 0, so there is no step-aligned cutoff in the
+    // compactable range: compactIfNeeded declines rather than splitting the step.
+    const s = new Session(SessionId('one-step'))
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    s.append('user/message', { content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     s.append('step/start', { turn: 1, step: 1 })
     s.append('assistant/message', {
       turn: 1, step: 1,
       content: [{ type: 'text', text: 'calling' }, { type: 'tool-call', id: CallId('c1'), name: 'bash', arguments: '{}' }],
     }, { surfaceOp: 'append' })
-    // no tool/result, no step/end — the step is open at the tail.
+    s.append('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'bash', arguments: '{}' })
+    s.append('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'out' }], isError: false }, { surfaceOp: 'append' })
+    s.append('step/end', { turn: 1, step: 1 })
+    // Turn stays open.
 
-    const svc = createTestService({ contextWindow: 50, thresholdRatio: 0.5, retainTokens: 5 })
-    const result = await svc.compactIfNeeded(s)
+    const svc = createTestService({ contextWindow: 100, thresholdRatio: 0.1, retainTokens: 5 })
+    const result = await svc.compactIfNeeded(s, '', 'm', SIGNAL)
     expect(result).toBeNull()
-    // The open step's assistant survived — its tool-call is intact for the result.
     expect(s.events.some(e => e.type === 'compact/start')).toBe(false)
   })
 
@@ -516,107 +506,103 @@ describe('BasicCompactService.compactIfNeeded', () => {
   it('returns null when tokens are under threshold', async () => {
     const svc = createTestService({ contextWindow: 128000, thresholdRatio: 0.8 })
     const session = multiTurnSession(1, 1)
-    expect(await svc.compactIfNeeded(session)).toBeNull()
+    expect(await svc.compactIfNeeded(session, '', 'm', SIGNAL)).toBeNull()
   })
 
   it('compacts when tokens exceed threshold', async () => {
     const svc = createTestService({ contextWindow: 100, thresholdRatio: 0.5, retainTokens: 10 })
     const session = multiTurnSession(3, 1) // 6 surface nodes, 10 tokens each = 60
 
-    const result = await svc.compactIfNeeded(session)
+    const result = await svc.compactIfNeeded(session, '', 'm', SIGNAL)
     expect(result).not.toBeNull()
     expect(result!.shadowedSeqs.length).toBeGreaterThan(0)
   })
 
   it('walks tail→head and retains nodes within token budget', async () => {
-    const svc = createTestService({ contextWindow: 100, thresholdRatio: 0.1, retainTokens: 15 })
+    const svc = createTestService({ contextWindow: 100, thresholdRatio: 0.2, retainTokens: 15 })
     const session = multiTurnSession(5, 1) // 10 surface nodes = ~100 tokens
 
-    const result = await svc.compactIfNeeded(session)
+    const result = await svc.compactIfNeeded(session, '', 'm', SIGNAL)
     expect(result).not.toBeNull()
     const nodes = session.surface.nodes
     expect(result!.shadowedSeqs.length).toBeGreaterThan(0)
     expect(result!.shadowedSeqs).not.toContain(nodes[nodes.length - 1]!.seq)
   })
 
-  it('returns null when total tokens fit within budget', async () => {
-    const svc = createTestService({ contextWindow: 100, thresholdRatio: 0.1, retainTokens: 1000 })
+  it('returns null when the whole surface fits the retain budget (over threshold by role/system overhead)', async () => {
+    // threshold = floor(460*0.1) = 46. The 4 surface nodes weigh 10 each (raw 40
+    // for the retention walk), but the derived estimate adds 4 role tokens per
+    // message → 56 ≥ 46, so the threshold check passes and the walk runs. The
+    // walk accumulates all 40 < retainTokens (45) without crossing the budget,
+    // so keepFromIdx reaches 0 and compaction declines. The invariant holds:
+    // summarizationMaxTokens (1) + retainTokens (45) = 46 ≤ threshold 46.
+    const svc = createTestService({ contextWindow: 460, thresholdRatio: 0.1, retainTokens: 45 })
     const session = multiTurnSession(2, 1)
-    expect(await svc.compactIfNeeded(session)).toBeNull()
+    expect(await svc.compactIfNeeded(session, '', 'm', SIGNAL)).toBeNull()
   })
 
-  it('retains the in-flight turn verbatim even when its newest node exceeds retainTokens', async () => {
-    // The current turn's first step has CLOSED (so its last node is step-aligned
-    // and would otherwise be a valid compaction cutoff), and that node — a fresh
-    // tool result — is larger than the whole retain budget. It must NOT be
-    // compacted: it is the observation the model needs for the turn's next step.
-    // Only the older closed turns are eligible.
-    const svc = new TestCompactServiceVarTokens({ contextWindow: 100, thresholdRatio: 0.1, retainTokens: 5 })
-    const s = new Session(SessionId('big-tail'))
-    // Two closed turns (compactable older context).
-    for (const t of [1, 2]) {
-      s.append('turn/start', { turn: t, trigger: { kind: 'message', source: { kind: 'user' } } })
-      s.append('step/start', { turn: t, step: 1 })
-      s.append('user/message', { content: [{ type: 'text', text: `turn ${t}` }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-      s.append('assistant/message', { turn: t, step: 1, content: [{ type: 'text', text: `reply ${t}` }] }, { surfaceOp: 'append' })
-      s.append('step/end', { turn: t, step: 1 })
-      s.append('turn/end', { turn: t, reason: { kind: 'completed' } })
+  it('compacts a runaway turn: its early CLOSED steps summarize while recent steps stay verbatim', async () => {
+    // The REGRESSION that motivated dropping turn-protection. A single in-flight
+    // (open) turn has grown past the threshold on its own: several CLOSED steps,
+    // each [assistant(tool-call), tool/result]. Retention is turn-agnostic, so
+    // the turn's OWN early closed steps are eligible — they compact while the
+    // recent tail stays verbatim, and the harness survives.
+    //
+    // On the OLD layer-2 code this test FAILS: the entire open turn was retained
+    // verbatim (protectedIdx = first open-turn node = 0), so compactIfNeeded
+    // returned null and shadowedSeqs would be empty — the runaway turn could
+    // never compact and the next model call would overflow the window.
+    const svc = createTestService({ contextWindow: 300, thresholdRatio: 0.1, retainTokens: 25 })
+    const s = new Session(SessionId('runaway'))
+    // ONE open turn with 5 closed steps; each step is [asst(tool-call), result].
+    s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    s.append('user/message', { content: [{ type: 'text', text: 'do a big multi-step task' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    for (let step = 1; step <= 5; step++) {
+      s.append('step/start', { turn: 1, step })
+      s.append('assistant/message', {
+        turn: 1, step,
+        content: [{ type: 'text', text: `step ${step}` }, { type: 'tool-call', id: CallId(`c${step}`), name: 'bash', arguments: '{}' }],
+      }, { surfaceOp: 'append' })
+      s.append('tool/call', { turn: 1, step, callId: CallId(`c${step}`), name: 'bash', arguments: '{}' })
+      s.append('tool/result', { turn: 1, step, callId: CallId(`c${step}`), content: [{ type: 'text', text: `out ${step}` }], isError: false }, { surfaceOp: 'append' })
+      s.append('step/end', { turn: 1, step })
     }
-    // The in-flight turn 3: a user request, then a CLOSED step 1 whose tool
-    // result is HUGE (1000 tokens). The step is closed (step/end), so the result
-    // node is step-aligned — without the in-flight-turn protection the retention
-    // walk would pick it as the cutoff and compact it away. The turn itself is
-    // still open (no turn/end): the model is mid-turn, about to run step 2.
-    s.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } })
-    s.append('user/message', { content: [{ type: 'text', text: 'current request' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    s.append('step/start', { turn: 3, step: 1 })
-    s.append('assistant/message', { turn: 3, step: 1, content: [{ type: 'text', text: 'calling' }, { type: 'tool-call', id: CallId('huge'), name: 'bash', arguments: '{}' }] }, { surfaceOp: 'append' })
-    s.append('tool/call', { turn: 3, step: 1, callId: CallId('huge'), name: 'bash', arguments: '{}' })
-    const hugeSeq = s.append('tool/result', {
-      turn: 3, step: 1, callId: CallId('huge'),
-      content: [{ type: 'text', text: 'HUGE' }], isError: false,
-    }, { surfaceOp: 'append' }).seq
-    s.append('step/end', { turn: 3, step: 1 })
-    svc.bigSeqs.add(hugeSeq) // make this node weigh 1000 tokens
+    // The turn stays OPEN (no turn/end) — the model is mid-turn, about to run
+    // step 6. Surface: user + 5×[asst, result] = 11 nodes.
+    const nodesBefore = s.surface.nodes.length
+    expect(nodesBefore).toBe(11)
 
-    const result = await svc.compactIfNeeded(s)
+    const result = await svc.compactIfNeeded(s, '', 'm', SIGNAL)
     expect(result).not.toBeNull()
-    // The in-flight turn's nodes — the request, the assistant, AND the huge
-    // result — are retained: none shadowed, all survive on the surface verbatim.
-    expect(result!.shadowedSeqs).not.toContain(hugeSeq)
-    const survivingSeqs = new Set(s.surface.nodes.map(n => n.seq))
-    expect(survivingSeqs.has(hugeSeq)).toBe(true)
-    const requestSeq = s.events.find(e => e.type === 'user/message' && e.data.content.some(b => b.type === 'text' && b.text === 'current request'))!.seq
-    expect(survivingSeqs.has(requestSeq)).toBe(true)
-    // The older closed turns WERE compacted.
+    // Early steps of the SAME open turn were shadowed (impossible under layer 2).
     expect(result!.shadowedSeqs.length).toBeGreaterThan(0)
+    // The most-recent step's tool result is retained verbatim (still on surface).
+    const lastResultSeq = s.events.findLast(e => e.type === 'tool/result')!.seq
+    expect(result!.shadowedSeqs).not.toContain(lastResultSeq)
+    expect(s.surface.nodes.some(n => n.seq === lastResultSeq)).toBe(true)
+    // No orphaned tool-result survives (whole-step boundaries respected).
+    expectNoOrphanToolResults(s.deriveMessages())
   })
 
   it('returns null for an empty surface', async () => {
-    const svc = createTestService({ contextWindow: 10, thresholdRatio: 0.1 })
+    const svc = createTestService({ contextWindow: 100, thresholdRatio: 0.5, retainTokens: 10 })
     const session = new Session(SessionId('empty'))
-    expect(await svc.compactIfNeeded(session)).toBeNull()
+    expect(await svc.compactIfNeeded(session, '', 'm', SIGNAL)).toBeNull()
   })
 
-  it('compacts again within the same open turn (the prior summary node is still eligible)', async () => {
-    // After the first compaction lands a replacement summary node, that node is
-    // appended DURING the open turn (seq > turn/start) but sits earlier in the
-    // surface (at the shadowed range's position), NOT in the verbatim tail run.
-    // It must stay compaction-eligible: a second step in the SAME turn, still
-    // over threshold, must be able to compact older context — protectedIdx must
-    // not collapse to 0 and silently disable per-step auto-compaction.
-    // retainTokens=25 leaves a couple of retained closed-turn nodes after the
-    // first compaction (so the surface is [summary, …retained], not [summary]).
-    const svc = createTestService({ contextWindow: 100, thresholdRatio: 0.1, retainTokens: 25 })
+  it('compacts again after a prior summary node heads the surface (the summary stays eligible)', async () => {
+    // After the first compaction lands a replacement summary node at the head,
+    // a second compaction (still over threshold) re-consolidates it with newer
+    // context — head-anchoring means the prior checkpoint is always re-included,
+    // never stranded. retainTokens=25 leaves a couple of retained nodes after
+    // the first compaction (so the surface is [summary, …retained], not just
+    // [summary]).
+    const svc = createTestService({ contextWindow: 300, thresholdRatio: 0.1, retainTokens: 25 })
     const s = multiTurnSession(4, 1) // turns 1-4 closed, turn 5 open (no surface yet)
 
-    const first = await svc.compactIfNeeded(s)
+    const first = await svc.compactIfNeeded(s, '', 'm', SIGNAL)
     expect(first).not.toBeNull()
-    // The summary node now heads the surface; the open turn has no verbatim tail
-    // node yet, so the whole surface (incl. the summary) is eligible — the
-    // protected suffix is the contiguous tail run of open-turn nodes (none yet).
-    // The summary node's seq exceeds turn 5's turn/start, yet it sits at the
-    // head (not the tail), so it must NOT be counted as protected.
+    // The summary node now heads the surface with a fresh high seq.
     const summaryHeadSeq = s.surface.nodes[0]!.seq
     const turn5StartSeq = s.events.filter(e => e.type === 'turn/start').at(-1)!.seq
     expect(summaryHeadSeq).toBeGreaterThan(turn5StartSeq)
@@ -629,7 +615,7 @@ describe('BasicCompactService.compactIfNeeded', () => {
     s.append('assistant/message', { turn: 5, step: 1, content: [{ type: 'text', text: 'reply 5' }] }, { surfaceOp: 'append' })
     s.append('step/end', { turn: 5, step: 1 })
 
-    const second = await svc.compactIfNeeded(s)
+    const second = await svc.compactIfNeeded(s, '', 'm', SIGNAL)
     expect(second).not.toBeNull()
     expect(second!.shadowedSeqs.length).toBeGreaterThan(0)
     // The fresh open-turn nodes were NOT compacted.
@@ -748,6 +734,27 @@ describe('BasicCompactService HMR safety', () => {
     void new BasicCompactService(ctx, { auto: false })
     expect(ctx.compact).toBeDefined()
     expect(ctx.compact).toBeInstanceOf(BasicCompactService)
+  })
+})
+
+describe('BasicCompactService convergence invariant (config)', () => {
+  it('throws when summarizationMaxTokens + retainTokens exceeds the threshold', () => {
+    // threshold = floor(1000 * 0.5) = 500; 200 + 400 = 600 > 500 → reject.
+    expect(() => new BasicCompactService(new Context(), {
+      auto: false, contextWindow: 1000, thresholdRatio: 0.5, retainTokens: 400, summarizationMaxTokens: 200,
+    })).toThrow(/exceeds the compaction threshold/)
+  })
+
+  it('accepts the boundary case (sum equals the threshold)', () => {
+    // threshold = floor(1000 * 0.5) = 500; 100 + 400 = 500 ≤ 500 → allowed.
+    expect(() => new BasicCompactService(new Context(), {
+      auto: false, contextWindow: 1000, thresholdRatio: 0.5, retainTokens: 400, summarizationMaxTokens: 100,
+    })).not.toThrow()
+  })
+
+  it('the default config satisfies the invariant', () => {
+    // 2048 + 20480 = 22528 ≤ floor(128000 * 0.8) = 102400.
+    expect(() => new BasicCompactService(new Context(), { auto: false })).not.toThrow()
   })
 })
 
@@ -876,81 +883,73 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
   })
 })
 
-describe('BasicCompactService auto-compaction (agent/request listener)', () => {
-  /** Fire the agent/request waterfall as the loop does. */
-  function fireRequest(ctx: Context, agent: Agent, step: number, options: GenerateOptions): Promise<GenerateOptions> {
-    return ctx.waterfall('agent/request', agent, 1, step, options, () => Promise.resolve(options))
+describe('BasicCompactService auto-compaction (agent/pre-request listener)', () => {
+  /** Fire the agent/pre-request parallel checkpoint as the loop does. */
+  function firePreRequest(ctx: Context, agent: Agent, step: number, system: string, model: string): Promise<unknown> {
+    return ctx.parallel('agent/pre-request', agent, 1, step, system, model, SIGNAL)
   }
 
-  it('compacts and rewrites request.messages when over threshold', async () => {
-    // Tiny window so the (large) session is over threshold; char/4 estimate.
+  it('compacts (mutating the surface) when over threshold', async () => {
     const { ctx } = await ctxWithModel('SUMMARY')
-    const svc = new BasicCompactService(ctx, { contextWindow: 200, thresholdRatio: 0.5, retainTokens: 20 })
+    void new BasicCompactService(ctx, { contextWindow: 200, thresholdRatio: 0.5, retainTokens: 20, summarizationMaxTokens: 50 })
     const session = multiTurnSession(5, 1) // 10 surface nodes
     const agent = stubAgent(session, 'test-model')
+    const before = session.surface.nodes.length
 
-    const messages = session.deriveMessages()
-    const before = messages.length
-    const options: GenerateOptions = { model: 'test-model', messages }
+    await firePreRequest(ctx, agent, 1, '', 'test-model')
 
-    const out = await fireRequest(ctx, agent, 1, options)
-    // The surface shrank — request.messages was re-derived to fewer entries.
-    expect(out.messages.length).toBeLessThan(before)
+    // The surface shrank in place, and a summary checkpoint landed.
+    expect(session.surface.nodes.length).toBeLessThan(before)
     expect(session.events.some(e => e.type === 'compact/summary')).toBe(true)
-    // Re-derived first message is the framed summary checkpoint.
-    expect(out.messages[0]!.content).toContainEqual({ type: 'text', text: 'SUMMARY' })
-    expect(svc).toBeDefined()
+    // The re-derived head message is the framed summary checkpoint.
+    expect(session.deriveMessages()[0]!.content).toContainEqual({ type: 'text', text: 'SUMMARY' })
   })
 
   it('compacts mid-turn on steps after the first (the surface grows within a turn)', async () => {
     const { ctx } = await ctxWithModel('SUMMARY')
-    void new BasicCompactService(ctx, { contextWindow: 100, thresholdRatio: 0.5, retainTokens: 10 })
+    void new BasicCompactService(ctx, { contextWindow: 100, thresholdRatio: 0.5, retainTokens: 10, summarizationMaxTokens: 30 })
     const session = multiTurnSession(3, 1) // over the 0.5 threshold
     const agent = stubAgent(session, 'test-model')
-    const options: GenerateOptions = { model: 'test-model', messages: session.deriveMessages() }
 
-    // A step-2 request (a tool-heavy turn's later step) must still compact — the
-    // surface accumulated assistant/message + tool/result nodes since step 1.
-    await fireRequest(ctx, agent, 2, options)
+    // A step-2 checkpoint (a tool-heavy turn's later step) must still compact —
+    // the surface accumulated assistant/message + tool/result nodes since step 1.
+    await firePreRequest(ctx, agent, 2, '', 'test-model')
     expect(session.events.some(e => e.type === 'compact/start')).toBe(true)
   })
 
-  it('passes through unchanged when under threshold', async () => {
+  it('does nothing when under threshold', async () => {
     const { ctx } = await ctxWithModel('SUMMARY')
     void new BasicCompactService(ctx, { contextWindow: 128000, thresholdRatio: 0.8 })
     const session = multiTurnSession(1, 1)
     const agent = stubAgent(session, 'test-model')
-    const msgs = session.deriveMessages()
-    const options: GenerateOptions = { model: 'test-model', messages: msgs }
 
-    const out = await fireRequest(ctx, agent, 1, options)
-    expect(out.messages).toBe(msgs)
+    await firePreRequest(ctx, agent, 1, '', 'test-model')
     expect(session.events.some(e => e.type === 'compact/start')).toBe(false)
   })
 
-  it('proceeds with original history when compaction fails', async () => {
-    // No adapter registered for this model → summarize() rejects → caught, proceeds.
+  it('leaves the surface intact when compaction fails (summarize rejects)', async () => {
+    // No adapter registered for this model → summarize() rejects → caught, the
+    // surface is untouched (the loop derives the full history).
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    void new BasicCompactService(ctx, { contextWindow: 100, thresholdRatio: 0.1, retainTokens: 10 })
+    void new BasicCompactService(ctx, { contextWindow: 300, thresholdRatio: 0.1, retainTokens: 10, summarizationMaxTokens: 1 })
     const session = multiTurnSession(3, 1)
     const agent = stubAgent(session, 'missing-model')
-    const msgs = session.deriveMessages()
-    const options: GenerateOptions = { model: 'missing-model', messages: msgs }
+    const before = session.surface.nodes.length
 
-    const out = await fireRequest(ctx, agent, 1, options)
-    // Listener swallowed the failure and left messages intact.
-    expect(out.messages).toBe(msgs)
+    await firePreRequest(ctx, agent, 1, '', 'missing-model')
+    // No summary landed; the surface is unchanged.
+    expect(session.events.some(e => e.type === 'compact/summary')).toBe(false)
+    expect(session.surface.nodes.length).toBe(before)
   })
 
   it('does not register the listener when auto is false', async () => {
     const { ctx } = await ctxWithModel('SUMMARY')
-    void new BasicCompactService(ctx, { auto: false, contextWindow: 10, thresholdRatio: 0.1, retainTokens: 1 })
+    void new BasicCompactService(ctx, { auto: false, contextWindow: 100, thresholdRatio: 0.1, retainTokens: 5, summarizationMaxTokens: 1 })
     const session = multiTurnSession(3, 1)
     const agent = stubAgent(session, 'test-model')
-    const options: GenerateOptions = { model: 'test-model', messages: session.deriveMessages() }
 
-    await fireRequest(ctx, agent, 1, options)
+    await firePreRequest(ctx, agent, 1, '', 'test-model')
     expect(session.events.some(e => e.type === 'compact/start')).toBe(false)
   })
 })
@@ -1049,46 +1048,65 @@ describe('BasicCompactService edge cases', () => {
     expect(svc.estimateContentTokens([unknown])).toBeGreaterThan(0)
   })
 
-  it('compacts and re-derives without re-checking a post-compaction threshold', async () => {
+  it('compacts once without re-checking a post-compaction threshold', async () => {
     const { ctx } = await ctxWithModel('SUMMARY')
     // Even with a window so tiny the post-compaction history still exceeds the
     // threshold, the agnostic listener does NOT re-gate or warn — it compacts
     // once (the single check lives in compactIfNeeded) and proceeds.
     const warnings: string[] = []
     ctx.logger.warn = ((msg: string) => void warnings.push(msg)) as typeof ctx.logger.warn
-    void new BasicCompactService(ctx, { contextWindow: 10, thresholdRatio: 0.1, retainTokens: 5 })
+    void new BasicCompactService(ctx, { contextWindow: 300, thresholdRatio: 0.1, retainTokens: 5, summarizationMaxTokens: 5 })
     const session = multiTurnSession(4, 1)
     const agent = stubAgent(session, 'test-model')
-    const options: GenerateOptions = { model: 'test-model', messages: session.deriveMessages() }
 
-    await ctx.waterfall('agent/request', agent, 1, 1, options, () => Promise.resolve(options))
+    await ctx.parallel('agent/pre-request', agent, 1, 1, '', 'test-model', SIGNAL)
     expect(session.events.some(e => e.type === 'compact/summary')).toBe(true)
-    // The surface was re-derived into the request; no cascade warning is emitted.
-    expect(options.messages[0]!.content).toContainEqual({ type: 'text', text: 'SUMMARY' })
+    // The surface was mutated; the head message is the framed summary checkpoint.
+    expect(session.deriveMessages()[0]!.content).toContainEqual({ type: 'text', text: 'SUMMARY' })
+    // No cascade warning is emitted.
     expect(warnings.length).toBe(0)
   })
 
   it('rejects compaction when no turn is open (compaction events must be turn-enclosed)', async () => {
     const svc = createTestService()
-    // A session with surface nodes but NO open turn — compaction's compact/* and
-    // replacement events would be appended outside any turn, which the session-log
-    // contract forbids.
+    // A session whose only turn has CLOSED — scanning back from the tail hits
+    // turn/end before any turn/start, so there is no open turn to enclose
+    // compaction's compact/* + replacement events, which the log contract forbids.
     const s = new Session(SessionId('noturn'))
+    s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    s.append('step/start', { turn: 1, step: 1 })
     s.append('user/message', { content: [{ type: 'text', text: 'orphan' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    s.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'reply' }] }, { surfaceOp: 'append' })
+    s.append('step/end', { turn: 1, step: 1 })
+    s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     const nodes = s.surface.nodes
 
-    await expect(svc.compactRegion(s, nodes[0]!.seq, nodes[0]!.seq, 'm'))
+    await expect(svc.compactRegion(s, nodes[0]!.seq, nodes[1]!.seq, 'm'))
       .rejects.toThrow(/no open turn/)
     // The lock was never acquired — no compact/start landed.
     expect(s.events.some(e => e.type === 'compact/start')).toBe(false)
   })
 
+  it('rejects compaction on a session with no turn boundaries at all', async () => {
+    const svc = createTestService()
+    // No turn events whatsoever — the open-turn scan falls through to the end
+    // of the log and finds none, so compaction is rejected (its events have no
+    // turn to enclose them).
+    const s = new Session(SessionId('turnless'))
+    s.append('user/message', { content: [{ type: 'text', text: 'orphan' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    const nodes = s.surface.nodes
+
+    await expect(svc.compactRegion(s, nodes[0]!.seq, nodes[0]!.seq, 'm'))
+      .rejects.toThrow(/no open turn/)
+    expect(s.events.some(e => e.type === 'compact/start')).toBe(false)
+  })
+
   it('compactIfNeeded returns null for empty surface even when over threshold', async () => {
-    const svc = createTestService({ contextWindow: 100, thresholdRatio: 0.1 })
+    const svc = createTestService({ contextWindow: 1000, thresholdRatio: 0.1, retainTokens: 5 })
     const session = new Session(SessionId('empty-but-pressured'))
     // No surface nodes, but a large system prompt pushes the estimate over threshold.
-    const bigPrompt = 'x'.repeat(400) // ceil(400/4) = 100 tokens >> threshold 10
-    expect(await svc.compactIfNeeded(session, bigPrompt)).toBeNull()
+    const bigPrompt = 'x'.repeat(800) // ceil(800/4) = 200 tokens >> threshold 100
+    expect(await svc.compactIfNeeded(session, bigPrompt, 'm', SIGNAL)).toBeNull()
   })
 
   it('compactRegion throws when end is not a surface node (start valid)', async () => {
@@ -1116,15 +1134,16 @@ describe('BasicCompactService edge cases', () => {
     const { ctx } = await ctxWithModel('SUMMARY')
     const warnings: string[] = []
     ctx.logger.warn = ((msg: string) => void warnings.push(msg)) as typeof ctx.logger.warn
-    const svc = new TestCompactService(ctx, { contextWindow: 100, thresholdRatio: 0.1, retainTokens: 10 })
+    const svc = new TestCompactService(ctx, { contextWindow: 300, thresholdRatio: 0.1, retainTokens: 10, summarizationMaxTokens: 10 })
     svc.summarizeError = 'boom' as unknown as Error
     const session = multiTurnSession(3, 1)
     const agent = stubAgent(session, 'test-model')
-    const msgs = session.deriveMessages()
-    const options: GenerateOptions = { model: 'test-model', messages: msgs }
+    const before = session.surface.nodes.length
 
-    const out = await ctx.waterfall('agent/request', agent, 1, 1, options, () => Promise.resolve(options))
-    expect(out.messages).toBe(msgs) // proceeded with original history
+    await ctx.parallel('agent/pre-request', agent, 1, 1, '', 'test-model', SIGNAL)
+    // The failure was swallowed; the surface is untouched and a warning logged.
+    expect(session.surface.nodes.length).toBe(before)
+    expect(session.events.some(e => e.type === 'compact/summary')).toBe(false)
     expect(warnings.some(w => w.includes('compaction failed: boom'))).toBe(true)
   })
 
@@ -1132,16 +1151,14 @@ describe('BasicCompactService edge cases', () => {
     const { ctx } = await ctxWithModel('SUMMARY')
     // A large system prompt pushes the listener's estimate over threshold, but
     // retainTokens is huge so compactIfNeeded walks everything and returns null.
-    const svc = new TestCompactService(ctx, { contextWindow: 100, thresholdRatio: 0.1, retainTokens: 100000 })
+    // threshold = floor(2000*0.1) = 200; invariant: 5 + 150 = 155 ≤ 200.
+    const svc = new TestCompactService(ctx, { contextWindow: 2000, thresholdRatio: 0.1, retainTokens: 150, summarizationMaxTokens: 5 })
     const session = multiTurnSession(2, 1)
     const agent = stubAgent(session, 'test-model')
-    const bigSystem = 'x'.repeat(400)
-    const msgs = session.deriveMessages()
-    const options: GenerateOptions = { model: 'test-model', messages: msgs, system: bigSystem }
+    const bigSystem = 'x'.repeat(900) // ceil(900/4)=225 > threshold 200
 
-    const out = await ctx.waterfall('agent/request', agent, 1, 1, options, () => Promise.resolve(options))
+    await ctx.parallel('agent/pre-request', agent, 1, 1, bigSystem, 'test-model', SIGNAL)
     expect(session.events.some(e => e.type === 'compact/start')).toBe(false)
-    expect(out.messages).toBe(msgs)
     expect(svc.summarizeCalls.length).toBe(0)
   })
 

@@ -65,6 +65,16 @@
       failures before moving on. Verify your work by running the code or
       tests. Keep answers brief and factual.
 
+# Automatic context compaction: when the derived history approaches the model's
+# context window, summarize an older range into a checkpoint so a long-running
+# or tool-heavy session keeps fitting. A leaf entry (needs ctx.llm + the
+# agent-loop's `agent/pre-request` seam from the app above).
+- id: compact-basic
+  name: '@deepseek-ai/dsh-compact-basic'
+  config:
+    contextWindow: 128000
+    retainTokens: 20480
+
 # The subagent seam + BOTH in-process backends + two model-facing tools, as leaf
 # entries after the app (which provides ctx.agents/ctx.tools). spawn (a fresh
 # child) and fork (a child seeded with the parent's completed-turn prefix) are

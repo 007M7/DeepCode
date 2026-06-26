@@ -181,9 +181,31 @@ declare module 'cordis' {
 
     // ---- interception seams (waterfall) ----
     /**
+     * Awaited surface-mutation checkpoint, fired BEFORE the step's message
+     * history is derived (and thus before {@link agent/request}). The loop
+     * awaits `ctx.parallel('agent/pre-request', …)` after assembling the system
+     * prompt but before `session.deriveMessages()`, then derives ONCE from
+     * whatever the surface now holds. This is where compaction belongs: it
+     * mutates the session surface in place (shadowing an older range with a
+     * summary node), and the single subsequent derive reflects the mutation —
+     * so there is no double-derive and no listener can see (or be expected to
+     * act on) an assembled `messages` array that does not exist yet.
+     *
+     * Awaited (parallel), not a waterfall: a listener mutates the surface as a
+     * side effect; there is nothing to transform or veto, but the loop must wait
+     * for the mutation to complete before deriving. `system`/`model` are the
+     * assembled values a listener needs to measure pressure (system counts
+     * toward the budget) and to summarize (the model). `signal` cancels any
+     * in-flight work a listener starts (e.g. a summarization model call).
+     * @mode parallel
+     */
+    'agent/pre-request'(agent: Agent, turn: number, step: number, system: string, model: string, signal: AbortSignal): Promise<void> | void
+    /**
      * Waterfall: mutate the fully-assembled {@link GenerateOptions} before the
-     * model call (hooks, compaction, model switching, tool filtering, …). Call
-     * `next()` to delegate, or return without it to short-circuit.
+     * model call (hooks, model switching, tool filtering, …). Call `next()` to
+     * delegate, or return without it to short-circuit. For surface mutation that
+     * must precede history derivation (compaction), use {@link agent/pre-request}
+     * instead — by the time this fires, `options.messages` is already derived.
      * @mode waterfall
      */
     'agent/request'(agent: Agent, turn: number, step: number, options: GenerateOptions, next: () => Promise<GenerateOptions>): Promise<GenerateOptions>

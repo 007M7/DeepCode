@@ -320,6 +320,65 @@ describe('agent loop', () => {
     expect(adapter.requests[0]!.model).toBe('other-model')
   })
 
+  it('agent/pre-request fires once per step before the request is derived', async () => {
+    // Two steps (a tool call, then a final text turn) → two model calls → two
+    // pre-request fires, each carrying the assembled system + model, BEFORE the
+    // request messages are derived (the request the adapter sees reflects any
+    // surface state at fire time).
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'echo', {}, 'calling echo'),
+      textResponse('done'),
+    ])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineTool({
+      name: 'echo', description: 'echo', parameters: {},
+      async execute() { return [{ type: 'text', text: 'echoed' }] },
+    }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    const fires: { turn: number; step: number; model: string }[] = []
+    ctx.on('agent/pre-request', (subject, turn, step, _system, model) => {
+      if (subject === agent) fires.push({ turn, step, model })
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    // One fire per step, in order, each with the agent's model.
+    expect(fires).toEqual([
+      { turn: 1, step: 1, model: 'mock' },
+      { turn: 1, step: 2, model: 'mock' },
+    ])
+  })
+
+  it('a surface mutation in agent/pre-request is reflected in the derived request (single derive)', async () => {
+    // pre-request fires BEFORE deriveMessages(), so a listener that appends a
+    // surface node there sees it land in the SAME step's request — proving the
+    // loop derives once, after the checkpoint, with no stale pre-derive.
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    let injected = false
+    ctx.on('agent/pre-request', (subject, turn) => {
+      if (subject === agent && !injected) {
+        injected = true
+        subject.session.append('context/message', {
+          content: [{ type: 'text', text: 'INJECTED-IN-PRE-REQUEST' }],
+          source: { kind: 'plugin', plugin: 'test' },
+        }, { surfaceOp: 'append' })
+        void turn
+      }
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    // The adapter's request includes the node injected during pre-request.
+    const text = JSON.stringify(adapter.requests[0]!.messages)
+    expect(text).toContain('INJECTED-IN-PRE-REQUEST')
+  })
+
   it('cancel() mid-stream ends the turn with reason aborted', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)

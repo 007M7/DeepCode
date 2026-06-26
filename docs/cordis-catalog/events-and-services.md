@@ -11,7 +11,7 @@ The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary
 
 ## Events
 
-Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out, no veto). The harness declares 24 events across 6 scopes.
+Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out, no veto). The harness declares 25 events across 6 scopes.
 
 ### `agent/*`
 
@@ -49,7 +49,21 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:220`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:242`](../../packages/core/agent/src/types.ts)
+
+#### `agent/pre-request` — parallel
+
+Awaited surface-mutation checkpoint, fired BEFORE the step's message history is derived (and thus before agent/request). The loop awaits `ctx.parallel('agent/pre-request', …)` after assembling the system prompt but before `session.deriveMessages()`, then derives ONCE from whatever the surface now holds. This is where compaction belongs: it mutates the session surface in place (shadowing an older range with a summary node), and the single subsequent derive reflects the mutation — so there is no double-derive and no listener can see (or be expected to act on) an assembled `messages` array that does not exist yet.
+
+Awaited (parallel), not a waterfall: a listener mutates the surface as a side effect; there is nothing to transform or veto, but the loop must wait for the mutation to complete before deriving. `system`/`model` are the assembled values a listener needs to measure pressure (system counts toward the budget) and to summarize (the model). `signal` cancels any in-flight work a listener starts (e.g. a summarization model call).
+
+```ts cordis-catalog
+'agent/pre-request'(agent: Agent, turn: number, step: number, system: string, model: string, signal: AbortSignal): Promise<void> | void
+```
+
+Types: [Agent](../core-data-structures/core.md)
+
+Source: [`packages/core/agent/src/types.ts:202`](../../packages/core/agent/src/types.ts)
 
 #### `agent/queued` — emit
 
@@ -65,7 +79,7 @@ Source: [`packages/core/agent/src/types.ts:156`](../../packages/core/agent/src/t
 
 #### `agent/request` — waterfall
 
-Waterfall: mutate the fully-assembled GenerateOptions before the model call (hooks, compaction, model switching, tool filtering, …). Call `next()` to delegate, or return without it to short-circuit.
+Waterfall: mutate the fully-assembled GenerateOptions before the model call (hooks, model switching, tool filtering, …). Call `next()` to delegate, or return without it to short-circuit. For surface mutation that must precede history derivation (compaction), use agent/pre-request instead — by the time this fires, `options.messages` is already derived.
 
 ```ts cordis-catalog
 'agent/request'(agent: Agent, turn: number, step: number, options: GenerateOptions, next: () => Promise<GenerateOptions>): Promise<GenerateOptions>
@@ -73,7 +87,7 @@ Waterfall: mutate the fully-assembled GenerateOptions before the model call (hoo
 
 Types: [Agent](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:189`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:211`](../../packages/core/agent/src/types.ts)
 
 #### `agent/status` — emit
 
@@ -97,7 +111,7 @@ Steering content was injected into a running turn.
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:214`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:236`](../../packages/core/agent/src/types.ts)
 
 #### `agent/step-end` — emit
 
@@ -121,7 +135,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:195`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:217`](../../packages/core/agent/src/types.ts)
 
 #### `agent/step-start` — emit
 
@@ -145,7 +159,7 @@ A raw StreamChunk arrived from the model (token-level UI/log feed).
 
 Types: [Agent](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/agent/src/types.ts:209`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:231`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-continuation` — waterfall
 
@@ -157,7 +171,7 @@ Waterfall: override the turn-continuation decision. The default (computed by the
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:202`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:224`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-end` — emit
 
@@ -373,7 +387,7 @@ Implementations MUST honor:
 - **Blocking**: no compaction begins while another is in progress for the same session. The recommended mechanism is the log-recorded lock — append `compact/start` before the slow work and `compact/end` after (even on failure) — so the lock is visible to replay and crash recovery.
 
 ```ts cordis-catalog
-abstract compactIfNeeded( session: Session, systemPrompt?: string, model?: string, signal?: AbortSignal, ): Promise<CompactionResult | null>
+abstract compactIfNeeded( session: Session, system: string, model: string, signal: AbortSignal, ): Promise<CompactionResult | null>
 abstract compactRegion( session: Session, start: number, end: number, model: string, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 

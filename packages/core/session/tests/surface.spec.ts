@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, isSurfaceEvent } from '@deepseek-ai/dsh-session'
 import { CallId } from '@deepseek-ai/dsh-llm'
 
 /** Build a minimal session with turn boundaries and a single user message. */
@@ -277,5 +277,22 @@ describe('Session.append surface opts', () => {
     const event = s.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append' })
     // The string 'append' is a primitive — identity-preserving is fine.
     expect(event.surfaceOp).toBe('append')
+  })
+
+  it('isSurfaceEvent rejects a surface-eligible type missing its surfaceOp marker', () => {
+    // A raw event (not built via append, which mandates the marker) of a
+    // surface-eligible type but with no surfaceOp must NOT narrow to a
+    // SurfaceEvent — it would otherwise be silently dropped from the surface.
+    const noMarker: SessionEvent = {
+      type: 'user/message', seq: 0, time: 1,
+      data: { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } },
+    }
+    expect(isSurfaceEvent(noMarker)).toBe(false)
+    // A non-surface type is rejected too (the type gate).
+    const boundary: SessionEvent = { type: 'turn/start', seq: 1, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }
+    expect(isSurfaceEvent(boundary)).toBe(false)
+    // A properly-marked surface event narrows.
+    const marked = { ...noMarker, surfaceOp: 'append' } as SurfaceEvent
+    expect(isSurfaceEvent(marked)).toBe(true)
   })
 })
