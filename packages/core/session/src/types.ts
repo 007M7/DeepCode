@@ -150,6 +150,24 @@ export interface TurnEndReasonMap {
 export type TurnEndReason = TurnEndReasonMap[keyof TurnEndReasonMap]
 
 /**
+ * One entry in an agent's todo list — the unit of the `todo_write` tool's
+ * whole-list state (the `todo/write` {@link SessionEventMap} event).
+ *
+ * Deliberately minimal: a human-readable `content` line and a three-state
+ * `status`. No id, priority, or `activeForm` — the list is replaced wholesale
+ * on every write (last-write-wins), so entries need no stable identity, and the
+ * status triple is exactly the ACP `PlanEntryStatus` (so the ACP bridge maps a
+ * todo list to a `plan` update 1:1, synthesizing the priority ACP additionally
+ * requires).
+ */
+export interface TodoItem {
+  /** What this task is — a short imperative line shown in the UI. */
+  content: string
+  /** Lifecycle state. `in_progress` marks the single task being worked now. */
+  status: 'pending' | 'in_progress' | 'completed'
+}
+
+/**
  * The session event vocabulary — the append-only source of truth for an
  * agent's whole interaction history. The LLM message history is *derived*
  * from this log; nothing else is authoritative. Replay = re-derive from the
@@ -194,6 +212,23 @@ export interface SessionEventMap {
   'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string } }
   /** Steering content injected between steps of a running turn. */
   'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
+  /**
+   * The agent's whole todo list, replaced wholesale on each write
+   * (last-write-wins on replay — the current list is the last `todo/write`).
+   * Written by the `todo_write` tool via
+   * `agent.session.append('todo/write', { todos })`.
+   *
+   * NOT a {@link SurfaceEventType}: it produces no LLM message and never reaches
+   * `deriveMessages()` — it is durable, replayable UI state. The full snapshot
+   * travels each time, so a resume re-derives the current list from the last
+   * event with no fold. UIs render off `session/event`: the stdio UI prints the
+   * list; the ACP bridge maps it to a `plan` sessionUpdate. This is a
+   * `SessionEventMap` member (it rides the existing `session/event` emit), not a
+   * first-class `interface Events` notification, so the cordis catalog gains no
+   * row for it.
+   * @mode emit
+   */
+  'todo/write': { todos: TodoItem[] }
 }
 
 export type SessionEventType = keyof SessionEventMap
