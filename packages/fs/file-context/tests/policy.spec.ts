@@ -1,349 +1,192 @@
 /**
- * Tests for the file-context policy layer: registration/disposal/HMR, owner
- * derivation, observed-state-as-read-record, read windowing over a fake
- * provider, freshness-based write/edit authorization (including the key
- * windowed-read-authorizes-edit behavior), the read→streamText size routing,
- * and multi-owner isolation. The provider is a fake `ctx.fs` recording the
- * expectations it was handed.
+ * Tests for the file-context policy PLUGIN: it registers no service, only the
+ * three `fs/*` listeners. We dispatch those events directly (the unbound
+ * waterfalls the tool would dispatch, and the `fs/observed` emit) and assert the
+ * decisions: createIfAbsent vs replaceIfVersion, FS_NOT_OBSERVED for an unread
+ * edit, observed-state-as-prior-observation (read/write/edit all record),
+ * multi-owner isolation, single-slot first-wins, and disposal/HMR release.
+ *
+ * No `ctx.fs` provider is needed — the plugin does no filesystem I/O; it only
+ * decides expectations and records versions on its own WeakMap.
  */
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { FileSystem, FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
-import type {
-  FsEditOutcome,
-  FsEditRequest,
-  FsInfo,
-  FsTarget,
-  FsWriteExpectation,
-  FsWriteOutcome,
-} from '@deepseek-ai/dsh-fs'
-import FileContext, { STREAM_MIN_SIZE } from '@deepseek-ai/dsh-file-context'
-import type { FileContextExec, FileReadRequest } from '@deepseek-ai/dsh-file-context'
+import { FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
+import type { FsTarget, FsWriteExpectation } from '@deepseek-ai/dsh-fs'
+import * as FileContext from '@deepseek-ai/dsh-file-context'
+import type { FileContextExec } from '@deepseek-ai/dsh-file-context'
 
-/** A fake provider: in-memory files, recording every expectation/version it is handed. */
-class FakeFs extends FileSystem {
-  files = new Map<string, string>()
-  versions = new Map<string, number>()
-  /** Size to report from stat (lets a test push read onto the streaming path). */
-  reportSize?: number
-  /** When true, stat omits `size` entirely (a size-less backend). */
-  omitSize = false
-  /** Whether streamText was used for the last read (vs readText). */
-  lastReadStreamed = false
-  writeExpectations: FsWriteExpectation[] = []
-  editExpectedVersions: string[] = []
+function target(path: string): FsTarget {
+  return { inputPath: path, targetKey: FsTargetKey(path), displayPath: path }
+}
+const ownerExec = (session: object): FileContextExec => ({ agent: { session } })
 
-  private ver(key: string): FsVersion {
-    return FsVersion(`v${this.versions.get(key) ?? 0}`)
-  }
-  private bump(key: string): FsVersion {
-    const next = (this.versions.get(key) ?? 0) + 1
-    this.versions.set(key, next)
-    return FsVersion(`v${next}`)
-  }
-
-  override async resolve(path: string): Promise<FsTarget> {
-    return { inputPath: path, targetKey: FsTargetKey(path), displayPath: path }
-  }
-  override async stat(target: FsTarget): Promise<FsInfo | undefined> {
-    const content = this.files.get(target.targetKey)
-    if (content === undefined) return undefined
-    return { version: this.ver(target.targetKey), type: 'file', ...this.omitSize ? {} : { size: this.reportSize ?? content.length } }
-  }
-  override async readText(target: FsTarget): Promise<string> {
-    this.lastReadStreamed = false
-    return this.files.get(target.targetKey) ?? ''
-  }
-  override async streamText(target: FsTarget): Promise<AsyncIterable<string>> {
-    this.lastReadStreamed = true
-    const content = this.files.get(target.targetKey) ?? ''
-    return (async function* () { yield content })()
-  }
-  override async writeText(target: FsTarget, content: string, expected: FsWriteExpectation): Promise<FsWriteOutcome> {
-    this.writeExpectations.push(expected)
-    const existed = this.files.has(target.targetKey)
-    this.files.set(target.targetKey, content)
-    return { operation: existed ? 'update' : 'create', version: this.bump(target.targetKey) }
-  }
-  override async editText(target: FsTarget, edit: FsEditRequest, expected: { version: FsVersion }): Promise<FsEditOutcome> {
-    this.editExpectedVersions.push(expected.version)
-    const content = this.files.get(target.targetKey) ?? ''
-    this.files.set(target.targetKey, content.split(edit.oldString).join(edit.newString))
-    return { replacements: 1, replaceAll: edit.replaceAll, version: this.bump(target.targetKey) }
-  }
+/** Dispatch the write-expectation waterfall with the bare default thunk. */
+function writeExpectation(ctx: Context, t: FsTarget, actor: object | undefined): Promise<FsWriteExpectation | undefined> {
+  return ctx.waterfall('fs/write-expectation', t, actor, () => undefined)
+}
+/** Dispatch the edit-expectation waterfall with the bare default thunk. */
+function editExpectation(ctx: Context, t: FsTarget, actor: object | undefined): Promise<{ version: FsVersion } | undefined> {
+  return ctx.waterfall('fs/edit-expectation', t, actor, () => undefined)
 }
 
 async function setup() {
   const ctx = new Context()
-  await ctx.plugin(FakeFs)
-  await ctx.plugin(FileContext)
-  const fs = ctx.fs as FakeFs
-  const fileContext = ctx.fileContext
-  return { ctx, fs, fileContext }
+  const fiber = await ctx.plugin(FileContext)
+  return { ctx, fiber }
 }
 
-const READ_ALL: FileReadRequest = { offset: 1, limit: 2000 }
-const ownerExec = (session: object): FileContextExec => ({ agent: { session } })
-
 describe('registration / disposal', () => {
-  it('registers as ctx.fileContext and injects fs', async () => {
-    const { fileContext } = await setup()
-    expect(fileContext).toBeDefined()
+  it('registers no service surface (it is a plugin, not ctx.fileContext)', async () => {
+    const { ctx } = await setup()
+    expect((ctx as Context & { fileContext?: unknown }).fileContext).toBeUndefined()
   })
 
-  it('stays pending until ctx.fs exists', async () => {
+  it('mounts with no inject (reads no services)', async () => {
+    // It mounts immediately even with nothing else in the context.
     const ctx = new Context()
-    await ctx.plugin(FileContext) // no fs provider
-    expect(ctx.fileContext).toBeUndefined()
-  })
-
-  it('withdraws ctx.fileContext when its fiber is disposed (HMR safety)', async () => {
-    const ctx = new Context()
-    await ctx.plugin(FakeFs)
-    const fiber = await ctx.plugin(FileContext)
-    expect(ctx.fileContext).toBeDefined()
-    await fiber.dispose()
-    expect(ctx.fileContext).toBeUndefined()
+    await ctx.plugin(FileContext)
+    // The listener is live: an unobserved write decides createIfAbsent.
+    expect(await writeExpectation(ctx, target('a.txt'), undefined)).toEqual({ kind: 'createIfAbsent' })
   })
 })
 
-describe('owner derivation', () => {
-  it('derives the owner from exec.agent.session', async () => {
-    const { fileContext } = await setup()
-    const session = {}
-    expect(fileContext.owner(ownerExec(session))).toBe(session)
+describe('write-expectation decision', () => {
+  it('an unobserved target decides createIfAbsent', async () => {
+    const { ctx } = await setup()
+    expect(await writeExpectation(ctx, target('a.txt'), ownerExec({}))).toEqual({ kind: 'createIfAbsent' })
   })
 
-  it('returns undefined with no exec, no agent, or no session', async () => {
-    const { fileContext } = await setup()
-    expect(fileContext.owner()).toBeUndefined()
-    expect(fileContext.owner({})).toBeUndefined()
-    expect(fileContext.owner({ agent: {} })).toBeUndefined()
+  it('a no-owner actor decides createIfAbsent', async () => {
+    const { ctx } = await setup()
+    expect(await writeExpectation(ctx, target('a.txt'), undefined)).toEqual({ kind: 'createIfAbsent' })
+    expect(await writeExpectation(ctx, target('a.txt'), {})).toEqual({ kind: 'createIfAbsent' })
+  })
+
+  it('an observed target decides replaceIfVersion at the observed version', async () => {
+    const { ctx } = await setup()
+    const exec = ownerExec({})
+    ctx.emit('fs/observed', target('a.txt'), FsVersion('v7'), exec)
+    expect(await writeExpectation(ctx, target('a.txt'), exec)).toEqual({ kind: 'replaceIfVersion', version: 'v7' })
   })
 })
 
-describe('read', () => {
-  it('returns a windowed outcome and rejects an absent target', async () => {
-    const { fs, fileContext } = await setup()
-    fs.files.set('a.txt', 'one\ntwo')
-    const outcome = await fileContext.read(await fs.resolve('a.txt'), READ_ALL)
-    expect(outcome.lines).toEqual([{ number: 1, text: 'one' }, { number: 2, text: 'two' }])
-    expect(outcome.version).toBe('v0')
-
-    await expect(fileContext.read(await fs.resolve('missing.txt'), READ_ALL))
-      .rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
+describe('edit-expectation decision', () => {
+  it('rejects an unread edit with FS_NOT_OBSERVED', async () => {
+    const { ctx } = await setup()
+    await expect(editExpectation(ctx, target('a.txt'), ownerExec({}))).rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
   })
 
-  it('rejects a non-regular target', async () => {
-    const { fs, fileContext } = await setup()
-    fs.files.set('d', '')
-    const target = await fs.resolve('d')
-    // Force stat to report a directory.
-    fs.stat = async () => ({ version: FsVersion('v0'), type: 'directory' })
-    await expect(fileContext.read(target, READ_ALL)).rejects.toMatchObject({ code: 'FS_NOT_REGULAR_FILE' })
+  it('rejects an edit with no owner (cannot prove prior observation)', async () => {
+    const { ctx } = await setup()
+    await expect(editExpectation(ctx, target('a.txt'), undefined)).rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
   })
 
-  it('reads small files whole and large files via streamText', async () => {
-    const { fs, fileContext } = await setup()
-    fs.files.set('a.txt', 'one\ntwo')
-
-    await fileContext.read(await fs.resolve('a.txt'), READ_ALL)
-    expect(fs.lastReadStreamed).toBe(false)
-
-    fs.reportSize = STREAM_MIN_SIZE
-    await fileContext.read(await fs.resolve('a.txt'), READ_ALL)
-    expect(fs.lastReadStreamed).toBe(true)
-  })
-
-  it('streams when the backend reports no size (never buffers a size-less file)', async () => {
-    const { fs, fileContext } = await setup()
-    fs.files.set('a.txt', 'one\ntwo')
-    fs.omitSize = true
-    await fileContext.read(await fs.resolve('a.txt'), READ_ALL)
-    expect(fs.lastReadStreamed).toBe(true)
-  })
-
-  it('records the version observed after the read, not the routing stat', async () => {
-    const { fs, fileContext } = await setup()
+  it('returns the observed version as the CAS basis after an observation', async () => {
+    const { ctx } = await setup()
     const exec = ownerExec({})
-    fs.files.set('a.txt', 'hello')
-    fs.versions.set('a.txt', 1)
-    const target = await fs.resolve('a.txt')
-    // A writer bumps the version after the routing stat but before the post-read stat.
-    const realReadText = fs.readText.bind(fs)
-    fs.readText = async (t) => {
-      const text = await realReadText(t)
-      fs.versions.set('a.txt', 5) // file changed during the read
-      return text
-    }
-    const outcome = await fileContext.read(target, READ_ALL, exec)
-    expect(outcome.version).toBe('v5')
-    // The recorded (post-read) version authorizes an edit without going stale.
-    await fileContext.edit(target, { oldString: 'hello', newString: 'bye', replaceAll: false }, exec)
-    expect(fs.editExpectedVersions).toEqual(['v5'])
-  })
-
-  it('falls back to the routing-stat version if the file vanishes after the read', async () => {
-    const { fs, fileContext } = await setup()
-    fs.files.set('a.txt', 'hello')
-    const target = await fs.resolve('a.txt')
-    const realReadText = fs.readText.bind(fs)
-    fs.readText = async (t) => {
-      const text = await realReadText(t)
-      fs.files.delete('a.txt') // vanishes → post-read stat returns undefined
-      return text
-    }
-    const outcome = await fileContext.read(target, READ_ALL)
-    expect(outcome.version).toBe('v0') // the routing-stat version
-  })
-
-  it('surfaces truncatedByBytes when the window hits the byte cap', async () => {
-    const { fs, fileContext } = await setup()
-    fs.files.set('big.txt', Array.from({ length: 2000 }, () => 'y'.repeat(100)).join('\n'))
-    const outcome = await fileContext.read(await fs.resolve('big.txt'), READ_ALL)
-    expect(outcome.truncatedByBytes).toBe(true)
+    ctx.emit('fs/observed', target('a.txt'), FsVersion('v3'), exec)
+    expect(await editExpectation(ctx, target('a.txt'), exec)).toEqual({ version: 'v3' })
   })
 })
 
-describe('observed-state is the read record', () => {
-  it('a read authorizes a later in-place write at the observed version', async () => {
-    const { fs, fileContext } = await setup()
+describe('observed-state is the prior-observation record', () => {
+  it('a read observation authorizes an in-place write at that version', async () => {
+    const { ctx } = await setup()
     const exec = ownerExec({})
-    fs.files.set('a.txt', 'hello')
-    const target = await fs.resolve('a.txt')
-
-    await fileContext.read(target, READ_ALL, exec)
-    await fileContext.write(target, 'goodbye', exec)
-
-    expect(fs.writeExpectations).toEqual([{ kind: 'replaceIfVersion', version: 'v0' }])
+    ctx.emit('fs/observed', target('a.txt'), FsVersion('v0'), exec) // a read
+    expect(await writeExpectation(ctx, target('a.txt'), exec)).toEqual({ kind: 'replaceIfVersion', version: 'v0' })
   })
 
-  it('a windowed (partial) read still authorizes edit — freshness, not full/partial', async () => {
-    const { fs, fileContext } = await setup()
+  it('a write/edit observation refreshes the basis, so the next edit needs no re-read', async () => {
+    const { ctx } = await setup()
     const exec = ownerExec({})
-    fs.files.set('a.txt', 'one\ntwo\nthree\nfour')
-    const target = await fs.resolve('a.txt')
-
-    // Read only lines 2-3 — a partial window.
-    const outcome = await fileContext.read(target, { offset: 2, limit: 2 }, exec)
-    expect(outcome.lines.map(l => l.number)).toEqual([2, 3])
-
-    // Edit is authorized anyway: the file is unchanged since the read.
-    await fileContext.edit(target, { oldString: 'one', newString: 'X', replaceAll: false }, exec)
-    expect(fs.editExpectedVersions).toEqual(['v0'])
+    // A create records v1; the follow-up edit guards against v1 with no read.
+    ctx.emit('fs/observed', target('a.txt'), FsVersion('v1'), exec)
+    expect(await editExpectation(ctx, target('a.txt'), exec)).toEqual({ version: 'v1' })
+    // The edit records v2; a second edit guards against v2.
+    ctx.emit('fs/observed', target('a.txt'), FsVersion('v2'), exec)
+    expect(await editExpectation(ctx, target('a.txt'), exec)).toEqual({ version: 'v2' })
   })
 
-  it('skips recording when there is no owner, so write is createIfAbsent', async () => {
-    const { fs, fileContext } = await setup()
-    fs.files.set('a.txt', 'hello')
-    const target = await fs.resolve('a.txt')
-
-    await fileContext.read(target, READ_ALL) // no exec
-    // No recorded read → createIfAbsent → the provider rejects an existing target.
-    fs.writeText = async () => { throw new FsError('exists', 'FS_NOT_OBSERVED') }
-    await expect(fileContext.write(target, 'x')).rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
-  })
-})
-
-describe('write policy', () => {
-  it('a create (no prior read) uses createIfAbsent', async () => {
-    const { fs, fileContext } = await setup()
-    const exec = ownerExec({})
-    const target = await fs.resolve('new.txt')
-    const outcome = await fileContext.write(target, 'fresh', exec)
-    expect(outcome.operation).toBe('create')
-    expect(fs.writeExpectations).toEqual([{ kind: 'createIfAbsent' }])
-  })
-
-  it('refreshes state after a write, so a follow-up edit needs no re-read', async () => {
-    const { fs, fileContext } = await setup()
-    const exec = ownerExec({})
-    const target = await fs.resolve('a.txt')
-    await fileContext.write(target, 'one', exec) // create → state now at v1
-    await fileContext.edit(target, { oldString: 'one', newString: 'two', replaceAll: false }, exec)
-    expect(fs.editExpectedVersions).toEqual(['v1'])
-  })
-})
-
-describe('edit policy', () => {
-  it('rejects with FS_NOT_OBSERVED when the file was never read', async () => {
-    const { fs, fileContext } = await setup()
-    const exec = ownerExec({})
-    fs.files.set('a.txt', 'hello')
-    const target = await fs.resolve('a.txt')
-    await expect(fileContext.edit(target, { oldString: 'hello', newString: 'bye', replaceAll: false }, exec))
-      .rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
-  })
-
-  it('rejects when there is no owner (cannot prove prior observation)', async () => {
-    const { fs, fileContext } = await setup()
-    fs.files.set('a.txt', 'hello')
-    const target = await fs.resolve('a.txt')
-    await expect(fileContext.edit(target, { oldString: 'hello', newString: 'bye', replaceAll: false }))
-      .rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
-  })
-
-  it('passes the recorded version as the stale guard after a read', async () => {
-    const { fs, fileContext } = await setup()
-    const exec = ownerExec({})
-    fs.files.set('a.txt', 'hello')
-    fs.versions.set('a.txt', 7)
-    const target = await fs.resolve('a.txt')
-    await fileContext.read(target, READ_ALL, exec)
-    await fileContext.edit(target, { oldString: 'hello', newString: 'bye', replaceAll: false }, exec)
-    expect(fs.editExpectedVersions).toEqual(['v7'])
+  it('a no-owner observation records nothing', async () => {
+    const { ctx } = await setup()
+    ctx.emit('fs/observed', target('a.txt'), FsVersion('v0'), undefined)
+    // Still unobserved for any owner.
+    await expect(editExpectation(ctx, target('a.txt'), ownerExec({}))).rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
   })
 })
 
 describe('multi-owner isolation', () => {
-  it('owner A reading does not grant owner B edit authority', async () => {
-    const { fs, fileContext } = await setup()
+  it('owner A observing does not grant owner B edit authority', async () => {
+    const { ctx } = await setup()
     const a = ownerExec({})
     const b = ownerExec({})
-    fs.files.set('a.txt', 'hello')
-    const target = await fs.resolve('a.txt')
-
-    await fileContext.read(target, READ_ALL, a)
-    await expect(fileContext.edit(target, { oldString: 'hello', newString: 'bye', replaceAll: false }, b))
-      .rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
-    await expect(fileContext.edit(target, { oldString: 'hello', newString: 'bye', replaceAll: false }, a))
-      .resolves.toMatchObject({ replacements: 1 })
+    ctx.emit('fs/observed', target('a.txt'), FsVersion('v0'), a)
+    await expect(editExpectation(ctx, target('a.txt'), b)).rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
+    expect(await editExpectation(ctx, target('a.txt'), a)).toEqual({ version: 'v0' })
   })
 
   it('each owner records its own observed version independently', async () => {
-    const { fs, fileContext } = await setup()
+    const { ctx } = await setup()
     const a = ownerExec({})
     const b = ownerExec({})
-    fs.files.set('a.txt', 'hello')
-    const target = await fs.resolve('a.txt')
-
-    await fileContext.read(target, READ_ALL, a) // A sees v0
-    await fileContext.write(target, 'mid', b) // B has no read → createIfAbsent
-    await fileContext.write(target, 'late', a) // A still holds its v0 observation
-
-    expect(fs.writeExpectations).toEqual([
-      { kind: 'createIfAbsent' },
-      { kind: 'replaceIfVersion', version: 'v0' },
-    ])
+    ctx.emit('fs/observed', target('a.txt'), FsVersion('v0'), a) // A observed v0
+    // B never observed → createIfAbsent; A still holds v0 → replaceIfVersion.
+    expect(await writeExpectation(ctx, target('a.txt'), b)).toEqual({ kind: 'createIfAbsent' })
+    expect(await writeExpectation(ctx, target('a.txt'), a)).toEqual({ kind: 'replaceIfVersion', version: 'v0' })
   })
 })
 
-describe('disposal releases recorded state', () => {
-  it('a fresh service after disposal starts with no inherited state', async () => {
-    const ctx = new Context()
-    await ctx.plugin(FakeFs)
-    const fs = ctx.fs as FakeFs
-    const fiber = await ctx.plugin(FileContext)
+describe('single-slot, first-wins', () => {
+  it('fully decides the slot without calling next() (the bare default is unreached)', async () => {
+    const { ctx } = await setup()
+    let defaultRan = false
+    const expectation = await ctx.waterfall('fs/write-expectation', target('a.txt'), ownerExec({}), () => {
+      defaultRan = true
+      return undefined
+    })
+    expect(expectation).toEqual({ kind: 'createIfAbsent' })
+    expect(defaultRan).toBe(false)
+  })
+
+  it('a SECOND decider registered AFTER file-context is not reached (first-wins short-circuit)', async () => {
+    const { ctx } = await setup()
+    let secondRan = false
+    // Registered after file-context, so it dispatches second; file-context does
+    // not call next(), so this never runs. (A decider registered BEFORE — or with
+    // prepend — would instead win: first-wins is by convention, not enforced.)
+    ctx.on('fs/edit-expectation', () => {
+      secondRan = true
+      return Promise.resolve(undefined)
+    })
     const exec = ownerExec({})
-    fs.files.set('a.txt', 'hello')
-    await ctx.fileContext.read(await fs.resolve('a.txt'), READ_ALL, exec)
+    ctx.emit('fs/observed', target('a.txt'), FsVersion('v0'), exec)
+    await editExpectation(ctx, target('a.txt'), exec)
+    expect(secondRan).toBe(false)
+  })
+})
+
+describe('disposal releases recorded state (HMR safety)', () => {
+  it('a fresh plugin after disposal starts with no inherited state', async () => {
+    const ctx = new Context()
+    const exec = ownerExec({})
+    const fiber = await ctx.plugin(FileContext)
+    ctx.emit('fs/observed', target('a.txt'), FsVersion('v0'), exec)
+    expect(await editExpectation(ctx, target('a.txt'), exec)).toEqual({ version: 'v0' })
     await fiber.dispose()
 
     await ctx.plugin(FileContext)
-    const target = await fs.resolve('a.txt')
     // Same owner object, but state was released on disposal.
-    await expect(ctx.fileContext.edit(target, { oldString: 'hello', newString: 'bye', replaceAll: false }, exec))
-      .rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
+    await expect(editExpectation(ctx, target('a.txt'), exec)).rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
+  })
+
+  it('no listeners remain after disposal (the gate no longer decides)', async () => {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(FileContext)
+    await fiber.dispose()
+    // With no listener, the waterfall falls through to the bare default.
+    expect(await writeExpectation(ctx, target('a.txt'), ownerExec({}))).toBeUndefined()
   })
 })

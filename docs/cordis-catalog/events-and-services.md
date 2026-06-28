@@ -11,7 +11,7 @@ The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary
 
 ## Events
 
-Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out, no veto). The harness declares 22 events across 5 scopes.
+Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out, no veto). The harness declares 25 events across 6 scopes.
 
 ### `agent/*`
 
@@ -183,6 +183,44 @@ Types: [Agent](../core-data-structures/core.md)
 
 Source: [`packages/core/agent/src/types.ts:162`](../../packages/core/agent/src/types.ts)
 
+### `fs/*`
+
+#### `fs/edit-expectation` — waterfall
+
+Single-slot decision: produce the optional version guard for the next FileSystem.editText. The tool dispatches this as an unbound waterfall and supplies a default thunk returning `undefined` (unconditional edit of the current content — the bare provider; no `stat`). The `@deepseek-ai/dsh-file-context` policy listener returns `{ version: vObserved }`, or throws `FS_NOT_OBSERVED` if the actor is unset or has not observed the target. Does NOT call `next()`: one decision, first-wins (see Events.'fs/write-expectation').
+
+```ts cordis-catalog
+'fs/edit-expectation'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
+```
+
+Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
+
+Source: [`packages/fs/fs/src/index.ts:117`](../../packages/fs/fs/src/index.ts)
+
+#### `fs/observed` — emit
+
+Record that an actor observed a target at a version, after a successful read/write/edit. Fire-and-forget. A listener MUST be a synchronous, side-effect-only recorder (`@deepseek-ai/dsh-file-context`'s is a `WeakMap.set`); the tool wraps the emit in a try/catch so a synchronous listener bug is logged and swallowed, never failing the already-completed mutation. cordis `emit` does not await listener promises, so this is not an async-error containment seam — async audit/telemetry does not belong here. No listener ⇒ nothing recorded. `actor` is the opaque tool-execution context.
+
+```ts cordis-catalog
+'fs/observed'(target: FsTarget, version: FsVersion, actor: object | undefined): void
+```
+
+Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
+
+Source: [`packages/fs/fs/src/index.ts:129`](../../packages/fs/fs/src/index.ts)
+
+#### `fs/write-expectation` — waterfall
+
+Single-slot decision: produce the write expectation for the next FileSystem.writeText. The tool dispatches this as an unbound waterfall (no `this`) and supplies a default thunk returning `undefined` (unconditional create-or-overwrite — the bare provider). The `@deepseek-ai/dsh-file-context` policy listener returns `createIfAbsent` (unobserved actor) or `{ kind: 'replaceIfVersion', version: vObserved }` (observed) and does NOT call `next()` — one decision, not a composable chain. The slot is first-wins: the first non-`next()` decider (registration order, or `prepend`) occupies it; a second decider is a misconfiguration, not layering. `actor` is the opaque tool-execution context, never read here.
+
+```ts cordis-catalog
+'fs/write-expectation'(target: FsTarget, actor: object | undefined, next: () => FsWriteExpectation | undefined | Promise<FsWriteExpectation | undefined>): Promise<FsWriteExpectation | undefined>
+```
+
+Types: [FsTarget](../core-data-structures/filesystem.md) · [FsWriteExpectation](../core-data-structures/filesystem.md)
+
+Source: [`packages/fs/fs/src/index.ts:105`](../../packages/fs/fs/src/index.ts)
+
 ### `llm/*`
 
 #### `llm/stream` — waterfall
@@ -279,7 +317,7 @@ Source: [`packages/core/tools/src/index.ts:43`](../../packages/core/tools/src/in
 
 ## Services
 
-The 10 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
+The 9 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
 
 ### `ctx.agentLoop` — `AgentLoop`
 
@@ -339,22 +377,6 @@ Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../c
 
 Source: [`packages/bash/bash/src/index.ts:59`](../../packages/bash/bash/src/index.ts)
 
-### `ctx.fileContext` — `FileContext`
-
-The file-context policy service. Injects `fs`, registers as `ctx.fileContext`, and is the only read/write/edit path the model-facing tools use.
-
-```ts cordis-catalog
-owner(exec?: FileContextExec): object | undefined
-async resolve(path: string): Promise<FsTarget>
-async read(target: FsTarget, request: FileReadRequest, exec?: FileContextExec, signal?: AbortSignal): Promise<FileReadOutcome>
-async write(target: FsTarget, content: string, exec?: FileContextExec, signal?: AbortSignal): Promise<FsWriteOutcome>
-async edit(target: FsTarget, edit: FsEditRequest, exec?: FileContextExec, signal?: AbortSignal): Promise<FsEditOutcome>
-```
-
-Types: [FileContextExec](../core-data-structures/filesystem.md) · [FileReadOutcome](../core-data-structures/filesystem.md) · [FileReadRequest](../core-data-structures/filesystem.md) · [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
-
-Source: [`packages/fs/file-context/src/index.ts:65`](../../packages/fs/file-context/src/index.ts)
-
 ### `ctx.fs` — `FileSystem` (abstract seam)
 
 Abstract filesystem provider service. Subclass, implement the six text-storage primitives, and load the subclass as a plugin — it registers as `ctx.fs` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
@@ -364,21 +386,21 @@ Semantics every backend must honor:
 - resolve returns a stable FsTarget; the same underlying file reached by different input paths must yield the same `targetKey` so stale guards and target lookup agree across paths (e.g. through symlinks).
 - stat returns FsInfo metadata (never content) or `undefined` when the target is absent.
 - readText/streamText read the whole regular text file (the stream for large files); both own regular-file checks, UTF-8 decoding, binary/NUL rejection, and `FS_NOT_TEXT`.
-- writeText is atomic temp-file + rename honoring the FsWriteExpectation.
-- editText verifies `expected.version` BEFORE literal matching (so a stale edit reports `FS_STALE_VERSION`, not `FS_EDIT_NOT_FOUND`/ `FS_AMBIGUOUS_EDIT` against newer content), then applies literal replacement and writes atomically — all inside one mutation critical section.
+- writeText is atomic temp-file + rename. `expected` is OPTIONAL: omit it for an unconditional create-or-overwrite (the bare-provider default), or supply a FsWriteExpectation to guard the write.
+- editText verifies `expected.version` BEFORE literal matching (so a stale edit reports `FS_STALE_VERSION`, not `FS_EDIT_NOT_FOUND`/ `FS_AMBIGUOUS_EDIT` against newer content), then applies literal replacement and writes atomically — all inside one mutation critical section. `expected` is OPTIONAL: omit it for an unconditional edit of the current content (a missing target still reports `FS_STALE_VERSION`).
 
 ```ts cordis-catalog
 abstract resolve(path: string): Promise<FsTarget>
 abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>
 abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
 abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
-abstract writeText(target: FsTarget, content: string, expected: FsWriteExpectation, signal?: AbortSignal): Promise<FsWriteOutcome>
-abstract editText(target: FsTarget, edit: FsEditRequest, expected: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
+abstract writeText(target: FsTarget, content: string, expected?: FsWriteExpectation, signal?: AbortSignal): Promise<FsWriteOutcome>
+abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
 ```
 
 Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteExpectation](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:90`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:158`](../../packages/fs/fs/src/index.ts)
 
 ### `ctx.llm` — `LlmService`
 

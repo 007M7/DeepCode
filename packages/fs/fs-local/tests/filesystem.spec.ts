@@ -144,6 +144,26 @@ describe('writeText', () => {
       .rejects.toMatchObject({ code: 'FS_NOT_REGULAR_FILE' })
   })
 
+  it('unconditionally creates a new file with no expectation (bare provider)', async () => {
+    const target = await fs.resolve('new.txt')
+    const outcome = await fs.writeText(target, 'fresh')
+    expect(outcome.operation).toBe('create')
+    expect(await readFile(join(dir, 'new.txt'), 'utf8')).toBe('fresh')
+  })
+
+  it('unconditionally OVERWRITES an existing file with no expectation (bare provider)', async () => {
+    await writeFile(join(dir, 'a.txt'), 'old')
+    const target = await fs.resolve('a.txt')
+    const outcome = await fs.writeText(target, 'clobbered')
+    expect(outcome.operation).toBe('update')
+    expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('clobbered')
+  })
+
+  it('rejects writing onto a directory even with no expectation', async () => {
+    const target = await fs.resolve('.')
+    await expect(fs.writeText(target, 'x')).rejects.toMatchObject({ code: 'FS_NOT_REGULAR_FILE' })
+  })
+
   it('releases per-target mutation locks after success and failure', async () => {
     const target = await fs.resolve('a.txt')
     await fs.writeText(target, 'created', { kind: 'createIfAbsent' })
@@ -171,6 +191,28 @@ describe('editText', () => {
     await writeFile(join(dir, 'a.txt'), 'goodbye')
     await expect(fs.editText(target, { oldString: 'world', newString: 'there', replaceAll: false }, { version: stale }))
       .rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
+  })
+
+  it('unconditionally edits the current content with no expectation (bare provider)', async () => {
+    await writeFile(join(dir, 'a.txt'), 'hello world')
+    const target = await fs.resolve('a.txt')
+    // No version guard: any current content is edited, regardless of version.
+    const outcome = await fs.editText(target, { oldString: 'world', newString: 'there', replaceAll: false })
+    expect(outcome.replacements).toBe(1)
+    expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hello there')
+  })
+
+  it('reports a missing target as FS_STALE_VERSION even with no expectation (bare provider)', async () => {
+    const target = await fs.resolve('missing.txt')
+    await expect(fs.editText(target, { oldString: 'a', newString: 'b', replaceAll: false }))
+      .rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
+  })
+
+  it('still reports literal-match codes with no expectation (FS_EDIT_NOT_FOUND, unrelated to freshness)', async () => {
+    await writeFile(join(dir, 'a.txt'), 'hello world')
+    const target = await fs.resolve('a.txt')
+    await expect(fs.editText(target, { oldString: 'absent', newString: 'x', replaceAll: false }))
+      .rejects.toMatchObject({ code: 'FS_EDIT_NOT_FOUND' })
   })
 
   it('rejects a deleted target as stale (before matching)', async () => {

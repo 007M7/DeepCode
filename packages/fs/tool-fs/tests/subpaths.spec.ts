@@ -1,7 +1,10 @@
 /**
  * Tests for the per-tool subpath plugins (`@deepseek-ai/dsh-tool-fs/read`,
- * `/write`, `/edit`): each registers exactly one tool, injects the same
- * services (`tools`, `fileContext`, `systemPrompt`), and cleans up on disposal.
+ * `/write`, `/edit`): each registers exactly one tool, injects the same services
+ * (`tools`, `fs`, `systemPrompt`) — NOT a policy service — and cleans up on
+ * disposal. They boot over the bare `ctx.fs` provider with NO
+ * `@deepseek-ai/dsh-file-context`, proving each subpath carries no policy-plugin
+ * dependency.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -15,7 +18,6 @@ import type {
   FsTarget,
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
-import FileContext from '@deepseek-ai/dsh-file-context'
 import * as readPlugin from '@deepseek-ai/dsh-tool-fs/read'
 import * as writePlugin from '@deepseek-ai/dsh-tool-fs/write'
 import * as editPlugin from '@deepseek-ai/dsh-tool-fs/edit'
@@ -46,12 +48,11 @@ async function base() {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(StubFs)
-  await ctx.plugin(FileContext)
   return ctx
 }
 
 describe('subpath plugins', () => {
-  it('each registers exactly its one tool', async () => {
+  it('each registers exactly its one tool (over the bare provider, no policy plugin)', async () => {
     const cases: Array<[unknown, string]> = [
       [readPlugin, 'read'],
       [writePlugin, 'write'],
@@ -72,7 +73,7 @@ describe('subpath plugins', () => {
     expect(ctx.tools.schemas()).toHaveLength(0)
   })
 
-  it('stays pending without a ctx.fileContext provider', async () => {
+  it('stays pending without a ctx.fs provider', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)

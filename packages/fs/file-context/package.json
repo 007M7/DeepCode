@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-file-context",
-  "description": "File-context policy layer (ctx.fileContext) for the DeepSeek Harness — read windowing and write/edit freshness over the ctx.fs provider seam",
+  "description": "File-context policy plugin for the DeepSeek Harness — observed-state, read-before-edit, and version-guarded write/edit added over the ctx.fs provider seam through the fs/* event gate (no service surface)",
   "version": "0.0.1",
   "private": true,
   "type": "module",

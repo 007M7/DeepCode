@@ -13,7 +13,8 @@
  * consumer may show.
  *
  * Model-facing concepts (line windows, numbered lines, observed-state) do NOT
- * live here; they belong to the policy layer (`ctx.fileContext`).
+ * live here; they belong to the consumer tool and the policy plugin
+ * (`@deepseek-ai/dsh-tool-fs` / `@deepseek-ai/dsh-file-context`).
  *
  * @module @deepseek-ai/dsh-fs/types
  */
@@ -78,11 +79,17 @@ export interface FsInfo {
 }
 
 /**
- * The explicit intent of a {@link FileSystem.writeText} call. `createIfAbsent`
- * creates a missing target and rejects an existing one with `FS_NOT_OBSERVED`
- * (the path used when the owner has no prior read). `replaceIfVersion` replaces
- * only when the target exists at the observed version; a missing target or a
- * version mismatch throws `FS_STALE_VERSION`.
+ * The explicit intent of a guarded {@link FileSystem.writeText} call.
+ * `createIfAbsent` creates a missing target and rejects an existing one with
+ * `FS_NOT_OBSERVED` (the path the policy plugin uses when the owner has no prior
+ * read). `replaceIfVersion` replaces only when the target exists at the observed
+ * version; a missing target or a version mismatch throws `FS_STALE_VERSION`.
+ *
+ * `writeText` takes this OPTIONALLY: omitting `expected` is the third,
+ * unconstrained state — an unconditional create-or-overwrite (the bare
+ * provider). The union itself carries only the two GUARDED intents; "no guard"
+ * is expressed by omission, so the write and edit mutations share one symmetric
+ * shape (`expected?`: omit = unconditional, present = guarded).
  */
 export type FsWriteExpectation =
   | { kind: 'createIfAbsent' }

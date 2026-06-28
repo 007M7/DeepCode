@@ -20,13 +20,15 @@ The old RFC already deferred a separate `@deepseek-ai/dsh-file-context` package.
 Split the stack into four layers:
 
 ```text
-tool          dsh-tool-fs       model-facing schemas + text rendering
-policy        dsh-file-context  ctx.fileContext (concrete service): observed-state, read windowing, write/edit freshness
-provider seam dsh-fs            ctx.fs: text IO + guarded mutation primitives
+tool          dsh-tool-fs       model-facing schemas + read windowing + text rendering; the EXECUTOR (reads/writes/edits via ctx.fs, dispatches the fs/* events)
+policy        dsh-file-context  observed-state + read-before-edit + write/edit freshness, contributed through the fs/* event gate (no service)
+provider seam dsh-fs            ctx.fs: text IO + atomic mutation primitives (optional version guard)
 provider      dsh-fs-local      local implementation of ctx.fs
 ```
 
-`dsh-tool-fs` keeps the same model-facing `read`/`write`/`edit` schemas. It injects `fileContext`, not `fs`, and never reaches around the policy layer for model reads/writes/edits.
+`dsh-tool-fs` keeps the same model-facing `read`/`write`/`edit` schemas. It injects `fs` (not a policy service) and reaches `ctx.fs` directly, dispatching the `fs/*` policy events so `dsh-file-context` can gate and record.
+
+The tool↔policy COUPLING below was reworked by [the file-context event-gate RFC](../architecture/2026-06-26-file-context-as-event-gate.md): `dsh-file-context` is now a gate PLUGIN that participates through the `fs/*` events (no `ctx.fileContext` service), and read windowing + the fs I/O moved up into `dsh-tool-fs`. The four-layer split, the provider contract, and the freshness *policy* this RFC decided are unchanged. Read the "`ctx.fileContext.read`/`write`/`edit`" method descriptions below as the policy DECISIONS the gate plugin now makes on the `fs/*` events, and the provider's version guard as optional (omit = unconditional bare provider).
 
 ## Provider Contract
 

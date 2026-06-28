@@ -1,8 +1,14 @@
 /**
  * The model-facing `edit` tool: update an existing UTF-8 text file by replacing
- * literal text, requiring a unique match by default. Execution goes through
- * `ctx.fileContext`, which enforces prior observation (the freshness policy)
- * and delegates the literal-match + stale-guard critical section to `ctx.fs`.
+ * literal text, requiring a unique match by default. The tool is the executor:
+ * it dispatches the `fs/edit-expectation` waterfall to obtain the optional
+ * version guard, calls `ctx.fs.editText` directly, and emits a contained
+ * `fs/observed`. The default thunk returns `undefined` (unconditional edit of
+ * the current content — the bare provider); a policy plugin
+ * (`@deepseek-ai/dsh-file-context`) occupies the single decision slot, returning
+ * `{ version: vObserved }` or throwing `FS_NOT_OBSERVED` for an unread file. The
+ * tool stats ZERO times either way; a missing target is reported by the provider
+ * as `FS_STALE_VERSION`.
  *
  * @module @deepseek-ai/dsh-tool-fs/edit
  */
@@ -11,7 +17,9 @@ import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { FsEditOutcome } from '@deepseek-ai/dsh-fs'
+import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import { emitObserved } from './observe.ts'
 
 /** Validated `edit` arguments after defaulting. */
 interface EditInput {
@@ -60,13 +68,18 @@ export function apply(ctx: Context): void {
     },
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseEditArgs(args)
-      const target = await ctx.fileContext.resolve(input.filePath)
-      const outcome = await ctx.fileContext.edit(
+      const target = await ctx.fs.resolve(input.filePath)
+      // Single-slot decision: the policy plugin returns { version: vObserved } or
+      // throws FS_NOT_OBSERVED; the bare default is undefined (unconditional edit).
+      // No stat — the bare default never manufactures a version basis.
+      const expectation = await ctx.waterfall('fs/edit-expectation', target, exec, () => undefined)
+      const outcome = await ctx.fs.editText(
         target,
         { oldString: input.oldString, newString: input.newString, replaceAll: input.replaceAll },
-        exec,
+        expectation,
         exec.signal,
       )
+      emitObserved(ctx, target, outcome.version, exec)
       return [{ type: 'text', text: formatEditOutput(target.displayPath, outcome) }]
     },
   }))
@@ -76,7 +89,7 @@ export function apply(ctx: Context): void {
 export const name = 'fs-edit'
 
 /** Services required by the `edit` tool plugin. */
-export const inject = ['tools', 'fileContext', 'systemPrompt']
+export const inject = ['tools', 'fs', 'systemPrompt']
 
 /** Named helper for direct registration in the root plugin and tests. */
 export const applyEditTool = apply

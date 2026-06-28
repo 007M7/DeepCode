@@ -1,9 +1,12 @@
 /**
  * The model-facing `read` tool: inspect a UTF-8 text file and return
- * line-numbered content with pagination guidance. Execution goes through
- * `ctx.fileContext` (which records observed state and owns read windowing) —
- * this module owns only the model-facing schema, argument validation, and
- * result formatting, never filesystem I/O.
+ * line-numbered content with pagination guidance. The tool is the executor — it
+ * stats and reads through `ctx.fs` directly, builds the line window
+ * ({@link module:@deepseek-ai/dsh-tool-fs/window}), and emits a contained
+ * `fs/observed` so a policy plugin (`@deepseek-ai/dsh-file-context`) can record
+ * the read. With no policy plugin the emit is simply unheard. This module owns
+ * the model-facing schema, argument validation, read windowing, and result
+ * formatting; the freshness/observation policy is not its concern.
  *
  * @module @deepseek-ai/dsh-tool-fs/read
  */
@@ -11,11 +14,18 @@
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { FileReadOutcome } from '@deepseek-ai/dsh-file-context'
+import { FsError } from '@deepseek-ai/dsh-fs'
+import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import { buildWindow } from './window.ts'
+import { emitObserved } from './observe.ts'
+import type { FileReadOutcome } from './types.ts'
 
 /** Default and maximum number of lines returned by one `read` call. */
 export const READ_LIMIT = 2000
+
+/** Files at or above this size stream; smaller files read whole into memory. */
+export const STREAM_MIN_SIZE = 10 * 1024 * 1024
 
 /** Validated `read` arguments after defaulting. */
 interface ReadInput {
@@ -79,8 +89,32 @@ export function apply(ctx: Context): void {
     },
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseReadArgs(args)
-      const target = await ctx.fileContext.resolve(input.filePath)
-      const outcome = await ctx.fileContext.read(target, { offset: input.offset, limit: input.limit }, exec, exec.signal)
+      const target = await ctx.fs.resolve(input.filePath)
+
+      // One stat: type check + size routing + the version recorded as observed.
+      // A writer racing between this stat and the read can at worst make a LATER
+      // guarded edit spuriously FS_STALE_VERSION (fail-closed: re-read; editText
+      // re-checks the version in its lock).
+      const info = await ctx.fs.stat(target, exec.signal)
+      if (!info) throw new FsError(`cannot read "${target.displayPath}": not found`, 'FS_NOT_FOUND')
+      if (info.type !== 'file') throw new FsError(`cannot read "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
+
+      // Stream when the file is large OR size is unknown, so a size-less backend
+      // never buffers an arbitrarily large file.
+      const chunks = info.size === undefined || info.size >= STREAM_MIN_SIZE
+        ? await ctx.fs.streamText(target, exec.signal)
+        : [await ctx.fs.readText(target, exec.signal)]
+      const window = await buildWindow(chunks, { offset: input.offset, limit: input.limit }, target.displayPath)
+
+      const outcome: FileReadOutcome = {
+        offset: input.offset,
+        limit: input.limit,
+        lines: window.lines,
+        totalLines: window.totalLines,
+        version: info.version,
+        ...window.truncatedByBytes ? { truncatedByBytes: true } : {},
+      }
+      emitObserved(ctx, target, info.version, exec)
       return [{ type: 'text', text: formatReadOutput(target.displayPath, outcome) }]
     },
   }))
@@ -90,7 +124,7 @@ export function apply(ctx: Context): void {
 export const name = 'fs-read'
 
 /** Services required by the `read` tool plugin. */
-export const inject = ['tools', 'fileContext', 'systemPrompt']
+export const inject = ['tools', 'fs', 'systemPrompt']
 
 /** Named helper for direct registration in the root plugin and tests. */
 export const applyReadTool = apply

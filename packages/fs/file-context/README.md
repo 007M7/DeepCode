@@ -1,16 +1,18 @@
 # @deepseek-ai/dsh-file-context
 
-The **file-context policy layer**: a concrete `ctx.fileContext` service that owns model-facing read windowing and write/edit freshness on top of the `ctx.fs` provider seam ([`@deepseek-ai/dsh-fs`](../fs)). This is the policy third of the filesystem stack — it is **not** a swappable seam, but the deferred policy layer that does not belong on the `FileSystem` provider base class.
+The **file-context policy plugin**: it adds observed-state, read-before-edit, and version-guarded write/edit on top of the `ctx.fs` provider seam ([`@deepseek-ai/dsh-fs`](../fs)) — through the `fs/*` event gate, **NOT** through a method service. This plugin registers **no** `ctx.fileContext` service and has no public `read`/`write`/`edit`/`resolve` methods. It is the policy third of the filesystem stack: not a swappable seam, but the policy that does not belong on the `FileSystem` provider base class.
 
 ```ts
 import type { Context } from 'cordis'
-import FileContext from '@deepseek-ai/dsh-file-context'
+import * as FileContext from '@deepseek-ai/dsh-file-context'
 
 declare const ctx: Context
 
-// A ctx.fs provider must already be loaded (e.g. @deepseek-ai/dsh-fs-local);
-// FileContext injects `fs` and registers ctx.fileContext. Load
-// @deepseek-ai/dsh-tool-fs afterwards to expose read/write/edit to the model.
+// No service to inject — this plugin only registers the three fs/* listeners.
+// Load it alongside a ctx.fs provider (e.g. @deepseek-ai/dsh-fs-local) and the
+// @deepseek-ai/dsh-tool-fs tools; the tools dispatch the fs/* events this plugin
+// decides. Order does not matter for resolution (no inject), but the policy
+// listener should be the first decider registered for the fs/*-expectation slots.
 await ctx.plugin(FileContext)
 ```
 
@@ -18,26 +20,29 @@ await ctx.plugin(FileContext)
 
 | Layer | Package | Role |
 |---|---|---|
-| tool | `@deepseek-ai/dsh-tool-fs` | model-facing schemas + text rendering |
-| policy | `@deepseek-ai/dsh-file-context` (this) | `ctx.fileContext`: observed-state, read windowing, write/edit freshness |
-| provider seam | `@deepseek-ai/dsh-fs` | `ctx.fs`: text IO + guarded mutation primitives |
+| tool / executor | `@deepseek-ai/dsh-tool-fs` | model-facing schemas + read windowing + text rendering; reads/writes/edits via `ctx.fs`, dispatches the `fs/*` events |
+| policy | `@deepseek-ai/dsh-file-context` (this) | observed-state + read-before-edit + version-guarded write/edit, contributed through the `fs/*` event gate (no service) |
+| provider seam | `@deepseek-ai/dsh-fs` | `ctx.fs`: text IO + atomic mutation primitives (optional version guard); owns the `fs/*` event vocabulary |
 | provider | `@deepseek-ai/dsh-fs-local` | local implementation of `ctx.fs` |
 
-## Service API (`ctx.fileContext`)
+## How the gate participates
 
-| Member | Semantics |
+Three `fs/*` events (declared by `@deepseek-ai/dsh-fs`, dispatched by `@deepseek-ai/dsh-tool-fs`):
+
+| Event | This plugin's listener |
 |---|---|
-| `read(target, request, exec?, signal?)` | Stats the target, rejects absent/non-regular targets, chooses `readText`/`streamText` by size, builds the requested line window, records the version, and returns the `FileReadOutcome` the tool renders. |
-| `write(target, content, exec?, signal?)` | No recorded read → `writeText({ kind: 'createIfAbsent' })` (only new files create blindly); a recorded read → `writeText({ kind: 'replaceIfVersion', version })`. Refreshes recorded state on success. |
-| `edit(target, edit, exec?, signal?)` | Requires a recorded read by this owner (else `FS_NOT_OBSERVED`); passes the observed version to `ctx.fs.editText` as the stale guard and refreshes recorded state. |
-| `owner(exec?)` | Derives the observed-state owner (`exec.agent.session`) — `undefined` when there is none. |
+| `fs/write-expectation` | No prior observation → `{ kind: 'createIfAbsent' }`; a prior observation → `{ kind: 'replaceIfVersion', version: vObserved }`. Single-slot decision; does NOT call `next()`. |
+| `fs/edit-expectation` | Requires a prior observation by this owner (else throws `FS_NOT_OBSERVED`); returns `{ version: vObserved }` as the CAS basis. Single-slot decision; does NOT call `next()`. |
+| `fs/observed` | Records `{ version }` for this owner+target. Synchronous, side-effect-only `WeakMap.set`. |
 
-## Observed state is the read record, freshness is the authorization
+## Observed state is the prior-observation record; freshness is provider CAS
 
-Observed state is a `WeakMap<owner, Map<targetKey, { version }>>`. An entry exists **iff** the owner has read that target through `read`, so its presence *is* the read record — there is no `hasRead` flag and no `full`/`partial` view. Authorization is based on version freshness only: a windowed read of lines 100-150 records the file's version, and a later edit of line 120 is authorized as long as the file is unchanged (the provider's stale guard enforces it). State is held weakly and dropped on disposal (HMR safety); persistence across sessions is deferred.
+Observed state is a `WeakMap<owner, Map<targetKey, FsVersion>>`. An entry exists **iff** the owner has read, written, OR edited that target (every success emits `fs/observed`), so its presence is the prior-observation record — there is no `hasRead` flag and no `full`/`partial` view. This plugin does **no** filesystem I/O: "have you observed this file?" is a `WeakMap` lookup, and "is the version you read still current?" is decided inside `ctx.fs.editText`/`writeText` in the same atomic lock that performs the mutation — this plugin only supplies `vObserved` as the basis. A windowed read of lines 100-150 records the file's version, and a later edit of line 120 is authorized as long as the file is unchanged. State is held weakly and dropped on disposal (HMR safety); persistence across sessions is deferred.
 
-## The no-bypass contract
+## Single-slot, first-wins
 
-A model-facing read MUST go through `ctx.fileContext.read`, never `ctx.fs.readText`/`streamText`, so every successful read records observed state before the tool renders. Direct `ctx.fs` calls remain an explicit escape hatch for non-tool consumers: a direct `ctx.fs.readText` records nothing, so a later `ctx.fileContext.edit` rejects with `FS_NOT_OBSERVED` until the file is read through `ctx.fileContext`.
+The `fs/write-expectation`/`fs/edit-expectation` slots hold exactly one decider — this plugin fully decides and does not call `next()`. The slot is first-wins by registration order; this plugin owning it is the default-deployment convention, not an event-enforced invariant (a decider registered before / `prepend`ed would win instead). This is not a composable authorization chain — layered permission/audit/sandbox interception belongs on `tools/execute`.
 
-The line-windowing mechanics live in `src/window.ts` (Cordis-free, independently unit-tested); `src/index.ts` is the service wiring and policy.
+## No method coupling
+
+Because the plugin influences the world only through events, removing it does not break `@deepseek-ai/dsh-tool-fs` at a service-injection boundary: the tool falls through to the bare `ctx.fs` provider (unconditional write/edit, no observed-state). Loading it back layers the policy on. That graceful add/remove is the whole point of the event gate over a mandatory method service.

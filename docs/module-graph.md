@@ -53,7 +53,6 @@ graph TD
   tool-bash --> bash
   tool-bash --> llm
   tool-bash --> tools
-  tool-fs --> file-context
   tool-fs --> fs
   tool-fs --> llm
   tool-fs --> system-prompt
@@ -100,7 +99,7 @@ graph TD
 | `acp` | `agent`, `llm`, `session`, `session-persistence`, `tools` |
 | `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |
-| `tool-fs` | `file-context`, `fs`, `llm`, `system-prompt`, `tools` |
+| `tool-fs` | `fs`, `llm`, `system-prompt`, `tools` |
 | `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `system-prompt`, `tool-bash`, `tools` |
 | `acp-agent` | `acp`, `agent-core`, `session-persistence-jsonl` |
 | `stdio-agent` | `agent`, `agent-core`, `session`, `session-persistence-jsonl`, `ui-stdio` |

@@ -120,7 +120,7 @@ export class LocalFileSystem extends FileSystem {
   override async writeText(
     target: FsTarget,
     content: string,
-    expected: FsWriteExpectation,
+    expected?: FsWriteExpectation,
     signal?: AbortSignal,
   ): Promise<FsWriteOutcome> {
     return this.withLock(target.targetKey, async () => {
@@ -129,16 +129,19 @@ export class LocalFileSystem extends FileSystem {
         throw new FsError(`cannot write "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
       }
 
-      if (expected.kind === 'replaceIfVersion') {
+      if (expected?.kind === 'replaceIfVersion') {
         // Stale guard: the file must still exist at the version the owner observed.
         if (!existing) throw new FsError(`cannot write "${target.displayPath}": file no longer exists`, 'FS_STALE_VERSION')
         if (existing.version !== expected.version) {
           throw new FsError(`cannot write "${target.displayPath}": file changed since it was read`, 'FS_STALE_VERSION')
         }
-      } else if (existing) {
+      } else if (expected?.kind === 'createIfAbsent' && existing) {
         // createIfAbsent onto an existing file: a blind overwrite — require a read first.
         throw new FsError(`cannot overwrite existing "${target.displayPath}" without reading it first`, 'FS_NOT_OBSERVED')
       }
+      // expected === undefined: unconditional create-or-overwrite (the bare
+      // provider) — no version guard, no read-first requirement. Still atomic
+      // (the per-target lock is unconditional), so the write is never torn.
 
       await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.internals)
       const after = await probe(target.targetKey)
@@ -152,16 +155,21 @@ export class LocalFileSystem extends FileSystem {
   override async editText(
     target: FsTarget,
     edit: FsEditRequest,
-    expected: { version: FsVersion },
+    expected?: { version: FsVersion },
     signal?: AbortSignal,
   ): Promise<FsEditOutcome> {
     return this.withLock(target.targetKey, async () => {
       const existing = await probe(target.targetKey)
       // Stale guard BEFORE literal matching: an edit based on an old read reports
       // FS_STALE_VERSION, not FS_EDIT_NOT_FOUND/FS_AMBIGUOUS_EDIT against newer content.
+      // A missing target reports FS_STALE_VERSION on BOTH paths (guarded and
+      // unconditional) — one "cannot edit this target now" code.
       if (!existing) throw new FsError(`cannot edit "${target.displayPath}": file changed since it was read`, 'FS_STALE_VERSION')
       if (existing.type !== 'file') throw new FsError(`cannot edit "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
-      if (existing.version !== expected.version) {
+      // expected === undefined: unconditional edit of the current content — no
+      // version guard. Still inside the per-target lock, so the read→match→write
+      // window is serialized and atomic.
+      if (expected && existing.version !== expected.version) {
         throw new FsError(`cannot edit "${target.displayPath}": file changed since it was read`, 'FS_STALE_VERSION')
       }
 

@@ -1,193 +1,159 @@
 /**
- * The file-context policy layer (`ctx.fileContext`): a concrete service that
- * owns model-facing read windowing and write/edit freshness on top of the
- * `ctx.fs` provider seam. It is NOT a swappable seam — it is the previously
- * deferred policy layer that does not belong on the `FileSystem` provider base
- * class (where a sandboxed/remote backend would otherwise inherit model-facing
- * observation policy it has no business carrying).
+ * The file-context policy PLUGIN: observed-state, read-before-edit, and
+ * "write/edit must be based on the version you read" — added on top of the
+ * `ctx.fs` provider seam through the `fs/*` event gate, NOT through a method
+ * service. This plugin registers NO `ctx.fileContext` service and exposes no
+ * `read`/`write`/`edit`/`resolve` methods; it influences the world only by
+ * deciding the `fs/write-expectation`/`fs/edit-expectation` waterfalls and
+ * recording on `fs/observed`. That is what keeps `@deepseek-ai/dsh-tool-fs`
+ * (the executor) free of any method coupling to the policy layer — removing
+ * this plugin gracefully loses the policy and leaves the unconstrained bare
+ * provider, rather than breaking the tool at a service-injection boundary.
  *
- * ## Observed state IS the read record
+ * ## Observed state IS the prior-observation record
  *
- * Observed state lives here as `WeakMap<owner, Map<targetKey, { version }>>`. An
- * entry exists iff the owner has read that target through {@link read}, so its
- * presence *is* the read record — there is no separate `hasRead` flag. The owner
- * is derived structurally from `{ agent?: { session? } }` and held weakly, so a
- * collected session frees its state; disposal drops everything (HMR safety).
+ * State lives here as `WeakMap<owner, Map<targetKey, { version }>>`. An entry
+ * exists iff the owner has read, written, OR edited that target (every success
+ * emits `fs/observed`), so its presence means "this owner has observed this
+ * target at this version". This is what lets a create-then-edit or
+ * edit-then-edit sequence work without an intervening re-read: the mutation
+ * refreshes the recorded version to its own result. The owner is derived
+ * structurally from `{ agent?: { session? } }` and held weakly, so a collected
+ * session frees its state; disposal drops everything (HMR safety).
  *
- * ## Freshness, not full/partial views
+ * ## Freshness via provider CAS, not stat
  *
- * Authorization is based on version freshness only. A windowed read records the
- * file's version, and any later write/edit at that version is authorized — a
- * model that read lines 100-150 of a large file can still edit line 120 as long
- * as the file is unchanged. There is no `full`/`partial` distinction: the bytes
- * the edit matches must merely come from the version the model read, which the
- * provider's stale guard enforces.
+ * This plugin does NO filesystem I/O. "Have you observed this file?" is a
+ * `WeakMap` lookup (no record ⇒ `FS_NOT_OBSERVED`). "Is the version you read
+ * still current?" is decided INSIDE `ctx.fs.editText`/`writeText`, in the same
+ * atomic lock that performs the mutation — this plugin only supplies the
+ * observed version as the CAS basis. Stat-ing and comparing here would open a
+ * TOCTOU gap the provider lock has to back up anyway, so it is deliberately
+ * avoided.
  *
- * ## The no-bypass contract
+ * ## Single-slot, first-wins
  *
- * A model-facing read MUST go through {@link read} (never `ctx.fs.readText`/
- * `streamText` directly), so every successful read records observed state before
- * the tool renders. Direct `ctx.fs` calls are allowed for non-tool consumers but
- * record nothing, so a later {@link edit} rejects with `FS_NOT_OBSERVED` until
- * the file is read through `ctx.fileContext`.
+ * The `fs/write-expectation`/`fs/edit-expectation` listeners do NOT call
+ * `next()`: each fully decides its single slot. The slot is first-wins by
+ * registration order — this plugin owning it is the default-deployment
+ * convention, not an event-enforced invariant (a decider registered before /
+ * `prepend`ed would win instead). This is not a composable authorization chain;
+ * layered permission/audit/sandbox interception belongs on `tools/execute`.
  *
  * @module @deepseek-ai/dsh-file-context
  */
 
-import { Context, Service } from 'cordis'
+import type { Context } from 'cordis'
 import { FsError } from '@deepseek-ai/dsh-fs'
-import type { FsTarget, FsVersion, FsEditRequest, FsEditOutcome, FsWriteOutcome } from '@deepseek-ai/dsh-fs'
-import { buildWindow } from './window.ts'
-import type { FileContextExec, FileReadRequest, FileReadOutcome } from './types.ts'
+import type { FsTarget, FsVersion, FsWriteExpectation } from '@deepseek-ai/dsh-fs'
+import type { FileContextExec } from './types.ts'
 
-export type { FileTextLine, ReadWindow, WindowResult } from './window.ts'
-export { READ_MAX_BYTES, READ_MAX_LINE_LENGTH, buildWindow } from './window.ts'
-export type { FileContextExec, FileReadRequest, FileReadOutcome } from './types.ts'
-
-/** Files at or above this size stream; smaller files read whole into memory. */
-export const STREAM_MIN_SIZE = 10 * 1024 * 1024
-
-declare module 'cordis' {
-  interface Context {
-    fileContext: FileContext
-  }
-}
-
-/** What an owner has observed about one target: just the version it last saw. */
-interface ObservedState {
-  version: FsVersion
-}
+export type { FileContextExec } from './types.ts'
 
 /**
- * The file-context policy service. Injects `fs`, registers as `ctx.fileContext`,
- * and is the only read/write/edit path the model-facing tools use.
+ * Per-context observed-file state and the three `fs/*` decisions over it. One
+ * instance is created per `apply()` so disposal can drop all state for HMR.
  */
-export class FileContext extends Service {
-  static inject = ['fs']
-
+class ObservedStateGate {
   /**
    * Observed-file state, keyed first by the owner object (weakly held, so a
    * collected session frees its state), then by {@link FsTarget.targetKey}. An
-   * entry's PRESENCE is the read record.
+   * entry's PRESENCE is the prior-observation record.
    */
-  private observed = new WeakMap<object, Map<string, ObservedState>>()
-
-  constructor(ctx: Context) {
-    super(ctx, 'fileContext')
-    ctx.effect(() => () => {
-      // Drop all recorded state on disposal so a reloaded service starts clean
-      // (HMR safety). The WeakMap itself would be GC'd, but replacing it makes
-      // the release observable and immediate for tests.
-      this.observed = new WeakMap()
-    }, 'fileContext observed-state teardown')
-  }
+  private observed = new WeakMap<object, Map<string, FsVersion>>()
 
   /**
-   * Derive the observed-state owner from an execution context — normally the
+   * Derive the observed-state owner from the opaque event actor — normally the
    * active agent session. `undefined` when no owner can be derived (e.g. a
    * direct tool call with no agent); such calls read freely but cannot satisfy
    * the write/edit prior-observation policy.
    */
-  owner(exec?: FileContextExec): object | undefined {
-    return exec?.agent?.session
+  private owner(actor: object | undefined): object | undefined {
+    return (actor as FileContextExec | undefined)?.agent?.session
   }
 
-  private getObserved(owner: object, targetKey: string): ObservedState | undefined {
+  private get(owner: object, targetKey: string): FsVersion | undefined {
     return this.observed.get(owner)?.get(targetKey)
   }
 
-  private record(owner: object, targetKey: string, version: FsVersion): void {
+  private set(owner: object, targetKey: string, version: FsVersion): void {
     let byTarget = this.observed.get(owner)
     if (!byTarget) {
       byTarget = new Map()
       this.observed.set(owner, byTarget)
     }
-    byTarget.set(targetKey, { version })
+    byTarget.set(targetKey, version)
+  }
+
+  /** Drop all recorded state (HMR safety / disposal). */
+  clear(): void {
+    this.observed = new WeakMap()
   }
 
   /**
-   * Resolve a path into a stable {@link FsTarget}, delegating to the provider.
-   * Exposed here so the model-facing tools never need to inject `ctx.fs`
-   * directly — they resolve and then read/write/edit entirely through
-   * `ctx.fileContext`.
+   * Decide the write expectation: no prior observation ⇒ `createIfAbsent` (only
+   * new files can be created blindly); a prior observation ⇒ `replaceIfVersion`
+   * at the observed version (existing files replaced only if unchanged).
    */
-  async resolve(path: string): Promise<FsTarget> {
-    return this.ctx.fs.resolve(path)
+  writeExpectation(target: FsTarget, actor: object | undefined): FsWriteExpectation {
+    const owner = this.owner(actor)
+    const prior = owner ? this.get(owner, target.targetKey) : undefined
+    return prior ? { kind: 'replaceIfVersion', version: prior } : { kind: 'createIfAbsent' }
   }
 
   /**
-   * Read a bounded line window from a target. Stats first (rejecting an absent
-   * target with `FS_NOT_FOUND` and a non-regular one with `FS_NOT_REGULAR_FILE`),
-   * chooses `readText` vs `streamText` by size — streaming when the size is
-   * large OR unknown so a size-less backend never buffers an arbitrarily large
-   * file — builds the window, then records the version observed AFTER the read
-   * so the recorded freshness token corresponds to the bytes actually returned
-   * (a writer racing between the routing stat and the read can't make a
-   * follow-up edit spuriously stale against a pre-read version).
+   * Decide the edit version guard: requires a prior observation by this owner
+   * (else `FS_NOT_OBSERVED`); returns the observed version as the CAS basis.
    */
-  async read(target: FsTarget, request: FileReadRequest, exec?: FileContextExec, signal?: AbortSignal): Promise<FileReadOutcome> {
-    const info = await this.ctx.fs.stat(target, signal)
-    if (!info) throw new FsError(`cannot read "${target.displayPath}": not found`, 'FS_NOT_FOUND')
-    if (info.type !== 'file') throw new FsError(`cannot read "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
-
-    const chunks = info.size === undefined || info.size >= STREAM_MIN_SIZE
-      ? await this.ctx.fs.streamText(target, signal)
-      : [await this.ctx.fs.readText(target, signal)]
-    const window = await buildWindow(chunks, request, target.displayPath)
-
-    // The version that matches the bytes just read: a stat taken after the read
-    // (falling back to the routing stat if the file vanished in the interim).
-    const after = await this.ctx.fs.stat(target, signal)
-    const version = after?.version ?? info.version
-
-    const owner = this.owner(exec)
-    if (owner) this.record(owner, target.targetKey, version)
-    return {
-      offset: request.offset,
-      limit: request.limit,
-      lines: window.lines,
-      totalLines: window.totalLines,
-      version,
-      ...window.truncatedByBytes ? { truncatedByBytes: true } : {},
-    }
-  }
-
-  /**
-   * Create or fully replace a file. With no recorded read, writes
-   * `createIfAbsent` (only new files can be created blindly); with a recorded
-   * read, writes `replaceIfVersion` at the observed version (existing files are
-   * replaced only if unchanged since the read). Refreshes recorded state from
-   * the returned version on success.
-   */
-  async write(target: FsTarget, content: string, exec?: FileContextExec, signal?: AbortSignal): Promise<FsWriteOutcome> {
-    const owner = this.owner(exec)
-    const prior = owner ? this.getObserved(owner, target.targetKey) : undefined
-    const outcome = await this.ctx.fs.writeText(
-      target,
-      content,
-      prior ? { kind: 'replaceIfVersion', version: prior.version } : { kind: 'createIfAbsent' },
-      signal,
-    )
-    if (owner) this.record(owner, target.targetKey, outcome.version)
-    return outcome
-  }
-
-  /**
-   * Apply a literal edit. Requires a recorded read by this owner (else
-   * `FS_NOT_OBSERVED`); passes the observed version to `ctx.fs.editText` as the
-   * stale guard and refreshes recorded state from the returned version. The
-   * provider owns the mutation critical section and the literal match.
-   */
-  async edit(target: FsTarget, edit: FsEditRequest, exec?: FileContextExec, signal?: AbortSignal): Promise<FsEditOutcome> {
-    const owner = this.owner(exec)
-    const prior = owner ? this.getObserved(owner, target.targetKey) : undefined
+  editExpectation(target: FsTarget, actor: object | undefined): { version: FsVersion } {
+    const owner = this.owner(actor)
+    const prior = owner ? this.get(owner, target.targetKey) : undefined
     if (!owner || !prior) {
       throw new FsError(`edit requires reading "${target.displayPath}" first`, 'FS_NOT_OBSERVED')
     }
-    const outcome = await this.ctx.fs.editText(target, edit, { version: prior.version }, signal)
-    this.record(owner, target.targetKey, outcome.version)
-    return outcome
+    return { version: prior }
+  }
+
+  /** Record a successful read/write/edit: this owner observed this target at this version. */
+  observe(target: FsTarget, version: FsVersion, actor: object | undefined): void {
+    const owner = this.owner(actor)
+    if (owner) this.set(owner, target.targetKey, version)
   }
 }
 
-export default FileContext
+/** Cordis plugin name used by loader diagnostics. */
+export const name = 'file-context'
+
+/**
+ * Register the three `fs/*` listeners. No `inject` — this plugin reads no
+ * services; it operates only on its own `WeakMap`. The waterfalls are unbound
+ * (the tool dispatches them with no `this`), so the listeners take the raw
+ * `(target, actor, next)` arguments.
+ */
+export function apply(ctx: Context): void {
+  const gate = new ObservedStateGate()
+
+  ctx.effect(() => () => {
+    // Drop all recorded state on disposal so a reloaded plugin starts clean
+    // (HMR safety). The WeakMap itself would be GC'd, but replacing it makes the
+    // release observable and immediate for tests.
+    gate.clear()
+  }, 'file-context observed-state teardown')
+
+  // fs/write-expectation: occupy the single decision slot — do NOT call next().
+  // Deferred through Promise.resolve().then so the declared Promise return type
+  // holds (a throw rejects, never escapes synchronously through the waterfall).
+  ctx.on('fs/write-expectation', (target, actor) => Promise.resolve().then(() => gate.writeExpectation(target, actor)))
+
+  // fs/edit-expectation: occupy the single decision slot — do NOT call next().
+  // Deferred the same way so an FS_NOT_OBSERVED throw becomes a rejected promise
+  // the edit tool's `await ctx.waterfall(...)` surfaces as its isError result.
+  ctx.on('fs/edit-expectation', (target, actor) => Promise.resolve().then(() => gate.editExpectation(target, actor)))
+
+  // fs/observed: synchronous, side-effect-only WeakMap write (cannot throw under
+  // normal operation); the tool contains any throw so a record bug never fails
+  // the already-completed mutation.
+  ctx.on('fs/observed', (target, version, actor) => {
+    gate.observe(target, version, actor)
+  })
+}

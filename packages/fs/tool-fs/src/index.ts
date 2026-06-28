@@ -1,15 +1,24 @@
 /**
  * The model-facing filesystem tool suite (`read`, `write`, `edit`) over the
- * `ctx.fileContext` policy layer. This root plugin registers all three tools by
+ * `ctx.fs` provider seam. This root plugin registers all three tools by
  * composing the per-tool registration helpers; each tool is also exposed as a
  * subpath plugin (`@deepseek-ai/dsh-tool-fs/read`, `/write`, `/edit`) for focused
  * deployments.
  *
- * The package owns model-facing concerns only — tool names, JSON schemas,
- * argument validation, prompt sections, result formatting. All filesystem
- * execution goes through `ctx.fileContext` (never directly around it to
- * `ctx.fs`), so every model read records observed-state before rendering; this
- * package never imports `node:fs`, `node:path`, or an
+ * ## The tool is the executor; policy is an event gate
+ *
+ * The tool reads/writes/edits through `ctx.fs` DIRECTLY and owns model-facing
+ * concerns only — tool names, JSON schemas, argument validation, prompt
+ * sections, read windowing, result formatting. It does NOT inject a policy
+ * service. Instead, on each write/edit it dispatches a single-slot waterfall
+ * (`fs/write-expectation`/`fs/edit-expectation`) to obtain the OPTIONAL version
+ * guard, and after every read/write/edit it emits a contained `fs/observed`. A
+ * policy plugin (`@deepseek-ai/dsh-file-context`, loaded by the default product
+ * config) occupies the decision slot and listens for `fs/observed` to add
+ * observed-state + read-before-edit + version-guarded write/edit. With no policy
+ * plugin the waterfalls fall through to their `undefined` default (the
+ * unconstrained bare provider) and `fs/observed` is unheard — the tool still
+ * functions. This package never imports `node:fs`, `node:path`, or an
  * `@deepseek-ai/dsh-fs-local` implementation.
  *
  * @module @deepseek-ai/dsh-tool-fs
@@ -20,15 +29,19 @@ import { applyReadTool } from './read.ts'
 import { applyWriteTool } from './write.ts'
 import { applyEditTool } from './edit.ts'
 
-export { READ_LIMIT, applyReadTool, formatReadOutput, parseReadArgs } from './read.ts'
+export { READ_LIMIT, STREAM_MIN_SIZE, applyReadTool, formatReadOutput, parseReadArgs } from './read.ts'
 export { applyWriteTool, formatWriteOutput, parseWriteArgs } from './write.ts'
 export { applyEditTool, formatEditOutput, parseEditArgs } from './edit.ts'
+export { emitObserved } from './observe.ts'
+export type { FileTextLine, ReadWindow, WindowResult } from './window.ts'
+export { READ_MAX_BYTES, READ_MAX_LINE_LENGTH, buildWindow } from './window.ts'
+export type { FileReadOutcome } from './types.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-fs'
 
 /** Services required by the filesystem tool suite. */
-export const inject = ['tools', 'fileContext', 'systemPrompt']
+export const inject = ['tools', 'fs', 'systemPrompt']
 
 /** Register the full `read`/`write`/`edit` filesystem tool suite. */
 export function apply(ctx: Context): void {

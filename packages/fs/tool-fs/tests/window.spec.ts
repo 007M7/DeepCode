@@ -6,8 +6,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { buildWindow, READ_MAX_LINE_LENGTH } from '@deepseek-ai/dsh-file-context'
-import type { ReadWindow } from '@deepseek-ai/dsh-file-context'
+import { buildWindow, READ_MAX_LINE_LENGTH } from '@deepseek-ai/dsh-tool-fs'
+import type { ReadWindow } from '@deepseek-ai/dsh-tool-fs'
 
 const READ_ALL: ReadWindow = { offset: 1, limit: 2000 }
 

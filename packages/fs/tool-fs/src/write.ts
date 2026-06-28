@@ -1,8 +1,12 @@
 /**
- * The model-facing `write` tool: create or fully replace a UTF-8 text file.
- * Execution goes through `ctx.fileContext`, which enforces the freshness policy
- * (creating a new file needs no prior read; replacing an existing file requires
- * a prior read in the same execution context at the unchanged version).
+ * The model-facing `write` tool: create or fully replace a UTF-8 text file. The
+ * tool is the executor: it dispatches the `fs/write-expectation` waterfall to
+ * obtain the optional version guard, calls `ctx.fs.writeText` directly, and
+ * emits a contained `fs/observed`. The default thunk returns `undefined`
+ * (unconditional create-or-overwrite — the bare provider); a policy plugin
+ * (`@deepseek-ai/dsh-file-context`) occupies the single decision slot and
+ * returns `createIfAbsent`/`replaceIfVersion` instead. The tool stats ZERO
+ * times either way.
  *
  * @module @deepseek-ai/dsh-tool-fs/write
  */
@@ -11,7 +15,9 @@ import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { FsWriteOutcome } from '@deepseek-ai/dsh-fs'
+import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import { emitObserved } from './observe.ts'
 
 /** Validate value constraints the schema DSL can't express. */
 export function parseWriteArgs(args: { file_path: string; content: string }): { filePath: string; content: string } {
@@ -34,7 +40,7 @@ export function apply(ctx: Context): void {
   ctx.systemPrompt.section({
     name: 'tool:write',
     order: 101,
-    text: 'Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the backend requires it) and prefer edit for targeted changes.',
+    text: 'Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default file-context policy requires it) and prefer edit for targeted changes.',
   })
 
   ctx.tools.register(defineTool({
@@ -46,8 +52,12 @@ export function apply(ctx: Context): void {
     },
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseWriteArgs(args)
-      const target = await ctx.fileContext.resolve(input.filePath)
-      const outcome = await ctx.fileContext.write(target, input.content, exec, exec.signal)
+      const target = await ctx.fs.resolve(input.filePath)
+      // Single-slot decision: the policy plugin produces createIfAbsent/
+      // replaceIfVersion; the bare default is undefined (unconditional). No stat.
+      const expectation = await ctx.waterfall('fs/write-expectation', target, exec, () => undefined)
+      const outcome = await ctx.fs.writeText(target, input.content, expectation, exec.signal)
+      emitObserved(ctx, target, outcome.version, exec)
       return [{ type: 'text', text: formatWriteOutput(target.displayPath, outcome) }]
     },
   }))
@@ -57,7 +67,7 @@ export function apply(ctx: Context): void {
 export const name = 'fs-write'
 
 /** Services required by the `write` tool plugin. */
-export const inject = ['tools', 'fileContext', 'systemPrompt']
+export const inject = ['tools', 'fs', 'systemPrompt']
 
 /** Named helper for direct registration in the root plugin and tests. */
 export const applyWriteTool = apply

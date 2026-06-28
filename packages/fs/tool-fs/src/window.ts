@@ -1,16 +1,16 @@
 /**
- * Cordis-free line-windowing for `@deepseek-ai/dsh-file-context`. Relocated
- * from the local backend: turning a file's decoded text into a bounded,
- * line-numbered window (offset/limit, byte cap, per-line truncation) is
- * model-facing READ POLICY, not a storage primitive, so it lives in the policy
- * layer rather than in every `ctx.fs` backend.
+ * Cordis-free line-windowing for `@deepseek-ai/dsh-tool-fs`. Turning a file's
+ * decoded text into a bounded, line-numbered window (offset/limit, byte cap,
+ * per-line truncation) is the model-facing READ-RENDERING detail the tool owns
+ * now that the tool reads through `ctx.fs` directly — it is not a storage
+ * primitive and not freshness policy.
  *
  * The provider (`ctx.fs.readText`/`streamText`) hands back already-decoded text
  * (UTF-8 validated, binary rejected); this module only scans that text for
  * newlines and builds the requested window. A capped line buffer means a
  * newline-free giant line can never balloon memory even when streamed.
  *
- * @module @deepseek-ai/dsh-file-context/window
+ * @module @deepseek-ai/dsh-tool-fs/window
  */
 
 import { FsError } from '@deepseek-ai/dsh-fs'

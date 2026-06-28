@@ -38,7 +38,7 @@ class FakeFileSystem extends FileSystem {
     const content = await this.readText(target)
     return (async function* () { yield content })()
   }
-  override async writeText(target: FsTarget, content: string, _expected: FsWriteExpectation): Promise<FsWriteOutcome> {
+  override async writeText(target: FsTarget, content: string, _expected?: FsWriteExpectation): Promise<FsWriteOutcome> {
     const existed = this.files.has(target.targetKey)
     this.files.set(target.targetKey, content)
     return { operation: existed ? 'update' : 'create', version: FsVersion('v2') }

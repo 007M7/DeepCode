@@ -31,10 +31,10 @@ dsh-agent         ← dsh-llm, dsh-session, dsh-brand
 dsh-tools         ← dsh-llm, dsh-system-prompt, dsh-agent
 dsh-bash-local    ← dsh-bash                       (BashExecutor impl)
 dsh-tool-bash     ← dsh-bash, dsh-tools            (bash tool schemas)
-dsh-fs            ← dsh-llm, dsh-brand              (filesystem provider seam)
+dsh-fs            ← dsh-llm, dsh-brand              (filesystem provider seam + fs/* events)
 dsh-fs-local      ← dsh-fs                          (FileSystem impl)
-dsh-file-context  ← dsh-fs                          (read windowing + write/edit freshness policy)
-dsh-tool-fs       ← dsh-file-context, dsh-fs, dsh-tools  (file tool schemas)
+dsh-file-context  ← dsh-fs                          (observed-state + freshness policy gate, no service)
+dsh-tool-fs       ← dsh-fs, dsh-tools               (file tools + executor)
 dsh-llm-deepseek  ← dsh-llm                        (DeepSeek adapter)
 dsh-llm-pi-ai     ← dsh-llm                        (pi-ai-backed adapter)
 dsh-agent-loop    ← dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent
@@ -63,10 +63,10 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `bash/` | `bash` | Abstract bash executor seam (interface + vocabulary) | `ctx.bash` |
 | `bash-local/` | `bash` | Local-subprocess `BashExecutor` implementation | (registers `ctx.bash`) |
 | `tool-bash/` | `bash` | Model-facing `bash`/`bash_output`/`bash_kill` tool schemas | (registers on `ctx.tools`) |
-| `fs/` | `fs` | Filesystem provider seam: text IO + guarded mutation primitives | `ctx.fs` |
+| `fs/` | `fs` | Filesystem provider seam: text IO + atomic mutation primitives (optional version guard); owns the `fs/*` events | `ctx.fs` |
 | `fs-local/` | `fs` | Local-filesystem `FileSystem` implementation | (registers `ctx.fs`) |
-| `file-context/` | `fs` | Policy layer: read windowing, observed-state, write/edit freshness | `ctx.fileContext` |
-| `tool-fs/` | `fs` | Model-facing `read`/`write`/`edit` tool schemas | (registers on `ctx.tools`) |
+| `file-context/` | `fs` | Policy gate plugin: observed-state + read-before-edit + version-guarded write/edit via the `fs/*` event gate | (no service — `fs/*` listeners) |
+| `tool-fs/` | `fs` | Model-facing `read`/`write`/`edit` tools + executor (reads via `ctx.fs`, owns read windowing, dispatches `fs/*`) | (registers on `ctx.tools`) |
 | `llm-deepseek/` | `llm` | DeepSeek API adapter (hand-rolled fetch/SSE) | (registers on `ctx.llm`) |
 | `llm-pi-ai/` | `llm` | DeepSeek adapter via `@earendil-works/pi-ai` (design twin) | (registers on `ctx.llm`) |
 | `session-persistence/` | `session-persistence` | Persistence seam + write coordinator | `ctx.sessionPersistence` |

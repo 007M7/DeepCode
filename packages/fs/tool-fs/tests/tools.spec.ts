@@ -1,13 +1,14 @@
 /**
- * Consumer-surface tests for the filesystem tools. They run the REAL
- * `ctx.fileContext` policy service over a fake `ctx.fs` provider (the genuine
- * collaborator, per the prefer-the-real-implementation rule), so they verify
- * schemas, argument validation, result formatting, FsError→isError propagation,
- * and that each tool records observed-state through `ctx.fileContext` (the
- * no-bypass contract) — not just that it moved bytes.
+ * Consumer-surface tests for the filesystem tools as the EXECUTOR. They run the
+ * REAL `@deepseek-ai/dsh-file-context` gate plugin (the genuine policy
+ * collaborator, per the prefer-the-real-implementation rule) over a fake
+ * `ctx.fs` provider, so they verify schemas, argument validation, result
+ * formatting, FsError→isError propagation, and that each tool dispatches the
+ * `fs/*` waterfalls + records observed-state through the gate (read authorizes a
+ * later edit) — not just that it moved bytes.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
@@ -21,15 +22,17 @@ import type {
   FsWriteExpectation,
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
-import FileContext from '@deepseek-ai/dsh-file-context'
-import type { FileReadOutcome } from '@deepseek-ai/dsh-file-context'
+import * as FileContext from '@deepseek-ai/dsh-file-context'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
-import { formatReadOutput } from '@deepseek-ai/dsh-tool-fs'
+import { formatReadOutput, STREAM_MIN_SIZE } from '@deepseek-ai/dsh-tool-fs'
+import type { FileReadOutcome } from '@deepseek-ai/dsh-tool-fs'
 
 /** An in-memory fake provider; a test can arm a rejection on any primitive. */
 class FakeFs extends FileSystem {
   files = new Map<string, string>()
   rejectWith?: FsError
+  writeExpectations: (FsWriteExpectation | undefined)[] = []
+  editExpectations: ({ version: FsVersion } | undefined)[] = []
 
   private throwIfArmed(): void {
     if (this.rejectWith) throw this.rejectWith
@@ -51,14 +54,16 @@ class FakeFs extends FileSystem {
     const content = this.files.get(target.targetKey) ?? ''
     return (async function* () { yield content })()
   }
-  override async writeText(target: FsTarget, content: string, _expected: FsWriteExpectation): Promise<FsWriteOutcome> {
+  override async writeText(target: FsTarget, content: string, expected?: FsWriteExpectation): Promise<FsWriteOutcome> {
     this.throwIfArmed()
+    this.writeExpectations.push(expected)
     const existed = this.files.has(target.targetKey)
     this.files.set(target.targetKey, content)
     return { operation: existed ? 'update' : 'create', version: FsVersion('v2') }
   }
-  override async editText(target: FsTarget, edit: FsEditRequest): Promise<FsEditOutcome> {
+  override async editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }): Promise<FsEditOutcome> {
     this.throwIfArmed()
+    this.editExpectations.push(expected)
     const content = this.files.get(target.targetKey) ?? ''
     this.files.set(target.targetKey, content.split(edit.oldString).join(edit.newString))
     return { replacements: 1, replaceAll: edit.replaceAll, version: FsVersion('v3') }
@@ -104,11 +109,11 @@ describe('registration', () => {
     expect(prompt).toContain('Use the edit tool')
   })
 
-  it('stays pending until ctx.fileContext exists (inject)', async () => {
+  it('stays pending until ctx.fs exists (inject)', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(ToolFs) // no fileContext provider
+    await ctx.plugin(ToolFs) // no fs provider
     expect(ctx.tools.schemas()).toHaveLength(0)
   })
 
@@ -169,6 +174,7 @@ describe('read tool', () => {
     expect((await call(ctx, 'read', { file_path: 'a.txt' }, { session })).isError).toBe(false)
     const edited = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'hello', new_string: 'bye' }, { session })
     expect(edited.isError).toBe(false)
+    expect(fs.editExpectations).toEqual([{ version: 'v1' }])
   })
 
   it('propagates FS_NOT_FOUND for an absent file', async () => {
@@ -177,6 +183,48 @@ describe('read tool', () => {
     expect(result.isError).toBe(true)
     expect(result.error).toMatchObject({ code: 'FS_NOT_FOUND' })
   })
+
+  it('rejects a non-regular target', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:d', '')
+    fs.stat = async () => ({ version: FsVersion('v1'), type: 'directory' })
+    const result = await call(ctx, 'read', { file_path: 'd' })
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ code: 'FS_NOT_REGULAR_FILE' })
+  })
+
+  it('streams a large file (size at/above the cap) instead of reading whole', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:big.txt', 'alpha\nbeta')
+    const readSpy = vi.spyOn(fs, 'readText')
+    const streamSpy = vi.spyOn(fs, 'streamText')
+    fs.stat = async () => ({ version: FsVersion('v1'), type: 'file', size: STREAM_MIN_SIZE })
+    const result = await call(ctx, 'read', { file_path: 'big.txt' })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('1: alpha')
+    expect(streamSpy).toHaveBeenCalled()
+    expect(readSpy).not.toHaveBeenCalled()
+  })
+
+  it('streams when the backend reports no size (never buffers a size-less file)', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:a.txt', 'alpha')
+    const streamSpy = vi.spyOn(fs, 'streamText')
+    fs.stat = async () => ({ version: FsVersion('v1'), type: 'file' }) // no size
+    const result = await call(ctx, 'read', { file_path: 'a.txt' })
+    expect(result.isError).toBe(false)
+    expect(streamSpy).toHaveBeenCalled()
+  })
+
+  it('surfaces a byte-capped read as a truncated footer', async () => {
+    const { ctx, fs } = await setup()
+    // Many long lines so the window hits the byte cap before EOF.
+    fs.files.set('key:big.txt', Array.from({ length: 2000 }, () => 'y'.repeat(100)).join('\n'))
+    const result = await call(ctx, 'read', { file_path: 'big.txt' })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('Output capped.')
+  })
+
 })
 
 describe('formatReadOutput footer variants', () => {
@@ -204,11 +252,12 @@ describe('formatReadOutput footer variants', () => {
 })
 
 describe('write tool', () => {
-  it('formats a create result', async () => {
-    const { ctx } = await setup()
-    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'hi' })
+  it('formats a create result and uses createIfAbsent (unobserved, with the gate)', async () => {
+    const { ctx, fs } = await setup()
+    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'hi' }, { session: {} })
     expect(result.isError).toBe(false)
     expect(text(result)).toContain('Created file')
+    expect(fs.writeExpectations).toEqual([{ kind: 'createIfAbsent' }])
   })
 
   it('rejects a blank file_path', async () => {
@@ -258,7 +307,7 @@ describe('edit tool', () => {
     expect(text(result)).toContain('file_path must be a non-empty string')
   })
 
-  it('propagates FS_NOT_OBSERVED when the file was never read', async () => {
+  it('propagates FS_NOT_OBSERVED when the file was never read (the gate decides)', async () => {
     const { ctx, fs } = await setup()
     fs.files.set('key:a.txt', 'hello')
     const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b' }, { session: {} })
