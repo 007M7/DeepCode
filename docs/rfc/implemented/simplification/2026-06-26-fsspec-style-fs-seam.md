@@ -106,8 +106,8 @@ It keeps the interface/implementation/consumer discipline, consumer-never-import
 ## Acceptance Criteria
 
 - `dsh-fs` exposes exactly `resolve`/`stat`/`readText`/`streamText`/`writeText`/`editText`; `stat` returns `FsInfo | undefined`; `writeText` uses `FsWriteExpectation` (`createIfAbsent` or `replaceIfVersion`); removed types/primitives are gone, and the old `applyEdit` API is replaced by `editText`.
-- `dsh-file-context` registers `ctx.fileContext`, owns observed-state plus `read`/`write`/`edit` policy, injects `fs`, and has HMR/disposal coverage.
-- `dsh-tool-fs` injects `fileContext`; model-facing schemas stay byte-for-byte unchanged; the no-bypass contract and escape-hatch contract are documented and tested.
+- `dsh-file-context` adds the observed-state + `read`/`write`/`edit` freshness policy and has HMR/disposal coverage. (It does so as a gate PLUGIN on the `fs/*` events with no `ctx.fileContext` service, per [the event-gate RFC](../architecture/2026-06-26-file-context-as-event-gate.md) — the original service form this RFC proposed was reworked.)
+- `dsh-tool-fs` reaches the policy decisions and model-facing schemas stay byte-for-byte unchanged; the observation contract (a read records observed-state; a direct `ctx.fs` read does not) is documented and tested. (The tool injects `fs` and dispatches the `fs/*` events rather than injecting a `fileContext` service, per the event-gate RFC.)
 - Windowed read authorizing edit is shown to fail on the pre-refit code and pass after the refit. Existing version-CAS behavior is preserved with a regression test; it is not claimed as a pre-refit failure. An edit based on a stale read must report `FS_STALE_VERSION` before attempting literal matching.
 - `dsh-fs-local` carries no line, view, or `formatReadBody` logic; it does carry provider-level `editText` logic.
 - Docs and generated artifacts are updated: `docs/architecture.md`, `packages/README.md`, fs package READMEs, `docs/core-data-structures/filesystem.md`, affected `type-equiv` blocks and `scripts/type-equiv.manifest.json`, Cordis catalog, module graph, and doc references.

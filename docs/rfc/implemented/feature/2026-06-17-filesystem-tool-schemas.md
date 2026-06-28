@@ -62,7 +62,7 @@ Arguments:
 - `new_string: string` — required. Literal replacement text; an empty string deletes the match.
 - `replace_all?: boolean` — optional. Defaults to false. When false, `old_string` must identify exactly one match.
 
-`edit` requires prior full file state derived from a previous read in the same execution context. `ctx.fs` derives the file-state owner and uses the recorded version as the stale guard.
+`edit` requires a prior observation of the file in the same execution context (any windowed read counts — authorization is version freshness, not a full-view requirement), or a prior write/edit by that context. The `dsh-file-context` policy plugin derives the owner and supplies the recorded version as the stale guard; the provider's mutation lock enforces it.
 
 The first pass rejects Codex-style patch grammars and multi-mode edit APIs. It uses one strict literal replacement mode so the model-facing contract stays simple and the backend can own exact-match, duplicate-match, line-ending, and stale-version semantics.
 
