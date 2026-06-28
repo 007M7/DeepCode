@@ -100,7 +100,7 @@ The following are deliberately out of scope for the first filesystem schema pass
 - `edit` requires `file_path`, `old_string`, and `new_string`, accepts optional boolean `replace_all`, rejects empty `old_string`, and defaults `replace_all` to false.
 - The registered JSON schemas use the snake_case field names in this RFC.
 - The tool descriptions accurately describe that existing-file `write` and `edit` require a prior full read in the same execution context, while new-file `write` does not.
-- The root plugin and subpath plugins register the same schemas.
+- The `tool-fs` root plugin registers all three schemas.
 
 Integration tests should execute `read`, `write`, and `edit` through `ctx.tools.execute()` with a fake or local `ctx.fs` provider and verify that model arguments are translated into the expected `ctx.fs` calls.
 

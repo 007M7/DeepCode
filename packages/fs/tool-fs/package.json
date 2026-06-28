@@ -11,23 +11,13 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
-    "./read": {
-      "types": "./lib/types/read.d.ts",
-      "default": "./lib/read.js"
-    },
-    "./write": {
-      "types": "./lib/types/write.d.ts",
-      "default": "./lib/write.js"
-    },
-    "./edit": {
-      "types": "./lib/types/edit.d.ts",
-      "default": "./lib/edit.js"
-    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
-    "lib",
+    "lib/index.js",
+    "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
     "src"
   ],
   "license": "BSD-3-Clause",

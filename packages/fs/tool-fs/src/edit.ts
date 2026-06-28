@@ -10,7 +10,7 @@
  * tool stats ZERO times either way; a missing target is reported by the provider
  * as `FS_STALE_VERSION`.
  *
- * @module @deepseek-ai/dsh-tool-fs/edit
+ * @module @deepseek-ai/dsh-tool-fs/src/edit
  */
 
 import type { Context } from 'cordis'
@@ -50,7 +50,7 @@ export function formatEditOutput(displayPath: string, outcome: FsEditOutcome): s
 }
 
 /** Register the `edit` tool and its system-prompt guidance. */
-export function apply(ctx: Context): void {
+export function applyEditTool(ctx: Context): void {
   ctx.systemPrompt.section({
     name: 'tool:edit',
     order: 102,
@@ -84,12 +84,3 @@ export function apply(ctx: Context): void {
     },
   }))
 }
-
-/** Cordis plugin name used by loader diagnostics. */
-export const name = 'fs-edit'
-
-/** Services required by the `edit` tool plugin. */
-export const inject = ['tools', 'fs', 'systemPrompt']
-
-/** Named helper for direct registration in the root plugin and tests. */
-export const applyEditTool = apply

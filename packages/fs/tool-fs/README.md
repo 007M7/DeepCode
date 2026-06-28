@@ -11,14 +11,6 @@ await ctx.plugin(ToolFs)                                  // this package — re
 
 `@deepseek-ai/dsh-file-context` is **optional**: omit it and the tools run against the bare provider (unconditional write/overwrite/edit, no observed-state). A deployment that loads these tools is expected to also load it, so the behavior is read-before-write/edit.
 
-Each tool also ships as a subpath plugin for focused deployments (each injects `fs`, not a policy service):
-
-```ts ignore-check
-import * as readPlugin from '@deepseek-ai/dsh-tool-fs/read'
-import * as writePlugin from '@deepseek-ai/dsh-tool-fs/write'
-import * as editPlugin from '@deepseek-ai/dsh-tool-fs/edit'
-```
-
 ## Tools (schemas per [the filesystem tool schemas RFC](../../../docs/rfc/implemented/feature/2026-06-17-filesystem-tool-schemas.md))
 
 | Tool | Arguments | Behavior |

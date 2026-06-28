@@ -5,10 +5,9 @@
  *
  *  - DEFAULT — with the real `dsh-file-context` policy gate plugin: read-before-
  *    write/edit, version-guarded mutation, FS_NOT_OBSERVED for unread edits.
- *  - BARE — WITHOUT the policy plugin, loading only SUBPATH plugins: every
- *    `fs/*` waterfall falls through to its undefined default, so write/edit are
- *    unconditional. This proves the subpaths (not just the root) carry no policy
- *    dependency.
+ *  - BARE — WITHOUT the policy plugin: every `fs/*` waterfall falls through to
+ *    its undefined default, so write/edit are unconditional. This proves the
+ *    tool carries no dependency on the policy plugin.
  *
  * These verify the WORLD — files are read back from disk and asserted
  * byte-for-byte — not the tool's self-report.
@@ -25,9 +24,6 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import * as FileContext from '@deepseek-ai/dsh-file-context'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
-import * as readPlugin from '@deepseek-ai/dsh-tool-fs/read'
-import * as writePlugin from '@deepseek-ai/dsh-tool-fs/write'
-import * as editPlugin from '@deepseek-ai/dsh-tool-fs/edit'
 
 let dir: string
 let ctx: Context
@@ -243,18 +239,16 @@ describe('default deployment (with dsh-file-context)', () => {
 })
 
 // --------------------------------------------------------------------------
-// BARE deployment: SUBPATH plugins only, NO policy gate.
+// BARE deployment: the tool suite WITHOUT the policy gate.
 // --------------------------------------------------------------------------
-describe('bare provider (subpath plugins, no dsh-file-context)', () => {
+describe('bare provider (no dsh-file-context)', () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'dsh-tool-fs-bare-'))
     ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(LocalFileSystem, { cwd: dir })
-    await ctx.plugin(readPlugin)
-    await ctx.plugin(writePlugin)
-    fiber = await ctx.plugin(editPlugin)
+    fiber = await ctx.plugin(ToolFs)
   })
 
   it('read works (it never needed policy)', async () => {

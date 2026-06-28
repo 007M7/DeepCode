@@ -8,7 +8,7 @@
  * the model-facing schema, argument validation, read windowing, and result
  * formatting; the freshness/observation policy is not its concern.
  *
- * @module @deepseek-ai/dsh-tool-fs/read
+ * @module @deepseek-ai/dsh-tool-fs/src/read
  */
 
 import type { Context } from 'cordis'
@@ -72,7 +72,7 @@ ${body}
 }
 
 /** Register the `read` tool and its system-prompt guidance. */
-export function apply(ctx: Context): void {
+export function applyReadTool(ctx: Context): void {
   ctx.systemPrompt.section({
     name: 'tool:read',
     order: 100,
@@ -119,12 +119,3 @@ export function apply(ctx: Context): void {
     },
   }))
 }
-
-/** Cordis plugin name used by loader diagnostics. */
-export const name = 'fs-read'
-
-/** Services required by the `read` tool plugin. */
-export const inject = ['tools', 'fs', 'systemPrompt']
-
-/** Named helper for direct registration in the root plugin and tests. */
-export const applyReadTool = apply

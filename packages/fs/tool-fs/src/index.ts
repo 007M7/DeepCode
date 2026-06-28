@@ -1,9 +1,6 @@
 /**
  * The model-facing filesystem tool suite (`read`, `write`, `edit`) over the
- * `ctx.fs` provider seam. This root plugin registers all three tools by
- * composing the per-tool registration helpers; each tool is also exposed as a
- * subpath plugin (`@deepseek-ai/dsh-tool-fs/read`, `/write`, `/edit`) for focused
- * deployments.
+ * `ctx.fs` provider seam. This single plugin registers all three tools.
  *
  * ## The tool is the executor; policy is an event gate
  *

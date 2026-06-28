@@ -49,7 +49,7 @@ The filesystem seam uses the same dependency direction as the bash trio:
 
 `@deepseek-ai/dsh-tool-fs` depends on `@deepseek-ai/dsh-fs`, `@deepseek-ai/dsh-tools`, `@deepseek-ai/dsh-system-prompt`, and `cordis`. It registers model-facing tools and prompt sections. It must not import `node:fs`, `node:path`, or `@deepseek-ai/dsh-fs-local`; filesystem execution always goes through `ctx.fs`. If the implementation needs concrete agent or session helper types, those dependencies belong in `tool-fs`; they must not leak back into `dsh-fs`.
 
-The root `tool-fs` plugin registers the full filesystem tool suite by composing the per-tool registration helpers (`read`, `write`, and `edit`). The same helpers are exposed as subpath plugins such as `@deepseek-ai/dsh-tool-fs/read`, `@deepseek-ai/dsh-tool-fs/write`, and `@deepseek-ai/dsh-tool-fs/edit` for focused deployments. Root and subpath plugins follow the same rule: they inject `fs` and never import an implementation package.
+The root `tool-fs` plugin registers the full filesystem tool suite (`read`, `write`, and `edit`) by composing the per-tool registration helpers. It injects `fs` and never imports an implementation package.
 
 ## `ctx.fs` contract
 
@@ -117,7 +117,7 @@ The tool package must keep model-facing contracts stable when backends change. A
 
 The first implementation requires a prior full `read` before updating an existing file with `write` or `edit`. `tool-fs` does not implement this by checking whether a tool named `read` ran or by reading the file-state cache. It passes the current execution context to `ctx.fs`, and `ctx.fs` derives the file-state owner and enforces file-state/stale-version policy. Creating a new file with `write` does not require prior state or an owner.
 
-The root plugin registers the full suite by composing the per-tool registration helpers. The subpath plugins register one tool each for focused deployments and tests. Both forms inject `fs`, `tools`, and `systemPrompt`.
+The root plugin registers the full suite by composing the per-tool registration helpers. It injects `fs`, `tools`, and `systemPrompt`.
 
 ## Migration plan
 
@@ -128,7 +128,7 @@ This RFC starts from `origin/master`, where no filesystem tool package exists ye
 3. Add `packages/fs/tool-fs` with the model-facing `read`, `write`, and `edit` tools over `ctx.fs`.
 4. Update `docs/architecture.md`, `packages/README.md`, package READMEs, build/typecheck config, and aggregate maintenance scripts such as `scripts/publint-all.ts`.
 
-This first pass does not add a separate `@deepseek-ai/dsh-file-context` package. The file-state store lives behind `ctx.fs` so root and subpath `tool-fs` plugins share the same read-before-write/edit policy automatically.
+This first pass does not add a separate `@deepseek-ai/dsh-file-context` package. The file-state store lives behind `ctx.fs` so the `tool-fs` plugin gets the read-before-write/edit policy automatically.
 
 Example leaf configs stay bash-only in this landing. Wiring `examples/coding-agent` or `examples/acp-agent` to `dsh-fs-local` + `dsh-tool-fs` changes the model prompt, visible tool schemas, and ACP snapshot transcript, so it should land as a follow-up UX/example change with prompt and snapshot updates in the same PR.
 
@@ -156,7 +156,7 @@ Beyond the happy/sad paths above, `dsh-fs-local` tests must cover the defensive-
 - **Concurrency / stale races.** The RFC names edit as race-prone (see Risks). Test that two concurrent write/edit operations against the same target settle deterministically: one succeeds and the other is rejected with `FS_STALE_VERSION` rather than silently overwriting, and that a successful edit refreshes recorded state so an immediately-following edit by the same owner proceeds.
 - **HMR safety and disposal.** `dsh-fs-local` registers `ctx.fs` and owns the in-memory file-state store, so it needs its own HMR-safety test (register the backend on a fiber, dispose it, assert the `ctx.fs` provider is withdrawn and the file-state store is released — a later provider starts with no inherited state).
 
-`dsh-tool-fs` tests cover the consumer surface with a fake `ctx.fs` implementation. They should verify tool schemas, argument validation, prompt-section registration, formatting of successful results, propagation of backend `FsError` codes into `isError` tool results through `ctx.tools.execute()`, that read/write/edit pass the current execution context or structural projection through to `ctx.fs`, root-plugin suite registration, subpath plugin registration, and HMR cleanup.
+`dsh-tool-fs` tests cover the consumer surface with a fake `ctx.fs` implementation. They should verify tool schemas, argument validation, prompt-section registration, formatting of successful results, propagation of backend `FsError` codes into `isError` tool results through `ctx.tools.execute()`, that read/write/edit pass the current execution context or structural projection through to `ctx.fs`, root-plugin suite registration, and HMR cleanup.
 
 Integration tests should load `dsh-fs-local` plus `dsh-tool-fs` and execute `read`, `write`, and `edit` through `ctx.tools.execute()` to prove the three packages work together without bypassing the tool registry. They must verify the world, not the tool's self-report: after a `write`/`edit`, read the file back from disk and assert byte-identical content (and that untouched files are unchanged), rather than trusting the returned `ContentBlock[]`. Each integration/e2e test owns its resources — create the harness in the test, run against a per-test temporary directory, and dispose the harness and remove the directory in `afterEach` even on failure or timeout.
 

@@ -8,7 +8,7 @@
  * returns `createIfAbsent`/`replaceIfVersion` instead. The tool stats ZERO
  * times either way.
  *
- * @module @deepseek-ai/dsh-tool-fs/write
+ * @module @deepseek-ai/dsh-tool-fs/src/write
  */
 
 import type { Context } from 'cordis'
@@ -36,7 +36,7 @@ ${verb} file
 }
 
 /** Register the `write` tool and its system-prompt guidance. */
-export function apply(ctx: Context): void {
+export function applyWriteTool(ctx: Context): void {
   ctx.systemPrompt.section({
     name: 'tool:write',
     order: 101,
@@ -62,12 +62,3 @@ export function apply(ctx: Context): void {
     },
   }))
 }
-
-/** Cordis plugin name used by loader diagnostics. */
-export const name = 'fs-write'
-
-/** Services required by the `write` tool plugin. */
-export const inject = ['tools', 'fs', 'systemPrompt']
-
-/** Named helper for direct registration in the root plugin and tests. */
-export const applyWriteTool = apply
