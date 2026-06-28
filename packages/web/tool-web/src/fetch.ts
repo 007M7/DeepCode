@@ -3,8 +3,6 @@
  * Execution goes through `ctx.web` — this module owns the model-facing schema,
  * argument validation, and PRESENTATION (HTML→markdown, truncation formatting),
  * while the fetch provider owns safe retrieval (transport, redirects, caps).
- *
- * @module @deepseek-ai/dsh-tool-web/fetch
  */
 
 import type { Context } from 'cordis'
@@ -51,7 +49,7 @@ export function presentFetchCall(args: { url: string; timeout_ms?: number }): To
 }
 
 /** Register the `web_fetch` tool and its system-prompt guidance. */
-export function apply(ctx: Context): void {
+export function applyWebFetchTool(ctx: Context): void {
   ctx.systemPrompt.section({
     name: 'tool:web_fetch',
     order: 111,
@@ -76,12 +74,3 @@ export function apply(ctx: Context): void {
     presentCall: presentFetchCall,
   }))
 }
-
-/** Cordis plugin name used by loader diagnostics. */
-export const name = 'web-fetch'
-
-/** Services required by the `web_fetch` tool plugin. */
-export const inject = ['tools', 'web', 'systemPrompt']
-
-/** Named helper for direct registration in the root plugin and tests. */
-export const applyWebFetchTool = apply

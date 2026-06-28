@@ -2,7 +2,7 @@
 
 The model-facing web tool suite — `web_search` and `web_fetch` — over the [web capability seam](../web/README.md) (`ctx.web`). It owns model-facing concerns only: tool names, JSON schemas, snake_case argument names, prompt sections, the result-count bound, result formatting, HTML→markdown presentation, and `presentCall`. All web access goes through `ctx.web`; this package never imports a concrete provider.
 
-Each tool is also a subpath plugin (`@deepseek-ai/dsh-tool-web/search`, `/fetch`) for focused deployments.
+Each tool is registered independently; a product that wants only one disables the other via config (`{ search: false }` / `{ fetch: false }`).
 
 ## Tools
 

@@ -1,8 +1,7 @@
 /**
  * The model-facing web tool suite (`web_search`, `web_fetch`) over the `ctx.web`
  * seam. This root plugin registers the tools the product has ENABLED, composing
- * the per-tool registration helpers; each tool is also exposed as a subpath
- * plugin (`@deepseek-ai/dsh-tool-web/search`, `/fetch`) for focused deployments.
+ * the per-tool registration helpers (`applyWebSearchTool`, `applyWebFetchTool`).
  *
  * The package owns model-facing concerns only — tool names, JSON schemas,
  * argument validation, prompt sections, result-cap constants, result formatting,

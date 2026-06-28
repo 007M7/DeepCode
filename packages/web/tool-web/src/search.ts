@@ -3,8 +3,6 @@
  * Execution goes through `ctx.web` — this module owns only the model-facing
  * schema, argument validation, the result-count bound, and result formatting,
  * never provider selection or network access.
- *
- * @module @deepseek-ai/dsh-tool-web/search
  */
 
 import type { Context } from 'cordis'
@@ -70,7 +68,7 @@ export function presentSearchCall(args: { query: string }): ToolCallPresentation
 }
 
 /** Register the `web_search` tool and its system-prompt guidance. */
-export function apply(ctx: Context): void {
+export function applyWebSearchTool(ctx: Context): void {
   ctx.systemPrompt.section({
     name: 'tool:web_search',
     order: 110,
@@ -94,12 +92,3 @@ export function apply(ctx: Context): void {
     presentCall: presentSearchCall,
   }))
 }
-
-/** Cordis plugin name used by loader diagnostics. */
-export const name = 'web-search'
-
-/** Services required by the `web_search` tool plugin. */
-export const inject = ['tools', 'web', 'systemPrompt']
-
-/** Named helper for direct registration in the root plugin and tests. */
-export const applyWebSearchTool = apply
