@@ -9,7 +9,7 @@ await ctx.plugin(FileContext)                             // @deepseek-ai/dsh-fi
 await ctx.plugin(ToolFs)                                  // this package — registers read/write/edit
 ```
 
-`@deepseek-ai/dsh-file-context` is **optional**: omit it and the tools run against the bare provider (unconditional write/overwrite/edit, no observed-state). The default product config loads it, so the default behavior stays read-before-write/edit.
+`@deepseek-ai/dsh-file-context` is **optional**: omit it and the tools run against the bare provider (unconditional write/overwrite/edit, no observed-state). A deployment that loads these tools is expected to also load it, so the behavior is read-before-write/edit.
 
 Each tool also ships as a subpath plugin for focused deployments (each injects `fs`, not a policy service):
 
