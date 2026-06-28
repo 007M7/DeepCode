@@ -19,6 +19,10 @@
     { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "TurnTriggerMap", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "TurnEndReasonMap", "source": "packages/core/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceEventType", "source": "packages/core/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceOp", "source": "packages/core/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceIntent", "source": "packages/core/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/session.md", "symbol": "SurfaceNode", "source": "packages/core/session/src/surface.ts" },
 
     { "doc": "docs/core-data-structures/persistence.md", "symbol": "SessionHeader", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/persistence.md", "symbol": "CreateSessionOptions", "source": "packages/core/session/src/types.ts" },
@@ -47,6 +51,15 @@
     { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsEditOutcome", "source": "packages/fs/fs/src/types.ts" },
     { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsErrorCode", "source": "packages/fs/fs/src/types.ts" },
     { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FileContextExec", "source": "packages/fs/file-context/src/types.ts" },
-    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FileReadOutcome", "source": "packages/fs/tool-fs/src/types.ts" }
+    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FileReadOutcome", "source": "packages/fs/tool-fs/src/types.ts" },
+
+    { "doc": "docs/core-data-structures/compaction.md", "symbol": "CompactionResult", "source": "packages/compact/compact/src/types.ts" },
+
+    { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentCapabilities", "source": "packages/subagent/subagent/src/types.ts" },
+    { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentStartRequest", "source": "packages/subagent/subagent/src/types.ts" },
+    { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentResult", "source": "packages/subagent/subagent/src/types.ts" },
+    { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentStopReasonMap", "source": "packages/subagent/subagent/src/types.ts" },
+    { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentRun", "source": "packages/subagent/subagent/src/types.ts" },
+    { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentProvider", "source": "packages/subagent/subagent/src/types.ts" }
   ]
 }

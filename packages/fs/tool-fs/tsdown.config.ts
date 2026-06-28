@@ -3,11 +3,13 @@ import { defineConfig } from 'tsdown'
 /**
  * tool-fs exposes one package root plus one entry per tool plugin, so each tool
  * can be loaded or replaced independently as a subpath plugin
- * (`@deepseek-ai/dsh-tool-fs/read`, `/write`, `/edit`). The root tsdown config
- * only auto-discovers `src/index.ts`, so the subpath entries are declared here.
+ * (`@deepseek-ai/dsh-tool-fs/read`, `/write`, `/edit`). The root tsdown builds
+ * only `lib/types/index.js`, so this override adds the per-tool entries. tsdown
+ * reads the emitted JS under `lib/types` (from `tsc -b`); declarations come from
+ * `tsc -b` too (dts: false), matching every package.
  */
 export default defineConfig({
-  entry: ['src/index.ts', 'src/read.ts', 'src/write.ts', 'src/edit.ts'],
+  entry: ['lib/types/index.js', 'lib/types/read.js', 'lib/types/write.js', 'lib/types/edit.js'],
   outDir: 'lib',
   format: ['esm'],
   platform: 'node',
@@ -16,3 +18,4 @@ export default defineConfig({
   dts: false,
   clean: false,
 })
+

@@ -3,12 +3,12 @@
  * Markdown so documentation can't drift from the API it documents.
  *
  * Every ```ts block in README.md, docs/** and packages/* /README.md is
- * extracted to a temp file and compiled with `tsc --noEmit` against the
- * workspace sources (resolved through the same `paths` map vitest uses, so no
- * build is required first). A block that is a deliberate sketch rather than
- * compilable code opts out with an explicit ` ```ts ignore-check ` info string
- * — the opt-out is visible in the source, and this script reports the ratio so
- * the escape hatch can't quietly become the norm. A third info string,
+ * extracted to a temp typecheck project and compiled against the workspace
+ * sources through the same project-reference boundaries used by repo
+ * typecheck. A block that is a deliberate sketch rather than compilable code
+ * opts out with an explicit ` ```ts ignore-check ` info string — the opt-out
+ * is visible in the source, and this script reports the ratio so the escape
+ * hatch can't quietly become the norm. A third info string,
  * doc-typecheck.ts recognizes two more fence variants and skips both (each is a
  * separately-checked category, not an unchecked sketch, so neither counts in the
  * opt-out ratio): ` ```ts type-equiv ` is a verbatim source-type paste that
@@ -88,16 +88,9 @@ function extractBlocks(absPath: string): Block[] {
   return blocks
 }
 
-/**
- * Read the workspace `paths` map from tsconfig.typecheck.json (JSONC). This map
- * resolves vendored packages to their BUILT declarations (`lib`) and harness
- * packages to source (`src`) — the same resolution `pnpm run lint`/`typecheck` use.
- * Resolving vendor to `lib` (not `src`) is essential: otherwise tsc type-checks
- * raw vendor source and floods the run with unrelated errors. Requires the
- * vendor `lib/` to exist (a fresh clone runs `pnpm run build` first; CI does too).
- */
-function workspacePaths(): Record<string, string[]> {
-  const file = join(root, 'tsconfig.typecheck.json')
+/** Reuse the repo typecheck graph references from a temp project one directory below root. */
+function workspaceReferences(): { path: string }[] {
+  const file = join(root, 'tsconfig.json')
   // Parse with TypeScript's own JSONC reader, not a hand-rolled comment strip:
   // a regex strip mistakes the `/*/` in a wildcard path candidate
   // (`./packages/core/*/src`) for a block comment and corrupts the map.
@@ -106,27 +99,24 @@ function workspacePaths(): Record<string, string[]> {
     throw new Error(`doc-typecheck: cannot read ${file}: ${ts.flattenDiagnosticMessageText(result.error.messageText, '\n')}`)
   }
   // `config` is typed `any` by the TS API; narrow it to the one field we read.
-  const config = result.config as { compilerOptions: { paths: Record<string, string[]> } }
-  return config.compilerOptions.paths
+  const { references } = result.config as { compilerOptions: { paths: Record<string, string[]> }; references: { path: string }[] }
+  return references.map(({ path }) => {
+    const relativeToTemp = path.startsWith('./') ? `../${path.slice(2)}` : `../${path}`
+    return { path: relativeToTemp }
+  })
 }
 
-/** The standalone tsconfig for the temp project (copies base resolution, no
- * composite/declaration settings that would fight `--noEmit`). */
+/** The standalone tsconfig for the temp typecheck project. */
 function tempTsconfig(): string {
   return JSON.stringify({
+    extends: '../tsconfig.json',
     compilerOptions: {
-      target: 'es2024',
-      module: 'esnext',
-      moduleResolution: 'bundler',
-      allowImportingTsExtensions: true,
-      strict: true,
-      noEmit: true,
-      skipLibCheck: true,
-      types: ['node'],
-      baseUrl: root,
-      ignoreDeprecations: '6.0',
-      paths: workspacePaths(),
+      noUnusedLocals: false,
+      noUnusedParameters: false,
+      tsBuildInfoFile: './tsconfig.tsbuildinfo',
     },
+    include: ['block-*.ts'],
+    references: workspaceReferences(),
   })
 }
 
@@ -164,11 +154,12 @@ try {
   })
 
   try {
-    execFileSync('node_modules/.bin/tsc', ['-p', join(tmp, 'tsconfig.json')], { cwd: root, stdio: 'pipe' })
+    execFileSync('node_modules/.bin/tsc', ['-b', join(tmp, 'tsconfig.json')], { cwd: root, stdio: 'pipe' })
   } catch (error: unknown) {
-    const out = (error as { stdout?: Buffer }).stdout?.toString() ?? ''
+    const failed = error as { stdout?: Buffer; stderr?: Buffer }
+    const out = `${failed.stdout?.toString() ?? ''}${failed.stderr?.toString() ?? ''}`
     // Rewrite "block-N.ts(line,col)" to the real "file:fenceLine" for triage.
-    const remapped = out.replace(/block-(\d+)\.ts\((\d+),(\d+)\)/g, (_m, idx: string, ln: string, col: string) => {
+    const remapped = out.replace(/(?:[^\s:()]*[/\\])?block-(\d+)\.ts\((\d+),(\d+)\)/g, (_m, idx: string, ln: string, col: string) => {
       const block = fileForBlock.get(`block-${idx}.ts`)
       if (!block) return `block-${idx}.ts(${ln},${col})`
       return `${block.file} (block at line ${block.line}, +${ln}:${col})`

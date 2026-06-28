@@ -57,7 +57,9 @@ Dependency rule: **extension** plugins depend on interface packages, never on `d
 | `ctx.agents` | `AgentRegistry` | dsh-agent | live `Agent` handles + the create/resume factory seam (returns an `AgentHandle` = `{ agent, dispose() }` for owned per-agent teardown) |
 | `ctx.agentLoop` | `AgentLoop` | dsh-agent-loop | creates `ReactLoopAgent`s and drives their loops |
 | `ctx.bash` | `BashExecutor` (abstract) | dsh-bash | bash execution seam: foreground runs + background tasks |
+| `ctx.bash` | `BashExecutor` (abstract) | dsh-bash | bash execution seam: foreground runs + background tasks |
 | `ctx.fs` | `FileSystem` (abstract) | dsh-fs | filesystem provider seam: path resolution, stat, text read/stream, atomic writes/edits (optional version guard); owns the `fs/*` policy events |
+| `ctx.compact` | `CompactService` (abstract) | dsh-compact | compaction seam: decide when history is too large, summarize an older range into a single surface node |
 
 All registrations (`registerAdapter`, `section`, `tools`, `register`, …) go through `ctx.effect()` and return disposers, so plugin hot-reload (vendored HMR) and fiber disposal clean up automatically.
 
@@ -123,7 +125,7 @@ Tool schemas are deliberately **part of the assembly**: "what the model is told 
 - `whenIdle()` — resolves once the agent reaches quiescence after settling out of `running` (resolves immediately when already idle; awaits the loop exit when disposed). A non-owner's quiescence-observation hook: it lets a consumer await the current work settling **without** disposing the agent. It is NOT teardown — it does not stop queued work, unregister the agent, or detach the session; a lifecycle owner tears an agent down with `await AgentHandle.dispose()` (which stops the loop, awaits its exit, and unregisters).
 - `session`, `status`, `options`
 
-**TODO(sub-agents)**: `spawn`/`fork` land on `AgentLoop.create()` — fork seeds the child Session with the parent's event log, spawn starts fresh; children are ordinary `Agent` handles so `steer()` and event subscription work uniformly. Inter-agent channels beyond these primitives are deliberately deferred.
+**Subagents**: `spawn`/`fork` are realized by the [`@deepseek-ai/dsh-subagent`](../packages/subagent/subagent) seam (a named-provider registry on `ctx.subagents`), not a method on `Agent`. The in-process backends create the child via `ctx.agents.create` — fork seeds the child Session with a balanced completed-turn prefix of the parent's log (`CreateAgentOptions.seed`), spawn starts fresh; children are ordinary `Agent` handles so `steer()` and event subscription work uniformly. Out-of-process transports (ACP, and later A2A / Codex app-server / Claude Code SDK) register as sibling providers. See [docs/core-data-structures/subagent.md](core-data-structures/subagent.md) and [the subagent RFC](rfc/implemented/feature/2026-06-21-subagent-capability-seam.md). Inter-agent channels beyond delegation remain deferred.
 
 ### Loop lifecycle (session / turn / step)
 
@@ -198,7 +200,7 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 | `/loop` | on `agent/turn-end`, `send()` the next iteration; or force-continue |
 | Dynamic workflow | orchestrator plugin on `agent/turn-end` / `agent/step-end` driving `send`/`steer` (+ sub-agents later) |
 | Queued + steering messages | core `Agent.send()` / `Agent.steer()` |
-| Context compaction (auto + manual) | wrap `agent/request`: measure tokens, rewrite `req.messages`, append merged `compaction/*` session events; manual = a command plugin invoking the same routine |
+| Context compaction (auto + manual) | the `ctx.compact` seam ([dsh-compact](../packages/compact/compact)): a backend summarizes an older surface range into a single `user/message` `replace` op, bracketed by log-only `compact/*` events; auto = check token pressure at turn boundaries, manual = a `/compact` tool. See the [compaction capability-seam RFC](rfc/proposed/feature/2026-06-18-compaction-capability-seam.md) |
 | System prompt configurability | `ctx.systemPrompt.section()` with ordering |
 | AGENTS.md (root) | a section provider reading the file |
 | AGENTS.md (subdir, on-touch) + file-change notices | `agent.inject()` from a watcher / tool-result listener |

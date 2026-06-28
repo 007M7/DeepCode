@@ -50,6 +50,16 @@ export interface SessionHeader {
   cwd?: string
   /** The session this one was forked from (seed lineage), if any. */
   parentSession?: SessionId
+  /**
+   * How many leading events were INHERITED via a seed rather than produced by
+   * this session — the seed boundary. Set when a fork seeds a child with a
+   * prefix of the parent's log (= the seeded prefix length); absent/0 means the
+   * session produced all its own events. Persisted so a reload reconstructs the
+   * boundary instead of re-deriving it from the full stored log, and so a replay
+   * harness can skip the inherited prefix when deriving the child's OWN script
+   * (the seeded events are the parent's, not this child's model calls).
+   */
+  seedLength?: number
 }
 
 /**
@@ -63,10 +73,16 @@ export interface CreateSessionOptions {
   /**
    * Creation metadata. The store fills in `version`/`id` and defaults
    * `createdAt` to now; the caller supplies the storage-level fields (validated
-   * absolute `cwd`, `parentSession` lineage, and — when reconstructing a
-   * persisted session — the original `createdAt` to preserve it).
+   * absolute `cwd`, `parentSession` lineage, the seed boundary `seedLength`, and
+   * — when reconstructing a persisted session — the original `createdAt` to
+   * preserve it).
+   *
+   * `seedLength` is EXPLICIT, not inferred from `seed.length`: a reconstruction
+   * (resume/load) seeds the WHOLE stored log, so its `seed.length` is the full
+   * length, not the original boundary — the caller must pass the persisted
+   * boundary back. A fresh fork passes its actual seeded-prefix length.
    */
-  meta?: { cwd?: string; parentSession?: SessionId; createdAt?: number }
+  meta?: { cwd?: string; parentSession?: SessionId; createdAt?: number; seedLength?: number }
 }
 
 /**
@@ -183,10 +199,73 @@ export interface SessionEventMap {
 export type SessionEventType = keyof SessionEventMap
 
 /**
+ * The subset of {@link SessionEventType} values whose events produce LLM
+ * messages and are eligible to appear on the surface linked list. Only these
+ * event types may carry {@link SurfaceOp} and {@link SessionEvent.sourceEventSeqs}.
+ */
+export type SurfaceEventType =
+  | 'user/message'
+  | 'assistant/message'
+  | 'tool/result'
+  | 'context/message'
+  | 'steering/message'
+
+/**
+ * A {@link SessionEvent} that is **on** the surface linked list — its
+ * `surfaceOp` is guaranteed present (mandatory), narrowed from a
+ * surface-eligible {@link SessionEvent} by checking both `type` and
+ * `surfaceOp` at runtime.
+ *
+ * Use the `isSurfaceEvent` type guard (in `surface.ts`) to narrow a
+ * `SessionEvent` to this type.
+ */
+export type SurfaceEvent = SessionEvent<SurfaceEventType> & { surfaceOp: SurfaceOp }
+
+/**
+ * How a session event entered the surface linked list. Only valid on
+ * {@link SurfaceEventType} events.
+ *
+ * - `'append'`: added to the tail — normal path for user/assistant/tool/context
+ *   messages.
+ * - `{ op: 'replace', start, end }`: replaces surface nodes from `start`
+ *   (inclusive) through `end` (inclusive) with this node. Both must exist as
+ *   surface nodes in the current surface. `start === end` replaces a single
+ *   node. The node's {@link SessionEvent.sourceEventSeqs} must include every
+ *   shadowed surface node. Used by compaction and possible other manipulations.
+ */
+export type SurfaceOp =
+  | 'append'
+  | { op: 'replace'; start: number; end: number }
+
+/**
+ * Surface metadata passed to {@link Session.append}.
+ * `surfaceOp` controls how the event enters the surface linked list;
+ * `sourceEventSeqs` records the seq numbers of events that are provenance
+ * sources of this one (e.g. the `assistant/chunk` seqs behind an
+ * `assistant/message`, or the shadowed nodes behind a compaction replacement).
+ *
+ * Required for {@link SurfaceEventType} events — every message-producing event
+ * MUST declare how it enters the surface, because the surface is the sole
+ * source of derived history. Non-surface event types (`turn/start`,
+ * `assistant/chunk`, `error`, …) cannot carry surface metadata.
+ */
+export interface SurfaceIntent {
+  surfaceOp: SurfaceOp
+  sourceEventSeqs?: number[]
+}
+
+/**
  * One immutable entry in the session log.
  *
  * A proper discriminated union over `type` (not independent `type`/`data`
  * unions), so `switch (event.type)` narrows `event.data` without casts.
+ *
+ * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
+ * they only exist on {@link SurfaceEventType} variants (`user/message`,
+ * `assistant/message`, `tool/result`, `context/message`, `steering/message`).
+ * Non-surface events (boundary markers, chunks, usage, errors) never carry
+ * surface metadata — the compiler enforces this at `Session.append()`
+ * call sites.
  */
 export type SessionEvent<T extends SessionEventType = SessionEventType> = {
   [K in SessionEventType]: {
@@ -196,5 +275,14 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /** Unix epoch milliseconds. */
     time: number
     data: SessionEventMap[K]
-  }
+  } & (K extends SurfaceEventType ? {
+    /**
+     * Seq numbers of events that are provenance sources of this event
+     * (e.g. the `assistant/chunk` seqs that built an `assistant/message`,
+     * or the surface nodes shadowed by a compaction marker).
+     */
+    sourceEventSeqs?: number[]
+    /** How this event entered the surface; absent for non-surface events. */
+    surfaceOp?: SurfaceOp
+  } : object)
 }[T]

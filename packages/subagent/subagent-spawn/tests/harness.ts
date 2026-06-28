@@ -1,0 +1,49 @@
+import { Context } from 'cordis'
+import LlmService from '@deepseek-ai/dsh-llm'
+import SessionStore from '@deepseek-ai/dsh-session'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRegistry from '@deepseek-ai/dsh-tools'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
+import SubagentService from '@deepseek-ai/dsh-subagent'
+import * as Spawn from '../src/index.ts'
+import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
+
+/**
+ * Shared harness for the spawn-backend e2e: the full real stack (DeepSeek
+ * adapter + real bash tool + the subagent tool bound to the spawn backend), so
+ * a real parent agent can delegate to a real in-process child that does real
+ * work (writes a file). Lives outside the *.e2e.ts pattern so importing it never
+ * re-registers another file's tests.
+ */
+export async function spawnHarness(workdir: string): Promise<Context> {
+  const ctx = new Context()
+  await ctx.plugin(LlmService)
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(LlmDeepSeek, { models: ['deepseek-v4-flash'] })
+  await ctx.plugin(LocalBashExecutor, { cwd: workdir, timeoutMs: 30_000 })
+  await ctx.plugin(ToolBash)
+  await ctx.plugin(SubagentService)
+  await ctx.plugin(Spawn, { providerName: 'spawn' })
+  // The model-facing subagent tool, bound to the spawn backend.
+  await ctx.plugin(ToolSubagent, { provider: 'spawn' })
+  return ctx
+}
+
+export function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
+  return new Promise((resolve) => {
+    const dispose = ctx.on('agent/status', (subject, status) => {
+      if (subject === agent && status === 'idle') {
+        dispose()
+        resolve()
+      }
+    })
+  })
+}

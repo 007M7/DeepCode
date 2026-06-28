@@ -5,22 +5,22 @@
   "private": true,
   "type": "module",
   "main": "lib/index.js",
-  "types": "lib/index.d.ts",
+  "types": "lib/types/index.d.ts",
   "exports": {
     ".": {
-      "types": "./lib/index.d.ts",
+      "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
     "./read": {
-      "types": "./lib/read.d.ts",
+      "types": "./lib/types/read.d.ts",
       "default": "./lib/read.js"
     },
     "./write": {
-      "types": "./lib/write.d.ts",
+      "types": "./lib/types/write.d.ts",
       "default": "./lib/write.js"
     },
     "./edit": {
-      "types": "./lib/edit.d.ts",
+      "types": "./lib/types/edit.d.ts",
       "default": "./lib/edit.js"
     },
     "./src/*": "./src/*",

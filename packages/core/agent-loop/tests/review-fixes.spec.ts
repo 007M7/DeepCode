@@ -1018,3 +1018,32 @@ describe('P1-7: tool/result is logged under the originating call.id, not result.
     }
   })
 })
+
+describe('surface: assistant/message omits sourceEventSeqs when no chunks streamed', () => {
+  it('a step-result listener injecting content over an empty stream appends with surfaceOp but no sourceEventSeqs', async () => {
+    // An empty stream yields zero assistant/chunk events (finish defaults to
+    // `stop`), so chunkSeqs is empty. A step-result listener injects content, so
+    // the content-or-usage guard fires and an assistant/message is appended. Its
+    // sourceEventSeqs MUST be omitted (not `[]`) — the surface invariant rejects
+    // an empty sourceEventSeqs, and the dev invariants plugin would throw on it.
+    const adapter = new MockAdapter([[]])
+    const ctx = await harness(adapter)
+    await ctx.plugin(Invariants)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    ctx.on('agent/step-result', async (_agent, _turn, _step, _message, _next) => ({
+      role: 'assistant' as const,
+      content: [{ type: 'text' as const, text: 'injected' }],
+    }))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const recorded = agent.session.events.find(e => e.type === 'assistant/message')!
+    expect(recorded.type).toBe('assistant/message')
+    expect(recorded.surfaceOp).toBe('append')
+    expect(recorded.sourceEventSeqs).toBeUndefined()
+    // The injected content reaches derived history.
+    expect(JSON.stringify(agent.session.deriveMessages())).toContain('injected')
+  })
+})

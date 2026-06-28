@@ -56,6 +56,10 @@ export interface StdioRuntime {
   exit: (code: number) => void
 }
 
+function isTTYPair(input: Readable, output: Writable): boolean {
+  return Boolean((input as { isTTY?: boolean }).isTTY && (output as { isTTY?: boolean }).isTTY)
+}
+
 /**
  * The plugin body, parameterized over its I/O runtime. `apply` is the thin
  * production wrapper that binds the real `process` streams; tests call this
@@ -110,7 +114,7 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   })
 
   ctx.effect(() => {
-    const reader = createInterface({ input })
+    const reader = createInterface({ input, output, terminal: isTTYPair(input, output) })
     // Piped-input exit, once stdin reaches EOF:
     //  - If no line ever submitted work (empty stdin, blank-only lines), exit
     //    immediately — no turn will ever start, so there is nothing to wait
