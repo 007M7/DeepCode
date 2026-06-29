@@ -306,9 +306,9 @@ export class BasicCompactService extends CompactService {
     const error = finishError(assembler.finish)
     if (error) throw error
 
-    const summary = this._stripReasoning(assembler.message().content)
+    const summary = this._textOnly(assembler.message().content)
     if (!summary.some(block => block.type === 'text' && block.text.trim().length > 0)) {
-      throw new Error('summarization produced no non-reasoning summary content')
+      throw new Error('summarization produced no text summary content')
     }
 
     return summary
@@ -358,7 +358,9 @@ export class BasicCompactService extends CompactService {
 
       const range = this._compactableRange(session)
       if (range === null) {
+        /* v8 ignore else -- defensive for non-standard subclass mutations; the concrete replace keeps a compactable head checkpoint. */
         if (result === null) return null
+        /* v8 ignore next -- paired with the ignored defensive branch above. */
         break
       }
 
@@ -605,21 +607,19 @@ export class BasicCompactService extends CompactService {
     return { start: firstSeq, end: cutoffSeq }
   }
 
-  /** Remove reasoning blocks from model-produced summary content before storing it. */
-  private _stripReasoning(blocks: readonly ContentBlock[]): ContentBlock[] {
-    const stripped: ContentBlock[] = []
-    for (const block of blocks) {
-      switch (block.type) {
-        case 'reasoning':
-          break
-        case 'tool-result':
-          stripped.push({ ...block, content: this._stripReasoning(block.content) })
-          break
-        default:
-          stripped.push(block)
-      }
-    }
-    return stripped
+  /**
+   * Keep ONLY text blocks from the model-produced summary before storing it.
+   *
+   * The summary lands on the surface as a synthesized `user/message` (see
+   * {@link _frameSummary}), so the only block type that is both useful and safe
+   * there is `text`. A model assistant message can otherwise carry `reasoning`
+   * (private chain-of-thought, must not leak into the durable checkpoint) and
+   * `tool-call` blocks — and a surviving `tool-call` in a user message would be
+   * an orphaned call with no matching `tool-result`, exactly the tool-pairing
+   * breakage compaction works to avoid. Filtering to text drops both.
+   */
+  private _textOnly(blocks: readonly ContentBlock[]): ContentBlock[] {
+    return blocks.filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
   }
 
   /**

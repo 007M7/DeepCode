@@ -520,6 +520,24 @@ describe('BasicCompactService.compactIfNeeded', () => {
     expect(result!.shadowedSeqs.length).toBeGreaterThan(0)
   })
 
+  it('returns the first compaction result when a zero-retry pass converges after the loop', async () => {
+    // With compactionRetries=0 there is no next-loop threshold check after the
+    // first mutation, so the success path is the post-loop `return result`.
+    const svc = createTestService({
+      contextWindow: 100,
+      thresholdRatio: 0.7,
+      retainTokens: 10,
+      compactionRetries: 0,
+    })
+    const session = multiTurnSession(3, 1) // 6 derived messages = 84 estimated tokens.
+
+    const result = await compactIfNeeded(svc, session, '', 'm', SIGNAL)
+
+    expect(result).not.toBeNull()
+    expect(session.events.filter(e => e.type === 'compact/summary')).toHaveLength(1)
+    expect(svc.estimateTokens(session.deriveMessages(), '')).toBeLessThan(70)
+  })
+
   it('walks tail→head and retains nodes within token budget', async () => {
     const svc = createTestService({ contextWindow: 350, thresholdRatio: 0.2, retainTokens: 15 })
     const session = multiTurnSession(5, 1) // 10 surface nodes = ~100 tokens
@@ -955,10 +973,13 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     expect(adapter.lastOptions!.maxTokens).toBe(50)
   })
 
-  it('strips reasoning blocks from the stored summary', async () => {
+  it('keeps only text blocks in the stored summary (drops reasoning and tool-call)', async () => {
     const { ctx } = await ctxWithBlocks([
       { type: 'reasoning', text: 'private chain of thought' },
       { type: 'text', text: 'PUBLIC SUMMARY' },
+      // A model reply can carry a tool-call; it must not survive into the
+      // synthesized user/message summary as an orphaned call.
+      { type: 'tool-call', id: CallId('c1'), name: 'bash', arguments: '{}' },
     ])
     const svc = new BasicCompactService(ctx, { auto: false })
 
@@ -967,11 +988,11 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     expect(summary).toEqual([{ type: 'text', text: 'PUBLIC SUMMARY' }])
   })
 
-  it('throws when stripping reasoning leaves no summary text', async () => {
+  it('throws when no text block remains after filtering', async () => {
     const { ctx } = await ctxWithBlocks([{ type: 'reasoning', text: 'private only' }])
     const svc = new BasicCompactService(ctx, { auto: false })
 
-    await expect(summarize(svc, 'User: hi', 'test-model')).rejects.toThrow(/no non-reasoning summary content/)
+    await expect(summarize(svc, 'User: hi', 'test-model')).rejects.toThrow(/no text summary content/)
   })
 
   it('throws when no model is provided', async () => {
@@ -1068,6 +1089,26 @@ describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => 
     expect(session.events.some(e => e.type === 'compact/summary')).toBe(true)
     // The re-derived head message is the framed summary checkpoint.
     expect(session.deriveMessages()[0]!.content).toContainEqual({ type: 'text', text: 'SUMMARY' })
+  })
+
+  it('logs compaction details when auto-compaction returns a converged result', async () => {
+    const ctx = new Context()
+    const infos: string[] = []
+    ctx.logger.info = ((msg: string) => void infos.push(msg)) as typeof ctx.logger.info
+    void new TestCompactService(ctx, {
+      contextWindow: 100,
+      thresholdRatio: 0.7,
+      retainTokens: 10,
+      compactionRetries: 0,
+    })
+    const session = multiTurnSession(3, 1)
+    const agent = stubAgent(session, 'test-model')
+
+    await firePreStep(ctx, agent, 1, '')
+
+    expect(session.events.filter(e => e.type === 'compact/summary')).toHaveLength(1)
+    expect(infos.some(msg => msg.includes('compaction: shadowed'))).toBe(true)
+    expect(infos.some(msg => msg.includes('estimated tokens after compaction'))).toBe(true)
   })
 
   it('compacts mid-turn on steps after the first (the surface grows within a turn)', async () => {
