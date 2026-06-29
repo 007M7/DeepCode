@@ -131,7 +131,6 @@ export class PerplexitySearchProvider implements WebSearchProvider {
       return mapPerplexityResponse(request.query, payload)
     } catch (error: unknown) {
       if (isAbortError(error)) throw new WebError('Perplexity search aborted', 'WEB_ABORTED', { cause: error })
-      if (error instanceof WebError) throw error
       throw new WebError(`Perplexity returned an unprocessable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
     }
   }

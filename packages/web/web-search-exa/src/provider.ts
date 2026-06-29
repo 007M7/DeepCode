@@ -123,7 +123,6 @@ export class ExaSearchProvider implements WebSearchProvider {
       return mapExaResponse(request.query, payload)
     } catch (error: unknown) {
       if (isAbortError(error)) throw new WebError('Exa search aborted', 'WEB_ABORTED', { cause: error })
-      if (error instanceof WebError) throw error
       throw new WebError(`Exa returned an unprocessable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
     }
   }
