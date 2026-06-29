@@ -70,7 +70,7 @@ function toTodoList(raw: { content: string; status: string }[]): TodoItem[] {
       throw new Error(`invalid todo status ${JSON.stringify(status)}: expected one of ${STATUSES.join(', ')}`)
     }
     if (status === 'in_progress') inProgress++
-    todos.push({ content: item.content, status })
+    todos.push({ content, status })
   }
   if (inProgress > 1) {
     throw new Error(`invalid todos: at most one task may be in_progress, got ${inProgress}`)
