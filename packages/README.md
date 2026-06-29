@@ -25,6 +25,7 @@ The split is the point: a package's group says whether it is part of the product
 
 ```
 dsh-brand         (no harness deps — type-only Branded<B> primitive)
+dsh-paths         (no harness deps — shared filesystem path helpers)
 dsh-llm          ← dsh-brand                       (vocabulary; brands CallId)
 dsh-bash          ← dsh-brand                       (abstract executor seam; brands BashTaskId/OwnerToken)
 dsh-session       ← dsh-llm, dsh-brand
@@ -32,7 +33,7 @@ dsh-system-prompt ← dsh-llm
 dsh-agent         ← dsh-llm, dsh-session, dsh-brand
 dsh-compact       ← dsh-session, dsh-llm                (abstract compaction seam; backend + tool deferred)
 dsh-tools         ← dsh-llm, dsh-system-prompt, dsh-agent
-dsh-project-instructions ← dsh-agent, dsh-llm            (AGENTS.md/CLAUDE.md workspace context loader)
+dsh-project-instructions ← dsh-agent, dsh-llm, dsh-paths (AGENTS.md/CLAUDE.md workspace context loader)
 dsh-bash-local    ← dsh-bash                       (BashExecutor impl)
 dsh-tool-bash     ← dsh-bash, dsh-tools            (bash tool schemas)
 dsh-llm-deepseek  ← dsh-llm                        (DeepSeek adapter)
@@ -89,6 +90,7 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `subagent-mock/` | `support` | Scripted `SubagentProvider` for testing the seam through the real load path | (registers on `ctx.subagents`) |
 | `tool-subagent/` | `subagent` | Model-facing `subagent` delegation tool over `ctx.subagents` | (registers on `ctx.tools`) |
 | `brand/` | `util` | Type-only `Branded<B>` nominal-typing primitive (no runtime code, no harness deps) | (none — type-only) |
+| `paths/` | `util` | Shared filesystem path constants and helpers for harness user data | (none) |
 
 Each package has its own `README.md` with purpose, service API, events, extension points, and deliberate non-goals (TODOs).
 

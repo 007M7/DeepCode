@@ -28,6 +28,7 @@ graph TD
   invariants --> session
   project-instructions --> agent
   project-instructions --> llm
+  project-instructions --> paths
   session-persistence-jsonl --> session
   session-persistence-jsonl --> session-persistence
   session-persistence-sqlite --> session
@@ -100,6 +101,7 @@ graph TD
 | Package | Depends on |
 | --- | --- |
 | `brand` | — |
+| `paths` | — |
 | `bash` | `brand` |
 | `llm` | `brand` |
 | `bash-local` | `bash` |
@@ -112,7 +114,7 @@ graph TD
 | `llm-replay` | `llm`, `session` |
 | `session-persistence` | `session` |
 | `invariants` | `agent`, `llm`, `session` |
-| `project-instructions` | `agent`, `llm` |
+| `project-instructions` | `agent`, `llm`, `paths` |
 | `session-persistence-jsonl` | `session`, `session-persistence` |
 | `session-persistence-sqlite` | `session`, `session-persistence` |
 | `tools` | `agent`, `llm`, `system-prompt` |

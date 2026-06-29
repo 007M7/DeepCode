@@ -22,7 +22,7 @@ For a catalog of the **data structures** this architecture moves around — the 
 │  future plugins: hooks, compaction, sandbox, UI, MCP…        │
 ├─────────────────────────────────────────────────────────────┤
 │  @deepseek-ai/dsh-agent-loop      (the ONE concrete plugin)  │
-│  @deepseek-ai/dsh-project-instructions (AGENTS.md loader)     │
+│  @deepseek-ai/dsh-project-instructions (AGENTS.md loader)    │
 │  @deepseek-ai/dsh-bash-local      (bash impl)                │
 │  @deepseek-ai/dsh-tool-bash       (bash tool schemas)        │
 │  @deepseek-ai/dsh-session-persistence-jsonl (persistence impl)│
@@ -97,7 +97,7 @@ Replay/fork = `ctx.sessions.create(id, { seed: seedEvents })`. Trace/telemetry =
 
 Plugins contribute `PromptSection`s (named, ordered, static or computed) and tool-schema providers. `assemble()` returns a `PromptAssembly { sections, tools }` through the `system-prompt/assemble` waterfall.
 
-Prompt/context extension plugins that shape model inputs without owning a core service live under `packages/prompt/`. `dsh-project-instructions` is the reference case: it is semantically prompt/context assembly, but it uses the per-agent `agent/request` seam instead of a global `ctx.systemPrompt.section()` so concurrent sessions with different cwd values stay isolated.
+Prompt/context extension plugins that shape model inputs without owning a core service live under `packages/prompt/`. `dsh-project-instructions` is the reference case: it is semantically prompt/context assembly, but it uses the per-agent `agent/request` seam instead of a global `ctx.systemPrompt.section()` so concurrent sessions with different cwd values stay isolated. Shared filesystem path conventions such as the default DSH home live in the low-level `dsh-paths` utility package rather than in the prompt plugin.
 
 Tool schemas are deliberately **part of the assembly**: "what the model is told it can do" is one coherent thing managed here, even though adapters transmit schemas as the wire-level `tools` field rather than prompt text.
 

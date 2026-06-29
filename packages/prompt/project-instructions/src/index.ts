@@ -7,12 +7,12 @@
  */
 
 import { readFile, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { DEFAULT_DSH_HOME_DISPLAY, defaultDshHome, expandHomePath } from '@deepseek-ai/dsh-paths'
 
 export const name = 'project-instructions'
 
@@ -35,7 +35,7 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
-  dshHome: z.string().default(join(homedir(), '.dsh')),
+  dshHome: z.string().default(defaultDshHome()),
   projectRootMarkers: z.array(z.string()).default([...DEFAULT_PROJECT_ROOT_MARKERS]),
   baselineMaxBytes: z.number().default(DEFAULT_BASELINE_MAX_BYTES),
   enableClaudeFallback: z.boolean().default(true),
@@ -44,6 +44,10 @@ export const Config: z<Config> = z.object({
 export interface InstructionFile {
   absolutePath: string
   displayPath: string
+}
+
+interface DiscoveredInstructionFile extends InstructionFile {
+  signature: FileSignature
 }
 
 export interface LoadedInstructionFile extends InstructionFile {
@@ -94,7 +98,7 @@ interface LoadOptions extends DiscoverOptions {
 
 function resolveConfig(config: Config): ResolvedConfig {
   return {
-    dshHome: resolve(config.dshHome ?? join(homedir(), '.dsh')),
+    dshHome: resolve(expandHomePath(config.dshHome ?? defaultDshHome())),
     projectRootMarkers: config.projectRootMarkers ?? [...DEFAULT_PROJECT_ROOT_MARKERS],
     baselineMaxBytes: config.baselineMaxBytes ?? DEFAULT_BASELINE_MAX_BYTES,
     enableClaudeFallback: config.enableClaudeFallback ?? true,
@@ -162,15 +166,17 @@ async function firstExistingInstructionFile(
   dir: string,
   root: string,
   enableClaudeFallback: boolean,
-): Promise<InstructionFile | undefined> {
+): Promise<DiscoveredInstructionFile | undefined> {
   const agentsPath = join(dir, 'AGENTS.md')
-  if (await statFile(agentsPath)) {
-    return { absolutePath: agentsPath, displayPath: relativeDisplay(root, agentsPath) }
+  const agentsSignature = await statFile(agentsPath)
+  if (agentsSignature !== undefined) {
+    return { absolutePath: agentsPath, displayPath: relativeDisplay(root, agentsPath), signature: agentsSignature }
   }
   if (!enableClaudeFallback) return undefined
   const claudePath = join(dir, 'CLAUDE.md')
-  if (await statFile(claudePath)) {
-    return { absolutePath: claudePath, displayPath: relativeDisplay(root, claudePath) }
+  const claudeSignature = await statFile(claudePath)
+  if (claudeSignature !== undefined) {
+    return { absolutePath: claudePath, displayPath: relativeDisplay(root, claudePath), signature: claudeSignature }
   }
   return undefined
 }
@@ -179,29 +185,38 @@ function relativeDisplay(root: string, path: string): string {
   return relative(root, path)
 }
 
-export async function discoverBaselineInstructionFiles(options: DiscoverOptions): Promise<InstructionFile[]> {
+async function discoverInstructionFiles(options: DiscoverOptions): Promise<DiscoveredInstructionFile[]> {
   const config = resolveConfig(options)
-  const files: InstructionFile[] = []
+  const files: DiscoveredInstructionFile[] = []
+  const seen = new Set<string>()
+  const addFile = (file: DiscoveredInstructionFile): void => {
+    if (seen.has(file.absolutePath)) return
+    seen.add(file.absolutePath)
+    files.push(file)
+  }
+
   const userGlobal = join(config.dshHome, 'AGENTS.md')
-  if (await statFile(userGlobal)) {
-    const defaultDshHome = resolve(join(homedir(), '.dsh'))
-    const displayPath = config.dshHome === defaultDshHome ? '~/.dsh/AGENTS.md' : '$DSH_HOME/AGENTS.md'
-    files.push({ absolutePath: userGlobal, displayPath })
+  const userGlobalSignature = await statFile(userGlobal)
+  if (userGlobalSignature !== undefined) {
+    const defaultHome = resolve(defaultDshHome())
+    const displayPath = config.dshHome === defaultHome ? `${DEFAULT_DSH_HOME_DISPLAY}/AGENTS.md` : '$DSH_HOME/AGENTS.md'
+    addFile({ absolutePath: userGlobal, displayPath, signature: userGlobalSignature })
   }
 
   const cwd = resolve(options.cwd)
   const projectRoot = await findProjectRoot(cwd, config.projectRootMarkers)
   for (const dir of ancestorChain(projectRoot, cwd)) {
     const file = await firstExistingInstructionFile(dir, projectRoot, config.enableClaudeFallback)
-    if (file !== undefined) files.push(file)
+    if (file !== undefined) addFile(file)
   }
   return files
 }
 
-async function readCached(path: string, cache: InstructionContentCache): Promise<string | undefined> {
-  const signature = await statFile(path)
-  /* v8 ignore next -- race-only path: file existed during discovery but vanished before the read-side stat. */
-  if (signature === undefined) return undefined
+export async function discoverBaselineInstructionFiles(options: DiscoverOptions): Promise<InstructionFile[]> {
+  return (await discoverInstructionFiles(options)).map(({ absolutePath, displayPath }) => ({ absolutePath, displayPath }))
+}
+
+async function readCached(path: string, signature: FileSignature, cache: InstructionContentCache): Promise<string | undefined> {
   const cached = cache.get(path)
   if (cached !== undefined && cached.mtimeMs === signature.mtimeMs && cached.size === signature.size) {
     return cached.content
@@ -221,11 +236,11 @@ export async function loadBaselineInstructions(options: LoadOptions): Promise<Re
   const config = resolveConfig(options)
   if (config.baselineMaxBytes === 0) return undefined
   const cache = options.cache ?? new Map<string, CachedContent>()
-  const discovered = await discoverBaselineInstructionFiles(options)
+  const discovered = await discoverInstructionFiles(options)
   const loaded: LoadedInstructionFile[] = []
   for (const file of discovered) {
-    const content = await readCached(file.absolutePath, cache)
-    if (content !== undefined) loaded.push({ ...file, content })
+    const content = await readCached(file.absolutePath, file.signature, cache)
+    if (content !== undefined) loaded.push({ absolutePath: file.absolutePath, displayPath: file.displayPath, content })
   }
   if (loaded.length === 0) return undefined
   return renderProjectInstructions(loaded, { maxBytes: config.baselineMaxBytes })

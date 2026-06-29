@@ -19,6 +19,9 @@
     },
     {
       "path": "../../core/agent"
+    },
+    {
+      "path": "../../util/paths"
     }
   ]
 }

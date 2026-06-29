@@ -310,6 +310,9 @@ importers:
       '@deepseek-ai/dsh-llm-deepseek':
         specifier: workspace:^
         version: link:../../llm/llm-deepseek
+      '@deepseek-ai/dsh-paths':
+        specifier: workspace:^
+        version: link:../../util/paths
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
@@ -738,6 +741,12 @@ importers:
         version: 3.18.0
 
   packages/util/brand:
+    devDependencies:
+      cordis:
+        specifier: ^4.0.0-rc.6
+        version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
+
+  packages/util/paths:
     devDependencies:
       cordis:
         specifier: ^4.0.0-rc.6

@@ -215,6 +215,40 @@ describe('project instruction discovery', () => {
     }
   })
 
+  it('expands a configured ~/.dsh home to the operating-system home directory', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await write(join(home, '.dsh/AGENTS.md'), 'global tilde rule')
+
+      vi.resetModules()
+      vi.doMock('node:os', () => ({ homedir: () => home }))
+      const isolated = await import('@deepseek-ai/dsh-project-instructions')
+      const files = await isolated.discoverBaselineInstructionFiles({ cwd: root, dshHome: '~/.dsh' })
+
+      expect(files).toEqual([{ absolutePath: join(home, '.dsh/AGENTS.md'), displayPath: '~/.dsh/AGENTS.md' }])
+    } finally {
+      vi.doUnmock('node:os')
+      vi.resetModules()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('deduplicates user-global instructions when dshHome points at the project root', async () => {
+    const root = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'same file')
+
+      const files = await discoverBaselineInstructionFiles({ cwd: root, dshHome: root })
+
+      expect(files).toEqual([{ absolutePath: join(root, 'AGENTS.md'), displayPath: '$DSH_HOME/AGENTS.md' }])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('ignores instruction candidates that are directories', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
@@ -488,6 +522,41 @@ describe('project instruction request injection', () => {
 
       expect(files.map(file => file.displayPath)).toEqual(['$DSH_HOME/AGENTS.md'])
     } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('reuses the discovery stat signature when reading cached content', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+
+      const observedStats = new Map<string, number>()
+      vi.resetModules()
+      vi.doMock('node:fs/promises', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('node:fs/promises')>()
+        return {
+          ...actual,
+          stat: async (path: string) => {
+            observedStats.set(path, (observedStats.get(path) ?? 0) + 1)
+            return actual.stat(path)
+          },
+        }
+      })
+      const isolated = await import('@deepseek-ai/dsh-project-instructions')
+      const cache: InstructionContentCache = new Map()
+
+      await isolated.loadBaselineInstructions({ cwd: root, dshHome: home, cache })
+      observedStats.clear()
+      await isolated.loadBaselineInstructions({ cwd: root, dshHome: home, cache })
+
+      expect(observedStats.get(join(root, 'AGENTS.md'))).toBe(1)
+    } finally {
+      vi.doUnmock('node:fs/promises')
+      vi.resetModules()
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
     }

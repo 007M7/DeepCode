@@ -97,6 +97,8 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
   util/           low-level zero-dependency utilities shared across groups
     brand/          type-only Branded<B> nominal-typing primitive (no runtime
                     code, no harness deps; owns the brand for cross-boundary ids)
+    paths/          shared filesystem path constants and helpers for harness
+                    user data such as the default DSH home
 examples/    Runnable demos (not workspaces; see examples/AGENTS.md). Each is a
              THIN leaf cordis.yml: it picks the swappable backends (an LLM adapter,
              a bash executor) and loads ONE app package (dsh-stdio-agent or

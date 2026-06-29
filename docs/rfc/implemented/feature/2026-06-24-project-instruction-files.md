@@ -12,7 +12,7 @@ The non-obvious constraint is multi-session cwd. `dsh-system-prompt` sections ar
 
 ## Proposal
 
-Add a new plugin package `packages/prompt/project-instructions` (`@deepseek-ai/dsh-project-instructions`). It is a single-purpose prompt/context extension plugin, not an interface/implementation/consumer capability seam: there is no swappable backend, only filesystem discovery plus per-request context injection. It depends on interface packages only (`dsh-agent` and `dsh-llm`) and consumes the existing `agent/request` waterfall.
+Add a new plugin package `packages/prompt/project-instructions` (`@deepseek-ai/dsh-project-instructions`). It is a single-purpose prompt/context extension plugin, not an interface/implementation/consumer capability seam: there is no swappable backend, only filesystem discovery plus per-request context injection. It depends on interface packages (`dsh-agent` and `dsh-llm`) plus the low-level `dsh-paths` utility for the shared DSH home convention, and consumes the existing `agent/request` waterfall.
 
 The plugin is loaded by `@deepseek-ai/dsh-agent-core` so both product front doors (`dsh-stdio-agent` and `dsh-acp-agent`) get instruction-file behavior by default. The bundle and both app packages expose `projectInstructions` config, so apps may set `projectInstructions: false` or `baselineMaxBytes: 0` when they need a hermetic prompt. The default product behavior matches user expectations for coding agents.
 
@@ -28,7 +28,7 @@ The first cut intentionally does not load lowercase variants (`agents.md`, `clau
 
 User-global harness instructions live at `$DSH_HOME/AGENTS.md`, where `$DSH_HOME` defaults to `~/.dsh` when unset. This mirrors Codex's `~/.codex` and Claude Code's `~/.claude` convention without inventing a repo-local home. The user-global file loads before project files so project-specific instructions appear later and can override broad preferences in the model-readable order.
 
-`$DSH_HOME` is a filesystem location only; this RFC does not introduce a broader config service. If a future config package owns the harness data directory, it should preserve this default and move the path resolution there.
+`$DSH_HOME` is a filesystem location only; this RFC does not introduce a broader config service. The default `.dsh` directory name and tilde expansion live in the small `dsh-paths` utility package so future features can share the same convention without depending on this prompt plugin. If a future config package owns the harness data directory, it should preserve this default and consume or supersede that helper deliberately.
 
 ### Project baseline discovery
 
