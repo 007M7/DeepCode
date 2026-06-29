@@ -75,6 +75,16 @@ describe('dsh-tool-todo', () => {
     expect(event.data.todos).toEqual(todos)
   })
 
+  it('stores the trimmed content (the dedupe/length key), not the raw input', async () => {
+    const ctx = await setup()
+    const agent = agentWithSession('trim')
+    const result = await callTodo(ctx, { todos: [{ content: '  plan the work  ', status: 'pending' }] }, { agent })
+    expect(result.isError).toBe(false)
+
+    const event = agent.session.events.findLast(e => e.type === 'todo/write')!
+    expect(event.data.todos).toEqual([{ content: 'plan the work', status: 'pending' }])
+  })
+
   it('replaces the list on a second call (last-write-wins on the log)', async () => {
     const ctx = await setup()
     const agent = agentWithSession('writer-2')
