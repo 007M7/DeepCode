@@ -763,6 +763,19 @@ importers:
         specifier: ^4.0.0-rc.6
         version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
 
+  packages/web/web-search-deepseek:
+    dependencies:
+      schemastery:
+        specifier: ^3.18.0
+        version: 3.18.0
+    devDependencies:
+      '@deepseek-ai/dsh-web':
+        specifier: workspace:^
+        version: link:../web
+      cordis:
+        specifier: ^4.0.0-rc.6
+        version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
+
   packages/web/web-search-exa:
     dependencies:
       schemastery:

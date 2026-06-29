@@ -25,6 +25,7 @@ graph TD
   llm-replay --> session
   session-persistence --> session
   web-fetch-local --> web
+  web-search-deepseek --> web
   web-search-exa --> web
   web-search-perplexity --> web
   invariants --> agent
@@ -116,6 +117,7 @@ graph TD
 | `llm-replay` | `llm`, `session` |
 | `session-persistence` | `session` |
 | `web-fetch-local` | `web` |
+| `web-search-deepseek` | `web` |
 | `web-search-exa` | `web` |
 | `web-search-perplexity` | `web` |
 | `invariants` | `agent`, `llm`, `session` |
