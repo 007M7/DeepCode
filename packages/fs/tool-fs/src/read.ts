@@ -2,11 +2,12 @@
  * The model-facing `read` tool: inspect a UTF-8 text file and return
  * line-numbered content with pagination guidance. The tool is the executor — it
  * stats and reads through `ctx.fs` directly, builds the line window
- * ({@link module:@deepseek-ai/dsh-tool-fs/window}), and emits a contained
- * `fs/observed` so a policy plugin (`@deepseek-ai/dsh-file-context`) can record
- * the read. With no policy plugin the emit is simply unheard. This module owns
- * the model-facing schema, argument validation, read windowing, and result
- * formatting; the freshness/observation policy is not its concern.
+ * ({@link module:@deepseek-ai/dsh-tool-fs/read-render}), and emits `fs/observed`
+ * so a policy plugin (`@deepseek-ai/dsh-file-context`) can record the read. With
+ * no policy plugin the emit is simply unheard. This module owns the
+ * model-facing schema, argument validation, and the read I/O; the rendering
+ * (windowing + formatting) lives in `read-render.ts` and the
+ * freshness/observation policy is not its concern.
  *
  * @module @deepseek-ai/dsh-tool-fs/src/read
  */
@@ -17,9 +18,8 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { FsError } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import { buildWindow } from './window.ts'
-import { emitObserved } from './observe.ts'
-import type { FileReadOutcome } from './types.ts'
+import { buildWindow, formatReadOutput } from './read-render.ts'
+import type { FileReadOutcome } from './read-render.ts'
 
 /** Default and maximum number of lines returned by one `read` call. */
 export const READ_LIMIT = 2000
@@ -48,27 +48,6 @@ export function parseReadArgs(args: { file_path: string; offset?: number; limit?
   const limit = args.limit === undefined ? READ_LIMIT : parsePositiveInteger(args.limit, 'limit')
   if (limit > READ_LIMIT) throw new Error(`limit must be less than or equal to ${READ_LIMIT}`)
   return { filePath: args.file_path, offset, limit }
-}
-
-/** Format a read outcome as one OpenCode-style line-numbered text block body. */
-export function formatReadOutput(displayPath: string, outcome: FileReadOutcome): string {
-  const endLine = outcome.lines.at(-1)?.number ?? Math.max(0, outcome.offset - 1)
-  let footer: string
-  if (outcome.truncatedByBytes) {
-    footer = `(Output capped. Showing lines ${outcome.offset}-${endLine}. Use offset=${endLine + 1} to continue.)`
-  } else if (endLine < outcome.totalLines) {
-    footer = `(Showing lines ${outcome.offset}-${endLine} of ${outcome.totalLines}. Use offset=${endLine + 1} to continue.)`
-  } else {
-    footer = `(End of file - total ${outcome.totalLines} lines)`
-  }
-  const body = outcome.lines.length > 0
-    ? `${outcome.lines.map(line => `${line.number}: ${line.text}`).join('\n')}\n\n${footer}`
-    : footer
-  return `<path>${displayPath}</path>
-<type>file</type>
-<content>
-${body}
-</content>`
 }
 
 /** Register the `read` tool and its system-prompt guidance. */
@@ -114,7 +93,10 @@ export function applyReadTool(ctx: Context): void {
         version: info.version,
         ...window.truncatedByBytes ? { truncatedByBytes: true } : {},
       }
-      emitObserved(ctx, target, info.version, exec)
+      // Record the observed version (a no-op when no policy plugin listens). The
+      // read already succeeded; an fs/observed listener is contractually a
+      // synchronous, side-effect-only recorder.
+      ctx.emit('fs/observed', target, info.version, exec)
       return [{ type: 'text', text: formatReadOutput(target.displayPath, outcome) }]
     },
   }))

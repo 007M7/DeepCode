@@ -51,7 +51,7 @@
     { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsEditOutcome", "source": "packages/fs/fs/src/types.ts" },
     { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsErrorCode", "source": "packages/fs/fs/src/types.ts" },
     { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FileContextExec", "source": "packages/fs/file-context/src/types.ts" },
-    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FileReadOutcome", "source": "packages/fs/tool-fs/src/types.ts" },
+    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FileReadOutcome", "source": "packages/fs/tool-fs/src/read-render.ts" },
 
     { "doc": "docs/core-data-structures/compaction.md", "symbol": "CompactionResult", "source": "packages/compact/compact/src/types.ts" },
 

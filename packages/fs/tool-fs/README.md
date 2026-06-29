@@ -31,8 +31,8 @@ The tools do **not** inject a policy service or inspect any cache. Each tool res
 
 The tool passes `exec` (the tool-execution context) as the opaque `actor` on every dispatch. The default thunks return `undefined` (the unconstrained bare provider). When `@deepseek-ai/dsh-file-context` is loaded it occupies the single decision slot — returning `createIfAbsent`/`replaceIfVersion`/`{ version }` or throwing `FS_NOT_OBSERVED` — and records on `fs/observed`. Backend errors (`FsError`) and a thrown `FS_NOT_OBSERVED` flow through `ToolRegistry.execute()` and become `isError` tool results with their `{ name, code }` attached.
 
-## `fs/observed` never fails the tool
+## `fs/observed` is fire-and-forget
 
-`fs/observed` fires AFTER the read/write/edit already succeeded, so the tool wraps the emit in a try/catch (`src/observe.ts`) that logs and swallows a synchronous listener bug — otherwise a recording failure would turn a completed mutation into an `isError`. The event contract requires synchronous, side-effect-only listeners; this is the synchronous backstop, not async-error handling.
+`fs/observed` fires AFTER the read/write/edit already succeeded, via a plain `ctx.emit`. A listener is contractually a synchronous, side-effect-only recorder (`@deepseek-ai/dsh-file-context`'s is a `WeakMap.set`); the tool does not guard the emit, so a listener that throws would surface as the tool's `isError` result — async or fallible observation does not belong on this event.
 
-The line-windowing mechanics live in `src/window.ts` (Cordis-free, independently unit-tested); `src/read.ts`/`write.ts`/`edit.ts` are the tool executors and `src/index.ts` composes them.
+The read rendering (line windowing + output formatting) lives in `src/read-render.ts` (Cordis-free, independently unit-tested); `src/read.ts`/`write.ts`/`edit.ts` are the tool executors and `src/index.ts` composes them.

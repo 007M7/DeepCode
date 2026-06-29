@@ -223,19 +223,6 @@ describe('default deployment (with dsh-file-context)', () => {
       statSpy.mockRestore()
     })
   })
-
-  describe('contained fs/observed recording', () => {
-    it('a synchronously throwing fs/observed listener does not fail the completed write', async () => {
-      ctx.on('fs/observed', () => { throw new Error('listener boom') })
-      const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
-      const result = await call('write', { file_path: 'a.txt', content: 'hi' })
-      // The write succeeded on disk; the listener throw was logged and swallowed.
-      expect(result.isError).toBe(false)
-      expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hi')
-      expect(warn).toHaveBeenCalled()
-      warn.mockRestore()
-    })
-  })
 })
 
 // --------------------------------------------------------------------------

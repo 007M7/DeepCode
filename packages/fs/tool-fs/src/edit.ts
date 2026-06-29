@@ -2,13 +2,12 @@
  * The model-facing `edit` tool: update an existing UTF-8 text file by replacing
  * literal text, requiring a unique match by default. The tool is the executor:
  * it dispatches the `fs/edit-expectation` waterfall to obtain the optional
- * version guard, calls `ctx.fs.editText` directly, and emits a contained
- * `fs/observed`. The default thunk returns `undefined` (unconditional edit of
- * the current content — the bare provider); a policy plugin
- * (`@deepseek-ai/dsh-file-context`) occupies the single decision slot, returning
- * `{ version: vObserved }` or throwing `FS_NOT_OBSERVED` for an unread file. The
- * tool stats ZERO times either way; a missing target is reported by the provider
- * as `FS_STALE_VERSION`.
+ * version guard, calls `ctx.fs.editText` directly, and emits `fs/observed`. The
+ * default thunk returns `undefined` (unconditional edit of the current content
+ * — the bare provider); a policy plugin (`@deepseek-ai/dsh-file-context`)
+ * occupies the single decision slot, returning `{ version: vObserved }` or
+ * throwing `FS_NOT_OBSERVED` for an unread file. The tool stats ZERO times
+ * either way; a missing target is reported by the provider as `FS_STALE_VERSION`.
  *
  * @module @deepseek-ai/dsh-tool-fs/src/edit
  */
@@ -19,7 +18,6 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { FsEditOutcome } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import { emitObserved } from './observe.ts'
 
 /** Validated `edit` arguments after defaulting. */
 interface EditInput {
@@ -79,7 +77,8 @@ export function applyEditTool(ctx: Context): void {
         expectation,
         exec.signal,
       )
-      emitObserved(ctx, target, outcome.version, exec)
+      // Record the observed version (a no-op when no policy plugin listens).
+      ctx.emit('fs/observed', target, outcome.version, exec)
       return [{ type: 'text', text: formatEditOutput(target.displayPath, outcome) }]
     },
   }))

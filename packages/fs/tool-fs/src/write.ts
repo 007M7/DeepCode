@@ -2,8 +2,8 @@
  * The model-facing `write` tool: create or fully replace a UTF-8 text file. The
  * tool is the executor: it dispatches the `fs/write-expectation` waterfall to
  * obtain the optional version guard, calls `ctx.fs.writeText` directly, and
- * emits a contained `fs/observed`. The default thunk returns `undefined`
- * (unconditional create-or-overwrite — the bare provider); a policy plugin
+ * emits `fs/observed`. The default thunk returns `undefined` (unconditional
+ * create-or-overwrite — the bare provider); a policy plugin
  * (`@deepseek-ai/dsh-file-context`) occupies the single decision slot and
  * returns `createIfAbsent`/`replaceIfVersion` instead. The tool stats ZERO
  * times either way.
@@ -17,7 +17,6 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import { emitObserved } from './observe.ts'
 
 /** Validate value constraints the schema DSL can't express. */
 export function parseWriteArgs(args: { file_path: string; content: string }): { filePath: string; content: string } {
@@ -57,7 +56,8 @@ export function applyWriteTool(ctx: Context): void {
       // replaceIfVersion; the bare default is undefined (unconditional). No stat.
       const expectation = await ctx.waterfall('fs/write-expectation', target, exec, () => undefined)
       const outcome = await ctx.fs.writeText(target, input.content, expectation, exec.signal)
-      emitObserved(ctx, target, outcome.version, exec)
+      // Record the observed version (a no-op when no policy plugin listens).
+      ctx.emit('fs/observed', target, outcome.version, exec)
       return [{ type: 'text', text: formatWriteOutput(target.displayPath, outcome) }]
     },
   }))

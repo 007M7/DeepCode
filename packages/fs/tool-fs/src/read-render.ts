@@ -1,19 +1,23 @@
 /**
- * Cordis-free line-windowing for `@deepseek-ai/dsh-tool-fs`. Turning a file's
+ * Cordis-free read rendering for `@deepseek-ai/dsh-tool-fs`: turn a file's
  * decoded text into a bounded, line-numbered window (offset/limit, byte cap,
- * per-line truncation) is the model-facing READ-RENDERING detail the tool owns
- * now that the tool reads through `ctx.fs` directly — it is not a storage
- * primitive and not freshness policy.
+ * per-line truncation) and format it as the model-facing text block. This is
+ * the `read` tool's RENDERING detail — not a storage primitive, not freshness
+ * policy — so it lives apart from the tool's I/O and event wiring as a pure,
+ * independently-testable module (no cordis, no filesystem).
  *
  * The provider (`ctx.fs.readText`/`streamText`) hands back already-decoded text
- * (UTF-8 validated, binary rejected); this module only scans that text for
- * newlines and builds the requested window. A capped line buffer means a
+ * (UTF-8 validated, binary rejected); {@link buildWindow} only scans that text
+ * for newlines and builds the requested window. A capped line buffer means a
  * newline-free giant line can never balloon memory even when streamed.
+ * {@link formatReadOutput} turns the resulting {@link FileReadOutcome} into the
+ * `<path>/<content>` envelope the model sees.
  *
- * @module @deepseek-ai/dsh-tool-fs/window
+ * @module @deepseek-ai/dsh-tool-fs/read-render
  */
 
 import { FsError } from '@deepseek-ai/dsh-fs'
+import type { FsVersion } from '@deepseek-ai/dsh-fs'
 
 /** Maximum characters returned for a single line. */
 export const READ_MAX_LINE_LENGTH = 2000
@@ -40,7 +44,7 @@ export interface FileTextLine {
   text: string
 }
 
-/** The windowed result this module builds from a file's decoded text. */
+/** The windowed result {@link buildWindow} produces from a file's decoded text. */
 export interface WindowResult {
   /** Returned lines, already numbered. */
   lines: FileTextLine[]
@@ -48,6 +52,22 @@ export interface WindowResult {
   totalLines: number
   /** Whether selected output hit the byte cap before EOF or the requested limit. */
   truncatedByBytes: boolean
+}
+
+/** Outcome of a bounded text read — what {@link formatReadOutput} renders. */
+export interface FileReadOutcome {
+  /** 1-based first line requested. */
+  offset: number
+  /** Maximum number of lines requested. */
+  limit: number
+  /** Returned lines, already numbered. */
+  lines: FileTextLine[]
+  /** Total line count in the file, unless `truncatedByBytes` stopped scanning early. */
+  totalLines: number
+  /** Whether selected output hit the byte cap before EOF or the requested limit. */
+  truncatedByBytes?: true
+  /** Opaque version of the file at read time. */
+  version: FsVersion
 }
 
 interface WindowAccumulator {
@@ -136,4 +156,25 @@ export async function buildWindow(
   }
   if (lineBuffer.length > 0) flushLine()
   return finish(acc, request, displayPath)
+}
+
+/** Format a read outcome as one OpenCode-style line-numbered text block body. */
+export function formatReadOutput(displayPath: string, outcome: FileReadOutcome): string {
+  const endLine = outcome.lines.at(-1)?.number ?? Math.max(0, outcome.offset - 1)
+  let footer: string
+  if (outcome.truncatedByBytes) {
+    footer = `(Output capped. Showing lines ${outcome.offset}-${endLine}. Use offset=${endLine + 1} to continue.)`
+  } else if (endLine < outcome.totalLines) {
+    footer = `(Showing lines ${outcome.offset}-${endLine} of ${outcome.totalLines}. Use offset=${endLine + 1} to continue.)`
+  } else {
+    footer = `(End of file - total ${outcome.totalLines} lines)`
+  }
+  const body = outcome.lines.length > 0
+    ? `${outcome.lines.map(line => `${line.number}: ${line.text}`).join('\n')}\n\n${footer}`
+    : footer
+  return `<path>${displayPath}</path>
+<type>file</type>
+<content>
+${body}
+</content>`
 }

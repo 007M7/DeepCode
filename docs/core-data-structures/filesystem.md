@@ -4,7 +4,7 @@ The filesystem stack is split across four packages: a provider seam ([dsh-fs](..
 
 The model is **additive, not subtractive**: `ctx.fs` alone is a complete, unconstrained text-storage seam (`write` unconditionally creates-or-overwrites, `edit` unconditionally replaces literal text). `dsh-file-context` is a plugin that *adds* policy on top by deciding the `fs/*` waterfalls; removing it leaves the bare provider rather than breaking the tool, because the tool is not method-coupled to the policy. A deployment that loads `dsh-tool-fs` is expected to also load `dsh-file-context` so the default behavior is read-before-write/edit.
 
-Provider source: [`packages/fs/fs/src/types.ts`](../../packages/fs/fs/src/types.ts) and [`packages/fs/fs/src/index.ts`](../../packages/fs/fs/src/index.ts). Policy source: [`packages/fs/file-context/src/types.ts`](../../packages/fs/file-context/src/types.ts). Read-rendering source: [`packages/fs/tool-fs/src/types.ts`](../../packages/fs/tool-fs/src/types.ts).
+Provider source: [`packages/fs/fs/src/types.ts`](../../packages/fs/fs/src/types.ts) and [`packages/fs/fs/src/index.ts`](../../packages/fs/fs/src/index.ts). Policy source: [`packages/fs/file-context/src/types.ts`](../../packages/fs/file-context/src/types.ts). Read-rendering source: [`packages/fs/tool-fs/src/read-render.ts`](../../packages/fs/tool-fs/src/read-render.ts).
 
 ## Target identity and metadata (provider seam)
 

@@ -199,7 +199,7 @@ Source: [`packages/fs/fs/src/index.ts:117`](../../packages/fs/fs/src/index.ts)
 
 #### `fs/observed` — emit
 
-Record that an actor observed a target at a version, after a successful read/write/edit. Fire-and-forget. A listener MUST be a synchronous, side-effect-only recorder (`@deepseek-ai/dsh-file-context`'s is a `WeakMap.set`); the tool wraps the emit in a try/catch so a synchronous listener bug is logged and swallowed, never failing the already-completed mutation. cordis `emit` does not await listener promises, so this is not an async-error containment seam — async audit/telemetry does not belong here. No listener ⇒ nothing recorded. `actor` is the opaque tool-execution context.
+Record that an actor observed a target at a version, after a successful read/write/edit. Fire-and-forget (plain `emit`). A listener MUST be a synchronous, side-effect-only recorder (`@deepseek-ai/dsh-file-context`'s is a `WeakMap.set`): the tool does not guard the emit, so a listener that throws surfaces as the tool's `isError` result, and cordis `emit` does not await listener promises — async or fallible audit/telemetry does not belong here. No listener ⇒ nothing recorded. `actor` is the opaque tool-execution context.
 
 ```ts cordis-catalog
 'fs/observed'(target: FsTarget, version: FsVersion, actor: object | undefined): void
