@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { interruptedTurnClosers } from '../src/index.ts'
-import type { SessionEvent } from '../src/index.ts'
+import type { SessionEvent, SurfaceEvent } from '../src/index.ts'
 
 /**
  * Unit coverage for the crash-recovery closer synthesis. The persistence
@@ -136,5 +136,37 @@ describe('interruptedTurnClosers', () => {
     expect(closers.map(e => e.type)).toEqual(['tool/result', 'step/end', 'turn/end'])
     const result = closers[0]!
     expect(result.type === 'tool/result' && result.data.callId).toBe('call-b')
+  })
+
+  it('synthesized tool/result carries surfaceOp and sourceEventSeqs when tool/call was logged', () => {
+    const events: SessionEvent[] = [
+      userTurnStart(1, 0),
+      { type: 'step/start', seq: 1, time: 1, data: { turn: 1, step: 1 } },
+      { type: 'assistant/message', seq: 2, time: 2, data: { turn: 1, step: 1, content: [
+        { type: 'tool-call', id: CallId('call-1'), name: 'bash', arguments: '{}' },
+      ] } },
+      { type: 'tool/call', seq: 3, time: 3, data: { turn: 1, step: 1, callId: CallId('call-1'), name: 'bash', arguments: '{}' } },
+    ]
+    const closers = interruptedTurnClosers(events)
+    expect(closers.map(e => e.type)).toEqual(['tool/result', 'step/end', 'turn/end'])
+    const result = closers[0]!
+    expect((result as SurfaceEvent).surfaceOp).toBe('append')
+    expect((result as SurfaceEvent).sourceEventSeqs).toEqual([3])
+  })
+
+  it('handles tool/call without a matching assistant/message entry gracefully', () => {
+    // A tool/call event exists in the log but no assistant/message registered
+    // the callId in pendingCalls (e.g., a plugin appended it directly, or the
+    // assistant/message from a prior step didn't have this call). The repair
+    // should still close the turn — it just won't synthesize a result for this
+    // call (there's nothing to answer).
+    const events: SessionEvent[] = [
+      userTurnStart(1, 0),
+      { type: 'step/start', seq: 1, time: 1, data: { turn: 1, step: 1 } },
+      { type: 'tool/call', seq: 2, time: 2, data: { turn: 1, step: 1, callId: CallId('orphan'), name: 'bash', arguments: '{}' } },
+    ]
+    const closers = interruptedTurnClosers(events)
+    // No pending calls → no synthetic tool/result, just step/end + turn/end.
+    expect(closers.map(e => e.type)).toEqual(['step/end', 'turn/end'])
   })
 })

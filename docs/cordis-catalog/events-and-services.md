@@ -207,7 +207,7 @@ A session was created in the store.
 'session/created'(session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:30`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:33`](../../packages/core/session/src/index.ts)
 
 #### `session/event` — emit
 
@@ -219,7 +219,7 @@ An event was appended to a session log (sync, fire-and-forget). This is the per-
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:36`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:39`](../../packages/core/session/src/index.ts)
 
 #### `session/flush` — parallel
 
@@ -229,7 +229,7 @@ Awaited durability checkpoint. The agent loop awaits `ctx.parallel('session/flus
 'session/flush'(session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:45`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:48`](../../packages/core/session/src/index.ts)
 
 ### `subagent/*`
 
@@ -301,7 +301,7 @@ Source: [`packages/core/tools/src/index.ts:43`](../../packages/core/tools/src/in
 
 ## Services
 
-The 10 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
+The 11 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
 
 ### `ctx.agentLoop` — `AgentLoop`
 
@@ -361,6 +361,24 @@ Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../c
 
 Source: [`packages/bash/bash/src/index.ts:59`](../../packages/bash/bash/src/index.ts)
 
+### `ctx.compact` — `CompactService` (abstract seam)
+
+Abstract compaction service. Subclass implement the two abstract methods, and load the subclass as a plugin — it registers as `ctx.compact` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
+
+Both core methods are abstract: the contract states WHAT compaction does, while the entire strategy — token estimation, retention policy, event sequencing, summarization — is a HOW decision owned by the implementation.
+
+Implementations MUST honor:
+
+- **Surface contract**: a successful compaction shadows the compacted surface nodes with a SINGLE replacement node carrying the summary. Because `SurfaceEventType` is a closed union, that node is a `user/message` with `surfaceOp: { op:'replace', start, end }`; the `compact/*` events are log-only (lock + provenance).
+- **Blocking**: no compaction begins while another is in progress for the same session. The recommended mechanism is the log-recorded lock — append `compact/start` before the slow work and `compact/end` after (even on failure) — so the lock is visible to replay and crash recovery.
+
+```ts cordis-catalog
+abstract compactIfNeeded( session: Session, systemPrompt?: string, model?: string, signal?: AbortSignal, ): Promise<CompactionResult | null>
+abstract compactRegion( session: Session, start: number, end: number, model: string, signal?: AbortSignal, ): Promise<CompactionResult>
+```
+
+Source: [`packages/compact/compact/src/index.ts:57`](../../packages/compact/compact/src/index.ts)
+
 ### `ctx.llm` — `LlmService`
 
 The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.
@@ -412,7 +430,7 @@ get(id: SessionId): Session | undefined
 list(): Session[]
 ```
 
-Source: [`packages/core/session/src/index.ts:229`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:321`](../../packages/core/session/src/index.ts)
 
 ### `ctx.subagents` — `SubagentService`
 
