@@ -30,7 +30,7 @@
       "path": "../../core/agent"
     },
     {
-      "path": "../../core/project-instructions"
+      "path": "../../prompt/project-instructions"
     },
     {
       "path": "../../core/agent-loop"

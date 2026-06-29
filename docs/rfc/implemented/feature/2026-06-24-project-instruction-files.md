@@ -12,7 +12,7 @@ The non-obvious constraint is multi-session cwd. `dsh-system-prompt` sections ar
 
 ## Proposal
 
-Add a new plugin package `packages/core/project-instructions` (`@deepseek-ai/dsh-project-instructions`). It is a single-purpose extension plugin, not an interface/implementation/consumer capability seam: there is no swappable backend, only filesystem discovery plus per-request context injection. It depends on interface packages only (`dsh-agent` and `dsh-llm`) and consumes the existing `agent/request` waterfall.
+Add a new plugin package `packages/prompt/project-instructions` (`@deepseek-ai/dsh-project-instructions`). It is a single-purpose prompt/context extension plugin, not an interface/implementation/consumer capability seam: there is no swappable backend, only filesystem discovery plus per-request context injection. It depends on interface packages only (`dsh-agent` and `dsh-llm`) and consumes the existing `agent/request` waterfall.
 
 The plugin is loaded by `@deepseek-ai/dsh-agent-core` so both product front doors (`dsh-stdio-agent` and `dsh-acp-agent`) get instruction-file behavior by default. The bundle and both app packages expose `projectInstructions` config, so apps may set `projectInstructions: false` or `baselineMaxBytes: 0` when they need a hermetic prompt. The default product behavior matches user expectations for coding agents.
 
@@ -102,7 +102,7 @@ Summarize instruction files before injection. This saves tokens but makes the in
 
 ## Plan
 
-1. Add `packages/core/project-instructions` with config for `dshHome`, `projectRootMarkers` (default `['.git']`), `baselineMaxBytes` (default `65536`), and `enableClaudeFallback` (default `true`). Include pure discovery/rendering helpers so the filesystem rules can be tested without Cordis.
+1. Add `packages/prompt/project-instructions` with config for `dshHome`, `projectRootMarkers` (default `['.git']`), `baselineMaxBytes` (default `65536`), and `enableClaudeFallback` (default `true`). Include pure discovery/rendering helpers so the filesystem rules can be tested without Cordis.
 
 2. Implement baseline `agent/request` injection in `dsh-project-instructions`. The listener computes the instruction block for `agent.session.header.cwd` or the stdio-only `process.cwd()` fallback, prepends one synthetic workspace-context message to the request messages, and returns the request through `next()`. It must never mutate shared global prompt sections or the provider system field.
 

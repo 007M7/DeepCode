@@ -9,6 +9,7 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | Group | Role | Release expectation |
 |---|---|---|
 | [`core/`](core/README.md) | Product API spine: session, system-prompt, tools, agent, and the concrete loop | Product — stable surface |
+| [`prompt/`](prompt/README.md) | Prompt and request-context extensions that shape model inputs | Product — stable surface |
 | [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
 | [`bash/`](bash/README.md) | Bash capability family: the executor seam, a local impl, and the model-facing tool | Product — stable surface |
 | [`compact/`](compact/README.md) | Compaction capability family: the abstract seam (backend + tool deferred) | Product — stable surface |
@@ -63,9 +64,9 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `system-prompt/` | `core` | Prompt-section + tool-schema assembly registry | `ctx.systemPrompt` |
 | `tools/` | `core` | Tool registry + `tools/execute` waterfall | `ctx.tools` |
 | `agent/` | `core` | Agent interface, registry, `agent/*` event vocabulary | `ctx.agents` |
-| `project-instructions/` | `core` | `AGENTS.md`/`CLAUDE.md` workspace context loader | (listens on `agent/request`) |
 | `agent-loop/` | `core` | THE concrete loop plugin: `ReactLoopAgent` + the loop driver | `ctx.agentLoop` |
 | `agent-core/` | `core` | Bundle plugin: the providerless/executor-less/UI-less spine as code (forwards `agent-loop`'s `agents`) | (loads the spine) |
+| `project-instructions/` | `prompt` | `AGENTS.md`/`CLAUDE.md` workspace context loader | (listens on `agent/request`) |
 | `bash/` | `bash` | Abstract bash executor seam (interface + vocabulary) | `ctx.bash` |
 | `bash-local/` | `bash` | Local-subprocess `BashExecutor` implementation | (registers `ctx.bash`) |
 | `tool-bash/` | `bash` | Model-facing `bash`/`bash_output`/`bash_kill` tool schemas | (registers on `ctx.tools`) |

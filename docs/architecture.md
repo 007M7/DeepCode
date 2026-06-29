@@ -97,6 +97,8 @@ Replay/fork = `ctx.sessions.create(id, { seed: seedEvents })`. Trace/telemetry =
 
 Plugins contribute `PromptSection`s (named, ordered, static or computed) and tool-schema providers. `assemble()` returns a `PromptAssembly { sections, tools }` through the `system-prompt/assemble` waterfall.
 
+Prompt/context extension plugins that shape model inputs without owning a core service live under `packages/prompt/`. `dsh-project-instructions` is the reference case: it is semantically prompt/context assembly, but it uses the per-agent `agent/request` seam instead of a global `ctx.systemPrompt.section()` so concurrent sessions with different cwd values stay isolated.
+
 Tool schemas are deliberately **part of the assembly**: "what the model is told it can do" is one coherent thing managed here, even though adapters transmit schemas as the wire-level `tools` field rather than prompt text.
 
 ## Tool pipeline (dsh-tools)

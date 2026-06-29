@@ -64,7 +64,10 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
     agent-loop/     THE concrete plugin: ReactLoopAgent + the loop driver
     agent-core/     bundle plugin: the providerless/executor-less/UI-less spine
                     (timer+llm+sessions+system-prompt+tools+agents+invariants+
-                    tool-bash+agent-loop) as code; forwards agent-loop's `agents`
+                    tool-bash+project-instructions+agent-loop) as code; forwards
+                    agent-loop's `agents`
+  prompt/        prompt and request-context extensions
+    project-instructions/  AGENTS.md/CLAUDE.md workspace context loader
   llm/            LLM capability family
     llm/            abstract LLM service + content-block vocabulary
     llm-deepseek/   DeepSeek API adapter (hand-rolled fetch/SSE)

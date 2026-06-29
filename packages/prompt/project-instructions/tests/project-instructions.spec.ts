@@ -1,7 +1,7 @@
 import { chmod, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
@@ -198,16 +198,18 @@ describe('project instruction discovery', () => {
   it('labels the default DSH home as ~/.dsh when HOME points at the configured default', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
-    const previousHome = process.env.HOME
     try {
-      process.env.HOME = home
       await write(join(home, '.dsh/AGENTS.md'), 'global default rule')
 
-      const files = await discoverBaselineInstructionFiles({ cwd: root })
+      vi.resetModules()
+      vi.doMock('node:os', () => ({ homedir: () => home }))
+      const isolated = await import('@deepseek-ai/dsh-project-instructions')
+      const files = await isolated.discoverBaselineInstructionFiles({ cwd: root })
 
       expect(files.map(file => file.displayPath)).toEqual(['~/.dsh/AGENTS.md'])
     } finally {
-      process.env.HOME = previousHome
+      vi.doUnmock('node:os')
+      vi.resetModules()
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
     }
