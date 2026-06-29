@@ -7,7 +7,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { encodeSegment, logPath, scanLog, sessionDir } from '../src/format.ts'
-import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
+import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
 let root: string
@@ -121,7 +121,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
       { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
       { type: 'assistant/chunk', seq: 2, time: 3, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'he' } } },
       { type: 'assistant/chunk', seq: 3, time: 4, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'llo' } } },
-      { type: 'assistant/message', seq: 4, time: 5, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }] } },
+      { type: 'assistant/message', seq: 4, time: 5, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }] }, surfaceOp: 'append', sourceEventSeqs: [2, 3] },
       { type: 'step/end', seq: 5, time: 6, data: { turn: 1, step: 1 } },
       { type: 'turn/end', seq: 6, time: 7, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
@@ -276,8 +276,8 @@ describe('SessionPersistenceJsonl: write path (session/event → flush)', () => 
 
     const a = ctx.sessions.create(SessionId('sa'))
     const b = ctx.sessions.create(SessionId('sb'))
-    a.append('user/message', { content: [{ type: 'text', text: 'A' }], source: { kind: 'user' } })
-    b.append('user/message', { content: [{ type: 'text', text: 'B' }], source: { kind: 'user' } })
+    a.append('user/message', { content: [{ type: 'text', text: 'A' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    b.append('user/message', { content: [{ type: 'text', text: 'B' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     a.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     b.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await ctx.parallel('session/flush', a)
@@ -452,7 +452,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     // Session A materializes a log under id "reuse".
     const sessFiberA = await ctx.plugin(Object.assign((inner: Context) => {
       const a = inner.sessions.create(SessionId('reuse'), { meta: { cwd: '/a' } })
-      for (const e of oneTurnLog()) a.append(e.type, e.data)
+      appendLog(a, oneTurnLog())
     }, { inject: ['sessions'] }))
     // Drain A, then dispose ITS fiber (the live session A is gone) while the
     // backend stays loaded.
@@ -647,7 +647,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     const session = ctx2.sessions.create(SessionId('flush-fail'))
     // A full turn lands in the write-behind buffer.
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     // Make the durable materialize fail on the next flush.
     const backend = ctx2.sessionPersistence as unknown as { materialize: (...args: unknown[]) => Promise<void> }
@@ -695,7 +695,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     // can never diverge from the live log. The throw surfaces at the caller's
     // append site, not asynchronously in a backend flush.
     expect(() => {
-      session.append('user/message', { content: [{ type: 'text', text: 'bad' }], source: { kind: 'user' }, bad: 1n } as never)
+      session.append('user/message', { content: [{ type: 'text', text: 'bad' }], source: { kind: 'user' }, bad: 1n } as never, { surfaceOp: 'append' })
     }).toThrow(/non-JSON-serializable/)
     // The bad event was rejected, so the log stayed empty.
     expect(session.events.length).toBe(0)

@@ -10,12 +10,15 @@ import { Context, Service } from 'cordis'
 import { isAbsolute } from 'node:path'
 import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { CreateSessionOptions, SessionEvent, SessionEventMap, SessionEventType, SessionHeader } from './types.ts'
+import type { CreateSessionOptions, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { isJsonValue } from './json.ts'
+import { SurfaceManager, isSurfaceEligibleType } from './surface.ts'
 
 export * from './types.ts'
 export { isJsonValue } from './json.ts'
 export { interruptedTurnClosers } from './repair.ts'
+export type { SurfaceNode } from './surface.ts'
+export { isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -77,6 +80,21 @@ export class Session {
   onAppend: ((event: SessionEvent) => void) | undefined
 
   /**
+   * Derived surface — a cached linked list of message-producing events.
+   * Lazily rebuilt from `surfaceOp` markers in the log; processes only new
+   * events (delta) on each access — the log is append-only, so prior events
+   * never change.
+   * `append`. Undefined until first accessed (including after fork/seed).
+   */
+  private _surface: SurfaceManager | undefined
+
+  /** The surface linked list over this session's event log. */
+  get surface(): SurfaceManager {
+    if (!this._surface) this._surface = new SurfaceManager(this.log)
+    return this._surface
+  }
+
+  /**
    * Immutable creation metadata (format version, cwd, lineage). Supplied by
    * the store via `ctx.sessions.create()`. When a `Session` is constructed
    * bare (tests, ad-hoc replay), a minimal header is synthesized (stamped with
@@ -101,6 +119,16 @@ export class Session {
         }
         if (!isJsonValue(event.data)) {
           throw new Error(`seed event "${event.type}" (seq ${event.seq}) carries non-JSON-serializable data`)
+        }
+        // Surface-eligible events MUST carry a surfaceOp marker — the surface is
+        // the sole source of derived history, so a marker-less message event
+        // would load fine yet vanish from deriveMessages(). `append` enforces
+        // this at compile time via its typed overload; a seed arrives as raw
+        // SessionEvent[] (replay/fork/load), bypassing that, so re-check at
+        // runtime here rather than silently resuming with empty history.
+        if (isSurfaceEligibleType(event.type)
+          && (event as SessionEvent<SurfaceEventType>).surfaceOp === undefined) {
+          throw new Error(`seed event "${event.type}" (seq ${event.seq}) is surface-eligible but carries no surfaceOp marker`)
         }
       })
       // Deep-clone each seed event, NOT just the array: the seed events and
@@ -129,6 +157,15 @@ export class Session {
    * `onAppend`. The hot path never blocks on I/O — persistence plugins buffer
    * asynchronously.
    *
+   * @param type - The event type (key of {@link SessionEventMap}).
+   * @param data - The event payload; must be JSON-serializable.
+   * @param opts - Surface metadata: `surfaceOp` controls how the event enters
+   *   the surface linked list; `sourceEventSeqs` records provenance (the seq
+   *   numbers of events this one derives from). REQUIRED for
+   *   {@link SurfaceEventType} events (every message-producing event must
+   *   declare how it joins the surface, the sole source of derived history) and
+   *   rejected by the compiler for non-surface types like `turn/start` or
+   *   `assistant/chunk`.
    * @throws if `data` is not losslessly JSON-serializable (BigInt, function,
    *   symbol, undefined, non-finite number, circular ref, or an exotic object
    *   like Map/Set/Date). The event log is the durable source of truth, so this
@@ -137,9 +174,25 @@ export class Session {
    *   throw surfaces at the buggy caller's append site, not asynchronously in a
    *   backend flush.
    */
-  append<T extends SessionEventType>(type: T, data: SessionEventMap[T]): SessionEvent<T> {
+  append<T extends SessionEventType>(
+    type: T,
+    data: SessionEventMap[T],
+    ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent] : []
+  ): SessionEvent<T> {
     if (!isJsonValue(data)) {
       throw new Error(`session event "${type}" carries non-JSON-serializable data`)
+    }
+    const surfaceOpts: SurfaceIntent | undefined = opts[0]
+    // Surface-eligible events MUST carry a surfaceOp marker — the surface is the
+    // sole source of derived history, so a marker-less message event would be
+    // logged yet vanish from deriveMessages(). The typed `opts` overload makes
+    // the marker mandatory only when `T` is a SPECIFIC SurfaceEventType literal;
+    // when `T` widens to the SessionEventType union (a caller iterating raw
+    // events: `for (const e of log) append(e.type, e.data)`), the conditional
+    // rest collapses to optional and the compiler stops enforcing it. Re-check
+    // at runtime so that loophole can't silently drop history.
+    if (isSurfaceEligibleType(type) && surfaceOpts?.surfaceOp === undefined) {
+      throw new Error(`session event "${type}" is surface-eligible and requires a surfaceOp marker`)
     }
     // Snapshot `data` into the log, NOT the caller's reference: the validation
     // above proves it is JSON-serializable AT THIS MOMENT, but the caller still
@@ -150,14 +203,38 @@ export class Session {
     // validated. structuredClone is safe because serializability was just
     // checked. The returned event carries the SAME snapshot, so a caller reading
     // back `event.data` sees the logged value, not its own mutable input.
-    const event = { type, seq: this.log.length, time: Date.now(), data: structuredClone(data) } as SessionEvent<T>
-    this.log.push(event)
-    this.onAppend?.(event)
+    //
+    // Surface metadata is snapshot separately: sourceEventSeqs (number[] —
+    // primitives, so array spread is a complete copy) and surfaceOp (a string
+    // primitive, or cloned if it's a replace object).
+    // Build the event shape with conditional surface fields via spreading.
+    // The result is cast through `unknown` because the conditional spreads
+    // produce an intersection type that the assignability checker can't
+    // narrow to a specific discriminated-union member when T is generic.
+    // This is a safe internal boundary: data was validated above, and
+    // surface metadata was snapshot from primitive/clone-safe values.
+    const event = {
+      type,
+      seq: this.log.length,
+      time: Date.now(),
+      data: structuredClone(data),
+      ...surfaceOpts?.sourceEventSeqs !== undefined ? { sourceEventSeqs: [...surfaceOpts.sourceEventSeqs] } : {},
+      ...surfaceOpts?.surfaceOp !== undefined ? {
+        surfaceOp: typeof surfaceOpts.surfaceOp === 'string' ? surfaceOpts.surfaceOp : structuredClone(surfaceOpts.surfaceOp),
+      } : {},
+    } as unknown as SessionEvent<T>
+    this.log.push(event as unknown as SessionEvent)
+    this.onAppend?.(event as unknown as SessionEvent)
     return event
   }
 
   /**
-   * Derive the LLM message history from the event log.
+   * Derive the LLM message history by walking the session surface — the linked
+   * list of message-producing events maintained by `surfaceOp` markers. The
+   * surface is the single source of derived history: every message-producing
+   * append records its `surfaceOp`, so a raw event with no marker (a chunk, a
+   * turn boundary) is correctly absent, and a compaction `replace` deletes the
+   * shadowed nodes from the derivation.
    *
    * - `user/message` → user message
    * - `assistant/message` → assistant message (chunks are skipped — they are
@@ -179,44 +256,59 @@ export class Session {
    */
   deriveMessages(): Message[] {
     const messages: Message[] = []
-    for (const event of this.log) {
-      // Intentionally non-exhaustive: only message-producing events derive
-      // history; turn/step boundaries and chunks are trace/replay data.
-      // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
-      switch (event.type) {
-        case 'user/message': {
-          messages.push({ role: 'user', content: structuredClone(event.data.content) })
-          break
-        }
-        case 'assistant/message': {
-          // Skip an empty-content assistant/message: it exists only to host a
-          // max-tokens step's usage and must not inject a content-less assistant
-          // turn into the provider transcript.
-          if (event.data.content.length === 0) break
-          messages.push({ role: 'assistant', content: structuredClone(event.data.content) })
-          break
-        }
-        case 'tool/result': {
-          const { callId, content, isError } = event.data
-          messages.push({
-            role: 'user',
-            content: [{ type: 'tool-result', toolCallId: callId, content: structuredClone(content), isError }],
-          })
-          break
-        }
-        case 'context/message': {
-          const { content, source } = event.data
-          messages.push({ role: 'user', content: renderTagged('context', structuredClone(content), source) })
-          break
-        }
-        case 'steering/message': {
-          const { content, source } = event.data
-          messages.push({ role: 'user', content: renderTagged('steering', structuredClone(content), source) })
-          break
-        }
-      }
+    for (const node of this.surface.nodes) {
+      // Surface nodes are built from this.log — node.seq is always a valid
+      // index by construction. The non-null assertion expresses that invariant.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const msg = this._deriveOneMessage(this.log[node.seq]!)
+      // A surface node is one of the five message-producing types, but an
+      // empty-content assistant/message (a max-tokens step that hosts only
+      // usage) derives to null and must not enter the transcript.
+      if (msg) messages.push(msg)
     }
     return messages
+  }
+
+  /**
+   * Derive a single LLM message from one surface event, or null if it produces
+   * no message (an empty-content assistant/message that exists only to host
+   * usage).
+   */
+  private _deriveOneMessage(event: SessionEvent): Message | null {
+    // Intentionally non-exhaustive: only message-producing events derive
+    // history; turn/step boundaries, chunks, usage, and errors are
+    // trace/replay data.
+
+    switch (event.type) {
+      case 'user/message': {
+        return { role: 'user', content: structuredClone(event.data.content) }
+      }
+      case 'assistant/message': {
+        // Skip an empty-content assistant/message: it exists only to host a
+        // max-tokens step's usage and must not inject a content-less assistant
+        // turn into the provider transcript.
+        if (event.data.content.length === 0) return null
+        return { role: 'assistant', content: structuredClone(event.data.content) }
+      }
+      case 'tool/result': {
+        const { callId, content, isError } = event.data
+        return {
+          role: 'user',
+          content: [{ type: 'tool-result', toolCallId: callId, content: structuredClone(content), isError }],
+        }
+      }
+      case 'context/message': {
+        const { content, source } = event.data
+        return { role: 'user', content: renderTagged('context', structuredClone(content), source) }
+      }
+      case 'steering/message': {
+        const { content, source } = event.data
+        return { role: 'user', content: renderTagged('steering', structuredClone(content), source) }
+      }
+      /* v8 ignore next 2 -- unreachable: only surface nodes (the 5 message-producing types) reach here */
+      default:
+        return null
+    }
   }
 }
 
