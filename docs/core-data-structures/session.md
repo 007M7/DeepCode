@@ -54,7 +54,7 @@ interface SessionEventMap {
 
 ### `TodoItem` — one todo-list entry
 
-The unit of the `todo/write` event's whole-list snapshot. Deliberately minimal — a `content` line and a three-state `status` (no id, priority, or `activeForm`): the list is replaced wholesale on every write, so entries need no stable identity, and the status triple is exactly the ACP `PlanEntryStatus`, so a UI bridge can map a todo list onto an ACP `plan` 1:1 (synthesizing the priority ACP additionally requires).
+The unit of the `todo/write` event's whole-list snapshot. Deliberately minimal — a `content` line and a three-state `status` (no id, priority, or `activeForm`): the list is replaced wholesale on every write, so entries need no stable identity, and the status triple is exactly the ACP `PlanEntryStatus`, so a UI bridge can map a todo list onto an ACP `plan` 1:1 (synthesizing the priority ACP additionally requires). See the [todo_write RFC](../rfc/implemented/feature/2026-06-29-todo-write-tool.md).
 
 ```ts type-equiv
 export interface TodoItem {

@@ -73,6 +73,10 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
     bash/           abstract bash executor seam (ctx.bash) — interface only
     bash-local/     local-subprocess BashExecutor implementation
     tool-bash/      model-facing bash/bash_output/bash_kill tool schemas
+  todo/           todo/planning capability family
+    tool-todo/      model-facing todo_write tool: writes the whole task list to
+                    the session log (todo/write), rendered as a stdio checklist /
+                    ACP plan
   session-persistence/   persistence capability family
     session-persistence/         durable persistence seam + write coordinator
     session-persistence-jsonl/    JSONL-sidecar backend

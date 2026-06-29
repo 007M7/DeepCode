@@ -3,7 +3,7 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionNotification } from '@agentclientprotocol/sdk'
 import type { ToolDefinition, ToolRegistry } from '@deepseek-ai/dsh-tools'
-import { streamSessionEventUpdate, agentOptions, ToolPresenter } from '../src/index.ts'
+import { streamSessionEventUpdate, agentOptions, todosToPlan, ToolPresenter } from '../src/index.ts'
 
 /** Collect the updates a single event produces (no presenter → generic fallback). */
 function updatesFor(event: SessionEvent): SessionNotification['update'][] {
@@ -117,6 +117,43 @@ describe('streamSessionEventUpdate', () => {
     expect(updatesFor(evt('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } }))).toEqual([])
     expect(updatesFor(evt('turn/end', { turn: 1, reason: { kind: 'completed' } }))).toEqual([])
     expect(updatesFor(evt('step/start', { turn: 1, step: 1 }))).toEqual([])
+  })
+
+  it('maps todo/write to a plan sessionUpdate with priority synthesized as medium', () => {
+    expect(updatesFor(evt('todo/write', {
+      todos: [
+        { content: 'plan the work', status: 'in_progress' },
+        { content: 'write the code', status: 'pending' },
+        { content: 'run the tests', status: 'completed' },
+      ],
+    }))).toEqual([{
+      sessionUpdate: 'plan',
+      entries: [
+        { content: 'plan the work', priority: 'medium', status: 'in_progress' },
+        { content: 'write the code', priority: 'medium', status: 'pending' },
+        { content: 'run the tests', priority: 'medium', status: 'completed' },
+      ],
+    }])
+  })
+
+  it('maps an empty todo list to a plan with no entries', () => {
+    expect(updatesFor(evt('todo/write', { todos: [] }))).toEqual([{ sessionUpdate: 'plan', entries: [] }])
+  })
+})
+
+describe('todosToPlan', () => {
+  it('maps status 1:1 and stamps every entry priority medium', () => {
+    expect(todosToPlan([
+      { content: 'a', status: 'pending' },
+      { content: 'b', status: 'in_progress' },
+      { content: 'c', status: 'completed' },
+    ])).toEqual({
+      entries: [
+        { content: 'a', priority: 'medium', status: 'pending' },
+        { content: 'b', priority: 'medium', status: 'in_progress' },
+        { content: 'c', priority: 'medium', status: 'completed' },
+      ],
+    })
   })
 })
 
