@@ -94,6 +94,44 @@ describe('acp bridge — session/load replay', () => {
     expect(content[0]?.content.text).toBe('```console\nhello\n```')
   })
 
+  it('replays a persisted todo/write as a plan sessionUpdate on load', async () => {
+    // A turn whose model called todo_write persists a todo/write event. A fresh
+    // bridge loading the session must re-emit the ACP `plan` update from the log
+    // (the load replay runs every event through streamSessionEventUpdate), so an
+    // editor reopening the session sees the current plan.
+    live = await makeBridgeHarness({
+      storageDir,
+      withTodo: true,
+      script: [
+        toolCallResponse('c1', 'todo_write', {
+          todos: [
+            { content: 'first step', status: 'in_progress' },
+            { content: 'second step', status: 'pending' },
+          ],
+        }),
+        textResponse('planned'),
+      ],
+    })
+    await live.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await live.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await live.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'plan it' }] })
+    await live.dispose()
+    live = undefined
+
+    loader = await makeBridgeHarness({ storageDir, withTodo: true, script: [] })
+    await loader.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    await loader.client.loadSession({ sessionId, cwd: process.cwd(), mcpServers: [] })
+
+    const plan = loader.updates.find(u => u.sessionUpdate === 'plan')
+    expect(plan).toEqual({
+      sessionUpdate: 'plan',
+      entries: [
+        { content: 'first step', priority: 'medium', status: 'in_progress' },
+        { content: 'second step', priority: 'medium', status: 'pending' },
+      ],
+    })
+  })
+
   it('replays a persisted bash call as a TERMINAL card when the loader advertises the capability', async () => {
     // The presentation is resolved at replay time, so a loader that advertised
     // _meta.terminal_output must reconstruct the terminal card (content + _meta)

@@ -20,6 +20,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import {
   ClientSideConnection,
   ndJsonStream,
@@ -158,6 +159,12 @@ export async function makeBridgeHarness(options: {
    * implementation over a mock in tests").
    */
   withBash?: boolean
+  /**
+   * Plug the REAL `dsh-tool-todo` tool so a test can drive `todo_write` through
+   * the bridge and assert the resulting `plan` sessionUpdate — the shipping
+   * tool + the bridge's own todo/write→plan mapping, not a stand-in.
+   */
+  withTodo?: boolean
 } = { storageDir: '' }): Promise<BridgeHarness> {
   const adapter = new MockAdapter(options.script ?? [])
 
@@ -172,6 +179,9 @@ export async function makeBridgeHarness(options: {
   if (options.withBash) {
     await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
     await ctx.plugin(ToolBash)
+  }
+  if (options.withTodo) {
+    await ctx.plugin(ToolTodo)
   }
   ctx.llm.registerAdapter(['mock'], adapter)
 

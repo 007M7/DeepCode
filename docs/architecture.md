@@ -146,6 +146,7 @@ forever:
       session('assistant/message' {content, usage?})     log records what tool dispatch uses
       each tool-call (sequential, abort-checked between calls):
         session('tool/call'); ctx.tools.execute()     ⟵ waterfall tools/execute
+          tool execution may append tool-owned session events, e.g. `todo/write`
         session('tool/result')
       drain steering → session('steering/message'); emit agent/steering
       emit agent/step-end
@@ -196,7 +197,7 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 | System prompt configurability | `ctx.systemPrompt.section()` with ordering |
 | AGENTS.md (root) | a section provider reading the file |
 | AGENTS.md (subdir, on-touch) + file-change notices | `agent.inject()` from a watcher / tool-result listener |
-| Built-in tools (Read/Write/Edit/Bash/…) | `ctx.tools.register()`; schemas flow into the assembly automatically. **Bash: implemented** — `dsh-bash` (seam) + `dsh-bash-local` (subprocesses) + `dsh-tool-bash` (`bash`/`bash_output`/`bash_kill`, incl. background tasks) |
+| Built-in tools (Read/Write/Edit/Bash/…) | `ctx.tools.register()`; schemas flow into the assembly automatically. **Bash: implemented** — `dsh-bash` (seam) + `dsh-bash-local` (subprocesses) + `dsh-tool-bash` (`bash`/`bash_output`/`bash_kill`, incl. background tasks). **`todo_write`: implemented** — `dsh-tool-todo` writes the whole task list to the session log (`todo/write`), rendered as a stdio checklist / ACP `plan` |
 | ToolSearch / progressive disclosure | wrap `agent/request`, filter `req.tools` |
 | Tool sandbox (landlock / sandbox-exec) | wrap `tools/execute`, or implement a sandboxing `BashExecutor` (the dsh-bash seam) |
 | Permission system / AskUserQuestion | wrap `tools/execute` (veto or ask); register an ask tool |

@@ -13,6 +13,7 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`bash/`](bash/README.md) | Bash capability family: the executor seam, a local impl, and the model-facing tool | Product — stable surface |
 | [`compact/`](compact/README.md) | Compaction capability family: the abstract seam (backend + tool deferred) | Product — stable surface |
 | [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
+| [`todo/`](todo/README.md) | Todo/planning family: the model-facing `todo_write` tool (whole-list task tracking on the session log) | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
 | [`ui/`](ui/README.md) | Editor/client integration surfaces (the ACP bridge) | Product — stable surface |
 | [`support/`](support/README.md) | Dev/test/example infrastructure (invariants, stdio UI, replay adapter) | Support — lower compatibility expectations |
@@ -46,6 +47,7 @@ dsh-subagent-spawn ← dsh-subagent, dsh-agent, dsh-session, dsh-llm  (in-proces
 dsh-subagent-fork ← dsh-subagent-spawn, dsh-agent, dsh-session      (in-process child seeded from parent log)
 dsh-subagent-acp  ← dsh-subagent, dsh-agent, dsh-llm, @agentclientprotocol/sdk  (out-of-process child over ACP)
 dsh-tool-subagent ← dsh-subagent, dsh-tools, dsh-agent (model-facing delegation tool)
+dsh-tool-todo     ← dsh-tools, dsh-agent, dsh-session  (model-facing todo_write tool; whole list on the session log)
 dsh-agent-core    ← timer, dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent, dsh-invariants, dsh-tool-bash, dsh-agent-loop  (the providerless spine, as one bundle plugin)
 dsh-stdio-agent   ← dsh-agent-core, dsh-ui-stdio, dsh-session-persistence-jsonl, dsh-agent, dsh-session  (stdio chat APP + bin)
 dsh-acp-agent     ← dsh-agent-core, dsh-acp, dsh-session-persistence-jsonl     (ACP server APP + bin)
@@ -85,6 +87,7 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `subagent-acp/` | `subagent` | Out-of-process backend: a child agent in a spawned subprocess, driven over the Agent Client Protocol | (registers on `ctx.subagents`) |
 | `subagent-mock/` | `support` | Scripted `SubagentProvider` for testing the seam through the real load path | (registers on `ctx.subagents`) |
 | `tool-subagent/` | `subagent` | Model-facing `subagent` delegation tool over `ctx.subagents` | (registers on `ctx.tools`) |
+| `tool-todo/` | `todo` | Model-facing `todo_write` tool; writes the whole task list to the session log (`todo/write`) | (registers on `ctx.tools`) |
 | `brand/` | `util` | Type-only `Branded<B>` nominal-typing primitive (no runtime code, no harness deps) | (none — type-only) |
 
 Each package has its own `README.md` with purpose, service API, events, extension points, and deliberate non-goals (TODOs).

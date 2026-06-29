@@ -16,7 +16,7 @@ packages/<group>/<pkg>/
   README.md        # service API, events, extension points, design notes
 ```
 
-Choose an existing group when one matches the package's role (`core`, `llm`, `bash`, `session-persistence`, `ui`, `util`, or `support`). A new group is allowed, but it is a pure container: no `package.json`, no source files, and packages still sit exactly one level below it.
+Choose an existing group when one matches the package's role (`core`, `llm`, `bash`, `compact`, `subagent`, `todo`, `session-persistence`, `ui`, `util`, or `support`). A new group is allowed, but it is a pure container: no `package.json`, no source files, and packages still sit exactly one level below it.
 
 package.json invariants (enforced by `pnpm run constraints` / `scripts/check-workspace-constraints.ts`): `private: true`, `version: 0.0.1`, `type: module`, `main: "lib/index.js"`, `types: "lib/types/index.d.ts"`, `exports["."].types: "./lib/types/index.d.ts"`, `exports["."].default: "./lib/index.js"`, `cordis` in BOTH peerDependencies and devDependencies (same range). Mirror every dsh peer dependency in devDependencies. `schemastery` goes in `dependencies` (it is a runtime validator), matching agent-loop. The `files` list is precise: `lib/index.js`, `lib/types/**/*.d.ts`, `lib/types/**/*.d.ts.map`, and `src`; do not publish `lib/types` JS or JS-map intermediates or stale root declaration files. CLI app packages with a package `bin` include `lib/bin.js` immediately after `lib/index.js` in `files`.
 

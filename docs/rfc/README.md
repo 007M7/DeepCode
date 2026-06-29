@@ -85,6 +85,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Rich ACP bash rendering — the terminal card (`_meta`) and command classification](implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) | 2026-06-18 |
 | [Subagent capability seam](implemented/feature/2026-06-21-subagent-capability-seam.md) | 2026-06-21 |
 | [ACP subagent backend (out-of-process delegation)](implemented/feature/2026-06-22-acp-subagent-backend.md) | 2026-06-22 |
+| [The `todo_write` tool — model task list as event-sourced session state](implemented/feature/2026-06-29-todo-write-tool.md) | 2026-06-29 |
 
 ### Simplification
 

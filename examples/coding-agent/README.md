@@ -12,7 +12,7 @@ The first REAL agent wiring: DeepSeek V4 + the bash tool suite + stdio chat
 pnpm run demo:coding
 ```
 
-Type a coding task. The agent's only tools are `bash` (+ `bash_output` / `bash_kill` for background tasks): file reads, writes, searches, and test runs all happen through shell commands, each in a fresh `bash -c` (the system prompt tells the model to pass `workdir` instead of `cd`). Reasoning streams dimmed; tool calls/results render inline.
+Type a coding task. The agent works through `bash` (+ `bash_output` / `bash_kill` for background tasks): file reads, writes, searches, and test runs all happen through shell commands, each in a fresh `bash -c` (the system prompt tells the model to pass `workdir` instead of `cd`). It can also delegate with `subagent`/`subagent_fork` and track multi-step work with `todo_write` (a whole-list task tracker rendered as a checklist). Reasoning streams dimmed; tool calls/results render inline.
 
 ```
 > fix the failing test in /path/to/project

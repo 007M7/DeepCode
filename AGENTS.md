@@ -73,6 +73,10 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
     bash/           abstract bash executor seam (ctx.bash) — interface only
     bash-local/     local-subprocess BashExecutor implementation
     tool-bash/      model-facing bash/bash_output/bash_kill tool schemas
+  todo/           todo/planning capability family
+    tool-todo/      model-facing todo_write tool: writes the whole task list to
+                    the session log (todo/write), rendered as a stdio checklist /
+                    ACP plan
   session-persistence/   persistence capability family
     session-persistence/         durable persistence seam + write coordinator
     session-persistence-jsonl/    JSONL-sidecar backend
@@ -171,6 +175,16 @@ pnpm run demo:acp   # run examples/acp-agent — the coding agent as an ACP
                     # server over JSON-RPC stdio (needs DEEPSEEK_API_KEY;
                     # drive it from Zed or another ACP client)
 ```
+
+### Run the CI gates locally BEFORE marking a PR ready
+
+CI is the backstop, not the first place a gate runs. Before you open a non-draft PR or move one from draft to ready, run the same gates CI runs, on your own tree, and confirm they pass — do not lean on CI (or a Codex pass) to discover a red gate you could have caught locally. The CI-equivalent local run is:
+
+```sh
+pnpm run typecheck && pnpm run lint && pnpm run test:coverage && pnpm run test:snapshot && pnpm run doc-sync && pnpm run hygiene && pnpm run build
+```
+
+**`pnpm run test:coverage`, NOT `pnpm run test`, is the gating test command.** `pnpm run test` runs `vitest run` with no coverage; CI's node job runs `test:coverage`, which enforces a **per-file 100%** threshold on `packages/*/*/src`. A suite that is green under `test` can still fail CI on an uncovered line — and that uncovered line is often *dead code* the 100% gate is correctly flagging for deletion (see [§ Defensive patterns](#defensive-patterns-hard-won) "Line coverage is not behavior coverage"), not a missing test to bolt on. `hygiene` (knip + publint + workspace constraints + NodeNext types) and `test:snapshot` (keyless ACP replay) are likewise CI gates that `test` alone does not cover. When you rely on a Codex convergence pass for sign-off, check WHICH commands it ran: a pass that ran `test` but not `test:coverage`/`hygiene`/`doc-sync` has not exercised those gates.
 
 ## Secrets / .env
 
