@@ -203,6 +203,60 @@ describe('LocalFetchProvider redirects', () => {
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED' }))
   })
 
+  it('follows exactly maxRedirects hops: a chain landing on the Nth redirect succeeds', async () => {
+    // maxRedirects: 2 → /?n=0 → /?n=1 → /?n=2(200). Exactly 2 redirects + 1
+    // final = 3 requests; the cap is inclusive of the landing request.
+    let requests = 0
+    handler = (req, res) => {
+      requests++
+      const n = Number(new URL(req.url ?? '/', base).searchParams.get('n') ?? '0')
+      if (n >= 2) { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('landed') }
+      else { res.writeHead(302, { location: `/?n=${n + 1}` }); res.end() }
+    }
+    const result = await provider({ maxRedirects: 2 }).fetch({ url: `${base}/?n=0` })
+    expect(result.body.content).toBe('landed')
+    expect(requests).toBe(3)
+  })
+
+  it('makes exactly maxRedirects+1 requests before blocking an over-long chain', async () => {
+    // maxRedirects: 2 on an infinite chain: requests at n=0,1,2 (the 3rd is the
+    // over-limit redirect, refused before its Location is followed) = 3 total.
+    let requests = 0
+    handler = (req, res) => {
+      requests++
+      const n = Number(new URL(req.url ?? '/', base).searchParams.get('n') ?? '0')
+      res.writeHead(302, { location: `/?n=${n + 1}` })
+      res.end()
+    }
+    await expect(provider({ maxRedirects: 2 }).fetch({ url: `${base}/?n=0` }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED', message: 'exceeded the maximum of 2 redirects' }))
+    expect(requests).toBe(3)
+  })
+
+  it('reports an over-limit redirect as "exceeded", not cross-origin, even when the over-limit hop points cross-origin', async () => {
+    // The redirect budget is checked BEFORE the over-limit hop's target is
+    // origin-validated, so the diagnosis is "exceeded", not "cross-origin".
+    handler = (req, res) => {
+      const n = Number(new URL(req.url ?? '/', base).searchParams.get('n') ?? '0')
+      const location = n === 0 ? '/?n=1' : 'https://example.com/'
+      res.writeHead(302, { location })
+      res.end()
+    }
+    await expect(provider({ maxRedirects: 1 }).fetch({ url: `${base}/?n=0` }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED', message: 'exceeded the maximum of 1 redirects' }))
+  })
+
+  it('maxRedirects: 0 follows no redirect but still fetches a direct 200', async () => {
+    handler = (req, res) => {
+      if (req.url === '/r') { res.writeHead(302, { location: '/done' }); res.end() }
+      else { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('direct') }
+    }
+    await expect(provider({ maxRedirects: 0 }).fetch({ url: `${base}/r` }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED' }))
+    const direct = await provider({ maxRedirects: 0 }).fetch({ url: `${base}/done` })
+    expect(direct.body.content).toBe('direct')
+  })
+
   it('treats a redirect without a Location header as a provider error', async () => {
     handler = (_req, res) => { res.writeHead(302); res.end() }
     await expect(provider().fetch({ url: base }))
@@ -330,5 +384,41 @@ describe('web-fetch-local plugin registration', () => {
 
   it('has no default export (namespace plugin export shape)', () => {
     expect('default' in fetchPlugin).toBe(false)
+  })
+
+  it('rejects a non-positive resource limit at construction', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebService, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
+    await expect(ctx.plugin(fetchPlugin, { maxResponseBytes: -1 }))
+      .rejects.toThrow(/maxResponseBytes must be a positive finite number/)
+  })
+
+  it('rejects a zero timeout at construction', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebService, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
+    await expect(ctx.plugin(fetchPlugin, { timeoutMs: 0 }))
+      .rejects.toThrow(/timeoutMs must be a positive finite number/)
+  })
+
+  it('rejects a fractional redirect cap at construction', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebService, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
+    await expect(ctx.plugin(fetchPlugin, { maxRedirects: 1.5 }))
+      .rejects.toThrow(/maxRedirects must be a non-negative integer/)
+  })
+
+  it('rejects a negative redirect cap at construction', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebService, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
+    await expect(ctx.plugin(fetchPlugin, { maxRedirects: -1 }))
+      .rejects.toThrow(/maxRedirects must be a non-negative integer/)
+  })
+
+  it('accepts maxRedirects: 0 (follow no redirects) as valid config', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebService, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
+    const fiber = await ctx.plugin(fetchPlugin, { maxRedirects: 0 })
+    expect(ctx.web.fetchStatus()).toEqual({ available: true, providerId: LOCAL_FETCH_PROVIDER_ID })
+    await fiber.dispose()
   })
 })

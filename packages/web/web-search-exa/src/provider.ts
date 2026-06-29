@@ -118,14 +118,14 @@ export class ExaSearchProvider implements WebSearchProvider {
       throw new WebError(message, 'WEB_PROVIDER_ERROR')
     }
 
-    let payload: ExaSearchResponse
     try {
-      payload = await response.json() as ExaSearchResponse
+      const payload = await response.json() as ExaSearchResponse
+      return mapExaResponse(request.query, payload)
     } catch (error: unknown) {
       if (isAbortError(error)) throw new WebError('Exa search aborted', 'WEB_ABORTED', { cause: error })
-      throw new WebError(`Exa returned an unparseable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
+      if (error instanceof WebError) throw error
+      throw new WebError(`Exa returned an unprocessable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
     }
-    return mapExaResponse(request.query, payload)
   }
 }
 

@@ -81,11 +81,21 @@ export class LocalFetchProvider implements WebFetchProvider {
   /** Follow same-origin redirects up to the hop cap, then read the final response. */
   private async followAndRead(initialUrl: string, controller: AbortController): Promise<WebFetchResult> {
     let currentUrl = validateFetchUrl(initialUrl, this.limits.maxUrlLength)
+    let redirectsFollowed = 0
 
-    for (let hop = 0; hop <= this.limits.maxRedirects; hop++) {
+    for (;;) {
       const response = await this.requestOnce(currentUrl, controller)
 
       if (isRedirectStatus(response.status)) {
+        // The redirect budget is enforced BEFORE this hop's target is resolved
+        // or origin-checked, so `maxRedirects: N` follows at most N redirects
+        // exactly: the (N+1)th redirect is refused as "exceeded" regardless of
+        // where it points (a same-origin/cross-origin distinction on a hop we
+        // are not allowed to follow would be the wrong diagnosis).
+        if (redirectsFollowed >= this.limits.maxRedirects) {
+          await response.body?.cancel()
+          throw new WebError(`exceeded the maximum of ${this.limits.maxRedirects} redirects`, 'WEB_REDIRECT_BLOCKED')
+        }
         const location = response.headers.get('location')
         if (location === null) {
           // A redirect status with no Location is not a usable resource. Cancel
@@ -113,13 +123,12 @@ export class LocalFetchProvider implements WebFetchProvider {
         }
         await response.body?.cancel()
         currentUrl = validatedTarget
+        redirectsFollowed++
         continue
       }
 
       return await this.readBody(response, currentUrl, controller.signal)
     }
-
-    throw new WebError(`exceeded the maximum of ${this.limits.maxRedirects} redirects`, 'WEB_REDIRECT_BLOCKED')
   }
 
   private async requestOnce(url: URL, controller: AbortController): Promise<Response> {

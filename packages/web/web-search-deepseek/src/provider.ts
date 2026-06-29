@@ -200,14 +200,14 @@ export class DeepSeekSearchProvider implements WebSearchProvider {
       throw new WebError(message, 'WEB_PROVIDER_ERROR')
     }
 
-    let payload: AnthropicResponse
     try {
-      payload = await response.json() as AnthropicResponse
+      const payload = await response.json() as AnthropicResponse
+      return mapAnthropicResponse(request.query, payload)
     } catch (error: unknown) {
       if (isAbortError(error)) throw new WebError('DeepSeek search aborted', 'WEB_ABORTED', { cause: error })
-      throw new WebError(`DeepSeek returned an unparseable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
+      if (error instanceof WebError) throw error
+      throw new WebError(`DeepSeek returned an unprocessable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
     }
-    return mapAnthropicResponse(request.query, payload)
   }
 }
 

@@ -60,6 +60,7 @@ describe('Exa result mapping', () => {
   it('tolerates a missing results array', () => {
     expect(mapExaResponse('q', {}).sources).toEqual([])
   })
+
 })
 
 describe('ExaSearchProvider status', () => {
@@ -144,6 +145,12 @@ describe('ExaSearchProvider error handling', () => {
 
   it('maps an unparseable success body to WEB_PROVIDER_ERROR', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('not json', { status: 200 })))
+    await expect(new ExaSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+  })
+
+  it('maps a well-formed body of the wrong shape to WEB_PROVIDER_ERROR, not a raw TypeError', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ results: {} }, { status: 200 })))
     await expect(new ExaSearchProvider(options).search({ query: 'q' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
   })

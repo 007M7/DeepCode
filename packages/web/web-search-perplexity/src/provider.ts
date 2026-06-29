@@ -126,14 +126,14 @@ export class PerplexitySearchProvider implements WebSearchProvider {
       throw new WebError(message, 'WEB_PROVIDER_ERROR')
     }
 
-    let payload: PerplexityResponse
     try {
-      payload = await response.json() as PerplexityResponse
+      const payload = await response.json() as PerplexityResponse
+      return mapPerplexityResponse(request.query, payload)
     } catch (error: unknown) {
       if (isAbortError(error)) throw new WebError('Perplexity search aborted', 'WEB_ABORTED', { cause: error })
-      throw new WebError(`Perplexity returned an unparseable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
+      if (error instanceof WebError) throw error
+      throw new WebError(`Perplexity returned an unprocessable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
     }
-    return mapPerplexityResponse(request.query, payload)
   }
 }
 

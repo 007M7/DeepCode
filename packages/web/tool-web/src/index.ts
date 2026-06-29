@@ -55,4 +55,3 @@ export function apply(ctx: Context, config: Config): void {
   if (config.search !== false) applyWebSearchTool(ctx)
   if (config.fetch !== false) applyWebFetchTool(ctx)
 }
-

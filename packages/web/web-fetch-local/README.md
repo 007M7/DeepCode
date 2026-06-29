@@ -26,8 +26,10 @@ The provider owns **safe resource retrieval**: URL validation, HTTP transport, r
 | `maxBodyChars` | `100_000` | Maximum decoded body length in characters. |
 | `timeoutMs` | `30_000` | Default fetch timeout. |
 | `maxTimeoutMs` | `120_000` | Upper bound for a per-request timeout override. |
-| `maxRedirects` | `5` | Maximum same-origin redirect hops. |
+| `maxRedirects` | `5` | Maximum same-origin redirect hops (`0` follows none). |
 | `userAgent` | `deepseek-harness/…` | `User-Agent` header. |
+
+The numeric limits are validated at plugin construction: every cap except `maxRedirects` must be a positive finite number, and `maxRedirects` must be a non-negative integer. An invalid value throws rather than silently constructing a provider with nonsensical limits.
 
 ## Security note
 

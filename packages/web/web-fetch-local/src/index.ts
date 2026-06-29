@@ -60,10 +60,30 @@ export const Config: z<Config> = z.object({
 /** The shape after schemastery applies its defaults to every field. */
 type ResolvedConfig = Required<Config>
 
+/** A resource limit (byte/char/length/timeout cap) must be a positive finite number. */
+function assertPositiveFinite(name: string, value: number): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`web-fetch-local: ${name} must be a positive finite number`)
+  }
+}
+
+/** The redirect hop cap must be a non-negative integer (0 follows no redirects). */
+function assertNonNegativeInteger(name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`web-fetch-local: ${name} must be a non-negative integer`)
+  }
+}
+
 /** Register the local HTTP(S) fetch provider with `ctx.web`. */
 export function apply(ctx: Context, config: Config): void {
   // schemastery (Config) has already filled every defaulted field.
   const resolved = config as ResolvedConfig
+  assertPositiveFinite('maxUrlLength', resolved.maxUrlLength)
+  assertPositiveFinite('maxResponseBytes', resolved.maxResponseBytes)
+  assertPositiveFinite('maxBodyChars', resolved.maxBodyChars)
+  assertPositiveFinite('timeoutMs', resolved.timeoutMs)
+  assertPositiveFinite('maxTimeoutMs', resolved.maxTimeoutMs)
+  assertNonNegativeInteger('maxRedirects', resolved.maxRedirects)
   const limits: LocalFetchLimits = {
     maxUrlLength: resolved.maxUrlLength,
     maxResponseBytes: resolved.maxResponseBytes,

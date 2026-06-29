@@ -220,6 +220,12 @@ describe('DeepSeekSearchProvider error handling', () => {
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
   })
 
+  it('maps a well-formed body of the wrong shape to WEB_PROVIDER_ERROR, not a raw TypeError', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ content: {} }, { status: 200 })))
+    await expect(new DeepSeekSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+  })
+
   it('surfaces an abort during success-body parse as WEB_ABORTED', async () => {
     const body = { json: () => Promise.reject(new DOMException('aborted', 'AbortError')), ok: true, status: 200 }
     vi.stubGlobal('fetch', vi.fn(async () => body as unknown as Response))

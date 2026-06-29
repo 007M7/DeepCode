@@ -116,6 +116,12 @@ describe('PerplexitySearchProvider error handling', () => {
       .rejects.toThrow(expect.objectContaining({ message: 'bad request' }))
   })
 
+  it('maps a well-formed body of the wrong shape to WEB_PROVIDER_ERROR, not a raw TypeError', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ search_results: null }, { status: 200 })))
+    await expect(new PerplexitySearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+  })
+
   it('keeps a status-line message when the error body is not JSON', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('upstream error', { status: 503 })))
     await expect(new PerplexitySearchProvider(options).search({ query: 'q' }))

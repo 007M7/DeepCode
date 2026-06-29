@@ -96,4 +96,3 @@ describe('web_search integration over the real Exa provider', () => {
     expect(out.content.map(b => b.text).join('')).toContain('[Result](https://result.test)')
   })
 })
-
