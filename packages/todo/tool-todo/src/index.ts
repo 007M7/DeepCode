@@ -34,9 +34,11 @@ const DESCRIPTION =
   'Record and update a structured task list for the current work. Send the ENTIRE '
   + 'list every call — it REPLACES the previous list (there are no partial updates, '
   + 'no per-item edits). Use it to plan multi-step work and show progress: add one '
-  + 'todo per concrete step before you start. Keep EXACTLY ONE todo `in_progress` at '
-  + 'a time, and mark a todo `completed` the moment it is done (do not batch '
-  + 'completions). Skip the list for trivial single-step tasks. Statuses: `pending` '
+  + 'todo per concrete step before you start. Keep AT MOST ONE todo `in_progress` '
+  + 'at a time; while work remains, exactly one active task should be '
+  + '`in_progress`. Mark a todo `completed` the moment it is done (do not batch '
+  + 'completions), and allow no `in_progress` item only once all work is complete. '
+  + 'Skip the list for trivial single-step tasks. Statuses: `pending` '
   + '(not started), `in_progress` (being worked on now), `completed` (finished).'
 
 /**

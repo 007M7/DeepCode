@@ -28,7 +28,9 @@
       - deepseek-v4-flash
       - deepseek-v4-pro
 
-# Local bash executor (the model's only tool, via agent-core's tool-bash schema).
+# Local bash executor for agent-core's tool-bash schema.
+# FIXME(config-comments): keep this executor note from implying bash is the
+# whole tool set; subagent and todo_write are loaded below.
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
   config:
@@ -66,9 +68,10 @@
       tests. Keep answers brief and factual.
 
       For multi-step work, use the todo_write tool to track a task list:
-      send the WHOLE list each call (it replaces the previous one), keep
-      exactly one task in_progress, and mark a task completed as soon as it
-      is done. Skip it for trivial single-step tasks.
+      send the WHOLE list each call (it replaces the previous one), keep at
+      most one task in_progress (exactly one while work remains), and mark a
+      task completed as soon as it is done. Skip it for trivial single-step
+      tasks.
 
 # The subagent seam + BOTH in-process backends + two model-facing tools, as leaf
 # entries after the app (which provides ctx.agents/ctx.tools). spawn (a fresh

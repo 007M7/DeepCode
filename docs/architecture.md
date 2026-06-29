@@ -146,6 +146,7 @@ forever:
       session('assistant/message' {content, usage?})     log records what tool dispatch uses
       each tool-call (sequential, abort-checked between calls):
         session('tool/call'); ctx.tools.execute()     ⟵ waterfall tools/execute
+          tool execution may append tool-owned session events, e.g. `todo/write`
         session('tool/result')
       drain steering → session('steering/message'); emit agent/steering
       emit agent/step-end

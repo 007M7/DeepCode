@@ -19,14 +19,15 @@ import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
  * file's tests.
  */
 
-export const SYSTEM_PROMPT = 'You are a coding agent. Your only tool is bash; '
-  + 'do file operations with cat/grep/heredocs, check [exit code: N] markers, '
+export const SYSTEM_PROMPT = 'You are a coding agent. Use bash for file operations '
+  + 'with cat/grep/heredocs; check [exit code: N] markers, '
   + 'and report results briefly.'
 
 /** System prompt for the todo_write e2e: nudges the model to plan with the tool. */
 export const TODO_SYSTEM_PROMPT = 'You are a coding agent. For multi-step work, '
   + 'use the todo_write tool to track a task list: send the WHOLE list each call, '
-  + 'keep exactly one task in_progress, and mark a task completed as soon as it is done.'
+  + 'keep at most one task in_progress (exactly one while work remains), and mark '
+  + 'a task completed as soon as it is done.'
 
 export async function codingHarness(workdir: string, persistenceRoot?: string): Promise<Context> {
   const ctx = new Context()

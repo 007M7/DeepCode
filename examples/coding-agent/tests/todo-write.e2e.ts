@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
 import { AgentId } from '@deepseek-ai/dsh-agent'
-import type { TodoItem } from '@deepseek-ai/dsh-session'
 import { codingHarness, TODO_SYSTEM_PROMPT, waitForIdle } from './harness.ts'
 
 /**
@@ -42,14 +41,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('todo_write: real model records a
     expect(todoEvents.length).toBeGreaterThan(0)
 
     const todos = (todoEvents.at(-1)!).data.todos
-    expect(todos.length).toBeGreaterThanOrEqual(2)
-    // Every entry has a non-empty content and a valid status…
-    const valid: TodoItem['status'][] = ['pending', 'in_progress', 'completed']
-    for (const todo of todos) {
-      expect(todo.content.trim().length).toBeGreaterThan(0)
-      expect(valid).toContain(todo.status)
-    }
-    // …and the one-in-progress invariant the tool enforces held.
-    expect(todos.filter(t => t.status === 'in_progress').length).toBeLessThanOrEqual(1)
+    expect(todos).toEqual([
+      { content: 'inspect the failing test', status: 'in_progress' },
+      { content: 'apply the fix', status: 'pending' },
+    ])
   }, 120_000)
 })
