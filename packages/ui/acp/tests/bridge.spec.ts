@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { AgentId } from '@deepseek-ai/dsh-agent'
-import { makeBridgeHarness, textResponse, type BridgeHarness } from './harness.ts'
+import { makeBridgeHarness, textResponse, toolCallResponse, type BridgeHarness } from './harness.ts'
 
 /**
  * End-to-end bridge specs over an in-memory transport: a real
@@ -51,6 +51,183 @@ describe('acp bridge', () => {
       .map(u => (u.content.type === 'text' ? u.content.text : ''))
       .join('')
     expect(text).toBe('hello there')
+  })
+
+  it('routes ask_user_question through ACP form elicitation and continues with the selected option', async () => {
+    harness = await makeBridgeHarness({
+      storageDir,
+      withAskUser: true,
+      script: [
+        toolCallResponse('ask-1', 'ask_user_question', {
+          header: 'Project config',
+          question: 'Which language should I use?',
+          options: [
+            { label: 'TypeScript', value: 'ts', description: 'Good for UI apps' },
+            { label: 'Python', value: 'py', description: 'Good for scripts', recommended: true },
+          ],
+          allow_custom: false,
+        }),
+        textResponse('Python it is.'),
+      ],
+    })
+    harness.onElicitation = () => ({ action: 'accept', content: { choice: 'py' } })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+
+    const result = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'ask me' }] })
+
+    expect(result.stopReason).toBe('end_turn')
+    expect(harness.elicitationRequests).toHaveLength(1)
+    expect(harness.elicitationRequests[0]).toMatchObject({
+      sessionId,
+      mode: 'form',
+      message: 'Which language should I use?',
+      requestedSchema: {
+        title: 'Project config',
+        properties: {
+          choice: {
+            default: 'py',
+            oneOf: [
+              { const: 'py', title: 'Python: Good for scripts' },
+              { const: 'ts', title: 'TypeScript: Good for UI apps' },
+            ],
+          },
+        },
+        required: ['choice'],
+      },
+    })
+    const toolResult = harness.ctx.agents.get(AgentId(sessionId))!.session.events.find(event => event.type === 'tool/result')
+    expect(JSON.stringify(toolResult)).toContain('py')
+  })
+
+  it('routes optionless ask_user_question through an ACP free-form answer field', async () => {
+    harness = await makeBridgeHarness({
+      storageDir,
+      withAskUser: true,
+      script: [
+        toolCallResponse('ask-1', 'ask_user_question', {
+          question: 'What should I name it?',
+          allow_custom: false,
+        }),
+        textResponse('Name recorded.'),
+      ],
+    })
+    harness.onElicitation = () => ({ action: 'accept', content: { answer: 'apollo' } })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+
+    await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'ask me' }] })
+
+    expect(harness.elicitationRequests[0]).toMatchObject({
+      requestedSchema: {
+        properties: { answer: { type: 'string', title: 'What should I name it?' } },
+        required: ['answer'],
+      },
+    })
+    const toolResult = harness.ctx.agents.get(AgentId(sessionId))!.session.events.find(event => event.type === 'tool/result')
+    expect(JSON.stringify(toolResult)).toContain('apollo')
+  })
+
+  it('supports ACP custom answers alongside choices', async () => {
+    harness = await makeBridgeHarness({ storageDir, withAskUser: true })
+    harness.onElicitation = () => ({ action: 'accept', content: { custom_answer: 'Use Zig' } })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    const agent = harness.ctx.agents.get(AgentId(sessionId))!
+
+    const result = await harness.ctx.userInteraction.ask({
+      agent,
+      question: 'Which language?',
+      options: [{ label: 'TypeScript' }],
+    })
+
+    expect(result).toEqual({ answer: 'Use Zig' })
+    expect(harness.elicitationRequests[0]).toMatchObject({
+      requestedSchema: {
+        properties: {
+          choice: {
+            description: 'Choose one option, or fill a custom answer below.',
+            oneOf: [{ const: 'TypeScript', title: 'TypeScript' }],
+          },
+          custom_answer: { type: 'string' },
+        },
+        required: [],
+      },
+    })
+  })
+
+  it('returns raw ACP answers when they do not match a provided option', async () => {
+    harness = await makeBridgeHarness({ storageDir, withAskUser: true })
+    harness.onElicitation = () => ({ action: 'accept', content: { choice: 'something else' } })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    const agent = harness.ctx.agents.get(AgentId(sessionId))!
+
+    await expect(harness.ctx.userInteraction.ask({
+      agent,
+      question: 'Pick',
+      options: [{ label: 'A', value: 'a' }],
+      allowCustom: false,
+    })).resolves.toEqual({ answer: 'something else' })
+  })
+
+  it('reports ACP ask-user routing and answer failures as structured errors', async () => {
+    harness = await makeBridgeHarness({ storageDir, withAskUser: true })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    const agent = harness.ctx.agents.get(AgentId(sessionId))!
+
+    await expect(harness.ctx.userInteraction.ask({ question: 'No agent?' }))
+      .rejects.toMatchObject({ name: 'UserInteractionError', code: 'NO_AGENT' })
+    await expect(harness.ctx.userInteraction.ask({ agent: { id: 'other' } as typeof agent, question: 'No session?' }))
+      .rejects.toMatchObject({ code: 'NO_SESSION' })
+
+    harness.onElicitation = () => ({ action: 'cancel' })
+    await expect(harness.ctx.userInteraction.ask({ agent, question: 'Cancel?' }))
+      .rejects.toMatchObject({ code: 'ASK_CANCELLED' })
+
+    harness.onElicitation = () => ({ action: 'accept', content: {} })
+    await expect(harness.ctx.userInteraction.ask({ agent, question: 'Empty?' }))
+      .rejects.toMatchObject({ code: 'NO_ANSWER' })
+
+    harness.onElicitation = () => { throw new Error('client boom') }
+    await expect(harness.ctx.userInteraction.ask({ agent, question: 'Client fails?', signal: new AbortController().signal }))
+      .rejects.toMatchObject({ code: 'ASK_FAILED' })
+  })
+
+  it('aborts ACP ask-user requests before and while waiting for elicitation', async () => {
+    harness = await makeBridgeHarness({ storageDir, withAskUser: true })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    const agent = harness.ctx.agents.get(AgentId(sessionId))!
+
+    const alreadyAborted = new AbortController()
+    alreadyAborted.abort()
+    await expect(harness.ctx.userInteraction.ask({ agent, question: 'Already?', signal: alreadyAborted.signal }))
+      .rejects.toMatchObject({ code: 'ASK_ABORTED' })
+
+    let abortedReads = 0
+    const racingAbort = {
+      get aborted() { return abortedReads++ > 0 },
+      addEventListener() {},
+      removeEventListener() {},
+      dispatchEvent() { return false },
+      onabort: null,
+      reason: undefined,
+      throwIfAborted() {},
+    } as AbortSignal
+    await expect(harness.ctx.userInteraction.ask({ agent, question: 'Raced?', signal: racingAbort }))
+      .rejects.toMatchObject({ code: 'ASK_ABORTED' })
+
+    let release: ((value: { action: 'accept'; content: { answer: string } }) => void) | undefined
+    harness.onElicitation = () => new Promise((resolve) => { release = resolve })
+    const pendingAbort = new AbortController()
+    const ask = harness.ctx.userInteraction.ask({ agent, question: 'Pending?', signal: pendingAbort.signal })
+    await new Promise(resolve => setImmediate(resolve))
+    pendingAbort.abort()
+
+    await expect(ask).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    release?.({ action: 'accept', content: { answer: 'too late' } })
   })
 
   it('allows multiple concurrent sessions, each with a distinct id', async () => {

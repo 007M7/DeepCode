@@ -33,7 +33,7 @@
       "path": "../../core/user-interaction"
     },
     {
-      "path": "../../core/tool-ask-user"
+      "path": "../tool-ask-user"
     },
     {
       "path": "../../session-persistence/session-persistence-jsonl"

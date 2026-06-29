@@ -261,7 +261,7 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
         return
       }
 
-      const allowCustom = pending.request.allowCustom ?? true
+      const allowCustom = options.length === 0 || (pending.request.allowCustom ?? true)
       if (allowCustom && text !== '') {
         finishQuestion(pending, { answer: text })
         return

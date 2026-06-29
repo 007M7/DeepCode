@@ -28,7 +28,7 @@ dsh-bash          ← dsh-brand                       (abstract executor seam; b
 dsh-session       ← dsh-llm, dsh-brand
 dsh-system-prompt ← dsh-llm
 dsh-agent         ← dsh-llm, dsh-session, dsh-brand
-dsh-user-interaction ← dsh-agent
+dsh-user-interaction ← dsh-agent, dsh-llm
 dsh-tools         ← dsh-llm, dsh-system-prompt, dsh-agent
 dsh-tool-ask-user ← dsh-tools, dsh-user-interaction
 dsh-bash-local    ← dsh-bash                       (BashExecutor impl)
@@ -37,7 +37,7 @@ dsh-llm-deepseek  ← dsh-llm                        (DeepSeek adapter)
 dsh-llm-pi-ai     ← dsh-llm                        (pi-ai-backed adapter)
 dsh-agent-loop    ← dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent
 dsh-invariants    ← dsh-llm, dsh-session, dsh-agent (dev-mode contract checks)
-dsh-acp           ← dsh-agent, dsh-llm, dsh-session, dsh-session-persistence  (ACP JSON-RPC bridge)
+dsh-acp           ← dsh-agent, dsh-llm, dsh-session, dsh-session-persistence, dsh-tools, dsh-user-interaction  (ACP JSON-RPC bridge + user-interaction provider)
 dsh-ui-stdio      ← dsh-agent, dsh-session, dsh-user-interaction (stdio readline UI plugin + user-interaction provider)
 dsh-llm-replay    ← dsh-llm, dsh-session            (record/replay adapter for keyless snapshot tests)
 dsh-subagent      ← dsh-agent, dsh-llm, dsh-tools    (abstract subagent provider-registry seam)
@@ -48,7 +48,7 @@ dsh-subagent-acp  ← dsh-subagent, dsh-agent, dsh-llm, @agentclientprotocol/sdk
 dsh-tool-subagent ← dsh-subagent, dsh-tools, dsh-agent (model-facing delegation tool)
 dsh-agent-core    ← timer, dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent, dsh-invariants, dsh-tool-bash, dsh-agent-loop  (the providerless spine, as one bundle plugin)
 dsh-stdio-agent   ← dsh-agent-core, dsh-user-interaction, dsh-tool-ask-user, dsh-ui-stdio, dsh-session-persistence-jsonl, dsh-agent, dsh-session  (stdio chat APP + bin)
-dsh-acp-agent     ← dsh-agent-core, dsh-acp, dsh-session-persistence-jsonl     (ACP server APP + bin)
+dsh-acp-agent     ← dsh-agent-core, dsh-acp, dsh-user-interaction, dsh-tool-ask-user, dsh-session-persistence-jsonl  (ACP server APP + bin)
 ```
 
 The rule: **extension** plugins depend on interfaces, never on the concrete loop. `dsh-agent-loop` is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced. The sanctioned exception is a **composition/bundle** package like `dsh-agent-core`, whose whole job is to assemble the concrete spine: it depends on `dsh-agent-loop` (and the other concrete spine plugins) on purpose. The rule constrains plugins that EXTEND the system, not the bundle that COMPOSES it — swapping the loop means shipping a different bundle, not rewiring every extension. A swappable capability splits into interface / implementation / consumer packages (the bash trio is the template — see [capability seams](../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)).
@@ -62,7 +62,6 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `system-prompt/` | `core` | Prompt-section + tool-schema assembly registry | `ctx.systemPrompt` |
 | `tools/` | `core` | Tool registry + `tools/execute` waterfall | `ctx.tools` |
 | `user-interaction/` | `core` | Abstract human question/answer seam | `ctx.userInteraction` |
-| `tool-ask-user/` | `core` | Model-facing `ask_user_question` tool | (registers on `ctx.tools`) |
 | `agent/` | `core` | Agent interface, registry, `agent/*` event vocabulary | `ctx.agents` |
 | `agent-loop/` | `core` | THE concrete loop plugin: `ReactLoopAgent` + the loop driver | `ctx.agentLoop` |
 | `agent-core/` | `core` | Bundle plugin: the providerless/executor-less/UI-less spine as code (forwards `agent-loop`'s `agents`) | (loads the spine) |
@@ -76,6 +75,7 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `session-persistence-sqlite/` | `session-persistence` | SQLite persistence backend | (registers `ctx.sessionPersistence`) |
 | `invariants/` | `support` | Dev-mode event-contract invariants + session-log freeze | (listens on `session/*`, `agent/*`) |
 | `acp/` | `ui` | Agent Client Protocol bridge: serves the agent to an ACP editor over JSON-RPC stdio | (drives `ctx.agents`/`ctx.sessions`) |
+| `tool-ask-user/` | `ui` | Model-facing `ask_user_question` tool | (registers on `ctx.tools`) |
 | `stdio-agent/` | `ui` | Terminal stdio chat APP: agent-core spine + console logger + readline UI + a pre-created `main` agent, with a `bin` | (composition + `bin`) |
 | `acp-agent/` | `ui` | ACP server APP: agent-core spine + JSONL persistence + the `acp` bridge (no stdout logger), with a `bin` | (composition + `bin`) |
 | `ui-stdio/` | `support` | Minimal stdio (readline) UI plugin: renders `agent/*` events, feeds stdin lines to the agent | (drives `ctx.agents`) |

@@ -8,7 +8,6 @@ The packages every harness build is assembled from: the session log, the system-
 | `system-prompt/` | Prompt-section + tool-schema assembly registry | `ctx.systemPrompt` |
 | `tools/` | Tool registry + `tools/execute` waterfall | `ctx.tools` |
 | `user-interaction/` | Human question/answer seam for tools and permission flows | `ctx.userInteraction` |
-| `tool-ask-user/` | Model-facing `ask_user_question` tool over `ctx.userInteraction` | (registers on `ctx.tools`) |
 | `agent/` | Agent interface, registry, `agent/*` event vocabulary | `ctx.agents` |
 | `agent-loop/` | The concrete loop plugin: `ReactLoopAgent` + the loop driver | `ctx.agentLoop` |
 | `agent-core/` | Bundle plugin: the providerless/executor-less/UI-less spine as code | (loads the spine) |

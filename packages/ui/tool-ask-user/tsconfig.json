@@ -21,16 +21,16 @@
       "path": "../../llm/llm"
     },
     {
-      "path": "../agent"
+      "path": "../../core/agent"
     },
     {
-      "path": "../system-prompt"
+      "path": "../../core/system-prompt"
     },
     {
-      "path": "../tools"
+      "path": "../../core/tools"
     },
     {
-      "path": "../user-interaction"
+      "path": "../../core/user-interaction"
     }
   ]
 }

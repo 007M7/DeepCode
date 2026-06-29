@@ -47,6 +47,9 @@ import {
   type AuthenticateRequest,
   type CancelNotification,
   type ContentBlock as AcpContentBlock,
+  type CreateElicitationRequest,
+  type ElicitationContentValue,
+  type EnumOption,
   type InitializeRequest,
   type InitializeResponse,
   type LoadSessionRequest,
@@ -70,6 +73,12 @@ import type { ToolCallKind, ToolCallPresentation, ToolRegistry, ToolResultPresen
 // Context (the bridge injects it and reads `list()` for load cwd validation).
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import {
+  UserInteractionError,
+  type AskUserQuestionAnswer,
+  type AskUserQuestionOption,
+  type AskUserQuestionRequest,
+} from '@deepseek-ai/dsh-user-interaction'
+import {
   acpPromptToText,
   harnessBlockToAcpContent,
   promptHasUnsupportedContent,
@@ -82,7 +91,7 @@ export const name = 'acp'
 // because `initialize` advertises `loadSession: true`. `tools` lets a tool own
 // how its calls render (`presentCall`/`presentResult`); the bridge looks up the
 // definition by name and falls back to a generic presentation when absent.
-export const inject = ['agents', 'sessions', 'sessionPersistence', 'tools']
+export const inject = ['agents', 'sessions', 'sessionPersistence', 'tools', 'userInteraction']
 
 /**
  * Build an ACP "invalid params" error whose human detail rides in the message.
@@ -107,6 +116,119 @@ function internalError(detail: string): RequestError {
 
 function sameWorkspaceCwd(left: string, right: string): boolean {
   return resolvePath(left) === resolvePath(right)
+}
+
+function optionAnswer(option: AskUserQuestionOption): string {
+  return option.value ?? option.label
+}
+
+function orderedOptions(options: readonly AskUserQuestionOption[] | undefined): AskUserQuestionOption[] {
+  return [...(options ?? [])].sort((a, b) => Number(Boolean(b.recommended)) - Number(Boolean(a.recommended)))
+}
+
+function optionDescription(option: AskUserQuestionOption): string {
+  return option.description === undefined
+    ? option.label
+    : `${option.label}: ${option.description}`
+}
+
+function selectedOption(
+  options: readonly AskUserQuestionOption[],
+  answer: string,
+): AskUserQuestionOption | undefined {
+  return options.find(option => optionAnswer(option) === answer)
+}
+
+function requireStringContent(
+  content: Record<string, ElicitationContentValue> | null | undefined,
+  key: string,
+): string | undefined {
+  const value = content?.[key]
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined
+}
+
+function askAbortError(): UserInteractionError {
+  return new UserInteractionError('ask_user_question was aborted before the user answered', 'ASK_ABORTED')
+}
+
+function withAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return promise
+  if (signal.aborted) return Promise.reject(askAbortError())
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      signal.removeEventListener('abort', onAbort)
+      reject(askAbortError())
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(new Error(String(error), { cause: error }))
+      },
+    )
+  })
+}
+
+function elicitationForQuestion(
+  sessionId: SessionId,
+  request: AskUserQuestionRequest,
+  options: AskUserQuestionOption[],
+): CreateElicitationRequest {
+  const allowCustom = options.length === 0 || (request.allowCustom ?? true)
+  const title = request.header ?? 'Question'
+  if (options.length === 0) {
+    return {
+      sessionId,
+      mode: 'form',
+      message: request.question,
+      requestedSchema: {
+        type: 'object',
+        title,
+        properties: {
+          answer: { type: 'string', title: request.question },
+        },
+        required: ['answer'],
+      },
+    }
+  }
+
+  const choiceOptions: EnumOption[] = options.map(option => ({
+    const: optionAnswer(option),
+    title: optionDescription(option),
+  }))
+  const recommended = options.find(option => option.recommended)
+  return {
+    sessionId,
+    mode: 'form',
+    message: request.question,
+    requestedSchema: {
+      type: 'object',
+      title,
+      properties: {
+        choice: {
+          type: 'string',
+          title: request.question,
+          description: allowCustom ? 'Choose one option, or fill a custom answer below.' : 'Choose one option.',
+          oneOf: choiceOptions,
+          ...recommended !== undefined ? { default: optionAnswer(recommended) } : {},
+        },
+        ...allowCustom
+          ? {
+            custom_answer: {
+              type: 'string' as const,
+              title: 'Custom answer',
+              description: 'Optional free-form answer. Leave empty to use the selected option.',
+            },
+          }
+          : {},
+      },
+      required: allowCustom ? [] : ['choice'],
+    },
+  }
 }
 
 /** Plugin config: the agent template ACP sessions are created from. */
@@ -224,6 +346,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
   const sessionPersistence = ctx.sessionPersistence
   const logger = ctx.logger
   const tools = ctx.tools
+  const userInteraction = ctx.userInteraction
   // A new ToolPresenter per session (and a throwaway per load replay), each given
   // this warn sink so a throwing tool presenter is logged, not propagated.
   const makePresenter = (): ToolPresenter => new ToolPresenter(tools, (message) => { logger.warn(message) })
@@ -253,6 +376,37 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // exists after `newSession`, which the client calls after construction), so
   // `notify` never observes it unset — no undefined guard needed.
   let conn: AgentSideConnection
+
+  userInteraction.registerProvider({
+    async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer> {
+      if (request.agent === undefined) {
+        throw new UserInteractionError('ACP user questions must come from an agent-owned request', 'NO_AGENT')
+      }
+      const sessionId = bySession.get(request.agent)
+      if (sessionId === undefined) {
+        throw new UserInteractionError('ACP user question has no matching session', 'NO_SESSION')
+      }
+      const options = orderedOptions(request.options)
+      const response = await withAbort(conn.unstable_createElicitation(
+        elicitationForQuestion(sessionId, request, options),
+      ), request.signal).catch((error: unknown) => {
+        if (error instanceof UserInteractionError) throw error
+        throw new UserInteractionError('ACP elicitation request failed', 'ASK_FAILED', { cause: error })
+      })
+      if (response.action !== 'accept') {
+        throw new UserInteractionError('ask_user_question was cancelled by the user', 'ASK_CANCELLED')
+      }
+      const customAnswer = requireStringContent(response.content, 'custom_answer')
+      if (customAnswer !== undefined) return { answer: customAnswer }
+
+      const answer = requireStringContent(response.content, options.length === 0 ? 'answer' : 'choice')
+      if (answer === undefined) {
+        throw new UserInteractionError('ask_user_question returned no answer', 'NO_ANSWER')
+      }
+      const option = selectedOption(options, answer)
+      return option === undefined ? { answer } : { answer, option }
+    },
+  })
 
   /**
    * Reject any RPC after the bridge has torn down. The `AgentSideConnection`

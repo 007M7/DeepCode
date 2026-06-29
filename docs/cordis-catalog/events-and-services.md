@@ -463,7 +463,7 @@ registerProvider(provider: UserInteractionProvider): () => void
 async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 ```
 
-Source: [`packages/core/user-interaction/src/index.ts:72`](../../packages/core/user-interaction/src/index.ts)
+Source: [`packages/core/user-interaction/src/index.ts:70`](../../packages/core/user-interaction/src/index.ts)
 
 ## Inherited tier (cordis core + loader/hmr/timer)
 

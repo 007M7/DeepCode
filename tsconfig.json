@@ -31,7 +31,7 @@
     { "path": "./packages/core/agent" },
     { "path": "./packages/core/user-interaction" },
     { "path": "./packages/core/tools" },
-    { "path": "./packages/core/tool-ask-user" },
+    { "path": "./packages/ui/tool-ask-user" },
     { "path": "./packages/core/agent-loop" },
     { "path": "./packages/core/agent-core" },
     { "path": "./packages/bash/bash" },

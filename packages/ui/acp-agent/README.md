@@ -11,8 +11,10 @@ stdout is the ACP JSON-RPC channel, so the cluster is defined as much by what it
 | Plugin | Why |
 |---|---|
 | `@deepseek-ai/dsh-agent-core` | the spine, pre-creating **no** agents (ACP `session/new` creates them on demand) |
+| `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by confirmation tools |
+| `@deepseek-ai/dsh-tool-ask-user` | the model-facing `ask_user_question` tool |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log (the bridge advertises `loadSession`) |
-| `@deepseek-ai/dsh-acp` | the bridge that owns stdout for JSON-RPC |
+| `@deepseek-ai/dsh-acp` | the bridge that owns stdout for JSON-RPC and provides ACP-backed user answers |
 | ~~console logger~~ | **omitted** — it writes to stdout and would corrupt the protocol frames ([the stdout-purity footgun](../acp/README.md)) |
 | ~~`hmr`~~ | **omitted** — the editor owns the subprocess |
 

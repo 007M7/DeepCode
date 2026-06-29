@@ -34,6 +34,8 @@ import z from 'schemastery'
 import * as acp from '@deepseek-ai/dsh-acp'
 import * as agentCore from '@deepseek-ai/dsh-agent-core'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 
 export const name = 'acp-agent'
 
@@ -67,6 +69,8 @@ export const Config: z<Config> = z.object({
  */
 export function apply(ctx: Context, config: Config): void {
   ctx.plugin(agentCore)
+  ctx.plugin(UserInteractionService)
+  ctx.plugin(toolAskUser)
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
   ctx.plugin(acp, { model: config.model, systemPrompt: config.systemPrompt })
 }

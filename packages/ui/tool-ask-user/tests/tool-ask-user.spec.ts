@@ -126,6 +126,21 @@ describe('ask_user_question tool', () => {
     expect(seen[0]).toMatchObject({ header: 'Confirm', agent })
   })
 
+  it('returns structured user-interaction errors through tool execution', async () => {
+    const ctx = await setup()
+
+    const result = await ctx.tools.execute({
+      callId: CallId('ask-no-provider'),
+      name: 'ask_user_question',
+      arguments: { question: 'Continue?' },
+    })
+
+    expect(result).toMatchObject({
+      isError: true,
+      error: { name: 'UserInteractionError', code: 'NO_PROVIDER' },
+    })
+  })
+
   it('uses an option label when the selected option has no explicit value', async () => {
     const ctx = await setup()
     ctx.userInteraction.registerProvider({

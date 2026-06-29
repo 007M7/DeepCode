@@ -328,6 +328,19 @@ describe('createStdioChat input', () => {
     await expect(answer).resolves.toEqual({ answer: 'Use defaults' })
   })
 
+  it('accepts free-form input for an optionless question even when allowCustom is false', async () => {
+    const { ctx, input } = await setup()
+    const answer = ctx.userInteraction.ask({
+      question: 'Choose?',
+      allowCustom: false,
+    })
+    await new Promise(r => setImmediate(r))
+
+    input.feed('Use the default path')
+
+    await expect(answer).resolves.toEqual({ answer: 'Use the default path' })
+  })
+
   it('rejects an active question when its signal aborts', async () => {
     const { ctx } = await setup()
     const controller = new AbortController()

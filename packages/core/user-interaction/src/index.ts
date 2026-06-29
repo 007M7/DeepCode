@@ -9,6 +9,7 @@
 
 import { Context, Service } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
 
 declare module 'cordis' {
   interface Context {
@@ -58,12 +59,9 @@ export interface UserInteractionProvider {
 }
 
 /** Stable error taxonomy for user-interaction failures. */
-export class UserInteractionError extends Error {
-  readonly code: string
-
+export class UserInteractionError extends HarnessError {
   constructor(message: string, code: string, options?: ErrorOptions) {
-    super(message, options)
-    this.code = code
+    super(message, code, options)
     this.name = 'UserInteractionError'
   }
 }
