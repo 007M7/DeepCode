@@ -40,18 +40,17 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
       await writeFile(join(workdir, `file${i}.txt`), `This is file number ${i}. `.repeat(40))
     }
 
-    // Tiny window so a couple of steps crosses the threshold. The convergence
-    // invariant requires summarizationMaxTokens + retainTokens to be strictly
-    // BELOW the threshold = floor(contextWindow * thresholdRatio) =
-    // floor(2400 * 0.5) = 1200; 600 + 500 = 1100 < 1200. The summary cap
-    // stays high enough for the live model to emit the required checkpoint
-    // sections; a truncated checkpoint fails closed and leaves no summary.
+    // Tiny window so a couple of steps crosses the threshold. The generation
+    // cap is deliberately larger than the final checkpoint because
+    // reasoning-capable APIs count reasoning tokens against the provider output
+    // budget even though those blocks are stripped before the checkpoint is
+    // stored.
     ctx = await codingHarness(workdir, {
       compact: {
         contextWindow: 2400,
         thresholdRatio: 0.5,
         retainTokens: 500,
-        summarizationMaxTokens: 600,
+        maxTokens: 2048,
       },
       persistenceRoot: './.sessions',
     })

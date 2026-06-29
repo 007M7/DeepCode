@@ -17,14 +17,18 @@ const SIGNAL = new AbortController().signal
  * predictable token estimate, for deterministic unit tests of the algorithm.
  */
 class TestCompactService extends BasicCompactService {
+  private readonly summaryOutputs = new WeakSet<readonly ContentBlock[]>()
   /** Track calls to summarize for test assertions. */
   summarizeCalls: { text: string; model: string }[] = []
   /** The fixed summary to return. */
   mockSummary: ContentBlock[] = [{ type: 'text', text: 'Test summary of compacted content.' }]
+  /** Per-call summaries; when set, each summarize() call shifts one value. */
+  mockSummaryQueue: ContentBlock[][] = []
   /** If set, summarize() throws this error. */
   summarizeError: Error | null = null
 
   override estimateContentTokens(blocks: readonly ContentBlock[]): number {
+    if (this.summaryOutputs.has(blocks)) return blocks.length * 2
     // 10 tokens per block — predictable for retention/threshold math.
     return blocks.length * 10
   }
@@ -33,18 +37,15 @@ class TestCompactService extends BasicCompactService {
     const model = this.config.summarizationModel || agent.options.model || ''
     this.summarizeCalls.push({ text, model })
     if (this.summarizeError) throw this.summarizeError
-    return this.mockSummary
+    const summary = this.mockSummaryQueue.shift() ?? this.mockSummary
+    this.summaryOutputs.add(summary)
+    return summary
   }
 }
 
-/**
- * Create a test service with a throwaway context (auto disabled — no model).
- * A small `summarizationMaxTokens` baseline keeps the convergence invariant
- * (`summarizationMaxTokens + retainTokens <= contextWindow * thresholdRatio`)
- * satisfied for the tiny windows these tests use; a test may override it.
- */
+/** Create a test service with a throwaway context (auto disabled — no model). */
 function createTestService(config: BasicCompactConfig = {}): TestCompactService {
-  return new TestCompactService(new Context(), { auto: false, summarizationMaxTokens: 1, ...config })
+  return new TestCompactService(new Context(), { auto: false, ...config })
 }
 
 /**
@@ -182,7 +183,7 @@ describe('BasicCompactService step-alignment (never split a tool-call/result pai
     // region always ends on a step boundary, so no step's tool-call is split
     // from its result. retainTokens=55 keeps the recent tail; the older steps
     // compact intact.
-    const svc = createTestService({ contextWindow: 200, thresholdRatio: 0.5, retainTokens: 55 })
+    const svc = createTestService({ contextWindow: 280, thresholdRatio: 0.5, retainTokens: 55 })
     const session = toolTurnSession(3)
 
     const result = await compactIfNeeded(svc, session, '', 'm', SIGNAL)
@@ -520,7 +521,7 @@ describe('BasicCompactService.compactIfNeeded', () => {
   })
 
   it('walks tail→head and retains nodes within token budget', async () => {
-    const svc = createTestService({ contextWindow: 100, thresholdRatio: 0.2, retainTokens: 15 })
+    const svc = createTestService({ contextWindow: 350, thresholdRatio: 0.2, retainTokens: 15 })
     const session = multiTurnSession(5, 1) // 10 surface nodes = ~100 tokens
 
     const result = await compactIfNeeded(svc, session, '', 'm', SIGNAL)
@@ -531,13 +532,12 @@ describe('BasicCompactService.compactIfNeeded', () => {
   })
 
   it('returns null when the whole surface fits the retain budget (over threshold by role/system overhead)', async () => {
-    // threshold = floor(470*0.1) = 47. The 4 surface nodes weigh 10 each (raw 40
+    // threshold = floor(480*0.1) = 48. The 4 surface nodes weigh 10 each (raw 40
     // for the retention walk), but the derived estimate adds 4 role tokens per
-    // message → 56 ≥ 47, so the threshold check passes and the walk runs. The
+    // message → 56 ≥ 48, so the threshold check passes and the walk runs. The
     // walk accumulates all 40 < retainTokens (45) without crossing the budget,
-    // so keepFromIdx reaches 0 and compaction declines. The invariant holds:
-    // summarizationMaxTokens (1) + retainTokens (45) = 46 < threshold 47.
-    const svc = createTestService({ contextWindow: 470, thresholdRatio: 0.1, retainTokens: 45 })
+    // so keepFromIdx reaches 0 and compaction declines.
+    const svc = createTestService({ contextWindow: 480, thresholdRatio: 0.1, retainTokens: 45 })
     const session = multiTurnSession(2, 1)
     expect(await compactIfNeeded(svc, session, '', 'm', SIGNAL)).toBeNull()
   })
@@ -553,7 +553,7 @@ describe('BasicCompactService.compactIfNeeded', () => {
     // verbatim (protectedIdx = first open-turn node = 0), so compactIfNeeded
     // returned null and shadowedSeqs would be empty — the runaway turn could
     // never compact and the next model call would overflow the window.
-    const svc = createTestService({ contextWindow: 300, thresholdRatio: 0.1, retainTokens: 25 })
+    const svc = createTestService({ contextWindow: 800, thresholdRatio: 0.1, retainTokens: 25 })
     const s = new Session(SessionId('runaway'))
     // ONE open turn with 5 closed steps; each step is [asst(tool-call), result].
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -598,7 +598,7 @@ describe('BasicCompactService.compactIfNeeded', () => {
     // never stranded. retainTokens=25 leaves a couple of retained nodes after
     // the first compaction (so the surface is [summary, …retained], not just
     // [summary]).
-    const svc = createTestService({ contextWindow: 300, thresholdRatio: 0.1, retainTokens: 25 })
+    const svc = createTestService({ contextWindow: 800, thresholdRatio: 0.1, retainTokens: 25 })
     const s = multiTurnSession(4, 1) // turns 1-4 closed, turn 5 open (no surface yet)
 
     const first = await compactIfNeeded(svc, s, '', 'm', SIGNAL)
@@ -622,6 +622,45 @@ describe('BasicCompactService.compactIfNeeded', () => {
     // The fresh open-turn nodes were NOT compacted.
     const turn5UserSeq = s.events.find(e => e.type === 'user/message' && e.data.content.some(b => b.type === 'text' && b.text === 'turn 5 work'))!.seq
     expect(second!.shadowedSeqs).not.toContain(turn5UserSeq)
+  })
+
+  it('re-compacts smaller summaries until the post-compaction surface drops below threshold', async () => {
+    const svc = createTestService({
+      contextWindow: 100,
+      thresholdRatio: 0.5,
+      retainTokens: 10,
+      compactionRetries: 2,
+    })
+    svc.mockSummaryQueue = [
+      Array.from({ length: 4 }, (_, index) => ({ type: 'text', text: `first ${index}` })),
+      [{ type: 'text', text: 'second' }],
+    ]
+    const session = multiTurnSession(4, 1)
+
+    const result = await compactIfNeeded(svc, session, '', 'm', SIGNAL)
+
+    expect(result).not.toBeNull()
+    expect(svc.summarizeCalls).toHaveLength(2)
+    expect(session.events.filter(e => e.type === 'compact/summary')).toHaveLength(2)
+    expect(svc.estimateTokens(session.deriveMessages(), '')).toBeLessThan(50)
+  })
+
+  it('throws after the configured re-compaction attempts still leave the surface above threshold', async () => {
+    const svc = createTestService({
+      contextWindow: 100,
+      thresholdRatio: 0.5,
+      retainTokens: 10,
+      compactionRetries: 1,
+    })
+    svc.mockSummaryQueue = [
+      Array.from({ length: 4 }, (_, index) => ({ type: 'text', text: `first ${index}` })),
+      Array.from({ length: 3 }, (_, index) => ({ type: 'text', text: `second ${index}` })),
+    ]
+    const session = multiTurnSession(4, 1)
+
+    await expect(compactIfNeeded(svc, session, '', 'm', SIGNAL))
+      .rejects.toThrow(/still above threshold after 2 compaction attempts/)
+    expect(svc.summarizeCalls).toHaveLength(2)
   })
 })
 
@@ -753,31 +792,31 @@ describe('BasicCompactService HMR safety', () => {
   })
 })
 
-describe('BasicCompactService convergence invariant (config)', () => {
-  it('throws when summarizationMaxTokens + retainTokens exceeds the threshold', () => {
-    // threshold = floor(1000 * 0.5) = 500; 200 + 400 = 600 is not below 500 → reject.
-    expect(() => new BasicCompactService(new Context(), {
-      auto: false, contextWindow: 1000, thresholdRatio: 0.5, retainTokens: 400, summarizationMaxTokens: 200,
-    })).toThrow(/not below the compaction threshold/)
+describe('BasicCompactService config validation', () => {
+  it('rejects invalid numeric config values', () => {
+    expect(() => new BasicCompactService(new Context(), { auto: false, contextWindow: 0 })).toThrow(/contextWindow .* positive integer/)
+    expect(() => new BasicCompactService(new Context(), { auto: false, thresholdRatio: 0 })).toThrow(/thresholdRatio .* \(0, 1\]/)
+    expect(() => new BasicCompactService(new Context(), { auto: false, thresholdRatio: 1.1 })).toThrow(/thresholdRatio .* \(0, 1\]/)
+    expect(() => new BasicCompactService(new Context(), { auto: false, retainTokens: -1 })).toThrow(/retainTokens .* non-negative integer/)
+    expect(() => new BasicCompactService(new Context(), { auto: false, maxTokens: 0 })).toThrow(/maxTokens .* positive integer/)
+    expect(() => new BasicCompactService(new Context(), { auto: false, compactionRetries: -1 }))
+      .toThrow(/compactionRetries .* non-negative integer/)
+    expect(() => new BasicCompactService(new Context(), { auto: false, summarizationModel: 1 } as unknown as BasicCompactConfig))
+      .toThrow(/summarizationModel must be a string/)
+    expect(() => new BasicCompactService(new Context(), { auto: 'no' } as unknown as BasicCompactConfig))
+      .toThrow(/auto must be a boolean/)
   })
 
-  it('rejects the boundary case (sum equals the threshold — would re-trigger)', () => {
-    // threshold = floor(1000 * 0.5) = 500; 100 + 400 = 500 is NOT below 500, so
-    // post-compaction history would sit exactly at threshold and re-compact.
+  it('accepts a large retain budget because convergence is enforced dynamically', () => {
     expect(() => new BasicCompactService(new Context(), {
-      auto: false, contextWindow: 1000, thresholdRatio: 0.5, retainTokens: 400, summarizationMaxTokens: 100,
-    })).toThrow(/not below the compaction threshold/)
-  })
-
-  it('accepts the case just below the threshold', () => {
-    // threshold = floor(1000 * 0.5) = 500; 99 + 400 = 499 < 500 → allowed.
-    expect(() => new BasicCompactService(new Context(), {
-      auto: false, contextWindow: 1000, thresholdRatio: 0.5, retainTokens: 400, summarizationMaxTokens: 99,
+      auto: false,
+      contextWindow: 1000,
+      thresholdRatio: 0.5,
+      retainTokens: 900,
     })).not.toThrow()
   })
 
-  it('the default config satisfies the invariant', () => {
-    // 2048 + 20480 = 22528 ≤ floor(128000 * 0.8) = 102400.
+  it('the default config is valid', () => {
     expect(() => new BasicCompactService(new Context(), { auto: false })).not.toThrow()
   })
 })
@@ -795,6 +834,41 @@ class ScriptedAdapter extends LlmAdapter {
     yield { type: 'text-delta', index: 0, text: this.summaryText }
     yield { type: 'finish', reason: { kind: 'stop' } }
   }
+}
+
+/** An adapter that emits arbitrary content blocks, preserving reasoning/text shape. */
+class BlocksAdapter extends LlmAdapter {
+  lastOptions: GenerateOptions | null = null
+  constructor(private blocks: readonly ContentBlock[]) {
+    super()
+  }
+
+  async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    this.lastOptions = options
+    for (const [index, block] of this.blocks.entries()) {
+      yield { type: 'block-start', index, blockType: block.type }
+      switch (block.type) {
+        case 'text':
+          yield { type: 'text-delta', index, text: block.text }
+          break
+        case 'reasoning':
+          yield { type: 'reasoning-delta', index, text: block.text }
+          break
+        default:
+          yield { type: 'block-end', index, block }
+      }
+    }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+}
+
+/** Wire a real LlmService + arbitrary-block adapter into a context. */
+async function ctxWithBlocks(blocks: readonly ContentBlock[], model = 'test-model'): Promise<{ ctx: Context; adapter: BlocksAdapter }> {
+  const ctx = new Context()
+  await ctx.plugin(LlmService)
+  const adapter = new BlocksAdapter(blocks)
+  ctx.llm.registerAdapter([model], adapter)
+  return { ctx, adapter }
 }
 
 /** Wire a real LlmService + scripted adapter into a context. */
@@ -858,7 +932,7 @@ function summarize(svc: BasicCompactService, text: string, model: string) {
 describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
   it('summarizes via the registered adapter and returns its content', async () => {
     const { ctx, adapter } = await ctxWithModel('SUMMARY TEXT')
-    const svc = new BasicCompactService(ctx, { auto: false, summarizationMaxTokens: 512 })
+    const svc = new BasicCompactService(ctx, { auto: false, maxTokens: 512 })
 
     const summary = await summarize(svc, 'User: hi\n\nAssistant: hello', 'test-model')
     expect(summary).toEqual([{ type: 'text', text: 'SUMMARY TEXT' }])
@@ -867,6 +941,37 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     expect(adapter.lastOptions!.system).toContain('## Next Step')
     expect(adapter.lastOptions!.maxTokens).toBe(512)
     expect(adapter.lastOptions!.messages[0]!.content[0]).toMatchObject({ type: 'text' })
+  })
+
+  it('uses maxTokens as the summarization provider cap', async () => {
+    const { ctx, adapter } = await ctxWithModel('SUMMARY TEXT')
+    const svc = new BasicCompactService(ctx, {
+      auto: false,
+      maxTokens: 50,
+    })
+
+    await summarize(svc, 'User: hi', 'test-model')
+
+    expect(adapter.lastOptions!.maxTokens).toBe(50)
+  })
+
+  it('strips reasoning blocks from the stored summary', async () => {
+    const { ctx } = await ctxWithBlocks([
+      { type: 'reasoning', text: 'private chain of thought' },
+      { type: 'text', text: 'PUBLIC SUMMARY' },
+    ])
+    const svc = new BasicCompactService(ctx, { auto: false })
+
+    const summary = await summarize(svc, 'User: hi', 'test-model')
+
+    expect(summary).toEqual([{ type: 'text', text: 'PUBLIC SUMMARY' }])
+  })
+
+  it('throws when stripping reasoning leaves no summary text', async () => {
+    const { ctx } = await ctxWithBlocks([{ type: 'reasoning', text: 'private only' }])
+    const svc = new BasicCompactService(ctx, { auto: false })
+
+    await expect(summarize(svc, 'User: hi', 'test-model')).rejects.toThrow(/no non-reasoning summary content/)
   })
 
   it('throws when no model is provided', async () => {
@@ -930,6 +1035,17 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     // The raw summary is wrapped in the checkpoint framing on the surface.
     expect(session.deriveMessages()[0]!.content).toContainEqual({ type: 'text', text: 'CONDENSED' })
   })
+
+  it('rejects a summary that is not smaller than the shadowed content', async () => {
+    const svc = createTestService({ auto: false })
+    const session = multiTurnSession(2, 1)
+    const nodes = session.surface.nodes
+    svc.mockSummary = Array.from({ length: 20 }, (_, index) => ({ type: 'text', text: `large ${index}` }))
+
+    await expect(compactRegion(svc, session, nodes[0]!.seq, nodes[1]!.seq, 'm'))
+      .rejects.toThrow(/summary is not smaller than the shadowed content/)
+    expect(session.events.some(e => e.type === 'compact/summary')).toBe(false)
+  })
 })
 
 describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => {
@@ -940,7 +1056,7 @@ describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => 
 
   it('compacts (mutating the surface) when over threshold', async () => {
     const { ctx } = await ctxWithModel('SUMMARY')
-    void new BasicCompactService(ctx, { contextWindow: 200, thresholdRatio: 0.5, retainTokens: 20, summarizationMaxTokens: 50 })
+    void new BasicCompactService(ctx, { contextWindow: 200, thresholdRatio: 0.5, retainTokens: 20 })
     const session = multiTurnSession(5, 1) // 10 surface nodes
     const agent = stubAgent(session, 'test-model')
     const before = session.surface.nodes.length
@@ -956,7 +1072,7 @@ describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => 
 
   it('compacts mid-turn on steps after the first (the surface grows within a turn)', async () => {
     const { ctx } = await ctxWithModel('SUMMARY')
-    void new BasicCompactService(ctx, { contextWindow: 100, thresholdRatio: 0.5, retainTokens: 10, summarizationMaxTokens: 30 })
+    void new BasicCompactService(ctx, { contextWindow: 100, thresholdRatio: 0.5, retainTokens: 10 })
     const session = multiTurnSession(3, 1) // over the 0.5 threshold
     const agent = stubAgent(session, 'test-model')
 
@@ -981,7 +1097,7 @@ describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => 
     // surface is untouched (the loop derives the full history).
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    void new BasicCompactService(ctx, { contextWindow: 300, thresholdRatio: 0.1, retainTokens: 10, summarizationMaxTokens: 1 })
+    void new BasicCompactService(ctx, { contextWindow: 300, thresholdRatio: 0.1, retainTokens: 10 })
     const session = multiTurnSession(3, 1)
     const agent = stubAgent(session, 'missing-model')
     const before = session.surface.nodes.length
@@ -994,7 +1110,7 @@ describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => 
 
   it('does not register the listener when auto is false', async () => {
     const { ctx } = await ctxWithModel('SUMMARY')
-    void new BasicCompactService(ctx, { auto: false, contextWindow: 100, thresholdRatio: 0.1, retainTokens: 5, summarizationMaxTokens: 1 })
+    void new BasicCompactService(ctx, { auto: false, contextWindow: 100, thresholdRatio: 0.1, retainTokens: 5 })
     const session = multiTurnSession(3, 1)
     const agent = stubAgent(session, 'test-model')
 
@@ -1008,7 +1124,7 @@ describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => 
       options.model = 'routed-model'
       return next()
     })
-    void new BasicCompactService(ctx, { contextWindow: 200, thresholdRatio: 0.5, retainTokens: 20, summarizationMaxTokens: 50 })
+    void new BasicCompactService(ctx, { contextWindow: 200, thresholdRatio: 0.5, retainTokens: 20 })
     const session = multiTurnSession(5, 1)
     const agent = stubAgent(session)
 
@@ -1025,7 +1141,6 @@ describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => 
       contextWindow: 200,
       thresholdRatio: 0.5,
       retainTokens: 20,
-      summarizationMaxTokens: 50,
     })
     const session = multiTurnSession(5, 1)
     const agent = stubAgent(session, 'test-model')
@@ -1139,14 +1254,16 @@ describe('BasicCompactService edge cases', () => {
     expect(svc.estimateContentTokens([unknown])).toBeGreaterThan(0)
   })
 
-  it('compacts once without re-checking a post-compaction threshold', async () => {
+  it('auto-compaction reports bounded retry exhaustion after committing a smaller summary', async () => {
     const { ctx } = await ctxWithModel('SUMMARY')
-    // Even with a window so tiny the post-compaction history still exceeds the
-    // threshold, the agnostic listener does NOT re-gate or warn — it compacts
-    // once (the single check lives in compactIfNeeded) and proceeds.
     const warnings: string[] = []
     ctx.logger.warn = ((msg: string) => void warnings.push(msg)) as typeof ctx.logger.warn
-    void new BasicCompactService(ctx, { contextWindow: 300, thresholdRatio: 0.1, retainTokens: 5, summarizationMaxTokens: 5 })
+    void new BasicCompactService(ctx, {
+      contextWindow: 300,
+      thresholdRatio: 0.1,
+      retainTokens: 5,
+      compactionRetries: 0,
+    })
     const session = multiTurnSession(4, 1)
     const agent = stubAgent(session, 'test-model')
 
@@ -1154,8 +1271,7 @@ describe('BasicCompactService edge cases', () => {
     expect(session.events.some(e => e.type === 'compact/summary')).toBe(true)
     // The surface was mutated; the head message is the framed summary checkpoint.
     expect(session.deriveMessages()[0]!.content).toContainEqual({ type: 'text', text: 'SUMMARY' })
-    // No cascade warning is emitted.
-    expect(warnings.length).toBe(0)
+    expect(warnings.some(w => w.includes('still above threshold after 1 compaction attempts'))).toBe(true)
   })
 
   it('rejects compaction when no turn is open (compaction events must be turn-enclosed)', async () => {
@@ -1225,7 +1341,7 @@ describe('BasicCompactService edge cases', () => {
     const { ctx } = await ctxWithModel('SUMMARY')
     const warnings: string[] = []
     ctx.logger.warn = ((msg: string) => void warnings.push(msg)) as typeof ctx.logger.warn
-    const svc = new TestCompactService(ctx, { contextWindow: 300, thresholdRatio: 0.1, retainTokens: 10, summarizationMaxTokens: 10 })
+    const svc = new TestCompactService(ctx, { contextWindow: 300, thresholdRatio: 0.1, retainTokens: 10 })
     svc.summarizeError = 'boom' as unknown as Error
     const session = multiTurnSession(3, 1)
     const agent = stubAgent(session, 'test-model')
@@ -1243,7 +1359,7 @@ describe('BasicCompactService edge cases', () => {
     // A large system prompt pushes the listener's estimate over threshold, but
     // retainTokens is huge so compactIfNeeded walks everything and returns null.
     // threshold = floor(2000*0.1) = 200; invariant: 5 + 150 = 155 ≤ 200.
-    const svc = new TestCompactService(ctx, { contextWindow: 2000, thresholdRatio: 0.1, retainTokens: 150, summarizationMaxTokens: 5 })
+    const svc = new TestCompactService(ctx, { contextWindow: 2000, thresholdRatio: 0.1, retainTokens: 150 })
     const session = multiTurnSession(2, 1)
     const agent = stubAgent(session, 'test-model')
     const bigSystem = 'x'.repeat(900) // ceil(900/4)=225 > threshold 200

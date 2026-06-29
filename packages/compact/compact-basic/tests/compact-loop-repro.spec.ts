@@ -91,14 +91,12 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
     },
   }))
   // Tiny window so a couple of tool steps cross the threshold and compaction
-  // fires within the runaway turn. Convergence invariant holds:
-  // summarizationMaxTokens(1) + retainTokens(20) = 21 <= floor(60*0.5) = 30.
+  // fires within the runaway turn.
   const compact = new ReproCompactService(ctx, {
     auto: true,
-    contextWindow: 60,
+    contextWindow: 64,
     thresholdRatio: 0.5,
     retainTokens: 20,
-    summarizationMaxTokens: 1,
   })
   return { ctx, compact }
 }

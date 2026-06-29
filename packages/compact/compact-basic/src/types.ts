@@ -19,8 +19,10 @@ export interface BasicCompactConfig {
   retainTokens?: number
   /** Model to use for summarization (default '' — uses the agent's model). */
   summarizationModel?: string
-  /** Maximum tokens for the summarization response (default 2048). */
-  summarizationMaxTokens?: number
+  /** Provider generation cap for the summarization call (default 8192). */
+  maxTokens?: number
+  /** Extra compaction attempts when the first compacted surface is still over threshold (default 1). */
+  compactionRetries?: number
   /** Enable automatic compaction on the `agent/pre-step` seam (default true). */
   auto?: boolean
 }
@@ -34,40 +36,52 @@ export const DEFAULTS: ResolvedConfig = {
   thresholdRatio: 0.8,
   retainTokens: 20480,
   summarizationModel: '',
-  summarizationMaxTokens: 2048,
+  maxTokens: 8192,
+  compactionRetries: 1,
   auto: true,
 }
 
 /**
- * Apply defaults to a partial config and enforce the approximate convergence
- * invariant.
+ * Apply defaults to a partial config and reject nonsensical numeric knobs.
  *
- * `summarizationMaxTokens + retainTokens` must be strictly BELOW the compaction
- * threshold (`contextWindow * thresholdRatio`). The invariant bounds the two
- * variable pieces of post-compaction history — the summary and the retained
- * recent tail — but it is intentionally approximate: checkpoint framing,
- * per-message role overhead, system-prompt size, and the char/4 estimator's
- * error can still leave a narrow accepted config near the threshold. The bound
- * is strict (`>=` rejects) because `compactIfNeeded` declines only when the
- * estimate is `< threshold`: a post-compaction history sitting EXACTLY at the
- * threshold would re-trigger on the next check. Pre-release we reject rather
- * than clamp: a config that cannot satisfy even this structural bound is a bug
- * at the call site, not something to silently paper over.
- *
- * @throws if `summarizationMaxTokens + retainTokens >= contextWindow * thresholdRatio`.
+ * Convergence is not a static config invariant: provider generation caps can be
+ * spent on hidden or surfaced reasoning tokens, and the model may emit a summary
+ * of unpredictable size. The backend instead enforces convergence dynamically:
+ * each committed summary must be smaller than the content it shadows, and
+ * `compactIfNeeded` may re-compact up to `compactionRetries` extra times before
+ * throwing if the surface still exceeds the threshold.
  */
 export function resolveConfig(config: BasicCompactConfig): ResolvedConfig {
   const resolved = { ...DEFAULTS, ...config }
-  const threshold = Math.floor(resolved.contextWindow * resolved.thresholdRatio)
-  const postCompactionFloor = resolved.summarizationMaxTokens + resolved.retainTokens
-  if (postCompactionFloor >= threshold) {
-    throw new Error(
-      `BasicCompactConfig: summarizationMaxTokens (${resolved.summarizationMaxTokens}) + `
-      + `retainTokens (${resolved.retainTokens}) = ${postCompactionFloor} is not below the compaction `
-      + `threshold contextWindow * thresholdRatio = ${threshold}; post-compaction history would `
-      + 'stay at/over threshold and re-compact endlessly. Lower retainTokens/summarizationMaxTokens '
-      + 'or raise contextWindow/thresholdRatio.',
-    )
+
+  assertPositiveInteger('contextWindow', resolved.contextWindow)
+  assertRatio('thresholdRatio', resolved.thresholdRatio)
+  assertNonNegativeInteger('retainTokens', resolved.retainTokens)
+  assertPositiveInteger('maxTokens', resolved.maxTokens)
+  assertNonNegativeInteger('compactionRetries', resolved.compactionRetries)
+  if (typeof resolved.summarizationModel !== 'string') {
+    throw new Error('BasicCompactConfig: summarizationModel must be a string.')
+  }
+  if (typeof resolved.auto !== 'boolean') {
+    throw new Error('BasicCompactConfig: auto must be a boolean.')
   }
   return resolved
+}
+
+function assertPositiveInteger(name: string, value: number): void {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`BasicCompactConfig: ${name} (${value}) must be a positive integer.`)
+  }
+}
+
+function assertNonNegativeInteger(name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`BasicCompactConfig: ${name} (${value}) must be a non-negative integer.`)
+  }
+}
+
+function assertRatio(name: string, value: number): void {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > 1) {
+    throw new Error(`BasicCompactConfig: ${name} (${value}) must be a number in (0, 1].`)
+  }
 }

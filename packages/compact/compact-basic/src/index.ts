@@ -290,7 +290,7 @@ export class BasicCompactService extends CompactService {
         content: [{ type: 'text', text: `Summarize this conversation history:\n\n${text}\n\nSummary:` }],
       }],
       system: SUMMARIZE_SYSTEM_PROMPT,
-      maxTokens: this.config.summarizationMaxTokens,
+      maxTokens: this.config.maxTokens,
     }
     // exactOptionalPropertyTypes: only set `signal` when present — assigning
     // `undefined` to an optional `signal?: AbortSignal` is a type error.
@@ -306,7 +306,12 @@ export class BasicCompactService extends CompactService {
     const error = finishError(assembler.finish)
     if (error) throw error
 
-    return assembler.message().content
+    const summary = this._stripReasoning(assembler.message().content)
+    if (!summary.some(block => block.type === 'text' && block.text.trim().length > 0)) {
+      throw new Error('summarization produced no non-reasoning summary content')
+    }
+
+    return summary
   }
 
   // ---- Core API (implements the abstract contract) ----
@@ -345,62 +350,28 @@ export class BasicCompactService extends CompactService {
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
     const session = agent.session
-    const messages = session.deriveMessages()
-    const totalTokens = this.estimateTokens(messages, fullSystemPrompt)
-
     const threshold = Math.floor(this.config.contextWindow * this.config.thresholdRatio)
-    if (totalTokens < threshold) return null
+    let result: CompactionResult | null = null
+    for (let attempt = 0; attempt <= this.config.compactionRetries; attempt++) {
+      const totalTokens = this.estimateTokens(session.deriveMessages(), fullSystemPrompt)
+      if (totalTokens < threshold) return result
 
-    const nodes = session.surface.nodes
-    if (nodes.length === 0) return null
+      const range = this._compactableRange(session)
+      if (range === null) {
+        if (result === null) return null
+        break
+      }
 
-    const events = session.events
-    const retainBudget = this.config.retainTokens
-
-    // Walk tail→head summing per-node token estimates. `keepFromIdx` is the
-    // index of the OLDEST node we retain verbatim; everything strictly older
-    // (`[0, keepFromIdx - 1]`) is the compactable range.
-    let accumulated = 0
-    let keepFromIdx = nodes.length // nothing retained yet
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const node = nodes[i]!
-      const event = events[node.seq]
-      /* v8 ignore next -- node.seq is a surface-node seq, always a valid log index by construction */
-      if (event) accumulated += this.estimateEventTokens(event)
-      keepFromIdx = i
-      if (accumulated >= retainBudget) break
+      result = await this.compactRegion(session, range.start, range.end, agent, turn, step, signal)
     }
 
-    // The whole surface fits the retain budget — nothing to compact.
-    if (keepFromIdx === 0) return null
+    const totalTokens = this.estimateTokens(session.deriveMessages(), fullSystemPrompt)
+    if (totalTokens < threshold) return result
 
-    // Round the cutoff to a tool-pairing boundary: if the cut before
-    // `nodes[keepFromIdx]` is unbalanced (an unanswered tool-call sits before
-    // it — i.e. it is mid-step), extend the retained side head-ward until the
-    // cut is balanced, so the compacted range ends without splitting an
-    // assistant↔result pair. A node that belongs to no step is already a
-    // balanced (free) boundary. Decline if no balanced cut exists at or below
-    // `keepFromIdx` (the compactable range is only an un-splittable open tail
-    // step — retry once it closes).
-    while (keepFromIdx > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      if (isToolPairingBalanced(nodes, events, nodes[keepFromIdx]!.seq)) break
-      keepFromIdx -= 1
-    }
-    if (keepFromIdx === 0) return null
-
-    // The compacted range is [head … keepFromIdx - 1], anchored at the head.
-    // The cutoff node `nodes[keepFromIdx - 1]` is necessarily a balanced END:
-    // the retained start `nodes[keepFromIdx]` opens on a balanced cut, and that
-    // same cut is the cut AFTER `nodes[keepFromIdx - 1]` — so no separate end
-    // check is needed.
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const firstSeq = nodes[0]!.seq
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const cutoffSeq = nodes[keepFromIdx - 1]!.seq
-
-    return this.compactRegion(session, firstSeq, cutoffSeq, agent, turn, step, signal)
+    throw new Error(
+      `compaction still above threshold after ${this.config.compactionRetries + 1} compaction attempts `
+      + `(${totalTokens} estimated tokens >= threshold ${threshold})`,
+    )
   }
 
   override async compactRegion(
@@ -482,7 +453,12 @@ export class BasicCompactService extends CompactService {
         // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         shadowedTokenCount += this.estimateEventTokens(session.events[seq]!)
       }
-
+      const summaryTokenCount = this.estimateContentTokens(summary)
+      if (summaryTokenCount >= shadowedTokenCount) {
+        throw new Error(
+          `summary is not smaller than the shadowed content (${summaryTokenCount} estimated tokens >= ${shadowedTokenCount})`,
+        )
+      }
       // --- Provenance record (log-only) ---
       const summaryEvent = session.append('compact/summary', {
         summary,
@@ -578,6 +554,72 @@ export class BasicCompactService extends CompactService {
       if (e.type === 'turn/end') break
     }
     return false
+  }
+
+  /** Resolve the next head-anchored compactable surface range, or `null`. */
+  private _compactableRange(session: Session): { start: number; end: number } | null {
+    const nodes = session.surface.nodes
+    if (nodes.length === 0) return null
+
+    const events = session.events
+    const retainBudget = this.config.retainTokens
+
+    // Walk tail→head summing per-node token estimates. `keepFromIdx` is the
+    // index of the OLDEST node we retain verbatim; everything strictly older
+    // (`[0, keepFromIdx - 1]`) is the compactable range.
+    let accumulated = 0
+    let keepFromIdx = nodes.length // nothing retained yet
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const node = nodes[i]!
+      const event = events[node.seq]
+      /* v8 ignore next -- node.seq is a surface-node seq, always a valid log index by construction */
+      if (event) accumulated += this.estimateEventTokens(event)
+      keepFromIdx = i
+      if (accumulated >= retainBudget) break
+    }
+
+    // The whole surface fits the retain budget — nothing to compact.
+    if (keepFromIdx === 0) return null
+
+    // Round the cutoff to a tool-pairing boundary: if the cut before
+    // `nodes[keepFromIdx]` is unbalanced (an unanswered tool-call sits before
+    // it — i.e. it is mid-step), extend the retained side head-ward until the
+    // cut is balanced, so the compacted range ends without splitting an
+    // assistant↔result pair. A node that belongs to no step is already a
+    // balanced (free) boundary. Decline if no balanced cut exists at or below
+    // `keepFromIdx` (the compactable range is only an un-splittable open tail
+    // step — retry once it closes).
+    while (keepFromIdx > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      if (isToolPairingBalanced(nodes, events, nodes[keepFromIdx]!.seq)) break
+      keepFromIdx -= 1
+    }
+    if (keepFromIdx === 0) return null
+
+    // The compacted range is [head … keepFromIdx - 1], anchored at the head.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const firstSeq = nodes[0]!.seq
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const cutoffSeq = nodes[keepFromIdx - 1]!.seq
+    return { start: firstSeq, end: cutoffSeq }
+  }
+
+  /** Remove reasoning blocks from model-produced summary content before storing it. */
+  private _stripReasoning(blocks: readonly ContentBlock[]): ContentBlock[] {
+    const stripped: ContentBlock[] = []
+    for (const block of blocks) {
+      switch (block.type) {
+        case 'reasoning':
+          break
+        case 'tool-result':
+          stripped.push({ ...block, content: this._stripReasoning(block.content) })
+          break
+        default:
+          stripped.push(block)
+      }
+    }
+    return stripped
   }
 
   /**
