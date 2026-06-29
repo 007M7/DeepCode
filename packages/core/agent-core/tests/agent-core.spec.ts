@@ -128,6 +128,16 @@ describe('dsh-agent-core bundle', () => {
     }
   })
 
+  it('supports direct apply with project instructions disabled and no forwarded agents', async () => {
+    const ctx = new Context()
+    agentCore.apply(ctx, { projectInstructions: false })
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    expect(ctx.get('agents')?.list()).toEqual([])
+    expect(ctx.get('systemPrompt')).toBeDefined()
+    await ctx.fiber.dispose()
+  })
+
   it('re-exports the loop config schema as its own', () => {
     expect(agentCore.Config).toBeDefined()
     expect(agentCore.name).toBe('agent-core')

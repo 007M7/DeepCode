@@ -51,6 +51,17 @@ describe('dsh-stdio-agent app', () => {
     await ctx.fiber.dispose()
   })
 
+  it('forwards explicit project-instruction controls to the bundled spine', async () => {
+    const ctx = await mount({
+      model: 'mock',
+      systemPrompt: 'hi',
+      persistenceRoot: '/tmp/dsh-stdio-agent-spec-project-instructions',
+      projectInstructions: false,
+    })
+    expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
+    await ctx.fiber.dispose()
+  })
+
   it('forwards resumeSessionId onto the pre-created agent when set', async () => {
     // A resume id defers agent creation until persistence loads; with no backing
     // session the resume is contained + logged, so no `main` agent registers —

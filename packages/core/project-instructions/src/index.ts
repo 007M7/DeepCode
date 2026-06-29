@@ -150,6 +150,7 @@ function ancestorChain(root: string, cwd: string): string[] {
   while (current !== resolvedRoot) {
     chain.push(current)
     const parent = dirname(current)
+    /* v8 ignore next -- defensive guard for direct helper misuse; discovery always passes cwd or an ancestor root. */
     if (parent === current) break
     current = parent
   }

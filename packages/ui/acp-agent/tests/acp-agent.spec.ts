@@ -46,6 +46,18 @@ describe('dsh-acp-agent composition', () => {
     await ctx.fiber.dispose()
   })
 
+  it('forwards explicit project-instruction controls to the bundled spine', async () => {
+    const ctx = await mount({
+      model: 'mock',
+      systemPrompt: 'hi',
+      persistenceRoot: '/tmp/dsh-acp-agent-project-instructions',
+      projectInstructions: false,
+    })
+    expect(ctx.get('agents')).toBeDefined()
+    expect(ctx.get('agentLoop')).toBeDefined()
+    await ctx.fiber.dispose()
+  })
+
   it('exposes its plugin shape', () => {
     expect(acpAgent.name).toBe('acp-agent')
     expect(acpAgent.Config).toBeDefined()

@@ -195,6 +195,24 @@ describe('project instruction discovery', () => {
     }
   })
 
+  it('labels the default DSH home as ~/.dsh when HOME points at the configured default', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const previousHome = process.env.HOME
+    try {
+      process.env.HOME = home
+      await write(join(home, '.dsh/AGENTS.md'), 'global default rule')
+
+      const files = await discoverBaselineInstructionFiles({ cwd: root })
+
+      expect(files.map(file => file.displayPath)).toEqual(['~/.dsh/AGENTS.md'])
+    } finally {
+      process.env.HOME = previousHome
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('ignores instruction candidates that are directories', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
@@ -279,6 +297,38 @@ describe('project instruction rendering', () => {
     expect(rendered.truncated[0]?.originalBytes).toBe(1000)
     expect(rendered.truncated[0]!.includedBytes).toBeGreaterThan(0)
     expect(Buffer.byteLength(rendered.text, 'utf8')).toBeLessThanOrEqual(700)
+  })
+
+  it('omits all text when the render budget is disabled', () => {
+    const rendered = renderProjectInstructions([
+      { absolutePath: '/repo/AGENTS.md', displayPath: 'AGENTS.md', content: 'root rules' },
+    ], { maxBytes: 0 })
+
+    expect(rendered).toEqual({
+      text: '',
+      omitted: [{ absolutePath: '/repo/AGENTS.md', displayPath: 'AGENTS.md', content: 'root rules' }],
+      truncated: [],
+    })
+  })
+
+  it('falls back to a compact truncation notice when even the empty heading cannot fit', () => {
+    const rendered = renderProjectInstructions([
+      { absolutePath: '/repo/pkg/AGENTS.md', displayPath: 'pkg/AGENTS.md', content: 'x'.repeat(1000) },
+    ], { maxBytes: 100 })
+
+    expect(rendered.text).toBe('<!-- Project instruction budget 100 bytes: truncated pkg/AGENTS.md from 1000 to 0 bytes -->')
+    expect(rendered.truncated).toEqual([{ displayPath: 'pkg/AGENTS.md', originalBytes: 1000, includedBytes: 0 }])
+    expect(Buffer.byteLength(rendered.text, 'utf8')).toBeLessThanOrEqual(100)
+  })
+
+  it('truncates the compact notice itself when the render budget is smaller than the notice', () => {
+    const rendered = renderProjectInstructions([
+      { absolutePath: '/repo/pkg/AGENTS.md', displayPath: 'pkg/AGENTS.md', content: 'x'.repeat(1000) },
+    ], { maxBytes: 20 })
+
+    expect(rendered.text).toBe('<!-- Project instruc')
+    expect(rendered.truncated).toEqual([{ displayPath: 'pkg/AGENTS.md', originalBytes: 1000, includedBytes: 0 }])
+    expect(Buffer.byteLength(rendered.text, 'utf8')).toBe(20)
   })
 })
 
