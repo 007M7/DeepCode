@@ -200,13 +200,12 @@ declare module 'cordis' {
      * transform or veto, but the loop must wait for the mutation to complete
      * before opening the step and deriving, and serial isolates listeners from
      * each other (one finishes its surface append before the next runs).
-     * `system`/`model` are the assembled values a listener needs to measure
-     * pressure (system counts toward the budget) and to summarize (the model).
-     * `signal` cancels any in-flight work a listener starts (e.g. a summarization
-     * model call).
+     * `fullSystemPrompt` is the assembled prompt a listener needs to measure
+     * pressure (the system prompt counts toward the budget). `signal` cancels any
+     * in-flight work a listener starts (e.g. a summarization model call).
      * @mode serial
      */
-    'agent/pre-step'(agent: Agent, turn: number, step: number, system: string, model: string, signal: AbortSignal): Promise<void> | void
+    'agent/pre-step'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal): Promise<void> | void
     /**
      * Waterfall: mutate the fully-assembled {@link GenerateOptions} before the
      * model call (hooks, model switching, tool filtering, …). Call `next()` to

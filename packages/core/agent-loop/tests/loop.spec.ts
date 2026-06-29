@@ -322,9 +322,9 @@ describe('agent loop', () => {
 
   it('agent/pre-step fires once per step before the step is opened', async () => {
     // Two steps (a tool call, then a final text turn) → two model calls → two
-    // pre-step fires, each carrying the assembled system + model, BEFORE the
-    // step is opened and its request is derived (the request the adapter sees
-    // reflects any surface state at fire time).
+    // pre-step fires, each carrying the assembled full system prompt, BEFORE
+    // the step is opened and its request is derived (the request the adapter
+    // sees reflects any surface state at fire time).
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'echo', {}, 'calling echo'),
       textResponse('done'),
@@ -336,18 +336,18 @@ describe('agent loop', () => {
     }))
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    const fires: { turn: number; step: number; model: string }[] = []
-    ctx.on('agent/pre-step', (subject, turn, step, _system, model) => {
-      if (subject === agent) fires.push({ turn, step, model })
+    const fires: { turn: number; step: number; fullSystemPrompt: string }[] = []
+    ctx.on('agent/pre-step', (subject, turn, step, fullSystemPrompt) => {
+      if (subject === agent) fires.push({ turn, step, fullSystemPrompt })
     })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    // One fire per step, in order, each with the agent's model.
+    // One fire per step, in order, each with the assembled system prompt.
     expect(fires).toEqual([
-      { turn: 1, step: 1, model: 'mock' },
-      { turn: 1, step: 2, model: 'mock' },
+      { turn: 1, step: 1, fullSystemPrompt: '' },
+      { turn: 1, step: 2, fullSystemPrompt: '' },
     ])
   })
 

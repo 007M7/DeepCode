@@ -10,7 +10,7 @@
  *   compaction declines and retries once it closes).
  * - **Summarization** — `ctx.llm.stream()` assembled via `BlockAssembler`
  *   (the single model-call surface; same path the loop uses) with a fixed
- *   condense-the-history system prompt.
+ *   condense-the-history system prompt routed through `agent/request`.
  * - **Surface mutation** — a single `user/message` replace node carries the
  *   summary; `compact/*` events are log-only lock + provenance records.
  * - **Auto-compaction** — an `agent/pre-step` listener delegates to
@@ -153,12 +153,6 @@ function finishError(finish: FinishReason): Error | undefined {
  * context.
  */
 export class BasicCompactService extends CompactService {
-  /**
-   * `summarize()` reads `ctx.llm.stream()`. Declaring `llm` here lets the cordis
-   * context proxy resolve it when this service loads as a sibling of LlmService:
-   * without the inject, `this.ctx.llm` cannot be resolved from this fiber and
-   * compaction throws at runtime (see postmortem 0001).
-   */
   static inject = ['llm']
 
   /** Resolved configuration (defaults applied). */
@@ -188,11 +182,11 @@ export class BasicCompactService extends CompactService {
       // log-only `compact/*` records and the replacement node cleanly outside a
       // step, so a crash mid-compaction leaves an inert orphan the turn-repair
       // closes — never a half-open step.
-      ctx.on('agent/pre-step', async (agent: Agent, _turn: number, _step: number, system: string, model: string, signal: AbortSignal) => {
+      ctx.on('agent/pre-step', async (agent: Agent, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal) => {
         try {
-          const result = await this.compactIfNeeded(agent.session, system, model, signal)
+          const result = await this.compactIfNeeded(agent, turn, step, fullSystemPrompt, signal)
           if (result) {
-            const after = this.estimateTokens(agent.session.deriveMessages(), system)
+            const after = this.estimateTokens(agent.session.deriveMessages(), fullSystemPrompt)
             ctx.logger.info(
               `compaction: shadowed ${result.shadowedSeqs.length} surface nodes ` +
               `(seqs ${result.shadowedRange.start}-${result.shadowedRange.end}, ` +
@@ -274,8 +268,9 @@ export class BasicCompactService extends CompactService {
   }
 
   /**
-   * Summarize conversation text into content blocks via `ctx.llm.stream()`
-   * assembled through a `BlockAssembler` (the single model-call surface).
+   * Summarize conversation text into content blocks via `agent/request` plus
+   * `ctx.llm.stream()` assembled through a `BlockAssembler` (the single
+   * model-call surface).
    * Override in a subclass for a template or remote summarizer.
    *
    * Honors the adapter failure contract: an adapter may report a model failure
@@ -286,12 +281,10 @@ export class BasicCompactService extends CompactService {
    * Forwards `signal` into `GenerateOptions.signal` so an abort/dispose tears
    * down the in-flight summarization rather than orphaning the model call.
    */
-  async summarize(text: string, model: string, signal?: AbortSignal): Promise<ContentBlock[]> {
-    if (!model) throw new Error('no model available for summarization')
-
+  async summarize(text: string, agent: Agent, turn: number, step: number, signal?: AbortSignal): Promise<ContentBlock[]> {
     const assembler = new BlockAssembler()
     const options: GenerateOptions = {
-      model,
+      model: this.config.summarizationModel || agent.options.model || '',
       messages: [{
         role: 'user',
         content: [{ type: 'text', text: `Summarize this conversation history:\n\n${text}\n\nSummary:` }],
@@ -302,7 +295,11 @@ export class BasicCompactService extends CompactService {
     // exactOptionalPropertyTypes: only set `signal` when present — assigning
     // `undefined` to an optional `signal?: AbortSignal` is a type error.
     if (signal) options.signal = signal
-    for await (const chunk of this.ctx.llm.stream(options)) {
+    const request = await this.ctx.waterfall('agent/request', agent, turn, step, options, () => Promise.resolve(options))
+    if (!request.model) {
+      throw new Error('no model available for summarization: set BasicCompactConfig.summarizationModel, AgentOptions.model, or supply one via the agent/request waterfall')
+    }
+    for await (const chunk of this.ctx.llm.stream(request)) {
       assembler.push(chunk)
     }
 
@@ -341,13 +338,15 @@ export class BasicCompactService extends CompactService {
    * closes).
    */
   override async compactIfNeeded(
-    session: Session,
-    system: string,
-    model: string,
+    agent: Agent,
+    turn: number,
+    step: number,
+    fullSystemPrompt: string,
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
+    const session = agent.session
     const messages = session.deriveMessages()
-    const totalTokens = this.estimateTokens(messages, system)
+    const totalTokens = this.estimateTokens(messages, fullSystemPrompt)
 
     const threshold = Math.floor(this.config.contextWindow * this.config.thresholdRatio)
     if (totalTokens < threshold) return null
@@ -401,14 +400,16 @@ export class BasicCompactService extends CompactService {
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const cutoffSeq = nodes[keepFromIdx - 1]!.seq
 
-    return this.compactRegion(session, firstSeq, cutoffSeq, model, signal)
+    return this.compactRegion(session, firstSeq, cutoffSeq, agent, turn, step, signal)
   }
 
   override async compactRegion(
     session: Session,
     start: number,
     end: number,
-    model: string,
+    agent: Agent,
+    turn: number,
+    step: number,
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
     // Resolve the range by surface POSITION, not numeric seq interval. A prior
@@ -458,8 +459,8 @@ export class BasicCompactService extends CompactService {
     // strictly inside the open turn (but outside any step). A manual call on a
     // fully-closed session has no turn to enclose the events, so reject rather
     // than emit an un-enclosed run.
-    const turn = this._openTurn(session)
-    if (turn === null) {
+    const openTurn = this._openTurn(session)
+    if (openTurn === null) {
       throw new Error('compactRegion: no open turn — compaction events must be enclosed in a turn')
     }
     // Slice the ordered surface nodes [startIdx, endIdx] inclusive — the
@@ -467,13 +468,12 @@ export class BasicCompactService extends CompactService {
     const shadowedSeqs = nodes.slice(startIdx, endIdx + 1).map(n => n.seq)
 
     // --- Acquire lock ---
-    const startEvent = session.append('compact/start', { turn })
+    const startEvent = session.append('compact/start', { turn: openTurn })
 
     try {
       // --- Extract text and summarize ---
       const text = this._extractText(session, shadowedSeqs)
-      const summaryModel = this.config.summarizationModel || model
-      const summary = await this.summarize(text, summaryModel, signal)
+      const summary = await this.summarize(text, agent, turn, step, signal)
 
       // Estimate token count of the shadowed content for provenance.
       let shadowedTokenCount = 0
@@ -511,7 +511,7 @@ export class BasicCompactService extends CompactService {
       // compact/start and here leaves a detectable orphaned lock (a compact/start
       // with no matching compact/end) rather than a compact/end that falsely
       // claims compaction finished before the surface replacement landed.
-      const endEvent = session.append('compact/end', { turn })
+      const endEvent = session.append('compact/end', { turn: openTurn })
 
       return {
         startSeq: startEvent.seq,
@@ -526,7 +526,7 @@ export class BasicCompactService extends CompactService {
       // Always release the lock — append compact/end with the error so a
       // wedged lock is impossible.
       const msg = error instanceof Error ? error.message : String(error)
-      session.append('compact/end', { turn, error: msg })
+      session.append('compact/end', { turn: openTurn, error: msg })
       throw error
     }
   }

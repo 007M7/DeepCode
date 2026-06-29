@@ -43,14 +43,17 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
     // Tiny window so a couple of steps crosses the threshold. The convergence
     // invariant requires summarizationMaxTokens + retainTokens to be strictly
     // BELOW the threshold = floor(contextWindow * thresholdRatio) =
-    // floor(2400 * 0.5) = 1200; 300 + 500 = 800 < 1200.
+    // floor(2400 * 0.5) = 1200; 600 + 500 = 1100 < 1200. The summary cap
+    // stays high enough for the live model to emit the required checkpoint
+    // sections; a truncated checkpoint fails closed and leaves no summary.
     ctx = await codingHarness(workdir, {
       compact: {
         contextWindow: 2400,
         thresholdRatio: 0.5,
         retainTokens: 500,
-        summarizationMaxTokens: 300,
+        summarizationMaxTokens: 600,
       },
+      persistenceRoot: './.sessions',
     })
     const agent = ctx.agentLoop.create(AgentId('e2e-compaction'), {
       model: 'deepseek-v4-flash',

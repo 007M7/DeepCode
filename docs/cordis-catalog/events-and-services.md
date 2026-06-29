@@ -49,21 +49,21 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:249`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:248`](../../packages/core/agent/src/types.ts)
 
 #### `agent/pre-step` — serial
 
 Awaited pre-step surface-mutation checkpoint, fired once per step AFTER `turn/start` (and after the prior step closed) but BEFORE this step's `step/start` — so anything a listener appends lands OUTSIDE the step, between `turn/start`/`step/end` and the upcoming `step/start`. `step` is the number of the step about to start. The loop awaits `ctx.serial('agent/pre-step', …)` after assembling the system prompt, then opens the step and derives the request history ONCE from whatever the surface now holds. This is where compaction belongs: it mutates the session surface in place (shadowing an older range with a summary node) with its log-only `compact/*` records cleanly outside any step, and the single subsequent derive reflects the mutation — so there is no double-derive and no listener can see (or be expected to act on) an assembled `messages` array that does not exist yet.
 
-Serial (awaited, in registration order, no veto), not a waterfall: a listener mutates the surface as a side effect; there is nothing to transform or veto, but the loop must wait for the mutation to complete before opening the step and deriving, and serial isolates listeners from each other (one finishes its surface append before the next runs). `system`/`model` are the assembled values a listener needs to measure pressure (system counts toward the budget) and to summarize (the model). `signal` cancels any in-flight work a listener starts (e.g. a summarization model call).
+Serial (awaited, in registration order, no veto), not a waterfall: a listener mutates the surface as a side effect; there is nothing to transform or veto, but the loop must wait for the mutation to complete before opening the step and deriving, and serial isolates listeners from each other (one finishes its surface append before the next runs). `fullSystemPrompt` is the assembled prompt a listener needs to measure pressure (the system prompt counts toward the budget). `signal` cancels any in-flight work a listener starts (e.g. a summarization model call).
 
 ```ts cordis-catalog
-'agent/pre-step'(agent: Agent, turn: number, step: number, system: string, model: string, signal: AbortSignal): Promise<void> | void
+'agent/pre-step'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal): Promise<void> | void
 ```
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:209`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:208`](../../packages/core/agent/src/types.ts)
 
 #### `agent/queued` — emit
 
@@ -87,7 +87,7 @@ Waterfall: mutate the fully-assembled GenerateOptions before the model call (hoo
 
 Types: [Agent](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:218`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:217`](../../packages/core/agent/src/types.ts)
 
 #### `agent/status` — emit
 
@@ -111,7 +111,7 @@ Steering content was injected into a running turn.
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:243`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:242`](../../packages/core/agent/src/types.ts)
 
 #### `agent/step-end` — emit
 
@@ -135,7 +135,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:224`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:223`](../../packages/core/agent/src/types.ts)
 
 #### `agent/step-start` — emit
 
@@ -159,7 +159,7 @@ A raw StreamChunk arrived from the model (token-level UI/log feed).
 
 Types: [Agent](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/agent/src/types.ts:238`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:237`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-continuation` — waterfall
 
@@ -171,7 +171,7 @@ Waterfall: override the turn-continuation decision. The default (computed by the
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:231`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:230`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-end` — emit
 
@@ -387,11 +387,11 @@ Implementations MUST honor:
 - **Blocking**: no compaction begins while another is in progress for the same session. The recommended mechanism is the log-recorded lock — append `compact/start` before the slow work and `compact/end` after (even on failure) — so the lock is visible to replay and crash recovery.
 
 ```ts cordis-catalog
-abstract compactIfNeeded( session: Session, system: string, model: string, signal: AbortSignal, ): Promise<CompactionResult | null>
-abstract compactRegion( session: Session, start: number, end: number, model: string, signal?: AbortSignal, ): Promise<CompactionResult>
+abstract compactIfNeeded( agent: CompactAgentContext, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal, ): Promise<CompactionResult | null>
+abstract compactRegion( session: Session, start: number, end: number, agent: CompactAgentContext, turn: number, step: number, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 
-Source: [`packages/compact/compact/src/index.ts:57`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:63`](../../packages/compact/compact/src/index.ts)
 
 ### `ctx.llm` — `LlmService`
 

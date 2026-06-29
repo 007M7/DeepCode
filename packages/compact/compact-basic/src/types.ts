@@ -39,21 +39,20 @@ export const DEFAULTS: ResolvedConfig = {
 }
 
 /**
- * Apply defaults to a partial config and enforce the single-pass convergence
+ * Apply defaults to a partial config and enforce the approximate convergence
  * invariant.
  *
  * `summarizationMaxTokens + retainTokens` must be strictly BELOW the compaction
- * threshold (`contextWindow * thresholdRatio`). The invariant guarantees that
- * after a compaction the derived history — the (bounded) summary plus the
- * retained recent tail — is structurally below the threshold, so the very next
- * pre-step check passes and a second compaction cannot fire on the same
- * content. The bound is strict (`>=` rejects) because `compactIfNeeded` declines
- * only when the estimate is `< threshold`: a post-compaction history sitting
- * EXACTLY at the threshold would re-trigger on the next check. Without the
- * invariant, a too-large summary or retain budget would leave the
- * post-compaction history at/over threshold, triggering compaction again and
- * again. Pre-release we reject rather than clamp: a config that cannot guarantee
- * convergence is a bug at the call site, not something to silently paper over.
+ * threshold (`contextWindow * thresholdRatio`). The invariant bounds the two
+ * variable pieces of post-compaction history — the summary and the retained
+ * recent tail — but it is intentionally approximate: checkpoint framing,
+ * per-message role overhead, system-prompt size, and the char/4 estimator's
+ * error can still leave a narrow accepted config near the threshold. The bound
+ * is strict (`>=` rejects) because `compactIfNeeded` declines only when the
+ * estimate is `< threshold`: a post-compaction history sitting EXACTLY at the
+ * threshold would re-trigger on the next check. Pre-release we reject rather
+ * than clamp: a config that cannot satisfy even this structural bound is a bug
+ * at the call site, not something to silently paper over.
  *
  * @throws if `summarizationMaxTokens + retainTokens >= contextWindow * thresholdRatio`.
  */

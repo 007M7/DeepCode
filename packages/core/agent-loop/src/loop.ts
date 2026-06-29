@@ -388,29 +388,34 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
       // (or turn-start listeners on the first step) joins before the request.
       drainSteering(ctx, agent, turn)
 
-      // Assemble the system prompt for this step. Done HERE (before step/start)
-      // because the pre-step seam needs it: compaction measures token pressure
-      // against the system prompt (it counts toward the budget) and a listener
-      // also receives the model to summarize with. runStep reuses this same
-      // assembly for the request, so the prompt is assembled once per step.
-      const assembly = await ctx.systemPrompt.assemble()
-      const system = [renderPrompt(assembly), agent.options.systemPrompt ?? '']
-        .filter(text => text.length > 0)
-        .join('\n\n')
-
-      // The step's AbortController exists BEFORE the pre-step seam so a cancel()
-      // during the seam aborts any in-flight work a listener started (e.g. a
-      // compaction summarization call). Cleared on every exit path below.
+      // The step's AbortController exists BEFORE any async pre-step work so a
+      // dispose() or cancel() — in a synchronous turn-start listener or an
+      // async listener whose effect fires before we block — always has an armed
+      // abort to cancel against. isDisposed below covers disposal, which does
+      // NOT set the cancel marker. Cleared on every exit path below.
       const abort = new AbortController()
       handle.setAbort(abort)
 
-      // Cancel landing before the seam: a synchronous `agent/turn-start` listener
-      // (or the previous step's continuation listeners) can have called
-      // `cancel()`. Drop the about-to-start step WITHOUT running the seam — no
-      // step is open yet, so end the turn `aborted` directly.
-      if (handle.isCancelled()) {
+      // Assemble the system prompt for this step. Done HERE (before step/start)
+      // because the pre-step seam needs it: compaction measures token pressure
+      // against the system prompt (it counts toward the budget). runStep reuses
+      // this same assembly for the request, so the prompt is assembled once per
+      // step.
+      const assembly = await ctx.systemPrompt.assemble()
+      const fullSystemPrompt = [renderPrompt(assembly), agent.options.systemPrompt ?? '']
+        .filter(text => text.length > 0)
+        .join('\n\n')
+
+      // Interruption landing after assembly: dispose() or cancel() in a
+      // turn-start listener (or a listener whose promise resolved before the
+      // await above) arms either handle.isDisposed() or handle.isCancelled().
+      // The Abort was created first, so any concurrent abort also lands on it.
+      // Drop the about-to-start step WITHOUT running the seam — no step is open
+      // yet, so end the turn accordingly (disposed wins for an unambiguous
+      // reason).
+      if (handle.isCancelled() || handle.isDisposed()) {
         handle.setAbort(undefined)
-        reason = { kind: 'aborted', reason: handle.cancelReason() }
+        reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
         break
       }
 
@@ -425,7 +430,7 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
       // throwing listener escapes to the outer catch, which closes the (not-yet-
       // open) step as a no-op and ends the turn via failTurn — a broken
       // pre-step plugin ends the turn, not the loop.
-      await ctx.serial('agent/pre-step', agent, turn, step, system, agent.options.model ?? '', abort.signal)
+      await ctx.serial('agent/pre-step', agent, turn, step, fullSystemPrompt, abort.signal)
 
       session.append('step/start', { turn, step })
       stepOpen = true
@@ -433,19 +438,20 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
 
       // Cancel landing in the seam / step-start window: a `cancel()` during the
       // pre-step seam (it aborted `abort.signal` above) OR a synchronous
-      // `agent/step-start` listener that cancels. Check AFTER setAbort/step-start
-      // and before `runStep`: drop the step, end the turn `aborted`. closeStep
-      // balances the already-appended step/start.
-      if (handle.isCancelled()) {
+      // `agent/step-start` listener that cancels. And disposal, which the earlier
+      // assembly check may have missed if it only checked isCancelled. Check
+      // AFTER step/start append + emit and before `runStep`: drop the step, end
+      // the turn accordingly. closeStep balances the already-appended step/start.
+      if (handle.isCancelled() || handle.isDisposed()) {
         handle.setAbort(undefined)
-        reason = { kind: 'aborted', reason: handle.cancelReason() }
+        reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
         closeStep()
         break
       }
 
       let stepOutcome: { hadToolCalls: boolean; finish: FinishReason } | { error: Error }
       try {
-        stepOutcome = await runStep(ctx, agent, turn, step, assembly, system, abort.signal)
+        stepOutcome = await runStep(ctx, agent, turn, step, assembly, fullSystemPrompt, abort.signal)
       } catch (error: unknown) {
         stepOutcome = { error: toError(error) }
       } finally {

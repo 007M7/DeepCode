@@ -27,6 +27,12 @@ import type { CompactionResult } from './types.ts'
 
 export type { CompactionResult } from './types.ts'
 
+/** Minimal agent context compaction needs without depending on the agent package. */
+export interface CompactAgentContext {
+  session: Session
+  options: { model?: string }
+}
+
 declare module 'cordis' {
   interface Context {
     compact: CompactService
@@ -84,9 +90,10 @@ export abstract class CompactService extends Service {
    *   exceeds the budget, compaction cannot help and the call may go out
    *   over-budget. Bounding an individual unit's size is a separate concern.
    *
-   * @param session - the session whose surface may be compacted.
-   * @param system - the assembled system prompt, counted toward the estimate.
-   * @param model - the summarization model (a backend may override via config).
+   * @param agent - agent context owning the session surface and model options.
+   * @param turn - turn number of the pre-step checkpoint.
+   * @param step - step number about to start.
+   * @param fullSystemPrompt - assembled system prompt, counted toward the estimate.
    * @param signal - cancellation signal. A backend summarizing via
    *   `ctx.llm.stream()` MUST forward this into the call's `GenerateOptions.signal`
    *   so an abort/dispose tears down the in-flight summarization rather than
@@ -94,9 +101,10 @@ export abstract class CompactService extends Service {
    * @returns the compaction result, or `null` if no compaction was needed.
    */
   abstract compactIfNeeded(
-    session: Session,
-    system: string,
-    model: string,
+    agent: CompactAgentContext,
+    turn: number,
+    step: number,
+    fullSystemPrompt: string,
     signal: AbortSignal,
   ): Promise<CompactionResult | null>
 
@@ -120,7 +128,9 @@ export abstract class CompactService extends Service {
    * @param session - the session whose surface is mutated.
    * @param start - inclusive seq of the first surface node to compact.
    * @param end - inclusive seq of the last surface node to compact.
-   * @param model - summarization model.
+   * @param agent - agent context used by router-aware summarizers.
+   * @param turn - lifecycle turn forwarded to request-routing seams.
+   * @param step - lifecycle step forwarded to request-routing seams.
    * @param signal - optional cancellation signal. A backend that summarizes via
    *   `ctx.llm.stream()` MUST forward this into the call's `GenerateOptions.signal`
    *   so an abort/dispose tears down the in-flight summarization rather than
@@ -136,7 +146,9 @@ export abstract class CompactService extends Service {
     session: Session,
     start: number,
     end: number,
-    model: string,
+    agent: CompactAgentContext,
+    turn: number,
+    step: number,
     signal?: AbortSignal,
   ): Promise<CompactionResult>
 }
