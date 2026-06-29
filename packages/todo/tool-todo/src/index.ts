@@ -40,17 +40,20 @@ const DESCRIPTION =
   + '(not started), `in_progress` (being worked on now), `completed` (finished).'
 
 /**
- * Validate the constraints the SchemaSpec can't express AND narrow the loosely
- * typed args into a real {@link TodoItem}[].
+ * Validate the value constraints the SchemaSpec can't express and build the
+ * canonical {@link TodoItem}[].
  *
- * `defineTool` already validates type/required/enum before `execute` runs, but
- * `InferArgs` maps an `enum` string prop to plain `string` (not the literal
- * union), so `args.todos` arrives as `{ content: string; status: string }[]` —
- * not assignable to `TodoItem[]`. This pass is therefore the type boundary: it
- * re-checks each `status` against the literal set (belt-and-suspenders for the
- * compiler, which can't see the registry's prior validation) and builds a fresh
- * `TodoItem[]`. It also enforces the value rules the DSL has no vocabulary for:
- * non-empty unique content, and at most one `in_progress` task.
+ * `defineTool` already validates type/required/enum before `execute` runs (a
+ * bad `status` is rejected by the registry's `validateArgs`, never reaching
+ * here), so `status` is guaranteed to be one of the three enum literals. But
+ * `InferArgs` maps an `enum` string prop to plain `string`, so the compiler sees
+ * `args.todos` as `{ content: string; status: string }[]`; the
+ * `status as TodoItem['status']` narrowing records that registry guarantee
+ * rather than re-checking it (an unreachable re-check would be dead code — see
+ * AGENTS.md "don't validate scenarios that can't happen"). What remains is the
+ * value rules the DSL has no vocabulary for: non-empty unique content (stored
+ * trimmed, so the persisted value matches the dedupe/length key), and at most
+ * one `in_progress` task.
  */
 function toTodoList(raw: { content: string; status: string }[]): TodoItem[] {
   const todos: TodoItem[] = []
@@ -65,10 +68,7 @@ function toTodoList(raw: { content: string; status: string }[]): TodoItem[] {
       throw new Error(`invalid todos: duplicate content ${JSON.stringify(content)}`)
     }
     seen.add(content)
-    const status = item.status
-    if (status !== 'pending' && status !== 'in_progress' && status !== 'completed') {
-      throw new Error(`invalid todo status ${JSON.stringify(status)}: expected one of ${STATUSES.join(', ')}`)
-    }
+    const status = item.status as TodoItem['status']
     if (status === 'in_progress') inProgress++
     todos.push({ content, status })
   }
