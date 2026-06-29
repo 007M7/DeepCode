@@ -57,6 +57,9 @@ graph TD
   tool-bash --> bash
   tool-bash --> llm
   tool-bash --> tools
+  tool-todo --> agent
+  tool-todo --> session
+  tool-todo --> tools
   agent-core --> agent
   agent-core --> agent-loop
   agent-core --> invariants
@@ -123,6 +126,7 @@ graph TD
 | `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
 | `subagent` | `agent`, `llm`, `tools` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |
+| `tool-todo` | `agent`, `session`, `tools` |
 | `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `project-instructions`, `session`, `system-prompt`, `tool-bash`, `tools` |
 | `subagent-acp` | `agent`, `llm`, `subagent` |
 | `subagent-inprocess` | `agent`, `llm`, `session`, `subagent` |

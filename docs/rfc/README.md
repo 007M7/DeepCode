@@ -86,6 +86,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Subagent capability seam](implemented/feature/2026-06-21-subagent-capability-seam.md) | 2026-06-21 |
 | [ACP subagent backend (out-of-process delegation)](implemented/feature/2026-06-22-acp-subagent-backend.md) | 2026-06-22 |
 | [Project instruction files (`AGENTS.md` with `CLAUDE.md` fallback)](implemented/feature/2026-06-24-project-instruction-files.md) | 2026-06-24 |
+| [The `todo_write` tool — model task list as event-sourced session state](implemented/feature/2026-06-29-todo-write-tool.md) | 2026-06-29 |
 
 ### Simplification
 

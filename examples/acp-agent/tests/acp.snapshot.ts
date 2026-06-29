@@ -52,6 +52,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
   { name: 'text-turn', hasModelTurn: true, recorded: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
+  { name: 'todo-plan', hasModelTurn: true, recorded: true },
   { name: 'workspace-edit', hasModelTurn: true, recorded: true },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
   { name: 'error-finish', hasModelTurn: true, recorded: false },
