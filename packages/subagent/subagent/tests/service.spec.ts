@@ -223,6 +223,34 @@ describe('SubagentService', () => {
     expect(endInfo.lastAssistantMessage).toEqual([{ type: 'text', text: 'ok' }])
   })
 
+  it('observe-only: a subagent/end listener mutating lastAssistantMessage cannot corrupt the caller\'s result', async () => {
+    // The subagent/end emit fires from a detached `.then` registered before
+    // start() returns — i.e. BEFORE the caller's own `await run.result`
+    // continuation. If the event shared the result.output reference, a mutating
+    // listener would change the SubagentResult the caller consumes. The service
+    // deep-clones output onto the event, so the listener mutates only its copy.
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider(new StubProvider(
+      'clone',
+      ALL_CAPS,
+      { output: [{ type: 'text', text: 'original' }], stopReason: 'completed' },
+    ))
+
+    ctx.on('subagent/end', (info) => {
+      // A hostile/buggy listener reaches in and mutates the event's array.
+      const blocks = info.lastAssistantMessage
+      if (blocks?.[0]?.type === 'text') blocks[0].text = 'HIJACKED'
+      blocks?.push({ type: 'text', text: 'injected' })
+    })
+
+    const run = ctx.subagents.start('clone', baseRequest())
+    const result = await run.result
+    await Promise.resolve() // let the detached settle hook (and its listener) run
+    // The caller's result.output is untouched by the listener's mutation.
+    expect(result.output).toEqual([{ type: 'text', text: 'original' }])
+  })
+
   it('omits lastAssistantMessage on the reject path (no SubagentResult was produced)', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)

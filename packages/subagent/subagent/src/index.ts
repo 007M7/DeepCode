@@ -201,7 +201,15 @@ export class SubagentService extends Service {
     // Per-listener containment also keeps a thrown `subagent/end` listener from
     // becoming an unhandled rejection on this detached `.then`.
     void run.result.then(
-      (result) => { this.emitLifecycle('subagent/end', { provider: name, id: run.id, ...agentType, stopReason: result.stopReason, lastAssistantMessage: result.output }) },
+      (result) => {
+        // Deep-clone the output onto the event: this detached `.then` runs BEFORE
+        // the caller's own `await run.result` continuation, so handing listeners
+        // the SAME array reference the caller consumes would let a mutating
+        // `subagent/end` listener corrupt the caller's SubagentResult.output —
+        // breaking the observe-only contract. A snapshot makes the event a
+        // read-only view, not a shared handle.
+        this.emitLifecycle('subagent/end', { provider: name, id: run.id, ...agentType, stopReason: result.stopReason, lastAssistantMessage: structuredClone(result.output) })
+      },
       () => { this.emitLifecycle('subagent/end', { provider: name, id: run.id, ...agentType, stopReason: 'error' }) },
     )
     return run
