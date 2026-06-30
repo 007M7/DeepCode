@@ -291,6 +291,7 @@ export class BasicCompactService extends CompactService {
       }],
       system: SUMMARIZE_SYSTEM_PROMPT,
       maxTokens: this.config.maxTokens,
+      sessionId: agent.session.id,
     }
     // exactOptionalPropertyTypes: only set `signal` when present — assigning
     // `undefined` to an optional `signal?: AbortSignal` is a type error.
@@ -511,8 +512,6 @@ export class BasicCompactService extends CompactService {
   }
 
   // ---- Internal helpers ----
-
-  /**
 
   /**
    * Frame the raw summary blocks into the content that lands on the surface:

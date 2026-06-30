@@ -975,6 +975,7 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     expect(adapter.lastOptions!.system).toContain('compaction engine')
     expect(adapter.lastOptions!.system).toContain('## Next Step')
     expect(adapter.lastOptions!.maxTokens).toBe(512)
+    expect(adapter.lastOptions!.sessionId).toBe(SessionId('summary'))
     expect(adapter.lastOptions!.messages[0]!.content[0]).toMatchObject({ type: 'text' })
   })
 
