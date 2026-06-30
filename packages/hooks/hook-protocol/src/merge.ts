@@ -74,7 +74,11 @@ function decisionForRank(maxRank: number): MergedDecision {
  */
 export function mergeHookOutputs(outputs: HookOutput[]): MergedHookOutcome {
   let maxRank = 0
-  const reasons: string[] = []
+  // Reasons collected PER RANK, so the merged reason can be the one explaining
+  // the WINNING decision (a deny-winning outcome surfaces deny reasons; an
+  // ask-winning outcome surfaces ask reasons). An `allow`'s reason is never an
+  // objection the model needs, so rank 1 collects none.
+  const reasonsByRank = new Map<number, string[]>()
   let stop = false
   let stopReason: string | undefined
   const additionalContext: string[] = []
@@ -83,9 +87,11 @@ export function mergeHookOutputs(outputs: HookOutput[]): MergedHookOutcome {
   for (const out of outputs) {
     const r = rank(out.decision)
     if (r > maxRank) maxRank = r
-    // Collect a reason only from a blocking/denying hook (rank 3) — an allow's
-    // "reason" is not an objection the model needs to see.
-    if (r === 3 && out.reason !== undefined && out.reason.length > 0) reasons.push(out.reason)
+    if ((r === 3 || r === 2) && out.reason !== undefined && out.reason.length > 0) {
+      const list = reasonsByRank.get(r) ?? []
+      list.push(out.reason)
+      reasonsByRank.set(r, list)
+    }
     if (out.continue === false && !stop) {
       stop = true
       if (out.stopReason !== undefined) stopReason = out.stopReason
@@ -98,6 +104,7 @@ export function mergeHookOutputs(outputs: HookOutput[]): MergedHookOutcome {
     }
   }
 
+  const reasons = reasonsByRank.get(maxRank) ?? []
   return {
     decision: decisionForRank(maxRank),
     ...reasons.length > 0 ? { reason: reasons.join('\n\n') } : {},

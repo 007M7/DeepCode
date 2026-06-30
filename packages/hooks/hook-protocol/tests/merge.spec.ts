@@ -47,6 +47,24 @@ describe('mergeHookOutputs — reasons, stop, context, systemMessages accumulate
     expect(mergeHookOutputs([out({ decision: 'allow' })]).reason).toBeUndefined()
   })
 
+  it('surfaces the reason of the WINNING decision: an ask-winning outcome shows the ask reason', () => {
+    const m = mergeHookOutputs([
+      out({ decision: 'allow', reason: 'allow reason — not surfaced' }),
+      out({ decision: 'ask', reason: 'needs approval' }),
+    ])
+    expect(m.decision).toBe('ask')
+    expect(m.reason).toBe('needs approval')
+  })
+
+  it('when deny wins over ask, the ask reasons are dropped (only the winning rank\'s reasons)', () => {
+    const m = mergeHookOutputs([
+      out({ decision: 'ask', reason: 'ask reason — not surfaced once deny wins' }),
+      out({ decision: 'deny', reason: 'the real objection' }),
+    ])
+    expect(m.decision).toBe('deny')
+    expect(m.reason).toBe('the real objection')
+  })
+
   it('stop is sticky on the first continue:false, capturing its stopReason', () => {
     const m = mergeHookOutputs([
       out({ continue: true }),
