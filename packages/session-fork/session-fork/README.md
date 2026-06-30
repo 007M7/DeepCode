@@ -8,7 +8,7 @@ Session fork service (`ctx.sessionFork`) for creating seeded child sessions from
 
 | Method | Purpose |
 |---|---|
-| `snapshot(source)` | Resolve a live `Session | SessionId`, reject non-boundary logs, and return a deep-cloned seed plus `parentSession` / `seedLength` metadata. |
+| `snapshot(source)` | Resolve a live `Session \| SessionId`, reject non-boundary logs, and return a deep-cloned seed plus `parentSession` / `seedLength` metadata. |
 | `fork({ source, sessionId? })` | Create a live child session from `snapshot(source)`, using the caller-supplied child id or the session store's generated id. |
 
 ## Boundary Rule

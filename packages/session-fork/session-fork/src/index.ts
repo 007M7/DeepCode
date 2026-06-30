@@ -95,10 +95,10 @@ export class SessionForkService extends Service {
    * `ctx.agents.create` instead.
    */
   fork(options: ForkSessionOptions): Session {
-    const snapshot = this.snapshot(options.source)
     if (options.sessionId !== undefined && this.ctx.sessions.get(options.sessionId) !== undefined) {
       throw new SessionForkError(`session "${options.sessionId}" already exists`, 'SESSION_ALREADY_EXISTS')
     }
+    const snapshot = this.snapshot(options.source)
     return this.ctx.sessions.create(options.sessionId, {
       seed: snapshot.seed,
       meta: snapshot.meta,

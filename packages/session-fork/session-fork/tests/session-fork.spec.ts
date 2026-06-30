@@ -203,6 +203,16 @@ describe('SessionForkService', () => {
       .toThrow(new SessionForkError('session "child" already exists', 'SESSION_ALREADY_EXISTS'))
   })
 
+  it('rejects a duplicate child session id before validating the source boundary', async () => {
+    const { ctx, fork } = await setup()
+    const source = ctx.sessions.create(SessionId('open-parent'))
+    source.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    ctx.sessions.create(SessionId('child'))
+
+    expect(() => fork.fork({ source, sessionId: SessionId('child') }))
+      .toThrow(new SessionForkError('session "child" already exists', 'SESSION_ALREADY_EXISTS'))
+  })
+
   it('persists a forked child seed through the existing session write path', async () => {
     const root = await tempRoot()
     const ctx = new Context()
