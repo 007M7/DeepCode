@@ -179,7 +179,7 @@ declare module 'cordis' {
      */
     'agent/step-end'(agent: Agent, turn: number, step: number): void
 
-    // ---- interception seams (waterfall) ----
+    // ---- step/request extension seams (serial + waterfall) ----
     /**
      * Awaited pre-step surface-mutation checkpoint, fired once per step AFTER
      * `turn/start` (and after the prior step closed) but BEFORE this step's

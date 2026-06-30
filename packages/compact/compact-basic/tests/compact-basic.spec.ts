@@ -12,12 +12,17 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 /** A never-aborted signal for the required `compactIfNeeded`/listener arg. */
 const SIGNAL = new AbortController().signal
 
+/** Long enough that the real checkpoint preamble is smaller than two fixture messages. */
+const LONG_FIXTURE_TEXT = ' Detailed fixture context that makes framed checkpoint compaction genuinely shrinking.'.repeat(20)
+
 /**
  * A BasicCompactService with summarize() stubbed (no real model call) and a
  * predictable token estimate, for deterministic unit tests of the algorithm.
  */
 class TestCompactService extends BasicCompactService {
   private readonly summaryOutputs = new WeakSet<readonly ContentBlock[]>()
+  /** Boundary/unit tests use tiny fixtures; keep framing from dominating them unless a test opts out. */
+  estimateFramedSummariesCheaply = true
   /** Track calls to summarize for test assertions. */
   summarizeCalls: { text: string; model: string }[] = []
   /** The fixed summary to return. */
@@ -29,6 +34,7 @@ class TestCompactService extends BasicCompactService {
 
   override estimateContentTokens(blocks: readonly ContentBlock[]): number {
     if (this.summaryOutputs.has(blocks)) return blocks.length * 2
+    if (this.estimateFramedSummariesCheaply && isFramedCheckpoint(blocks)) return blocks.length * 2
     // 10 tokens per block — predictable for retention/threshold math.
     return blocks.length * 10
   }
@@ -41,6 +47,15 @@ class TestCompactService extends BasicCompactService {
     this.summaryOutputs.add(summary)
     return summary
   }
+}
+
+function isFramedCheckpoint(blocks: readonly ContentBlock[]): boolean {
+  const first = blocks[0]
+  const last = blocks[blocks.length - 1]
+  return first?.type === 'text'
+    && first.text.includes('<compacted-summary>')
+    && last?.type === 'text'
+    && last.text === '</compacted-summary>'
 }
 
 /** Create a test service with a throwaway context (auto disabled — no model). */
@@ -65,12 +80,12 @@ function multiTurnSession(turns: number, messagesPerTurn: number = 2, opts: { le
     s.append('step/start', { turn: t, step: 1 })
     for (let m = 0; m < messagesPerTurn; m++) {
       s.append('user/message', {
-        content: [{ type: 'text', text: `turn ${t} user message ${m + 1}` }],
+        content: [{ type: 'text', text: `turn ${t} user message ${m + 1}.${LONG_FIXTURE_TEXT}` }],
         source: { kind: 'user' },
       }, { surfaceOp: 'append' })
       s.append('assistant/message', {
         turn: t, step: 1,
-        content: [{ type: 'text', text: `turn ${t} assistant response ${m + 1}` }],
+        content: [{ type: 'text', text: `turn ${t} assistant response ${m + 1}.${LONG_FIXTURE_TEXT}` }],
       }, { surfaceOp: 'append' })
     }
     s.append('step/end', { turn: t, step: 1 })
@@ -649,6 +664,7 @@ describe('BasicCompactService.compactIfNeeded', () => {
       retainTokens: 10,
       compactionRetries: 2,
     })
+    svc.estimateFramedSummariesCheaply = false
     svc.mockSummaryQueue = [
       Array.from({ length: 4 }, (_, index) => ({ type: 'text', text: `first ${index}` })),
       [{ type: 'text', text: 'second' }],
@@ -670,6 +686,7 @@ describe('BasicCompactService.compactIfNeeded', () => {
       retainTokens: 10,
       compactionRetries: 1,
     })
+    svc.estimateFramedSummariesCheaply = false
     svc.mockSummaryQueue = [
       Array.from({ length: 4 }, (_, index) => ({ type: 'text', text: `first ${index}` })),
       Array.from({ length: 3 }, (_, index) => ({ type: 'text', text: `second ${index}` })),
@@ -1066,6 +1083,26 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     await expect(compactRegion(svc, session, nodes[0]!.seq, nodes[1]!.seq, 'm'))
       .rejects.toThrow(/summary is not smaller than the shadowed content/)
     expect(session.events.some(e => e.type === 'compact/summary')).toBe(false)
+  })
+
+  it('rejects when the framed checkpoint is not smaller than the shadowed content', async () => {
+    const svc = createTestService({ auto: false })
+    svc.estimateFramedSummariesCheaply = false
+    const session = new Session(SessionId('framed-nonshrinking'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('user/message', { content: [{ type: 'text', text: 'tiny user' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'tiny assistant' }] }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const before = [...session.surface.nodes]
+    const nodes = session.surface.nodes
+
+    await expect(compactRegion(svc, session, nodes[0]!.seq, nodes[1]!.seq, 'm'))
+      .rejects.toThrow(/summary is not smaller than the shadowed content/)
+    expect(session.events.some(e => e.type === 'compact/summary')).toBe(false)
+    expect(session.surface.nodes).toEqual(before)
   })
 })
 
@@ -1606,8 +1643,8 @@ describe('BasicCompactService under the real invariants plugin', () => {
   function closedTurn(session: Session, turn: number): void {
     session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn, step: 1 })
-    session.append('user/message', { content: [{ type: 'text', text: `turn ${turn} user` }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    session.append('assistant/message', { turn, step: 1, content: [{ type: 'text', text: `turn ${turn} assistant` }] }, { surfaceOp: 'append' })
+    session.append('user/message', { content: [{ type: 'text', text: `turn ${turn} user.${LONG_FIXTURE_TEXT}` }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('assistant/message', { turn, step: 1, content: [{ type: 'text', text: `turn ${turn} assistant.${LONG_FIXTURE_TEXT}` }] }, { surfaceOp: 'append' })
     session.append('step/end', { turn, step: 1 })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
   }

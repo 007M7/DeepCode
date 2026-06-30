@@ -455,10 +455,11 @@ export class BasicCompactService extends CompactService {
         // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         shadowedTokenCount += this.estimateEventTokens(session.events[seq]!)
       }
-      const summaryTokenCount = this.estimateContentTokens(summary)
-      if (summaryTokenCount >= shadowedTokenCount) {
+      const framedSummary = this._frameSummary(summary)
+      const framedSummaryTokenCount = this.estimateContentTokens(framedSummary)
+      if (framedSummaryTokenCount >= shadowedTokenCount) {
         throw new Error(
-          `summary is not smaller than the shadowed content (${summaryTokenCount} estimated tokens >= ${shadowedTokenCount})`,
+          `summary is not smaller than the shadowed content (${framedSummaryTokenCount} estimated framed tokens >= ${shadowedTokenCount})`,
         )
       }
       // --- Provenance record (log-only) ---
@@ -477,7 +478,7 @@ export class BasicCompactService extends CompactService {
       // The landed content is FRAMED (checkpoint preamble + tag-wrapped summary);
       // the compact/summary provenance event above holds the raw model output.
       session.append('user/message', {
-        content: this._frameSummary(summary),
+        content: framedSummary,
         source: { kind: 'plugin', plugin: 'compact' },
       }, {
         surfaceOp: { op: 'replace', start, end },

@@ -432,16 +432,24 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
       // pre-step plugin ends the turn, not the loop.
       await ctx.serial('agent/pre-step', agent, turn, step, fullSystemPrompt, abort.signal)
 
+      // Interruption landing during the pre-step seam: do not open an empty
+      // step. `agent/step-start` listeners get their own check below because
+      // they necessarily run after step/start is appended/emitted.
+      if (handle.isCancelled() || handle.isDisposed()) {
+        handle.setAbort(undefined)
+        reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
+        break
+      }
+
       session.append('step/start', { turn, step })
       stepOpen = true
       ctx.emit('agent/step-start', agent, turn, step)
 
-      // Cancel landing in the seam / step-start window: a `cancel()` during the
-      // pre-step seam (it aborted `abort.signal` above) OR a synchronous
-      // `agent/step-start` listener that cancels. And disposal, which the earlier
-      // assembly check may have missed if it only checked isCancelled. Check
-      // AFTER step/start append + emit and before `runStep`: drop the step, end
-      // the turn accordingly. closeStep balances the already-appended step/start.
+      // Cancel landing in the step-start window: a synchronous
+      // `agent/step-start` listener can cancel after the step is already open.
+      // Check AFTER step/start append + emit and before `runStep`: drop the
+      // step, end the turn accordingly. closeStep balances the already-appended
+      // step/start.
       if (handle.isCancelled() || handle.isDisposed()) {
         handle.setAbort(undefined)
         reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }

@@ -1216,6 +1216,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     const turnEnd = e.findLast(x => x.type === 'turn/end')
     // Disposal wins the post-seam check — reason is `disposed`.
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
+    expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
     // agent/turn-end may not fire when disposal happens during pre-step: the
     // fiber's disposer runs before closeTurn(true)'s emit. The durable turn/end
@@ -1265,6 +1266,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
     const turnEnd = e.findLast(x => x.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: 'user cancelled' })
+    expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
     expect(reasons).toEqual([{ kind: 'aborted', reason: 'user cancelled' }])
   })
