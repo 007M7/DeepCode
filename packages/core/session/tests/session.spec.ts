@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEventType } from '@deepseek-ai/dsh-session'
+import type { SessionEventType, TodoItem } from '@deepseek-ai/dsh-session'
 
 describe('Session', () => {
   it('derives message history from the event log', () => {
@@ -363,5 +363,65 @@ describe('SessionStore', () => {
     expect(ctx.sessions.get(SessionId('fixed'))).toBe(session)
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     expect(events).toHaveLength(1)
+  })
+})
+
+describe('todo/write event', () => {
+  it('appends the whole-list snapshot and isolates the log from later mutation', () => {
+    const session = new Session(SessionId('t1'))
+    const todos: TodoItem[] = [
+      { content: 'plan the work', status: 'in_progress' },
+      { content: 'write the code', status: 'pending' },
+    ]
+    session.append('todo/write', { todos })
+
+    const event = session.events.findLast(e => e.type === 'todo/write')!
+    expect(event.type).toBe('todo/write')
+    expect(event.data.todos).toEqual(todos)
+
+    // The append snapshots its input: mutating the caller's array afterward must
+    // not change what the log holds (the durable-source-of-truth contract).
+    todos.push({ content: 'sneak in', status: 'pending' })
+    todos[0]!.status = 'completed'
+    expect(event.data.todos).toEqual([
+      { content: 'plan the work', status: 'in_progress' },
+      { content: 'write the code', status: 'pending' },
+    ])
+  })
+
+  it('is last-write-wins: the current list is the most recent todo/write', () => {
+    const session = new Session(SessionId('t2'))
+    session.append('todo/write', { todos: [{ content: 'first', status: 'pending' }] })
+    session.append('todo/write', { todos: [
+      { content: 'first', status: 'completed' },
+      { content: 'second', status: 'in_progress' },
+    ] })
+
+    const current = session.events.findLast(e => e.type === 'todo/write')!.data.todos
+    expect(current).toEqual([
+      { content: 'first', status: 'completed' },
+      { content: 'second', status: 'in_progress' },
+    ])
+  })
+
+  it('is NOT a surface event: it produces no derived message and joins no surface node', () => {
+    const session = new Session(SessionId('t3'))
+    session.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    const before = session.deriveMessages().length
+    session.append('todo/write', { todos: [{ content: 'a task', status: 'pending' }] })
+    // The todo event must not add a message to the derived history…
+    expect(session.deriveMessages()).toHaveLength(before)
+    // …and must not appear on the surface linked list.
+    expect(session.surface.nodes.some(node => node.seq === session.seq - 1)).toBe(false)
+  })
+
+  it('round-trips through a seeded replay identically (durable, no surfaceOp needed)', () => {
+    const original = new Session(SessionId('t4'))
+    original.append('todo/write', { todos: [{ content: 'only', status: 'completed' }] })
+    // Seeding a non-surface event with no surfaceOp must not throw.
+    const replayed = new Session(SessionId('t4-replay'), [...original.events])
+    expect(replayed.events.findLast(e => e.type === 'todo/write')!.data.todos)
+      .toEqual([{ content: 'only', status: 'completed' }])
+    expect(replayed.seq).toBe(original.seq)
   })
 })

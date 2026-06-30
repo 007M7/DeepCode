@@ -53,6 +53,8 @@ import {
   type LoadSessionResponse,
   type NewSessionRequest,
   type NewSessionResponse,
+  type Plan,
+  type PlanEntry,
   type PromptRequest,
   type PromptResponse,
   type SessionNotification,
@@ -64,7 +66,7 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ToolCallKind, ToolCallPresentation, ToolRegistry, ToolResultPresentation, ToolTerminal } from '@deepseek-ai/dsh-tools'
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
@@ -873,11 +875,27 @@ export function streamSessionEventUpdate(
       })
       return
     }
+    case 'todo/write': {
+      notify({ sessionId, update: { sessionUpdate: 'plan', ...todosToPlan(event.data.todos) } })
+      return
+    }
     // turn/step boundaries, context/message, steering,
     // assistant/message — no direct ACP client update.
     default:
       return
   }
+}
+
+/**
+ * Map a harness todo list to an ACP `plan` body. ACP's `PlanEntry` requires
+ * `content` + `priority` + `status`, but a {@link TodoItem} carries no priority,
+ * so synthesize a constant `'medium'` on every entry; `status` maps 1:1 (the
+ * harness status triple IS `PlanEntryStatus`). The ACP client REPLACES its whole
+ * plan on each `plan` update, matching the harness's whole-list-replace
+ * semantics, so no per-entry diffing is needed.
+ */
+export function todosToPlan(todos: TodoItem[]): Plan {
+  return { entries: todos.map((todo): PlanEntry => ({ content: todo.content, priority: 'medium', status: todo.status })) }
 }
 
 /**
