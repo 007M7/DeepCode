@@ -1,0 +1,235 @@
+/**
+ * `dsh-hooks-codex` — a bridge plugin that runs a user's existing Codex
+ * `hooks.json` on the harness's canonical interception seams. The CODEX DIALECT
+ * half of the hooks subsystem.
+ *
+ * Codex's hook protocol is a deliberate SUBSET of Claude Code's: five hook points
+ * (`PreToolUse`, `PostToolUse`, `SessionStart`, `UserPromptSubmit`, `Stop` — no
+ * subagent/notification/compaction), regex-only matchers, snake_case stdin
+ * payloads with `turn_id`/`model` extras and NO trailing newline, no env vars and
+ * no command substitution, and a block-only decision model (allow/ask are not
+ * honored — a hook can only block, never pre-approve). The dialect-agnostic
+ * primitives come from `@deepseek-ai/dsh-hook-protocol`; this bridge owns the
+ * Codex-specific payloads + matcher mode + decision mapping.
+ *
+ * @module @deepseek-ai/dsh-hooks-codex
+ */
+
+import { readFileSync } from 'node:fs'
+import type { Context } from 'cordis'
+import z from 'schemastery'
+import type { Agent, ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import {
+  appendHookInvoked,
+  appendHookResult,
+  matchesMatcher,
+  mergeHookOutputs,
+  runHook,
+  type HookOutput,
+  type MatcherGroup,
+  type MergedHookOutcome,
+} from '@deepseek-ai/dsh-hook-protocol'
+import { parseCodexConfig, type CodexHookConfig } from './config.ts'
+
+export const name = 'hooks-codex'
+export const inject = ['bash']
+
+/** Plugin config: where the Codex hooks.json lives + the model name for payloads. */
+export interface Config {
+  /** Path to a Codex `hooks.json`. */
+  configPath: string
+  /** The model name stamped on every payload (Codex includes `model` on each event). */
+  model?: string
+  /** Default per-hook timeout in ms when a hook sets none (Codex default: 600000). */
+  defaultTimeoutMs?: number
+}
+
+export const Config: z<Config> = z.object({
+  configPath: z.string().required(),
+  model: z.string().default(''),
+  defaultTimeoutMs: z.number().default(600_000),
+})
+
+let handlerCounter = 0
+function nextHandlerId(point: string): string {
+  return `codex:${point}:${++handlerCounter}`
+}
+
+const PLUGIN_SOURCE: MessageSource = { kind: 'plugin', plugin: 'hooks-codex' }
+
+function summarize(stderr: string): string | undefined {
+  const t = stderr.trim()
+  if (t.length === 0) return undefined
+  return t.length > 500 ? t.slice(0, 500) + '…' : t
+}
+
+export function apply(ctx: Context, config: Config): void {
+  let parsed: CodexHookConfig = {}
+  try {
+    const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
+    const result = parseCodexConfig(raw)
+    parsed = result.config
+    for (const s of result.skipped) {
+      ctx.logger.warn(`hooks-codex: skipping ${s.reason} on ${s.event} (only sync command hooks run)`)
+    }
+  } catch (error: unknown) {
+    ctx.logger.warn(`hooks-codex: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
+    return
+  }
+
+  const defaultTimeoutMs = config.defaultTimeoutMs ?? 600_000
+  const model = config.model ?? ''
+
+  async function runPoint(
+    point: string,
+    matchQuery: string,
+    payload: unknown,
+    opts: { agent?: Agent; turn?: number; signal?: AbortSignal },
+  ): Promise<MergedHookOutcome> {
+    const groups: MatcherGroup[] = parsed[point] ?? []
+    const outputs: HookOutput[] = []
+    for (const group of groups) {
+      // Codex matches with PURE regex (no literal fast path).
+      if (!matchesMatcher(group.matcher, matchQuery, 'codex')) continue
+      for (const hook of group.hooks) {
+        const handlerId = nextHandlerId(point)
+        const session = opts.agent?.session
+        if (session && opts.turn !== undefined) {
+          appendHookInvoked(session, {
+            turn: opts.turn, point, dialect: 'codex', handlerId,
+            ...group.matcher !== undefined ? { matcher: group.matcher } : {},
+          })
+        }
+        const { output, durationMs } = await runHook(ctx.bash, hook, {
+          payload,
+          ...opts.signal ? { signal: opts.signal } : {},
+          defaultTimeoutMs,
+          trailingNewline: false, // Codex writes stdin WITHOUT a trailing newline.
+        }, () => performance.now())
+        outputs.push(output)
+        if (session && opts.turn !== undefined) {
+          const stderrSummary = summarize(output.stderr)
+          appendHookResult(session, {
+            turn: opts.turn, point, handlerId,
+            decision: output.decision ?? (output.continue === false ? 'stop' : 'pass'),
+            ...output.exitCode !== undefined ? { exitCode: output.exitCode } : {},
+            ...stderrSummary !== undefined ? { stderrSummary } : {},
+            durationMs,
+          })
+        }
+      }
+    }
+    return mergeHookOutputs(outputs)
+  }
+
+  function contextFrom(merged: MergedHookOutcome): HookContext | undefined {
+    if (merged.additionalContext.length === 0) return undefined
+    const content: ContentBlock[] = merged.additionalContext.map(text => ({ type: 'text', text }))
+    return { content, source: PLUGIN_SOURCE }
+  }
+
+  // SessionStart: emit. Codex passes a plain-stdout hook's output as additionalContext.
+  ctx.on('agent/session-start', (agent, source) => {
+    void runPoint('SessionStart', source, { ...base(agent, 'SessionStart', model), source }, { agent })
+      .then((merged) => {
+        const context = contextFrom(merged)
+        if (context) agent.inject(context.content, { source: context.source })
+      })
+      .catch((error: unknown) => { ctx.logger.warn(`hooks-codex: SessionStart hook failed: ${String(error)}`) })
+  })
+
+  // UserPromptSubmit → PromptDecision. Codex can only BLOCK (no allow/ask).
+  ctx.on('agent/prompt-submit', async (agent, content, _source, next): Promise<PromptDecision> => {
+    const turn = lastTurn(agent)
+    const merged = await runPoint('UserPromptSubmit', '', { ...turnBase(agent, 'UserPromptSubmit', model), prompt: blocksToText(content) }, { agent, turn })
+    if (merged.decision === 'deny') return { kind: 'block', reason: merged.reason ?? 'blocked by UserPromptSubmit hook' }
+    const context = contextFrom(merged)
+    if (context) return { kind: 'allow', additionalContext: context }
+    return next()
+  })
+
+  // PreToolUse → PreToolDecision. Codex blocks only (no allow/ask honored).
+  ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
+    const turn = lastTurn(exec.agent)
+    const merged = await runPoint('PreToolUse', exec.name, preToolPayload(exec, model), { ...exec.agent ? { agent: exec.agent } : {}, turn, ...exec.signal ? { signal: exec.signal } : {} })
+    if (merged.decision === 'deny') return { kind: 'deny', reason: merged.reason ?? 'blocked by PreToolUse hook' }
+    return next()
+  })
+
+  // PostToolUse → PostToolDecision (block with feedback, or attach context).
+  ctx.on('tools/post-execute', async (exec, result, next): Promise<PostToolDecision> => {
+    const turn = lastTurn(exec.agent)
+    const merged = await runPoint('PostToolUse', exec.name, postToolPayload(exec, result, model), { ...exec.agent ? { agent: exec.agent } : {}, turn, ...exec.signal ? { signal: exec.signal } : {} })
+    const context = contextFrom(merged)
+    if (merged.decision === 'deny') {
+      return { kind: 'block', feedback: [{ type: 'text', text: merged.reason ?? 'blocked by PostToolUse hook' }], ...context ? { additionalContext: context } : {} }
+    }
+    if (context) return { kind: 'accept', additionalContext: context }
+    return next()
+  })
+
+  // Stop → ContinuationDecision. A blocking Stop hook forces continuation.
+  // TODO(stop-loop-guard): like CC, a Stop hook that unconditionally blocks would
+  // force-continue every step (`stop_hook_active` is always false here); the
+  // loop-guard (stop_hook_active + a max-consecutive cap) is deferred.
+  ctx.on('agent/turn-continuation', async (agent, turn, _default, next): Promise<ContinuationDecision> => {
+    const merged = await runPoint('Stop', '', { ...turnBase(agent, 'Stop', model), stop_hook_active: false, last_assistant_message: null }, { agent, turn })
+    if (merged.decision === 'deny' && merged.reason !== undefined) {
+      return { action: 'continue', reason: { content: [{ type: 'text', text: merged.reason }], source: PLUGIN_SOURCE } }
+    }
+    return next()
+  })
+}
+
+// --- Codex DIALECT payloads: snake_case, model on every event, turn_id on
+// turn-scoped events. ---
+
+function lastTurn(agent: Agent | undefined): number {
+  if (!agent) return 0
+  const last = [...agent.session.events].findLast(e => e.type === 'turn/start')
+  /* v8 ignore next -- the `: 0` arm is a defensive fallback: when an agent is
+     present, lastTurn is only called from the mid-turn seams, which always run
+     inside an open turn, so `last` is always a turn/start here. */
+  return last?.type === 'turn/start' ? last.data.turn : 0
+}
+
+function blocksToText(content: ContentBlock[]): string {
+  return content.filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text').map(b => b.text).join('')
+}
+
+/** Base fields on every Codex payload (no turn_id). */
+function base(agent: Agent | undefined, event: string, model: string): Record<string, unknown> {
+  return {
+    session_id: agent?.session.header.id ?? '',
+    transcript_path: null,
+    cwd: agent?.session.header.cwd ?? process.cwd(),
+    hook_event_name: event,
+    model,
+    permission_mode: 'default',
+  }
+}
+
+/** Base + turn_id, for the turn-scoped events (PreToolUse/PostToolUse/UserPromptSubmit/Stop). */
+function turnBase(agent: Agent | undefined, event: string, model: string): Record<string, unknown> {
+  return { ...base(agent, event, model), turn_id: String(lastTurn(agent)) }
+}
+
+/** Extract a `command` string from a tool call's parsed arguments, else ''. */
+function commandOf(args: unknown): string {
+  if (typeof args === 'object' && args !== null && 'command' in args) {
+    const command: unknown = args.command
+    if (typeof command === 'string') return command
+  }
+  return ''
+}
+
+function preToolPayload(exec: ToolExecution, model: string): Record<string, unknown> {
+  // Codex hardcodes tool_name to "Bash" and tool_input to { command }.
+  return { ...turnBase(exec.agent, 'PreToolUse', model), tool_name: 'Bash', tool_input: { command: commandOf(exec.arguments) }, tool_use_id: exec.callId }
+}
+
+function postToolPayload(exec: ToolExecution, result: ToolExecutionResult, model: string): Record<string, unknown> {
+  return { ...turnBase(exec.agent, 'PostToolUse', model), tool_name: 'Bash', tool_input: { command: commandOf(exec.arguments) }, tool_use_id: exec.callId, tool_response: blocksToText(result.content) }
+}

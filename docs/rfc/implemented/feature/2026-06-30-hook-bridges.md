@@ -1,0 +1,51 @@
+# RFC: dsh-hooks-claude + dsh-hooks-codex — the Claude Code / Codex hook bridges
+
+Status: implemented (accepted 2026-06-30)
+
+<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
+
+## Context
+
+The harness's extension surface is its typed interception seams ([the interception-seams RFC](2026-06-30-interception-seams.md)): a "native hook" is just an ordinary cordis plugin subscribing to `agent/session-start`, `agent/prompt-submit`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation`, `subagent/start`, `subagent/end`. But users arrive with **existing** Claude Code (CC) and Codex hook configs — a `hooks.json` (or a settings file's `hooks` key) full of shell-command hooks — and want those to run unmodified. This RFC introduces the two **bridge plugins** that translate that external shell-hook protocol onto the typed seams, built on the shared wire-protocol library ([the hook-protocol-lib RFC](2026-06-30-hook-protocol-lib.md)).
+
+The framing that shapes the whole design: **a bridge is a faithfulness adapter, not a power tool.** Anything a bridge does (block a tool, inject context, force continuation, observe a subagent) a native cordis plugin does more powerfully — typed returns, full `ctx`, no serialization boundary. The bridge's only reason to exist is to run an UNMODIFIED external CC/Codex hook with byte-faithful semantics. That keeps each bridge thin: parse the config, pick a matcher mode, build the per-event payload, call `runHook` + `mergeHookOutputs` from the shared lib, map the neutral outcome onto a seam Decision.
+
+## Decision
+
+Two independent plugins in the `packages/hooks/` group, each a function/namespace plugin (`name`/`inject`/`Config`/`apply`, NO default export — see [postmortem 0001](../../../postmortem/0001-acp-default-export-drops-inject.md)) injecting only `bash`:
+
+- **`dsh-hooks-claude`** — the CC dialect. Seven hook points: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStart`, `SubagentStop`. Owns CC's per-event stdin payloads (a base of `session_id`/`cwd`/`hook_event_name` plus per-event fields), CC's env + `${CLAUDE_PLUGIN_ROOT}`/`${CLAUDE_PROJECT_DIR}` substitution, and the literal-or-regex matcher mode. A CC hook's stdin carries a **trailing newline**.
+- **`dsh-hooks-codex`** — the Codex dialect: a deliberate SUBSET. Five hook points (`PreToolUse`, `PostToolUse`, `SessionStart`, `UserPromptSubmit`, `Stop` — no subagent/notification/compaction), an always-regex matcher, snake_case payloads with `turn_id`/`model`/`permission_mode` extras written WITHOUT a trailing newline, no env and no `${…}` substitution, and a block-only decision model (a Codex hook can never pre-approve, so `allow`/`ask` are not honored). Codex hardcodes a tool call's `tool_name` to `"Bash"` and `tool_input` to `{ command }`.
+
+### Outcome → Decision mapping
+
+Each bridge maps the neutral `MergedHookOutcome` from the shared lib onto the seam's typed Decision:
+
+| Seam | CC | Codex |
+|---|---|---|
+| `agent/session-start` (emit) | additionalContext → `agent.inject()` | plain-stdout output → additionalContext → `agent.inject()` |
+| `agent/prompt-submit` | `deny`→`block`; context→`allow` | `block`→`block`; context→`allow` |
+| `tools/pre-execute` | `deny`→`deny`; `ask`→`ask` | `block`→`deny` (no allow/ask) |
+| `tools/post-execute` | `deny`→`block`+feedback; context→`accept` | same |
+| `agent/turn-continuation` | blocking Stop → `continue` (reason = next-step steering) | same |
+| `subagent/start` (emit) | additionalContext → inject into the live child | — (not a Codex event) |
+| `subagent/end` (emit) | observe-only | — |
+
+### Context source is always the plugin (the mislabel guard)
+
+`agent.inject()` defaults a missing `MessageSource` to `{ kind: 'user' }` — which would record plugin-injected context as if the user had typed it. So every bridge `inject()` and every `HookContext` passes an explicit `{ kind: 'plugin', plugin: 'hooks-claude' | 'hooks-codex' }` source. A test asserts the resulting `context/message.source` is the plugin, never `user`.
+
+### Containment
+
+The config is parsed ONCE at load; a read/parse failure logs and registers nothing rather than crashing boot (a typo'd path must not take the agent down). Only `type: 'command'` hooks run — a `prompt`/`agent`/HTTP hook (CC) or an `async: true` / non-command hook (Codex) is parsed-and-skipped with a warning. The emit-listener paths (`session-start`, `subagent/start`) run detached, with their `inject` contained in a `.catch` that logs (a throwing inject must not break session boot or the loop).
+
+## Deferred (faithful-but-degraded)
+
+- **Tool-input rewrite.** A CC/Codex `updatedInput` is logged + warned, not honored — input rewrite is a deferred consistency-design problem ([the pre-tool-input-rewrite RFC](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md)), because the pre-execution args are read by `tool/call` audit + `assistant/message` history + ACP/tool-bash presentation, so an honest rewrite is a design unit, not a field.
+- **Stop loop-guard** (`TODO(stop-loop-guard)`). CC/Codex break an infinite force-continue with `stop_hook_active` (true once a Stop hook fired this run) plus a max-consecutive cap; both are deferred. Today `stop_hook_active` is always `false`, so a Stop hook that unconditionally blocks would force-continue every step — a hook author must self-limit until the guard lands.
+- **Permission `ask`** degrades to `deny` at the `tools/pre-execute` seam (`FIXME(permissions)` in the interception-seams RFC) — there is no interactive permission prompt yet.
+- **Config discovery.** The path is explicit in `cordis.yml`; the full multi-layer CC/Codex precedence walk and the trust/hash model are not reimplemented (`TODO`).
+
+## Consequences
+
+The bridges are thin and readable standalone: the correctness-critical halves (matcher semantics, exit-code contract, merge precedence) live in the shared `dsh-hook-protocol`, so each bridge is just config-parse + payload-build + outcome-map. Each is covered at per-file 100% — config-parse branches as unit tests, and the seam mappings end-to-end through the REAL loop + REAL `dsh-bash-local` + REAL shell scripts from a temp `hooks.json` (a scripted mock MODEL is the only stand-in), plus a real-Loader export-shape guard so a stray default export can't silently drop `inject`. Because the seams already carry typed Decisions, a future native plugin needs none of this bridge machinery — it returns a Decision directly.

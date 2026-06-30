@@ -94,3 +94,13 @@
 # session log (todo/write), surfaced to the ACP client as a `plan` update.
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
+
+# The Claude Code hook bridge, pointed at a `hooks.json` in the session cwd. With
+# no such file present the parse fails-soft and the bridge registers nothing (a
+# silent no-op); a session whose cwd holds a `hooks.json` runs those hooks on the
+# interception seams. stdout is the ACP JSON-RPC channel — the bridge's warnings
+# go through ctx.logger (no exporter here), never to stdout.
+- id: hooks-claude
+  name: '@deepseek-ai/dsh-hooks-claude'
+  config:
+    configPath: ./hooks.json
