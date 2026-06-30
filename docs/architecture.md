@@ -133,7 +133,7 @@ forever:
     drain queued → 'turn/start' → session('user/message'…) → emit agent/turn-start
     STEP loop:
       drain steering (late steering from previous step's listeners)
-      session('step/start'); emit agent/step-start
+      session('step/start')                           ⟵ durable step boundary (no agent/* mirror)
       assembly = ctx.systemPrompt.assemble()          ⟵ waterfall system-prompt/assemble
       req = {model, system, tools, messages: session.deriveMessages(), signal}
       req = waterfall agent/request                   ⟵ hooks, compaction, model switch
@@ -149,9 +149,9 @@ forever:
           tool execution may append tool-owned session events, e.g. `todo/write`
         session('tool/result')
       drain steering → session('steering/message'); emit agent/steering
-      emit agent/step-end
+      session('step/end')                             ⟵ durable step boundary (no agent/* mirror)
       cont = waterfall agent/turn-continuation(default = hadToolCalls || steered)
-      steering pending from step-end/continuation listeners forces cont = true
+      steering pending from continuation listeners forces cont = true
       if !cont: break
   session('turn/end'); emit agent/turn-end
   await ctx.parallel('session/flush', session)        ⟵ durability checkpoint (failure
@@ -191,7 +191,7 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 | Hook system (user + project level) | listeners on `agent/request`, `agent/step-result`, `tools/execute`, `agent/turn-continuation`; a hooks plugin bridges config files to shell commands |
 | `/goal` | force-continue via `agent/turn-continuation` + `steer()` reminders |
 | `/loop` | on `agent/turn-end`, `send()` the next iteration; or force-continue |
-| Dynamic workflow | orchestrator plugin on `agent/turn-end` / `agent/step-end` driving `send`/`steer` (+ sub-agents later) |
+| Dynamic workflow | orchestrator plugin on `agent/turn-end` (or the `step/end` session event) driving `send`/`steer` (+ sub-agents later) |
 | Queued + steering messages | core `Agent.send()` / `Agent.steer()` |
 | Context compaction (auto + manual) | the `ctx.compact` seam ([dsh-compact](../packages/compact/compact)): a backend summarizes an older surface range into a single `user/message` `replace` op, bracketed by log-only `compact/*` events; auto = check token pressure at turn boundaries, manual = a `/compact` tool. See the [compaction capability-seam RFC](rfc/proposed/feature/2026-06-18-compaction-capability-seam.md) |
 | System prompt configurability | `ctx.systemPrompt.section()` with ordering |

@@ -46,15 +46,21 @@ describe('agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
+    // Turn boundaries are live agent/* emits; step boundaries are durable
+    // session events only (no agent/* mirror). Interleave both feeds in fire
+    // order to assert the full boundary nesting.
     const order: string[] = []
-    for (const name of ['agent/turn-start', 'agent/step-start', 'agent/step-end', 'agent/turn-end'] as const) {
+    for (const name of ['agent/turn-start', 'agent/turn-end'] as const) {
       ctx.on(name, () => void order.push(name))
     }
+    ctx.on('session/event', (_session, event) => {
+      if (event.type === 'step/start' || event.type === 'step/end') order.push(event.type)
+    })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
 
-    expect(order).toEqual(['agent/turn-start', 'agent/step-start', 'agent/step-end', 'agent/turn-end'])
+    expect(order).toEqual(['agent/turn-start', 'step/start', 'step/end', 'agent/turn-end'])
 
     const types = agent.session.events.map(e => e.type)
     // turn/start opens the turn, THEN the queued user message is recorded inside
@@ -269,7 +275,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let steps = 0
-    ctx.on('agent/step-end', () => void steps++)
+    ctx.on('session/event', (_session, event) => { if (event.type === 'step/end') steps++ })
     ctx.on('agent/turn-continuation', async (_agent, _turn, _defaultDecision, next) => {
       if (steps < 3) return true
       return next()
@@ -371,7 +377,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let steps = 0
-    ctx.on('agent/step-end', () => void steps++)
+    ctx.on('session/event', (_session, event) => { if (event.type === 'step/end') steps++ })
     // Force exactly one continuation (step 1 → step 2), then defer to default
     // (step 2 is a plain stop with no tool calls → stops).
     ctx.on('agent/turn-continuation', async (_agent, _turn, _defaultDecision, next) => {
@@ -536,7 +542,7 @@ describe('agent loop', () => {
     ])
   })
 
-  it('stops the turn when agent/step-end listener failure has recorded an error', async () => {
+  it('stops the turn when a step/end session-event listener failure has recorded an error', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'echo', { text: 'x' }),
       textResponse('should not run'),
@@ -552,8 +558,11 @@ describe('agent loop', () => {
     }))
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     let threw = false
-    ctx.on('agent/step-end', () => {
-      if (!threw) { threw = true; throw new Error('bad step-end listener') }
+    // A throwing step/end session-event listener is the surviving boundary-listener
+    // failure path (step boundaries have no agent/* mirror): closeStep contains it
+    // and surfaces it as a turn error rather than stranding the turn open.
+    ctx.on('session/event', (_session, event) => {
+      if (event.type === 'step/end' && !threw) { threw = true; throw new Error('bad step/end listener') }
     })
 
     send(agent, 'go')

@@ -204,7 +204,7 @@ describe('Agent.cancel()', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let steps = 0
-    ctx.on('agent/step-start', () => { steps += 1 })
+    ctx.on('session/event', (_session, event) => { if (event.type === 'step/start') steps += 1 })
     const reasons: TurnEndReason[] = []
     ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
 

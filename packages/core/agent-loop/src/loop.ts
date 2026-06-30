@@ -147,7 +147,7 @@ export interface LoopHandle {
  *     drain queued → 'turn/start' → session('user/message'…) → emit agent/turn-start
  *     STEP loop:
  *       drain steering → session('steering/message')  ⟵ catches late steering
- *       session('step/start'); emit agent/step-start    ⟵ append before emit (the event-sourcing RFC)
+ *       session('step/start')                         ⟵ durable step boundary (no agent/* mirror)
  *       assembly = ctx.systemPrompt.assemble()        ⟵ waterfall system-prompt/assemble
  *       req = {model, system, tools, messages: session.deriveMessages(), signal}
  *       req = waterfall agent/request                 ⟵ hooks/compaction/model-switch
@@ -159,7 +159,7 @@ export interface LoopHandle {
  *         session('tool/call'); ctx.tools.execute()   ⟵ waterfall tools/execute
  *         session('tool/result')
  *       drain steering → session('steering/message'); emit agent/steering
- *       emit agent/step-end
+ *       session('step/end')                           ⟵ durable step boundary (no agent/* mirror)
  *       cont = waterfall agent/turn-continuation(default = hadToolCalls || steered)
  *       if !cont && steering arrived from step-end/continuation listeners: cont = true
  *       if !cont: break
@@ -279,33 +279,29 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
   let stepOpen = false
   let errorReported = false
 
-  // Close the open step exactly once (idempotent via stepOpen). The
-  // agent/step-end emit is contained: a throwing step-end listener must not
-  // abort finalization and strand the turn open (turn/end balance > notifying
-  // one bad listener). Appended before the emit (the event-sourcing RFC append-before-emit).
+  // Close the open step exactly once (idempotent via stepOpen). Step boundaries
+  // are durable session events only — there is no agent/* step emit to mirror
+  // them (see the agent event-domain rule). A throwing step/end session-event
+  // listener must not abort finalization and strand the turn open (turn/end
+  // balance > notifying one bad listener); it is contained and surfaced as a
+  // turn error below.
   const closeStep = (): boolean => {
     if (!stepOpen) return false
     stepOpen = false
     // Session.append pushes step/end BEFORE notifying session/event listeners,
     // so a throwing listener leaves step/end in the log (balance holds) but
     // would otherwise abort finalization. Contain it and surface it as a turn
-    // error below — the same outcome as a throwing agent/step-end listener.
+    // error below.
     let failure: unknown
     try {
       session.append('step/end', { turn, step })
     } catch (error: unknown) {
       failure = error
     }
-    try {
-      ctx.emit('agent/step-end', agent, turn, step)
-    } catch (error: unknown) {
-      failure ??= error
-    }
-    // A throwing step/end session-event listener OR a throwing agent/step-end
-    // listener surfaces as a turn error via failTurn (idempotent). This prevents
-    // a throwing listener from producing a silent "completed" turn when the step
-    // itself succeeded, AND keeps finalization going when closeStep runs from
-    // the outer catch.
+    // A throwing step/end session-event listener surfaces as a turn error via
+    // failTurn (idempotent). This prevents a throwing listener from producing a
+    // silent "completed" turn when the step itself succeeded, AND keeps
+    // finalization going when closeStep runs from the outer catch.
     if (failure !== undefined) {
       failTurn(toError(failure))
       return true
@@ -382,24 +378,23 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
     while (true) {
       step += 1
 
-      // Steering from the previous round's step-end/continuation listeners
-      // (or turn-start listeners on the first step) joins before the request.
+      // Steering from the previous round's continuation listeners (or
+      // turn-start listeners on the first step) joins before the request.
       drainSteering(ctx, agent, turn)
 
       session.append('step/start', { turn, step })
       stepOpen = true
-      ctx.emit('agent/step-start', agent, turn, step)
 
       const abort = new AbortController()
       handle.setAbort(abort)
 
       // Cancel landing in the step-start window: a synchronous `agent/turn-start`
-      // or `agent/step-start` listener (both fire before this point) can have
-      // called `cancel()`, and `runStep` would otherwise run a full extra step
-      // with no AbortController having observed it. Check the marker AFTER
-      // setAbort (so the next-iteration drain sees a clean controller) and before
-      // `runStep`: drop the step, end the turn `aborted`. closeStep balances the
-      // already-appended step/start.
+      // listener (fires before this point) can have called `cancel()`, and
+      // `runStep` would otherwise run a full extra step with no AbortController
+      // having observed it. Check the marker AFTER setAbort (so the
+      // next-iteration drain sees a clean controller) and before `runStep`: drop
+      // the step, end the turn `aborted`. closeStep balances the already-appended
+      // step/start.
       if (handle.isCancelled()) {
         handle.setAbort(undefined)
         reason = { kind: 'aborted', reason: handle.cancelReason() }
