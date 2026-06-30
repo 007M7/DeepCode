@@ -20,6 +20,8 @@ graph TD
   agent --> session
   compact --> llm
   compact --> session
+  hook-protocol --> bash
+  hook-protocol --> session
   llm-replay --> llm
   llm-replay --> session
   session-persistence --> session
@@ -107,6 +109,7 @@ graph TD
 | `system-prompt` | `llm` |
 | `agent` | `brand`, `llm`, `session` |
 | `compact` | `llm`, `session` |
+| `hook-protocol` | `bash`, `session` |
 | `llm-replay` | `llm`, `session` |
 | `session-persistence` | `session` |
 | `invariants` | `agent`, `llm`, `session` |
