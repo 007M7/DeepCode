@@ -169,12 +169,22 @@ describe('HIGH: steering from late extension points is never stranded', () => {
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('one more thing')
   })
 
-  it('steer() from a step/end session-event listener reaches the next request (/goal pattern)', async () => {
+  it('steer() from a step/end session-event listener forces a SAME-TURN next step (/goal pattern)', async () => {
     // The /goal pattern steers from a step boundary so the model addresses a
     // standing goal before stopping. Step boundaries have no agent/* mirror, so
     // the surviving hook point is the durable step/end session event. With a
     // no-tools first step the default continuation is stop; the steering queued
-    // here must force the hasSteering override and reach the next request.
+    // here must force the `!shouldContinue && hasSteering` override so the SAME
+    // turn runs another step.
+    //
+    // The override is what this test guards, so it asserts the same-turn shape —
+    // NOT merely that the content reaches requests[1]. Without the override the
+    // turn would stop, and leftover steering is re-enqueued as a next-turn queued
+    // message, which ALSO lands in requests[1] (just one turn later). So a
+    // content-only assertion passes with the override disabled and guards
+    // nothing. The discriminator is the turn/step shape: override ⇒ ONE turn with
+    // TWO steps and the steering recorded as a `steering/message` BEFORE step 2;
+    // re-enqueue fallback ⇒ TWO turns.
     const adapter = new MockAdapter([
       textResponse('no tools, would stop'),
       textResponse('after goal reminder'),
@@ -192,8 +202,17 @@ describe('HIGH: steering from late extension points is never stranded', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    // steering from the step/end listener forced a second step (hasSteering
-    // override) and reached the next model request.
+    // Same-turn continuation: the steering forced step 2 within turn 1.
+    const events = [...agent.session.events]
+    expect(events.filter(e => e.type === 'turn/start')).toHaveLength(1)
+    expect(events.filter(e => e.type === 'step/start')).toHaveLength(2)
+    // The steered content is recorded as steering (same turn), BEFORE step 2 —
+    // not as a fresh turn's user/message. This is the mechanism the override uses.
+    const steeringIdx = events.findIndex(e => e.type === 'steering/message')
+    const step2Idx = events.map(e => e.type).lastIndexOf('step/start')
+    expect(steeringIdx).toBeGreaterThanOrEqual(0)
+    expect(steeringIdx).toBeLessThan(step2Idx)
+    // and it reached the next model request.
     expect(adapter.requests).toHaveLength(2)
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('goal reminder from step/end')
   })

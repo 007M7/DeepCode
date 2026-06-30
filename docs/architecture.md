@@ -151,7 +151,8 @@ forever:
       drain steering → session('steering/message'); emit agent/steering
       session('step/end')                             ⟵ durable step boundary (no agent/* mirror)
       cont = waterfall agent/turn-continuation(default = hadToolCalls || steered)
-      steering pending from continuation listeners forces cont = true
+      steering pending forces cont = true (from continuation listeners OR from
+        step/end session-event listeners — the /goal pattern; hasSteering override)
       if !cont: break
   session('turn/end'); emit agent/turn-end
   await ctx.parallel('session/flush', session)        ⟵ durability checkpoint (failure

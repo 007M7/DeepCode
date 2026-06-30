@@ -197,8 +197,9 @@ declare module 'cordis' {
     'agent/turn-start'(agent: Agent, turn: number): void
     /**
      * A turn ended. `reason` distinguishes a clean stop from a truncated,
-     * aborted, or hook-rejected one (`completed` | `aborted` | `error` |
-     * `disposed` | `max-tokens` | `rejected` | `interrupted`).
+     * aborted, failed, disposed, or crash-interrupted one (`completed` |
+     * `aborted` | `error` | `disposed` | `max-tokens` | `interrupted`); the
+     * reason union is merge-extensible, so a plugin can add further variants.
      * @mode emit
      */
     'agent/turn-end'(agent: Agent, turn: number, reason: TurnEndReason): void

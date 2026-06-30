@@ -49,7 +49,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:244`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:245`](../../packages/core/agent/src/types.ts)
 
 #### `agent/queued` — emit
 
@@ -73,7 +73,7 @@ Waterfall: mutate the fully-assembled GenerateOptions before the model call (hoo
 
 Types: [Agent](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:213`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:214`](../../packages/core/agent/src/types.ts)
 
 #### `agent/status` — emit
 
@@ -97,7 +97,7 @@ Steering content was injected into a running turn.
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:238`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:239`](../../packages/core/agent/src/types.ts)
 
 #### `agent/step-result` — waterfall
 
@@ -109,7 +109,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:219`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:220`](../../packages/core/agent/src/types.ts)
 
 #### `agent/stream-chunk` — emit
 
@@ -121,7 +121,7 @@ A raw StreamChunk arrived from the model (token-level UI/log feed).
 
 Types: [Agent](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/agent/src/types.ts:233`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:234`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-continuation` — waterfall
 
@@ -133,11 +133,11 @@ Waterfall: override the turn-continuation decision. The default (computed by the
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:226`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:227`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-end` — emit
 
-A turn ended. `reason` distinguishes a clean stop from a truncated, aborted, or hook-rejected one (`completed` | `aborted` | `error` | `disposed` | `max-tokens` | `rejected` | `interrupted`).
+A turn ended. `reason` distinguishes a clean stop from a truncated, aborted, failed, disposed, or crash-interrupted one (`completed` | `aborted` | `error` | `disposed` | `max-tokens` | `interrupted`); the reason union is merge-extensible, so a plugin can add further variants.
 
 ```ts cordis-catalog
 'agent/turn-end'(agent: Agent, turn: number, reason: TurnEndReason): void
@@ -145,7 +145,7 @@ A turn ended. `reason` distinguishes a clean stop from a truncated, aborted, or 
 
 Types: [Agent](../core-data-structures/core.md) · [TurnEndReason](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:204`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:205`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-start` — emit
 
