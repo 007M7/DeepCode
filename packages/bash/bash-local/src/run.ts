@@ -52,7 +52,8 @@ export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
  * scrub pattern (the scrub guards against leaking the HARNESS's ambient
  * credentials into model-driven commands; an in-process plugin that explicitly
  * sets a var has taken responsibility for it). `extra` is NEVER model-supplied
- * — `dsh-tool-bash` does not forward model input here (see its module doc).
+ * — `dsh-tool-bash` does not forward model input here (see its README, §
+ * "Trusted-plugin boundary").
  */
 export function childEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
