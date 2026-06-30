@@ -13,7 +13,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore, { TurnEndReason } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
@@ -220,6 +220,43 @@ describe('Agent.cancel()', () => {
     // log is balanced (the open step was closed by the cancel branch).
     expect(streamed).toBe(false)
     expect(reasons).toEqual([{ kind: 'aborted', reason: 'from step-start' }])
+    const types = agent.session.events.map(e => e.type)
+    expect(types.filter(t => t === 'step/start').length).toBe(types.filter(t => t === 'step/end').length)
+  })
+
+  it('disposal from a synchronous agent/step-start listener closes the open step as disposed', async () => {
+    const adapter = new MockAdapter([textResponse('should not stream')])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    ctx.llm.registerAdapter(['mock'], adapter)
+
+    const handle = ctx.agents.create({
+      agentId: AgentId('a-dispose-step-start'),
+      sessionId: SessionId('dispose-step-start-session'),
+      agentOptions: { model: 'mock' },
+    })
+    const agent = handle.agent as ReactLoopAgent
+
+    let disposalDone: Promise<void> | undefined
+    let streamed = false
+    ctx.on('agent/stream-chunk', () => { streamed = true })
+    ctx.on('agent/step-start', (subject) => {
+      if (subject === agent) disposalDone = handle.dispose()
+    })
+
+    send(agent, 'go')
+    await disposalDone
+    await agent.done
+
+    expect(streamed).toBe(false)
+    expect(adapter.requests).toHaveLength(0)
+    const turnEnd = agent.session.events.findLast(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
     const types = agent.session.events.map(e => e.type)
     expect(types.filter(t => t === 'step/start').length).toBe(types.filter(t => t === 'step/end').length)
   })
