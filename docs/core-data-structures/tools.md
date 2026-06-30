@@ -73,7 +73,7 @@ type InferArgs<S extends SchemaSpec> = Simplify<
 
 ## Execution: the `tools/execute` waterfall shapes
 
-`ctx.tools.execute()` runs each call through the `tools/execute` waterfall — the single seam where sandbox, permission, hook, and plan-mode plugins wrap or veto. The pending call is a `ToolExecution`; the outcome is a `ToolExecutionResult`.
+`ctx.tools.execute()` runs each call through a two-waterfall pipeline — `tools/pre-execute` (the allow/deny/ask gate) → core dispatch → `tools/post-execute` (inspect/replace the result, attach context) — the seams where sandbox, permission, hook, and plan-mode plugins gate or transform a call. The pending call is a `ToolExecution`; the outcome is a `ToolExecutionResult`.
 
 ```ts type-equiv
 interface ToolExecution {
@@ -98,10 +98,36 @@ interface ToolExecutionResult {
    * text in `content` is always present; this is extra structure for code.
    */
   error?: ToolErrorInfo
+  /**
+   * Extra model-facing context a `tools/post-execute` listener attached for the
+   * NEXT request (Claude Code's PostToolUse `additionalContext`). It is NOT part
+   * of this call's `content` — `content`/`feedback` shape the tool RESULT, but
+   * `additionalContext` is a SEPARATE `context/message`. A step can carry
+   * multiple tool calls, so the loop BUFFERS every call's `additionalContext`
+   * and appends them only AFTER all `tool/result`s for the step, keeping
+   * tool-call/result adjacency intact. Carried on the result purely to ferry it
+   * from `execute()` up to the loop's per-step buffer.
+   */
+  additionalContext?: HookContext
 }
 ```
 
-A waterfall listener receives `(exec, next)`: call `next()` to proceed (possibly around your own logic), or return a `ToolExecutionResult` without calling `next()` to veto. An unregistered tool routes through the same catch as a tool-thrown error, so both failure classes get a structured `{ name, code }` (`ToolNotFoundError` → `UNKNOWN_TOOL`) — the loop records a failed tool call instead of failing the whole turn.
+Each interception waterfall returns a typed **Decision** (the idiom shared with the `agent/*` seams). `tools/pre-execute` listeners receive `(exec, next)` and return a `PreToolDecision`; `tools/post-execute` listeners receive `(exec, result, next)` and return a `PostToolDecision`:
+
+```ts type-equiv
+type PreToolDecision =
+  | { kind: 'allow' }
+  | { kind: 'deny'; reason: string }
+  | { kind: 'ask'; reason?: string }
+```
+
+```ts type-equiv
+type PostToolDecision =
+  | { kind: 'accept'; content?: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'block'; feedback: ContentBlock[]; additionalContext?: HookContext }
+```
+
+Call `next()` to delegate to the default (allow / accept-unchanged), or return a decision to short-circuit. A `pre-execute` `deny` (or `ask`, which degrades to deny until the permission system lands) skips dispatch and yields an `isError` result; input rewrite is deliberately NOT offered on `PreToolDecision` (it would desync the pre-execution audit/history/UI from what ran — its own proposed RFC). A `post-execute` `accept` may replace the model-facing `content` (clean, because `tool/result` is logged after `execute()` returns); a `block` turns the call into an `isError` whose content is the corrective `feedback`. Core dispatch sits between the waterfalls as plain code; the tool body keeps its own try/catch so a thrown tool still reaches `post-execute` as an `isError`. An unregistered tool routes through the same catch as a tool-thrown error, so both failure classes get a structured `{ name, code }` (`ToolNotFoundError` → `UNKNOWN_TOOL`) — the loop records a failed tool call instead of failing the whole turn.
 
 ## Tool-presentation UI vocabulary
 

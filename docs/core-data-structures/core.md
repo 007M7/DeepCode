@@ -306,7 +306,42 @@ interface Agent {
 }
 ```
 
-`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`, `systemPrompt?`) is merge-extensible — plugins add creation options by declaration merging. The `agent/*` event taxonomy (lifecycle, turn/step boundaries, the `agent/request`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy).
+`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`, `systemPrompt?`) is merge-extensible — plugins add creation options by declaration merging. The `agent/*` event taxonomy (lifecycle, turn/step boundaries, the `agent/prompt-submit`/`agent/request`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy).
+
+## Interception decisions
+
+Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. They share one envelope for model-facing context, `HookContext`, which is `inject()`ed as a `context/message` and so carries a REQUIRED `source` (a missing source would default to `{kind:'user'}` and mislabel plugin context as a user prompt).
+
+Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
+
+```ts type-equiv
+interface HookContext {
+  content: ContentBlock[]
+  source: MessageSource
+}
+```
+
+`agent/prompt-submit` returns a `PromptDecision` (allow a drained queued message — optionally rewriting its `content` or attaching `additionalContext` — or block it; a batch whose every prompt is blocked opens a zero-step turn that ends `rejected`):
+
+```ts type-equiv
+type PromptDecision =
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'block'; reason: string }
+```
+
+`agent/turn-continuation` returns a `ContinuationDecision` (the loop's default is `continue` when the step had tool calls or steering was injected, else `stop`; a `continue` `reason` is recorded as next-step steering in the same turn — the typed `/goal` pattern):
+
+```ts type-equiv
+type ContinuationDecision =
+  | { action: 'stop' }
+  | { action: 'continue'; reason?: HookContext }
+```
+
+`agent/session-start` carries a `SessionStartSource` (why the session lifecycle began; a bridge keys its SessionStart matcher on it):
+
+```ts type-equiv
+type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
+```
 
 ## `ToolDefinition`
 

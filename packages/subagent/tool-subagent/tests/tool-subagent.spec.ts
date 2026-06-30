@@ -276,6 +276,14 @@ describe('dsh-tool-subagent', () => {
 
     const controller = new AbortController()
     const pending = callSubagent(ctx, { description: 'd', prompt: 'p' }, { signal: controller.signal })
+    // Abort AFTER the tool body has had a chance to register its abort listener
+    // (ctx.tools.execute now awaits the tools/pre-execute waterfall before the
+    // body runs, so the listener is not registered synchronously). A few
+    // microtask turns let execute() reach `addEventListener('abort')`, so this
+    // exercises the LIVE onAbort bridge — distinct from the already-aborted
+    // sync path the next test covers.
+    await Promise.resolve()
+    await Promise.resolve()
     controller.abort()
     const result = await pending
     expect(cancelled).toHaveBeenCalledTimes(1)

@@ -1,8 +1,9 @@
 /**
- * Tool registry and execution waterfall. Plugins register tools; the registry
+ * Tool registry and execution pipeline. Plugins register tools; the registry
  * feeds schemas into the system prompt, and `execute()` dispatches each call
- * through the `tools/execute` waterfall for sandbox, permission, and hook
- * plugins to wrap or veto.
+ * through `tools/pre-execute` (the allow/deny gate) → core dispatch →
+ * `tools/post-execute` (inspect/replace the result, attach context) for
+ * sandbox, permission, and hook plugins to gate or transform a call.
  *
  * @module @deepseek-ai/dsh-tools
  */
@@ -10,7 +11,7 @@
 import { Context, Service } from 'cordis'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
 export {
@@ -33,14 +34,31 @@ declare module 'cordis' {
 
   interface Events {
     /**
-     * Waterfall around every tool execution — the single seam where sandbox,
-     * permission, hook, and plan-mode plugins wrap or veto a call. Listeners
-     * receive `(exec, next)`: call `next()` to proceed (possibly around your
-     * own logic), or return a {@link ToolExecutionResult} without calling
-     * `next()` to short-circuit (veto).
+     * Waterfall BEFORE a tool runs — the gate where sandbox, permission, and
+     * hook plugins allow or deny a call (Claude Code's `PreToolUse`). Listeners
+     * receive `(exec, next)`: call `next()` to delegate to the default (allow),
+     * or return a {@link PreToolDecision} without calling `next()` to
+     * short-circuit. A `deny` skips dispatch and yields an `isError` result; the
+     * tool body never runs. Input rewrite is deliberately NOT offered here (see
+     * {@link PreToolDecision}); `ask` degrades to deny until the permission
+     * system lands (`FIXME(permissions)`).
      * @mode waterfall
      */
-    'tools/execute'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
+    'tools/pre-execute'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
+    /**
+     * Waterfall AFTER a tool runs — where hook plugins inspect the result and
+     * accept it (optionally REPLACING the model-facing content, and/or attaching
+     * `additionalContext` for the next request) or block it with corrective
+     * `feedback` (Claude Code's `PostToolUse`). Listeners receive
+     * `(exec, result, next)`: call `next()` to delegate to the default (accept
+     * unchanged), or return a {@link PostToolDecision} to override. The core tool
+     * dispatch sits between the two waterfalls as plain code, all inside
+     * `execute`'s outer try/catch (and the tool body keeps its own inner
+     * try/catch, so a thrown tool still reaches `post-execute` as an `isError`
+     * result).
+     * @mode waterfall
+     */
+    'tools/post-execute'(this: ToolRegistry, exec: ToolExecution, result: ToolExecutionResult, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
     /**
      * A tool was registered or unregistered (the available tool set changed).
      * @mode emit
@@ -247,7 +265,53 @@ export interface ToolExecutionResult {
    * text in `content` is always present; this is extra structure for code.
    */
   error?: ToolErrorInfo
+  /**
+   * Extra model-facing context a `tools/post-execute` listener attached for the
+   * NEXT request (Claude Code's PostToolUse `additionalContext`). It is NOT part
+   * of this call's `content` — `content`/`feedback` shape the tool RESULT, but
+   * `additionalContext` is a SEPARATE `context/message`. A step can carry
+   * multiple tool calls, so the loop BUFFERS every call's `additionalContext`
+   * and appends them only AFTER all `tool/result`s for the step, keeping
+   * tool-call/result adjacency intact. Carried on the result purely to ferry it
+   * from `execute()` up to the loop's per-step buffer.
+   */
+  additionalContext?: HookContext
 }
+
+/**
+ * The decision a `tools/pre-execute` listener returns for one pending call.
+ * Maps onto Claude Code's `PreToolUse` `permissionDecision`.
+ *
+ * - `allow` proceeds to dispatch. (Input rewrite — changing `exec.arguments` —
+ *   is deliberately NOT offered: `tool/call` and `assistant/message` are logged
+ *   BEFORE execution and live consumers, e.g. the ACP bridge and `dsh-tool-bash`
+ *   presentation, read the pre-execution arguments, so an execution-only rewrite
+ *   would desync the UI from what RAN. That consistency redesign is its own
+ *   `proposed` RFC; `TODO(pre-tool-input-rewrite)` anchors it at the call site.)
+ * - `deny` skips dispatch; the loop records an `isError` result carrying `reason`.
+ * - `ask` is the permission-prompt intent; until the permission system exists it
+ *   degrades to `deny` (`FIXME(permissions)`).
+ */
+export type PreToolDecision =
+  | { kind: 'allow' }
+  | { kind: 'deny'; reason: string }
+  | { kind: 'ask'; reason?: string }
+
+/**
+ * The decision a `tools/post-execute` listener returns for one finished call.
+ * Maps onto Claude Code's `PostToolUse` decision.
+ *
+ * - `accept` keeps the call successful; optional `content` REPLACES the
+ *   model-facing result (clean: `tool/result` is logged AFTER `execute()`
+ *   returns, so a replaced result is the single source of truth for both derived
+ *   history and UI). Optional `additionalContext` rides to the next request.
+ * - `block` turns the call into an `isError` result whose content is the
+ *   corrective `feedback` (the model is told the call was rejected and why),
+ *   optionally also attaching `additionalContext`.
+ */
+export type PostToolDecision =
+  | { kind: 'accept'; content?: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'block'; feedback: ContentBlock[]; additionalContext?: HookContext }
 
 /**
  * Best-effort human-readable message from an arbitrary thrown value: Error
@@ -336,29 +400,88 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * Execute one tool call through the `tools/execute` waterfall. If the tool is
-   * not registered, the result is an `isError` carrying a `UNKNOWN_TOOL`
-   * structured error. If the tool or a waterfall listener throws, the error is
-   * caught and returned as an `isError` result so the loop records a failed tool
-   * call instead of failing the whole turn; a thrown {@link HarnessError}
+   * Execute one tool call through the `tools/pre-execute` → dispatch →
+   * `tools/post-execute` pipeline. The two waterfalls are the gate (allow/deny)
+   * and the inspect/transform seam; core dispatch sits between them as plain
+   * code. The whole thing is wrapped in one outer try/catch so a throwing
+   * listener (in either waterfall) becomes an `isError` result instead of
+   * failing the turn; the tool body ALSO keeps its own inner try/catch, so a
+   * thrown tool becomes an `isError` result that `post-execute` listeners can
+   * still inspect. If the tool is not registered, the result is an `isError`
+   * carrying a `UNKNOWN_TOOL` structured error. A thrown {@link HarnessError}
    * surfaces its `{ name, code }` on the result.
    */
   async execute(exec: ToolExecution): Promise<ToolExecutionResult> {
     try {
-      return await this.ctx.waterfall(this, 'tools/execute', exec, async (): Promise<ToolExecutionResult> => {
-        try {
-          const tool = this.store.get(exec.name)
-          // Unknown tool routes through the same catch as a tool-thrown error, so
-          // both failure classes get structured `{ name, code }` from one path.
-          if (!tool) throw new ToolNotFoundError(exec.name)
-          const content = await tool.execute(exec.arguments, exec)
-          return { callId: exec.callId, content, isError: false }
-        } catch (error: unknown) {
-          return toolErrorResult(exec.callId, error)
+      // --- Gate: tools/pre-execute. A deny (or an ask, which degrades to deny
+      // until the permission system lands) skips dispatch entirely. ---
+      const decision = await this.ctx.waterfall(
+        this, 'tools/pre-execute', exec,
+        () => Promise.resolve<PreToolDecision>({ kind: 'allow' }),
+      )
+      if (decision.kind !== 'allow') {
+        // deny → isError. ask has no permission UI yet, so degrade to deny
+        // (FIXME(permissions)): a forthcoming permission system turns `ask` into
+        // a real prompt; today it is the conservative "not allowed".
+        const reason = decision.kind === 'deny'
+          ? decision.reason
+          : decision.reason ?? `tool "${exec.name}" requires approval (not yet supported)`
+        const denied: ToolExecutionResult = {
+          callId: exec.callId,
+          content: [{ type: 'text', text: `Error: ${reason}` }],
+          isError: true,
         }
-      })
+        return await this.postExecute(exec, denied)
+      }
+
+      // --- Core dispatch (plain code between the waterfalls). The tool body's
+      // own try/catch turns a throw into an isError result so post-execute can
+      // inspect it; an unknown tool routes through the same catch. ---
+      let result: ToolExecutionResult
+      try {
+        const tool = this.store.get(exec.name)
+        if (!tool) throw new ToolNotFoundError(exec.name)
+        const content = await tool.execute(exec.arguments, exec)
+        result = { callId: exec.callId, content, isError: false }
+      } catch (error: unknown) {
+        result = toolErrorResult(exec.callId, error)
+      }
+
+      return await this.postExecute(exec, result)
     } catch (error: unknown) {
+      // Outer backstop: a throwing pre/post-execute listener (or the waterfall
+      // machinery) becomes an isError result, never a turn failure.
       return toolErrorResult(exec.callId, error)
+    }
+  }
+
+  /**
+   * Run the `tools/post-execute` waterfall over a dispatched `result` and apply
+   * its {@link PostToolDecision}: `accept` keeps the call successful (replacing
+   * `content` when given), `block` turns it into an `isError` whose content is
+   * the corrective `feedback`. Either decision may attach `additionalContext`,
+   * which is ferried on the returned result for the loop's per-step buffer.
+   * Runs inside `execute`'s outer try/catch (a throwing listener → isError).
+   */
+  private async postExecute(exec: ToolExecution, result: ToolExecutionResult): Promise<ToolExecutionResult> {
+    const decision = await this.ctx.waterfall(
+      this, 'tools/post-execute', exec, result,
+      () => Promise.resolve<PostToolDecision>({ kind: 'accept' }),
+    )
+    const additionalContext = decision.additionalContext
+    if (decision.kind === 'block') {
+      return {
+        callId: result.callId,
+        content: decision.feedback,
+        isError: true,
+        ...additionalContext ? { additionalContext } : {},
+      }
+    }
+    // accept: replace content if supplied, preserve the dispatched isError/error.
+    return {
+      ...result,
+      ...decision.content ? { content: decision.content } : {},
+      ...additionalContext ? { additionalContext } : {},
     }
   }
 }

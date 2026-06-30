@@ -135,6 +135,16 @@ export interface TurnEndReasonMap {
   disposed: { kind: 'disposed' }
   'max-tokens': { kind: 'max-tokens' }
   /**
+   * The turn's entire prompt batch was BLOCKED before any step ran — every
+   * drained queued message was vetoed by an `agent/prompt-submit` listener (a
+   * hook). The turn still opened (so the boundary stays balanced and the block
+   * is a durable in-turn fact), but ran zero steps. `reason` carries the block
+   * message from the vetoing decision. Distinct from `aborted` (a user-driven
+   * cancel) and `error` (a failure): the prompt was rejected by policy, not
+   * interrupted or broken. A UI renders it as "prompt blocked by hook".
+   */
+  rejected: { kind: 'rejected'; reason: string }
+  /**
    * The turn never ended on its own: the process crashed mid-turn and a
    * persistence backend later closed the orphaned (open) turn on reload so the
    * log stays balanced. SYNTHESIZED by the backend's crash-recovery repair — no

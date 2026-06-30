@@ -94,6 +94,36 @@ describe('the session-persistence RFC: AgentLoop factory create/resume', () => {
     await ctx2.fiber.dispose()
   })
 
+  it('agent/session-start fires "startup" for createAgent and "resume" for resume()', async () => {
+    // Lifecycle 1: a fresh createAgent emits session-start with source 'startup'.
+    const adapter1 = new MockAdapter([textResponse('a')])
+    const { ctx: ctx1, root } = await persistentHarness(adapter1)
+    const sources1: string[] = []
+    ctx1.on('agent/session-start', (_agent, source) => void sources1.push(source))
+    const a1 = ctx1.agents.create({ agentId: AgentId('s'), sessionId: SessionId('start-sess') }).agent as ReactLoopAgent
+    expect(sources1).toEqual(['startup'])
+    a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
+    await waitForIdle(ctx1, a1)
+    await ctx1.fiber.dispose()
+
+    // Lifecycle 2: resuming the persisted session emits session-start 'resume'.
+    const adapter2 = new MockAdapter([textResponse('b')])
+    const ctx2 = new Context()
+    await ctx2.plugin(LlmService)
+    await ctx2.plugin(SessionStore)
+    await ctx2.plugin(SystemPrompt)
+    await ctx2.plugin(ToolRegistry)
+    await ctx2.plugin(AgentRegistry)
+    await ctx2.plugin(AgentLoop, { agents: [] })
+    await ctx2.plugin(SessionPersistenceJsonl, { root })
+    ctx2.llm.registerAdapter(['mock'], adapter2)
+    const sources2: string[] = []
+    ctx2.on('agent/session-start', (_agent, source) => void sources2.push(source))
+    await ctx2.agents.resume({ agentId: AgentId('s'), resumeSessionId: SessionId('start-sess') })
+    expect(sources2).toEqual(['resume'])
+    await ctx2.fiber.dispose()
+  })
+
   it('resume of a forked session preserves the parentSession lineage and seed boundary in the header', async () => {
     // Lifecycle 1: persist a FORKED session (carries parentSession + seedLength
     // in its header) by creating it with a complete-turn seed — the write path
