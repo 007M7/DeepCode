@@ -195,14 +195,15 @@ declare module 'cordis' {
      * no listener can see (or be expected to act on) an assembled `messages`
      * array that does not exist yet.
      *
-     * Serial (awaited, in registration order, no veto), not a waterfall: a
-     * listener mutates the surface as a side effect; there is nothing to
-     * transform or veto, but the loop must wait for the mutation to complete
-     * before opening the step and deriving, and serial isolates listeners from
-     * each other (one finishes its surface append before the next runs).
-     * `fullSystemPrompt` is the assembled prompt a listener needs to measure
-     * pressure (the system prompt counts toward the budget). `signal` cancels any
-     * in-flight work a listener starts (e.g. a summarization model call).
+     * Serial (awaited in registration order), not a waterfall: a listener
+     * mutates the surface as a side effect; there is nothing to transform, but
+     * the loop must wait for the mutation to complete before opening the step
+     * and deriving. Cordis `serial` bails early if a listener returns a bail
+     * value; this event is typed and documented as `void`, so listeners must not
+     * return a semantic veto value. `fullSystemPrompt` is the assembled prompt a
+     * listener needs to measure pressure (the system prompt counts toward the
+     * budget). `signal` cancels any in-flight work a listener starts (e.g. a
+     * summarization model call).
      * @mode serial
      */
     'agent/pre-step'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal): Promise<void> | void

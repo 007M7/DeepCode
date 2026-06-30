@@ -331,7 +331,7 @@ const INHERITED_EVENTS: InheritedEntry[] = [
 
 const INHERITED_SERVICES: InheritedEntry[] = [
   { name: 'ctx.on / ctx.once', summary: 'Register an event listener (disposable).', source: 'vendor/cordis/src/events.ts:29' },
-  { name: 'ctx.emit / ctx.parallel / ctx.serial / ctx.bail / ctx.waterfall', summary: 'Dispatch an event (sync / awaited / first-non-nullish / veto-chain).', source: 'vendor/cordis/src/events.ts:29' },
+  { name: 'ctx.emit / ctx.parallel / ctx.serial / ctx.bail / ctx.waterfall', summary: 'Dispatch an event (sync / awaited / first-bail / veto-chain).', source: 'vendor/cordis/src/events.ts:29' },
   { name: 'ctx.plugin / ctx.inject', summary: 'Load a plugin / declare required services.', source: 'vendor/cordis/src/registry.ts:144' },
   { name: 'ctx.effect', summary: 'Register a disposable side effect tied to the fiber.', source: 'vendor/cordis/src/fiber.ts:9' },
   { name: 'ctx.get / ctx.set / ctx.provide / ctx.accessor / ctx.mixin', summary: 'Low-level service-store access and binding.', source: 'vendor/cordis/src/reflect.ts:7' },
@@ -394,7 +394,7 @@ function render(events: EventEntry[], services: ServiceEntry[]): string {
     '',
     '## Events',
     '',
-    'Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out, no veto), **serial** (awaited, in registration order, no veto).',
+    'Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out; all listeners run), **serial** (awaited in registration order until one returns a bail value — anything other than `null`, `false`, or `undefined`).',
     '',
   ]
   const scopes = [...new Set(events.map(e => e.scope))].sort()
