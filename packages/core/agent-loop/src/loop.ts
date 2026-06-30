@@ -382,8 +382,13 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
       // turn-start listeners on the first step) joins before the request.
       drainSteering(ctx, agent, turn)
 
-      session.append('step/start', { turn, step })
+      // Mark the step open BEFORE the append: Session.append pushes the event
+      // to the log before notifying session/event listeners, so a THROWING
+      // step/start listener leaves step/start in the log. Setting stepOpen first
+      // means the outer catch's closeStep() then appends the balancing step/end
+      // (turn stays enclosed) instead of stranding an open step under turn/end.
       stepOpen = true
+      session.append('step/start', { turn, step })
 
       const abort = new AbortController()
       handle.setAbort(abort)

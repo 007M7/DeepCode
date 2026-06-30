@@ -169,6 +169,35 @@ describe('HIGH: steering from late extension points is never stranded', () => {
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('one more thing')
   })
 
+  it('steer() from a step/end session-event listener reaches the next request (/goal pattern)', async () => {
+    // The /goal pattern steers from a step boundary so the model addresses a
+    // standing goal before stopping. Step boundaries have no agent/* mirror, so
+    // the surviving hook point is the durable step/end session event. With a
+    // no-tools first step the default continuation is stop; the steering queued
+    // here must force the hasSteering override and reach the next request.
+    const adapter = new MockAdapter([
+      textResponse('no tools, would stop'),
+      textResponse('after goal reminder'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    let steeredOnce = false
+    ctx.on('session/event', (subject, event) => {
+      if (subject !== agent.session || event.type !== 'step/end' || steeredOnce) return
+      steeredOnce = true
+      agent.steer([{ type: 'text', text: 'goal reminder from step/end' }])
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    // steering from the step/end listener forced a second step (hasSteering
+    // override) and reached the next model request.
+    expect(adapter.requests).toHaveLength(2)
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('goal reminder from step/end')
+  })
+
   it('steer() from an agent/turn-end listener becomes a queued message for the next turn', async () => {
     const adapter = new MockAdapter([textResponse('turn 1'), textResponse('turn 2')])
     const ctx = await harness(adapter)
@@ -593,18 +622,19 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(adapter.requests).toHaveLength(0)
   })
 
-  it('a throwing step/start session-event listener fails the turn balanced (no step stranded open)', async () => {
+  it('a throwing step/start session-event listener closes the open step then the turn (step/end before turn/end)', async () => {
     const adapter = new MockAdapter([textResponse('never reached')])
     const ctx = await balancedHarness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a-stepstart'), { model: 'mock' })
 
     // Step boundaries have no agent/* mirror; a throwing step/start session-event
-    // listener is the surviving step-boundary-listener failure. The throw fires
-    // INSIDE session.append('step/start') — before the loop marks the step open —
-    // so the loop never had an open step to close (no step/end is owed). The
-    // throw drives the outer catch, which fails the turn balanced. The invariants
-    // oracle (balancedHarness) rejects any imbalance, so a green run proves the
-    // turn/start..turn/end nesting holds with a lone step/start and no step/end.
+    // listener is the surviving step-boundary-listener failure. The loop marks
+    // the step open BEFORE appending step/start (Session.append pushes before
+    // notifying, so a post-push listener throw still leaves stepOpen=true), so
+    // the outer catch's closeStep() appends the balancing step/end — the turn
+    // stays enclosed. The invariants oracle (balancedHarness) rejects any
+    // imbalance, so a green run proves turn/start → step/start → step/end →
+    // turn/end nesting holds.
     let threw = false
     ctx.on('session/event', (_s, event) => {
       if (event.type === 'step/start' && !threw) { threw = true; throw new Error('boom step-start') }
@@ -615,13 +645,16 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
+    const e = [...agent.session.events]
     const c = boundaryCounts(agent)
-    // step/start was appended (Session.append pushes before notifying), but the
-    // listener throw pre-empted the loop marking the step open, so no step/end is
-    // owed; the turn still closes exactly once with an error, balanced.
-    expect(c).toMatchObject({ turnStart: 1, turnEnd: 1, stepStart: 1, stepEnd: 0, errors: 1 })
+    expect(c).toMatchObject({ turnStart: 1, turnEnd: 1, stepStart: 1, stepEnd: 1, errors: 1 })
     expect(errors.map(x => x.message)).toEqual(['boom step-start'])
-    expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason.kind).toBe('error')
+    // step/end precedes turn/end (the invariants oracle would reject
+    // turn/end-while-step-open, but assert the order explicitly too).
+    const stepEndIdx = e.findIndex(x => x.type === 'step/end')
+    const turnEndIdx = e.findIndex(x => x.type === 'turn/end')
+    expect(stepEndIdx).toBeGreaterThanOrEqual(0)
+    expect(stepEndIdx).toBeLessThan(turnEndIdx)
   })
 
   it('a throwing agent/error listener during a step-error path still balances the turn, loop survives', async () => {
