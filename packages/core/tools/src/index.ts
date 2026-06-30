@@ -224,7 +224,7 @@ export interface ToolResult {
   isError: boolean
 }
 
-/** One pending tool call, as it flows through the execution waterfall. */
+/** One pending tool call, as it flows through the execution pipeline (`tools/pre-execute` → dispatch → `tools/post-execute`). */
 export interface ToolExecution {
   callId: CallId
   name: string

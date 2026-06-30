@@ -182,7 +182,7 @@ export function schemaSpecToJsonSchema(spec: SchemaSpec): JsonSchemaObject {
 /**
  * Thrown by a {@link defineTool} tool when the model-generated arguments don't
  * match the declared {@link SchemaSpec}. Extends {@link HarnessError}
- * (`code: 'INVALID_ARGS'`); the registry's execute waterfall catches it and
+ * (`code: 'INVALID_ARGS'`); the registry's execution pipeline catches it and
  * returns an `isError` ToolExecutionResult carrying the structured error, so
  * the model can self-correct and downstream plugins can route on the code.
  */

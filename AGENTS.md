@@ -59,7 +59,7 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
   core/           product API spine
     session/        event-sourced session log + in-memory store
     system-prompt/  prompt-section + tool-schema assembly registry
-    tools/          tool registry + tools/execute waterfall
+    tools/          tool registry + tools/pre-execute/post-execute pipeline
     agent/          Agent interface, registry, agent/* event vocabulary
     agent-loop/     THE concrete plugin: ReactLoopAgent + the loop driver
     agent-core/     bundle plugin: the providerless/executor-less/UI-less spine
