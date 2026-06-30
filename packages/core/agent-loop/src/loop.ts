@@ -161,7 +161,7 @@ export interface LoopHandle {
  *       drain steering → session('steering/message'); emit agent/steering
  *       session('step/end')                           ⟵ durable step boundary (no agent/* mirror)
  *       cont = waterfall agent/turn-continuation(default = hadToolCalls || steered)
- *       if !cont && steering arrived from step-end/continuation listeners: cont = true
+ *       if !cont && steering arrived from step/end session-event/continuation listeners: cont = true
  *       if !cont: break
  *     session('turn/end'); emit agent/turn-end
  *     await ctx.parallel('session/flush', session)    ⟵ durability checkpoint
@@ -461,9 +461,9 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
         break
       }
 
-      // Steering from step-end/continuation listeners (the /goal pattern)
-      // demands the model see it — it overrides a negative decision; the
-      // next iteration's drain records it.
+      // Steering from step/end session-event or continuation listeners (the
+      // /goal pattern) demands the model see it — it overrides a negative
+      // decision; the next iteration's drain records it.
       if (!shouldContinue && agent.inbox.hasSteering) shouldContinue = true
 
       // A cancel that landed during the continuation window — after the step's
