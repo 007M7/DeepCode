@@ -11,6 +11,7 @@ This plugin binds to **exactly one** provider (`Config.provider`). The model see
 | `provider` (required) | The `ctx.subagents` provider name to start runs on (`spawn`, `fork`, `acp`, …). |
 | `toolName` | The model-facing tool name to register (default `subagent`). Set a distinct value per load when exposing multiple providers, e.g. `subagent` + `subagent_acp`. |
 | `agentOptions` | Default per-child `{ model?, systemPrompt? }` applied to every spawned child. |
+| `agentType` | Optional subagent-kind label (Claude Code's `subagent_type`) stamped on every run's `subagent/start`/`subagent/end` events, so an observer (a hooks bridge, a UI) can report or match on which kind ran. Set a distinct value per load when exposing multiple subagent kinds. |
 
 ## Lifecycle (synchronous collect)
 

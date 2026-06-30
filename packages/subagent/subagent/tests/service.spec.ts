@@ -173,6 +173,82 @@ describe('SubagentService', () => {
     expect(ended).toHaveBeenCalledWith(expect.objectContaining({ provider: 'events', id: run.id, stopReason: 'completed' }))
   })
 
+  it('carries agentType (from the request) onto both lifecycle events, and lastAssistantMessage onto end', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider(new StubProvider(
+      'enriched',
+      ALL_CAPS,
+      { output: [{ type: 'text', text: 'the child answer' }], stopReason: 'completed' },
+    ))
+
+    const started = vi.fn()
+    const ended = vi.fn()
+    ctx.on('subagent/start', started)
+    ctx.on('subagent/end', ended)
+
+    const run = ctx.subagents.start('enriched', baseRequest({ agentType: 'code-reviewer' }))
+    expect(started).toHaveBeenCalledWith(expect.objectContaining({ provider: 'enriched', id: run.id, agentType: 'code-reviewer' }))
+
+    await run.result
+    await Promise.resolve()
+    expect(ended).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'enriched',
+      id: run.id,
+      agentType: 'code-reviewer',
+      stopReason: 'completed',
+      lastAssistantMessage: [{ type: 'text', text: 'the child answer' }],
+    }))
+  })
+
+  it('omits agentType when the request supplied none', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider(new StubProvider('plain'))
+
+    const started = vi.fn()
+    const ended = vi.fn()
+    ctx.on('subagent/start', started)
+    ctx.on('subagent/end', ended)
+
+    const run = ctx.subagents.start('plain', baseRequest())
+    await run.result
+    await Promise.resolve()
+
+    const startInfo = started.mock.calls[0]![0] as Record<string, unknown>
+    const endInfo = ended.mock.calls[0]![0] as Record<string, unknown>
+    expect('agentType' in startInfo).toBe(false)
+    expect('agentType' in endInfo).toBe(false)
+    // lastAssistantMessage IS present on a resolved end (the child's output).
+    expect(endInfo.lastAssistantMessage).toEqual([{ type: 'text', text: 'ok' }])
+  })
+
+  it('omits lastAssistantMessage on the reject path (no SubagentResult was produced)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'rej',
+      capabilities: NO_CAPS,
+      start: () => ({
+        id: AgentId('rej-child'),
+        result: Promise.reject(new Error('infra fault')),
+        cancel() {},
+        dispose: async () => {},
+      }),
+    })
+
+    const ended = vi.fn()
+    ctx.on('subagent/end', ended)
+    const run = ctx.subagents.start('rej', baseRequest({ agentType: 'researcher' }))
+    await run.result.catch(() => {})
+    await Promise.resolve()
+
+    const endInfo = ended.mock.calls[0]![0] as Record<string, unknown>
+    expect(endInfo.stopReason).toBe('error')
+    expect(endInfo.agentType).toBe('researcher') // agentType still carried on reject
+    expect('lastAssistantMessage' in endInfo).toBe(false) // but no output exists
+  })
+
   it('emits subagent/end with stopReason "error" when the run result promise rejects', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)

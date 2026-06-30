@@ -48,6 +48,14 @@ export interface Config {
    * spawned child. Omitted fields fall back to the child loop's own defaults.
    */
   agentOptions?: AgentOptions
+  /**
+   * Optional subagent-kind LABEL stamped on every run this tool starts (Claude
+   * Code's `subagent_type`). Carried onto the `subagent/start`/`subagent/end`
+   * lifecycle events so an observer can report or match on which kind of
+   * subagent ran. A deployment that exposes multiple subagent kinds (one tool
+   * load per kind) sets a distinct `agentType` per load; omit when undifferentiated.
+   */
+  agentType?: string
 }
 
 export const Config: z<Config> = z.object({
@@ -57,6 +65,7 @@ export const Config: z<Config> = z.object({
     model: z.string(),
     systemPrompt: z.string(),
   }),
+  agentType: z.string(),
 })
 
 /**
@@ -128,6 +137,7 @@ export function apply(ctx: Context, config: Config): void {
         parent,
         ...exec.signal ? { signal: exec.signal } : {},
         ...config.agentOptions ? { agentOptions: config.agentOptions } : {},
+        ...config.agentType !== undefined ? { agentType: config.agentType } : {},
       }
 
       const run: SubagentRun = ctx.subagents.start(config.provider, request)

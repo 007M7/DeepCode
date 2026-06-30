@@ -20,11 +20,21 @@
  * semantics are deferred to a future redesign that unifies long-running-tool
  * handling across subagents and bash.
  *
+ * The `subagent/start` / `subagent/end` lifecycle events carry an enriched but
+ * OBSERVE-ONLY payload (`agentType`, and on end `lastAssistantMessage`) — see
+ * `docs/rfc/implemented/feature/2026-06-30-subagent-observe-enrich.md`.
+ * FIXME(subagent-continuation): a control-flow `subagent/end` (an awaited
+ * waterfall returning a stop/continue decision, like the other interception
+ * seams) would require reshaping this emit into a waterfall, awaiting listeners
+ * before settling, and a `resume` capability on the in-process provider — part
+ * of the deferred background/steering redesign, NOT this observe-only cut.
+ *
  * @module @deepseek-ai/dsh-subagent
  */
 
 import { Context, Service } from 'cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { AgentId } from '@deepseek-ai/dsh-agent'
 import type {
   SubagentCapabilities,
@@ -72,6 +82,13 @@ export interface SubagentRunInfo {
   provider: string
   /** The child agent's id. */
   id: AgentId
+  /**
+   * The caller's subagent-kind label, carried verbatim from
+   * {@link SubagentStartRequest.agentType} (Claude Code's `subagent_type`).
+   * Absent when the caller did not supply one. An observer (a hooks bridge,
+   * a UI) reports or matches on it; the seam never interprets it.
+   */
+  agentType?: string
 }
 
 /** Outcome detail for a settled subagent run (the `subagent/end` payload). */
@@ -80,8 +97,18 @@ export interface SubagentRunEndInfo {
   provider: string
   /** The child agent's id. */
   id: AgentId
+  /** The caller's subagent-kind label (see {@link SubagentRunInfo.agentType}). */
+  agentType?: string
   /** The terminal stop reason. */
   stopReason: SubagentResult['stopReason']
+  /**
+   * The child's final assistant output ({@link SubagentResult.output}), carried
+   * onto the end event so an observer sees WHAT the subagent produced without
+   * holding the run. Absent when the run rejected at the infrastructure level
+   * (no {@link SubagentResult} was produced — the seam only knows `stopReason:
+   * 'error'`).
+   */
+  lastAssistantMessage?: ContentBlock[]
 }
 
 /**
@@ -160,17 +187,22 @@ export class SubagentService extends Service {
     // acceptable. `ctx.emit` halts the dispatch on the first throw, so a single
     // surrounding try/catch is not enough — each listener is invoked and
     // contained individually.
-    this.emitLifecycle('subagent/start', { provider: name, id: run.id })
+    // Carry the caller's subagent-kind label verbatim onto both lifecycle events
+    // (absent when not supplied — the spread omits the key for exactOptionalPropertyTypes).
+    const agentType = request.agentType !== undefined ? { agentType: request.agentType } : {}
+    this.emitLifecycle('subagent/start', { provider: name, id: run.id, ...agentType })
     // Emit `subagent/end` when the run settles. The result promise does not
     // reject on a child-level failure (it resolves with stopReason 'error'),
     // so a rejection here is an infrastructure fault — surface its stop reason
     // as 'error' for the telemetry event without swallowing the rejection
-    // (the consumer still observes it via `run.result`). Per-listener
-    // containment also keeps a thrown `subagent/end` listener from becoming an
-    // unhandled rejection on this detached `.then`.
+    // (the consumer still observes it via `run.result`). On the resolve path the
+    // child's final output rides on the event (lastAssistantMessage); on the
+    // reject path there is no SubagentResult, so only the stop reason is known.
+    // Per-listener containment also keeps a thrown `subagent/end` listener from
+    // becoming an unhandled rejection on this detached `.then`.
     void run.result.then(
-      (result) => { this.emitLifecycle('subagent/end', { provider: name, id: run.id, stopReason: result.stopReason }) },
-      () => { this.emitLifecycle('subagent/end', { provider: name, id: run.id, stopReason: 'error' }) },
+      (result) => { this.emitLifecycle('subagent/end', { provider: name, id: run.id, ...agentType, stopReason: result.stopReason, lastAssistantMessage: result.output }) },
+      () => { this.emitLifecycle('subagent/end', { provider: name, id: run.id, ...agentType, stopReason: 'error' }) },
     )
     return run
   }
