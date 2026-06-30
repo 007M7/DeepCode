@@ -4,8 +4,8 @@
  * own process group (see `./run.ts` for the plumbing and the agent-tool
  * survey notes), tracks background tasks, and kills everything on dispose.
  *
- * TODO(permissions/sandbox): execution policy does NOT belong here — wrap
- * the `tools/execute` waterfall (see docs/architecture.md § plugin
+ * TODO(permissions/sandbox): execution policy does NOT belong here — use
+ * the `tools/pre-execute` deny/ask gate (see docs/architecture.md § plugin
  * checklist) or implement a sandboxing `BashExecutor`. Reference points:
  * Claude Code wraps commands in sandbox-exec/bubblewrap; Codex applies
  * seatbelt/landlock plus an execpolicy prefix-rule engine.

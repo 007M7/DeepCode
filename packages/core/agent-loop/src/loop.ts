@@ -142,10 +142,13 @@ export interface LoopHandle {
  * The agent loop. One invocation drives one agent for its whole lifetime:
  *
  * ```
+ * create agent → emit agent/session-start(source)    ⟵ once, before turn 1
  * forever:
  *   wait for queued messages (idle)
  *   TURN (error-contained — a throwing plugin ends the turn, never the loop):
- *     drain queued → 'turn/start' → session('user/message'…) → emit agent/turn-start
+ *     'turn/start'; each queued msg: waterfall agent/prompt-submit
+ *       allow → session('user/message'…) (+ inject additionalContext) | block → drop
+ *     every prompt blocked → 'turn/end'(rejected), 0 steps; emit agent/turn-start
  *     STEP loop:
  *       drain steering → session('steering/message')  ⟵ catches late steering
  *       session('step/start')                         ⟵ durable step boundary (no agent/* mirror)
@@ -157,13 +160,17 @@ export interface LoopHandle {
  *       msg = waterfall agent/step-result             ⟵ BEFORE the log append, so the
  *       session('assistant/message' {content, usage?})   session records what actually ran
  *       each tool-call in msg (sequential, abort-checked):
- *         session('tool/call'); ctx.tools.execute()   ⟵ waterfall tools/execute
+ *         session('tool/call'); ctx.tools.execute()   ⟵ tools/pre-execute (allow/deny/ask)
+ *                                                        → dispatch → tools/post-execute
  *         session('tool/result')
+ *       append buffered post-execute additionalContext → session('context/message')(s)
  *       drain steering → session('steering/message'); emit agent/steering
  *       session('step/end')                           ⟵ durable step boundary (no agent/* mirror)
- *       cont = waterfall agent/turn-continuation(default = hadToolCalls || steered)
- *       if !cont && steering arrived from step/end session-event/continuation listeners: cont = true
- *       if !cont: break
+ *       cont = waterfall agent/turn-continuation       ⟵ ContinuationDecision; default
+ *         {action: hadToolCalls||steered ? 'continue':'stop'}; a continue.reason is
+ *         recorded as next-step steering
+ *       if action==stop && steering arrived (step/end/continuation listeners): continue anyway
+ *       if action==stop: break
  *     session('turn/end'); emit agent/turn-end
  *     await ctx.parallel('session/flush', session)    ⟵ durability checkpoint
  *     re-enqueue leftover steering as queued          ⟵ steering is never stranded

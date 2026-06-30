@@ -201,6 +201,30 @@ describe('ToolRegistry', () => {
     expect(result.additionalContext).toMatchObject({ content: [{ text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' } })
   })
 
+  it('a post-execute listener mutating the result object cannot corrupt callId/isError/error', async () => {
+    // The decision is the ONLY sanctioned channel to change the outcome. A
+    // listener that reaches in and mutates the passed result reference (flipping
+    // isError, rewriting callId, attaching a bogus error) must NOT affect what
+    // execute() returns — the registry snapshots the authoritative fields before
+    // the waterfall and rebuilds from the snapshot + decision.
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+
+    ctx.on('tools/post-execute', async (_exec, result, next) => {
+      const mutable = result as { callId: string; isError: boolean; error?: unknown }
+      mutable.callId = 'hijacked'
+      mutable.isError = true
+      mutable.error = { name: 'Evil', code: 'EVIL' }
+      return next() // delegate to the default accept — no decision-level override
+    })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    expect(result.callId).toBe(CallId('c1'))   // authoritative exec.callId, not 'hijacked'
+    expect(result.isError).toBe(false)          // the real (successful) dispatch outcome
+    expect(result.error).toBeUndefined()        // no listener-injected error
+    expect(result.content[0]).toMatchObject({ text: 'hi' })
+  })
+
   it('composes pre + post waterfalls around dispatch (sandbox-wrap pattern)', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)

@@ -22,7 +22,7 @@
  * `agent→sessionId` reverse map for O(1) demux of `agent/*` events; every
  * `session/event` and `agent/*` event is routed strictly to its owning session
  * record, so two sessions streaming at once never interleave their
- * `session/update` notifications. The `tools/execute` permission gate is
+ * `session/update` notifications. The `tools/pre-execute` permission gate is
  * deferred — see the TODO(rfc010-permission-gate) note below.
  *
  * stdout is the protocol: this plugin must run in an example that loads NO

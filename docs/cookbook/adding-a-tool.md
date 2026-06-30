@@ -46,7 +46,7 @@ Follow tool-bash's background pattern: a `run_in_background` flag returns a task
 
 ## Permissions / sandboxing
 
-Prefer not to build policy into the tool. The seam is the `tools/execute` waterfall (veto or wrap — see the permission-gate example in [extension-cookbook.md](./extension-cookbook.md)), or a sandboxing implementation behind the tool's executor seam.
+Prefer not to build policy into the tool. The seam is the `tools/pre-execute` gate (deny/ask — see the permission-gate example in [extension-cookbook.md](./extension-cookbook.md)) and the `tools/post-execute` inspect/transform seam, or a sandboxing implementation behind the tool's executor seam.
 
 ## Tests every tool needs
 

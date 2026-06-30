@@ -31,7 +31,7 @@
  * pre-existing reload-gap drop — but the ownership fence itself is HMR-proof.)
  *
  * TODO(permissions): commands run with the executor's full authority. The
- * permission/sandbox seam is the `tools/execute` waterfall (veto/ask) plus
+ * permission/sandbox seam is the `tools/pre-execute` waterfall (deny/ask) plus
  * sandboxing `BashExecutor` implementations — see docs/architecture.md
  * § plugin checklist.
  *

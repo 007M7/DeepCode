@@ -17,7 +17,8 @@ import type { ContentBlock as AcpContentBlock, StopReason } from '@agentclientpr
  * Map a harness {@link TurnEndReason} to the ACP `StopReason` wire enum.
  *
  * The mapping is total over the kinds the loop actually produces today
- * (`completed`/`aborted`/`error`/`disposed`/`max-tokens`). `TurnEndReason` is
+ * (`completed`/`aborted`/`error`/`disposed`/`max-tokens`/`rejected`).
+ * `TurnEndReason` is
  * merge-extensible, so an unknown future kind falls through to `end_turn` —
  * the safest default (the turn DID end; we just lack a more specific wire
  * reason) — rather than throwing into the SDK, which would reject an unknown

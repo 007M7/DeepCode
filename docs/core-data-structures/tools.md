@@ -71,7 +71,7 @@ type InferArgs<S extends SchemaSpec> = Simplify<
 
 `defineTool({ name, description, parameters, execute, … })` ties it together: `parameters` is a `SchemaSpec`, `execute(args, exec)` gets `args: InferArgs<typeof parameters>`, and the helper converts the spec to JSON Schema (`schemaSpecToJsonSchema`) for the wire and validates model-generated args (`validateArgs`) before the typed body runs. A mismatch throws `ToolArgsError` (`code: 'INVALID_ARGS'`), which the registry turns into an `isError` result so the model can self-correct. Why a custom DSL and not schemastery: tool parameters need JSON Schema (the LLM wire format), not validation/transformation — the lightweight DSL gives the best authoring DX with the smallest surface.
 
-## Execution: the `tools/execute` waterfall shapes
+## Execution: the `tools/pre-execute` / `tools/post-execute` pipeline shapes
 
 `ctx.tools.execute()` runs each call through a two-waterfall pipeline — `tools/pre-execute` (the allow/deny/ask gate) → core dispatch → `tools/post-execute` (inspect/replace the result, attach context) — the seams where sandbox, permission, hook, and plan-mode plugins gate or transform a call. The pending call is a `ToolExecution`; the outcome is a `ToolExecutionResult`.
 

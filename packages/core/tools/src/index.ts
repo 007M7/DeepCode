@@ -335,8 +335,9 @@ function errorInfo(error: unknown): ToolErrorInfo | undefined {
 
 /**
  * Tool registry (`ctx.tools`): tool plugins register definitions; the agent
- * loop executes calls through the `tools/execute` waterfall. The registry
- * contributes its schemas into the system-prompt assembly.
+ * loop executes calls through the `tools/pre-execute` → dispatch →
+ * `tools/post-execute` pipeline. The registry contributes its schemas into the
+ * system-prompt assembly.
  */
 export class ToolRegistry extends Service {
   static inject = ['systemPrompt']
@@ -464,6 +465,19 @@ export class ToolRegistry extends Service {
    * Runs inside `execute`'s outer try/catch (a throwing listener → isError).
    */
   private async postExecute(exec: ToolExecution, result: ToolExecutionResult): Promise<ToolExecutionResult> {
+    // Snapshot the protected outcome BEFORE the waterfall. A listener receives
+    // the same `result` reference, so a post-waterfall read of `result.callId`/
+    // `.isError`/`.error` could carry a listener's mutation — violating the
+    // authoritative-call-id requirement and the "preserve the dispatched
+    // isError/error" contract. The decision is the ONLY sanctioned channel for a
+    // listener to change the outcome (block, or accept-with-replacement); the
+    // call id is always the authoritative `exec.callId`.
+    const dispatched = {
+      callId: exec.callId,
+      content: result.content,
+      isError: result.isError,
+      ...result.error ? { error: result.error } : {},
+    }
     const decision = await this.ctx.waterfall(
       this, 'tools/post-execute', exec, result,
       () => Promise.resolve<PostToolDecision>({ kind: 'accept' }),
@@ -471,7 +485,7 @@ export class ToolRegistry extends Service {
     const additionalContext = decision.additionalContext
     if (decision.kind === 'block') {
       return {
-        callId: result.callId,
+        callId: dispatched.callId,
         content: decision.feedback,
         isError: true,
         ...additionalContext ? { additionalContext } : {},
@@ -479,7 +493,7 @@ export class ToolRegistry extends Service {
     }
     // accept: replace content if supplied, preserve the dispatched isError/error.
     return {
-      ...result,
+      ...dispatched,
       ...decision.content ? { content: decision.content } : {},
       ...additionalContext ? { additionalContext } : {},
     }
