@@ -101,6 +101,14 @@ export interface HookOutput {
   /** Trimmed stderr — the block-reason source on a blocking (exit 2) hook. */
   stderr: string
   /**
+   * Trimmed stdout, verbatim. On a clean exit a hook may emit PLAIN (non-JSON)
+   * stdout that the protocol renders as output (CC) or treats as
+   * `additionalContext` (Codex SessionStart/UserPromptSubmit) — so the bridge
+   * needs the raw text, not just the parsed structured fields. Empty string when
+   * the hook produced no stdout.
+   */
+  stdout: string
+  /**
    * `false` ⇒ the hook asked to halt (CC/Codex `continue:false`); pairs with
    * {@link stopReason}. `true`/absent ⇒ proceed.
    */
@@ -110,14 +118,26 @@ export interface HookOutput {
   /** Hide the hook's stdout from the transcript (CC `suppressOutput`). */
   suppressOutput?: boolean
   /**
-   * The blocking decision a hook expressed via structured stdout (CC's
-   * `decision` / `hookSpecificOutput.permissionDecision`): `'block'`/`'deny'`
-   * forbid the action, `'approve'`/`'allow'` permit it, `'ask'` requests
-   * confirmation. Absent ⇒ no explicit decision (exit code governs).
+   * The neutral blocking decision a hook expressed, folded from the two channels
+   * the reference protocols keep DISTINCT: the legacy top-level `decision`
+   * (`approve`/`block` only) and `hookSpecificOutput.permissionDecision`
+   * (`allow`/`deny`/`ask`). We normalize them to one enum — `'block'`/`'deny'`
+   * forbid, `'approve'`/`'allow'` permit, `'ask'` requests confirmation — but
+   * `'allow'`/`'deny'`/`'ask'` arise ONLY from a `permissionDecision`, never from
+   * a top-level `decision` (an out-of-band `{"decision":"deny"}` is invalid and
+   * ignored, matching the schemas). Absent ⇒ no explicit decision (exit code governs).
    */
   decision?: 'approve' | 'allow' | 'block' | 'deny' | 'ask'
   /** The reason/explanation accompanying {@link decision}. */
   reason?: string
+  /**
+   * The `hookSpecificOutput.hookEventName` discriminator, when the hook emitted
+   * a `hookSpecificOutput` block. The reference schemas key that block by event;
+   * a bridge compares this to the firing event and DISCARDS a mismatched block
+   * (a hook claiming `PreToolUse` output on a `Stop` event is malformed). Absent
+   * when the hook emitted no `hookSpecificOutput`.
+   */
+  hookEventName?: string
   /** Extra context to inject for the next model request (CC `additionalContext`). */
   additionalContext?: string
   /** A warning surfaced to the user (CC `systemMessage`). */

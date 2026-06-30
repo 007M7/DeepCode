@@ -48,9 +48,23 @@ describe('parseHookOutput — structured stdout (exit 0 only)', () => {
     expect(out.systemMessage).toBe('heads up')
   })
 
-  it('parses legacy top-level decision + reason (approve/block)', () => {
+  it('parses legacy top-level decision + reason (approve/block ONLY)', () => {
     expect(parseHookOutput(0, JSON.stringify({ decision: 'block', reason: 'nope' }), '').decision).toBe('block')
     expect(parseHookOutput(0, JSON.stringify({ decision: 'approve' }), '').decision).toBe('approve')
+  })
+
+  it('a top-level decision of allow/deny/ask is INVALID and ignored (reserved for permissionDecision)', () => {
+    // Both reference schemas restrict the legacy top-level `decision` to
+    // approve/block; allow/deny/ask must come from hookSpecificOutput.permissionDecision.
+    expect(parseHookOutput(0, JSON.stringify({ decision: 'deny' }), '').decision).toBeUndefined()
+    expect(parseHookOutput(0, JSON.stringify({ decision: 'allow' }), '').decision).toBeUndefined()
+    expect(parseHookOutput(0, JSON.stringify({ decision: 'ask' }), '').decision).toBeUndefined()
+  })
+
+  it('captures hookEventName from hookSpecificOutput (the discriminator a bridge validates)', () => {
+    const out = parseHookOutput(0, JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny' } }), '')
+    expect(out.hookEventName).toBe('PreToolUse')
+    expect(out.decision).toBe('deny')
   })
 
   it('hookSpecificOutput.permissionDecision OVERRIDES the legacy top-level decision', () => {
@@ -89,6 +103,20 @@ describe('parseHookOutput — structured stdout (exit 0 only)', () => {
     const out = parseHookOutput(0, 'just some text output', '')
     expect(out.decision).toBeUndefined()
     expect(out.continue).toBeUndefined()
+    // The raw stdout is preserved verbatim so the bridge can render/use it
+    // (CC output; Codex additionalContext) — trimmed.
+    expect(out.stdout).toBe('just some text output')
+  })
+
+  it('preserves raw stdout (trimmed) alongside parsed structured fields', () => {
+    const json = JSON.stringify({ decision: 'block' })
+    const out = parseHookOutput(0, `  ${json}  \n`, '')
+    expect(out.stdout).toBe(json)
+    expect(out.decision).toBe('block')
+  })
+
+  it('stdout is empty string when the hook emits none', () => {
+    expect(parseHookOutput(0, '', '').stdout).toBe('')
   })
 
   it('a JSON array stdout parses but yields no fields (not an object)', () => {

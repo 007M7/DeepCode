@@ -12,7 +12,7 @@ This RFC introduces `@deepseek-ai/dsh-hook-protocol`, a **library** (not a plugi
 
 ## Decision
 
-A new `packages/hooks/` group with `hook-protocol` as a pure library. It owns four primitive families and the `hook/*` session events; each bridge (PR-F) owns what genuinely differs.
+A new `packages/hooks/` group with `hook-protocol` as a pure library. It owns four primitive families and the `hook/*` session events; each bridge plugin (`dsh-hooks-claude`, `dsh-hooks-codex`) owns what genuinely differs.
 
 **Shared (here):**
 - **Matcher** — `matchesMatcher(pattern, query, mode)`. The ONE axis the dialects differ on is collapsed to the `mode` parameter: `claude` treats a pure `[A-Za-z0-9_|]+` pattern as a literal (pipe = exact-match alternation) and anything else as a regex; `codex` is always an unanchored regex. Match-all on absent/`''`/`'*'`; an invalid regex matches nothing (never throws into the loop).
@@ -21,7 +21,7 @@ A new `packages/hooks/` group with `hook-protocol` as a pure library. It owns fo
 - **Merge** — `mergeHookOutputs(outputs)`, folding multiple matched hooks into one most-restrictive `MergedHookOutcome`: permission precedence **deny > ask > allow**, halt sticky on the first `continue:false`, block reasons joined `\n\n`, context/system-messages accumulated in order.
 - **`hook/*` session events** — `hook/invoked` / `hook/result`, declaration-merged into `SessionEventMap` (log-only, like `compact/*` — NOT `SurfaceEventType`s), with `appendHookInvoked`/`appendHookResult` helpers so the invoked/result pairing and turn-enclosure stay consistent across bridges.
 
-**Per-dialect (the bridges, PR-F):** building each event's stdin payload (CC's base+per-event field sets vs Codex's snake_case with `turn_id`/`model` extras), the dialect's env + `${CLAUDE_PLUGIN_ROOT}` substitution (CC) vs none (Codex), and mapping the neutral `HookOutput`/`MergedHookOutcome` onto the harness's seam-specific typed Decisions (`PreToolDecision`, `PromptDecision`, `ContinuationDecision`, `PostToolDecision`).
+**Per-dialect (the bridge plugins):** building each event's stdin payload (CC's base+per-event field sets vs Codex's snake_case with `turn_id`/`model` extras), the dialect's env + `${CLAUDE_PLUGIN_ROOT}` substitution (CC) vs none (Codex), and mapping the neutral `HookOutput`/`MergedHookOutcome` onto the harness's seam-specific typed Decisions (`PreToolDecision`, `PromptDecision`, `ContinuationDecision`, `PostToolDecision`).
 
 ### Why "shared core + per-dialect adapters", not "one parameterized engine"
 
@@ -29,4 +29,4 @@ A single engine parameterized by a full `dialect` descriptor was considered and 
 
 ## Consequences
 
-The two bridges (PR-F) become thin: parse the config file, pick a matcher mode, build the per-event payload+env, call `runHook` + `mergeHookOutputs`, map the outcome to a Decision, and append `hook/*`. The protocol's correctness-critical halves (matcher semantics, exit-code contract, merge precedence) live in one tested place — `hook-protocol` ships with heavy unit tests (matcher per-mode, codec per exit-code/field, runner plumbing with a stub executor, merge precedence, the `hook/*` helpers) at per-file 100%. Input rewrite (`updatedInput`) is parsed but not honored (the deferred [pre-tool-input-rewrite RFC](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md)); a bridge logs+warns on it. The package is a library, so it has no `cordis.yml` load path of its own — its real-load-path coverage comes through the bridge plugins that consume it (PR-F).
+The two bridge plugins become thin: parse the config file, pick a matcher mode, build the per-event payload+env, call `runHook` + `mergeHookOutputs`, map the outcome to a Decision, and append `hook/*`. The protocol's correctness-critical halves (matcher semantics, exit-code contract, merge precedence) live in one tested place — `hook-protocol` ships with heavy unit tests (matcher per-mode, codec per exit-code/field, runner plumbing with a stub executor, merge precedence, the `hook/*` helpers) at per-file 100%. Input rewrite (`updatedInput`) is parsed but not honored (the deferred [pre-tool-input-rewrite RFC](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md)); a bridge logs+warns on it. The package is a library, so it has no `cordis.yml` load path of its own — its real-load-path coverage comes through the bridge plugins that consume it.

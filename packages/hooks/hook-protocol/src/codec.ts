@@ -42,14 +42,19 @@ function obj(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
-/** Normalize a raw `decision`/`permissionDecision` string to the neutral enum. */
-function decisionOf(value: string | undefined): HookOutput['decision'] {
-  switch (value) {
-    case 'approve': case 'allow': case 'block': case 'deny': case 'ask':
-      return value
-    default:
-      return undefined
-  }
+/**
+ * The legacy TOP-LEVEL `decision` is only `approve`/`block` in both reference
+ * schemas — `allow`/`deny`/`ask` are reserved for `hookSpecificOutput.
+ * permissionDecision`. So an out-of-band `{"decision":"deny"}` is invalid and
+ * ignored here (it must not become a real blocking decision).
+ */
+function topLevelDecisionOf(value: string | undefined): HookOutput['decision'] {
+  return value === 'approve' || value === 'block' ? value : undefined
+}
+
+/** A `hookSpecificOutput.permissionDecision` is `allow`/`deny`/`ask` only. */
+function permissionDecisionOf(value: string | undefined): HookOutput['decision'] {
+  return value === 'allow' || value === 'deny' || value === 'ask' ? value : undefined
 }
 
 /**
@@ -62,7 +67,11 @@ function decisionOf(value: string | undefined): HookOutput['decision'] {
  */
 export function parseHookOutput(exitCode: number | undefined, stdout: string, stderr: string): HookOutput {
   const trimmedErr = stderr.trim()
-  const output: HookOutput = { exitCode, stderr: trimmedErr }
+  const trimmedOut = stdout.trim()
+  // Keep the raw stdout verbatim: a clean-exit hook may emit PLAIN text the
+  // protocol renders/uses (CC output; Codex SessionStart/UserPromptSubmit
+  // additionalContext), so the bridge needs it even when there's no JSON.
+  const output: HookOutput = { exitCode, stderr: trimmedErr, stdout: trimmedOut }
 
   // Exit 2 is a blocking error in both dialects: stderr is the reason. Surface
   // it as a `block` decision so the bridge maps it uniformly with a structured
@@ -76,7 +85,6 @@ export function parseHookOutput(exitCode: number | undefined, stdout: string, st
   // the stderr channel is authoritative. A non-zero/undefined exit other than 2
   // carries no decision (the bridge records it as a non-blocking error).
   if (exitCode === 0) {
-    const trimmedOut = stdout.trim()
     // Only attempt JSON when stdout looks like a JSON object — matches the
     // reference engines, which treat other stdout as plain text, not an error.
     if (trimmedOut.startsWith('{')) {
@@ -106,18 +114,23 @@ function applyStructured(output: HookOutput, parsed: Record<string, unknown>): v
   const sysMsg = str(parsed, 'systemMessage')
   if (sysMsg !== undefined) output.systemMessage = sysMsg
 
-  // Top-level legacy `decision` + `reason` (CC approve/block; Codex block).
-  const topDecision = decisionOf(str(parsed, 'decision'))
+  // Top-level legacy `decision` (approve/block ONLY — allow/deny/ask there are
+  // invalid per both schemas) + its `reason`.
+  const topDecision = topLevelDecisionOf(str(parsed, 'decision'))
   if (topDecision !== undefined) output.decision = topDecision
   const topReason = str(parsed, 'reason')
   if (topReason !== undefined) output.reason = topReason
 
-  // hookSpecificOutput: the per-event channel. permissionDecision (allow/deny/
-  // ask) OVERRIDES the legacy top-level decision when present; additionalContext
-  // and updatedInput live here too.
+  // hookSpecificOutput: the per-event channel, keyed by `hookEventName`. We
+  // surface that discriminator so the bridge can DISCARD a block whose event
+  // doesn't match the firing one (the schemas make it the discriminator). The
+  // permissionDecision (allow/deny/ask) OVERRIDES the legacy top-level decision;
+  // additionalContext and updatedInput live here too.
   const hso = obj(parsed.hookSpecificOutput)
   if (hso) {
-    const permission = decisionOf(str(hso, 'permissionDecision'))
+    const eventName = str(hso, 'hookEventName')
+    if (eventName !== undefined) output.hookEventName = eventName
+    const permission = permissionDecisionOf(str(hso, 'permissionDecision'))
     if (permission !== undefined) output.decision = permission
     const permissionReason = str(hso, 'permissionDecisionReason')
     if (permissionReason !== undefined) output.reason = permissionReason

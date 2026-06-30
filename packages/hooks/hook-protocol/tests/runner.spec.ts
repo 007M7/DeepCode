@@ -6,8 +6,8 @@ import { runHook } from '@deepseek-ai/dsh-hook-protocol'
  * A minimal stand-in for the bits of {@link BashExecutor} that {@link runHook}
  * actually calls (`resolve` then `run`). `runHook` is pure plumbing over those
  * two methods, so a duck-typed recorder is the right test seam — the REAL
- * executor (dsh-bash-local) is exercised end-to-end by the bridge e2e tests in
- * PR-F, not here.
+ * executor (dsh-bash-local) is exercised end-to-end by the hook-bridge plugins
+ * that consume this library, not here.
  */
 function recordingBash(run: (spec: BashExecSpec) => Promise<BashRunResult>): {
   bash: BashExecutor

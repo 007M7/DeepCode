@@ -3,7 +3,7 @@ import { mergeHookOutputs } from '@deepseek-ai/dsh-hook-protocol'
 import type { HookOutput } from '@deepseek-ai/dsh-hook-protocol'
 
 function out(over: Partial<HookOutput> = {}): HookOutput {
-  return { exitCode: 0, stderr: '', ...over }
+  return { exitCode: 0, stderr: '', stdout: '', ...over }
 }
 
 describe('mergeHookOutputs — permission precedence deny > ask > allow', () => {
