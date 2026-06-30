@@ -394,7 +394,7 @@ function render(events: EventEntry[], services: ServiceEntry[]): string {
     '',
     '## Events',
     '',
-    `Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets \`next()\` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out, no veto). The harness declares ${events.length} events across ${new Set(events.map(e => e.scope)).size} scopes.`,
+    'Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out, no veto).',
     '',
   ]
   const scopes = [...new Set(events.map(e => e.scope))].sort()
@@ -407,7 +407,7 @@ function render(events: EventEntry[], services: ServiceEntry[]): string {
   lines.push(
     '## Services',
     '',
-    `The ${services.length} \`ctx.<key>\` services the harness provides. An abstract seam (e.g. \`ctx.bash\`) is implemented by a separate package; the interface is what consumers code against.`,
+    'The `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.',
     '',
   )
   for (const s of services) lines.push(...renderService(s))
