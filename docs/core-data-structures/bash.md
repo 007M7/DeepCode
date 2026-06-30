@@ -18,6 +18,23 @@ interface BashExecRequest {
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
   /**
+   * Bytes to write to the command's stdin, then close it. Absent leaves stdin
+   * closed/empty (the default for model-driven tool calls). A TRUSTED-PLUGIN
+   * surface: the model-facing bash tool does NOT thread model-supplied input
+   * here — it is set by in-process plugins (e.g. the hooks bridges, which write
+   * a hook command's JSON payload to its stdin).
+   */
+  stdin?: string | undefined
+  /**
+   * Extra environment entries for the command, merged AFTER the
+   * implementation's credential scrub (so an explicit entry here is honored even
+   * when its name matches the scrub pattern — the caller takes responsibility).
+   * Like {@link stdin}, a TRUSTED-PLUGIN surface: the model-facing bash tool
+   * never forwards model-supplied env; in-process plugins (the hooks bridges)
+   * set hook env vars (`CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …) here.
+   */
+  env?: Record<string, string> | undefined
+  /**
    * Opaque OWNER token for a background task — the consumer's isolation key
    * (the tool layer passes the owning agent's `session.header.id`). The
    * executor stores it on the task and exposes it via {@link BashExecutor.ownerOf};
@@ -37,6 +54,23 @@ interface BashExecSpec {
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
   /**
+   * Bytes to write to the command's stdin (then close it), carried through
+   * verbatim from {@link BashExecRequest.stdin}. OPTIONAL on the resolved spec
+   * (unlike `owner`): it has no config default, so a missing one means "no
+   * stdin" — the safe, ordinary case — not a silent footgun, so it stays a
+   * plain optional rather than required-but-nullable. A TRUSTED-PLUGIN surface
+   * (see the request field).
+   */
+  stdin?: string | undefined
+  /**
+   * Extra environment entries, carried through verbatim from
+   * {@link BashExecRequest.env} and merged by the implementation AFTER its
+   * credential scrub (an explicit entry wins even when its name matches the
+   * scrub pattern). OPTIONAL on the spec for the same reason as `stdin` — no
+   * config default, absent means "no extra env". A TRUSTED-PLUGIN surface.
+   */
+  env?: Record<string, string> | undefined
+  /**
    * Opaque owner token, REQUIRED-but-nullable (mirrors `workdir`/`timeoutMs`
    * being required on the resolved spec): {@link BashExecutor.resolve} carries
    * the request's `owner` through, defaulting a missing one to `undefined`. A
@@ -49,6 +83,8 @@ interface BashExecSpec {
 ```
 
 The `owner` token is the isolation key: the executor stores it but never interprets it (access policy is the consumer's job), so a background task started by one agent isn't readable cross-session. A required-but-nullable field makes a forgotten owner a visible `undefined` rather than a silently-unowned task.
+
+`stdin` and `env` are a **trusted-plugin surface**: an in-process plugin (the hooks bridges, native plugins) sets them to feed a hook command its JSON payload on stdin and its `CLAUDE_PROJECT_DIR`/`CLAUDE_PLUGIN_ROOT` env. The model-facing `dsh-tool-bash` tool deliberately NEVER forwards model input into either field — its request is built from `command`/`workdir`/`timeoutMs`/`signal`/`owner` only — so a model cannot smuggle an env var or stdin payload past the credential scrub (a guard test asserts this). `env` is merged AFTER the scrub so a trusted caller can set even a credential-shaped var; the scrub's job is to stop the harness's OWN ambient credentials leaking into model-driven commands, not to constrain a trusted plugin.
 
 Both ids the seam handles are [branded](core.md) (zero-cost `string` brands, the same machinery as `SessionId`/`AgentId`): `BashTaskId` (a tracked background task, generated `bash-N` by the local executor) and `OwnerToken` (the opaque isolation key). `OwnerToken` is deliberately a DISTINCT brand from `SessionId`, not an alias: the bash seam is a capability seam that must not know what an owner token *means*, so it never imports `dsh-session`'s vocabulary — the `dsh-tool-bash` consumer is the single boundary that casts the owning agent's `SessionId` into an `OwnerToken`. Branding both stops a raw `string` (or a `BashTaskId` where an `OwnerToken` is expected, or vice versa) from slipping through the type checker on the model-facing `task_id` path.
 

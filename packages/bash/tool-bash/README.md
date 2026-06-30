@@ -40,6 +40,10 @@ These tools own how their calls render in a UI (an editor's tool-call card) via 
 
 When a background task finishes, a short notice is injected into the owning agent's session (`agent.inject()`, source `{kind: 'plugin', plugin: 'tool-bash'}`). The owning agent is found by its session token: the listener reads `ctx.bash.ownerOf(task.id)` and scans `ctx.get('agents')?.list()` for an agent whose `session.header.id` matches (read via `ctx.get` — `onTaskDone` runs on the bash fiber, a foreign fiber, so the `ctx.agents` proxy would throw). If no live agent carries that token — e.g. the owning session disconnected and its agent was disposed while the task ran on — the notice is dropped cleanly. Injection is **durable context for the next model request, not a wake-up** — an idle agent stays idle until something sends a message. That's why the tool descriptions tell the model to poll with `bash_output`.
 
+## Trusted-plugin boundary: env / stdin are never model-driven
+
+The `BashExecRequest` seam carries optional `stdin` and `env` (a **trusted-plugin surface** used by the hooks bridges to feed a hook command its JSON payload and `CLAUDE_*` env). This tool deliberately **never** threads model input into either: its request is built from `command`/`workdir`/`timeoutMs`/`signal`/`owner` only, so a model that includes `env` or `stdin` keys in its tool arguments has them ignored — it cannot smuggle an environment variable or stdin payload past `dsh-bash-local`'s credential scrub. A regression guard (the "trusted-plugin boundary" tests) drives the real tool with adversarial args and asserts the resulting request carries neither field. See [the trusted-plugin RFC](../../../docs/rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
+
 ## Permissions
 
 `TODO(permissions)`: commands run with the executor's full authority. The permission/sandbox seam is the `tools/execute` waterfall (veto or ask) plus sandboxing `BashExecutor` implementations — see docs/architecture.md. `@cordisjs/plugin-capability` (a named-permission service with a session `test()`) is a candidate building block for that work.

@@ -42,13 +42,24 @@ export const ENV_OVERRIDES = {
  */
 export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
 
-/** process.env minus credential-shaped vars, plus the model-friendly overrides. */
-export function childEnv(): NodeJS.ProcessEnv {
+/**
+ * `process.env` minus credential-shaped vars, plus the model-friendly
+ * overrides, plus any caller-supplied `extra` entries.
+ *
+ * Layering matters: the scrub drops `process.env` credentials, then
+ * `ENV_OVERRIDES` forces the model-friendly terminal vars, then `extra` is
+ * merged LAST so a TRUSTED-PLUGIN entry wins even when its name matches the
+ * scrub pattern (the scrub guards against leaking the HARNESS's ambient
+ * credentials into model-driven commands; an in-process plugin that explicitly
+ * sets a var has taken responsibility for it). `extra` is NEVER model-supplied
+ * — `dsh-tool-bash` does not forward model input here (see its module doc).
+ */
+export function childEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
   for (const [key, value] of Object.entries(process.env)) {
     if (!SENSITIVE_ENV_PATTERN.test(key)) env[key] = value
   }
-  return { ...env, ...ENV_OVERRIDES }
+  return { ...env, ...ENV_OVERRIDES, ...extra }
 }
 
 /** What to run and under which limits (resolved — no defaults in here). */
@@ -61,6 +72,18 @@ export interface SpawnSpec {
   maxOutputBytes: number
   /** Abort signal — kills the process group when fired. */
   signal?: AbortSignal | undefined
+  /**
+   * Bytes to write to the child's stdin, then close it. Absent (or empty)
+   * leaves stdin closed/empty. A TRUSTED-PLUGIN surface (see {@link SpawnSpec}'s
+   * consumer `dsh-bash`); never carries model input.
+   */
+  stdin?: string | undefined
+  /**
+   * Extra environment entries, merged onto the scrubbed env AFTER the
+   * credential scrub and the model-friendly overrides (so an explicit entry
+   * wins). A TRUSTED-PLUGIN surface; never carries model input.
+   */
+  env?: Record<string, string> | undefined
 }
 
 /** Raw outcome of one closed process (before result shaping). */
@@ -272,12 +295,23 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
     throw new Error(`aborted before spawn: ${String(spec.signal.reason ?? 'aborted')}`)
   }
 
+  // stdin is ALWAYS a pipe (kept literal so the typed spawn overload guarantees
+  // non-null stdout/stderr) and is closed immediately: with bytes when a
+  // trusted plugin supplied stdin, empty otherwise. A closed empty pipe gives a
+  // reading child EOF exactly as `/dev/null` would, so the no-stdin path (every
+  // model-driven call) is unchanged.
   const child = spawn('bash', ['-c', spec.command], {
     cwd: spec.cwd,
-    env: childEnv(),
-    stdio: ['ignore', 'pipe', 'pipe'],
+    env: childEnv(spec.env),
+    stdio: ['pipe', 'pipe', 'pipe'],
     detached: true,
   })
+
+  // A child that exits without reading stdin makes the write error EPIPE —
+  // swallow it (the command's outcome rides on its exit code/output, not the
+  // stdin write) so it never crashes the host or rejects `done`.
+  child.stdin.on('error', () => { /* EPIPE: child closed stdin early; outcome rides on exit. */ })
+  child.stdin.end(spec.stdin ?? '')
 
   const stdout = new OutputCollector(spec.maxOutputBytes, 'stdout', spillDir)
   const stderr = new OutputCollector(spec.maxOutputBytes, 'stderr', spillDir)

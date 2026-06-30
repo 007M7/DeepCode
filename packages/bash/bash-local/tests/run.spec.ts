@@ -158,6 +158,49 @@ describe('runBash', () => {
   })
 })
 
+describe('stdin and extra env (trusted-plugin surface)', () => {
+  it('writes stdin to the command and closes it', async () => {
+    const result = await runBash(spec('cat', { stdin: 'hello from stdin\n' })).done
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.text).toBe('hello from stdin\n')
+  })
+
+  it('a command that reads stdin sees EOF when none is supplied', async () => {
+    // No stdin → the always-piped-but-empty stdin closes immediately, so `cat`
+    // reads EOF and exits 0 with no output (it does NOT block).
+    const result = await runBash(spec('cat')).done
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.text).toBe('')
+  })
+
+  it('merges extra env entries onto the scrubbed environment', async () => {
+    const result = await runBash(spec('echo "$DSH_EXTRA_ONE/$DSH_EXTRA_TWO"', {
+      env: { DSH_EXTRA_ONE: 'alpha', DSH_EXTRA_TWO: 'beta' },
+    })).done
+    expect(result.stdout.text).toBe('alpha/beta\n')
+  })
+
+  it('an explicit extra env entry overrides the model-friendly override and the scrub', async () => {
+    // TERM is a model-friendly OVERRIDE (dumb); an explicit extra entry wins.
+    // DSH_OVERRIDE_KEY matches the credential scrub pattern, yet an explicit
+    // entry is still honored — the scrub only drops AMBIENT process.env creds.
+    const result = await runBash(spec('echo "$TERM/$DSH_OVERRIDE_KEY"', {
+      env: { TERM: 'xterm-256color', DSH_OVERRIDE_KEY: 'explicit-wins' },
+    })).done
+    expect(result.stdout.text).toBe('xterm-256color/explicit-wins\n')
+  })
+
+  it('does not crash or reject when the child ignores a large stdin (EPIPE)', async () => {
+    // The child exits immediately without reading; closing our end of a stdin
+    // pipe still holding ~1MiB triggers EPIPE on the write. The handler must
+    // swallow it: `done` resolves normally with the child's real exit.
+    const big = 'x'.repeat(1024 * 1024)
+    const result = await runBash(spec('exit 7', { stdin: big })).done
+    expect(result.exitCode).toBe(7)
+    expect(result.aborted).toBe(false)
+  })
+})
+
 describe('output truncation and spill', () => {
   it('keeps the tail and spills the full stream to disk', async () => {
     // 200 numbered lines of ~10 bytes; cap at 500 bytes keeps a late tail.

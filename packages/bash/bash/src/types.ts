@@ -46,6 +46,23 @@ export interface BashExecRequest {
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
   /**
+   * Bytes to write to the command's stdin, then close it. Absent leaves stdin
+   * closed/empty (the default for model-driven tool calls). A TRUSTED-PLUGIN
+   * surface: the model-facing bash tool does NOT thread model-supplied input
+   * here — it is set by in-process plugins (e.g. the hooks bridges, which write
+   * a hook command's JSON payload to its stdin).
+   */
+  stdin?: string | undefined
+  /**
+   * Extra environment entries for the command, merged AFTER the
+   * implementation's credential scrub (so an explicit entry here is honored even
+   * when its name matches the scrub pattern — the caller takes responsibility).
+   * Like {@link stdin}, a TRUSTED-PLUGIN surface: the model-facing bash tool
+   * never forwards model-supplied env; in-process plugins (the hooks bridges)
+   * set hook env vars (`CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …) here.
+   */
+  env?: Record<string, string> | undefined
+  /**
    * Opaque OWNER token for a background task — the consumer's isolation key
    * (the tool layer passes the owning agent's `session.header.id`). The
    * executor stores it on the task and exposes it via {@link BashExecutor.ownerOf};
@@ -70,6 +87,23 @@ export interface BashExecSpec {
   timeoutMs: number
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
+  /**
+   * Bytes to write to the command's stdin (then close it), carried through
+   * verbatim from {@link BashExecRequest.stdin}. OPTIONAL on the resolved spec
+   * (unlike `owner`): it has no config default, so a missing one means "no
+   * stdin" — the safe, ordinary case — not a silent footgun, so it stays a
+   * plain optional rather than required-but-nullable. A TRUSTED-PLUGIN surface
+   * (see the request field).
+   */
+  stdin?: string | undefined
+  /**
+   * Extra environment entries, carried through verbatim from
+   * {@link BashExecRequest.env} and merged by the implementation AFTER its
+   * credential scrub (an explicit entry wins even when its name matches the
+   * scrub pattern). OPTIONAL on the spec for the same reason as `stdin` — no
+   * config default, absent means "no extra env". A TRUSTED-PLUGIN surface.
+   */
+  env?: Record<string, string> | undefined
   /**
    * Opaque owner token, REQUIRED-but-nullable (mirrors `workdir`/`timeoutMs`
    * being required on the resolved spec): {@link BashExecutor.resolve} carries
