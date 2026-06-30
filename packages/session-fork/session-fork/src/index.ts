@@ -46,6 +46,8 @@ export interface ForkSessionOptions {
 
 export type SessionForkErrorCode =
   | 'SESSION_NOT_FOUND'
+  | 'SESSION_NOT_LIVE'
+  | 'SESSION_ALREADY_EXISTS'
   | 'OPEN_TURN'
 
 /** Typed error for service-level fork rejections. */
@@ -94,6 +96,9 @@ export class SessionForkService extends Service {
    */
   fork(options: ForkSessionOptions): Session {
     const snapshot = this.snapshot(options.source)
+    if (options.sessionId !== undefined && this.ctx.sessions.get(options.sessionId) !== undefined) {
+      throw new SessionForkError(`session "${options.sessionId}" already exists`, 'SESSION_ALREADY_EXISTS')
+    }
     return this.ctx.sessions.create(options.sessionId, {
       seed: snapshot.seed,
       meta: snapshot.meta,
@@ -108,9 +113,10 @@ export class SessionForkService extends Service {
     }
 
     const live = this.ctx.sessions.get(source.id)
-    if (live !== source) {
+    if (live === undefined) {
       throw new SessionForkError(`session "${source.id}" not found`, 'SESSION_NOT_FOUND')
     }
+    if (live !== source) throw new SessionForkError(`session "${source.id}" is not the live store instance`, 'SESSION_NOT_LIVE')
     return source
   }
 

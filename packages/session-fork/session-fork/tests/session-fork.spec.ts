@@ -127,6 +127,15 @@ describe('SessionForkService', () => {
       .toThrow(new SessionForkError('session "detached" not found', 'SESSION_NOT_FOUND'))
   })
 
+  it('rejects a stale Session object whose id is live on a different instance', async () => {
+    const { ctx, fork } = await setup()
+    ctx.sessions.create(SessionId('same-id'))
+    const stale = new Session(SessionId('same-id'))
+
+    expect(() => fork.snapshot(stale))
+      .toThrow(new SessionForkError('session "same-id" is not the live store instance', 'SESSION_NOT_LIVE'))
+  })
+
   it('rejects non-empty logs whose last event is not turn/end', async () => {
     const { ctx, fork } = await setup()
     const cases: [string, (session: Session) => void][] = [
@@ -182,6 +191,16 @@ describe('SessionForkService', () => {
     expect(child.header.cwd).toBe('/workspace')
     firstUserMessage(child.events).data.content[0] = { type: 'text', text: 'child mutation' }
     expect(firstUserMessage(source.events).data.content).toEqual([{ type: 'text', text: 'hello' }])
+  })
+
+  it('rejects a child session id that is already live with a typed fork error', async () => {
+    const { ctx, fork } = await setup()
+    const source = ctx.sessions.create(SessionId('parent'))
+    appendClosedTurn(source)
+    ctx.sessions.create(SessionId('child'))
+
+    expect(() => fork.fork({ source, sessionId: SessionId('child') }))
+      .toThrow(new SessionForkError('session "child" already exists', 'SESSION_ALREADY_EXISTS'))
   })
 
   it('persists a forked child seed through the existing session write path', async () => {

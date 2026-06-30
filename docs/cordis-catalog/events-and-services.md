@@ -402,7 +402,7 @@ snapshot(source: SessionForkSource): SessionForkSeed
 fork(options: ForkSessionOptions): Session
 ```
 
-Source: [`packages/session-fork/session-fork/src/index.ts:63`](../../packages/session-fork/session-fork/src/index.ts)
+Source: [`packages/session-fork/session-fork/src/index.ts:65`](../../packages/session-fork/session-fork/src/index.ts)
 
 ### `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 

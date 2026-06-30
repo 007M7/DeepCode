@@ -21,7 +21,9 @@ Forking inside a turn is rejected with `SessionForkError` code `OPEN_TURN`. The 
 
 | Code | Meaning |
 |---|---|
-| `SESSION_NOT_FOUND` | A source id is not live in `ctx.sessions`, or a passed `Session` object is not the live store object for its id. |
+| `SESSION_NOT_FOUND` | A source id is not live in `ctx.sessions`, or a passed `Session` object's id is not live in the store. |
+| `SESSION_NOT_LIVE` | A passed `Session` object has a live id in the store, but it is not that live store instance. |
+| `SESSION_ALREADY_EXISTS` | The requested child `sessionId` is already live in `ctx.sessions`. |
 | `OPEN_TURN` | The source log is non-empty and does not end at `turn/end`. |
 
 ## Persistence
