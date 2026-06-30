@@ -22,6 +22,7 @@ graph TD
   compact --> session
   llm-replay --> llm
   llm-replay --> session
+  session-fork --> session
   session-persistence --> session
   invariants --> agent
   invariants --> llm
@@ -108,6 +109,7 @@ graph TD
 | `agent` | `brand`, `llm`, `session` |
 | `compact` | `llm`, `session` |
 | `llm-replay` | `llm`, `session` |
+| `session-fork` | `session` |
 | `session-persistence` | `session` |
 | `invariants` | `agent`, `llm`, `session` |
 | `session-persistence-jsonl` | `session`, `session-persistence` |

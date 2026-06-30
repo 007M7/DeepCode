@@ -393,6 +393,17 @@ Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../co
 
 Source: [`packages/llm/llm/src/index.ts:69`](../../packages/llm/llm/src/index.ts)
 
+### `ctx.sessionFork` — `SessionForkService`
+
+`ctx.sessionFork`: validates live session fork boundaries and creates seeded child sessions using the existing `ctx.sessions.create({ seed })` primitive.
+
+```ts cordis-catalog
+snapshot(source: SessionForkSource): SessionForkSeed
+fork(options: ForkSessionOptions): Session
+```
+
+Source: [`packages/session-fork/session-fork/src/index.ts:63`](../../packages/session-fork/session-fork/src/index.ts)
+
 ### `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 
 Abstract durable session-persistence service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.sessionPersistence` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).

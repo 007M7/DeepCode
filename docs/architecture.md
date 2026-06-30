@@ -54,6 +54,7 @@ Dependency rule: **extension** plugins depend on interface packages, never on `d
 | `ctx.agentLoop` | `AgentLoop` | dsh-agent-loop | creates `ReactLoopAgent`s and drives their loops |
 | `ctx.bash` | `BashExecutor` (abstract) | dsh-bash | bash execution seam: foreground runs + background tasks |
 | `ctx.compact` | `CompactService` (abstract) | dsh-compact | compaction seam: decide when history is too large, summarize an older range into a single surface node |
+| `ctx.sessionFork` | `SessionForkService` | dsh-session-fork | live-session fork seam: validate turn-boundary forks, snapshot seed events, create forked child sessions |
 
 All registrations (`registerAdapter`, `section`, `tools`, `register`, …) go through `ctx.effect()` and return disposers, so plugin hot-reload (vendored HMR) and fiber disposal clean up automatically.
 
@@ -88,7 +89,7 @@ A `Session` is an append-only log of typed `SessionEvent`s — the single source
 - `tool/result` → user message carrying a `tool-result` block
 - `context/message`, `steering/message` → user-role messages wrapped in a tagged envelope (`<context source="…">…</context>`) at their chronological position — the "system-reminder" pattern; models distinguish them from real user prompts by the envelope. **TODO(review)**: the real adapters now exist (the original precondition); the envelope still wants a deliberate review against live model behavior (`TODO(review)` in dsh-session).
 
-Replay/fork = `ctx.sessions.create(id, { seed: seedEvents })`. Trace/telemetry = listen to `session/event`.
+Replay/fork = `ctx.sessions.create(id, { seed: seedEvents })`; user-facing live-session fork policy lives in the optional `ctx.sessionFork` service, which rejects non-boundary forks instead of changing the core store. Trace/telemetry = listen to `session/event`.
 
 **Durability seam**: `session/event` is a synchronous notification; persistence plugins buffer (write-behind) and drain at the awaited `session/flush` checkpoint the loop fires at every turn end. The durable backend is a real **capability seam**: the abstract `SessionPersistence` service (`dsh-session-persistence`, `ctx.sessionPersistence`) defines create/append/load/list over the existing `SessionEvent` (no parallel persisted type), and `dsh-session-persistence-jsonl` is the first implementation — an append-only JSONL log per session with crash-safe atomic writes, crash recovery that PRESERVES an interrupted turn (closing it with a synthetic `turn/end {interrupted}` rather than truncating — a turn can be huge), and a read/replay path. Session metadata (format version, cwd, lineage) travels separately as `SessionHeader`, attached to a `Session` via `session.header`. Resuming a persisted session into a live agent is `ctx.agents.resume({ resumeSessionId })`. A second backend, `dsh-session-persistence-sqlite` (`node:sqlite`, one row per `SessionEvent` — the row shape `(session_id, seq, type, time, data)` maps 1:1 onto it), passes the same `runPersistenceContract` suite, proving the seam is genuinely backend-agnostic.
 
@@ -194,6 +195,7 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 | Dynamic workflow | orchestrator plugin on `agent/turn-end` / `agent/step-end` driving `send`/`steer` (+ sub-agents later) |
 | Queued + steering messages | core `Agent.send()` / `Agent.steer()` |
 | Context compaction (auto + manual) | the `ctx.compact` seam ([dsh-compact](../packages/compact/compact)): a backend summarizes an older surface range into a single `user/message` `replace` op, bracketed by log-only `compact/*` events; auto = check token pressure at turn boundaries, manual = a `/compact` tool. See the [compaction capability-seam RFC](rfc/proposed/feature/2026-06-18-compaction-capability-seam.md) |
+| Session fork | the `ctx.sessionFork` seam ([dsh-session-fork](../packages/session-fork/session-fork)): validate the source is at a turn boundary, snapshot its seed, and create a child session with `parentSession`/`seedLength` metadata. |
 | System prompt configurability | `ctx.systemPrompt.section()` with ordering |
 | AGENTS.md (root) | a section provider reading the file |
 | AGENTS.md (subdir, on-touch) + file-change notices | `agent.inject()` from a watcher / tool-result listener |
@@ -223,4 +225,4 @@ Tracked here deliberately — each is designed-for but not implemented:
 - **Sub-agent spawn/fork semantics** (seam: `AgentLoop.create()`); inter-agent channels beyond `send`/`steer`/events.
 - **Compaction implementation** (auto thresholds, summarization prompts) on the `agent/request` seam, with its session-event types added by declaration merging.
 - **Parallel tool execution** (concurrency-safety hints on ToolDefinition).
-- **Session branching/tree** (pi-style entry tree) if needed beyond seed-based forking.
+- **Session branching/tree** (pi-style entry tree) if needed beyond the current seed-based `ctx.sessionFork` service.

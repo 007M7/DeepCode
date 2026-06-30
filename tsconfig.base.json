@@ -45,6 +45,7 @@
         "./packages/bash/*/src",
         "./packages/compact/*/src",
         "./packages/subagent/*/src",
+        "./packages/session-fork/*/src",
         "./packages/todo/*/src",
         "./packages/session-persistence/*/src",
         "./packages/ui/*/src",

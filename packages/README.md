@@ -14,6 +14,7 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`compact/`](compact/README.md) | Compaction capability family: the abstract seam (backend + tool deferred) | Product — stable surface |
 | [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
 | [`todo/`](todo/README.md) | Todo/planning family: the model-facing `todo_write` tool (whole-list task tracking on the session log) | Product — stable surface |
+| [`session-fork/`](session-fork/README.md) | Session fork capability family: live-session fork snapshots and child session creation | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
 | [`ui/`](ui/README.md) | Editor/client integration surfaces (the ACP bridge) | Product — stable surface |
 | [`support/`](support/README.md) | Dev/test/example infrastructure (invariants, stdio UI, replay adapter) | Support — lower compatibility expectations |
@@ -31,6 +32,7 @@ dsh-session       ← dsh-llm, dsh-brand
 dsh-system-prompt ← dsh-llm
 dsh-agent         ← dsh-llm, dsh-session, dsh-brand
 dsh-compact       ← dsh-session, dsh-llm                (abstract compaction seam; backend + tool deferred)
+dsh-session-fork  ← dsh-session                         (live-session fork snapshots + child session creation)
 dsh-tools         ← dsh-llm, dsh-system-prompt, dsh-agent
 dsh-bash-local    ← dsh-bash                       (BashExecutor impl)
 dsh-tool-bash     ← dsh-bash, dsh-tools            (bash tool schemas)
@@ -70,6 +72,7 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `bash-local/` | `bash` | Local-subprocess `BashExecutor` implementation | (registers `ctx.bash`) |
 | `tool-bash/` | `bash` | Model-facing `bash`/`bash_output`/`bash_kill` tool schemas | (registers on `ctx.tools`) |
 | `compact/` | `compact` | Abstract compaction seam + `compact/*` events + `CompactionResult` | `ctx.compact` |
+| `session-fork/` | `session-fork` | Session fork service over live session seeds | `ctx.sessionFork` |
 | `llm-deepseek/` | `llm` | DeepSeek API adapter (hand-rolled fetch/SSE) | (registers on `ctx.llm`) |
 | `llm-pi-ai/` | `llm` | DeepSeek adapter via `@earendil-works/pi-ai` (design twin) | (registers on `ctx.llm`) |
 | `session-persistence/` | `session-persistence` | Persistence seam + write coordinator | `ctx.sessionPersistence` |
