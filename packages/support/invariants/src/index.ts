@@ -23,7 +23,7 @@ import type { Context } from 'cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
 
 export const name = 'invariants'
 export const inject = ['sessions']
@@ -67,6 +67,15 @@ interface SessionTrace {
    * `step/end` — a result must arrive in the same step as its call.
    */
   pendingCalls: Set<CallId>
+  /** Every seq seen so far — validates `sourceEventSeqs` references. */
+  knownSeqs: Set<number>
+  /**
+   * The seqs currently on the surface linked list, in linked-list order
+   * (head to tail). A replace reorders this relative to seq order (the new
+   * node takes the replaced range's position), so range validation is
+   * positional, not by seq comparison.
+   */
+  surface: number[]
 }
 
 /**
@@ -109,6 +118,77 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
     throw new InvariantError(`seq must strictly increase: saw ${event.seq} after ${trace.lastSeq}`)
   }
   trace.lastSeq = event.seq
+
+  // --- Surface invariants ---
+  // Surface metadata (sourceEventSeqs, surfaceOp) is only valid on
+  // surface-eligible event types. The compiler enforces this at append()
+  // call sites; this runtime check catches casts and persisted data.
+  const SURFACE_TYPES = new Set<string>(['user/message', 'assistant/message', 'tool/result', 'context/message', 'steering/message'])
+  // Cast to surface-eligible event type so we can access surfaceOp and
+  // sourceEventSeqs (optional on SessionEvent, mandatory on SurfaceEvent).
+  // SurfaceEvent's mandatory surfaceOp is too strict here — we need to
+  // CHECK whether surface metadata is present, not assume it.
+  const se = event as SessionEvent<SurfaceEventType>
+  if (!SURFACE_TYPES.has(event.type)) {
+    if (se.sourceEventSeqs !== undefined) {
+      throw new InvariantError(`${event.type} cannot carry sourceEventSeqs (non-surface event)`)
+    }
+    if (se.surfaceOp !== undefined) {
+      throw new InvariantError(`${event.type} cannot carry surfaceOp (non-surface event)`)
+    }
+  }
+  if (se.sourceEventSeqs !== undefined) {
+    if (se.sourceEventSeqs.length === 0) {
+      throw new InvariantError('sourceEventSeqs must not be empty when present')
+    }
+    const unique = new Set(se.sourceEventSeqs)
+    if (unique.size !== se.sourceEventSeqs.length) {
+      throw new InvariantError('sourceEventSeqs must not contain duplicates')
+    }
+    for (const ref of se.sourceEventSeqs) {
+      if (ref >= event.seq) {
+        throw new InvariantError(`sourceEventSeqs must reference earlier events: ${ref} >= current seq ${event.seq}`)
+      }
+      if (!trace.knownSeqs.has(ref)) {
+        throw new InvariantError(`sourceEventSeqs references unknown seq ${ref}`)
+      }
+    }
+  }
+  // Fold this event into the tracked surface linked list, validating the
+  // replace contract as we go. `append` adds a tail node; `replace` shadows a
+  // positional range — every shadowed node must appear in sourceEventSeqs.
+  if (se.surfaceOp !== undefined) {
+    if (se.surfaceOp === 'append') {
+      trace.surface.push(event.seq)
+    } else {
+      const { start, end } = se.surfaceOp
+      if (start > end) {
+        throw new InvariantError(`surface replace: start ${start} must be <= end ${end}`)
+      }
+      const startIdx = trace.surface.indexOf(start)
+      if (startIdx === -1) {
+        throw new InvariantError(`surface replace: start seq ${start} is not on the surface`)
+      }
+      const endIdx = trace.surface.indexOf(end)
+      if (endIdx === -1) {
+        throw new InvariantError(`surface replace: end seq ${end} is not on the surface`)
+      }
+      if (startIdx > endIdx) {
+        throw new InvariantError(`surface replace: start seq ${start} (pos ${startIdx}) is after end seq ${end} (pos ${endIdx}) on the surface`)
+      }
+      // Every node the replace shadows (surface positions [startIdx, endIdx]
+      // inclusive) must appear in sourceEventSeqs — the provenance contract.
+      const shadowed = trace.surface.slice(startIdx, endIdx + 1)
+      const recorded = new Set(se.sourceEventSeqs ?? [])
+      const missing = shadowed.filter(seq => !recorded.has(seq))
+      if (missing.length > 0) {
+        throw new InvariantError(`surface replace: sourceEventSeqs must include every shadowed surface node; missing ${missing.join(', ')}`)
+      }
+      // Apply the replace to the tracked surface: the new node takes the
+      // range's position so order stays in sync for later replaces.
+      trace.surface.splice(startIdx, shadowed.length, event.seq)
+    }
+  }
 
   // Boundary/step-scoped events have explicit cases; every OTHER event type —
   // including plugin-added (merge-extensible) SessionEventMap keys — is caught
@@ -204,6 +284,8 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       break
     }
   }
+  // Track every seq seen — used above to validate sourceEventSeqs references.
+  trace.knownSeqs.add(event.seq)
 }
 
 /** Legal agent status transitions (the only state machine the loop guarantees). */
@@ -242,6 +324,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     nextTurn: 1,
     nextStep: 1,
     pendingCalls: new Set(),
+    knownSeqs: new Set(),
+    surface: [],
   })
 
   /** Build (or rebuild) a session's trace by replaying its whole log; freeze it. */

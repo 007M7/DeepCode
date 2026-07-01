@@ -18,6 +18,8 @@ graph TD
   agent --> brand
   agent --> llm
   agent --> session
+  compact --> llm
+  compact --> session
   llm-replay --> llm
   llm-replay --> session
   session-persistence --> session
@@ -52,6 +54,9 @@ graph TD
   tool-bash --> bash
   tool-bash --> llm
   tool-bash --> tools
+  tool-todo --> agent
+  tool-todo --> session
+  tool-todo --> tools
   agent-core --> agent
   agent-core --> agent-loop
   agent-core --> invariants
@@ -101,6 +106,7 @@ graph TD
 | `session` | `brand`, `llm` |
 | `system-prompt` | `llm` |
 | `agent` | `brand`, `llm`, `session` |
+| `compact` | `llm`, `session` |
 | `llm-replay` | `llm`, `session` |
 | `session-persistence` | `session` |
 | `invariants` | `agent`, `llm`, `session` |
@@ -112,6 +118,7 @@ graph TD
 | `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
 | `subagent` | `agent`, `llm`, `tools` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |
+| `tool-todo` | `agent`, `session`, `tools` |
 | `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `system-prompt`, `tool-bash`, `tools` |
 | `subagent-acp` | `agent`, `llm`, `subagent` |
 | `subagent-inprocess` | `agent`, `llm`, `session`, `subagent` |

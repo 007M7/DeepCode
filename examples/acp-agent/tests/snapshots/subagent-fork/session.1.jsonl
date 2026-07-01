@@ -1,6 +1,6 @@
 {"type":"session","version":0,"id":"906f1eac-a457-4eb9-828b-1ba537552524","createdAt":1782133845692,"cwd":"/tmp/acp-snap-cwd-Ml0DrO","parentSession":"f2358dc0-75f8-4649-8440-ab94b8e10dc3","seedLength":38}
 {"type":"turn/start","seq":0,"time":1782133842298,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
-{"type":"user/message","seq":1,"time":1782133842298,"data":{"content":[{"type":"text","text":"Remember this fact for later: the project codeword is MARMALADE. Reply with the single word OK and stop. Do not use any tools."}],"source":{"kind":"user"}}}
+{"type":"user/message","seq":1,"time":1782133842298,"data":{"content":[{"type":"text","text":"Remember this fact for later: the project codeword is MARMALADE. Reply with the single word OK and stop. Do not use any tools."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":2,"time":1782133842299,"data":{"turn":1,"step":1}}
 {"type":"assistant/chunk","seq":3,"time":1782133843792,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
 {"type":"assistant/chunk","seq":4,"time":1782133843793,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"The"}}}
@@ -34,11 +34,11 @@
 {"type":"assistant/chunk","seq":32,"time":1782133844040,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":1,"block":{"type":"text","text":"OK"}}}}
 {"type":"assistant/chunk","seq":33,"time":1782133844040,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":1334,"outputTokens":27,"cacheReadTokens":0,"reasoningTokens":25}}}}
 {"type":"assistant/chunk","seq":34,"time":1782133844040,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
-{"type":"assistant/message","seq":35,"time":1782133844042,"data":{"turn":1,"step":1,"content":[{"type":"reasoning","text":"The user wants me to remember a codeword and respond with just \"OK\". I need to not use any tools."},{"type":"text","text":"OK"}],"usage":{"inputTokens":1334,"outputTokens":27,"cacheReadTokens":0,"reasoningTokens":25}}}
+{"type":"assistant/message","seq":35,"time":1782133844042,"data":{"turn":1,"step":1,"content":[{"type":"reasoning","text":"The user wants me to remember a codeword and respond with just \"OK\". I need to not use any tools."},{"type":"text","text":"OK"}],"usage":{"inputTokens":1334,"outputTokens":27,"cacheReadTokens":0,"reasoningTokens":25}},"sourceEventSeqs":[3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34],"surfaceOp":"append"}
 {"type":"step/end","seq":36,"time":1782133844042,"data":{"turn":1,"step":1}}
 {"type":"turn/end","seq":37,"time":1782133844042,"data":{"turn":1,"reason":{"kind":"completed"}}}
 {"type":"turn/start","seq":38,"time":1782133845693,"data":{"turn":2,"trigger":{"kind":"message","source":{"kind":"user"}}}}
-{"type":"user/message","seq":39,"time":1782133845693,"data":{"content":[{"type":"text","text":"What is the project codeword mentioned earlier in this conversation? Reply with exactly that one word and nothing else."}],"source":{"kind":"user"}}}
+{"type":"user/message","seq":39,"time":1782133845693,"data":{"content":[{"type":"text","text":"What is the project codeword mentioned earlier in this conversation? Reply with exactly that one word and nothing else."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":40,"time":1782133845693,"data":{"turn":2,"step":1}}
 {"type":"assistant/chunk","seq":41,"time":1782133846927,"data":{"turn":2,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
 {"type":"assistant/chunk","seq":42,"time":1782133846927,"data":{"turn":2,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"The"}}}
@@ -84,6 +84,6 @@
 {"type":"assistant/chunk","seq":82,"time":1782133847302,"data":{"turn":2,"step":1,"chunk":{"type":"block-end","index":1,"block":{"type":"text","text":"MARMALADE"}}}}
 {"type":"assistant/chunk","seq":83,"time":1782133847302,"data":{"turn":2,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":1210,"outputTokens":39,"cacheReadTokens":0,"reasoningTokens":34}}}}
 {"type":"assistant/chunk","seq":84,"time":1782133847302,"data":{"turn":2,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
-{"type":"assistant/message","seq":85,"time":1782133847303,"data":{"turn":2,"step":1,"content":[{"type":"reasoning","text":"The user asked me to remember the project codeword \"MARMALADE\" and then later asked what it was. I should reply with exactly that one word."},{"type":"text","text":"MARMALADE"}],"usage":{"inputTokens":1210,"outputTokens":39,"cacheReadTokens":0,"reasoningTokens":34}}}
+{"type":"assistant/message","seq":85,"time":1782133847303,"data":{"turn":2,"step":1,"content":[{"type":"reasoning","text":"The user asked me to remember the project codeword \"MARMALADE\" and then later asked what it was. I should reply with exactly that one word."},{"type":"text","text":"MARMALADE"}],"usage":{"inputTokens":1210,"outputTokens":39,"cacheReadTokens":0,"reasoningTokens":34}},"sourceEventSeqs":[41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84],"surfaceOp":"append"}
 {"type":"step/end","seq":86,"time":1782133847303,"data":{"turn":2,"step":1}}
 {"type":"turn/end","seq":87,"time":1782133847303,"data":{"turn":2,"reason":{"kind":"completed"}}}

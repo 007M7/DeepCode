@@ -150,6 +150,24 @@ export interface TurnEndReasonMap {
 export type TurnEndReason = TurnEndReasonMap[keyof TurnEndReasonMap]
 
 /**
+ * One entry in an agent's todo list — the unit of the `todo/write`
+ * {@link SessionEventMap} event's whole-list snapshot.
+ *
+ * Deliberately minimal: a human-readable `content` line and a three-state
+ * `status`. No id, priority, or `activeForm` — the list is replaced wholesale
+ * on every write (last-write-wins), so entries need no stable identity, and the
+ * status triple is exactly the ACP `PlanEntryStatus`, so a UI bridge can map a
+ * todo list onto an ACP `plan` 1:1 (synthesizing the priority ACP additionally
+ * requires).
+ */
+export interface TodoItem {
+  /** What this task is — a short imperative line shown in the UI. */
+  content: string
+  /** Lifecycle state. `in_progress` marks the single task being worked now. */
+  status: 'pending' | 'in_progress' | 'completed'
+}
+
+/**
  * The session event vocabulary — the append-only source of truth for an
  * agent's whole interaction history. The LLM message history is *derived*
  * from this log; nothing else is authoritative. Replay = re-derive from the
@@ -194,15 +212,92 @@ export interface SessionEventMap {
   'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string } }
   /** Steering content injected between steps of a running turn. */
   'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
+  /**
+   * The agent's whole todo list, carried as a full snapshot and replaced
+   * wholesale on each write — the current list is the most recent `todo/write`
+   * (last-write-wins on replay, no fold). Appended by an owning agent via
+   * `session.append('todo/write', { todos })`.
+   *
+   * NOT a {@link SurfaceEventType}: it produces no LLM message and never reaches
+   * `deriveMessages()`, so it carries no `surfaceOp` and stays off the surface —
+   * it is durable, replayable UI state, distinct from the conversation history.
+   * It is a `SessionEventMap` member riding the existing `session/event` emit,
+   * not a first-class Cordis `interface Events` notification, so it has no
+   * cordis-catalog row.
+   */
+  'todo/write': { todos: TodoItem[] }
 }
 
 export type SessionEventType = keyof SessionEventMap
+
+/**
+ * The subset of {@link SessionEventType} values whose events produce LLM
+ * messages and are eligible to appear on the surface linked list. Only these
+ * event types may carry {@link SurfaceOp} and {@link SessionEvent.sourceEventSeqs}.
+ */
+export type SurfaceEventType =
+  | 'user/message'
+  | 'assistant/message'
+  | 'tool/result'
+  | 'context/message'
+  | 'steering/message'
+
+/**
+ * A {@link SessionEvent} that is **on** the surface linked list — its
+ * `surfaceOp` is guaranteed present (mandatory), narrowed from a
+ * surface-eligible {@link SessionEvent} by checking both `type` and
+ * `surfaceOp` at runtime.
+ *
+ * Use the `isSurfaceEvent` type guard (in `surface.ts`) to narrow a
+ * `SessionEvent` to this type.
+ */
+export type SurfaceEvent = SessionEvent<SurfaceEventType> & { surfaceOp: SurfaceOp }
+
+/**
+ * How a session event entered the surface linked list. Only valid on
+ * {@link SurfaceEventType} events.
+ *
+ * - `'append'`: added to the tail — normal path for user/assistant/tool/context
+ *   messages.
+ * - `{ op: 'replace', start, end }`: replaces surface nodes from `start`
+ *   (inclusive) through `end` (inclusive) with this node. Both must exist as
+ *   surface nodes in the current surface. `start === end` replaces a single
+ *   node. The node's {@link SessionEvent.sourceEventSeqs} must include every
+ *   shadowed surface node. Used by compaction and possible other manipulations.
+ */
+export type SurfaceOp =
+  | 'append'
+  | { op: 'replace'; start: number; end: number }
+
+/**
+ * Surface metadata passed to {@link Session.append}.
+ * `surfaceOp` controls how the event enters the surface linked list;
+ * `sourceEventSeqs` records the seq numbers of events that are provenance
+ * sources of this one (e.g. the `assistant/chunk` seqs behind an
+ * `assistant/message`, or the shadowed nodes behind a compaction replacement).
+ *
+ * Required for {@link SurfaceEventType} events — every message-producing event
+ * MUST declare how it enters the surface, because the surface is the sole
+ * source of derived history. Non-surface event types (`turn/start`,
+ * `assistant/chunk`, `error`, …) cannot carry surface metadata.
+ */
+export interface SurfaceIntent {
+  surfaceOp: SurfaceOp
+  sourceEventSeqs?: number[]
+}
 
 /**
  * One immutable entry in the session log.
  *
  * A proper discriminated union over `type` (not independent `type`/`data`
  * unions), so `switch (event.type)` narrows `event.data` without casts.
+ *
+ * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
+ * they only exist on {@link SurfaceEventType} variants (`user/message`,
+ * `assistant/message`, `tool/result`, `context/message`, `steering/message`).
+ * Non-surface events (boundary markers, chunks, usage, errors) never carry
+ * surface metadata — the compiler enforces this at `Session.append()`
+ * call sites.
  */
 export type SessionEvent<T extends SessionEventType = SessionEventType> = {
   [K in SessionEventType]: {
@@ -212,5 +307,14 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /** Unix epoch milliseconds. */
     time: number
     data: SessionEventMap[K]
-  }
+  } & (K extends SurfaceEventType ? {
+    /**
+     * Seq numbers of events that are provenance sources of this event
+     * (e.g. the `assistant/chunk` seqs that built an `assistant/message`,
+     * or the surface nodes shadowed by a compaction marker).
+     */
+    sourceEventSeqs?: number[]
+    /** How this event entered the surface; absent for non-surface events. */
+    surfaceOp?: SurfaceOp
+  } : object)
 }[T]

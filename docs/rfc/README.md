@@ -44,6 +44,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Agent Client Protocol (ACP) support for external editors](proposed/feature/2026-06-14-acp-agent-client-protocol.md) | 2026-06-14 |
 | [Multiplex concurrent ACP sessions over one connection](proposed/feature/2026-06-14-acp-multi-session.md) | 2026-06-14 |
 | [Optional Code Mode — model writes TypeScript against an SDK of all tools](proposed/feature/2026-06-15-optional-code-mode.md) | 2026-06-15 |
+| [Compaction as a capability seam (abstract contract + basic backend)](proposed/feature/2026-06-18-compaction-capability-seam.md) | 2026-06-18 |
 
 ### Simplification
 
@@ -84,6 +85,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Rich ACP bash rendering — the terminal card (`_meta`) and command classification](implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) | 2026-06-18 |
 | [Subagent capability seam](implemented/feature/2026-06-21-subagent-capability-seam.md) | 2026-06-21 |
 | [ACP subagent backend (out-of-process delegation)](implemented/feature/2026-06-22-acp-subagent-backend.md) | 2026-06-22 |
+| [The `todo_write` tool — model task list as event-sourced session state](implemented/feature/2026-06-29-todo-write-tool.md) | 2026-06-29 |
 
 ### Simplification
 
@@ -114,6 +116,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Every session event is enclosed in a turn](implemented/architecture/2026-06-15-turn-enclosure-invariant.md) | 2026-06-15 |
 | [Shared persistence write coordinator](implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md) | 2026-06-18 |
 | [Agent lifecycle and ownership seams](implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md) | 2026-06-18 |
+| [Session surface — a linked list over the event log for LLM message derivation](implemented/architecture/2026-06-18-session-surface.md) | 2026-06-18 |
 | [Reorganize packages into a modular hierarchy](implemented/architecture/2026-06-20-package-hierarchy.md) | 2026-06-20 |
 | [Branded IDs everywhere they belong](implemented/architecture/2026-06-20-branded-ids.md) | 2026-06-20 |
 | [Extract example apps into packages](implemented/architecture/2026-06-20-extract-example-app-packages.md) | 2026-06-20 |
