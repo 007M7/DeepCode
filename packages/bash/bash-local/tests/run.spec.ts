@@ -158,7 +158,7 @@ describe('runBash', () => {
   })
 })
 
-describe('stdin and extra env (trusted-plugin surface)', () => {
+describe('stdin and extra env (set by in-process plugins)', () => {
   it('writes stdin to the command and closes it', async () => {
     const result = await runBash(spec('cat', { stdin: 'hello from stdin\n' })).done
     expect(result.exitCode).toBe(0)

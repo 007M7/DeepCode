@@ -46,21 +46,20 @@ describe('agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    // Turn boundaries are live agent/* emits; step boundaries are durable
-    // session events only (no agent/* mirror). Interleave both feeds in fire
-    // order to assert the full boundary nesting.
+    // All boundaries — turn and step — are durable session events on the
+    // session/event feed (no agent/* mirror). Record them in fire order to
+    // assert the full boundary nesting.
     const order: string[] = []
-    for (const name of ['agent/turn-start', 'agent/turn-end'] as const) {
-      ctx.on(name, () => void order.push(name))
-    }
     ctx.on('session/event', (_session, event) => {
-      if (event.type === 'step/start' || event.type === 'step/end') order.push(event.type)
+      if (event.type === 'turn/start' || event.type === 'step/start' || event.type === 'step/end' || event.type === 'turn/end') {
+        order.push(event.type)
+      }
     })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
 
-    expect(order).toEqual(['agent/turn-start', 'step/start', 'step/end', 'agent/turn-end'])
+    expect(order).toEqual(['turn/start', 'step/start', 'step/end', 'turn/end'])
 
     const types = agent.session.events.map(e => e.type)
     // turn/start opens the turn, THEN the queued user message is recorded inside
@@ -326,13 +325,117 @@ describe('agent loop', () => {
     expect(adapter.requests[0]!.model).toBe('other-model')
   })
 
+  it('agent/pre-step fires once per step before the step is opened', async () => {
+    // Two steps (a tool call, then a final text turn) → two model calls → two
+    // pre-step fires, each carrying the assembled full system prompt, BEFORE
+    // the step is opened and its request is derived (the request the adapter
+    // sees reflects any surface state at fire time).
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'echo', {}, 'calling echo'),
+      textResponse('done'),
+    ])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineTool({
+      name: 'echo', description: 'echo', parameters: {},
+      async execute() { return [{ type: 'text', text: 'echoed' }] },
+    }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    const fires: { turn: number; step: number; fullSystemPrompt: string }[] = []
+    ctx.on('agent/pre-step', (subject, turn, step, fullSystemPrompt) => {
+      if (subject === agent) fires.push({ turn, step, fullSystemPrompt })
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    // One fire per step, in order, each with the assembled system prompt.
+    expect(fires).toEqual([
+      { turn: 1, step: 1, fullSystemPrompt: '' },
+      { turn: 1, step: 2, fullSystemPrompt: '' },
+    ])
+  })
+
+  it('agent/pre-step fires BEFORE the step it precedes opens (events land outside the step)', async () => {
+    // A listener appending a surface node in pre-step lands it BEFORE step/start
+    // in the log — proving the seam fires outside the step. The node is still in
+    // the derived request for that step (derive happens after step/start).
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    let injected = false
+    ctx.on('agent/pre-step', (subject) => {
+      if (subject === agent && !injected) {
+        injected = true
+        subject.session.append('context/message', {
+          content: [{ type: 'text', text: 'INJECTED-IN-PRE-STEP' }],
+          source: { kind: 'plugin', plugin: 'test' },
+        }, { surfaceOp: 'append' })
+      }
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    // The adapter's request includes the node injected during pre-step (derive
+    // reflects it).
+    const text = JSON.stringify(adapter.requests[0]!.messages)
+    expect(text).toContain('INJECTED-IN-PRE-STEP')
+
+    // And the injected event sits BEFORE the first step/start in the log —
+    // the seam fired outside the step.
+    const events = agent.session.events
+    const injectedSeq = events.find(e => e.type === 'context/message')!.seq
+    const firstStepStartSeq = events.find(e => e.type === 'step/start')!.seq
+    expect(injectedSeq).toBeLessThan(firstStepStartSeq)
+  })
+
+  it('a throwing agent/pre-step listener ends the turn (error), not the loop', async () => {
+    // The seam fires before step/start, so a throw escapes to runTurn's outer
+    // catch: the not-yet-open step closes as a no-op, the failure surfaces via
+    // agent/error, and the turn ends `error` (recorded on the durable turn/end).
+    // The loop survives and a follow-up prompt still runs.
+    const adapter = new MockAdapter([textResponse('second turn ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    let throwOnce = true
+    ctx.on('agent/pre-step', () => {
+      if (throwOnce) { throwOnce = false; throw new Error('boom in pre-step') }
+    })
+
+    const errors: Error[] = []
+    ctx.on('agent/error', (_a, _t, _s, error) => void errors.push(error))
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    // The first turn failed at step 1 (no model call happened), surfaced via
+    // agent/error, with the durable failure on turn/end.reason.
+    expect(errors).toHaveLength(1)
+    expect(errors[0]!.message).toContain('boom in pre-step')
+    expect(adapter.requests.length).toBe(0)
+    const firstTurnEnd = agent.session.events.find(e => e.type === 'turn/end')
+    expect(firstTurnEnd?.type === 'turn/end' && firstTurnEnd.data.reason).toMatchObject({ kind: 'error', step: 1 })
+    // The step opened-and-closed count stays balanced even though it never ran.
+    const types = agent.session.events.map(e => e.type)
+    expect(types.filter(t => t === 'step/start').length).toBe(types.filter(t => t === 'step/end').length)
+
+    // The loop survived: a second prompt runs a normal completed turn.
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+    expect(adapter.requests.length).toBe(1)
+    const lastTurnEnd = agent.session.events.findLast(e => e.type === 'turn/end')
+    expect(lastTurnEnd?.type === 'turn/end' && lastTurnEnd.data.reason).toEqual({ kind: 'completed' })
+  })
+
   it('cancel() mid-stream ends the turn with reason aborted', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     // wait until the stream is hanging, then cancel
@@ -352,7 +455,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -386,7 +489,7 @@ describe('agent loop', () => {
     })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -408,7 +511,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'first')
     await waitForIdle(ctx, agent)
@@ -441,7 +544,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -483,7 +586,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -502,7 +605,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -579,7 +682,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const turns: number[] = []
-    ctx.on('agent/turn-start', (_agent, turn) => void turns.push(turn))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/start') turns.push(event.data.turn) })
 
     // queue two messages while idle — first starts turn 1 immediately;
     // queue the second during turn 1 via a stream-chunk hook
@@ -626,7 +729,7 @@ describe('agent loop', () => {
     const errors: Error[] = []
     const reasons: TurnEndReason[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)

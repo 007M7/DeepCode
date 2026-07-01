@@ -33,18 +33,18 @@ The full `agent/*` event taxonomy is declared via declaration merging in `dsh-ag
 - `agent/queued` — message entered inbox (source-resolved, steering flag)
 - `agent/session-start` — the session lifecycle began (once, before turn 1), carrying a `SessionStartSource` (`startup` for a fresh or forked create, `resume` for a reloaded persisted session; `clear`/`compact` reserved). A pure notification — it cannot block startup; a listener seeds context via `agent.inject()` (a `context/message` the first request sees).
 
-#### Turn boundaries (emit)
+#### Boundaries are durable session events, not `agent/*` emits
 
-- `agent/turn-start`, `agent/turn-end` (carries `TurnEndReason`)
+Turn and step boundaries are NOT mirrored as `agent/*` emits: a consumer that needs them reads the durable `turn/start`/`turn/end`/`step/start`/`step/end` events off the `session/event` feed (the session log is the live boundary feed, carrying the `Session` — the turn/step numbers and reasons ride on the event data). See [the event-domain-semantics RFC](../../../docs/rfc/implemented/architecture/2026-06-30-event-domain-semantics.md) and [the remove-boundary-mirror-events RFC](../../../docs/rfc/implemented/simplification/2026-06-20-remove-agent-boundary-mirror-events.md).
 
-Step boundaries are NOT mirrored as `agent/*` emits: a consumer that needs per-step boundaries reads the durable `step/start`/`step/end` session events (the session log is the live boundary feed). The turn boundaries stay as `agent/*` emits because the stdio UI needs the `Agent` handle (`agent.id`) at the boundary, which the session event does not carry. See [the event-domain-semantics RFC](../../../docs/rfc/implemented/architecture/2026-06-30-event-domain-semantics.md).
+#### Interception seams
 
-#### Interception seams (waterfall)
+`agent/pre-step` is a **serial** surface-mutation checkpoint; the rest are **waterfalls** that return a small, seam-specific typed **Decision** union (the unified idiom across the taxonomy — a CC/Codex bridge maps its `permissionDecision`/`decision`/`continue` fields onto these, a native plugin returns them directly):
 
-Each interception waterfall returns a small, seam-specific typed **Decision** union (the unified idiom across the taxonomy — a CC/Codex bridge maps its `permissionDecision`/`decision`/`continue` fields onto these, a native plugin returns them directly):
-
+- `agent/session-start` (emit) — fired once before the first turn; a listener seeds context via `agent.inject()` (it cannot veto startup).
 - `agent/prompt-submit` — decide what happens to one drained queued message before it becomes a `user/message`: `PromptDecision` = `allow` (optionally rewriting the prompt `content` or attaching `additionalContext`) or `block` (drop it; a batch whose every prompt is blocked opens a zero-step turn that ends `rejected`). Maps onto Claude Code's `UserPromptSubmit`.
-- `agent/request` — mutate `GenerateOptions` before the model call (hooks, compaction, model switching, tool filtering)
+- `agent/pre-step` (serial) — mutate the session surface before the step opens and history is derived (compaction). Fires after `turn/start` and before `step/start`, so a listener's appended events land outside the step.
+- `agent/request` — mutate `GenerateOptions` before the model call (hooks, model switching, tool filtering)
 - `agent/step-result` — post-process the assembled assistant message before tool dispatch (validates what the log records)
 - `agent/turn-continuation` — override the continue/stop decision via `ContinuationDecision` = `{action:'stop'}` or `{action:'continue', reason?}` (a `continue` `reason` is recorded as next-step steering in the same turn — the typed `/goal` pattern). Force-continue `/loop`, force-stop budget guard.
 

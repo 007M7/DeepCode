@@ -16,7 +16,7 @@
  * depends on `dsh-session` and `dsh-llm`: the contract's verbs are defined over
  * a `Session` and its output is the `ContentBlock` vocabulary. That deviation
  * from the "interface depends only on cordis" guidance is intentional and
- * recorded in the [compaction capability-seam RFC](../../../../docs/rfc/proposed/feature/2026-06-18-compaction-capability-seam.md).
+ * recorded in the [compaction capability-seam RFC](../../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md).
  *
  * @module @deepseek-ai/dsh-compact
  */
@@ -26,6 +26,12 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type { CompactionResult } from './types.ts'
 
 export type { CompactionResult } from './types.ts'
+
+/** Minimal agent context compaction needs without depending on the agent package. */
+export interface CompactAgentContext {
+  session: Session
+  options: { model?: string }
+}
 
 declare module 'cordis' {
   interface Context {
@@ -62,24 +68,44 @@ export abstract class CompactService extends Service {
   /**
    * Check token pressure and compact if the conversation is too large.
    *
-   * Estimates the current history size (optionally including a system prompt),
-   * and if it exceeds the backend's threshold, compacts an older range via
-   * {@link compactRegion}, keeping recent context intact.
+   * Estimates the current surface-derived history size (including the system
+   * prompt), and if it exceeds the backend's threshold, compacts an older range
+   * via {@link compactRegion}, keeping recent context intact. Returns `null`
+   * when no compaction is needed.
    *
-   * @param session - the session whose surface may be compacted.
-   * @param systemPrompt - optional system prompt, counted toward the estimate.
-   * @param model - optional summarization model (falls back to backend config).
-   * @param signal - optional cancellation signal. A backend that summarizes via
+   * Scope and guarantees a backend MUST honor:
+   * - **Surface-derived history only.** The decision is made against the history
+   *   derived from the session surface — the only thing compaction can act on.
+   *   Non-surface context injected downstream (into the request `messages` by a
+   *   later listener) is out of this accounting by construction.
+   * - **Head-anchored, best-effort.** Auto-compaction consolidates from the
+   *   surface HEAD up to a balanced tool-pairing cutoff, so a prior head
+   *   checkpoint is
+   *   re-summarized into one fresh checkpoint (the surface holds at most one
+   *   auto-generated checkpoint, always at the head). It is best-effort over
+   *   CLOSED steps: when the only compactable content left is an un-splittable
+   *   open tail step, it declines (`null`) and retries once that step closes.
+   * - **Single-unit overflow is out of scope.** If a single retained unit (one
+   *   closed step, or a large free node such as a pasted `user/message`) ALONE
+   *   exceeds the budget, compaction cannot help and the call may go out
+   *   over-budget. Bounding an individual unit's size is a separate concern.
+   *
+   * @param agent - agent context owning the session surface and model options.
+   * @param turn - turn number of the pre-step checkpoint.
+   * @param step - step number about to start.
+   * @param fullSystemPrompt - assembled system prompt, counted toward the estimate.
+   * @param signal - cancellation signal. A backend summarizing via
    *   `ctx.llm.stream()` MUST forward this into the call's `GenerateOptions.signal`
    *   so an abort/dispose tears down the in-flight summarization rather than
    *   leaving an orphaned model call running past the cancellation.
    * @returns the compaction result, or `null` if no compaction was needed.
    */
   abstract compactIfNeeded(
-    session: Session,
-    systemPrompt?: string,
-    model?: string,
-    signal?: AbortSignal,
+    agent: CompactAgentContext,
+    turn: number,
+    step: number,
+    fullSystemPrompt: string,
+    signal: AbortSignal,
   ): Promise<CompactionResult | null>
 
   /**
@@ -89,22 +115,40 @@ export abstract class CompactService extends Service {
    * summarizes their content and appends a replacement surface node. Used by the
    * (future) `/compact` tool and internally by {@link compactIfNeeded}.
    *
+   * The region MUST NOT split a step's `assistant/message` tool-calls from their
+   * `tool/result`s, leaving the rehydrated transcript with a dangling tool-call
+   * or an orphaned tool-result that every provider rejects. A region is safe iff
+   * both its edges are balanced cuts on the surface: the cut before `start` and
+   * the cut after `end` each have no unanswered tool-call before them. A node
+   * that belongs to no step (a pre-step user message, inter-step steering, or an
+   * injection context message) is a balanced (free) boundary; an `end` inside an
+   * open (unclosed) tail step is invalid — its tool-calls have no results yet.
+   * `dsh-session` exports `isToolPairingBalanced` for this check.
+   *
    * @param session - the session whose surface is mutated.
    * @param start - inclusive seq of the first surface node to compact.
    * @param end - inclusive seq of the last surface node to compact.
-   * @param model - summarization model.
+   * @param agent - agent context used by router-aware summarizers.
+   * @param turn - lifecycle turn forwarded to request-routing seams.
+   * @param step - lifecycle step forwarded to request-routing seams.
    * @param signal - optional cancellation signal. A backend that summarizes via
    *   `ctx.llm.stream()` MUST forward this into the call's `GenerateOptions.signal`
    *   so an abort/dispose tears down the in-flight summarization rather than
    *   leaving an orphaned model call running past the cancellation.
-   * @throws if compaction is already in progress, or if `start`/`end` are not
-   *   valid surface nodes, or if `start > end`.
+   * @throws if compaction is already in progress, if `start`/`end` are not
+   *   valid surface nodes, if `start` is positioned after `end` on the surface
+   *   (the range is a surface-POSITION span, not a numeric seq interval — a
+   *   prior replace can leave the surface non-monotonic in seq order), or if
+   *   either boundary is not a balanced tool-pairing cut (would split a step's
+   *   tool-call/result pair).
    */
   abstract compactRegion(
     session: Session,
     start: number,
     end: number,
-    model: string,
+    agent: CompactAgentContext,
+    turn: number,
+    step: number,
     signal?: AbortSignal,
   ): Promise<CompactionResult>
 }

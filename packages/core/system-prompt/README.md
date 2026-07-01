@@ -34,4 +34,4 @@ Merge-extensible: plugins can declare extra fields on `PromptAssembly` via decla
 ### What is NOT here
 
 - Any hardcoded prompt text — every section comes from plugins.
-- Prompt compaction (belongs on the `agent/request` seam in `dsh-agent`).
+- Prompt compaction (belongs on the `agent/pre-step` seam in `dsh-agent`).

@@ -56,9 +56,17 @@ function makeAgent(id: string, status: AgentStatus = 'idle'): Agent & {
     status,
     sent,
     steered,
+    // A minimal session stub: the UI reads only `session.header.id` (to map the
+    // session back to its agent id for the turn-boundary label).
+    session: { header: { id: `${id}-session` } },
     send: (content: ContentBlock[]) => void sent.push(content),
     steer: (content: ContentBlock[]) => void steered.push(content),
   } as never
+}
+
+/** A session stub whose `header.id` matches an agent's, for `session/event` emits. */
+function makeSession(agentId: string): Session {
+  return { header: { id: `${agentId}-session` } } as Session
 }
 
 const CONFIG: Config = { welcome: 'hi there', agent: 'main' }
@@ -116,21 +124,52 @@ describe('createStdioChat rendering', () => {
     expect(out.text()).toBe(before)
   })
 
-  it('renders turn-start and turn-end markers', async () => {
+  it('renders turn/start and turn/end markers from the session feed', async () => {
     const { ctx, out } = await setup()
     const agent = makeAgent('main')
-    ctx.emit('agent/turn-start', agent, 3)
+    // agent/created populates the session-id → agent-id label map.
+    ctx.emit('agent/created', agent)
+    const session = makeSession('main')
+    ctx.emit('session/event', session, {
+      type: 'turn/start', seq: 1, time: 0, data: { turn: 3, trigger: { kind: 'message' } },
+    } as SessionEvent)
     expect(out.text()).toContain('[main turn 3] ')
-    ctx.emit('agent/turn-end', agent, 3, { kind: 'completed' })
+    ctx.emit('session/event', session, {
+      type: 'turn/end', seq: 2, time: 0, data: { turn: 3, reason: { kind: 'completed' } },
+    } as SessionEvent)
     expect(out.text()).toContain('\n> ')
   })
 
-  it('resets dim styling at turn-end if a turn ends mid-reasoning', async () => {
+  it('falls back to the session id as the label when no agent is mapped', async () => {
+    const { ctx, out } = await setup()
+    // No agent/created emitted, so the label map is empty — the header id shows.
+    ctx.emit('session/event', makeSession('orphan'), {
+      type: 'turn/start', seq: 1, time: 0, data: { turn: 1, trigger: { kind: 'message' } },
+    } as SessionEvent)
+    expect(out.text()).toContain('[orphan-session turn 1] ')
+  })
+
+  it('resets dim styling at turn/end if a turn ends mid-reasoning', async () => {
     const { ctx, out } = await setup()
     const agent = makeAgent('main')
     ctx.emit('agent/stream-chunk', agent, 1, 0, { type: 'reasoning-delta', index: 0, text: 'mid' })
-    ctx.emit('agent/turn-end', agent, 1, { kind: 'completed' })
+    ctx.emit('session/event', makeSession('main'), {
+      type: 'turn/end', seq: 1, time: 0, data: { turn: 1, reason: { kind: 'completed' } },
+    } as SessionEvent)
     expect(out.text()).toContain('\x1B[2mmid\x1B[0m')
+  })
+
+  it('drops the label mapping on agent/disposed', async () => {
+    const { ctx, out } = await setup()
+    const agent = makeAgent('main')
+    ctx.emit('agent/created', agent)
+    ctx.emit('agent/disposed', agent)
+    // After disposal the map no longer resolves the agent id — fall back to the
+    // session header id.
+    ctx.emit('session/event', makeSession('main'), {
+      type: 'turn/start', seq: 1, time: 0, data: { turn: 1, trigger: { kind: 'message' } },
+    } as SessionEvent)
+    expect(out.text()).toContain('[main-session turn 1] ')
   })
 
   it('renders tool/call and tool/result session events', async () => {
@@ -196,7 +235,8 @@ describe('createStdioChat rendering', () => {
     const { ctx, out } = await setup()
     const before = out.text()
     ctx.emit('session/event', {} as Session, {
-      type: 'turn/start', seq: 1, time: 0, data: { turn: 1, trigger: { kind: 'continuation' } },
+      type: 'user/message', seq: 1, time: 0,
+      data: { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } },
     } as SessionEvent)
     expect(out.text()).toBe(before)
   })

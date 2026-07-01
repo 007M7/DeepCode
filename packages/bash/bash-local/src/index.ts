@@ -116,8 +116,8 @@ export class LocalBashExecutor extends BashExecutor {
       workdir: request.workdir ?? this.config.cwd ?? process.cwd(),
       timeoutMs,
       ...request.signal ? { signal: request.signal } : {},
-      // Carry the trusted-plugin stdin/env through verbatim — optional, no
-      // config default (absent means none). env merges AFTER the scrub in run.ts.
+      // Carry stdin/env through verbatim — optional, no config default (absent
+      // means none). env merges AFTER the scrub in run.ts.
       ...request.stdin !== undefined ? { stdin: request.stdin } : {},
       ...request.env !== undefined ? { env: request.env } : {},
       // Carry the owner through verbatim (required-but-nullable on the spec):

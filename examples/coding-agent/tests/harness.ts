@@ -11,6 +11,8 @@ import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
+import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
 
 /**
  * Shared harness for the coding-agent e2e suites: the full plugin stack
@@ -29,7 +31,19 @@ export const TODO_SYSTEM_PROMPT = 'You are a coding agent. For multi-step work, 
   + 'keep at most one task in_progress (exactly one while work remains), and mark '
   + 'a task completed as soon as it is done.'
 
-export async function codingHarness(workdir: string, persistenceRoot?: string): Promise<Context> {
+/** Options for {@link codingHarness}. */
+export interface CodingHarnessOptions {
+  /** Durable JSONL persistence root (the resume suite needs it; others stay file-free). */
+  persistenceRoot?: string
+  /**
+   * Load {@link BasicCompactService} with this config so the compaction e2e can
+   * trigger compaction at a small, controlled history size. Omitted ⇒ no
+   * compaction plugin (the default suites run without it).
+   */
+  compact?: BasicCompactConfig
+}
+
+export async function codingHarness(workdir: string, options: CodingHarnessOptions = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
@@ -41,10 +55,13 @@ export async function codingHarness(workdir: string, persistenceRoot?: string): 
   await ctx.plugin(LocalBashExecutor, { cwd: workdir, timeoutMs: 30_000 })
   await ctx.plugin(ToolBash)
   await ctx.plugin(ToolTodo)
+  // Compaction is opt-in: only the compaction e2e loads it, with a lowered
+  // contextWindow/retainTokens so a short real session crosses the threshold.
+  if (options.compact !== undefined) await ctx.plugin(BasicCompactService, options.compact)
   // Durable JSONL persistence is opt-in: only the resume e2e needs it, and the
   // other suites stay file-free. Loaded last so a resume's deferred
   // `ctx.inject(['sessionPersistence'])` resolves once this is present.
-  if (persistenceRoot !== undefined) await ctx.plugin(SessionPersistenceJsonl, { root: persistenceRoot })
+  if (options.persistenceRoot !== undefined) await ctx.plugin(SessionPersistenceJsonl, { root: options.persistenceRoot })
   return ctx
 }
 
