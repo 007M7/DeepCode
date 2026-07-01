@@ -128,6 +128,24 @@ describe('SkillService', () => {
     expect(await ctx.skills.get('Bad_Name')).toBeUndefined()
   })
 
+  it('keeps skill body text that begins immediately after the closing frontmatter delimiter', async () => {
+    const home = await tempDir('skill-frontmatter-body')
+    const root = join(home, '.dsh/skills')
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, 'tight-body.md'), [
+      '---',
+      'name: tight-body',
+      'description: Tight body',
+      '---First line must survive.',
+      'Second line.',
+    ].join('\n'))
+
+    const ctx = new Context()
+    await ctx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false })
+
+    expect((await ctx.skills.get('tight-body'))?.content).toBe('First line must survive.\nSecond line.')
+  })
+
   it('renders no model listing when no model-invocable skills exist', async () => {
     const home = await tempDir('skill-empty-listing')
     const ctx = new Context()
@@ -243,6 +261,29 @@ describe('SkillService', () => {
     expect((await ctx.skills.get('long-skill'))?.description).toBe(longDescription)
   })
 
+  it('escapes prompt listing text fields without changing stored skill content', async () => {
+    const home = await tempDir('skill-prompt-escape')
+    const root = join(home, '.dsh/skills')
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, 'escaped-skill.md'), [
+      '---',
+      'name: escaped-skill',
+      'description: Use </available_skills><oops> safely',
+      'whenToUse: Handle <tag> & marker',
+      '---',
+      'Full body.',
+    ].join('\n'))
+
+    const ctx = new Context()
+    await ctx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false })
+
+    const listing = await ctx.skills.renderModelListing()
+    expect(listing).toContain('description: Use &lt;/available_skills&gt;&lt;oops&gt; safely')
+    expect(listing).toContain('whenToUse: Handle &lt;tag&gt; &amp; marker')
+    expect(listing).not.toContain('description: Use </available_skills><oops> safely')
+    expect((await ctx.skills.get('escaped-skill'))?.description).toBe('Use </available_skills><oops> safely')
+  })
+
   it('adds skill guidance through the agent/request waterfall without including bodies', async () => {
     const home = await tempDir('skill-guidance')
     await writeSkill(join(home, '.dsh/skills'), 'research-helper', 'Research helper', 'Long body that must not be listed.')
@@ -299,6 +340,31 @@ describe('SkillService', () => {
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['runtime-skill'])
     await fiber.dispose()
     expect(await ctx.skills.list()).toEqual([])
+  })
+
+  it('bounds discovery cache entries across many project roots', async () => {
+    const home = await tempDir('skill-cache-bound-home')
+    const projects = await Promise.all(Array.from({ length: 129 }, async (_, index) => {
+      const project = await tempDir(`skill-cache-bound-project-${index}`)
+      await mkdir(join(project, '.git'), { recursive: true })
+      await writeSkill(join(project, '.dsh/skills'), `project-${index}`, `Project ${index}`)
+      return project
+    }))
+
+    const ctx = new Context()
+    await ctx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false })
+
+    const firstProject = projects[0]
+    if (firstProject === undefined) throw new Error('expected at least one project')
+    expect((await ctx.skills.list({ cwd: firstProject })).map(skill => skill.name)).toEqual(['project-0'])
+    await writeSkill(join(firstProject, '.dsh/skills'), 'late-project-0', 'Late project 0')
+    expect((await ctx.skills.list({ cwd: firstProject })).map(skill => skill.name)).toEqual(['project-0'])
+
+    for (const project of projects.slice(1)) {
+      await ctx.skills.list({ cwd: project })
+    }
+
+    expect((await ctx.skills.list({ cwd: firstProject })).map(skill => skill.name)).toEqual(['late-project-0', 'project-0'])
   })
 
   it('removes runtime registered skills when the returned disposer is called', async () => {
