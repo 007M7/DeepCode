@@ -277,6 +277,41 @@ describe('SubagentService', () => {
     expect('lastAssistantMessage' in endInfo).toBe(false) // but no output exists
   })
 
+  it('contains a structuredClone failure: emits subagent/end without lastAssistantMessage (no unhandled rejection)', async () => {
+    // The clone runs inside onFulfilled, OUTSIDE emitLifecycle's per-listener
+    // containment. An uncloneable output (here a content block carrying a
+    // function) would otherwise throw and become an unhandled rejection on the
+    // detached `.then`. The handler must instead log and emit the event WITHOUT
+    // lastAssistantMessage, still carrying the real stopReason/agentType.
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const warn = vi.fn(); ctx.logger.warn = warn as never
+    // An output value structuredClone cannot handle (a function is uncloneable).
+    const uncloneable = [{ type: 'text', text: 'x', evil: () => 0 }] as unknown as SubagentResult['output']
+    ctx.subagents.registerProvider({
+      name: 'unclone',
+      capabilities: NO_CAPS,
+      start: () => ({
+        id: AgentId('unclone-child'),
+        result: Promise.resolve({ output: uncloneable, stopReason: 'completed' } as SubagentResult),
+        cancel() {},
+        dispose: async () => {},
+      }),
+    })
+
+    const ended = vi.fn()
+    ctx.on('subagent/end', ended)
+    const run = ctx.subagents.start('unclone', baseRequest({ agentType: 'researcher' }))
+    await run.result
+    await Promise.resolve()
+
+    const endInfo = ended.mock.calls[0]![0] as Record<string, unknown>
+    expect(endInfo.stopReason).toBe('completed')        // the real outcome is preserved
+    expect(endInfo.agentType).toBe('researcher')
+    expect('lastAssistantMessage' in endInfo).toBe(false) // clone failed → omitted, not crashed
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not clone'))
+  })
+
   it('emits subagent/end with stopReason "error" when the run result promise rejects', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)

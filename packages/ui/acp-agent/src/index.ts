@@ -14,11 +14,12 @@
  * which this app does not prevent — so the rule "never add a stdout logger to an
  * ACP leaf" still stands; the app just gives the leaf nothing to misconfigure.)
  *
- * The leaf supplies only the swappable backends: the LLM adapter (`llm-deepseek`
- * for the real model, `llm-replay` for keyless snapshot replay) and the bash
- * executor (`bash-local`). This app's {@link Config} (model, system prompt,
- * persistence root) routes each value to where it is wired — model/prompt onto
- * the bridge's per-session agent template, the root onto the JSONL backend.
+ * The leaf supplies the swappable backends: the LLM adapter (`llm-deepseek` for
+ * the real model, `llm-replay` for keyless snapshot replay), the bash executor
+ * (`bash-local`), and any optional product tools it wants to expose. This app's
+ * {@link Config} (model, system prompt, persistence root) routes each value to
+ * where it is wired — model/prompt onto the bridge's per-session agent
+ * template, the root onto the JSONL backend.
  *
  * Plugin export shape: named `name`/`Config`/`apply`, NO default export — the
  * cordis Loader's `unwrapExports` does `exports.default ?? exports`, so a stray
