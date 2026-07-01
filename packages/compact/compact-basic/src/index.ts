@@ -39,7 +39,7 @@ import type { BasicCompactConfig, ResolvedConfig } from './types.ts'
 import { resolveConfig } from './types.ts'
 
 export type { BasicCompactConfig, ResolvedConfig } from './types.ts'
-export { DEFAULTS, resolveConfig } from './types.ts'
+export { resolveConfig } from './types.ts'
 
 /** Per-block structural overhead for JSON framing / type tag. */
 const BLOCK_OVERHEAD = 4
@@ -155,10 +155,10 @@ function finishError(finish: FinishReason): Error | undefined {
 export class BasicCompactService extends CompactService {
   static inject = ['llm']
 
-  /** Resolved configuration (defaults applied). */
+  /** Resolved configuration (`auto` defaulted). */
   readonly config: ResolvedConfig
 
-  constructor(ctx: Context, config: BasicCompactConfig = {}) {
+  constructor(ctx: Context, config: BasicCompactConfig) {
     super(ctx)
     this.config = resolveConfig(config)
 
@@ -207,6 +207,9 @@ export class BasicCompactService extends CompactService {
 
   // ---- Token estimation (overridable hooks) ----
 
+  // TODO: char/4 is a coarse heuristic. Replace with an exact count — a real
+  // tokenizer, or the provider's post-response `usage` (input tokens) fed back
+  // as a correction — so threshold decisions match the model's actual budget.
   /**
    * Estimate the token count of content blocks — char/4 with per-block
    * overhead. Override in a subclass to plug in a real tokenizer.

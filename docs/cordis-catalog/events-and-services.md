@@ -49,7 +49,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:249`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:254`](../../packages/core/agent/src/types.ts)
 
 #### `agent/pre-step` — serial
 
@@ -63,7 +63,7 @@ Serial (awaited in registration order), not a waterfall: a listener mutates the 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:209`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:214`](../../packages/core/agent/src/types.ts)
 
 #### `agent/queued` — emit
 
@@ -87,7 +87,7 @@ Waterfall: mutate the fully-assembled GenerateOptions before the model call (hoo
 
 Types: [Agent](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:218`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:223`](../../packages/core/agent/src/types.ts)
 
 #### `agent/status` — emit
 
@@ -111,7 +111,7 @@ Steering content was injected into a running turn.
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:243`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:248`](../../packages/core/agent/src/types.ts)
 
 #### `agent/step-end` — emit
 
@@ -135,7 +135,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:224`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:229`](../../packages/core/agent/src/types.ts)
 
 #### `agent/step-start` — emit
 
@@ -159,7 +159,7 @@ A raw StreamChunk arrived from the model (token-level UI/log feed).
 
 Types: [Agent](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/agent/src/types.ts:238`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:243`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-continuation` — waterfall
 
@@ -171,7 +171,7 @@ Waterfall: override the turn-continuation decision. The default (computed by the
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:231`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:236`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-end` — emit
 

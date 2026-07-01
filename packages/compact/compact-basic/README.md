@@ -21,15 +21,17 @@ The abstract contract states only WHAT compaction does; this backend owns every 
 
 ## Config (`BasicCompactConfig`)
 
-| Key | Default | Meaning |
+Every knob is **required** except `auto` — there is no concrete data yet to justify default thresholds/budgets, so a consumer states each value explicitly rather than inherit a guessed default. `auto` alone defaults to `true`.
+
+| Key | Required | Meaning |
 |---|---|---|
-| `contextWindow` | `128000` | Context window size in tokens. |
-| `thresholdRatio` | `0.8` | Compact when estimated usage exceeds this fraction of the window. |
-| `retainTokens` | `20480` | Tokens of recent context to keep intact. |
-| `summarizationModel` | `''` | Model for summarization (empty → use the agent's model). |
-| `maxTokens` | `8192` | Provider generation cap for the summarization call; may include reasoning tokens. |
-| `compactionRetries` | `1` | Extra compaction attempts after the first if the compacted surface remains over threshold. |
-| `auto` | `true` | Register the `agent/pre-step` auto-compaction listener. Set `false` for manual-only. |
+| `contextWindow` | yes | Context window size in tokens. |
+| `thresholdRatio` | yes | Compact when estimated usage exceeds this fraction of the window. |
+| `retainTokens` | yes | Tokens of recent context to keep intact. |
+| `summarizationModel` | yes | Model for summarization (`''` → use the agent's model). |
+| `maxTokens` | yes | Provider generation cap for the summarization call; may include reasoning tokens. |
+| `compactionRetries` | yes | Extra compaction attempts after the first if the compacted surface remains over threshold. |
+| `auto` | no (default `true`) | Register the `agent/pre-step` auto-compaction listener. Set `false` for manual-only. |
 
 ## Usage
 
@@ -41,7 +43,14 @@ export const name = 'compact-basic'
 export const inject = ['llm']
 
 export function apply(ctx: Context): void {
-  ctx.plugin(BasicCompactService, { contextWindow: 128000, retainTokens: 20480 })
+  ctx.plugin(BasicCompactService, {
+    contextWindow: 128000,
+    thresholdRatio: 0.8,
+    retainTokens: 20480,
+    summarizationModel: '',
+    maxTokens: 8192,
+    compactionRetries: 1,
+  })
 }
 ```
 

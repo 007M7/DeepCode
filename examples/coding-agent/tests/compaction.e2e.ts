@@ -50,7 +50,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
         contextWindow: 2400,
         thresholdRatio: 0.5,
         retainTokens: 500,
+        summarizationModel: '',
         maxTokens: 2048,
+        compactionRetries: 1,
       },
       persistenceRoot: './.sessions',
     })

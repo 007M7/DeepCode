@@ -81,7 +81,11 @@
   name: '@deepseek-ai/dsh-compact-basic'
   config:
     contextWindow: 128000
+    thresholdRatio: 0.8
     retainTokens: 20480
+    summarizationModel: ''
+    maxTokens: 8192
+    compactionRetries: 1
 
 # The subagent seam + BOTH in-process backends + two model-facing tools, as leaf
 # entries after the app (which provides ctx.agents/ctx.tools). spawn (a fresh

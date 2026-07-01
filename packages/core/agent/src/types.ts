@@ -206,6 +206,11 @@ declare module 'cordis' {
      * summarization model call).
      * @mode serial
      */
+    // TODO: `fullSystemPrompt` is a smell on a generic per-step seam — compaction
+    // is its only consumer, so a wide event carries a string just one listener
+    // reads. Revisit if no second consumer appears: e.g. hand listeners a lazy
+    // prompt provider, or move token-pressure measurement behind a
+    // compaction-specific seam instead of the shared pre-step checkpoint.
     'agent/pre-step'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal): Promise<void> | void
     /**
      * Waterfall: mutate the fully-assembled {@link GenerateOptions} before the

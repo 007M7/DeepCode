@@ -9,40 +9,34 @@
  * @module @deepseek-ai/dsh-compact-basic/types
  */
 
-/** Backend configuration — all optional with sensible defaults. */
+/**
+ * Backend configuration. Every knob is REQUIRED except `auto`: there is no
+ * concrete data yet to justify default thresholds/budgets, so a consumer must
+ * state each value explicitly rather than inherit a guessed default. `auto`
+ * alone defaults to `true` (auto-compaction is the intended posture).
+ */
 export interface BasicCompactConfig {
-  /** Context window size in tokens (default 128000). */
-  contextWindow?: number
-  /** Compact when estimated token usage exceeds this fraction of context window (default 0.8). */
-  thresholdRatio?: number
-  /** Number of tokens of recent context to retain during compaction (default 20480). */
-  retainTokens?: number
-  /** Model to use for summarization (default '' — uses the agent's model). */
-  summarizationModel?: string
-  /** Provider generation cap for the summarization call (default 8192). */
-  maxTokens?: number
-  /** Extra compaction attempts when the first compacted surface is still over threshold (default 1). */
-  compactionRetries?: number
+  /** Context window size in tokens. */
+  contextWindow: number
+  /** Compact when estimated token usage exceeds this fraction of context window. */
+  thresholdRatio: number
+  /** Number of tokens of recent context to retain during compaction. */
+  retainTokens: number
+  /** Model to use for summarization (`''` — uses the agent's model). */
+  summarizationModel: string
+  /** Provider generation cap for the summarization call. */
+  maxTokens: number
+  /** Extra compaction attempts when the first compacted surface is still over threshold. */
+  compactionRetries: number
   /** Enable automatic compaction on the `agent/pre-step` seam (default true). */
   auto?: boolean
 }
 
-/** Resolved config with all defaults applied. */
+/** Resolved config with `auto` defaulted. */
 export type ResolvedConfig = Required<BasicCompactConfig>
 
-/** Default configuration values. */
-export const DEFAULTS: ResolvedConfig = {
-  contextWindow: 128000,
-  thresholdRatio: 0.8,
-  retainTokens: 20480,
-  summarizationModel: '',
-  maxTokens: 8192,
-  compactionRetries: 1,
-  auto: true,
-}
-
 /**
- * Apply defaults to a partial config and reject nonsensical numeric knobs.
+ * Default `auto` when unset and reject nonsensical numeric knobs.
  *
  * Convergence is not a static config invariant: provider generation caps can be
  * spent on hidden or surfaced reasoning tokens, and the model may emit a summary
@@ -52,7 +46,7 @@ export const DEFAULTS: ResolvedConfig = {
  * throwing if the surface still exceeds the threshold.
  */
 export function resolveConfig(config: BasicCompactConfig): ResolvedConfig {
-  const resolved = { ...DEFAULTS, ...config }
+  const resolved: ResolvedConfig = { auto: true, ...config }
 
   assertPositiveInteger('contextWindow', resolved.contextWindow)
   assertRatio('thresholdRatio', resolved.thresholdRatio)
