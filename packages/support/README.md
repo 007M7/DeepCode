@@ -7,5 +7,6 @@ Packages that exist to serve development, testing, and the examples rather than 
 | `invariants/` | Dev-mode event-contract invariants + session-log freeze | (listens on `session/*`, `agent/*`) |
 | `ui-stdio/` | Minimal stdio (readline) UI plugin: renders `agent/*` events, feeds stdin lines to the agent | (drives `ctx.agents`) |
 | `llm-replay/` | Record/replay adapter: short-circuits `llm/stream` from a recorded session JSONL (keyless snapshot tests) | (listens on `llm/stream`) |
+| `subagent-mock/` | Scripted `SubagentProvider` for deterministic seam/tool tests | (registers on `ctx.subagents`) |
 
-`invariants` runs only in dev mode (contract checks, not runtime behavior). `ui-stdio` and `llm-replay` were extracted from the examples for reuse and to bring them under the per-file coverage gate; they back the demos and the snapshot test tier. A package graduates OUT of `support/` into a product group only when it gains documented product consumers.
+`invariants` runs only in dev mode (contract checks, not runtime behavior). `ui-stdio` and `llm-replay` were extracted from the examples for reuse and to bring them under the per-file coverage gate; they back the demos and the snapshot test tier. `subagent-mock` exercises the real `ctx.subagents` load path without a model or child agent. A package graduates OUT of `support/` into a product group only when it gains documented product consumers.
