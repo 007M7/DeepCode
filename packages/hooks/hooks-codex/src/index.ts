@@ -86,7 +86,7 @@ export function apply(ctx: Context, config: Config): void {
     point: string,
     matchQuery: string,
     payload: unknown,
-    opts: { agent?: Agent; turn?: number; signal?: AbortSignal },
+    opts: { agent?: Agent; turn?: number; signal?: AbortSignal; plainStdoutAsContext?: boolean },
   ): Promise<MergedHookOutcome> {
     const groups: MatcherGroup[] = parsed[point] ?? []
     const outputs: HookOutput[] = []
@@ -108,6 +108,17 @@ export function apply(ctx: Context, config: Config): void {
           defaultTimeoutMs,
           trailingNewline: false, // Codex writes stdin WITHOUT a trailing newline.
         }, () => performance.now())
+        // Codex's SessionStart/UserPromptSubmit treat a clean hook's PLAIN
+        // (non-JSON) stdout as additionalContext. The codec keeps that raw text on
+        // `output.stdout` but only sets `additionalContext` from a JSON
+        // `hookSpecificOutput`, so fold plain stdout in here and let the shared
+        // merge + contextFrom path carry it. Guarded on the codec's own JSON gate
+        // (stdout starting with `{`) so a structured hook's raw JSON is never
+        // injected as prose, and it never clobbers an explicit additionalContext.
+        if (opts.plainStdoutAsContext === true && output.additionalContext === undefined
+          && output.stdout.length > 0 && !output.stdout.startsWith('{')) {
+          output.additionalContext = output.stdout
+        }
         outputs.push(output)
         if (session && opts.turn !== undefined) {
           const stderrSummary = summarize(output.stderr)
@@ -124,6 +135,12 @@ export function apply(ctx: Context, config: Config): void {
     return mergeHookOutputs(outputs)
   }
 
+  // TODO(hook-continue-false): the merge computes `merged.stop`/`stopReason` from
+  // a hook's `continue:false`, but no seam below honors it — there is no
+  // "hard-halt the whole agent" primitive on the interception seams yet. Deferred
+  // with the loop-guard work; until then a `continue:false` hook keeps its
+  // per-point effect and the halt request is recorded in `hook/result`, not acted on.
+
   function contextFrom(merged: MergedHookOutcome): HookContext | undefined {
     if (merged.additionalContext.length === 0) return undefined
     const content: ContentBlock[] = merged.additionalContext.map(text => ({ type: 'text', text }))
@@ -132,7 +149,7 @@ export function apply(ctx: Context, config: Config): void {
 
   // SessionStart: emit. Codex passes a plain-stdout hook's output as additionalContext.
   ctx.on('agent/session-start', (agent, source) => {
-    void runPoint('SessionStart', source, { ...base(agent, 'SessionStart', model), source }, { agent })
+    void runPoint('SessionStart', source, { ...base(agent, 'SessionStart', model), source }, { agent, plainStdoutAsContext: true })
       .then((merged) => {
         const context = contextFrom(merged)
         if (context) agent.inject(context.content, { source: context.source })
@@ -143,7 +160,7 @@ export function apply(ctx: Context, config: Config): void {
   // UserPromptSubmit → PromptDecision. Codex can only BLOCK (no allow/ask).
   ctx.on('agent/prompt-submit', async (agent, content, _source, next): Promise<PromptDecision> => {
     const turn = lastTurn(agent)
-    const merged = await runPoint('UserPromptSubmit', '', { ...turnBase(agent, 'UserPromptSubmit', model), prompt: blocksToText(content) }, { agent, turn })
+    const merged = await runPoint('UserPromptSubmit', '', { ...turnBase(agent, 'UserPromptSubmit', model), prompt: blocksToText(content) }, { agent, turn, plainStdoutAsContext: true })
     if (merged.decision === 'deny') return { kind: 'block', reason: merged.reason ?? 'blocked by UserPromptSubmit hook' }
     const context = contextFrom(merged)
     if (context) return { kind: 'allow', additionalContext: context }
@@ -176,8 +193,12 @@ export function apply(ctx: Context, config: Config): void {
   // loop-guard (stop_hook_active + a max-consecutive cap) is deferred.
   ctx.on('agent/turn-continuation', async (agent, turn, _default, next): Promise<ContinuationDecision> => {
     const merged = await runPoint('Stop', '', { ...turnBase(agent, 'Stop', model), stop_hook_active: false, last_assistant_message: null }, { agent, turn })
-    if (merged.decision === 'deny' && merged.reason !== undefined) {
-      return { action: 'continue', reason: { content: [{ type: 'text', text: merged.reason }], source: PLUGIN_SOURCE } }
+    if (merged.decision === 'deny') {
+      // A blocking Stop hook forces continuation; a block with no reason (exit 2,
+      // empty stderr) still forces it — fall back to a generic steering line
+      // rather than letting the turn stop.
+      const text = merged.reason ?? 'continue: blocked by Stop hook'
+      return { action: 'continue', reason: { content: [{ type: 'text', text }], source: PLUGIN_SOURCE } }
     }
     return next()
   })
@@ -226,10 +247,13 @@ function commandOf(args: unknown): string {
 }
 
 function preToolPayload(exec: ToolExecution, model: string): Record<string, unknown> {
-  // Codex hardcodes tool_name to "Bash" and tool_input to { command }.
-  return { ...turnBase(exec.agent, 'PreToolUse', model), tool_name: 'Bash', tool_input: { command: commandOf(exec.arguments) }, tool_use_id: exec.callId }
+  // `tool_name` is the REAL tool name (matching the `exec.name` matcher subject);
+  // a hardcoded constant would disagree with what the matcher tests and make a
+  // config's tool matcher never fire. `tool_input` keeps Codex's `{ command }`
+  // shape (its shell payload), derived from the call's `command` arg when present.
+  return { ...turnBase(exec.agent, 'PreToolUse', model), tool_name: exec.name, tool_input: { command: commandOf(exec.arguments) }, tool_use_id: exec.callId }
 }
 
 function postToolPayload(exec: ToolExecution, result: ToolExecutionResult, model: string): Record<string, unknown> {
-  return { ...turnBase(exec.agent, 'PostToolUse', model), tool_name: 'Bash', tool_input: { command: commandOf(exec.arguments) }, tool_use_id: exec.callId, tool_response: blocksToText(result.content) }
+  return { ...turnBase(exec.agent, 'PostToolUse', model), tool_name: exec.name, tool_input: { command: commandOf(exec.arguments) }, tool_use_id: exec.callId, tool_response: blocksToText(result.content) }
 }

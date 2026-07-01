@@ -161,6 +161,14 @@ export function apply(ctx: Context, config: Config): void {
     return mergeHookOutputs(outputs)
   }
 
+  // TODO(hook-continue-false): the merge computes `merged.stop`/`stopReason` from
+  // a hook's `continue:false`, but no seam below honors it — there is no
+  // "hard-halt the whole agent" primitive on the interception seams yet (a
+  // Decision can block/deny/steer a single point, not stop the run). Honoring it
+  // needs that primitive; deferred with the loop-guard work. Until then a
+  // `continue:false` hook still has its per-point effect (its decision/context),
+  // and the halt request is recorded in the `hook/result` log but not acted on.
+
   /** Build a HookContext from accumulated additionalContext strings, or undefined when none. */
   function contextFrom(merged: MergedHookOutcome): HookContext | undefined {
     if (merged.additionalContext.length === 0) return undefined
@@ -224,9 +232,13 @@ export function apply(ctx: Context, config: Config): void {
   // step — a hook author must self-limit until the guard lands. ---
   ctx.on('agent/turn-continuation', async (agent, turn, _default, next): Promise<ContinuationDecision> => {
     const merged = await runPoint('Stop', '', stopPayload(agent), { agent, turn })
-    if (merged.decision === 'deny' && merged.reason !== undefined) {
-      // A blocking Stop hook forces continuation, feeding its reason as next-step steering.
-      return { action: 'continue', reason: { content: [{ type: 'text', text: merged.reason }], source: PLUGIN_SOURCE } }
+    if (merged.decision === 'deny') {
+      // A blocking Stop hook forces continuation. It carries its reason as
+      // next-step steering; a blocking hook that emitted no reason (exit 2, empty
+      // stderr) still forces the turn to continue — the block is what matters, so
+      // fall back to a generic steering line rather than letting the turn stop.
+      const text = merged.reason ?? 'continue: blocked by Stop hook'
+      return { action: 'continue', reason: { content: [{ type: 'text', text }], source: PLUGIN_SOURCE } }
     }
     return next()
   })

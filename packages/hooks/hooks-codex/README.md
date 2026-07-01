@@ -43,7 +43,7 @@ The config is parsed **once** at load; a read/parse failure is contained (logs +
 | `PostToolUse` | `tools/post-execute` (waterfall) | `block` → `block` with feedback; additionalContext → `accept` with context |
 | `Stop` | `agent/turn-continuation` (waterfall) | a blocking Stop hook forces `continue` with the reason as next-step steering |
 
-Codex hardcodes a tool call's `tool_name` to `"Bash"` and `tool_input` to `{ command }` (extracted from the call's arguments, or `''` when absent). The matcher subject is the tool name (`PreToolUse`/`PostToolUse`) or the session source (`SessionStart`); `UserPromptSubmit`/`Stop` ignore matchers.
+A tool call's payload carries the real `tool_name` (the same value the matcher tests) and Codex's `tool_input: { command }` shape (the `command` arg when present, else `''`). The matcher subject is the tool name (`PreToolUse`/`PostToolUse`) or the session source (`SessionStart`); `UserPromptSubmit`/`Stop` ignore matchers.
 
 ## Context source
 

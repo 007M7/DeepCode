@@ -148,6 +148,25 @@ describe('hooks-claude coverage — Stop continuation + subagent inject/catch', 
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('continue please')
   })
 
+  it('a Stop hook that blocks with EMPTY stderr still forces continuation (no reason required)', async () => {
+    // Regression: a blocking Stop hook (exit 2) with no stderr yields decision
+    // 'deny' + reason undefined; the turn must STILL force-continue (the block is
+    // what matters), not silently stop. Self-limit to one block so it can't loop.
+    const d = dir()
+    const marker = join(d, 'fired')
+    const s = sh(d, 'stop.sh', `#!/usr/bin/env bash\nif [ -e "${marker}" ]; then exit 0; fi\ntouch "${marker}"\nexit 2\n`)
+    const path = hooks(d, { Stop: [{ hooks: [{ type: 'command', command: s }] }] })
+    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
+    const ctx = await harness(path, adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }])
+    await waitForIdle(ctx, agent)
+    // A second model request ran → the empty-reason block forced continuation.
+    expect(adapter.requests).toHaveLength(2)
+    // The steering carried the fallback reason (no stderr to use).
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('blocked by Stop hook')
+  })
+
   it('SubagentStart additionalContext is injected into a REGISTERED live child', async () => {
     const d = dir()
     const s = sh(d, 'sa.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"child guidance"}}\'\n')
@@ -329,18 +348,26 @@ describe('hooks-claude coverage — schema-bypass default + unspawnable hook', (
 })
 
 describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => {
-  it('a hook with {"continue":false} and no decision records decision "stop"', async () => {
+  it('a {"continue":false} hook is RECORDED as decision "stop" but does not halt the run (TODO(hook-continue-false))', async () => {
+    // Honoring `continue:false` (hard-halt the whole run) is deferred — there is
+    // no such primitive on the interception seams yet. So this asserts the LOG
+    // faithfully records the halt request (decision "stop"), AND that the run is
+    // NOT actually halted: the tool still runs and the turn completes normally.
     const d = dir()
     const s = sh(d, 'stop.sh', '#!/usr/bin/env bash\necho \'{"continue":false,"stopReason":"halt"}\'\n')
     const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: s }] }] })
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
     const ctx = await harness(path, adapter)
-    ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+    let ran = false
+    ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
     const res = events(agent).find(e => e.type === 'hook/result')
-    expect(res?.type === 'hook/result' && res.data.decision).toBe('stop')
+    expect(res?.type === 'hook/result' && res.data.decision).toBe('stop') // recorded
+    expect(ran).toBe(true) // NOT honored: the tool still ran (halt is deferred)
+    const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('completed') // ran to completion
   })
 
   it('a PostToolUse hook that BOTH blocks AND attaches additionalContext', async () => {

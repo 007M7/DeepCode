@@ -217,16 +217,21 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     expect(events(agent).some(e => e.type === 'hook/invoked')).toBe(false)
   })
 
-  it('a {"continue":false} hook with no decision records decision "stop"', async () => {
+  it('a {"continue":false} hook is RECORDED as "stop" but does not halt the run (TODO(hook-continue-false))', async () => {
+    // Honoring `continue:false` is deferred — the seams have no hard-halt
+    // primitive. Assert the LOG records the halt request AND that the run is not
+    // actually halted (the tool still runs, the turn completes).
     const d = dir()
     hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: sh(d, 's.sh', '#!/usr/bin/env bash\necho \'{"continue":false,"stopReason":"halt"}\'\n') }] }] })
     const adapter = new MockAdapter([toolCallResponse('c1', 'Bash', { command: 'x' }), textResponse('done')])
     const ctx = await harness(join(d, 'hooks.json'), adapter)
-    ctx.tools.register(defineTool({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+    let ran = false
+    ctx.tools.register(defineTool({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
     const res = events(agent).find(e => e.type === 'hook/result')
-    expect(res?.type === 'hook/result' && res.data.decision).toBe('stop')
+    expect(res?.type === 'hook/result' && res.data.decision).toBe('stop') // recorded
+    expect(ran).toBe(true) // NOT honored: the tool still ran (halt is deferred)
   })
 
   it('PreToolUse deny with EMPTY stderr uses the default reason (?? right arm)', async () => {
@@ -304,5 +309,86 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
     const res = events(agent).find(e => e.type === 'hook/result')
     expect(res?.type === 'hook/result' && 'exitCode' in res.data).toBe(false)
+  })
+
+  it('a blocking Stop hook with EMPTY stderr still forces continuation (no reason required)', async () => {
+    // Regression: an exit-2 Stop hook with no stderr yields decision 'deny' +
+    // reason undefined; the turn must STILL force-continue, not silently stop.
+    const d = dir()
+    const marker = join(d, 'fired')
+    hooks(d, { Stop: [{ hooks: [{ type: 'command', command: sh(d, 's.sh', `#!/usr/bin/env bash\nif [ -e "${marker}" ]; then exit 0; fi\ntouch "${marker}"\nexit 2\n`) }] }] })
+    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
+    const ctx = await harness(join(d, 'hooks.json'), adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+    expect(adapter.requests).toHaveLength(2) // empty-reason block forced continuation
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('blocked by Stop hook')
+  })
+
+  it('a clean UserPromptSubmit hook that prints PLAIN stdout injects it as context', async () => {
+    // Codex feeds a SessionStart/UserPromptSubmit hook's PLAIN (non-JSON) stdout
+    // as additionalContext (unlike CC, which needs a JSON hookSpecificOutput).
+    const d = dir()
+    hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'ctx.sh', '#!/usr/bin/env bash\necho "extra guidance from a plain hook"\nexit 0\n') }] }] })
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(join(d, 'hooks.json'), adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+    expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('extra guidance from a plain hook')
+  })
+
+  it('a clean SessionStart hook that prints PLAIN stdout injects it (not JSON)', async () => {
+    const d = dir()
+    hooks(d, { SessionStart: [{ hooks: [{ type: 'command', command: sh(d, 'ss.sh', '#!/usr/bin/env bash\necho "session preamble"\nexit 0\n') }] }] })
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(join(d, 'hooks.json'), adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    await new Promise(r => setTimeout(r, 60))
+    agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+    expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('session preamble')
+  })
+
+  it('a clean hook that prints JSON is NOT injected as prose (plain-stdout gate)', async () => {
+    // A structured (JSON) stdout must go through the hookSpecificOutput path, not
+    // be dumped verbatim as context — the `!startsWith('{')` gate guards this.
+    const d = dir()
+    hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'j.sh', '#!/usr/bin/env bash\necho \'{"unrelated":"json"}\'\nexit 0\n') }] }] })
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(join(d, 'hooks.json'), adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+    expect(JSON.stringify(adapter.requests[0]!.messages)).not.toContain('unrelated')
+  })
+
+  it('the PreToolUse payload carries the REAL tool name (matches the matcher subject)', async () => {
+    // Regression: the payload once hardcoded tool_name "Bash", disagreeing with
+    // the exec.name matcher subject — a config matcher on the real name would
+    // then never fire. Capture the payload and assert tool_name === the real name.
+    const d = dir()
+    const cap = join(d, 'payload')
+    hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: sh(d, 'cap.sh', `#!/usr/bin/env bash\ncat > "${cap}"\nexit 0\n`) }] }] })
+    const adapter = new MockAdapter([toolCallResponse('c1', 'shell', { command: 'ls' }), textResponse('done')])
+    const ctx = await harness(join(d, 'hooks.json'), adapter)
+    ctx.tools.register(defineTool({ name: 'shell', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+    const payload = JSON.parse(readFileSync(cap, 'utf8')) as { tool_name: string; tool_input: { command: string } }
+    expect(payload.tool_name).toBe('shell')
+    expect(payload.tool_input.command).toBe('ls')
+  })
+
+  it('a Codex matcher on the REAL tool name fires (matcher subject === payload tool_name)', async () => {
+    // A regex matcher matching the real tool name must select the hook — proving
+    // the matcher subject and the payload tool_name agree.
+    const d = dir()
+    hooks(d, { PreToolUse: [{ matcher: 'shell', hooks: [{ type: 'command', command: sh(d, 'd.sh', '#!/usr/bin/env bash\nexit 2\n') }] }] })
+    const adapter = new MockAdapter([toolCallResponse('c1', 'shell', { command: 'ls' }), textResponse('done')])
+    const ctx = await harness(join(d, 'hooks.json'), adapter)
+    let ran = false
+    ctx.tools.register(defineTool({ name: 'shell', description: 'b', parameters: { command: { type: 'string' } }, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+    expect(ran).toBe(false) // the matcher fired → the hook denied the tool
+    expect(events(agent).some(e => e.type === 'hook/invoked' && e.data.point === 'PreToolUse')).toBe(true)
   })
 })
