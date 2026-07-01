@@ -12,10 +12,10 @@ This is the only package in the harness that contains concrete loop logic. Every
 
 `AgentLoop` also implements the `AgentFactory` seam and registers itself via `ctx.agents.setFactory(this)`, so plugins create/resume agents through `ctx.agents` (the interface):
 
-- `ctx.agents.create({ agentId, sessionId, meta?, agentOptions? }): AgentHandle` — programmatic create on a caller-supplied `sessionId` (e.g. an ACP-generated id), NOT `${id}-session`. Returns an [`AgentHandle`](../agent/README.md) — the owner disposes it to tear down exactly this agent (stop loop + await quiescence + unregister + remove session).
+- `ctx.agents.create({ agentId, sessionId, meta?, seed?, agentOptions? }): AgentHandle` — programmatic create on a caller-supplied `sessionId` (e.g. an ACP-generated id), NOT `${id}-session`; `meta` carries cwd/lineage/seed-boundary metadata and `seed` reconstructs a forked child prefix. Returns an [`AgentHandle`](../agent/README.md) — the owner disposes it to tear down exactly this agent (stop loop + await quiescence + unregister + remove session).
 - `ctx.agents.resume({ agentId, resumeSessionId, agentOptions? }): Promise<AgentHandle>` — load a persisted session via `ctx.sessionPersistence` ([session persistence](../../../docs/rfc/implemented/architecture/2026-06-14-session-persistence.md)) and resume an agent on it. The live session id is the resumed id; turn numbering and derived history continue from the loaded log. Requires a session-persistence backend (NOT hard-injected — non-persistent demos still work; `resume` rejects with a clear error when persistence is absent). Returns an `AgentHandle`.
 
-The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loop fiber (it discards the handle) — only the programmatic factory callers (the ACP bridge) hold a handle and own per-agent teardown.
+The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loop fiber (it discards the handle) — only the programmatic factory callers (the ACP bridge and in-process subagent backends) hold a handle and own per-agent teardown.
 
 ### Injected services
 
@@ -76,6 +76,6 @@ Everything that goes beyond "call the model, run the tools, repeat" belongs to p
 - Hooks: `agent/request`, `agent/step-result`, `tools/execute`, `agent/turn-continuation`
 - Compaction: `agent/request`
 - Sandbox, permission, plan mode: `tools/execute`
-- Sub-agents: TODO seam on `AgentLoop.create()`
+- Sub-agents: implemented outside the loop as `ctx.subagents` providers; in-process providers use `ctx.agents.create()` and owned `AgentHandle` teardown, while child streaming/progress and background/poll collection remain deferred.
 - Persistence: `session/event` + `session/flush`
 - UI: `agent/stream-chunk` + `agent/*` events

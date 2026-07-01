@@ -24,6 +24,7 @@ For a catalog of the **data structures** this architecture moves around — the 
 │  @deepseek-ai/dsh-agent-loop      (the ONE concrete plugin)  │
 │  @deepseek-ai/dsh-bash-local      (bash impl)                │
 │  @deepseek-ai/dsh-tool-bash       (bash tool schemas)        │
+│  @deepseek-ai/dsh-subagent-*      (subagent providers)       │
 │  @deepseek-ai/dsh-session-persistence-jsonl (persistence impl)│
 ├─────────────────────────────────────────────────────────────┤
 │  @deepseek-ai/dsh-agent           (vocabulary + registry)    │
@@ -33,6 +34,8 @@ For a catalog of the **data structures** this architecture moves around — the 
 │  @deepseek-ai/dsh-session-persistence (persistence seam)     │
 │  @deepseek-ai/dsh-llm             (abstract model service)   │
 │  @deepseek-ai/dsh-bash            (abstract bash executor)   │
+│  @deepseek-ai/dsh-compact         (abstract compaction seam) │
+│  @deepseek-ai/dsh-subagent        (provider registry seam)   │
 ├─────────────────────────────────────────────────────────────┤
 │  vendor/: cordis, loader, include, group, timer, hmr,        │
 │           logger-console, cosmokit, schemastery              │
@@ -54,6 +57,7 @@ Dependency rule: **extension** plugins depend on interface packages, never on `d
 | `ctx.agentLoop` | `AgentLoop` | dsh-agent-loop | creates `ReactLoopAgent`s and drives their loops |
 | `ctx.bash` | `BashExecutor` (abstract) | dsh-bash | bash execution seam: foreground runs + background tasks |
 | `ctx.compact` | `CompactService` (abstract) | dsh-compact | compaction seam: decide when history is too large, summarize an older range into a single surface node |
+| `ctx.subagents` | `SubagentService` | dsh-subagent | named provider registry for delegating a task to child agents |
 
 All registrations (`registerAdapter`, `section`, `tools`, `register`, …) go through `ctx.effect()` and return disposers, so plugin hot-reload (vendored HMR) and fiber disposal clean up automatically.
 
@@ -86,11 +90,11 @@ A `Session` is an append-only log of typed `SessionEvent`s — the single source
 - `user/message` → user message
 - `assistant/message` → assistant message (raw `assistant/chunk` events are replay/UI data and are skipped in derivation; an empty-content `assistant/message`, which exists only to host a max-tokens step's `usage`, is skipped too)
 - `tool/result` → user message carrying a `tool-result` block
-- `context/message`, `steering/message` → user-role messages wrapped in a tagged envelope (`<context source="…">…</context>`) at their chronological position — the "system-reminder" pattern; models distinguish them from real user prompts by the envelope. **TODO(review)**: the real adapters now exist (the original precondition); the envelope still wants a deliberate review against live model behavior (`TODO(review)` in dsh-session).
+- `context/message`, `steering/message` → user-role messages wrapped in a tagged envelope (`<context source="…">…</context>`) at their chronological position — the "system-reminder" pattern; models distinguish them from real user prompts by the envelope. Live-adapter review has validated the tagged-envelope rendering against current DeepSeek behavior; provider-specific mismatches belong in that adapter.
 
 Replay/fork = `ctx.sessions.create(id, { seed: seedEvents })`. Trace/telemetry = listen to `session/event`.
 
-**Durability seam**: `session/event` is a synchronous notification; persistence plugins buffer (write-behind) and drain at the awaited `session/flush` checkpoint the loop fires at every turn end. The durable backend is a real **capability seam**: the abstract `SessionPersistence` service (`dsh-session-persistence`, `ctx.sessionPersistence`) defines create/append/load/list over the existing `SessionEvent` (no parallel persisted type), and `dsh-session-persistence-jsonl` is the first implementation — an append-only JSONL log per session with crash-safe atomic writes, crash recovery that PRESERVES an interrupted turn (closing it with a synthetic `turn/end {interrupted}` rather than truncating — a turn can be huge), and a read/replay path. Session metadata (format version, cwd, lineage) travels separately as `SessionHeader`, attached to a `Session` via `session.header`. Resuming a persisted session into a live agent is `ctx.agents.resume({ resumeSessionId })`. A second backend, `dsh-session-persistence-sqlite` (`node:sqlite`, one row per `SessionEvent` — the row shape `(session_id, seq, type, time, data)` maps 1:1 onto it), passes the same `runPersistenceContract` suite, proving the seam is genuinely backend-agnostic.
+**Durability seam**: `session/event` is a synchronous notification; persistence plugins buffer (write-behind) and drain at the awaited `session/flush` checkpoint the loop fires at every turn end. The durable backend is a real **capability seam**: the abstract `SessionPersistence` service (`dsh-session-persistence`, `ctx.sessionPersistence`) defines create/append/load/list over the existing `SessionEvent` (no parallel persisted type), and `dsh-session-persistence-jsonl` is the first implementation — an append-only JSONL log per session with crash-safe atomic writes, crash recovery that PRESERVES an interrupted turn (closing it with a synthetic `turn/end {interrupted}` rather than truncating — a turn can be huge), and a read/replay path. Session metadata (format version, cwd, lineage, seed boundary) travels separately as `SessionHeader`, attached to a `Session` via `session.header`. Resuming a persisted session into a live agent is `ctx.agents.resume({ resumeSessionId })`. A second backend, `dsh-session-persistence-sqlite` (`node:sqlite`, one row per `SessionEvent` — the row shape `(session_id, seq, type, time, data, source_event_seqs, surface_op)` maps 1:1 onto it), passes the same `runPersistenceContract` suite, proving the seam is genuinely backend-agnostic.
 
 ## Prompt assembly (dsh-system-prompt)
 
@@ -202,7 +206,7 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 | Tool sandbox (landlock / sandbox-exec) | wrap `tools/execute`, or implement a sandboxing `BashExecutor` (the dsh-bash seam) |
 | Permission system / AskUserQuestion | wrap `tools/execute` (veto or ask); register an ask tool |
 | Plan mode | wrap `tools/execute` (deny writes) + `agent/request` (inject mode prompt) |
-| Sub-agents (spawn / fork / steer) | TODO seam on `AgentLoop.create()`; fork = seed Session with parent events; `steer()` on the child handle |
+| Sub-agent delegation | Implemented as the `ctx.subagents` provider-registry seam: `dsh-subagent-spawn` starts a fresh in-process child, `dsh-subagent-fork` seeds a child from the parent's completed-turn prefix, `dsh-subagent-acp` drives an out-of-process child over ACP, and `dsh-tool-subagent` exposes one configured provider to the model |
 | MCP | one plugin per server: discover tools → `ctx.tools.register()` |
 | Skills | section + tool registration; `inject()` skill content on invocation |
 | Memory | section provider + tool |
@@ -220,7 +224,7 @@ Code skeletons for the three plugin shapes (tool, hook/permission-gate, UI) and 
 
 Tracked here deliberately — each is designed-for but not implemented:
 
-- **Sub-agent spawn/fork semantics** (seam: `AgentLoop.create()`); inter-agent channels beyond `send`/`steer`/events.
+- **Inter-agent channels beyond delegation** (shared state, streaming child output, background/poll semantics) remain out of scope for the current `ctx.subagents` seam.
 - **Compaction implementation** (auto thresholds, summarization prompts) on the `agent/request` seam, with its session-event types added by declaration merging.
 - **Parallel tool execution** (concurrency-safety hints on ToolDefinition).
 - **Session branching/tree** (pi-style entry tree) if needed beyond seed-based forking.
