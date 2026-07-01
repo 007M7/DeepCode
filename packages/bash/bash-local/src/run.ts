@@ -52,7 +52,8 @@ export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
  * scrub pattern (the scrub guards against leaking the HARNESS's ambient
  * credentials into model-driven commands; an in-process plugin that explicitly
  * sets a var has taken responsibility for it). `extra` is NEVER model-supplied
- * — `dsh-tool-bash` does not forward model input here (see its module doc).
+ * — `dsh-tool-bash` does not forward model input here (see its README, §
+ * "Trusted-plugin boundary").
  */
 export function childEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
@@ -307,12 +308,6 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
     detached: true,
   })
 
-  // A child that exits without reading stdin makes the write error EPIPE —
-  // swallow it (the command's outcome rides on its exit code/output, not the
-  // stdin write) so it never crashes the host or rejects `done`.
-  child.stdin.on('error', () => { /* EPIPE: child closed stdin early; outcome rides on exit. */ })
-  child.stdin.end(spec.stdin ?? '')
-
   const stdout = new OutputCollector(spec.maxOutputBytes, 'stdout', spillDir)
   const stderr = new OutputCollector(spec.maxOutputBytes, 'stderr', spillDir)
   child.stdout.on('data', (chunk: Buffer) => { stdout.push(chunk) })
@@ -345,6 +340,20 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
     kill()
   }
   spec.signal?.addEventListener('abort', onAbort, { once: true })
+
+  // Write stdin and close it. This handler must exist: an unhandled 'error' on
+  // the stream would throw and crash the host. We swallow the error rather than
+  // reject `done`, and that is correct for ANY stdin-write error, not just the
+  // common one — the stdin write is BEST-EFFORT, while the command's authoritative
+  // outcome is its exit code + captured output, which the `close` handler reports
+  // regardless of whether the write landed. The expected case is EPIPE (the child
+  // exited without reading, so closing our end of a still-full pipe fails); a rare
+  // non-EPIPE pipe fault means the command ran with incomplete stdin, and it
+  // surfaces that itself through its own exit/output (e.g. a hook that gets
+  // truncated JSON errors out) — rejecting here would instead discard that real
+  // output and turn it into an opaque infrastructure error, which is worse.
+  child.stdin.on('error', () => { /* stdin write is best-effort; outcome rides on exit/output. */ })
+  child.stdin.end(spec.stdin ?? '')
 
   const done = new Promise<SpawnOutcome>((resolve, reject) => {
     child.on('error', (error) => {

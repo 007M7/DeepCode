@@ -61,7 +61,7 @@ lefthook is configured in `lefthook.yml` as an early local checkpoint before rev
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 
-These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests without coverage, while CI runs `pnpm run test:coverage`; CI also runs an echo-agent smoke test and exercises the matrix on Node 24 and 26.
+These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests without coverage, while CI runs `pnpm run test:coverage`; CI also runs echo-agent and built-bin smoke tests and exercises the matrix on Node 24 and 26.
 
 ## CI gates
 
@@ -78,6 +78,7 @@ The GitHub workflow runs these gates on each pull request:
 - `pnpm run build`
 - `pnpm run hygiene`
 - an echo-agent smoke test that checks the demo's tool call, tool result, and JSONL output
+- built-bin smoke tests that run the published `lib/bin.js` entrypoints under plain `node`
 
 `pnpm run hygiene` is the local shorthand for `pnpm run knip && pnpm run publint && pnpm run constraints && pnpm run verify-node-next-types`; CI also runs `pnpm run constraints` as an earlier fail-fast step, then runs the full hygiene script after `pnpm run build`.
 
@@ -119,6 +120,12 @@ The coding-agent demo uses the real DeepSeek adapter and needs `DEEPSEEK_API_KEY
 
 ```sh
 pnpm run demo:coding
+```
+
+The ACP server demo exposes the same coding agent over JSON-RPC stdio and also needs `DEEPSEEK_API_KEY`:
+
+```sh
+pnpm run demo:acp
 ```
 
 ## TODO markers

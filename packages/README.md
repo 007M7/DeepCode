@@ -36,17 +36,18 @@ dsh-bash-local    ← dsh-bash                       (BashExecutor impl)
 dsh-tool-bash     ← dsh-bash, dsh-tools            (bash tool schemas)
 dsh-llm-deepseek  ← dsh-llm                        (DeepSeek adapter)
 dsh-llm-pi-ai     ← dsh-llm                        (pi-ai-backed adapter)
-dsh-agent-loop    ← dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent
+dsh-agent-loop    ← dsh-llm, dsh-session, dsh-session-persistence, dsh-system-prompt, dsh-tools, dsh-agent
 dsh-invariants    ← dsh-llm, dsh-session, dsh-agent (dev-mode contract checks)
-dsh-acp           ← dsh-agent, dsh-llm, dsh-session, dsh-session-persistence  (ACP JSON-RPC bridge)
+dsh-acp           ← dsh-agent, dsh-llm, dsh-session, dsh-session-persistence, dsh-tools  (ACP JSON-RPC bridge)
 dsh-ui-stdio      ← dsh-agent, dsh-llm, dsh-session (stdio readline UI plugin)
 dsh-llm-replay    ← dsh-llm, dsh-session            (record/replay adapter for keyless snapshot tests)
 dsh-subagent      ← dsh-agent, dsh-llm, dsh-tools    (abstract subagent provider-registry seam)
-dsh-subagent-mock ← dsh-subagent                     (scripted provider for tests)
-dsh-subagent-spawn ← dsh-subagent, dsh-agent, dsh-session, dsh-llm  (in-process fresh child + shared run driver)
-dsh-subagent-fork ← dsh-subagent-spawn, dsh-agent, dsh-session      (in-process child seeded from parent log)
+dsh-subagent-inprocess ← dsh-subagent, dsh-agent, dsh-session, dsh-llm  (shared in-process run driver)
+dsh-subagent-mock ← dsh-subagent, dsh-agent, dsh-llm  (scripted provider for tests)
+dsh-subagent-spawn ← dsh-subagent, dsh-subagent-inprocess  (in-process fresh child backend)
+dsh-subagent-fork ← dsh-subagent, dsh-subagent-inprocess, dsh-agent, dsh-session  (in-process child seeded from parent log)
 dsh-subagent-acp  ← dsh-subagent, dsh-agent, dsh-llm, @agentclientprotocol/sdk  (out-of-process child over ACP)
-dsh-tool-subagent ← dsh-subagent, dsh-tools, dsh-agent (model-facing delegation tool)
+dsh-tool-subagent ← dsh-subagent, dsh-tools, dsh-agent, dsh-llm (model-facing delegation tool)
 dsh-tool-todo     ← dsh-tools, dsh-agent, dsh-session  (model-facing todo_write tool; whole list on the session log)
 dsh-agent-core    ← timer, dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent, dsh-invariants, dsh-tool-bash, dsh-agent-loop  (the providerless spine, as one bundle plugin)
 dsh-stdio-agent   ← dsh-agent-core, dsh-ui-stdio, dsh-session-persistence-jsonl, dsh-agent, dsh-session  (stdio chat APP + bin)
@@ -82,7 +83,8 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `ui-stdio/` | `support` | Minimal stdio (readline) UI plugin: renders `agent/*` events, feeds stdin lines to the agent | (drives `ctx.agents`) |
 | `llm-replay/` | `support` | Record/replay adapter: short-circuits `llm/stream` with chunks from a recorded session JSONL (keyless snapshot tests) | (listens on `llm/stream`) |
 | `subagent/` | `subagent` | Abstract subagent seam: named-provider registry for delegating to child agents | `ctx.subagents` |
-| `subagent-spawn/` | `subagent` | In-process backend: a fresh child agent (+ the shared in-process run driver) | (registers on `ctx.subagents`) |
+| `subagent-inprocess/` | `subagent` | Shared in-process subagent run driver used by spawn/fork; pure library, registers nothing | (none) |
+| `subagent-spawn/` | `subagent` | In-process backend: a fresh child agent | (registers on `ctx.subagents`) |
 | `subagent-fork/` | `subagent` | In-process backend: a child agent seeded with the parent's completed-turn prefix | (registers on `ctx.subagents`) |
 | `subagent-acp/` | `subagent` | Out-of-process backend: a child agent in a spawned subprocess, driven over the Agent Client Protocol | (registers on `ctx.subagents`) |
 | `subagent-mock/` | `support` | Scripted `SubagentProvider` for testing the seam through the real load path | (registers on `ctx.subagents`) |
