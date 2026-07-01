@@ -1,6 +1,6 @@
 # Examples
 
-Runnable demos (not workspaces) that showcase how the harness is wired. Each example is now a **thin leaf**: a `cordis.yml` that picks the swappable backends (an LLM adapter, a bash executor) and loads ONE app package, plus any demo-only mocks. The composition — the spine, the front-door cluster, and the boot glue — lives in the app packages ([`@deepseek-ai/dsh-stdio-agent`](../packages/ui/stdio-agent), [`@deepseek-ai/dsh-acp-agent`](../packages/ui/acp-agent)) and the [`@deepseek-ai/dsh-agent-core`](../packages/core/agent-core) bundle they share. There is no `start.ts`; the `demo:*` scripts invoke each app package's `bin`.
+Runnable demos (not workspaces) that showcase how the harness is wired. Each example is now a **thin leaf**: a `cordis.yml` that picks the swappable backends (an LLM adapter, a bash executor), loads ONE app package, and may add optional product tools or demo-only mocks. The composition — the spine, the front-door cluster, and the boot glue — lives in the app packages ([`@deepseek-ai/dsh-stdio-agent`](../packages/ui/stdio-agent), [`@deepseek-ai/dsh-acp-agent`](../packages/ui/acp-agent)) and the [`@deepseek-ai/dsh-agent-core`](../packages/core/agent-core) bundle they share. There is no `start.ts`; the `demo:*` scripts invoke each app package's `bin`.
 
 ## echo-agent
 

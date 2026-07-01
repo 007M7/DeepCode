@@ -110,15 +110,17 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
                     code, no harness deps; owns the brand for cross-boundary ids)
 examples/    Runnable demos (not workspaces; see examples/AGENTS.md). Each is a
              THIN leaf cordis.yml: it picks the swappable backends (an LLM adapter,
-             a bash executor) and loads ONE app package (dsh-stdio-agent or
-             dsh-acp-agent), which bundles the agent-core spine + front-door
-             cluster + boot glue (a bin). No start.ts. echo-agent = mock model +
-             echo tool on dsh-stdio-agent (pnpm run demo:echo, no key).
-             coding-agent = the real thing: DeepSeek V4 + bash tools on the same
-             app (pnpm run demo:coding, needs DEEPSEEK_API_KEY). acp-agent = the
-             coding agent as an ACP server on dsh-acp-agent (pnpm run demo:acp,
-             needs DEEPSEEK_API_KEY). cordis.snapshot.yml = the acp leaf with
-             llm-replay for keyless snapshot replay.
+             a bash executor), loads ONE app package (dsh-stdio-agent or
+             dsh-acp-agent), and may add optional product tools or demo-local
+             teaching plugins. The app package bundles the agent-core spine +
+             front-door cluster + boot glue (a bin). No start.ts. echo-agent =
+             mock model + echo tool on dsh-stdio-agent (pnpm run demo:echo, no
+             key). coding-agent = the real thing: DeepSeek V4 + bash tools +
+             subagent + todo_write on the same app (pnpm run demo:coding, needs
+             DEEPSEEK_API_KEY). acp-agent = the coding agent as an ACP server on
+             dsh-acp-agent (pnpm run demo:acp, needs DEEPSEEK_API_KEY).
+             cordis.snapshot.yml = the acp leaf with llm-replay for keyless
+             snapshot replay.
 docs/        architecture.md — the design doc. module-graph.md — generated
              inter-package dependency graph (Mermaid; `pnpm run gen-module-graph`).
              rfc/ — design decisions and proposals, one kind of doc grouped by
@@ -191,7 +193,21 @@ pnpm run demo:acp   # run examples/acp-agent — the coding agent as an ACP
 CI is the backstop, not the first place a gate runs. Before you open a non-draft PR or move one from draft to ready, run the same gates CI runs, on your own tree, and confirm they pass — do not lean on CI (or a Codex pass) to discover a red gate you could have caught locally. The CI-equivalent local run is:
 
 ```sh
-pnpm run typecheck && pnpm run lint && pnpm run test:coverage && pnpm run test:snapshot && pnpm run doc-sync && pnpm run verify-module-graph && pnpm run build && pnpm run hygiene
+set -euo pipefail
+pnpm run typecheck
+pnpm run lint
+pnpm run test:coverage
+pnpm run test:snapshot
+pnpm run doc-sync
+pnpm run verify-module-graph
+pnpm run build
+pnpm run hygiene
+out=$(printf 'echo ci smoke\n' | pnpm run demo:echo 2>&1)
+printf '%s\n' "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
+printf '%s\n' "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
+ls .sessions/_no-cwd/main-session-*.jsonl >/dev/null
+rm -rf .sessions
+pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts
 ```
 
 **`pnpm run test:coverage`, NOT `pnpm run test`, is the gating test command.** `pnpm run test` runs `vitest run` with no coverage; CI's node job runs `test:coverage`, which enforces a **per-file 100%** threshold on `packages/*/*/src`. A suite that is green under `test` can still fail CI on an uncovered line — and that uncovered line is often *dead code* the 100% gate is correctly flagging for deletion (see [§ Defensive patterns](#defensive-patterns-hard-won) "Line coverage is not behavior coverage"), not a missing test to bolt on. `hygiene` (knip + publint + workspace constraints + NodeNext types) and `test:snapshot` (keyless ACP replay) are likewise CI gates that `test` alone does not cover. When you rely on a Codex convergence pass for sign-off, check WHICH commands it ran: a pass that ran `test` but not `test:coverage`/`hygiene`/`doc-sync` has not exercised those gates.

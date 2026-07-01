@@ -20,8 +20,8 @@
  * resolved against the linking file's directory, and the result must exist on
  * disk. This is checker, not fixer: it reports and never rewrites.
  *
- * Scope is the other doc-sync gates' set plus example Markdown, the two
- * AGENTS.md files AND the repo-authored agent-skill Markdown under
+ * Scope is the other doc-sync gates' set plus example Markdown, AGENTS.md
+ * files in those checked trees, AND the repo-authored agent-skill Markdown under
  * `.agents/skills/` — those skill files cross-link into the docs tree (e.g. the
  * dsh-code-review skill cites the RFC index), so a rename must not silently
  * break them either: README.md, docs/** /*.md, packages/* /README.md,
