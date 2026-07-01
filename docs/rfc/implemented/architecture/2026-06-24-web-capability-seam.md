@@ -17,7 +17,7 @@ There is also a provider-selection question. Existing `tool-bash` and `tool-fs` 
 Introduce web access as a first-class capability seam following [the capability-seam RFC](../../implemented/architecture/2026-06-13-capability-seams.md):
 
 1. `@deepseek-ai/dsh-web` (`packages/web/web`) owns `ctx.web`, provider registration, provider selection, shared request/result vocabulary, and web-specific errors.
-2. Provider packages implement concrete backends and register capabilities with `ctx.web`, for example `@deepseek-ai/dsh-web-search-exa`, `@deepseek-ai/dsh-web-search-perplexity`, and `@deepseek-ai/dsh-web-fetch-local`.
+2. Provider packages implement concrete backends and register capabilities with `ctx.web`, for example `@deepseek-ai/dsh-web-search-exa`, `@deepseek-ai/dsh-web-search-perplexity`, `@deepseek-ai/dsh-web-search-deepseek`, and `@deepseek-ai/dsh-web-fetch-local`.
 3. `@deepseek-ai/dsh-tool-web` (`packages/web/tool-web`) owns the model-facing `web_search` and `web_fetch` tool schemas, prompt sections, argument validation, result formatting, and tool-owned presentation over `ctx.web`.
 
 Providers do not register tools. Providers register capabilities. `dsh-tool-web` is the only owner of model-facing names, descriptions, prompt guidance, JSON schemas, and presentation.
@@ -46,6 +46,8 @@ The dependency direction mirrors bash and filesystem:
         consumer                                 interface                       implementation
                                                                  <--depends on--  @deepseek-ai/dsh-web-search-perplexity
                                                                                   implementation
+                                                                 <--depends on--  @deepseek-ai/dsh-web-search-deepseek
+                                                                                  implementation
                                                                  <--depends on--  @deepseek-ai/dsh-web-fetch-local
                                                                                   implementation
 ```
@@ -56,6 +58,7 @@ At runtime, provider packages register capabilities with `ctx.web`; `tool-web` r
 flowchart LR
   exa["@deepseek-ai/dsh-web-search-exa"] -->|registerSearchProvider| web["@deepseek-ai/dsh-web / ctx.web"]
   perplexity["@deepseek-ai/dsh-web-search-perplexity"] -->|registerSearchProvider| web
+  deepseek["@deepseek-ai/dsh-web-search-deepseek"] -->|registerSearchProvider| web
   fetchLocal["@deepseek-ai/dsh-web-fetch-local"] -->|registerFetchProvider| web
   toolWeb["@deepseek-ai/dsh-tool-web"] -->|searchStatus/fetchStatus| web
   toolWeb -->|ctx.tools.register| webSearch["tool: web_search"]
@@ -151,6 +154,9 @@ The "single provider auto-selects" rule is for tests, demos, and simple deployme
 
 - id: web-search-perplexity
   name: '@deepseek-ai/dsh-web-search-perplexity'
+
+- id: web-search-deepseek
+  name: '@deepseek-ai/dsh-web-search-deepseek'
 
 - id: web-fetch-local
   name: '@deepseek-ai/dsh-web-fetch-local'
@@ -326,10 +332,11 @@ Land the work in seam order:
 1. Add `packages/web/web` with `ctx.web`, provider registration, provider status, capability status, selection, request/result/error types, and contract tests.
 2. Add `packages/web/web-search-exa` with parser/unit tests and a self-skipping real-provider smoke test.
 3. Add `packages/web/web-search-perplexity` with parser/unit tests and a self-skipping real-provider smoke test.
-4. Add `packages/web/web-fetch-local` with local HTTP behavior tests.
-5. Add `packages/web/tool-web` with config-driven tool registration, prompt sections, model formatting, presentation, and tool-registry tests.
-6. Wire product app/example configs only after package behavior is stable, because tool schemas and prompt sections affect agent behavior and snapshots.
-7. Update `docs/architecture.md`, `packages/README.md`, package READMEs, generated Cordis catalogs if new events/services are added, and maintenance scripts.
+4. Add `packages/web/web-search-deepseek` with parser/unit tests and a self-skipping real-provider smoke test.
+5. Add `packages/web/web-fetch-local` with local HTTP behavior tests.
+6. Add `packages/web/tool-web` with config-driven tool registration, prompt sections, model formatting, presentation, and tool-registry tests.
+7. Wire product app/example configs only after package behavior is stable, because tool schemas and prompt sections affect agent behavior and snapshots.
+8. Update `docs/architecture.md`, `packages/README.md`, package READMEs, generated Cordis catalogs if new events/services are added, and maintenance scripts.
 
 ## Alternatives considered
 

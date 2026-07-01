@@ -147,6 +147,7 @@ export class DeepSeekSearchProvider implements WebSearchProvider {
   status(): WebProviderStatus {
     if (this.options.apiKey.length === 0) return { available: false, reason: 'missing-credential' }
     if (!URL.canParse(this.options.baseURL)) return { available: false, reason: 'misconfigured' }
+    if (!isPositiveInteger(this.options.maxTokens) || !isPositiveInteger(this.options.maxUses)) return { available: false, reason: 'misconfigured' }
     return { available: true }
   }
 
@@ -214,4 +215,9 @@ export class DeepSeekSearchProvider implements WebSearchProvider {
 /** True for a fetch/`AbortSignal` abort, surfaced as `WEB_ABORTED`. */
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
+}
+
+/** True for DeepSeek request limits that can be sent to the Messages API. */
+function isPositiveInteger(value: number): boolean {
+  return Number.isInteger(value) && value > 0
 }

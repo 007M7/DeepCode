@@ -38,6 +38,7 @@ dsh-tool-bash     ← dsh-bash, dsh-tools            (bash tool schemas)
 dsh-web           ← dsh-llm                          (abstract web seam; search/fetch registries, WebError)
 dsh-web-search-exa        ← dsh-web                  (Exa WebSearchProvider)
 dsh-web-search-perplexity ← dsh-web                  (Perplexity WebSearchProvider)
+dsh-web-search-deepseek   ← dsh-web                  (DeepSeek native-web-search WebSearchProvider)
 dsh-web-fetch-local       ← dsh-web                  (anonymous public HTTP(S) WebFetchProvider)
 dsh-tool-web      ← dsh-web, dsh-tools, dsh-system-prompt  (web tool schemas)
 dsh-llm-deepseek  ← dsh-llm                        (DeepSeek adapter)
@@ -80,6 +81,7 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `web/` | `web` | Abstract web seam (search/fetch provider registries + selection + vocabulary + `WebError`) | `ctx.web` |
 | `web-search-exa/` | `web` | Exa-backed `WebSearchProvider` | (registers on `ctx.web`) |
 | `web-search-perplexity/` | `web` | Perplexity-backed `WebSearchProvider` | (registers on `ctx.web`) |
+| `web-search-deepseek/` | `web` | DeepSeek-backed `WebSearchProvider` using native `web_search` through the Anthropic-compatible API | (registers on `ctx.web`) |
 | `web-fetch-local/` | `web` | Anonymous public HTTP(S) `WebFetchProvider` | (registers on `ctx.web`) |
 | `tool-web/` | `web` | Model-facing `web_search`/`web_fetch` tool schemas | (registers on `ctx.tools`) |
 | `llm-deepseek/` | `llm` | DeepSeek API adapter (hand-rolled fetch/SSE) | (registers on `ctx.llm`) |

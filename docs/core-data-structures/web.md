@@ -1,6 +1,6 @@
 # Web Access
 
-The web access seam — a [capability seam](../rfc/implemented/architecture/2026-06-24-web-capability-seam.md) that spans **two capabilities** (search and fetch) on one `ctx.web` service, split across packages: interface ([dsh-web](../../packages/web/web), `ctx.web` + the provider registries), implementations ([dsh-web-search-exa](../../packages/web/web-search-exa), [dsh-web-search-perplexity](../../packages/web/web-search-perplexity), [dsh-web-fetch-local](../../packages/web/web-fetch-local)), and consumer ([dsh-tool-web](../../packages/web/tool-web), the `web_search`/`web_fetch` tool schemas). Web is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A search-provider swap does not change how the model asks for a query, and a fetch-implementation swap does not change how the model asks for a URL.
+The web access seam — a [capability seam](../rfc/implemented/architecture/2026-06-24-web-capability-seam.md) that spans **two capabilities** (search and fetch) on one `ctx.web` service, split across packages: interface ([dsh-web](../../packages/web/web), `ctx.web` + the provider registries), implementations ([dsh-web-search-exa](../../packages/web/web-search-exa), [dsh-web-search-perplexity](../../packages/web/web-search-perplexity), [dsh-web-search-deepseek](../../packages/web/web-search-deepseek), [dsh-web-fetch-local](../../packages/web/web-fetch-local)), and consumer ([dsh-tool-web](../../packages/web/tool-web), the `web_search`/`web_fetch` tool schemas). Web is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A search-provider swap does not change how the model asks for a query, and a fetch-implementation swap does not change how the model asks for a URL.
 
 Source: [`packages/web/web/src/types.ts`](../../packages/web/web/src/types.ts)
 
@@ -33,7 +33,7 @@ interface WebSearchResult {
 }
 ```
 
-`content` is optional provider-generated answer text (Exa returns none; Perplexity returns a generated answer). `sources[]` is the portable citation surface. A source always has a `url`; `title`/`snippet`/`publishedAt` are optional because not every provider returns them — Perplexity citations may be URL-only, and forcing adapters to invent the rest would make the seam lie. `dsh-tool-web` renders `title ?? hostname(url)`.
+`content` is optional provider-generated answer text (Exa and DeepSeek return none; Perplexity returns a generated answer). `sources[]` is the portable citation surface. A source always has a `url`; `title`/`snippet`/`publishedAt` are optional because not every provider returns them — Perplexity citations may be URL-only, and forcing adapters to invent the rest would make the seam lie. `dsh-tool-web` renders `title ?? hostname(url)`.
 
 ```ts type-equiv
 interface WebSearchSource {

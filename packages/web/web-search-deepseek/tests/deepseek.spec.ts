@@ -152,6 +152,15 @@ describe('DeepSeekSearchProvider status', () => {
     expect(new DeepSeekSearchProvider({ ...options, baseURL: 'not a url' }).status())
       .toEqual({ available: false, reason: 'misconfigured' })
   })
+
+  it('is misconfigured when request limits are not positive integers', () => {
+    expect(new DeepSeekSearchProvider({ ...options, maxTokens: 0 }).status())
+      .toEqual({ available: false, reason: 'misconfigured' })
+    expect(new DeepSeekSearchProvider({ ...options, maxUses: 0 }).status())
+      .toEqual({ available: false, reason: 'misconfigured' })
+    expect(new DeepSeekSearchProvider({ ...options, maxUses: 1.5 }).status())
+      .toEqual({ available: false, reason: 'misconfigured' })
+  })
 })
 
 describe('DeepSeekSearchProvider request mapping', () => {
@@ -261,6 +270,27 @@ describe('web-search-deepseek plugin registration', () => {
     expect(ctx.web.searchStatus()).toEqual({ available: true, providerId: DEEPSEEK_PROVIDER_ID })
     await fiber.dispose()
     expect(ctx.web.searchStatus()).toEqual({ available: false, reason: 'configured-missing' })
+  })
+
+  it('rejects maxTokens: 0 at plugin construction', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+    await expect(ctx.plugin(deepseekPlugin, { apiKey: 'ds-key', maxTokens: 0 }))
+      .rejects.toThrow(/maxTokens expected number >= 1/)
+  })
+
+  it('rejects maxUses: 0 at plugin construction', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+    await expect(ctx.plugin(deepseekPlugin, { apiKey: 'ds-key', maxUses: 0 }))
+      .rejects.toThrow(/maxUses expected number >= 1/)
+  })
+
+  it('rejects a fractional maxUses at plugin construction', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+    await expect(ctx.plugin(deepseekPlugin, { apiKey: 'ds-key', maxUses: 1.5 }))
+      .rejects.toThrow(/maxUses expected number multiple of 1/)
   })
 
   it('has no default export (namespace plugin export shape)', () => {

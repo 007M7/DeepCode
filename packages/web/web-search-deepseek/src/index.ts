@@ -64,18 +64,20 @@ export const Config: z<Config> = z.object({
   baseURL: z.string(),
   model: z.string(),
   apiVersion: z.string(),
-  maxTokens: z.natural(),
-  maxUses: z.natural(),
+  maxTokens: z.number().step(1).min(1),
+  maxUses: z.number().step(1).min(1),
 })
 
 /** Register the DeepSeek search provider with `ctx.web`. */
 export function apply(ctx: Context, config: Config): void {
+  const maxTokens = config.maxTokens ?? DEEPSEEK_DEFAULT_MAX_TOKENS
+  const maxUses = config.maxUses ?? DEEPSEEK_DEFAULT_MAX_USES
   ctx.web.registerSearchProvider(new DeepSeekSearchProvider({
     apiKey: config.apiKey ?? process.env.DEEPSEEK_API_KEY ?? '',
     baseURL: config.baseURL ?? DEEPSEEK_DEFAULT_BASE_URL,
     model: config.model ?? DEEPSEEK_DEFAULT_MODEL,
     apiVersion: config.apiVersion ?? DEEPSEEK_DEFAULT_API_VERSION,
-    maxTokens: config.maxTokens ?? DEEPSEEK_DEFAULT_MAX_TOKENS,
-    maxUses: config.maxUses ?? DEEPSEEK_DEFAULT_MAX_USES,
+    maxTokens,
+    maxUses,
   }))
 }

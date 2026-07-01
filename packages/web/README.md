@@ -7,6 +7,7 @@ The web access capability seam: an abstract web interface, search/fetch provider
 | `web/` | Abstract web seam (search/fetch provider registries + selection + vocabulary + `WebError`) | `ctx.web` |
 | `web-search-exa/` | Exa-backed `WebSearchProvider` | (registers on `ctx.web`) |
 | `web-search-perplexity/` | Perplexity-backed `WebSearchProvider` | (registers on `ctx.web`) |
+| `web-search-deepseek/` | DeepSeek-backed `WebSearchProvider` using native `web_search` through the Anthropic-compatible API | (registers on `ctx.web`) |
 | `web-fetch-local/` | Anonymous public HTTP(S) `WebFetchProvider` | (registers on `ctx.web`) |
 | `tool-web/` | Model-facing `web_search`/`web_fetch` tool schemas | (registers on `ctx.tools`) |
 
