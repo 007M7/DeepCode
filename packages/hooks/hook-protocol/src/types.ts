@@ -132,9 +132,12 @@ export interface HookOutput {
   reason?: string
   /**
    * The `hookSpecificOutput.hookEventName` discriminator, when the hook emitted
-   * a `hookSpecificOutput` block. The reference schemas key that block by event;
-   * a bridge compares this to the firing event and DISCARDS a mismatched block
-   * (a hook claiming `PreToolUse` output on a `Stop` event is malformed). Absent
+   * a `hookSpecificOutput` block. The reference schemas key that block by event,
+   * so a block whose `hookEventName` names a DIFFERENT event than the one firing
+   * is malformed: {@link parseHookOutput} DISCARDS its event-scoped fields when
+   * given the firing event's `expectedEventName` (a hook claiming `PreToolUse`
+   * output on a `Stop` event does not affect the `Stop`). This field is still
+   * surfaced even on a mismatch — the record shows what the block claimed. Absent
    * when the hook emitted no `hookSpecificOutput`.
    */
   hookEventName?: string

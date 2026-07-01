@@ -31,6 +31,13 @@ export interface RunHookOptions {
   defaultTimeoutMs: number
   /** Whether to append a trailing newline to the stdin payload (CC yes, Codex no). */
   trailingNewline: boolean
+  /**
+   * The event this hook is firing for (e.g. `'PreToolUse'`). When set, a
+   * structured `hookSpecificOutput` block whose `hookEventName` names a DIFFERENT
+   * event is treated as malformed and its event-scoped fields are discarded (see
+   * {@link parseHookOutput}). Omit it to apply any block as-is.
+   */
+  expectedEventName?: string
 }
 
 /** The {@link HookOutput} plus the wall-clock duration of the run (for `hook/result`). */
@@ -75,7 +82,7 @@ export async function runHook(
     // `undefined` (a non-blocking error — no clean exit code to act on).
     const exitCode = result.exitCode ?? undefined
     return {
-      output: parseHookOutput(exitCode, result.stdout.text, result.stderr.text),
+      output: parseHookOutput(exitCode, result.stdout.text, result.stderr.text, options.expectedEventName),
       durationMs: now() - started,
     }
   } catch (error: unknown) {

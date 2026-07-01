@@ -64,8 +64,19 @@ function permissionDecisionOf(value: string | undefined): HookOutput['decision']
  * JSON on a 0 exit is treated as "no structured output" (the plain stdout is
  * still on the bridge to use), matching both reference engines' lenient parse of
  * non-JSON stdout.
+ *
+ * `expectedEventName` is the event the hook is FIRING for (e.g. `'PreToolUse'`).
+ * The reference schemas key the `hookSpecificOutput` block by `hookEventName`,
+ * so a block whose `hookEventName` names a DIFFERENT event is malformed and its
+ * event-scoped fields (`permissionDecision`/`permissionDecisionReason`/
+ * `additionalContext`/`updatedInput`) are DISCARDED — a `PreToolUse` block on a
+ * `Stop` hook must not deny the `Stop`. The block's `hookEventName` is still
+ * surfaced (for the log/diagnostics), and the event-agnostic top-level fields
+ * (`decision`/`reason`/`continue`/`stopReason`/`suppressOutput`/`systemMessage`)
+ * are unaffected. Omit `expectedEventName` (or pass a matching one) to apply the
+ * block as-is — a caller that doesn't key by event opts out of the check.
  */
-export function parseHookOutput(exitCode: number | undefined, stdout: string, stderr: string): HookOutput {
+export function parseHookOutput(exitCode: number | undefined, stdout: string, stderr: string, expectedEventName?: string): HookOutput {
   const trimmedErr = stderr.trim()
   const trimmedOut = stdout.trim()
   // Keep the raw stdout verbatim: a clean-exit hook may emit PLAIN text the
@@ -96,15 +107,20 @@ export function parseHookOutput(exitCode: number | undefined, stdout: string, st
         // reference engines are). The plain stdout remains the bridge's to use.
         parsed = undefined
       }
-      if (parsed) applyStructured(output, parsed)
+      if (parsed) applyStructured(output, parsed, expectedEventName)
     }
   }
 
   return output
 }
 
-/** Fold a parsed structured-stdout object into `output` (mutates in place). */
-function applyStructured(output: HookOutput, parsed: Record<string, unknown>): void {
+/**
+ * Fold a parsed structured-stdout object into `output` (mutates in place).
+ * `expectedEventName` (the firing event) gates the per-event `hookSpecificOutput`
+ * block: a block whose `hookEventName` names a different event has its
+ * event-scoped fields discarded (only its `hookEventName` is recorded).
+ */
+function applyStructured(output: HookOutput, parsed: Record<string, unknown>, expectedEventName?: string): void {
   const cont = bool(parsed, 'continue')
   if (cont !== undefined) output.continue = cont
   const stopReason = str(parsed, 'stopReason')
@@ -121,15 +137,22 @@ function applyStructured(output: HookOutput, parsed: Record<string, unknown>): v
   const topReason = str(parsed, 'reason')
   if (topReason !== undefined) output.reason = topReason
 
-  // hookSpecificOutput: the per-event channel, keyed by `hookEventName`. We
-  // surface that discriminator so the bridge can DISCARD a block whose event
-  // doesn't match the firing one (the schemas make it the discriminator). The
+  // hookSpecificOutput: the per-event channel, keyed by `hookEventName`. The
   // permissionDecision (allow/deny/ask) OVERRIDES the legacy top-level decision;
   // additionalContext and updatedInput live here too.
   const hso = obj(parsed.hookSpecificOutput)
   if (hso) {
     const eventName = str(hso, 'hookEventName')
+    // Always surface the discriminator (for the log/diagnostics), even on a
+    // mismatch — the record should show what the malformed block claimed.
     if (eventName !== undefined) output.hookEventName = eventName
+    // The schemas key this block by event: if it names a DIFFERENT event than the
+    // one firing, it is malformed — discard its event-scoped fields (a PreToolUse
+    // block must not deny a Stop hook). A caller that passes no expectedEventName
+    // opts out of the check (applies the block as-is).
+    if (expectedEventName !== undefined && eventName !== undefined && eventName !== expectedEventName) {
+      return
+    }
     const permission = permissionDecisionOf(str(hso, 'permissionDecision'))
     if (permission !== undefined) output.decision = permission
     const permissionReason = str(hso, 'permissionDecisionReason')
