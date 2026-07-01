@@ -18,6 +18,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const MAX_PROMPT_FIELD_LENGTH = 500
+const MAX_COLLECT_CACHE_ENTRIES = 128
 
 export function isSkillName(name: string): boolean {
   return SKILL_NAME.test(name)
@@ -189,6 +190,10 @@ export class SkillService extends Service {
 
     const collected = this.collectFresh(roots)
     this.collectCache.set(key, collected)
+    if (this.collectCache.size > MAX_COLLECT_CACHE_ENTRIES) {
+      const oldest = this.collectCache.keys().next() as IteratorYieldResult<string>
+      this.collectCache.delete(oldest.value)
+    }
     return collected
   }
 
@@ -334,10 +339,10 @@ function parseFrontmatter(raw: string): { data: Record<string, unknown>; body: s
   const end = raw.indexOf('\n---', 4)
   if (end < 0) return undefined
   const yaml = raw.slice(4, end)
-  const bodyStart = raw.indexOf('\n', end + 4)
   const parsed = parseYaml(yaml) as unknown
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
-  return { data: parsed as Record<string, unknown>, body: bodyStart < 0 ? '' : raw.slice(bodyStart + 1) }
+  const body = raw.slice(end + 4)
+  return { data: parsed as Record<string, unknown>, body: body.startsWith('\n') ? body.slice(1) : body }
 }
 
 async function findProjectRoot(cwd: string): Promise<string> {
@@ -379,8 +384,10 @@ function compareSummary(left: SkillSummary, right: SkillSummary): number {
 
 function promptLine(value: string): string {
   const normalized = value.replaceAll(/\s+/g, ' ').trim()
-  if (normalized.length <= MAX_PROMPT_FIELD_LENGTH) return normalized
-  return `${normalized.slice(0, MAX_PROMPT_FIELD_LENGTH - 3)}...`
+  const truncated = normalized.length <= MAX_PROMPT_FIELD_LENGTH
+    ? normalized
+    : `${normalized.slice(0, MAX_PROMPT_FIELD_LENGTH - 3)}...`
+  return escapeText(truncated)
 }
 
 function stringField(data: Record<string, unknown>, key: string): string | undefined {
@@ -408,6 +415,10 @@ function optionalMetadata(data: Record<string, unknown>): { metadata?: Record<st
 
 function escapeAttr(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;')
+}
+
+function escapeText(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
 function collectCacheKey(roots: { project: SkillRoot[]; shared: SkillRoot[] }, runtimeRevision: number): string {

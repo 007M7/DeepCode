@@ -441,7 +441,7 @@ async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefiniti
 async renderModelListing(options: SkillLookupOptions = {}): Promise<string>
 ```
 
-Source: [`packages/core/skill/src/index.ts:106`](../../packages/core/skill/src/index.ts)
+Source: [`packages/core/skill/src/index.ts:107`](../../packages/core/skill/src/index.ts)
 
 ### `ctx.subagents` — `SubagentService`
 
