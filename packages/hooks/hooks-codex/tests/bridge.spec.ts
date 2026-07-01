@@ -132,9 +132,14 @@ describe('hooks-codex bridge', () => {
     expect(adapter.requests).toHaveLength(1)
   })
 
-  it('disposing the bridge fiber is clean (HMR safety)', async () => {
+  it('disposing the bridge fiber removes its listeners (HMR safety)', async () => {
     const dir = configDir()
-    writeHooks(dir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'true' }] }] })
+    // A BLOCKING UserPromptSubmit hook: if the listener leaked past dispose, it
+    // would veto the prompt (0 model requests) and log a hook/invoked. After a
+    // clean dispose the turn must proceed untouched — this fails loudly on a leak
+    // (a no-op `true` hook would pass even with a leaked listener).
+    const deny = script(dir, 'deny.sh', '#!/usr/bin/env bash\nexit 2\n')
+    writeHooks(dir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: deny }] }] })
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -150,7 +155,8 @@ describe('hooks-codex bridge', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
-    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests).toHaveLength(1) // not blocked → the listener is gone
+    expect(events(agent).some(e => e.type === 'hook/invoked')).toBe(false) // no hook ran
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/inject/apply', () => {

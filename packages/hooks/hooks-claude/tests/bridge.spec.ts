@@ -322,17 +322,29 @@ describe('hooks-claude bridge — load resilience', () => {
   })
 
   it('disposing the bridge fiber removes its listeners (HMR safety)', async () => {
-    const dir = writeConfig({ UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'true' }] }] })
+    // A BLOCKING UserPromptSubmit hook: if the listener leaked past dispose it
+    // would veto the prompt (0 model requests) and log a hook/invoked. Build the
+    // ctx WITHOUT the harness's own bridge mount so this is the ONLY mount, then
+    // dispose it — a leaked listener fails the test (a no-op `true` hook would
+    // pass even leaked, so it proved nothing).
+    const dir = writeConfig({ UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }] })
     const adapter = new MockAdapter([textResponse('ok')])
-    const ctx = await harness(dir, adapter)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
     const fiber = await ctx.plugin(HooksClaude, { configPath: join(dir, 'hooks.json') })
     await fiber.dispose()
-    // After disposing this second mount, the FIRST mount's listeners still work,
-    // but the disposed one contributed none — assert no leaked listener throws.
+    ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
-    expect(adapter.requests.length).toBeGreaterThanOrEqual(1)
+    expect(adapter.requests).toHaveLength(1) // not blocked → the listener is gone
+    expect(events(agent).some(e => e.type === 'hook/invoked')).toBe(false) // no hook ran
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/inject/apply', () => {

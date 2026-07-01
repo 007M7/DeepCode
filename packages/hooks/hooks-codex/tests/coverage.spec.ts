@@ -179,12 +179,15 @@ describe('hooks-codex coverage — decision mapping paths', () => {
 
   it('SessionStart with no additionalContext is a no-op (contextFrom empty)', async () => {
     const d = dir()
-    hooks(d, { SessionStart: [{ hooks: [{ type: 'command', command: sh(d, 's.sh', '#!/usr/bin/env bash\nexit 0\n') }] }] })
+    // The hook touches a marker so we can wait for it to ACTUALLY FINISH before
+    // asserting absence — a completed turn alone would not prove the detached
+    // session-start hook ran, making the absence check a false pass.
+    const marker = join(d, 'ss-ran')
+    hooks(d, { SessionStart: [{ hooks: [{ type: 'command', command: sh(d, 's.sh', `#!/usr/bin/env bash\ntouch "${marker}"\nexit 0\n`) }] }] })
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(join(d, 'hooks.json'), adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
-    // A completed turn proves session-start already ran; the clean no-output hook
-    // injected nothing, so no context/message exists.
+    await waitFor(() => existsSync(marker)) // the clean no-output hook has finished
     agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
     expect(events(agent).some(e => e.type === 'context/message')).toBe(false)
   })
@@ -345,6 +348,37 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
     expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('extra guidance from a plain hook')
+  })
+
+  it('a NON-clean SessionStart hook (exit 2) does NOT inject its stdout as context', async () => {
+    // The plain-stdout→context fold is gated on exitCode === 0, matching the
+    // codec's structured-stdout rule. SessionStart is an EMIT (cannot block), so
+    // an `echo stale; exit 2` here is the exact case the gate guards: without it,
+    // the non-clean hook's stdout would wrongly inject "stale". A marker lets us
+    // wait for the detached hook to finish before asserting absence.
+    const d = dir()
+    const marker = join(d, 'ran')
+    hooks(d, { SessionStart: [{ hooks: [{ type: 'command', command: sh(d, 'b.sh', `#!/usr/bin/env bash\ntouch "${marker}"\necho "stale"\nexit 2\n`) }] }] })
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(join(d, 'hooks.json'), adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    await waitFor(() => existsSync(marker)) // the exit-2 hook has finished
+    expect(events(agent).some(e => e.type === 'context/message'
+      && e.data.content.some(b => b.type === 'text' && b.text.includes('stale')))).toBe(false)
+  })
+
+  it('a UserPromptSubmit hook with a non-blocking error exit (1) + stdout does NOT inject it', async () => {
+    // Exit 1 is a non-blocking error (no decision), so the prompt is NOT blocked
+    // and the handler falls through to the context path — the gate must still
+    // suppress the error hook's stdout ("stale" never reaches the model).
+    const d = dir()
+    hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'e.sh', '#!/usr/bin/env bash\necho "stale"\nexit 1\n') }] }] })
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(join(d, 'hooks.json'), adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+    expect(adapter.requests).toHaveLength(1) // exit 1 is non-blocking → the turn ran
+    expect(JSON.stringify(adapter.requests[0]!.messages)).not.toContain('stale')
   })
 
   it('a clean SessionStart hook that prints PLAIN stdout injects it (not JSON)', async () => {

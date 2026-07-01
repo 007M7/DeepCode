@@ -110,14 +110,18 @@ export function apply(ctx: Context, config: Config): void {
           // Discard a `hookSpecificOutput` block naming a different event.
           expectedEventName: point,
         }, () => performance.now())
-        // Codex's SessionStart/UserPromptSubmit treat a clean hook's PLAIN
+        // Codex's SessionStart/UserPromptSubmit treat a CLEAN hook's PLAIN
         // (non-JSON) stdout as additionalContext. The codec keeps that raw text on
         // `output.stdout` but only sets `additionalContext` from a JSON
         // `hookSpecificOutput`, so fold plain stdout in here and let the shared
-        // merge + contextFrom path carry it. Guarded on the codec's own JSON gate
-        // (stdout starting with `{`) so a structured hook's raw JSON is never
-        // injected as prose, and it never clobbers an explicit additionalContext.
-        if (opts.plainStdoutAsContext === true && output.additionalContext === undefined
+        // merge + contextFrom path carry it. Gated exactly like the codec's own
+        // structured-stdout parse: only on a clean `exitCode === 0` (a non-zero
+        // exit is an error, not context — an `echo x; exit 2` must not inject
+        // `x`), only when stdout is non-JSON (`!startsWith('{')` — a structured
+        // hook's raw JSON is never dumped as prose), and never clobbering an
+        // explicit additionalContext from a JSON block.
+        if (opts.plainStdoutAsContext === true && output.exitCode === 0
+          && output.additionalContext === undefined
           && output.stdout.length > 0 && !output.stdout.startsWith('{')) {
           output.additionalContext = output.stdout
         }
