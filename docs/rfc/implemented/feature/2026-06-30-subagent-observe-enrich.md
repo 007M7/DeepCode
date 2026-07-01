@@ -1,22 +1,25 @@
-# RFC: Subagent lifecycle enrichment — agentType + lastAssistantMessage (observe-only)
+# RFC: Subagent lifecycle enrichment — lastAssistantMessage (observe-only)
 
 Status: implemented (accepted 2026-06-30)
 
 <!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
+<!-- An earlier draft also added an `agentType` subagent-kind label (the harness
+     analogue of CC's `subagent_type`) to the request + both lifecycle payloads.
+     It was dropped in review: it is a Claude-Code concept that does not fit our
+     own seam (nothing here interprets it, and the only consumer was a CC-dialect
+     bridge). The CC bridge instead feeds Claude Code's own default matcher value
+     `"general-purpose"` for its SubagentStart/Stop `agent_type` matcher. So this
+     RFC ships ONE enrichment: `lastAssistantMessage`. -->
 
 ## Context
 
-The hooks subsystem ([interception seams RFC](2026-06-30-interception-seams.md)) lets a plugin observe and gate the agent at lifecycle points. Claude Code and Codex both expose **SubagentStart / SubagentStop** hooks, and CC's carry a `subagent_type` (which named subagent kind ran) and the subagent's final message. The harness already emits `subagent/start` and `subagent/end` lifecycle events ([the subagent capability-seam](2026-06-21-subagent-capability-seam.md)), but their payloads were minimal (`provider`, `id`, and on end `stopReason`) — not enough for a hooks bridge to report which KIND of subagent ran, or WHAT it produced, without separately reaching for the live run.
+The hooks subsystem ([interception seams RFC](2026-06-30-interception-seams.md)) lets a plugin observe and gate the agent at lifecycle points. Claude Code and Codex both expose **SubagentStart / SubagentStop** hooks, and CC's carry the subagent's final message. The harness already emits `subagent/start` and `subagent/end` lifecycle events ([the subagent capability-seam](2026-06-21-subagent-capability-seam.md)), but their payloads were minimal (`provider`, `id`, and on end `stopReason`) — not enough for a hooks bridge to report WHAT a subagent produced without separately reaching for the live run.
 
-This RFC enriches those two payloads. It is deliberately **observe-only**: no control-flow change, no waterfall, no `start()` restructure. A run-affecting subagent-stop decision (continuation, injection that changes the run) is a separate, larger redesign and stays out of scope.
+This RFC enriches the end payload. It is deliberately **observe-only**: no control-flow change, no waterfall, no `start()` restructure. A run-affecting subagent-stop decision (continuation, injection that changes the run) is a separate, larger redesign and stays out of scope.
 
 ## Decision
 
-Add two pieces of information to the subagent lifecycle surface:
-
-1. **`agentType` — a caller-supplied subagent-kind label**, the harness analogue of CC's `subagent_type`. It is optional on `SubagentStartRequest`, carried VERBATIM onto both `subagent/start` (`SubagentRunInfo`) and `subagent/end` (`SubagentRunEndInfo`). The seam never interprets it. The model-facing `dsh-tool-subagent` tool threads it from a new optional `Config.agentType`, so a deployment that exposes multiple subagent kinds (one tool load per kind) labels each. Absent when the caller does not distinguish kinds (the spread omits the key — `exactOptionalPropertyTypes`-correct).
-
-2. **`lastAssistantMessage` — the child's final output**, added to `SubagentRunEndInfo`. On the settle path it is a DEEP CLONE of `SubagentResult.output` (so an observer sees WHAT the subagent produced without holding the run). On the REJECT path (an infrastructure fault where no `SubagentResult` was produced — the seam only knows `stopReason: 'error'`) it is absent. The clone is load-bearing for observe-only: the `subagent/end` emit fires from a detached `.then` registered *before* `start()` returns, i.e. before the caller's own `await run.result` continuation — handing listeners the same array reference would let a mutating listener corrupt the caller's `SubagentResult.output`. `structuredClone` makes the event a read-only view (a regression test mutates the event's array and asserts the caller's result is untouched).
+**Add `lastAssistantMessage` — the child's final output — to `SubagentRunEndInfo`.** On the settle path it is a DEEP CLONE of `SubagentResult.output` (so an observer sees WHAT the subagent produced without holding the run). On the REJECT path (an infrastructure fault where no `SubagentResult` was produced — the seam only knows `stopReason: 'error'`) it is absent. The clone is load-bearing for observe-only: the `subagent/end` emit fires from a detached `.then` registered *before* `start()` returns, i.e. before the caller's own `await run.result` continuation — handing listeners the same array reference would let a mutating listener corrupt the caller's `SubagentResult.output`. `structuredClone` makes the event a read-only view (a regression test mutates the event's array and asserts the caller's result is untouched); a clone failure is contained (logged, the event still fires without `lastAssistantMessage`) rather than becoming an unhandled rejection on the detached `.then`.
 
 Both events stay plain **`emit`s**. `subagent/end` fires from a detached `.then` on `run.result` and awaits no listener, so it is genuinely observe-only by construction — a `subagent/start` listener can still reach the live child via `ctx.agents.get(info.id)` and `inject()` into it; a `subagent/end` listener can only observe (the run has settled). Per-listener containment (already in place) keeps one bad subscriber from stranding a live run or surfacing as an unhandled rejection on the detached settle hook.
 
@@ -26,4 +29,4 @@ A control-flow `subagent/end` (an awaited waterfall returning a stop/continue de
 
 ## Consequences
 
-A hooks bridge (or a native plugin) can now translate SubagentStart/SubagentStop faithfully: it reports `agentType`, matches its hook config on it, and forwards the child's `lastAssistantMessage` to a SubagentStop handler — all by subscribing to the existing emits, no new control-flow surface. The vocabulary addition is documented in [docs/core-data-structures/subagent.md](../../../core-data-structures/subagent.md) (the `SubagentStartRequest` type-equiv block + the events prose) and the two subagent READMEs; the catalog is regenerated. No production behavior changes — the events fire exactly as before, with two more (optional) fields on their payloads — so no snapshot or e2e change is needed.
+A hooks bridge (or a native plugin) can now forward the child's `lastAssistantMessage` to a SubagentStop handler by subscribing to the existing emits — no new control-flow surface. The vocabulary addition is documented in [docs/core-data-structures/subagent.md](../../../core-data-structures/subagent.md) (the events prose) and the two subagent READMEs; the catalog is regenerated. No production behavior changes — the events fire exactly as before, with one more (optional) field on the end payload — so no snapshot or e2e change is needed.

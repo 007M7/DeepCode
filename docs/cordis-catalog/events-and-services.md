@@ -445,7 +445,7 @@ list(): string[]
 start(name: string, request: SubagentStartRequest): SubagentRun
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:130`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:121`](../../packages/subagent/subagent/src/index.ts)
 
 ### `ctx.systemPrompt` — `SystemPrompt`
 

@@ -153,60 +153,6 @@ describe('dsh-tool-subagent', () => {
     expect(seen?.agentOptions).toEqual({ model: 'child-model', systemPrompt: 'be terse' })
   })
 
-  it('forwards a configured agentType into the start request (observed on the lifecycle events)', async () => {
-    let seen: { agentType?: string } | undefined
-    const starts: { agentType?: string }[] = []
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(SubagentService)
-    ctx.on('subagent/start', info => void starts.push(info))
-    ctx.subagents.registerProvider({
-      name: 'typed',
-      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
-      start: (request) => {
-        seen = request
-        return {
-          id: AgentId('typed-child'),
-          result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
-          cancel() {},
-          dispose: async () => {},
-        }
-      },
-    })
-    await ctx.plugin(tool, { provider: 'typed', agentType: 'code-reviewer' })
-
-    await callSubagent(ctx, { description: 'd', prompt: 'p' })
-    // The config agentType reaches the request, and the service stamps it on the event.
-    expect(seen?.agentType).toBe('code-reviewer')
-    expect(starts[0]?.agentType).toBe('code-reviewer')
-  })
-
-  it('omits agentType from the request when none is configured', async () => {
-    let seen: { agentType?: string } | undefined
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(SubagentService)
-    ctx.subagents.registerProvider({
-      name: 'untyped',
-      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
-      start: (request) => {
-        seen = request
-        return {
-          id: AgentId('untyped-child'),
-          result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
-          cancel() {},
-          dispose: async () => {},
-        }
-      },
-    })
-    await ctx.plugin(tool, { provider: 'untyped' })
-
-    await callSubagent(ctx, { description: 'd', prompt: 'p' })
-    expect(seen !== undefined && 'agentType' in seen).toBe(false)
-  })
-
   it('defaults toolName and omits agentOptions when apply() is called directly (schema bypass)', async () => {
     // `ctx.plugin` validates+defaults config first (toolName→'subagent', the
     // agentOptions object→{}), so the runtime `?? 'subagent'` fallback and the
