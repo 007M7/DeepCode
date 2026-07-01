@@ -290,8 +290,9 @@ export function apply(ctx: Context, config: Config): void {
     // Look up the child (still recoverable: `subagent/end` fires from the
     // service's detached `.then` BEFORE the tool caller's `await run.result`
     // disposes it) so the hook runs in the child's cwd, not the server default.
-    // No `.then`/inject (SubagentStop only observes) and no session is passed, so
-    // runPoint cannot reject — no `.catch` is needed. Fire-and-forget.
+    // No `.then`/inject follows (SubagentStop only observes), and no `turn` is
+    // passed (so no `hook/*` log records), so runPoint has nothing that can
+    // reject — no `.catch` is needed. Fire-and-forget.
     const child = ctx.get('agents')?.get(info.id)
     void runPoint('SubagentStop', SUBAGENT_TYPE, subagentPayload('SubagentStop', info, child), { ...child ? { agent: child } : {} })
   })

@@ -493,13 +493,11 @@ describe('hooks-claude coverage — hook runs in the session cwd, not the server
   })
 
   it('runs a SubagentStop hook in the CHILD session workspace, not the server cwd', async () => {
-    // The bug: SubagentStop ran runPoint(..., {}) with no agent, so the hook fell
-    // back to the executor default (server cwd). SubagentStop must look the child
-    // up (still recoverable at subagent/end) and run in the CHILD's session cwd.
-    // Here the executor default and the child session cwd are DIFFERENT dirs; a
-    // SubagentStop hook writes `pwd` to a marker and we assert it ran in the CHILD
-    // dir. (Proven to regress: neuter the child lookup and the marker lands in the
-    // server dir instead.)
+    // SubagentStop looks the child up (recoverable at subagent/end) and runs the
+    // hook in the CHILD's session cwd, not the executor default. Here the executor
+    // default and the child session cwd are DIFFERENT dirs; a SubagentStop hook
+    // writes `pwd` to a relative marker and we assert it landed in the CHILD dir —
+    // which only holds if the listener threaded the child agent into runPoint.
     const serverDir = dir()
     const childDir = dir()
     const marker = join(childDir, 'stopwhere')
