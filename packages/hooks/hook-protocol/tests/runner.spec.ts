@@ -131,4 +131,17 @@ describe('runHook — outcome decoding + duration', () => {
     const { output } = await runHook(bash, { command: 'h' }, { payload: {}, defaultTimeoutMs: 1000, trailingNewline: true }, clock())
     expect(output.stderr).toBe('plain string fault')
   })
+
+  it('threads expectedEventName so a mismatched hookSpecificOutput block is discarded', async () => {
+    const { bash } = recordingBash(async () => result({
+      exitCode: 0,
+      stdout: { text: JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny' } }), truncated: false },
+    }))
+    const { output } = await runHook(bash, { command: 'h' }, {
+      payload: {}, defaultTimeoutMs: 1000, trailingNewline: true, expectedEventName: 'Stop',
+    }, clock())
+    // A PreToolUse block on a Stop hook is malformed → its decision is discarded.
+    expect(output.hookEventName).toBe('PreToolUse')
+    expect(output.decision).toBeUndefined()
+  })
 })
