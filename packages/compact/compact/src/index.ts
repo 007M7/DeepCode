@@ -6,13 +6,13 @@
  * Implementations subclass {@link CompactService}, implement
  * {@link CompactService.compactIfNeeded} and {@link CompactService.compactRegion},
  * and load as a plugin — registering as `ctx.compact` (one implementation per
- * context). `@deepseek-ai/dsh-compact-basic` (char/4 estimation + token-budget
- * retention + `ctx.llm.stream()` summarization) is the first. A tokenizer- or
- * template-based backend swaps in without touching consumers.
+ * context). A tokenizer-, template-, or model-backed implementation can live
+ * as a sibling package; callers stay on the same `ctx.compact` seam without
+ * touching consumers.
  *
  * The split follows the capability-seams RFC — interface (this) /
- * implementation (`dsh-compact-basic`) / consumer (a `/compact` tool, deferred)
- * — modeled on the bash trio. Unlike `dsh-bash`, this interface necessarily
+ * implementation (deferred) / consumer (a `/compact` tool, deferred) — modeled
+ * on the bash trio. Unlike `dsh-bash`, this interface necessarily
  * depends on `dsh-session` and `dsh-llm`: the contract's verbs are defined over
  * a `Session` and its output is the `ContentBlock` vocabulary. That deviation
  * from the "interface depends only on cordis" guidance is intentional and
