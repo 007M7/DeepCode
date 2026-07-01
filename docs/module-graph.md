@@ -59,6 +59,9 @@ graph TD
   tool-bash --> bash
   tool-bash --> llm
   tool-bash --> tools
+  tool-todo --> agent
+  tool-todo --> session
+  tool-todo --> tools
   tool-web --> llm
   tool-web --> system-prompt
   tool-web --> tools
@@ -129,6 +132,7 @@ graph TD
 | `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
 | `subagent` | `agent`, `llm`, `tools` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |
+| `tool-todo` | `agent`, `session`, `tools` |
 | `tool-web` | `llm`, `system-prompt`, `tools`, `web` |
 | `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `system-prompt`, `tool-bash`, `tools` |
 | `subagent-acp` | `agent`, `llm`, `subagent` |

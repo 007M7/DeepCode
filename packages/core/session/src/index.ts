@@ -95,12 +95,12 @@ export class Session {
   }
 
   /**
-   * Immutable creation metadata (format version, cwd, lineage). Supplied by
-   * the store via `ctx.sessions.create()`. When a `Session` is constructed
-   * bare (tests, ad-hoc replay), a minimal header is synthesized (stamped with
-   * the current {@link SESSION_FORMAT_VERSION}) so `session.header` is always
-   * present. Kept out of the event log — it is a storage concern, not
-   * replayable conversation state.
+   * Immutable creation metadata (format version, cwd, lineage, seed boundary).
+   * Supplied by the store via `ctx.sessions.create()`. When a `Session` is
+   * constructed bare (tests, ad-hoc replay), a minimal header is synthesized
+   * (stamped with the current {@link SESSION_FORMAT_VERSION}) so
+   * `session.header` is always present. Kept out of the event log — it is a
+   * storage concern, not replayable conversation state.
    */
   readonly header: SessionHeader
 

@@ -15,8 +15,8 @@
  * parallel "persisted message" type the log must be converted to and from
  * (faithful to the event-sourced model: the log is the single source of
  * truth). Metadata that is NOT replayable conversation state (format version,
- * cwd, lineage) travels separately as {@link SessionHeader}, which is owned by
- * `dsh-session` and re-exported here.
+ * cwd, lineage, seed boundary) travels separately as {@link SessionHeader},
+ * which is owned by `dsh-session` and re-exported here.
  *
  * @module @deepseek-ai/dsh-session-persistence
  */
