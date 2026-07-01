@@ -25,7 +25,6 @@ What a caller asks for when starting a subagent. The tool layer builds this from
 ```ts type-equiv
 interface SubagentStartRequest {
   prompt: ContentBlock[]
-  agentType?: string
   parent: Agent
   signal?: AbortSignal
   agentOptions?: AgentOptions
@@ -86,7 +85,7 @@ interface SubagentProvider {
 }
 ```
 
-The service (`ctx.subagents`) emits `subagent/start` when a run begins and `subagent/end` when it settles (see the [events catalog](../cordis-catalog/events-and-services.md)). Both payloads carry the caller's optional `agentType` label (verbatim from the request — Claude Code's `subagent_type`); `subagent/end` additionally carries `lastAssistantMessage` (the child's final `output`) on the settle path, so an observer sees WHAT the subagent produced without holding the run (absent when the run rejected at the infrastructure level — no result was produced). These are **observe-only** enrichments: both events are plain `emit`s (the `subagent/end` fires from a detached `.then` after the result settles and awaits no listener), so a subscriber observes but cannot change the run. Both emits contain a thrown listener **per listener** (logged, never propagated): one bad subscriber can neither strand a live run, surface as an unhandled rejection on the detached settle hook, nor starve the listeners registered after it.
+The service (`ctx.subagents`) emits `subagent/start` when a run begins and `subagent/end` when it settles (see the [events catalog](../cordis-catalog/events-and-services.md)). `subagent/end` carries `lastAssistantMessage` (the child's final `output`) on the settle path, so an observer sees WHAT the subagent produced without holding the run (absent when the run rejected at the infrastructure level — no result was produced). These are **observe-only** events: both are plain `emit`s (the `subagent/end` fires from a detached `.then` after the result settles and awaits no listener), so a subscriber observes but cannot change the run. Both emits contain a thrown listener **per listener** (logged, never propagated): one bad subscriber can neither strand a live run, surface as an unhandled rejection on the detached settle hook, nor starve the listeners registered after it.
 
 ## In-process backends: depth and seed
 
