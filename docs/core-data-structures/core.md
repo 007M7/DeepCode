@@ -306,7 +306,7 @@ interface Agent {
 }
 ```
 
-`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`, `systemPrompt?`) is merge-extensible — plugins add creation options by declaration merging. The `agent/*` event taxonomy (lifecycle, turn/step boundaries, the `agent/prompt-submit`/`agent/request`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy).
+`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`, `systemPrompt?`) is merge-extensible — plugins add creation options by declaration merging. The `agent/*` event taxonomy (lifecycle, live turn boundaries, the `agent/prompt-submit`/`agent/request`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy); step boundaries are durable `step/start`/`step/end` session events only — `agent/*` mirrors turn boundaries, not steps.
 
 ## Interception decisions
 
