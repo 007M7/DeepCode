@@ -121,7 +121,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Branded IDs everywhere they belong](implemented/architecture/2026-06-20-branded-ids.md) | 2026-06-20 |
 | [Extract example apps into packages](implemented/architecture/2026-06-20-extract-example-app-packages.md) | 2026-06-20 |
 | [Event-domain semantics — session is the fact log, agent is the live surface](implemented/architecture/2026-06-30-event-domain-semantics.md) | 2026-06-30 |
-| [stdin + extra env on the bash seam — a trusted-plugin surface](implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md) | 2026-06-30 |
+| [stdin + extra env on the bash seam](implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md) | 2026-06-30 |
 
 ### Process
 

@@ -924,7 +924,7 @@ describe('the model-facing bash tool builds its request from named args only (no
     // var or feed stdin via shell syntax anyway; this just keeps the request
     // shape honest so a future `...args` spread can't silently forward input.)
     await ctx.tools.execute({
-      callId: CallId('boundary-1'),
+      callId: CallId('no-forward-1'),
       name: 'bash',
       arguments: {
         command: 'echo hi',
@@ -943,9 +943,9 @@ describe('the model-facing bash tool builds its request from named args only (no
   it('a background bash call likewise carries no env/stdin', async () => {
     const { ctx, bash } = await setupRecording()
     // start() throws in this recorder, but resolve() runs first and records the
-    // request — which is all this boundary assertion needs.
+    // request — which is all this no-forward assertion needs.
     await ctx.tools.execute({
-      callId: CallId('boundary-2'),
+      callId: CallId('no-forward-2'),
       name: 'bash',
       arguments: {
         command: 'sleep 1',
