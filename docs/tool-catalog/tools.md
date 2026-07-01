@@ -3,11 +3,11 @@
 
 # Tool Schema Catalog
 
-Every model-facing tool a shipped plugin contributes to `ctx.tools`: the exact `name`, `description`, and JSON-Schema `parameters` the model receives via the system-prompt assembly. It complements the [cordis events & services catalog](../cordis-catalog/events-and-services.md) (the wiring a plugin listens to and calls) and [core-data-structures/](../core-data-structures/core.md) (the types those signatures move) — this page is the *tools* the agent is offered.
+Every model-facing tool a shipped plugin contributes to `ctx.tools`: the `name`, `description`, and JSON-Schema `parameters` the model receives via the system-prompt assembly. It complements the [cordis events & services catalog](../cordis-catalog/events-and-services.md) (the wiring a plugin listens to and calls) and [core-data-structures/](../core-data-structures/core.md) (the types those signatures move) — this page is the *tools* the agent is offered.
 
 This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any package is missing from the generator's boot manifest, so a new tool cannot be silently undocumented. See [the tool-schema-catalog RFC](../rfc/implemented/process/2026-07-02-tool-schema-catalog.md).
 
-Scope: shipped product tools under `packages/*/tool-*`. The `examples/` demo tools (e.g. `echo`) are excluded, matching the cordis catalog's packages-only scope.
+Scope: shipped product tools under `packages/*/tool-*`, each booted with its DEFAULT config. The registered tool NAME can be a load-time config (e.g. `tool-subagent`'s `toolName`), so a deployment may surface a package under a different or additional name — a per-package note records those shipped aliases where they exist. The `examples/` demo tools (e.g. `echo`) are excluded, matching the cordis catalog's packages-only scope.
 
 ## `@deepseek-ai/dsh-tool-bash`
 
@@ -118,6 +118,8 @@ Delegate a self-contained task to a subagent (a separate agent that works in its
 ```
 
 Source: [`packages/subagent/tool-subagent/src/index.ts`](../../packages/subagent/tool-subagent/src/index.ts)
+
+The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/coding-agent/cordis.yml` and `examples/acp-agent/cordis.yml`.
 
 ## `@deepseek-ai/dsh-tool-todo`
 

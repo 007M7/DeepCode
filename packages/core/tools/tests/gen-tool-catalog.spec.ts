@@ -60,6 +60,18 @@ describe('gen-tool-catalog collectToolCatalog', () => {
     const bash = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-bash')
     expect(bash?.source).toBe('packages/bash/tool-bash/src/index.ts')
   })
+
+  it('records the shipped `subagent_fork` alias in a note (config-driven tool name)', async () => {
+    // `tool-subagent`'s registered name is the load-time `toolName` config, so
+    // the shipped agents surface this one package as both `subagent` and
+    // `subagent_fork`. Booting yields only the default name; the note is how a
+    // reader learns the fork alias the model also sees. Without it the catalog
+    // would silently under-report the shipped tool surface.
+    const catalog = await collectToolCatalog()
+    const subagent = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-subagent')
+    expect(subagent?.schemas.map(s => s.name)).toEqual(['subagent'])
+    expect(subagent?.note).toMatch(/subagent_fork/)
+  })
 })
 
 describe('gen-tool-catalog assertManifestComplete', () => {
