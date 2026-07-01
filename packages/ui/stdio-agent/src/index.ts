@@ -6,9 +6,10 @@
  *
  * The cluster is BAKED IN, not left to the leaf: a stdio app always logs to the
  * console (stdout is just the terminal) and always pre-creates the `main` agent
- * `ui-stdio` sends to. The leaf supplies only the swappable backends (the LLM
- * adapter, the bash executor), the optional `hmr` dev-reload plugin, and this
- * app's {@link Config} (model, prompt, persistence root, welcome banner).
+ * `ui-stdio` sends to. The leaf supplies the swappable backends (the LLM
+ * adapter, the bash executor), optional product tools, the optional `hmr`
+ * dev-reload plugin, and this app's {@link Config} (model, prompt, persistence
+ * root, welcome banner).
  *
  * `hmr` is deliberately a LEAF entry, not baked in here: it is a Loader-only,
  * subprocess-only dev plugin (its constructor throws without `--expose-internals`
