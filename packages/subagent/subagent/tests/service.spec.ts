@@ -173,7 +173,7 @@ describe('SubagentService', () => {
     expect(ended).toHaveBeenCalledWith(expect.objectContaining({ provider: 'events', id: run.id, stopReason: 'completed' }))
   })
 
-  it('carries agentType (from the request) onto both lifecycle events, and lastAssistantMessage onto end', async () => {
+  it('carries lastAssistantMessage (the child output) onto the end event', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
     ctx.subagents.registerProvider(new StubProvider(
@@ -187,40 +187,17 @@ describe('SubagentService', () => {
     ctx.on('subagent/start', started)
     ctx.on('subagent/end', ended)
 
-    const run = ctx.subagents.start('enriched', baseRequest({ agentType: 'code-reviewer' }))
-    expect(started).toHaveBeenCalledWith(expect.objectContaining({ provider: 'enriched', id: run.id, agentType: 'code-reviewer' }))
+    const run = ctx.subagents.start('enriched', baseRequest())
+    expect(started).toHaveBeenCalledWith(expect.objectContaining({ provider: 'enriched', id: run.id }))
 
     await run.result
     await Promise.resolve()
     expect(ended).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'enriched',
       id: run.id,
-      agentType: 'code-reviewer',
       stopReason: 'completed',
       lastAssistantMessage: [{ type: 'text', text: 'the child answer' }],
     }))
-  })
-
-  it('omits agentType when the request supplied none', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SubagentService)
-    ctx.subagents.registerProvider(new StubProvider('plain'))
-
-    const started = vi.fn()
-    const ended = vi.fn()
-    ctx.on('subagent/start', started)
-    ctx.on('subagent/end', ended)
-
-    const run = ctx.subagents.start('plain', baseRequest())
-    await run.result
-    await Promise.resolve()
-
-    const startInfo = started.mock.calls[0]![0] as Record<string, unknown>
-    const endInfo = ended.mock.calls[0]![0] as Record<string, unknown>
-    expect('agentType' in startInfo).toBe(false)
-    expect('agentType' in endInfo).toBe(false)
-    // lastAssistantMessage IS present on a resolved end (the child's output).
-    expect(endInfo.lastAssistantMessage).toEqual([{ type: 'text', text: 'ok' }])
   })
 
   it('observe-only: a subagent/end listener mutating lastAssistantMessage cannot corrupt the caller\'s result', async () => {
@@ -267,14 +244,13 @@ describe('SubagentService', () => {
 
     const ended = vi.fn()
     ctx.on('subagent/end', ended)
-    const run = ctx.subagents.start('rej', baseRequest({ agentType: 'researcher' }))
+    const run = ctx.subagents.start('rej', baseRequest())
     await run.result.catch(() => {})
     await Promise.resolve()
 
     const endInfo = ended.mock.calls[0]![0] as Record<string, unknown>
     expect(endInfo.stopReason).toBe('error')
-    expect(endInfo.agentType).toBe('researcher') // agentType still carried on reject
-    expect('lastAssistantMessage' in endInfo).toBe(false) // but no output exists
+    expect('lastAssistantMessage' in endInfo).toBe(false) // no output exists on reject
   })
 
   it('contains a structuredClone failure: emits subagent/end without lastAssistantMessage (no unhandled rejection)', async () => {
@@ -282,7 +258,7 @@ describe('SubagentService', () => {
     // containment. An uncloneable output (here a content block carrying a
     // function) would otherwise throw and become an unhandled rejection on the
     // detached `.then`. The handler must instead log and emit the event WITHOUT
-    // lastAssistantMessage, still carrying the real stopReason/agentType.
+    // lastAssistantMessage, still carrying the real stopReason.
     const ctx = new Context()
     await ctx.plugin(SubagentService)
     const warn = vi.fn(); ctx.logger.warn = warn as never
@@ -301,13 +277,12 @@ describe('SubagentService', () => {
 
     const ended = vi.fn()
     ctx.on('subagent/end', ended)
-    const run = ctx.subagents.start('unclone', baseRequest({ agentType: 'researcher' }))
+    const run = ctx.subagents.start('unclone', baseRequest())
     await run.result
     await Promise.resolve()
 
     const endInfo = ended.mock.calls[0]![0] as Record<string, unknown>
     expect(endInfo.stopReason).toBe('completed')        // the real outcome is preserved
-    expect(endInfo.agentType).toBe('researcher')
     expect('lastAssistantMessage' in endInfo).toBe(false) // clone failed → omitted, not crashed
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not clone'))
   })

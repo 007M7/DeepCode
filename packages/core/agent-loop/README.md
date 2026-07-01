@@ -56,6 +56,8 @@ forever:
     STEP loop:
       drain steering
       assembly = systemPrompt.assemble()
+      await serial agent/pre-step        ⟵ surface mutation (compaction) outside the step
+      session('step/start')
       request = waterfall agent/request
       stream llm.stream(request) → session('assistant/chunk')
       message = waterfall agent/step-result
@@ -81,8 +83,8 @@ Cancellation: `agent.cancel()` is the single public stop primitive — it clears
 ### What is NOT here
 
 Everything that goes beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy:
-- Hooks: `agent/session-start`, `agent/prompt-submit`, `agent/request`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation`
-- Compaction: `agent/request`
+- Hooks: `agent/session-start`, `agent/prompt-submit`, `agent/pre-step`, `agent/request`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation`
+- Compaction: `agent/pre-step`
 - Sandbox, permission, plan mode: `tools/pre-execute` (deny/ask gate), `tools/post-execute`
 - Sub-agents: implemented outside the loop as `ctx.subagents` providers; in-process providers use `ctx.agents.create()` and owned `AgentHandle` teardown, while child streaming/progress and background/poll collection remain deferred.
 - Persistence: `session/event` + `session/flush`

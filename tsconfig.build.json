@@ -23,6 +23,7 @@
     { "path": "./packages/core/agent-core" },
     { "path": "./packages/bash/bash" },
     { "path": "./packages/compact/compact" },
+    { "path": "./packages/compact/compact-basic" },
     { "path": "./packages/llm/llm-deepseek" },
     { "path": "./packages/llm/llm-pi-ai" },
     { "path": "./packages/bash/bash-local" },

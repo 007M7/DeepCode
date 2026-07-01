@@ -116,6 +116,44 @@ describe('agent/prompt-submit', () => {
     expect(sent).toContain('extra ctx')
   })
 
+  it('a prompt-submit rewrite + additionalContext is VISIBLE to the agent/pre-step seam (merged ordering)', async () => {
+    // The merge of the interception seams with master's compaction seam pins one
+    // ordering: `agent/prompt-submit` runs (rewriting the prompt and injecting
+    // context) BEFORE the step loop, and `agent/pre-step` fires INSIDE the step
+    // before the single deriveMessages(). So a compaction listener on
+    // `agent/pre-step` must observe the surface AFTER the prompt rewrite/inject —
+    // otherwise it would measure/compact stale history. This cross-test proves
+    // the two seams compose in the right order (each is covered in isolation
+    // elsewhere; this asserts they see each other's effects on the same turn).
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
+      ({
+        kind: 'allow',
+        content: [{ type: 'text', text: 'REWRITTEN prompt' }],
+        additionalContext: { content: [{ type: 'text', text: 'injected ctx' }], source: { kind: 'plugin', plugin: 'test' } },
+      }))
+
+    // The pre-step seam (where compaction lives) derives the surface it would act
+    // on. Capture what it sees on the first step.
+    let preStepDerived: string | undefined
+    ctx.on('agent/pre-step', (subject, _turn, step) => {
+      if (subject === agent && step === 1) preStepDerived = JSON.stringify(subject.session.deriveMessages())
+    })
+
+    send(agent, 'ORIGINAL prompt')
+    await waitForIdle(ctx, agent)
+
+    // The pre-step seam ran and saw BOTH the rewrite (not the original) and the
+    // injected context — i.e. the prompt-submit effects landed before it.
+    expect(preStepDerived).toBeDefined()
+    expect(preStepDerived).toContain('REWRITTEN prompt')
+    expect(preStepDerived).toContain('injected ctx')
+    expect(preStepDerived).not.toContain('ORIGINAL prompt')
+  })
+
   it('block drops the (only) prompt → zero-step turn ends rejected, model never called', async () => {
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(adapter)
@@ -125,7 +163,7 @@ describe('agent/prompt-submit', () => {
       ({ kind: 'block', reason: 'blocked by policy' }))
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event: SessionEvent) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'do something')
     await waitForIdle(ctx, agent)
@@ -420,7 +458,7 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
     const agent = ctx.agentLoop.create(AgentId('a2'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event: SessionEvent) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'run rm -rf /')
     await waitForIdle(ctx, agent)

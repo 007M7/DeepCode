@@ -25,6 +25,10 @@ graph TD
   llm-replay --> llm
   llm-replay --> session
   session-persistence --> session
+  compact-basic --> agent
+  compact-basic --> compact
+  compact-basic --> llm
+  compact-basic --> session
   invariants --> agent
   invariants --> llm
   invariants --> session
@@ -123,6 +127,7 @@ graph TD
 | `hook-protocol` | `bash`, `session` |
 | `llm-replay` | `llm`, `session` |
 | `session-persistence` | `session` |
+| `compact-basic` | `agent`, `compact`, `llm`, `session` |
 | `invariants` | `agent`, `llm`, `session` |
 | `session-persistence-jsonl` | `session`, `session-persistence` |
 | `session-persistence-sqlite` | `session`, `session-persistence` |

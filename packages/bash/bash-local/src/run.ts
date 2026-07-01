@@ -48,12 +48,13 @@ export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
  *
  * Layering matters: the scrub drops `process.env` credentials, then
  * `ENV_OVERRIDES` forces the model-friendly terminal vars, then `extra` is
- * merged LAST so a TRUSTED-PLUGIN entry wins even when its name matches the
- * scrub pattern (the scrub guards against leaking the HARNESS's ambient
- * credentials into model-driven commands; an in-process plugin that explicitly
- * sets a var has taken responsibility for it). `extra` is NEVER model-supplied
- * — `dsh-tool-bash` does not forward model input here (see its README, §
- * "Trusted-plugin boundary").
+ * merged LAST so an explicit caller entry wins even when its name matches the
+ * scrub pattern (the scrub is the control that stops the HARNESS's ambient
+ * credentials leaking into a spawned command; a caller that explicitly sets a
+ * var named a value it already holds, not that ambient secret). `extra` is set
+ * by in-process plugins (the hooks bridges), not the model — `dsh-tool-bash`
+ * builds its request from named fields only and does not forward model input
+ * here (see its README, § "The tool builds its request from named args only").
  */
 export function childEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
@@ -75,14 +76,15 @@ export interface SpawnSpec {
   signal?: AbortSignal | undefined
   /**
    * Bytes to write to the child's stdin, then close it. Absent (or empty)
-   * leaves stdin closed/empty. A TRUSTED-PLUGIN surface (see {@link SpawnSpec}'s
-   * consumer `dsh-bash`); never carries model input.
+   * leaves stdin closed/empty. Set by in-process plugins (the hooks bridges);
+   * the model-facing `dsh-tool-bash` tool does not thread model input here.
    */
   stdin?: string | undefined
   /**
    * Extra environment entries, merged onto the scrubbed env AFTER the
    * credential scrub and the model-friendly overrides (so an explicit entry
-   * wins). A TRUSTED-PLUGIN surface; never carries model input.
+   * wins). Set by in-process plugins; the model-facing tool does not forward
+   * model input here.
    */
   env?: Record<string, string> | undefined
 }
@@ -297,10 +299,10 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
   }
 
   // stdin is ALWAYS a pipe (kept literal so the typed spawn overload guarantees
-  // non-null stdout/stderr) and is closed immediately: with bytes when a
-  // trusted plugin supplied stdin, empty otherwise. A closed empty pipe gives a
-  // reading child EOF exactly as `/dev/null` would, so the no-stdin path (every
-  // model-driven call) is unchanged.
+  // non-null stdout/stderr) and is closed immediately: with bytes when a caller
+  // supplied stdin, empty otherwise. A closed empty pipe gives a reading child
+  // EOF exactly as `/dev/null` would, so the no-stdin path (every model-driven
+  // call) is unchanged.
   const child = spawn('bash', ['-c', spec.command], {
     cwd: spec.cwd,
     env: childEnv(spec.env),

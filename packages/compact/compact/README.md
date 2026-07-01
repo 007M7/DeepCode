@@ -10,7 +10,7 @@ This package is the interface tier of the compaction capability, split so each c
 | `@deepseek-ai/dsh-compact-basic` (deferred) | a backend: char/4 estimation + token-budget retention + `llm.stream()` summarization |
 | `@deepseek-ai/dsh-tool-compact` (deferred) | the model-facing `/compact` tool over `ctx.compact` |
 
-Unlike the bash seam, this interface depends on `@deepseek-ai/dsh-session` and `@deepseek-ai/dsh-llm` — the contract's verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary, so they cannot be expressed without naming those packages. That deviation from the "interface depends only on cordis" guidance is intentional and recorded in the [compaction capability-seam RFC](../../../docs/rfc/proposed/feature/2026-06-18-compaction-capability-seam.md).
+Unlike the bash seam, this interface depends on `@deepseek-ai/dsh-session` and `@deepseek-ai/dsh-llm` — the contract's verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary, so they cannot be expressed without naming those packages. That deviation from the "interface depends only on cordis" guidance is intentional and recorded in the [compaction capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md).
 
 ## Service API (`ctx.compact`)
 
@@ -18,10 +18,10 @@ Both methods are **abstract** — the backend owns the entire strategy (token es
 
 | Member | Semantics |
 |---|---|
-| `compactIfNeeded(session, systemPrompt?, model?, signal?)` | Estimate the history size; if over the backend's threshold, compact an older range via `compactRegion`, keeping recent context intact. Returns the `CompactionResult`, or `null` if nothing needed compacting. |
-| `compactRegion(session, start, end, model, signal?)` | Forcibly summarize surface nodes `[start, end]` (inclusive seqs) into a single replacement node. **Throws** if a compaction is already in progress, if `start`/`end` aren't surface nodes, or if `start > end`. |
+| `compactIfNeeded(agent, turn, step, fullSystemPrompt, signal)` | Estimate the surface-derived history size; if over the backend's threshold, compact an older range via `compactRegion`, keeping recent context intact. Returns the `CompactionResult`, or `null` if nothing needed compacting. All parameters required — the loop's `agent/pre-step` checkpoint supplies the agent, lifecycle context, assembled `fullSystemPrompt`, and turn `signal`; router-aware summarizers can use the agent lifecycle context to route their own model call through `agent/request`. |
+| `compactRegion(session, start, end, agent, turn, step, signal?)` | Forcibly summarize surface nodes `[start, end]` (inclusive seqs) into a single replacement node. **Throws** if a compaction is already in progress, if `start`/`end` aren't surface nodes, or if `start` is positioned after `end` on the surface. The range is a SURFACE-POSITION span, not a numeric seq interval — after a prior replace lands a fresh high-seq summary node at the shadowed range's position, surface order no longer tracks seq order. |
 
-Both methods take an optional `signal: AbortSignal`. A backend that summarizes via `ctx.llm.stream()` **must** forward it into the call's `GenerateOptions.signal`, so an abort or fiber dispose tears down the in-flight summarization instead of leaving an orphaned model call running past the cancellation. The turn that the `compact/*` events belong to is not a parameter — it is recoverable from the log (the currently-open turn), so the backend stamps it without the caller supplying it.
+`compactIfNeeded` takes a required `signal`; `compactRegion`'s is optional. A backend that summarizes via `ctx.llm.stream()` **must** forward it into the call's `GenerateOptions.signal`, so an abort or fiber dispose tears down the in-flight summarization instead of leaving an orphaned model call running past the cancellation. The session being compacted comes from the agent context; the turn that the `compact/*` events belong to is recoverable from the log (the currently-open turn), so the backend stamps it from the log rather than trusting a caller-supplied value.
 
 ## Surface contract
 

@@ -41,15 +41,6 @@ export interface SubagentStartRequest {
   /** The task/prompt for the child agent (a user message in the child session). */
   prompt: ContentBlock[]
   /**
-   * Optional caller-supplied LABEL for the kind of subagent (e.g. `code-reviewer`,
-   * `researcher`) — the harness analogue of Claude Code's `subagent_type`. The
-   * seam does not interpret it; it is carried verbatim onto the `subagent/start`
-   * and `subagent/end` lifecycle events so an observer (a hooks bridge, a UI) can
-   * report or match on which kind of subagent ran. Absent when the caller does
-   * not distinguish subagent kinds.
-   */
-  agentType?: string
-  /**
    * The spawning ("parent") agent — the one whose tool call started this
    * subagent. REQUIRED: in-process backends read `parent.session.header` for
    * the working directory, the `parentSession` lineage to stamp on the child,
