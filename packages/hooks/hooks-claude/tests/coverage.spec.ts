@@ -387,6 +387,22 @@ describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => 
     expect(events(agent).some(e => e.type === 'context/message' && e.data.content.some(b => b.type === 'text' && b.text.includes('context too')))).toBe(true)
   })
 
+  it('a PreToolUse hook whose hookSpecificOutput names a DIFFERENT event does NOT deny the tool', async () => {
+    // The block's hookEventName (UserPromptSubmit) mismatches the firing event
+    // (PreToolUse), so its permissionDecision:"deny" is discarded — the tool runs.
+    const d = dir()
+    const s = sh(d, 'x.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","permissionDecision":"deny"}}\'\n')
+    const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: s }] }] })
+    const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
+    const ctx = await harness(path, adapter)
+    let ran = false
+    ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }])
+    await waitForIdle(ctx, agent)
+    expect(ran).toBe(true) // the mismatched deny was discarded → the tool ran
+  })
+
 })
 
 describe('hooks-claude coverage — executor reject + no-open-turn', () => {

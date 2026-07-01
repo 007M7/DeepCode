@@ -141,6 +141,9 @@ export function apply(ctx: Context, config: Config): void {
           ...opts.signal ? { signal: opts.signal } : {},
           defaultTimeoutMs,
           trailingNewline: true,
+          // Discard a `hookSpecificOutput` block whose `hookEventName` names a
+          // different event than the one firing (the schemas key it by event).
+          expectedEventName: point,
         }, () => performance.now())
         outputs.push(output)
         if (output.updatedInput !== undefined) {

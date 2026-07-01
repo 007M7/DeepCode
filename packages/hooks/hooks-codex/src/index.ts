@@ -107,6 +107,8 @@ export function apply(ctx: Context, config: Config): void {
           ...opts.signal ? { signal: opts.signal } : {},
           defaultTimeoutMs,
           trailingNewline: false, // Codex writes stdin WITHOUT a trailing newline.
+          // Discard a `hookSpecificOutput` block naming a different event.
+          expectedEventName: point,
         }, () => performance.now())
         // Codex's SessionStart/UserPromptSubmit treat a clean hook's PLAIN
         // (non-JSON) stdout as additionalContext. The codec keeps that raw text on
