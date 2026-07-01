@@ -185,7 +185,7 @@ describe('hooks-claude coverage — Stop continuation + subagent inject/catch', 
     const injected: string[] = []
     const child = { id: AgentId('child-x'), inject: (content: { type: string; text?: string }[]) => { injected.push(content.map(b => b.text ?? '').join('')) }, session: { header: { id: 'child-x' } } } as unknown as Parameters<typeof ctx.agents.register>[0]
     ctx.agents.register(child)
-    ctx.emit('subagent/start', { provider: 'p', id: AgentId('child-x'), agentType: 'r' })
+    ctx.emit('subagent/start', { provider: 'p', id: AgentId('child-x') })
     await waitFor(() => injected.includes('child guidance'))
     expect(injected).toContain('child guidance')
   })
@@ -236,17 +236,16 @@ describe('hooks-claude coverage — default reasons + sparse payloads', () => {
     expect(result?.type === 'tool/result' && result.data.content.some(b => b.type === 'text' && b.text.includes('blocked by PostToolUse hook'))).toBe(true)
   })
 
-  it('SubagentStop with no agentType + a rejecting hook run is contained', async () => {
+  it('SubagentStop with no registered child runs the hook cleanly (fire-and-forget)', async () => {
     const d = dir()
-    // Make the SubagentStop runPoint reject by registering a session whose append
-    // throws — simplest: a hook that emits invalid output is fine; force the
-    // .catch by making the session's append throw via a poisoned agent is hard,
-    // so instead assert the no-agentType payload path runs cleanly (no crash).
+    // The agents registry has no entry for the id, so the child lookup yields
+    // undefined and the payload falls back to base(undefined) — assert the
+    // observe-only SubagentStop run still executes the hook without crashing.
     const marker = join(d, 'stopran')
     const s = sh(d, 'stop.sh', `#!/usr/bin/env bash\ntouch "${marker}"\n`)
     const path = hooks(d, { SubagentStop: [{ hooks: [{ type: 'command', command: s }] }] })
     const ctx = await harness(path, new MockAdapter([]))
-    ctx.emit('subagent/end', { provider: 'p', id: AgentId('child-z'), stopReason: 'completed' }) // no agentType
+    ctx.emit('subagent/end', { provider: 'p', id: AgentId('child-z'), stopReason: 'completed' })
     await waitFor(() => existsSync(marker))
     expect(existsSync(marker)).toBe(true)
   })
@@ -491,6 +490,44 @@ describe('hooks-claude coverage — hook runs in the session cwd, not the server
     // `pwd` may resolve symlinks (/var → /private/var etc.), so compare basenames.
     expect(where.endsWith(sessionDir.split('/').pop()!)).toBe(true)
     await handle.dispose()
+  })
+
+  it('runs a SubagentStop hook in the CHILD session workspace, not the server cwd', async () => {
+    // The bug: SubagentStop ran runPoint(..., {}) with no agent, so the hook fell
+    // back to the executor default (server cwd). SubagentStop must look the child
+    // up (still recoverable at subagent/end) and run in the CHILD's session cwd.
+    // Here the executor default and the child session cwd are DIFFERENT dirs; a
+    // SubagentStop hook writes `pwd` to a marker and we assert it ran in the CHILD
+    // dir. (Proven to regress: neuter the child lookup and the marker lands in the
+    // server dir instead.)
+    const serverDir = dir()
+    const childDir = dir()
+    const marker = join(childDir, 'stopwhere')
+    hooks(serverDir, { SubagentStop: [{ hooks: [{ type: 'command', command: 'pwd > stopwhere' }] }] })
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    // Executor default cwd = serverDir (deliberately NOT the child session cwd).
+    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, cwd: serverDir })
+    await ctx.plugin(HooksClaude, { configPath: join(serverDir, 'hooks.json') })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([]))
+
+    // Register a live child on its own session cwd; emit subagent/end with its id.
+    const { SessionId } = await import('@deepseek-ai/dsh-session')
+    const childHandle = ctx.agents.create({ agentId: AgentId('child-stop'), sessionId: SessionId('child-stop-session'), meta: { cwd: childDir }, agentOptions: { model: 'mock' } })
+    ctx.emit('subagent/end', { provider: 'inproc', id: childHandle.agent.id, stopReason: 'completed' })
+
+    await waitFor(() => existsSync(marker))
+    expect(existsSync(marker)).toBe(true) // the marker landed in the CHILD dir
+    const { readFileSync } = await import('node:fs')
+    const where = readFileSync(marker, 'utf8').trim()
+    // `pwd` may resolve symlinks (/var → /private/var etc.), so compare basenames.
+    expect(where.endsWith(childDir.split('/').pop()!)).toBe(true)
+    await childHandle.dispose()
   })
 })
 

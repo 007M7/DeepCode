@@ -289,8 +289,8 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     // Drive the observe-only lifecycle events directly (no real child needed — the
     // bridge just listens). The agents registry is absent here, so SubagentStart's
     // child lookup yields undefined and it simply runs the hook.
-    ctx.emit('subagent/start', { provider: 'inproc', id: AgentId('child-1'), agentType: 'researcher' })
-    ctx.emit('subagent/end', { provider: 'inproc', id: AgentId('child-1'), agentType: 'researcher', stopReason: 'completed', lastAssistantMessage: [{ type: 'text', text: 'done' }] })
+    ctx.emit('subagent/start', { provider: 'inproc', id: AgentId('child-1') })
+    ctx.emit('subagent/end', { provider: 'inproc', id: AgentId('child-1'), stopReason: 'completed', lastAssistantMessage: [{ type: 'text', text: 'done' }] })
 
     // Both hooks run async (detached .then); poll for their marker files rather
     // than a fixed sleep that flakes under load.

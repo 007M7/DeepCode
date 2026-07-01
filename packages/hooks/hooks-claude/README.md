@@ -41,7 +41,7 @@ The hooks **themselves** run in the agent's session workspace: for the agent-sco
 | `SubagentStart` | `subagent/start` (emit) | additionalContext → `agent.inject()` into the live child |
 | `SubagentStop` | `subagent/end` (emit) | observe-only |
 
-The matcher subject is the tool name (`PreToolUse`/`PostToolUse`), the session source (`SessionStart`), or the child's agent type (`SubagentStart`/`SubagentStop`); `UserPromptSubmit`/`Stop` ignore matchers. Multiple file-configured hooks on one point run **serially, in config order**, and fold most-restrictively (`deny > ask > allow`, see `dsh-hook-protocol`); serial keeps each hook's `hook/invoked`/`hook/result` pair adjacent in the log, and the fold is order-independent for the decision (see the RFC's "run serially, not concurrently" note).
+The matcher subject is the tool name (`PreToolUse`/`PostToolUse`), the session source (`SessionStart`), or a constant `agent_type` of `general-purpose` (`SubagentStart`/`SubagentStop` — the harness subagent seam carries no per-kind label, so the bridge reports Claude Code's own Task-tool default; a default/`*`/empty `agent_type` matcher fires, a specific-kind matcher does not); `UserPromptSubmit`/`Stop` ignore matchers. Multiple file-configured hooks on one point run **serially, in config order**, and fold most-restrictively (`deny > ask > allow`, see `dsh-hook-protocol`); serial keeps each hook's `hook/invoked`/`hook/result` pair adjacent in the log, and the fold is order-independent for the decision (see the RFC's "run serially, not concurrently" note).
 
 ## Context source
 

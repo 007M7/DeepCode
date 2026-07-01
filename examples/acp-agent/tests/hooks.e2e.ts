@@ -19,11 +19,14 @@ import {
 /**
  * With-key e2e: the Claude Code hook bridge running against the REAL acp-agent
  * subprocess and the REAL model. The example `cordis.yml` loads `dsh-hooks-claude`
- * pointed at `./hooks.json` in the session cwd; this test writes a `hooks.json`
- * with a PreToolUse hook that BLOCKS every bash command, then asks the live model
- * to write a file — and verifies the WORLD (the file never appears on disk),
+ * with a PROCESS-LEVEL `configPath` of `./hooks.json`, resolved once at load
+ * against the ACP server's launch cwd (NOT per-session); this test sets that
+ * launch cwd to the temp workspace and writes a `hooks.json` there with a
+ * PreToolUse hook that BLOCKS every bash command, then asks the live model to
+ * write a file — and verifies the WORLD (the file never appears on disk),
  * proving the hook actually intercepted execution rather than the agent merely
- * claiming it couldn't. Key-gated; owns and disposes its subprocess.
+ * claiming it couldn't. (The hook itself then runs in the session cwd.)
+ * Key-gated; owns and disposes its subprocess.
  *
  * A keyless companion lives in acp.e2e.ts (stdout purity + session/new); the
  * full hook-fires-end-to-end transcript is the keyless `hook-prompt-block`

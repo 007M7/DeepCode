@@ -271,10 +271,15 @@ export function apply(ctx: Context, config: Config): void {
 
   // --- SubagentStart / SubagentStop: observe-only emits (the subagent seam is
   // observe-only this cut). A SubagentStart hook's additionalContext is injected
-  // into the live child; SubagentStop only observes. No matcher subject. ---
+  // into the live child; SubagentStop only observes. Both look the live child up
+  // so the hook runs in the child's session workspace and the payload carries
+  // the child's session_id/cwd (see subagentPayload). The matcher subject is the
+  // CC-default `agent_type` (SUBAGENT_TYPE) — the harness seam carries no
+  // per-kind label, so a config's default/`*`/empty agent_type matcher fires and
+  // a specific-kind matcher does not (documented in the RFC). ---
   ctx.on('subagent/start', (info) => {
     const child = ctx.get('agents')?.get(info.id)
-    void runPoint('SubagentStart', info.agentType ?? '', subagentStartPayload(info), { ...child ? { agent: child } : {} })
+    void runPoint('SubagentStart', SUBAGENT_TYPE, subagentPayload('SubagentStart', info, child), { ...child ? { agent: child } : {} })
       .then((merged) => {
         const context = contextFrom(merged)
         if (context && child) child.inject(context.content, { source: context.source })
@@ -282,12 +287,23 @@ export function apply(ctx: Context, config: Config): void {
       .catch((error: unknown) => { ctx.logger.warn(`hooks-claude: SubagentStart hook failed: ${String(error)}`) })
   })
   ctx.on('subagent/end', (info) => {
-    // No `.then`/inject here (SubagentStop only observes) and no session is
-    // passed, so runPoint cannot reject — no `.catch` is needed (one would be
-    // dead code). The observe-only run is fire-and-forget.
-    void runPoint('SubagentStop', info.agentType ?? '', subagentStopPayload(info), {})
+    // Look up the child (still recoverable: `subagent/end` fires from the
+    // service's detached `.then` BEFORE the tool caller's `await run.result`
+    // disposes it) so the hook runs in the child's cwd, not the server default.
+    // No `.then`/inject (SubagentStop only observes) and no session is passed, so
+    // runPoint cannot reject — no `.catch` is needed. Fire-and-forget.
+    const child = ctx.get('agents')?.get(info.id)
+    void runPoint('SubagentStop', SUBAGENT_TYPE, subagentPayload('SubagentStop', info, child), { ...child ? { agent: child } : {} })
   })
 }
+
+/**
+ * The `agent_type` value the bridge reports for SubagentStart/Stop. The harness
+ * subagent seam carries no per-kind label, so the bridge uses Claude Code's own
+ * Task-tool default — a hooks.json with a default/`*`/empty `agent_type` matcher
+ * fires; a config matching a specific kind (e.g. `code-reviewer`) does not.
+ */
+const SUBAGENT_TYPE = 'general-purpose'
 
 // --- Per-event stdin payloads (the CC DIALECT shape). Field names match CC's
 // hook input schema; this is the part a bridge owns. ---
@@ -330,9 +346,17 @@ function postToolPayload(exec: ToolExecution, result: ToolExecutionResult): Reco
 function stopPayload(agent: Agent): Record<string, unknown> {
   return { ...base(agent, 'Stop'), stop_hook_active: false }
 }
-function subagentStartPayload(info: { id: string; agentType?: string }): Record<string, unknown> {
-  return { hook_event_name: 'SubagentStart', agent_id: info.id, ...info.agentType !== undefined ? { agent_type: info.agentType } : {} }
-}
-function subagentStopPayload(info: { id: string; agentType?: string }): Record<string, unknown> {
-  return { hook_event_name: 'SubagentStop', agent_id: info.id, stop_hook_active: false, ...info.agentType !== undefined ? { agent_type: info.agentType } : {} }
+/**
+ * Build a SubagentStart/SubagentStop payload from the CC base (the child's
+ * `session_id`/`cwd` when the child agent is available) plus the subagent-hook
+ * fields. `agent_type` is the CC-default {@link SUBAGENT_TYPE}; `stop_hook_active`
+ * is present on SubagentStop only (the loop-guard flag, always false this cut).
+ */
+function subagentPayload(event: 'SubagentStart' | 'SubagentStop', info: { id: string }, child: Agent | undefined): Record<string, unknown> {
+  return {
+    ...base(child, event),
+    agent_id: info.id,
+    agent_type: SUBAGENT_TYPE,
+    ...event === 'SubagentStop' ? { stop_hook_active: false } : {},
+  }
 }
