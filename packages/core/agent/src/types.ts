@@ -26,13 +26,12 @@
  *
  * **The rule:** a durable, replayable fact is a SessionEvent; a live
  * interception or a transient/live-object signal is an `agent`/`tools` Cordis
- * event. A datum that is BOTH (a turn/step boundary) lives in the session log,
- * and is mirrored as an `agent/*` emit ONLY where a live consumer provably
- * needs the `Agent` handle at that instant. Turn boundaries are so mirrored
- * (the stdio UI labels output by `agent.id`); step boundaries are NOT (no live
- * consumer needs them — read `step/start`/`step/end` from the session log).
+ * event. A turn/step boundary is a durable fact: it lives in the session log
+ * and is read off the `session/event` feed — it is NOT mirrored as an `agent/*`
+ * emit. A consumer that needs the `Agent` handle (or its short id) at a boundary
+ * keeps a session-id→agent map from `agent/created`/`agent/disposed`.
  * See `docs/rfc/implemented/architecture/2026-06-11-microkernel-event-taxonomy.md`
- * and the related `docs/rfc/proposed/simplification/2026-06-20-remove-agent-boundary-mirror-events.md`.
+ * and `docs/rfc/implemented/simplification/2026-06-20-remove-agent-boundary-mirror-events.md`.
  *
  * @module @deepseek-ai/dsh-agent/types
  */
@@ -47,7 +46,7 @@ export type AgentId = Branded<'AgentId'>
 export function AgentId(id: string): AgentId {
   return id as AgentId
 }
-import type { Session, TurnEndReason } from '@deepseek-ai/dsh-session'
+import type { Session } from '@deepseek-ai/dsh-session'
 
 /**
  * Options an agent is created with.
@@ -183,26 +182,11 @@ declare module 'cordis' {
      */
     'agent/queued'(agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void
 
-    // ---- turn boundaries (emit) — the live boundary surface ----
-    // Step boundaries are NOT mirrored here: a consumer that needs per-step
-    // boundaries reads the durable `step/start`/`step/end` session events (the
-    // session log is the live transcript feed). The TURN boundaries stay as
-    // agent/* emits because the only live consumer (the stdio UI) needs the
-    // `Agent` handle at the boundary to label output, which the session event
-    // does not carry. See the module doc's three-domain rule.
-    /**
-     * A turn began. `turn` is the 1-based turn number within the session.
-     * @mode emit
-     */
-    'agent/turn-start'(agent: Agent, turn: number): void
-    /**
-     * A turn ended. `reason` distinguishes a clean stop from a truncated,
-     * aborted, failed, disposed, or crash-interrupted one (`completed` |
-     * `aborted` | `error` | `disposed` | `max-tokens` | `interrupted`); the
-     * reason union is merge-extensible, so a plugin can add further variants.
-     * @mode emit
-     */
-    'agent/turn-end'(agent: Agent, turn: number, reason: TurnEndReason): void
+    // Turn and step boundaries are NOT mirrored as agent/* emits: a consumer
+    // that needs them reads the durable `turn/start`/`turn/end`/`step/start`/
+    // `step/end` session events off the `session/event` feed (the session log is
+    // the live transcript feed). See the module doc's three-domain rule and the
+    // "remove agent boundary mirror events" RFC.
 
     // ---- step/request extension seams (serial + waterfall) ----
     /**

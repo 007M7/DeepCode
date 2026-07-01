@@ -117,7 +117,7 @@ describe('Agent.cancel()', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
@@ -134,7 +134,7 @@ describe('Agent.cancel()', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
@@ -166,22 +166,23 @@ describe('Agent.cancel()', () => {
     expect(reasons.length).toBe(2)
   })
 
-  it('cancel from a synchronous agent/turn-start listener drops the step (step-start window)', async () => {
+  it('cancel from a synchronous turn/start session-event listener drops the step (step-start window)', async () => {
     const adapter = new MockAdapter([textResponse('should not stream')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    // A turn-start listener fires BEFORE any AbortController is installed for the
-    // step. Cancelling there must still drop the step (the turn-scoped marker,
-    // not the step AbortController, is what catches this) — no model step runs.
+    // A turn/start listener fires right after turn/start is appended, BEFORE any
+    // AbortController is installed for the step. Cancelling there must still drop
+    // the step (the turn-scoped marker, not the step AbortController, is what
+    // catches this) — no model step runs.
     let streamed = false
     ctx.on('agent/stream-chunk', () => { streamed = true })
-    const dispose = ctx.on('agent/turn-start', (subject) => {
-      if (subject === agent) agent.cancel('from turn-start')
+    const dispose = ctx.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'turn/start') agent.cancel('from turn-start')
     })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -210,7 +211,7 @@ describe('Agent.cancel()', () => {
     })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -271,9 +272,11 @@ describe('Agent.cancel()', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let steps = 0
-    ctx.on('session/event', (_session, event) => { if (event.type === 'step/start') steps += 1 })
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_session, event) => {
+      if (event.type === 'step/start') steps += 1
+      if (event.type === 'turn/end') reasons.push(event.data.reason)
+    })
 
     let continued = false
     ctx.on('agent/turn-continuation', async (subject, _turn, _default, next) => {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { CallId, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -132,7 +132,7 @@ describe('HIGH: abort during tool execution ends the turn', () => {
     }))
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -217,20 +217,21 @@ describe('HIGH: steering from late extension points is never stranded', () => {
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('goal reminder from step/end')
   })
 
-  it('steer() from an agent/turn-end listener becomes a queued message for the next turn', async () => {
+  it('steer() from a turn/end session-event listener becomes a queued message for the next turn', async () => {
     const adapter = new MockAdapter([textResponse('turn 1'), textResponse('turn 2')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    let steeredOnce = false
-    ctx.on('agent/turn-end', () => {
-      if (steeredOnce) return
-      steeredOnce = true
-      agent.steer([{ type: 'text', text: 'too late for this turn' }])
-    })
-
     const turns: number[] = []
-    ctx.on('agent/turn-start', (_agent, turn) => void turns.push(turn))
+    let steeredOnce = false
+    ctx.on('session/event', (subject, event) => {
+      if (subject !== agent.session) return
+      if (event.type === 'turn/start') turns.push(event.data.turn)
+      if (event.type === 'turn/end' && !steeredOnce) {
+        steeredOnce = true
+        agent.steer([{ type: 'text', text: 'too late for this turn' }])
+      }
+    })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -332,7 +333,7 @@ describe('MEDIUM: disposed status is part of the agent/status contract', () => {
     const statuses: string[] = []
     const reasons: TurnEndReason[] = []
     ctx.on('agent/status', (_agent, status) => void statuses.push(status))
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
@@ -461,7 +462,7 @@ describe('MEDIUM: turn numbering continues across seeded (forked) sessions', () 
     ctx2.effect(() => forked.start())
 
     const turns: number[] = []
-    ctx2.on('agent/turn-start', (_agent, turn) => void turns.push(turn))
+    ctx2.on('session/event', (_s, event) => { if (event.type === 'turn/start') turns.push(event.data.turn) })
     forked.send([{ type: 'text', text: 'continue' }])
     await new Promise<void>((resolve) => {
       ctx2.on('agent/status', (subject, status) => {
@@ -505,7 +506,7 @@ describe('HIGH: a finish-error stream chunk ends the turn as error, not complete
     const agent = ctx.agentLoop.create(AgentId('a-finish-error'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -530,7 +531,7 @@ describe('HIGH: a finish-error stream chunk ends the turn as error, not complete
     const agent = ctx.agentLoop.create(AgentId('a-finish-aborted'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -548,7 +549,7 @@ describe('HIGH: a finish-error stream chunk ends the turn as error, not complete
     const agent = ctx.agentLoop.create(AgentId('a-finish-error-nocode'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -618,28 +619,6 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
       lastTurnEnd: e.findLast(x => x.type === 'turn/end'),
     }
   }
-
-  it('a throwing agent/turn-start listener still closes the turn with exactly one error and one turn/end, no step', async () => {
-    const adapter = new MockAdapter([textResponse('never reached')])
-    const ctx = await balancedHarness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a-turnstart'), { model: 'mock' })
-
-    let threw = false
-    ctx.on('agent/turn-start', () => { if (!threw) { threw = true; throw new Error('boom turn-start') } })
-    const errors: Error[] = []
-    ctx.on('agent/error', (_a, _t, _s, error) => void errors.push(error))
-
-    send(agent, 'go')
-    await waitForIdle(ctx, agent)
-
-    const c = boundaryCounts(agent)
-    // turn opened and closed; no step ran; exactly one error turn-end + emitted.
-    expect(c).toMatchObject({ turnStart: 1, turnEnd: 1, stepStart: 0, stepEnd: 0, errors: 1 })
-    expect(errors.map(e => e.message)).toEqual(['boom turn-start'])
-    expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason).toEqual({ kind: 'error', step: 0, message: 'boom turn-start' })
-    // model was never called (we threw before the step's request).
-    expect(adapter.requests).toHaveLength(0)
-  })
 
   it('a throwing step/start session-event listener closes the open step then the turn (step/end before turn/end)', async () => {
     const adapter = new MockAdapter([textResponse('never reached')])
@@ -720,7 +699,7 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     }, { inject: ['agentLoop'] }))
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
@@ -737,46 +716,46 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(e.some(x => x.type === 'turn/end' && x.data.reason.kind === 'error')).toBe(false)
   })
 
-  it('preserves reason disposed when the turn-end emit throws during disposal (outer-catch disposed branch)', async () => {
-    // Dispose mid-step → the step-error branch sets reason=disposed (no error
-    // reported). closeTurn(true) then emits agent/turn-end, whose listener
-    // throws → control reaches the outer catch with isDisposed() && !errorReported,
-    // which must PRESERVE disposed rather than overwrite it with the listener's
-    // throw. This is the only path that exercises that catch sub-branch.
-    const adapter = new MockAdapter(['hang'])
+  it('preserves reason disposed when a pre-step listener disposes then throws (outer-catch disposed branch)', async () => {
+    // Reach the OUTER catch while disposed: an `agent/pre-step` listener requests
+    // disposal AND throws. The throw escapes the pre-step `await` (line ~419) to
+    // the loop's outer catch — BEFORE the post-pre-step disposal check at ~422
+    // gets to run — so the catch sees `isDisposed() && !errorReported` and must
+    // PRESERVE reason=disposed rather than overwrite it with the listener's throw
+    // (disposal is not a failure). This is the surviving path to that sub-branch
+    // now that there is no turn-boundary emit to throw from.
+    const adapter = new MockAdapter([textResponse('never reached')])
     const ctx = await balancedHarness(adapter)
     let agent!: ReactLoopAgent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(AgentId('a-dispose-emit-throw'), { model: 'mock' })
+      agent = inner.agentLoop.create(AgentId('a-prestep-dispose-throw'), { model: 'mock' })
     }, { inject: ['agentLoop'] }))
 
-    // The FIRST agent/turn-end emit throws (the disposal-driven turn end).
     let threw = false
-    ctx.on('agent/turn-end', () => { if (!threw) { threw = true; throw new Error('boom turn-end during disposal') } })
-    // Collect agent/error emissions to prove none is surfaced through that
-    // channel either (the listener throw must be fully contained).
+    ctx.on('agent/pre-step', () => {
+      if (threw) return
+      threw = true
+      // Request disposal, then throw in the same synchronous tick: status flips
+      // to 'disposed' (the disposer aborts the step controller) and the throw
+      // drives control into the outer catch with isDisposed() already true.
+      void fiber.dispose()
+      throw new Error('boom pre-step during disposal')
+    })
     const errorEmits: Error[] = []
     ctx.on('agent/error', (_a, _t, _s, error) => void errorEmits.push(error))
 
     send(agent, 'go')
-    await new Promise(r => setTimeout(r, 30))
-    await fiber.dispose() // dispose during the hanging step
     await agent.done
 
-    // The throwing turn-end listener actually fired — proving the outer-catch
-    // path was exercised, not skipped.
-    expect(threw).toBe(true)
-
     const e = [...agent.session.events]
-    // Exactly one turn/start and one turn/end (balanced); the turn/end carries
-    // the disposed reason, NOT an error reason from the throwing listener.
+    // Balanced: one turn/start, one turn/end carrying disposed (NOT error).
     expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
     const turnEnd = e.findLast(x => x.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
-    // The throwing turn-end listener is contained: the turn/end carries the
-    // disposed reason (not an error) and no agent/error is emitted (disposal is
-    // not a failure; the throw is swallowed).
     expect(e.some(x => x.type === 'turn/end' && x.data.reason.kind === 'error')).toBe(false)
+    // No step opened (the throw was before step/start) and disposal is not a
+    // failure, so no agent/error for the contained throw.
+    expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(errorEmits).toHaveLength(0)
   })
 
@@ -822,43 +801,6 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(adapter.requests).toHaveLength(1)
   })
 
-  it('a throwing turn-end listener on a SUCCESSFUL turn leaves no event after turn/end (loadable log)', async () => {
-    // Regression: a normal turn completes, closeTurn(true) appends turn/end and
-    // emits agent/turn-end whose listener throws. The error must NOT be appended
-    // as a session event after turn/end — that would sit past the commit
-    // boundary and be dropped as a crash tail on resume (the turn-enclosure RFC). It is
-    // surfaced via agent/error instead, and the log's last event is turn/end.
-    const adapter = new MockAdapter([textResponse('done'), textResponse('next ok')])
-    const ctx = await balancedHarness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a-tend'), { model: 'mock' })
-
-    let threw = false
-    ctx.on('agent/turn-end', () => { if (!threw) { threw = true; throw new Error('boom turn-end') } })
-    const errors: Error[] = []
-    ctx.on('agent/error', (_a, _t, _s, error) => void errors.push(error))
-    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-
-    send(agent, 'go')
-    await waitForIdle(ctx, agent)
-
-    const c = boundaryCounts(agent)
-    expect(c.turnEnd).toBe(1)
-    expect(c.errors).toBe(0) // NO session error event (it would be post-turn/end)
-    expect(agent.session.events.at(-1)?.type).toBe('turn/end') // last event is the boundary
-    expect(errors.map(e => e.message)).toEqual(['boom turn-end']) // surfaced via agent/error
-    // The late throw is also logged directly: failTurn's turn-already-ended
-    // branch warns so a throwing turn-end listener after turn/end never vanishes.
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent/turn-end listener threw after turn 1 closed'))
-    // The whole log is loadable (nothing dropped): a fresh replay sees the turn.
-    const replay = new Session(SessionId('replay'), [...agent.session.events])
-    expect(replay.deriveMessages().map(m => m.role)).toEqual(['user', 'assistant'])
-
-    // loop survives.
-    send(agent, 'again')
-    await waitForIdle(ctx, agent)
-    expect(boundaryCounts(agent).turnEnd).toBe(2)
-  })
-
   it('a throwing step/end session-event listener during a successful step ends the turn as error, not completed', async () => {
     // closeStep() must surface a throwing step/end listener via failTurn so the
     // turn ends with reason error, not a silent "completed" with the throw
@@ -902,39 +844,6 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
     expect(c2.stepStart).toBe(c2.stepEnd)
   })
 
-  it('a step error followed by a throwing turn-end listener logs the error exactly once (no double-report)', async () => {
-    // The step fails (finish-error) → failTurn records ONE error and sets the
-    // error reason. closeTurn(true) then appends turn/end and emits
-    // agent/turn-end, whose listener throws → the outer catch calls failTurn
-    // again, but its errorReported guard makes it a no-op. Trap #1: exactly one
-    // error, the turn stays balanced.
-    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', message: 'provider down' } }]
-    const adapter = new MockAdapter([errorStream, textResponse('turn 2 ok')])
-    const ctx = await balancedHarness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a-double'), { model: 'mock' })
-
-    let threw = false
-    ctx.on('agent/turn-end', () => { if (!threw) { threw = true; throw new Error('boom turn-end') } })
-    const errors: Error[] = []
-    ctx.on('agent/error', (_a, _t, _s, error) => void errors.push(error))
-
-    send(agent, 'go')
-    await waitForIdle(ctx, agent)
-
-    const c = boundaryCounts(agent)
-    // exactly one error turn-end + one agent/error emit, despite two failTurn calls.
-    expect(c.errors).toBe(1)
-    expect(errors.map(e => e.message)).toEqual(['provider down'])
-    expect(c.turnStart).toBe(1)
-    expect(c.turnEnd).toBe(1) // single turn/end, balanced
-    expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason).toMatchObject({ kind: 'error', step: 1, message: 'provider down' })
-
-    // loop survives the compound failure.
-    send(agent, 'again')
-    await waitForIdle(ctx, agent)
-    expect(boundaryCounts(agent).turnEnd).toBe(2)
-  })
-
   it('a throwing session/event listener on step/end during finalization still appends turn/end', async () => {
     // A finish-error stream opens a step then fails it, driving finalization
     // through closeStep() with the step open. closeStep appends step/end; a
@@ -974,11 +883,10 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
   it('a throwing session/event listener on turn/end is contained (turn still balanced, loop survives)', async () => {
     // closeTurn appends turn/end; Session.append pushes it BEFORE notifying
     // session/event listeners, so a throwing listener leaves turn/end in the log
-    // (the turn is balanced) but must not escape — from the normal-path
-    // closeTurn(true) it would otherwise propagate; the append is contained so
-    // the turn/end emit + loop continue. (A throwing agent/turn-end LISTENER is
-    // a separate, already-tested path; here the session/event append notify is
-    // what throws.)
+    // (the turn is balanced) but must not escape — from the normal-path closeTurn
+    // it would otherwise propagate; the append is contained so the loop continues.
+    // Turn boundaries are durable session events only (no agent/* mirror), so this
+    // session/event append-notify throw is the sole turn-end-listener failure path.
     const adapter = new MockAdapter([textResponse('turn 1'), textResponse('turn 2')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a-turnendappend'), { model: 'mock' })
@@ -1117,7 +1025,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     }, { inject: ['agentLoop'] }))
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     // Give the loop time to enter the step and reach assemble().
@@ -1143,10 +1051,8 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     // No step was opened, no LLM call was made.
     expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
-    // agent/turn-end may not fire when disposal happens during assembly: the
-    // fiber's disposer (stop→status=disposed) runs before closeTurn(true)'s
-    // emit, and the LIFO chain disposes effects in reverse registration order.
-    // The turn/end durable record is the one that matters.
+    // The durable turn/end record is the authoritative turn-boundary signal
+    // (turn boundaries have no agent/* mirror), so this asserts on the log.
   })
 
   it('cancel during system-prompt assembly drops the about-to-start step as aborted', { timeout: 30000 }, async () => {
@@ -1175,7 +1081,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     }, { inject: ['agentLoop'] }))
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 50))
@@ -1230,7 +1136,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     }, { inject: ['agentLoop'] }))
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 50))
@@ -1251,9 +1157,8 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
     expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
-    // agent/turn-end may not fire when disposal happens during pre-step: the
-    // fiber's disposer runs before closeTurn(true)'s emit. The durable turn/end
-    // is the authoritative record.
+    // The durable turn/end record is the authoritative turn-boundary signal
+    // (turn boundaries have no agent/* mirror).
   })
 
   it('cancel during agent/pre-step seam ends the turn aborted', { timeout: 15000 }, async () => {
@@ -1283,7 +1188,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     }, { inject: ['agentLoop'] }))
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
@@ -1348,7 +1253,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
     expect(e.some(x => x.type === 'assistant/message')).toBe(false)
     expect(adapter.requests).toHaveLength(0)
-    // The durable turn/end reason is the authoritative record; agent/turn-end
-    // may not fire when disposal interleaves with closeTurn(true)'s emit.
+    // The durable turn/end reason is the authoritative turn-boundary record
+    // (turn boundaries have no agent/* mirror).
   })
 })

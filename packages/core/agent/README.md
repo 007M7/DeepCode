@@ -32,11 +32,9 @@ The full `agent/*` event taxonomy is declared via declaration merging in `dsh-ag
 - `agent/status` — idle / running / disposed transition
 - `agent/queued` — message entered inbox (source-resolved, steering flag)
 
-#### Turn boundaries (emit)
+#### Boundaries are durable session events, not `agent/*` emits
 
-- `agent/turn-start`, `agent/turn-end` (carries `TurnEndReason`)
-
-Step boundaries are NOT mirrored as `agent/*` emits: a consumer that needs per-step boundaries reads the durable `step/start`/`step/end` session events (the session log is the live boundary feed). The turn boundaries stay as `agent/*` emits because the stdio UI needs the `Agent` handle (`agent.id`) at the boundary, which the session event does not carry. See [the event-domain-semantics RFC](../../../docs/rfc/implemented/architecture/2026-06-30-event-domain-semantics.md).
+Turn and step boundaries are NOT mirrored as `agent/*` emits: a consumer that needs them reads the durable `turn/start`/`turn/end`/`step/start`/`step/end` events off the `session/event` feed (the session log is the live boundary feed, carrying the `Session` — the turn/step numbers and reasons ride on the event data). See [the event-domain-semantics RFC](../../../docs/rfc/implemented/architecture/2026-06-30-event-domain-semantics.md) and [the remove-boundary-mirror-events RFC](../../../docs/rfc/implemented/simplification/2026-06-20-remove-agent-boundary-mirror-events.md).
 
 #### Interception seams
 

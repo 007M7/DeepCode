@@ -199,13 +199,14 @@ interface SessionRecord {
 }
 
 /**
- * Drive the in-flight prompt's settle from the harness event stream. A turn
- * can end three ways the bridge must all handle (AGENTS.md "honor cross-seam
- * contracts on BOTH sides"): the normal `agent/turn-end` event; a `turn/end`
- * session event WITHOUT the agent event (a boundary emit threw inside the loop,
- * which still appends `turn/end`); or the agent erroring/settling to idle. The
- * first of these to fire settles the prompt; `settle` is then cleared so the
- * others are no-ops (settle-exactly-once).
+ * Drive the in-flight prompt's settle from the harness event stream. The bridge
+ * settles off the durable log: the `turn/end` session event on the
+ * `session/event` feed for the prompt's own turn, with the agent
+ * erroring/settling to idle as a fallback (AGENTS.md "honor cross-seam contracts
+ * on BOTH sides") for the case where a throwing peer `session/event` listener
+ * starved the bridge's listener before it saw the boundary. The first of these
+ * to fire settles the prompt; `settle` is then cleared so the others are no-ops
+ * (settle-exactly-once).
  */
 export function apply(ctx: Context, config: AcpConfig): void {
   // TODO(double-default): these literals duplicate the Config schema defaults
@@ -318,15 +319,14 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // the canonical log: every assistant/chunk and tool/call/result is logged, so
   // translating from the log makes live streaming and `session/load` replay
   // share the identical path (streamSessionEventUpdate). Both the owning-turn
-  // capture and the settle key off the log's own `turn/start`/`turn/end` — NOT
-  // the `agent/turn-start`/`agent/turn-end` EVENTS, which a throwing PEER
-  // listener (cordis `emit` stops at the first throw) or a boundary-emit failure
-  // can skip. `closeTurn` appends `turn/end` to the log unconditionally, and
-  // `turn/start` is appended before any step runs, so within this one listener
-  // we always see the prompt's turn-start (tag `inflight.turn`) then its
-  // turn-end (settle). A `turn/end` settles the prompt ONLY when it is the
-  // prompt's OWN turn (`inflight.turn === event.data.turn`) — a previous,
-  // already-cancelled turn whose end arrives late is ignored (see
+  // capture and the settle key off the log's own `turn/start`/`turn/end` — the
+  // durable boundary events (there is no agent/* turn mirror). `closeTurn`
+  // appends `turn/end` to the log unconditionally, and `turn/start` is appended
+  // before any step runs, so within this one listener we always see the
+  // prompt's turn-start (tag `inflight.turn`) then its turn-end (settle). A
+  // `turn/end` settles the prompt ONLY when it is the prompt's OWN turn
+  // (`inflight.turn === event.data.turn`) — a previous, already-cancelled turn
+  // whose end arrives late is ignored (see
   // SessionRecord.inflight). A turn that ends `error` REJECTS the prompt (ACP
   // has no error stop reason); other reasons resolve via the codec. Demux
   // strictly by session id: a `session/event` is routed to its own record, so

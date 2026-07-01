@@ -25,7 +25,7 @@ An agent was registered in the AgentRegistry and is ready to receive messages.
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:165`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:164`](../../packages/core/agent/src/types.ts)
 
 #### `agent/disposed` — emit
 
@@ -37,7 +37,7 @@ An agent was disposed and removed from the registry; its fiber and any in-flight
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:171`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:170`](../../packages/core/agent/src/types.ts)
 
 #### `agent/error` — emit
 
@@ -49,7 +49,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:279`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:263`](../../packages/core/agent/src/types.ts)
 
 #### `agent/pre-step` — serial
 
@@ -63,7 +63,7 @@ Serial (awaited in registration order), not a waterfall: a listener mutates the 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:239`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:223`](../../packages/core/agent/src/types.ts)
 
 #### `agent/queued` — emit
 
@@ -75,7 +75,7 @@ A message entered the agent's inbox (queued or steering). `source` is the resolv
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:184`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:183`](../../packages/core/agent/src/types.ts)
 
 #### `agent/request` — waterfall
 
@@ -87,7 +87,7 @@ Waterfall: mutate the fully-assembled GenerateOptions before the model call (hoo
 
 Types: [Agent](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:248`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:232`](../../packages/core/agent/src/types.ts)
 
 #### `agent/status` — emit
 
@@ -99,7 +99,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive lifecycle 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:178`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:177`](../../packages/core/agent/src/types.ts)
 
 #### `agent/steering` — emit
 
@@ -111,7 +111,7 @@ Steering content was injected into a running turn.
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:273`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:257`](../../packages/core/agent/src/types.ts)
 
 #### `agent/step-result` — waterfall
 
@@ -123,7 +123,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:254`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:238`](../../packages/core/agent/src/types.ts)
 
 #### `agent/stream-chunk` — emit
 
@@ -135,7 +135,7 @@ A raw StreamChunk arrived from the model (token-level UI/log feed).
 
 Types: [Agent](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/agent/src/types.ts:268`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:252`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-continuation` — waterfall
 
@@ -147,31 +147,7 @@ Waterfall: override the turn-continuation decision. The default (computed by the
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:261`](../../packages/core/agent/src/types.ts)
-
-#### `agent/turn-end` — emit
-
-A turn ended. `reason` distinguishes a clean stop from a truncated, aborted, failed, disposed, or crash-interrupted one (`completed` | `aborted` | `error` | `disposed` | `max-tokens` | `interrupted`); the reason union is merge-extensible, so a plugin can add further variants.
-
-```ts cordis-catalog
-'agent/turn-end'(agent: Agent, turn: number, reason: TurnEndReason): void
-```
-
-Types: [Agent](../core-data-structures/core.md) · [TurnEndReason](../core-data-structures/session.md)
-
-Source: [`packages/core/agent/src/types.ts:205`](../../packages/core/agent/src/types.ts)
-
-#### `agent/turn-start` — emit
-
-A turn began. `turn` is the 1-based turn number within the session.
-
-```ts cordis-catalog
-'agent/turn-start'(agent: Agent, turn: number): void
-```
-
-Types: [Agent](../core-data-structures/core.md)
-
-Source: [`packages/core/agent/src/types.ts:197`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:245`](../../packages/core/agent/src/types.ts)
 
 ### `llm/*`
 
