@@ -530,16 +530,17 @@ describe('surface invariants', () => {
     }).toThrow(/unknown seq 2/)
   })
 
-  it('rejects replace op with start > end', async () => {
+  it('rejects a replace whose start is positioned after its end on the surface', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 2
-    // start > end is invalid (reversed order).
+    session.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 3
+    // Reversed range: start seq 3 is at a later surface position than end seq 2.
     expect(() => {
-      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 2, end: 1 }, sourceEventSeqs: [2] })
-    }).toThrow(/must be <= end/)
+      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 3, end: 2 }, sourceEventSeqs: [2, 3] })
+    }).toThrow(/is after end seq 2 .* on the surface/)
   })
 
   it('rejects a replace whose sourceEventSeqs omits a shadowed surface node', async () => {
@@ -606,6 +607,23 @@ describe('surface invariants', () => {
     expect(() => {
       session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 3, end: 4 }, sourceEventSeqs: [3, 4] }) // seq 5
     }).toThrow(/is after end seq 4 .* on the surface/)
+  })
+
+  it('accepts a replace whose start seq exceeds its end seq when the surface position order is valid', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('user/message', { content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 2
+    session.append('user/message', { content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } }, { surfaceOp: 'append' }) // seq 3
+    // Replace node 2 (position 0) with seq 4 — surface becomes [4, 3], so the
+    // head seq (4) is numerically GREATER than the tail seq (3): the surface is
+    // not seq-ordered. A replace spanning start=4 (pos 0) … end=3 (pos 1) is
+    // valid positionally and must be accepted even though start seq > end seq.
+    session.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 's' }] }, { surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [2] }) // seq 4
+    expect(() => {
+      session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: { op: 'replace', start: 4, end: 3 }, sourceEventSeqs: [4, 3] }) // seq 5
+    }).not.toThrow()
   })
 
   it('rejects a replace that omits sourceEventSeqs entirely', async () => {

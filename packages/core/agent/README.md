@@ -32,17 +32,16 @@ The full `agent/*` event taxonomy is declared via declaration merging in `dsh-ag
 - `agent/status` — idle / running / disposed transition
 - `agent/queued` — message entered inbox (source-resolved, steering flag)
 
-#### Turn boundaries (emit)
+#### Boundaries are durable session events, not `agent/*` emits
 
-- `agent/turn-start`, `agent/turn-end` (carries `TurnEndReason`)
+Turn and step boundaries are NOT mirrored as `agent/*` emits: a consumer that needs them reads the durable `turn/start`/`turn/end`/`step/start`/`step/end` events off the `session/event` feed (the session log is the live boundary feed, carrying the `Session` — the turn/step numbers and reasons ride on the event data). See [the event-domain-semantics RFC](../../../docs/rfc/implemented/architecture/2026-06-30-event-domain-semantics.md) and [the remove-boundary-mirror-events RFC](../../../docs/rfc/implemented/simplification/2026-06-20-remove-agent-boundary-mirror-events.md).
 
-Step boundaries are NOT mirrored as `agent/*` emits: a consumer that needs per-step boundaries reads the durable `step/start`/`step/end` session events (the session log is the live boundary feed). The turn boundaries stay as `agent/*` emits because the stdio UI needs the `Agent` handle (`agent.id`) at the boundary, which the session event does not carry. See [the event-domain-semantics RFC](../../../docs/rfc/implemented/architecture/2026-06-30-event-domain-semantics.md).
+#### Interception seams
 
-#### Interception seams (waterfall)
-
-- `agent/request` — mutate `GenerateOptions` before the model call (hooks, compaction, model switching, tool filtering)
-- `agent/step-result` — post-process the assembled assistant message before tool dispatch (validates what the log records)
-- `agent/turn-continuation` — override the continue/stop decision (force-continue /loop, force-stop budget guard)
+- `agent/pre-step` (serial) — mutate the session surface before the step opens and history is derived (compaction). Fires after `turn/start` and before `step/start`, so a listener's appended events land outside the step.
+- `agent/request` (waterfall) — mutate `GenerateOptions` before the model call (hooks, model switching, tool filtering)
+- `agent/step-result` (waterfall) — post-process the assembled assistant message before tool dispatch (validates what the log records)
+- `agent/turn-continuation` (waterfall) — override the continue/stop decision (force-continue /loop, force-stop budget guard)
 
 #### Streaming + tool (emit)
 
