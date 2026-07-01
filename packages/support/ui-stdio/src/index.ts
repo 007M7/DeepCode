@@ -110,6 +110,13 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       const { content } = event.data
       const text = content.filter(block => block.type === 'text').map(block => block.text).join('')
       output.write(`\n  [tool result] ${text}\n  `)
+    } else if (event.type === 'todo/write') {
+      if (inReasoning) output.write('\x1B[0m')
+      inReasoning = false
+      const glyph = (status: string): string =>
+        status === 'completed' ? '[x]' : status === 'in_progress' ? '[~]' : '[ ]'
+      const lines = event.data.todos.map(todo => `    ${glyph(todo.status)} ${todo.content}`).join('\n')
+      output.write(`\n  [todos]\n${lines}\n  `)
     }
   })
 

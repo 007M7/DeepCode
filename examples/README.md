@@ -1,6 +1,6 @@
 # Examples
 
-Runnable demos (not workspaces) that showcase how the harness is wired. Each example is now a **thin leaf**: a `cordis.yml` that picks the swappable backends (an LLM adapter, a bash executor) and loads ONE app package, plus any demo-only mocks. The composition — the spine, the front-door cluster, and the boot glue — lives in the app packages ([`@deepseek-ai/dsh-stdio-agent`](../packages/ui/stdio-agent), [`@deepseek-ai/dsh-acp-agent`](../packages/ui/acp-agent)) and the [`@deepseek-ai/dsh-agent-core`](../packages/core/agent-core) bundle they share. There is no `start.ts`; the `demo:*` scripts invoke each app package's `bin`.
+Runnable demos (not workspaces) that showcase how the harness is wired. Each example is now a **thin leaf**: a `cordis.yml` that picks the swappable backends (an LLM adapter, a bash executor), loads ONE app package, and may add optional product tools or demo-only mocks. The composition — the spine, the front-door cluster, and the boot glue — lives in the app packages ([`@deepseek-ai/dsh-stdio-agent`](../packages/ui/stdio-agent), [`@deepseek-ai/dsh-acp-agent`](../packages/ui/acp-agent)) and the [`@deepseek-ai/dsh-agent-core`](../packages/core/agent-core) bundle they share. There is no `start.ts`; the `demo:*` scripts invoke each app package's `bin`.
 
 ## echo-agent
 
@@ -15,7 +15,7 @@ Run with: `pnpm run demo:echo`. When prompted, type "echo <something>" to trigge
 
 ## coding-agent
 
-The real thing: DeepSeek V4 + the bash tool suite on the same `@deepseek-ai/dsh-stdio-agent` app. Where echo-agent proves the skeleton with mocks, this is a usable coding assistant.
+The real thing: DeepSeek V4 + the bash tool suite, `subagent` delegation, and the `todo_write` task tracker on the same `@deepseek-ai/dsh-stdio-agent` app. Where echo-agent proves the skeleton with mocks, this is a usable coding assistant.
 
 Run with: `pnpm run demo:coding` (needs `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [coding-agent/README.md](coding-agent/README.md) for details.
 

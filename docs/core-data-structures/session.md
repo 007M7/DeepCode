@@ -6,7 +6,7 @@ Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/t
 
 ## `SessionEventMap` — the event vocabulary
 
-The append-only event types. Merge-extensible: a plugin (e.g. compaction) declares extra event types via declaration merging.
+The append-only event types. Merge-extensible: a plugin declares extra event types via declaration merging — e.g. the [compaction seam](compaction.md) adds `compact/start` / `compact/summary` / `compact/end`.
 
 ```ts type-equiv
 interface SessionEventMap {
@@ -35,6 +35,31 @@ interface SessionEventMap {
   'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string } }
   /** Steering content injected between steps of a running turn. */
   'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
+  /**
+   * The agent's whole todo list, carried as a full snapshot and replaced
+   * wholesale on each write — the current list is the most recent `todo/write`
+   * (last-write-wins on replay, no fold). Appended by an owning agent via
+   * `session.append('todo/write', { todos })`.
+   *
+   * NOT a {@link SurfaceEventType}: it produces no LLM message and never reaches
+   * `deriveMessages()`, so it carries no `surfaceOp` and stays off the surface —
+   * it is durable, replayable UI state, distinct from the conversation history.
+   * It is a `SessionEventMap` member riding the existing `session/event` emit,
+   * not a first-class Cordis `interface Events` notification, so it has no
+   * cordis-catalog row.
+   */
+  'todo/write': { todos: TodoItem[] }
+}
+```
+
+### `TodoItem` — one todo-list entry
+
+The unit of the `todo/write` event's whole-list snapshot. Deliberately minimal — a `content` line and a three-state `status` (no id, priority, or `activeForm`): the list is replaced wholesale on every write, so entries need no stable identity, and the status triple is exactly the ACP `PlanEntryStatus`, so a UI bridge can map a todo list onto an ACP `plan` 1:1 (synthesizing the priority ACP additionally requires). See the [todo_write RFC](../rfc/implemented/feature/2026-06-29-todo-write-tool.md).
+
+```ts type-equiv
+export interface TodoItem {
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
 }
 ```
 
@@ -51,11 +76,66 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /** Unix epoch milliseconds. */
     time: number
     data: SessionEventMap[K]
-  }
+  } & (K extends SurfaceEventType ? {
+    /**
+     * Seq numbers of events that are provenance sources of this event
+     * (e.g. the `assistant/chunk` seqs that built an `assistant/message`,
+     * or the surface nodes shadowed by a compaction marker).
+     */
+    sourceEventSeqs?: number[]
+    /** How this event entered the surface; absent for non-surface events. */
+    surfaceOp?: SurfaceOp
+  } : object)
 }[T]
 ```
 
 `SessionEventType = keyof SessionEventMap`. Because `SessionEventMap` is merge-extensible, switches over `SessionEvent` must NOT use `assertNever` — a plugin-added variant is a valid unknown value; handle the known cases and fall through `default`.
+
+## Surface types
+
+The five message-producing types (`SurfaceEventType` — `user/message`, `assistant/message`, `tool/result`, `context/message`, `steering/message`) carry surface metadata declaring how they join the derived surface linked list. See the [session surface RFC](../rfc/implemented/architecture/2026-06-18-session-surface.md).
+
+### `SurfaceEventType` — the message-producing subset of event types
+
+```ts type-equiv
+export type SurfaceEventType =
+  | 'user/message'
+  | 'assistant/message'
+  | 'tool/result'
+  | 'context/message'
+  | 'steering/message'
+```
+
+### `SurfaceOp` — how an event entered the surface
+
+```ts type-equiv
+export type SurfaceOp =
+  | 'append'
+  | { op: 'replace'; start: number; end: number }
+```
+
+`'append'` is the normal tail-append path. `replace` shadows surface nodes from `start` through `end` inclusive (both must be valid surface node seqs; `start === end` replaces a single node) and inserts the new node in their place.
+
+### `SurfaceIntent` — the parameter to `session.append()`
+
+```ts type-equiv
+export interface SurfaceIntent {
+  surfaceOp: SurfaceOp
+  sourceEventSeqs?: number[]
+}
+```
+
+Required for `SurfaceEventType` events — every message-producing event must declare how it joins the surface, the sole source of derived history. Non-surface types reject it at compile time.
+
+### `SurfaceNode` — a node in the surface linked list
+
+```ts type-equiv
+export interface SurfaceNode {
+  seq: number
+  prev: number | null
+  next: number | null
+}
+```
 
 ## Derived history: `deriveMessages()`
 

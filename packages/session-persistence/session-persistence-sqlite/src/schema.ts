@@ -8,14 +8,14 @@
  */
 
 import { DatabaseSync } from 'node:sqlite'
-import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepseek-ai/dsh-session'
 
 /**
  * The on-disk schema version. Bumped only on a breaking change to the table
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
 
 /**
  * A row of the `sessions` table — the out-of-log metadata ({@link SessionHeader}).
@@ -39,6 +39,10 @@ export interface EventRow {
   type: string
   time: number
   data: string
+  /** JSON-encoded `number[]` — the event's sourceEventSeqs, or null. */
+  source_event_seqs: string | null
+  /** JSON-encoded `SurfaceOp` — how the event entered the surface, or null. */
+  surface_op: string | null
 }
 
 /**
@@ -52,8 +56,15 @@ export interface EventRow {
  * current {@link SCHEMA_VERSION}; an existing database whose version is NOT the
  * current one (written by a different, incompatible build — older or newer) is
  * REJECTED rather than opened against a layout this build does not understand.
- * There are no migrations: an earlier layout (v1's different `sessions` shape,
- * v2 without the `seed_length` column) is not upgraded in place — it is rejected.
+ * There are no migrations: an earlier layout is not upgraded in place — it is
+ * rejected. v1 had a different `sessions` shape; v2 lacked all of
+ * `seed_length`/`source_event_seqs`/`surface_op`. v3 is SKIPPED: two unmerged
+ * branches each shipped a DISTINCT v3 (one adding only `seed_length`, the other
+ * adding only the surface columns), so an on-disk v3 is ambiguous — it could be
+ * either sibling layout, neither of which has all of this build's columns. v4
+ * is the merged layout carrying every column; bumping past the collided v3
+ * makes the version check reject both sibling v3 databases instead of opening
+ * one against columns it does not have.
  */
 export function openDatabase(path: string): DatabaseSync {
   const db = new DatabaseSync(path)
@@ -83,11 +94,13 @@ export function openDatabase(path: string): DatabaseSync {
   `)
   db.exec(`
     CREATE TABLE IF NOT EXISTS events (
-      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-      seq        INTEGER NOT NULL,
-      type       TEXT NOT NULL,
-      time       INTEGER NOT NULL,
-      data       TEXT NOT NULL,
+      session_id        TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      seq               INTEGER NOT NULL,
+      type              TEXT NOT NULL,
+      time              INTEGER NOT NULL,
+      data              TEXT NOT NULL,
+      source_event_seqs TEXT,
+      surface_op        TEXT,
       PRIMARY KEY (session_id, seq)
     ) STRICT
   `)
@@ -108,11 +121,18 @@ export function rowToMeta(row: SessionRow): SessionHeader {
 
 /** Reconstruct a {@link SessionEvent} from an `events` row (parses `data`). */
 export function rowToEvent(row: EventRow): SessionEvent {
+  // Surface-metadata fields are conditional on the event type in the type
+  // system; spread them so each variant gets only the fields it declares.
+  const surfaceFields = {
+    ...row.source_event_seqs !== null ? { sourceEventSeqs: JSON.parse(row.source_event_seqs) as number[] } : {},
+    ...row.surface_op !== null ? { surfaceOp: JSON.parse(row.surface_op) as SurfaceOp } : {},
+  }
   return {
-    type: row.type,
+    type: row.type as SessionEvent['type'],
     seq: row.seq,
     time: row.time,
     data: JSON.parse(row.data) as SessionEvent['data'],
+    ...surfaceFields,
   } as SessionEvent
 }
 
