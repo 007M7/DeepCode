@@ -16,12 +16,14 @@
  *   durability checkpoint. Answers "what happened, durably/replayably." A
  *   consumer that wants the live transcript subscribes here.
  * - **`agent/*`** (this module) — the LIVE runtime surface. Always carries the
- *   live `Agent`. Two shapes: INTERCEPTION waterfalls (`agent/request`,
- *   `agent/step-result`, `agent/turn-continuation`) that mutate/veto, and
- *   TRANSIENT emits (`agent/status`, `agent/stream-chunk`, `agent/error`,
- *   `agent/created`/`agent/disposed`, `agent/queued`, `agent/steering`, and the
- *   turn boundaries) that notify with the `Agent` in hand. Answers "right now,
- *   with the agent object — intercept or observe."
+ *   live `Agent`. Two shapes: INTERCEPTION seams (the `agent/prompt-submit`/
+ *   `agent/request`/`agent/step-result`/`agent/turn-continuation` waterfalls and
+ *   the serial `agent/pre-step`) that mutate/veto, and TRANSIENT emits
+ *   (`agent/status`, `agent/stream-chunk`, `agent/error`, `agent/created`/
+ *   `agent/disposed`, `agent/queued`, `agent/steering`, `agent/session-start`)
+ *   that notify with the `Agent` in hand. Turn/step boundaries are NOT here —
+ *   they are durable `session/event` records. Answers "right now, with the agent
+ *   object — intercept or observe."
  * - **`tools/*`** (`@deepseek-ai/dsh-tools`) — the tool registry + execution.
  *
  * **The rule:** a durable, replayable fact is a SessionEvent; a live
