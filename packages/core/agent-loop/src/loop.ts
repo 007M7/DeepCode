@@ -529,11 +529,14 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
     // Gating on a "turn started" boolean would skip turn/end and leave a
     // permanently OPEN turn that poisons the next turn/replay (the turn-enclosure RFC). We
     // check the log for THIS turn's turn/start: present means a turn/end is owed
-    // (or was already appended — closeTurn/failTurn are idempotent, so running
-    // them again is a safe no-op that still preserves the disposed/error reason
-    // chosen below). Absent means the turn/start append threw BEFORE its push (a
-    // non-serializable trigger — impossible for our fixed trigger); nothing was
-    // opened, so rethrow to the runLoop backstop.
+    // and the normal-exit `closeTurn()` did NOT run (we are here because a throw
+    // preceded it — the two `closeTurn()` sites are on mutually exclusive paths),
+    // so this catch appends turn/end with the disposed/error reason chosen below.
+    // `closeStep()` IS idempotent (guarded by `stepOpen`) — it may have run
+    // already in a step branch, so running it again is a safe no-op. Absent
+    // turn/start means the append threw BEFORE its push (a non-serializable
+    // trigger — impossible for our fixed trigger); nothing was opened, so rethrow
+    // to the runLoop backstop.
     const turnStartLogged = session.events.some(e => e.type === 'turn/start' && e.data.turn === turn)
     if (!turnStartLogged) throw error
     closeStep()

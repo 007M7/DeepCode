@@ -134,7 +134,7 @@ forever:
   wait for queued messages (idle)
   emit agent/status(running)
   TURN (error-contained — a throwing plugin ends the turn, never the loop):
-    drain queued → 'turn/start' → session('user/message'…) → emit agent/turn-start
+    drain queued → 'turn/start' → session('user/message'…)   ⟵ durable turn boundary (no agent/* mirror)
     STEP loop:
       drain steering (late steering from previous step's listeners)
       assembly = ctx.systemPrompt.assemble()          ⟵ waterfall system-prompt/assemble
