@@ -12,8 +12,9 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
 | [`bash/`](bash/README.md) | Bash capability family: the executor seam, a local impl, and the model-facing tool | Product — stable surface |
 | [`fs/`](fs/README.md) | Filesystem capability family: the abstract seam, a local impl, and the model-facing file tools | Product — stable surface |
-| [`compact/`](compact/README.md) | Compaction capability family: the abstract seam (backend + tool deferred) | Product — stable surface |
+| [`compact/`](compact/README.md) | Compaction capability family: the abstract seam + a basic backend (tool deferred) | Product — stable surface |
 | [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
+| [`todo/`](todo/README.md) | Todo/planning family: the model-facing `todo_write` tool (whole-list task tracking on the session log) | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
 | [`ui/`](ui/README.md) | Editor/client integration surfaces (the ACP bridge) | Product — stable surface |
 | [`support/`](support/README.md) | Dev/test/example infrastructure (invariants, stdio UI, replay adapter) | Support — lower compatibility expectations |
@@ -30,7 +31,8 @@ dsh-bash          ← dsh-brand                       (abstract executor seam; b
 dsh-session       ← dsh-llm, dsh-brand
 dsh-system-prompt ← dsh-llm
 dsh-agent         ← dsh-llm, dsh-session, dsh-brand
-dsh-compact       ← dsh-session, dsh-llm                (abstract compaction seam; backend + tool deferred)
+dsh-compact       ← dsh-session, dsh-llm                (abstract compaction seam; tool deferred)
+dsh-compact-basic ← dsh-compact, dsh-session, dsh-llm, dsh-agent  (char/4 + token-budget retention backend)
 dsh-tools         ← dsh-llm, dsh-system-prompt, dsh-agent
 dsh-bash-local    ← dsh-bash                       (BashExecutor impl)
 dsh-tool-bash     ← dsh-bash, dsh-tools            (bash tool schemas)
@@ -40,17 +42,19 @@ dsh-file-context  ← dsh-fs                          (observed-state + freshnes
 dsh-tool-fs       ← dsh-fs, dsh-tools               (file tools + executor)
 dsh-llm-deepseek  ← dsh-llm                        (DeepSeek adapter)
 dsh-llm-pi-ai     ← dsh-llm                        (pi-ai-backed adapter)
-dsh-agent-loop    ← dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent
+dsh-agent-loop    ← dsh-llm, dsh-session, dsh-session-persistence, dsh-system-prompt, dsh-tools, dsh-agent
 dsh-invariants    ← dsh-llm, dsh-session, dsh-agent (dev-mode contract checks)
-dsh-acp           ← dsh-agent, dsh-llm, dsh-session, dsh-session-persistence  (ACP JSON-RPC bridge)
+dsh-acp           ← dsh-agent, dsh-llm, dsh-session, dsh-session-persistence, dsh-tools  (ACP JSON-RPC bridge)
 dsh-ui-stdio      ← dsh-agent, dsh-llm, dsh-session (stdio readline UI plugin)
 dsh-llm-replay    ← dsh-llm, dsh-session            (record/replay adapter for keyless snapshot tests)
 dsh-subagent      ← dsh-agent, dsh-llm, dsh-tools    (abstract subagent provider-registry seam)
-dsh-subagent-mock ← dsh-subagent                     (scripted provider for tests)
-dsh-subagent-spawn ← dsh-subagent, dsh-agent, dsh-session, dsh-llm  (in-process fresh child + shared run driver)
-dsh-subagent-fork ← dsh-subagent-spawn, dsh-agent, dsh-session      (in-process child seeded from parent log)
+dsh-subagent-inprocess ← dsh-subagent, dsh-agent, dsh-session, dsh-llm  (shared in-process run driver)
+dsh-subagent-mock ← dsh-subagent, dsh-agent, dsh-llm  (scripted provider for tests)
+dsh-subagent-spawn ← dsh-subagent, dsh-subagent-inprocess  (in-process fresh child backend)
+dsh-subagent-fork ← dsh-subagent, dsh-subagent-inprocess, dsh-agent, dsh-session  (in-process child seeded from parent log)
 dsh-subagent-acp  ← dsh-subagent, dsh-agent, dsh-llm, @agentclientprotocol/sdk  (out-of-process child over ACP)
-dsh-tool-subagent ← dsh-subagent, dsh-tools, dsh-agent (model-facing delegation tool)
+dsh-tool-subagent ← dsh-subagent, dsh-tools, dsh-agent, dsh-llm (model-facing delegation tool)
+dsh-tool-todo     ← dsh-tools, dsh-agent, dsh-session  (model-facing todo_write tool; whole list on the session log)
 dsh-agent-core    ← timer, dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent, dsh-invariants, dsh-tool-bash, dsh-agent-loop  (the providerless spine, as one bundle plugin)
 dsh-stdio-agent   ← dsh-agent-core, dsh-ui-stdio, dsh-session-persistence-jsonl, dsh-agent, dsh-session  (stdio chat APP + bin)
 dsh-acp-agent     ← dsh-agent-core, dsh-acp, dsh-session-persistence-jsonl     (ACP server APP + bin)
@@ -77,6 +81,7 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `file-context/` | `fs` | Policy gate plugin: observed-state + read-before-edit + version-guarded write/edit via the `fs/*` event gate | (no service — `fs/*` listeners) |
 | `tool-fs/` | `fs` | Model-facing `read`/`write`/`edit` tools + executor (reads via `ctx.fs`, owns read windowing, dispatches `fs/*`) | (registers on `ctx.tools`) |
 | `compact/` | `compact` | Abstract compaction seam + `compact/*` events + `CompactionResult` | `ctx.compact` |
+| `compact-basic/` | `compact` | A backend: char/4 estimation + token-budget retention + `llm.stream()` summarization | (registers `ctx.compact`) |
 | `llm-deepseek/` | `llm` | DeepSeek API adapter (hand-rolled fetch/SSE) | (registers on `ctx.llm`) |
 | `llm-pi-ai/` | `llm` | DeepSeek adapter via `@earendil-works/pi-ai` (design twin) | (registers on `ctx.llm`) |
 | `session-persistence/` | `session-persistence` | Persistence seam + write coordinator | `ctx.sessionPersistence` |
@@ -89,11 +94,13 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `ui-stdio/` | `support` | Minimal stdio (readline) UI plugin: renders `agent/*` events, feeds stdin lines to the agent | (drives `ctx.agents`) |
 | `llm-replay/` | `support` | Record/replay adapter: short-circuits `llm/stream` with chunks from a recorded session JSONL (keyless snapshot tests) | (listens on `llm/stream`) |
 | `subagent/` | `subagent` | Abstract subagent seam: named-provider registry for delegating to child agents | `ctx.subagents` |
-| `subagent-spawn/` | `subagent` | In-process backend: a fresh child agent (+ the shared in-process run driver) | (registers on `ctx.subagents`) |
+| `subagent-inprocess/` | `subagent` | Shared in-process subagent run driver used by spawn/fork; pure library, registers nothing | (none) |
+| `subagent-spawn/` | `subagent` | In-process backend: a fresh child agent | (registers on `ctx.subagents`) |
 | `subagent-fork/` | `subagent` | In-process backend: a child agent seeded with the parent's completed-turn prefix | (registers on `ctx.subagents`) |
 | `subagent-acp/` | `subagent` | Out-of-process backend: a child agent in a spawned subprocess, driven over the Agent Client Protocol | (registers on `ctx.subagents`) |
 | `subagent-mock/` | `support` | Scripted `SubagentProvider` for testing the seam through the real load path | (registers on `ctx.subagents`) |
 | `tool-subagent/` | `subagent` | Model-facing `subagent` delegation tool over `ctx.subagents` | (registers on `ctx.tools`) |
+| `tool-todo/` | `todo` | Model-facing `todo_write` tool; writes the whole task list to the session log (`todo/write`) | (registers on `ctx.tools`) |
 | `brand/` | `util` | Type-only `Branded<B>` nominal-typing primitive (no runtime code, no harness deps) | (none — type-only) |
 
 Each package has its own `README.md` with purpose, service API, events, extension points, and deliberate non-goals (TODOs).

@@ -14,7 +14,7 @@ A backend that reloads a log crashed mid-turn finds an open `turn/start` with no
 
 ## `SessionHeader` — metadata beside the log
 
-Per-session metadata travels **separately** from the event log: format version, cwd, and lineage are storage concerns, not conversation events, so they stay out of `SessionEventMap` and never reach `deriveMessages()`. The header is attached to a `Session` via `session.header`.
+Per-session metadata travels **separately** from the event log: format version, cwd, lineage, and the seed boundary are storage concerns, not conversation events, so they stay out of `SessionEventMap` and never reach `deriveMessages()`. The header is attached to a `Session` via `session.header`.
 
 Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)
 
@@ -78,6 +78,6 @@ Replay/fork is therefore `ctx.sessions.create(id, { seed: seedEvents })`; resumi
 Both implement the same abstract `SessionPersistence` (create/append/load/list over `SessionEvent`) and pass `runPersistenceContract`, proving the seam is genuinely backend-agnostic:
 
 - **[dsh-session-persistence-jsonl](../../packages/session-persistence/session-persistence-jsonl)** — an append-only JSONL log per session with crash-safe atomic writes, the interrupted-turn crash recovery above, and a read/replay path.
-- **[dsh-session-persistence-sqlite](../../packages/session-persistence/session-persistence-sqlite)** — `node:sqlite`, one row per `SessionEvent`. The row shape `(session_id, seq, type, time, data)` maps 1:1 onto the event, so there is no parallel persisted schema to keep in sync.
+- **[dsh-session-persistence-sqlite](../../packages/session-persistence/session-persistence-sqlite)** — `node:sqlite`, one row per `SessionEvent`. The row shape `(session_id, seq, type, time, data, source_event_seqs, surface_op)` maps 1:1 onto the event, including optional surface metadata, so there is no parallel persisted schema to keep in sync.
 
 Multiple backends sharing one on-disk session coordinate writes through the [shared persistence write-coordinator](../rfc/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).

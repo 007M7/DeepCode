@@ -42,6 +42,7 @@
     { "path": "./packages/fs/file-context" },
     { "path": "./packages/fs/tool-fs" },
     { "path": "./packages/compact/compact" },
+    { "path": "./packages/compact/compact-basic" },
     { "path": "./packages/support/invariants" },
     { "path": "./packages/ui/acp" },
     { "path": "./packages/ui/acp-agent" },
@@ -54,6 +55,7 @@
     { "path": "./packages/subagent/subagent-inprocess" },
     { "path": "./packages/subagent/subagent-spawn" },
     { "path": "./packages/subagent/subagent-fork" },
-    { "path": "./packages/subagent/subagent-acp" }
+    { "path": "./packages/subagent/subagent-acp" },
+    { "path": "./packages/todo/tool-todo" }
   ]
 }

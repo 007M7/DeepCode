@@ -151,6 +151,35 @@ describe('createStdioChat rendering', () => {
     expect(out.text()).toContain('[tool result] file.txt')
   })
 
+  it('renders a todo/write session event as a glyphed checklist', async () => {
+    const { ctx, out } = await setup()
+    const session = {} as Session
+    ctx.emit('session/event', session, {
+      type: 'todo/write', seq: 1, time: 0,
+      data: { todos: [
+        { content: 'read the code', status: 'completed' },
+        { content: 'write the fix', status: 'in_progress' },
+        { content: 'run the tests', status: 'pending' },
+      ] },
+    } as SessionEvent)
+    const text = out.text()
+    expect(text).toContain('[todos]')
+    expect(text).toContain('[x] read the code')
+    expect(text).toContain('[~] write the fix')
+    expect(text).toContain('[ ] run the tests')
+  })
+
+  it('resets dim styling when a todo/write interrupts reasoning', async () => {
+    const { ctx, out } = await setup()
+    const agent = makeAgent('main')
+    ctx.emit('agent/stream-chunk', agent, 1, 0, { type: 'reasoning-delta', index: 0, text: 'r' })
+    ctx.emit('session/event', {} as Session, {
+      type: 'todo/write', seq: 1, time: 0,
+      data: { todos: [{ content: 'a task', status: 'pending' }] },
+    } as SessionEvent)
+    expect(out.text()).toContain('\x1B[2mr\x1B[0m')
+  })
+
   it('resets dim styling when a tool/call interrupts reasoning', async () => {
     const { ctx, out } = await setup()
     const agent = makeAgent('main')

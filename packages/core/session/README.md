@@ -8,7 +8,7 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 
 ### Public API
 
-- `ctx.sessions.create(id?: SessionId, options?: { seed?: SessionEvent[]; meta?: { cwd?: string; parentSession?: SessionId; createdAt?: number } }): Session` — Create a session. `options.seed` replays/forks an existing event log; `options.meta` attaches creation metadata (validated absolute `cwd`, `parentSession` lineage) as the immutable `SessionHeader`. The store fills `version`/`id` and defaults `createdAt` to now; a caller reconstructing a persisted session passes the original `createdAt` to preserve it. Disposed with the calling fiber.
+- `ctx.sessions.create(id?: SessionId, options?: { seed?: SessionEvent[]; meta?: { cwd?: string; parentSession?: SessionId; createdAt?: number; seedLength?: number } }): Session` — Create a session. `options.seed` replays/forks an existing event log; `options.meta` attaches creation metadata (validated absolute `cwd`, `parentSession` lineage, seed boundary) as the immutable `SessionHeader`. The store fills `version`/`id` and defaults `createdAt` to now; a caller reconstructing a persisted session passes the original `createdAt` and persisted `seedLength` to preserve them. Disposed with the calling fiber.
 - `ctx.sessions.get(id: SessionId): Session | undefined`
 - `ctx.sessions.list(): Session[]`
 
@@ -38,7 +38,7 @@ Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 - `session.deriveMessages(): Message[]` — derive the LLM message history by walking the surface linked list (skipping non-surface events like chunks and boundaries; a `replace` shadows the nodes it covers). The surface is the single source of derived history — there is no raw-log fallback.
 - `session.surface: SurfaceManager` — the derived surface, lazily rebuilt from `surfaceOp` markers in the log. Processes only new events (delta) on each access — the log is append-only, so prior events never change.
 - `session.events`, `session.seq`, `session.id`
-- `session.header: SessionHeader` — immutable creation metadata (`version`, `id`, `createdAt`, optional `cwd`/`parentSession`). Kept out of the event log (a storage concern, not replayable state); a minimal header (stamped with the current `SESSION_FORMAT_VERSION`) is synthesized for bare `Session` construction.
+- `session.header: SessionHeader` — immutable creation metadata (`version`, `id`, `createdAt`, optional `cwd`/`parentSession`/`seedLength`). Kept out of the event log (a storage concern, not replayable state); a minimal header (stamped with the current `SESSION_FORMAT_VERSION`) is synthesized for bare `Session` construction.
 
 ### Surface types
 
@@ -49,26 +49,26 @@ Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 
 ### Session event vocabulary (`types.ts`)
 
-The append-only log: `turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `assistant/message`, `assistant/chunk`, `tool/call`, `tool/result`, `steering/message`, `context/message`. Token usage rides on `assistant/message.usage`; an operational error's step is on `turn/end.reason` for `kind: 'error'`.
+The append-only log: `turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `assistant/message`, `assistant/chunk`, `tool/call`, `tool/result`, `steering/message`, `context/message`, `todo/write`. Token usage rides on `assistant/message.usage`; an operational error's step is on `turn/end.reason` for `kind: 'error'`.
 
-Merge-extensible via `SessionEventMap` — a compaction plugin adds `compaction/marker`, etc.
+Merge-extensible via `SessionEventMap` — the compaction seam adds `compact/start`, `compact/summary`, and `compact/end`.
 
 Also defines `TurnTriggerMap` and `TurnEndReasonMap` (merge-extensible sum types for typed turn boundaries — `kind`-tagged instead of strings).
 
 Every `SessionEvent` carries two optional top-level fields (structural metadata):
 
-- `sourceEventSeqs?: number[]` — seq numbers of provenance sources (e.g., the `assistant/chunk` seqs behind an `assistant/message`, or the shadowed nodes behind a compaction marker).
+- `sourceEventSeqs?: number[]` — seq numbers of provenance sources (e.g., the `assistant/chunk` seqs behind an `assistant/message`, or the shadowed nodes behind a compaction replace node).
 - `surfaceOp?: SurfaceOp` — how this event entered the surface. Absent for non-surface events (boundaries, chunks, usage, errors).
 
 ### Metadata types (`types.ts`)
 
-- `SessionHeader` — immutable session metadata, written once: `{ version, id, createdAt, cwd?, parentSession? }`. Owned here (beside `SessionId`) because `Session.header` is typed by it; persistence backends re-export it rather than own it (which would force a package cycle).
+- `SessionHeader` — immutable session metadata, written once: `{ version, id, createdAt, cwd?, parentSession?, seedLength? }`. Owned here (beside `SessionId`) because `Session.header` is typed by it; persistence backends re-export it rather than own it (which would force a package cycle).
 
 ### Extension points
 
 - Persistence plugins: subscribe to `session/event` (write-behind) and drain on `session/flush` (awaited) and fiber dispose. A durable backend reads the log and reloads it into a live session; the metadata seam (`SessionHeader`, `session.header`) is what such a backend stores beside the log.
 - Replay/fork: `ctx.sessions.create(id, { seed })` seeds a new session with an existing event log. The surface rebuilds deterministically from `surfaceOp` markers in the seeded events. The seed is validated to the SAME invariants `append` enforces — including that every surface-eligible event (`SurfaceEventType`) carries a `surfaceOp` marker — so a marker-less message event is rejected at construction rather than silently vanishing from `deriveMessages()` (the surface is the sole derivation path) on resume.
-- Compaction: a future plugin appends a new event with `surfaceOp: { op: 'replace', start, end }` to shadow old surface nodes.
+- Compaction: the `dsh-compact-basic` plugin appends a `user/message` with `surfaceOp: { op: 'replace', start, end }` to shadow old surface nodes behind a summary checkpoint.
 
 ### What is NOT here (TODO)
 
