@@ -110,7 +110,7 @@ describe('LocalBashExecutor.run', () => {
   it('resolve() carries stdin/env onto the spec, and run() threads them to the command', async () => {
     const { bash } = await setup()
     const spec = bash.resolve({ command: 'cat; echo "[$DSH_SEAM_VAR]"', stdin: 'piped\n', env: { DSH_SEAM_VAR: 'env-ok' } })
-    // resolve() keeps the trusted-plugin fields verbatim (optional, no default).
+    // resolve() keeps the stdin/env fields verbatim (optional, no default).
     expect(spec.stdin).toBe('piped\n')
     expect(spec.env).toEqual({ DSH_SEAM_VAR: 'env-ok' })
     const result = await bash.run(spec)

@@ -38,7 +38,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('resume: continue a persisted ses
     // Run 1: a fresh agent on a KNOWN session id learns a secret, then we
     // dispose the whole context (simulating process exit) so only the JSONL
     // log on disk survives.
-    ctx = await codingHarness(process.cwd(), root)
+    ctx = await codingHarness(process.cwd(), { persistenceRoot: root })
     const first = ctx.agents.create({
       agentId: AgentId('resume-1'),
       sessionId: SESSION_ID,
@@ -52,7 +52,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('resume: continue a persisted ses
     // Run 2: a brand-new context over the SAME root resumes the persisted
     // session. The loaded event log seeds the live session, so the model sees
     // run 1's exchange as conversation history.
-    ctx = await codingHarness(process.cwd(), root)
+    ctx = await codingHarness(process.cwd(), { persistenceRoot: root })
     const resumed = (await ctx.agents.resume({
       agentId: AgentId('resume-2'),
       resumeSessionId: SESSION_ID,

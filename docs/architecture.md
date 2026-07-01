@@ -135,17 +135,17 @@ forever:
   wait for queued messages (idle)
   emit agent/status(running)
   TURN (error-contained — a throwing plugin ends the turn, never the loop):
-    'turn/start'
+    'turn/start'                                        ⟵ durable turn boundary (no agent/* mirror)
     each queued msg: waterfall agent/prompt-submit      ⟵ allow (rewrite/+context) | block
       allow → session('user/message'…); inject additionalContext
     every prompt blocked → 'turn/end'(rejected), 0 steps ⟵ zero-step turn, model never called
-    emit agent/turn-start
     STEP loop:
       drain steering (late steering from previous step's listeners)
-      session('step/start')                           ⟵ durable step boundary (no agent/* mirror)
       assembly = ctx.systemPrompt.assemble()          ⟵ waterfall system-prompt/assemble
+      await ctx.serial('agent/pre-step')              ⟵ surface mutation (compaction) OUTSIDE the step
+      session('step/start')                           ⟵ durable step boundary (no agent/* mirror)
       req = {model, system, tools, messages: session.deriveMessages(), signal}
-      req = waterfall agent/request                   ⟵ hooks, compaction, model switch
+      req = waterfall agent/request                   ⟵ hooks, model switch
       stream ctx.llm.stream(req)                      ⟵ waterfall llm/stream (raw chunks)
         session('assistant/chunk'); emit agent/stream-chunk
       if assembler.finish is error/aborted: throw      ⟵ adapter's in-band error path →
@@ -167,7 +167,7 @@ forever:
       a continue's reason is recorded as next-step steering (same turn); steering pending
         also forces continue (continuation OR step/end listeners — the /goal pattern)
       if action==stop: break
-  session('turn/end'); emit agent/turn-end
+  session('turn/end')                                 ⟵ durable turn boundary (no agent/* mirror)
   await ctx.parallel('session/flush', session)        ⟵ durability checkpoint (failure
                                                          reported via agent/error, not fatal)
   leftover steering re-enqueued as queued messages    ⟵ steering is never stranded
@@ -178,7 +178,7 @@ Error containment: a throwing `agent/turn-continuation` listener or a broken ste
 
 Turn-end reasons: a turn ends with one `TurnEndReason` — `completed`, `aborted`, `error`, `disposed`, `max-tokens`, `rejected`, or `interrupted`. `max-tokens` mirrors the model-call `FinishReason` of the same name (DeepSeek's `length`): a step that hit the output-token ceiling makes the turn end `max-tokens` rather than `completed`, by the rule *any `max-tokens` step in the turn surfaces as `max-tokens`* (a continuation plugin may run further steps after one, but the cut-short fact wins; the `disposed`/`aborted`/`error` outcomes still take precedence). `rejected` is a zero-step turn whose entire prompt batch was blocked by an `agent/prompt-submit` hook (the turn still opens and closes balanced; the ACP bridge maps it to `cancelled`). `interrupted` is synthesized by a persistence backend closing a crash-orphaned turn on reload. This lets a consumer distinguish a clean stop from a truncated/blocked one (the ACP bridge maps `max-tokens` to the `max_tokens` stop reason). `TurnEndReason` is merge-extensible; `refusal` and `max_turn_requests` are the next variants to add when an adapter/loop first emits them.
 
-A failure that happens once the turn is already closed has no in-turn position for a turn-end error reason (the turn already ended). So a rejecting `session/flush` (the post-`turn/end` durability checkpoint) and a throwing `agent/turn-end` listener are reported via `agent/error` + the logger only, NOT as a session event; the turn stays balanced and the persistence backend keeps its buffered events for the next flush.
+A failure that happens once the turn is already closed has no in-turn position for a turn-end error reason (the turn already ended). So a rejecting `session/flush` (the post-`turn/end` durability checkpoint) is reported via `agent/error` + the logger only, NOT as a session event; the turn stays balanced and the persistence backend keeps its buffered events for the next flush.
 
 **Turn-enclosure invariant**: every session event lives inside a turn (between a `turn/start` and its `turn/end`). The loop appends queued `user/message` events *after* `turn/start`, and an idle `agent.inject()` wraps its `context/message` in a one-shot `injection` turn. This makes the turn the single durability/replay boundary: a persistence backend can treat anything after the last `turn/end` as an interrupted-crash tail without risking the loss of legitimately-recorded between-turn context. The `dsh-invariants` plugin enforces it in dev (a message event outside an open turn throws). See [the turn-enclosure invariant](rfc/implemented/architecture/2026-06-15-turn-enclosure-invariant.md).
 
@@ -204,10 +204,10 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 |---|---|
 | Hook system (user + project level) | listeners on `agent/session-start`, `agent/prompt-submit`, `agent/request`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation` (each interception waterfall returns a typed Decision); a hooks bridge plugin maps config files / shell commands onto those seams, a native hook plugin uses them directly |
 | `/goal` | force-continue via `agent/turn-continuation` + `steer()` reminders |
-| `/loop` | on `agent/turn-end`, `send()` the next iteration; or force-continue |
-| Dynamic workflow | orchestrator plugin on `agent/turn-end` (or the `step/end` session event) driving `send`/`steer` (+ sub-agents later) |
+| `/loop` | on the `turn/end` session event, `send()` the next iteration; or force-continue |
+| Dynamic workflow | orchestrator plugin on the `turn/end` (or `step/end`) session event driving `send`/`steer` (+ sub-agents later) |
 | Queued + steering messages | core `Agent.send()` / `Agent.steer()` |
-| Context compaction (auto + manual) | the `ctx.compact` seam ([dsh-compact](../packages/compact/compact)): a backend summarizes an older surface range into a single `user/message` `replace` op, bracketed by log-only `compact/*` events; auto = check token pressure at turn boundaries, manual = a `/compact` tool. See the [compaction capability-seam RFC](rfc/proposed/feature/2026-06-18-compaction-capability-seam.md) |
+| Context compaction (auto + manual) | the `dsh-compact` seam (`ctx.compact`) + a backend (`dsh-compact-basic`) on the serial `agent/pre-step` seam: a backend summarizes an older surface range into a single `user/message` `replace` op, bracketed by log-only `compact/*` events; auto = check token pressure before each step — runaway-turn survival, manual = a (deferred) `/compact` tool invoking the same `ctx.compact` routine. See the [compaction capability-seam RFC](rfc/implemented/feature/2026-06-18-compaction-capability-seam.md) |
 | System prompt configurability | `ctx.systemPrompt.section()` with ordering |
 | AGENTS.md (root) | a section provider reading the file |
 | AGENTS.md (subdir, on-touch) + file-change notices | `agent.inject()` from a watcher / tool-result listener |
@@ -235,6 +235,6 @@ Code skeletons for the three plugin shapes (tool, hook/permission-gate, UI) and 
 Tracked here deliberately — each is designed-for but not implemented:
 
 - **Inter-agent channels beyond delegation** (shared state, streaming child output, background/poll semantics) remain out of scope for the current `ctx.subagents` seam.
-- **Compaction implementation** (auto thresholds, summarization prompts) on the `agent/request` seam, with its session-event types added by declaration merging.
+- **Compaction** — the `dsh-compact` seam (`ctx.compact`) and the `dsh-compact-basic` backend exist (auto thresholds, summarization on the serial `agent/pre-step` seam, `compact/*` session events via declaration merging). The model-facing `/compact` consumer tool is still deferred. See [the compaction capability-seam RFC](rfc/implemented/feature/2026-06-18-compaction-capability-seam.md).
 - **Parallel tool execution** (concurrency-safety hints on ToolDefinition).
 - **Session branching/tree** (pi-style entry tree) if needed beyond seed-based forking.
