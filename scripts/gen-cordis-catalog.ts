@@ -23,8 +23,8 @@
  *
  * The HARNESS tier (the `@deepseek-ai/dsh-*` events + services) is rendered in
  * full from source: signature, the `@mode` badge, and the declaration's JSDoc.
- * Every harness event MUST carry an `@mode emit|waterfall|parallel` tag — the
- * generator hard-errors on a missing tag, and where the signature shape is
+ * Every harness event MUST carry an `@mode emit|waterfall|parallel|serial` tag
+ * — the generator hard-errors on a missing tag, and where the signature shape is
  * conclusive (a trailing `next: () => …` parameter is structurally a waterfall)
  * it asserts the tag agrees and hard-errors on a contradiction. The INHERITED
  * tier (cordis core + loader/hmr/timer) is pinned vendor source a plugin author
@@ -48,7 +48,7 @@ const OUT = 'docs/cordis-catalog/events-and-services.md'
 const FENCE = 'ts cordis-catalog'
 
 /** A dispatch mode, rendered as the badge after an event name. */
-type Mode = 'emit' | 'waterfall' | 'parallel'
+type Mode = 'emit' | 'waterfall' | 'parallel' | 'serial'
 
 /**
  * Cross-link map: a type name that appears in a signature → the
@@ -165,7 +165,7 @@ function parseJsDoc(raw: string): { doc: string; mode: Mode | null } {
     para = []
   }
   for (const line of inner) {
-    const m = /^@mode\s+(emit|waterfall|parallel)\s*$/.exec(line)
+    const m = /^@mode\s+(emit|waterfall|parallel|serial)\s*$/.exec(line)
     if (m) { mode = m[1] as Mode; continue }
     if (line.startsWith('@')) { flushPara(); continue } // other tags end the prose
     if (line.trim() === '') { flushPara(); continue }
@@ -223,11 +223,11 @@ export function collectEvents(scanRoot: string = root): EventEntry[] {
         const { doc, mode } = parseJsDoc(rawJsDoc(text, member))
         const src = pointer(rel, sf, member)
         if (!mode) {
-          throw new Error(`gen-cordis-catalog: event '${name}' (${src}) is missing an @mode tag. Add '@mode emit|waterfall|parallel' to its JSDoc (see AGENTS.md).`)
+          throw new Error(`gen-cordis-catalog: event '${name}' (${src}) is missing an @mode tag. Add '@mode emit|waterfall|parallel|serial' to its JSDoc (see AGENTS.md).`)
         }
         // Conclusive structural check: a trailing `next: () => …` parameter is a
-        // waterfall. (emit vs parallel is not structurally distinguishable, so
-        // it is trusted from the tag.)
+        // waterfall. (emit vs parallel vs serial is not structurally
+        // distinguishable, so it is trusted from the tag.)
         const last = member.parameters.at(-1)
         const hasNext = !!last && last.name.getText(sf) === 'next'
         if (hasNext && mode !== 'waterfall') {
@@ -331,7 +331,7 @@ const INHERITED_EVENTS: InheritedEntry[] = [
 
 const INHERITED_SERVICES: InheritedEntry[] = [
   { name: 'ctx.on / ctx.once', summary: 'Register an event listener (disposable).', source: 'vendor/cordis/src/events.ts:29' },
-  { name: 'ctx.emit / ctx.parallel / ctx.serial / ctx.bail / ctx.waterfall', summary: 'Dispatch an event (sync / awaited / first-non-nullish / veto-chain).', source: 'vendor/cordis/src/events.ts:29' },
+  { name: 'ctx.emit / ctx.parallel / ctx.serial / ctx.bail / ctx.waterfall', summary: 'Dispatch an event (sync / awaited / first-bail / veto-chain).', source: 'vendor/cordis/src/events.ts:29' },
   { name: 'ctx.plugin / ctx.inject', summary: 'Load a plugin / declare required services.', source: 'vendor/cordis/src/registry.ts:144' },
   { name: 'ctx.effect', summary: 'Register a disposable side effect tied to the fiber.', source: 'vendor/cordis/src/fiber.ts:9' },
   { name: 'ctx.get / ctx.set / ctx.provide / ctx.accessor / ctx.mixin', summary: 'Low-level service-store access and binding.', source: 'vendor/cordis/src/reflect.ts:7' },
@@ -394,7 +394,7 @@ function render(events: EventEntry[], services: ServiceEntry[]): string {
     '',
     '## Events',
     '',
-    'Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out, no veto).',
+    'Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out; all listeners run), **serial** (awaited in registration order until one returns a bail value — anything other than `null`, `false`, or `undefined`).',
     '',
   ]
   const scopes = [...new Set(events.map(e => e.scope))].sort()

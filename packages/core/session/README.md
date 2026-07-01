@@ -57,7 +57,7 @@ Also defines `TurnTriggerMap` and `TurnEndReasonMap` (merge-extensible sum types
 
 Every `SessionEvent` carries two optional top-level fields (structural metadata):
 
-- `sourceEventSeqs?: number[]` — seq numbers of provenance sources (e.g., the `assistant/chunk` seqs behind an `assistant/message`, or the shadowed nodes behind a compaction marker).
+- `sourceEventSeqs?: number[]` — seq numbers of provenance sources (e.g., the `assistant/chunk` seqs behind an `assistant/message`, or the shadowed nodes behind a compaction replace node).
 - `surfaceOp?: SurfaceOp` — how this event entered the surface. Absent for non-surface events (boundaries, chunks, usage, errors).
 
 ### Metadata types (`types.ts`)
@@ -68,7 +68,7 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 
 - Persistence plugins: subscribe to `session/event` (write-behind) and drain on `session/flush` (awaited) and fiber dispose. A durable backend reads the log and reloads it into a live session; the metadata seam (`SessionHeader`, `session.header`) is what such a backend stores beside the log.
 - Replay/fork: `ctx.sessions.create(id, { seed })` seeds a new session with an existing event log. The surface rebuilds deterministically from `surfaceOp` markers in the seeded events. The seed is validated to the SAME invariants `append` enforces — including that every surface-eligible event (`SurfaceEventType`) carries a `surfaceOp` marker — so a marker-less message event is rejected at construction rather than silently vanishing from `deriveMessages()` (the surface is the sole derivation path) on resume.
-- Compaction: a future plugin appends a new event with `surfaceOp: { op: 'replace', start, end }` to shadow old surface nodes.
+- Compaction: the `dsh-compact-basic` plugin appends a `user/message` with `surfaceOp: { op: 'replace', start, end }` to shadow old surface nodes behind a summary checkpoint.
 
 ### What is NOT here (TODO)
 
