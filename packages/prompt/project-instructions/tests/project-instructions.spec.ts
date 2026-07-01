@@ -1,8 +1,10 @@
-import { chmod, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import Loader from '@cordisjs/plugin-loader'
+import * as projectInstructions from '@deepseek-ai/dsh-project-instructions'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -148,6 +150,27 @@ describe('project instruction discovery', () => {
     }
   })
 
+  it('rejects symlinked instruction files instead of following repository-controlled links', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const outside = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(outside, 'secret.txt'), 'outside secret')
+      await symlink(join(outside, 'secret.txt'), join(root, 'AGENTS.md'))
+
+      const files = await discoverBaselineInstructionFiles({ cwd: root, dshHome: home })
+      const loaded = await loadBaselineInstructions({ cwd: root, dshHome: home })
+
+      expect(files).toEqual([])
+      expect(loaded).toBeUndefined()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+      await rm(outside, { recursive: true, force: true })
+    }
+  })
+
   it('disables baseline loading when the byte budget is zero', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
@@ -192,6 +215,23 @@ describe('project instruction discovery', () => {
       expect(files.map(file => file.absolutePath)).toEqual([join(cwd, 'AGENTS.md')])
     } finally {
       await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('honors DSH_HOME when dshHome is not configured explicitly', async () => {
+    const root = await tempRepo()
+    const envHome = await tempRepo()
+    try {
+      await write(join(envHome, 'AGENTS.md'), 'env global rule')
+      vi.stubEnv('DSH_HOME', envHome)
+
+      const files = await discoverBaselineInstructionFiles({ cwd: root })
+
+      expect(files).toEqual([{ absolutePath: join(envHome, 'AGENTS.md'), displayPath: '$DSH_HOME/AGENTS.md' }])
+    } finally {
+      vi.unstubAllEnvs()
+      await rm(root, { recursive: true, force: true })
+      await rm(envHome, { recursive: true, force: true })
     }
   })
 
@@ -322,6 +362,21 @@ describe('project instruction rendering', () => {
     expect(rendered.truncated).toEqual([])
   })
 
+  it('keeps the longest most-specific suffix that fits under the byte budget', () => {
+    const rendered = renderProjectInstructions([
+      { absolutePath: '/repo/AGENTS.md', displayPath: 'AGENTS.md', content: 'root '.repeat(200) },
+      { absolutePath: '/repo/pkg/AGENTS.md', displayPath: 'pkg/AGENTS.md', content: 'package rule' },
+      { absolutePath: '/repo/pkg/app/AGENTS.md', displayPath: 'pkg/app/AGENTS.md', content: 'app rule' },
+    ], { maxBytes: 760 })
+
+    expect(rendered.text).toContain('omitted AGENTS.md')
+    expect(rendered.text).toContain('## pkg/AGENTS.md\n\npackage rule')
+    expect(rendered.text).toContain('## pkg/app/AGENTS.md\n\napp rule')
+    expect(rendered.text).not.toContain('root root')
+    expect(rendered.omitted.map(item => item.displayPath)).toEqual(['AGENTS.md'])
+    expect(rendered.truncated).toEqual([])
+  })
+
   it('truncates a single oversized file to the largest content slice that fits', () => {
     const rendered = renderProjectInstructions([
       { absolutePath: '/repo/AGENTS.md', displayPath: 'AGENTS.md', content: 'x'.repeat(1000) },
@@ -365,6 +420,14 @@ describe('project instruction rendering', () => {
     expect(rendered.text).toBe('<!-- Project instruc')
     expect(rendered.truncated).toEqual([{ displayPath: 'pkg/AGENTS.md', originalBytes: 1000, includedBytes: 0 }])
     expect(Buffer.byteLength(rendered.text, 'utf8')).toBe(20)
+  })
+
+  it('keeps compact truncation notices within budget when a multibyte display path is cut', () => {
+    const rendered = renderProjectInstructions([
+      { absolutePath: '/repo/路径/AGENTS.md', displayPath: '路径/AGENTS.md', content: 'x'.repeat(1000) },
+    ], { maxBytes: 53 })
+
+    expect(Buffer.byteLength(rendered.text, 'utf8')).toBeLessThanOrEqual(53)
   })
 })
 
@@ -492,6 +555,28 @@ describe('project instruction request injection', () => {
     }
   })
 
+  it('does not inject an empty workspace-context message when baselineMaxBytes is negative', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      const ctx = new Context()
+      await ctx.plugin({ name: 'project-instructions', apply }, { dshHome: home, baselineMaxBytes: -1 })
+
+      const request: GenerateOptions = {
+        model: 'mock',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
+      }
+      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+
+      expect(result.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('leaves the request unchanged when no instruction files are present', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
@@ -527,7 +612,7 @@ describe('project instruction request injection', () => {
     }
   })
 
-  it('reuses the discovery stat signature when reading cached content', async () => {
+  it('reuses the discovery lstat signature when reading cached content', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -540,9 +625,9 @@ describe('project instruction request injection', () => {
         const actual = await importOriginal<typeof import('node:fs/promises')>()
         return {
           ...actual,
-          stat: async (path: string) => {
+          lstat: async (path: string) => {
             observedStats.set(path, (observedStats.get(path) ?? 0) + 1)
-            return actual.stat(path)
+            return actual.lstat(path)
           },
         }
       })
@@ -560,5 +645,19 @@ describe('project instruction request injection', () => {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
     }
+  })
+})
+
+describe('project instruction plugin export shape', () => {
+  it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/Config/apply', () => {
+    expect('default' in projectInstructions).toBe(false)
+    expect(typeof projectInstructions.apply).toBe('function')
+
+    const loader = Object.create(Loader.prototype) as Loader
+    const unwrapped = loader.unwrapExports(projectInstructions) as Record<string, unknown>
+    expect(unwrapped).toBe(projectInstructions)
+    expect(unwrapped.name).toBe('project-instructions')
+    expect(unwrapped.Config).toBeDefined()
+    expect(typeof unwrapped.apply).toBe('function')
   })
 })

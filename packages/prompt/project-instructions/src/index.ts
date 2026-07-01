@@ -6,13 +6,13 @@
  * @module @deepseek-ai/dsh-project-instructions
  */
 
-import { readFile, stat } from 'node:fs/promises'
+import { lstat, readFile, stat } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { DEFAULT_DSH_HOME_DISPLAY, defaultDshHome, expandHomePath } from '@deepseek-ai/dsh-paths'
+import { DEFAULT_DSH_HOME_DISPLAY, defaultDshHome, resolveDshHome } from '@deepseek-ai/dsh-paths'
 
 export const name = 'project-instructions'
 
@@ -35,7 +35,7 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
-  dshHome: z.string().default(defaultDshHome()),
+  dshHome: z.string(),
   projectRootMarkers: z.array(z.string()).default([...DEFAULT_PROJECT_ROOT_MARKERS]),
   baselineMaxBytes: z.number().default(DEFAULT_BASELINE_MAX_BYTES),
   enableClaudeFallback: z.boolean().default(true),
@@ -98,7 +98,7 @@ interface LoadOptions extends DiscoverOptions {
 
 function resolveConfig(config: Config): ResolvedConfig {
   return {
-    dshHome: resolve(expandHomePath(config.dshHome ?? defaultDshHome())),
+    dshHome: resolveDshHome(config.dshHome),
     projectRootMarkers: config.projectRootMarkers ?? [...DEFAULT_PROJECT_ROOT_MARKERS],
     baselineMaxBytes: config.baselineMaxBytes ?? DEFAULT_BASELINE_MAX_BYTES,
     enableClaudeFallback: config.enableClaudeFallback ?? true,
@@ -110,12 +110,16 @@ function byteLength(value: string): number {
 }
 
 function truncateUtf8(value: string, maxBytes: number): string {
-  return Buffer.from(value, 'utf8').subarray(0, Math.max(0, maxBytes)).toString('utf8')
+  let truncated = Buffer.from(value, 'utf8').subarray(0, Math.max(0, maxBytes)).toString('utf8')
+  while (byteLength(truncated) > maxBytes) {
+    truncated = truncated.slice(0, -1)
+  }
+  return truncated
 }
 
 async function statFile(path: string): Promise<FileSignature | undefined> {
   try {
-    const info = await stat(path)
+    const info = await lstat(path)
     if (!info.isFile()) return undefined
     return { mtimeMs: info.mtimeMs, size: info.size }
   } catch {
@@ -234,7 +238,7 @@ async function readCached(path: string, signature: FileSignature, cache: Instruc
 
 export async function loadBaselineInstructions(options: LoadOptions): Promise<RenderedProjectInstructions | undefined> {
   const config = resolveConfig(options)
-  if (config.baselineMaxBytes === 0) return undefined
+  if (config.baselineMaxBytes <= 0 || !Number.isFinite(config.baselineMaxBytes)) return undefined
   const cache = options.cache ?? new Map<string, CachedContent>()
   const discovered = await discoverInstructionFiles(options)
   const loaded: LoadedInstructionFile[] = []
@@ -311,21 +315,26 @@ function truncateToFit(
 }
 
 export function renderProjectInstructions(files: LoadedInstructionFile[], options: { maxBytes: number }): RenderedProjectInstructions {
-  if (options.maxBytes <= 0) return { text: '', omitted: files, truncated: [] }
+  if (options.maxBytes <= 0 || !Number.isFinite(options.maxBytes)) return { text: '', omitted: files, truncated: [] }
 
   const fullText = buildInstructionText(files, options.maxBytes, [], [])
   if (byteLength(fullText) <= options.maxBytes) {
     return { text: fullText, omitted: [], truncated: [] }
   }
 
+  for (let start = 1; start < files.length; start += 1) {
+    const included = files.slice(start)
+    const omitted = files.slice(0, start).map(file => ({ absolutePath: file.absolutePath, displayPath: file.displayPath }))
+    const suffixText = buildInstructionText(included, options.maxBytes, omitted, [])
+    if (byteLength(suffixText) <= options.maxBytes) {
+      return { text: suffixText, omitted, truncated: [] }
+    }
+  }
+
   const mostSpecific = files.at(-1)
   /* v8 ignore next -- callers only reach this after a non-empty fullText was built. */
   if (mostSpecific === undefined) return { text: '', omitted: [], truncated: [] }
   const omitted = files.slice(0, -1).map(file => ({ absolutePath: file.absolutePath, displayPath: file.displayPath }))
-  const mostSpecificOnly = buildInstructionText([mostSpecific], options.maxBytes, omitted, [])
-  if (byteLength(mostSpecificOnly) <= options.maxBytes) {
-    return { text: mostSpecificOnly, omitted, truncated: [] }
-  }
 
   for (const intro of [WORKSPACE_CONTEXT_INTRO, COMPACT_WORKSPACE_CONTEXT_INTRO]) {
     const truncatedFile = truncateToFit(mostSpecific, [], options.maxBytes, omitted, intro)
@@ -360,7 +369,7 @@ export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
   const cache: InstructionContentCache = new Map()
   ctx.on('agent/request', async (agent: Agent, _turn: number, _step: number, request: GenerateOptions, next) => {
-    if (resolved.baselineMaxBytes === 0) return next()
+    if (resolved.baselineMaxBytes <= 0 || !Number.isFinite(resolved.baselineMaxBytes)) return next()
     /* v8 ignore next -- stdio compatibility fallback; tests avoid process.chdir() because cwd is process-global. */
     const cwd = agent.session.header.cwd ?? process.cwd()
     const instructions = await loadBaselineInstructions({

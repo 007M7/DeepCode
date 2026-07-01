@@ -31,6 +31,7 @@
     "schemastery": "^3.18.0"
   },
   "devDependencies": {
+    "@cordisjs/plugin-loader": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",

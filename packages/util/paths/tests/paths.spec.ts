@@ -6,6 +6,7 @@ import {
   DSH_HOME_DIR_NAME,
   defaultDshHome,
   expandHomePath,
+  resolveDshHome,
 } from '@deepseek-ai/dsh-paths'
 
 describe('dsh path helpers', () => {
@@ -21,5 +22,13 @@ describe('dsh path helpers', () => {
     expect(expandHomePath('~\\.dsh')).toBe(join(homedir(), '.dsh'))
     expect(expandHomePath('/tmp/.dsh')).toBe('/tmp/.dsh')
     expect(expandHomePath('~other/.dsh')).toBe('~other/.dsh')
+  })
+
+  it('resolves explicit DSH home before environment and default locations', () => {
+    const envHome = join(homedir(), 'env-dsh')
+
+    expect(resolveDshHome(undefined, { DSH_HOME: '~/env-dsh' })).toBe(envHome)
+    expect(resolveDshHome('/tmp/explicit-dsh', { DSH_HOME: '~/env-dsh' })).toBe('/tmp/explicit-dsh')
+    expect(resolveDshHome(undefined, {})).toBe(defaultDshHome())
   })
 })
