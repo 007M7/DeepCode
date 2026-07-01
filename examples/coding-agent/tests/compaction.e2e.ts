@@ -18,6 +18,13 @@ import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.
  * landed in the real session log, the surface actually shrank (a replace node
  * exists and shadowed older nodes), and the agent still produced a final answer
  * after compaction (so the summarized history did not break the conversation).
+ *
+ * FIXME(compaction-snapshot): this key-gated e2e is the ONLY coverage of runaway
+ * compaction — there is no keyless full-transcript snapshot of it. dsh-llm-replay
+ * reconstructs one model call per (turn, step) from `assistant/chunk` events, but
+ * `summarize()` assembles its stream into a local BlockAssembler and appends no
+ * `assistant/chunk`, so the interleaved summarization call is unreplayable. A
+ * snapshot needs replay-harness work to serve that call; deferred as a follow-up.
  */
 
 let workdir: string | undefined
