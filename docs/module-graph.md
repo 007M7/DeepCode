@@ -57,6 +57,9 @@ graph TD
   tool-bash --> bash
   tool-bash --> llm
   tool-bash --> tools
+  tool-todo --> agent
+  tool-todo --> session
+  tool-todo --> tools
   ui-stdio --> agent
   ui-stdio --> session
   ui-stdio --> user-interaction
@@ -126,6 +129,7 @@ graph TD
 | `subagent` | `agent`, `llm`, `tools` |
 | `tool-ask-user` | `agent`, `tools`, `user-interaction` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |
+| `tool-todo` | `agent`, `session`, `tools` |
 | `ui-stdio` | `agent`, `session`, `user-interaction` |
 | `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `system-prompt`, `tool-bash`, `tools` |
 | `subagent-acp` | `agent`, `llm`, `subagent` |

@@ -1,0 +1,107 @@
+import { describe, expect, it } from 'vitest'
+import { Context } from 'cordis'
+import LlmService from '@deepseek-ai/dsh-llm'
+import SessionStore from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRegistry from '@deepseek-ai/dsh-tools'
+import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
+import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+
+/**
+ * Full-loop integration: a scripted mock model drives the REAL todo_write tool
+ * through the agent loop, exercising the same seams a live model would — the
+ * tool/call + tool/result session events AND the todo/write event the tool
+ * appends. Only the model is mocked; the tool and the session log are real.
+ */
+async function harness(adapter: MockAdapter): Promise<Context> {
+  const ctx = new Context()
+  await ctx.plugin(LlmService)
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(ToolTodo)
+  ctx.llm.registerAdapter(['mock'], adapter)
+  return ctx
+}
+
+function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+  return new Promise((resolve) => {
+    const dispose = ctx.on('agent/status', (subject, status) => {
+      if (subject === agent && status === 'idle') {
+        dispose()
+        resolve()
+      }
+    })
+  })
+}
+
+function findEvent<T extends SessionEvent['type']>(
+  log: readonly SessionEvent[],
+  type: T,
+  position: 'first' | 'last' = 'first',
+): Extract<SessionEvent, { type: T }> {
+  const found = position === 'first'
+    ? log.find(event => event.type === type)
+    : log.findLast(event => event.type === type)
+  if (!found) throw new Error(`no ${type} event in the session log`)
+  return found as Extract<SessionEvent, { type: T }>
+}
+
+describe('todo_write tool through the agent loop', () => {
+  it('model calls todo_write: a tool/call, a non-error tool/result, and a todo/write snapshot land', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('call-1', 'todo_write', {
+        todos: [
+          { content: 'read the code', status: 'in_progress' },
+          { content: 'write the fix', status: 'pending' },
+        ],
+      }, 'Planning the work.'),
+      textResponse('Plan recorded.'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('it-todo'), { model: 'mock' })
+
+    agent.send([{ type: 'text', text: 'plan a two-step task' }])
+    await waitForIdle(ctx, agent)
+
+    const log = agent.session.events
+    expect(findEvent(log, 'tool/call').data.name).toBe('todo_write')
+    expect(findEvent(log, 'tool/result').data.isError).toBe(false)
+
+    const todoEvent = findEvent(log, 'todo/write')
+    expect(todoEvent.data.todos).toEqual([
+      { content: 'read the code', status: 'in_progress' },
+      { content: 'write the fix', status: 'pending' },
+    ])
+  })
+
+  it('a second todo_write replaces the list (last-write-wins on the log)', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('call-1', 'todo_write', { todos: [{ content: 'step one', status: 'in_progress' }] }),
+      toolCallResponse('call-2', 'todo_write', {
+        todos: [
+          { content: 'step one', status: 'completed' },
+          { content: 'step two', status: 'in_progress' },
+        ],
+      }),
+      textResponse('Done planning.'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('it-todo-2'), { model: 'mock' })
+
+    agent.send([{ type: 'text', text: 'plan then update' }])
+    await waitForIdle(ctx, agent)
+
+    const todoEvents = agent.session.events.filter(e => e.type === 'todo/write')
+    expect(todoEvents).toHaveLength(2)
+    expect(findEvent(agent.session.events, 'todo/write', 'last').data.todos).toEqual([
+      { content: 'step one', status: 'completed' },
+      { content: 'step two', status: 'in_progress' },
+    ])
+  })
+})

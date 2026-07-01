@@ -13,4 +13,4 @@ A UI integration is a client-driver plugin, not a loop change and not a capabili
 
 `tool-ask-user` lives here because it is a model-facing product affordance that depends on a UI/provider seam; it is not part of the providerless core spine.
 
-`stdio-agent` and `acp-agent` are the two **app packages**: each composes the [`core/agent-core`](../core/agent-core/README.md) spine with its coupled front-door cluster (and owns the boot `bin`), so a leaf `cordis.yml` is just the swappable backends plus one app entry. They live in `ui/` because each IS a user-facing front door; the stdout-purity coupling (logger vs. no logger) becomes a property of the artifact rather than a leaf convention.
+`stdio-agent` and `acp-agent` are the two **app packages**: each composes the [`core/agent-core`](../core/agent-core/README.md) spine with its coupled front-door cluster (and owns the boot `bin`), so a leaf `cordis.yml` is the swappable backends plus one app entry plus any optional product tools. They live in `ui/` because each IS a user-facing front door; the stdout-purity coupling (logger vs. no logger) becomes a property of the artifact rather than a leaf convention.
