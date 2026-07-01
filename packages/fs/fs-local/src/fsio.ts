@@ -5,7 +5,7 @@
  *
  * This is the PROVIDER layer: it hands back decoded whole-file text (validated
  * UTF-8, binary rejected) — never line windows or numbered lines, which are
- * model-facing read policy owned by `@deepseek-ai/dsh-file-context`. Large files
+ * model-facing read policy owned by `@deepseek-ai/dsh-fs-policy`. Large files
  * stream their text in chunks so a huge file never has to be held whole in
  * memory; the binary/NUL sample and cross-chunk UTF-8 decoding stay here.
  *
@@ -33,6 +33,16 @@ const BINARY_SAMPLE_BYTES = 8192
 
 function isENOENT(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
+}
+
+/**
+ * A path component that is expected to be a directory is a regular file (e.g.
+ * resolving `afile/child.txt` when `afile` is a file). Like `ENOENT`, the target
+ * cannot exist — so the resolution/probe paths treat it as "absent" rather than
+ * letting a raw Node error escape without the structured `FsError` taxonomy.
+ */
+function isENOTDIR(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ENOTDIR'
 }
 
 function isAbortError(error: unknown): boolean {
@@ -119,6 +129,10 @@ export async function resolveLocalTarget(cwd: string, path: string): Promise<Loc
     // Prefer the file's own realpath (resolves a symlinked file to its target).
     return { displayPath, targetKey: FsTargetKey(await realpath(displayPath)) }
   } catch (error: unknown) {
+    // A path component is a file, not a directory (e.g. "afile/child.txt" where
+    // "afile" is a regular file): the target can neither exist nor be created,
+    // so surface the structured taxonomy instead of a raw Node ENOTDIR.
+    if (isENOTDIR(error)) throw new FsError(`cannot resolve "${displayPath}": a parent path segment is not a directory`, 'FS_NOT_FOUND')
     /* v8 ignore next -- non-ENOENT realpath failure needs a permission/IO fault; ENOENT falls through to ancestor resolution. */
     if (!isENOENT(error)) throw error
   }
@@ -150,8 +164,10 @@ export async function probe(absolutePath: string): Promise<PathInfo | null> {
     const type = info.isFile() ? 'file' : info.isDirectory() ? 'directory' : 'other'
     return { version: versionOf(info), mode: info.mode & 0o777, type, size: info.size }
   } catch (error: unknown) {
-    /* v8 ignore next 2 -- a non-ENOENT stat failure needs a permission/IO fault; surface it. */
-    if (!isENOENT(error)) throw error
+    // ENOENT (no such file) and ENOTDIR (a parent segment is a file) both mean
+    // the target is absent; any other stat failure is a real permission/IO fault.
+    /* v8 ignore next -- a non-ENOENT/ENOTDIR stat failure needs a permission/IO fault; surface it. */
+    if (!isENOENT(error) && !isENOTDIR(error)) throw error
     return null
   }
 }

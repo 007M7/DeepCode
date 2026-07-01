@@ -1,10 +1,10 @@
-# @deepseek-ai/dsh-file-context
+# @deepseek-ai/dsh-fs-policy
 
-The **file-context policy plugin**: it adds observed-state, read-before-edit, and version-guarded write/edit on top of the `ctx.fs` provider seam ([`@deepseek-ai/dsh-fs`](../fs)) — through the `fs/*` event gate, **NOT** through a method service. This plugin registers **no** `ctx.fileContext` service and has no public `read`/`write`/`edit`/`resolve` methods. It is the policy third of the filesystem stack: not a swappable seam, but the policy that does not belong on the `FileSystem` provider base class.
+The **fs-policy plugin**: it adds observed-state, read-before-edit, and version-guarded write/edit on top of the `ctx.fs` provider seam ([`@deepseek-ai/dsh-fs`](../fs)) — through the `fs/*` event gate, **NOT** through a method service. This plugin registers **no** `ctx.fsPolicy` service and has no public `read`/`write`/`edit`/`resolve` methods. It is the policy third of the filesystem stack: not a swappable seam, but the policy that does not belong on the `FileSystem` provider base class.
 
 ```ts
 import type { Context } from 'cordis'
-import * as FileContext from '@deepseek-ai/dsh-file-context'
+import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 
 declare const ctx: Context
 
@@ -12,8 +12,8 @@ declare const ctx: Context
 // Load it alongside a ctx.fs provider (e.g. @deepseek-ai/dsh-fs-local) and the
 // @deepseek-ai/dsh-tool-fs tools; the tools dispatch the fs/* events this plugin
 // decides. Order does not matter for resolution (no inject), but the policy
-// listener should be the first decider registered for the fs/*-expectation slots.
-await ctx.plugin(FileContext)
+// listener should be the first decider registered for the fs/*-intent slots.
+await ctx.plugin(FsPolicy)
 ```
 
 ## The four-layer split
@@ -21,7 +21,7 @@ await ctx.plugin(FileContext)
 | Layer | Package | Role |
 |---|---|---|
 | tool / executor | `@deepseek-ai/dsh-tool-fs` | model-facing schemas + read windowing + text rendering; reads/writes/edits via `ctx.fs`, dispatches the `fs/*` events |
-| policy | `@deepseek-ai/dsh-file-context` (this) | observed-state + read-before-edit + version-guarded write/edit, contributed through the `fs/*` event gate (no service) |
+| policy | `@deepseek-ai/dsh-fs-policy` (this) | observed-state + read-before-edit + version-guarded write/edit, contributed through the `fs/*` event gate (no service) |
 | provider seam | `@deepseek-ai/dsh-fs` | `ctx.fs`: text IO + atomic mutation primitives (optional version guard); owns the `fs/*` event vocabulary |
 | provider | `@deepseek-ai/dsh-fs-local` | local implementation of `ctx.fs` |
 
@@ -31,8 +31,8 @@ Three `fs/*` events (declared by `@deepseek-ai/dsh-fs`, dispatched by `@deepseek
 
 | Event | This plugin's listener |
 |---|---|
-| `fs/write-expectation` | No prior observation → `{ kind: 'createIfAbsent' }`; a prior observation → `{ kind: 'replaceIfVersion', version: vObserved }`. Single-slot decision; does NOT call `next()`. |
-| `fs/edit-expectation` | Requires a prior observation by this owner (else throws `FS_NOT_OBSERVED`); returns `{ version: vObserved }` as the CAS basis. Single-slot decision; does NOT call `next()`. |
+| `fs/write-intent` | No prior observation → `{ kind: 'createIfAbsent' }`; a prior observation → `{ kind: 'replaceIfVersion', version: vObserved }`. Single-slot decision; does NOT call `next()`. |
+| `fs/edit-intent` | Requires a prior observation by this owner (else throws `FS_NOT_OBSERVED`); returns `{ version: vObserved }` as the CAS basis. Single-slot decision; does NOT call `next()`. |
 | `fs/observed` | Records `{ version }` for this owner+target. Synchronous, side-effect-only `WeakMap.set`. |
 
 ## Observed state is the prior-observation record; freshness is provider CAS
@@ -41,7 +41,7 @@ Observed state is a `WeakMap<owner, Map<targetKey, FsVersion>>`. An entry exists
 
 ## Single-slot, first-wins
 
-The `fs/write-expectation`/`fs/edit-expectation` slots hold exactly one decider — this plugin fully decides and does not call `next()`. The slot is first-wins by registration order; this plugin owning it is the default-deployment convention, not an event-enforced invariant (a decider registered before / `prepend`ed would win instead). This is not a composable authorization chain — layered permission/audit/sandbox interception belongs on `tools/execute`.
+The `fs/write-intent`/`fs/edit-intent` slots hold exactly one decider — this plugin fully decides and does not call `next()`. The slot is first-wins by registration order; this plugin owning it is the default-deployment convention, not an event-enforced invariant (a decider registered before / `prepend`ed would win instead). This is not a composable authorization chain — layered permission/audit/sandbox interception belongs on `tools/execute`.
 
 ## No method coupling
 

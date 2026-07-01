@@ -1,5 +1,5 @@
 /**
- * Vocabulary for the file-context policy plugin: the minimal execution-context
+ * Vocabulary for the fs-policy plugin: the minimal execution-context
  * shape used to derive an observed-state owner by narrowing the opaque `object`
  * actor the `fs/*` events carry.
  *
@@ -7,7 +7,7 @@
  * re-used from `@deepseek-ai/dsh-fs`; this package owns only the observed-state
  * owner structure on top of it.
  *
- * @module @deepseek-ai/dsh-file-context/types
+ * @module @deepseek-ai/dsh-fs-policy/types
  */
 
 /**
@@ -20,7 +20,7 @@
  * The owner is `agent.session` when present. It is treated as an opaque object
  * identity (a `WeakMap` key); this package never reads any of its fields.
  */
-export interface FileContextExec {
+export interface FsPolicyExec {
   /** The agent on whose behalf the call runs, when there is one. */
   agent?: {
     /** The session that owns observed-file state, used as an opaque key. */

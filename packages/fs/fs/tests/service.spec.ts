@@ -1,7 +1,7 @@
 /**
  * Tests for the filesystem provider seam itself: registration, duplicate-service
  * behavior, disposal, and the branded id factories. The provider primitives and
- * policy live in `dsh-fs-local` and `dsh-file-context`; this seam owns only the
+ * policy live in `dsh-fs-local` and `dsh-fs-policy`; this seam owns only the
  * abstract service contract, so a minimal fake backend exercises it.
  */
 
@@ -13,7 +13,7 @@ import type {
   FsEditRequest,
   FsInfo,
   FsTarget,
-  FsWriteExpectation,
+  FsWriteIntent,
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
 
@@ -38,7 +38,7 @@ class FakeFileSystem extends FileSystem {
     const content = await this.readText(target)
     return (async function* () { yield content })()
   }
-  override async writeText(target: FsTarget, content: string, _expected?: FsWriteExpectation): Promise<FsWriteOutcome> {
+  override async writeText(target: FsTarget, content: string, _expected?: FsWriteIntent): Promise<FsWriteOutcome> {
     const existed = this.files.has(target.targetKey)
     this.files.set(target.targetKey, content)
     return { operation: existed ? 'update' : 'create', version: FsVersion('v2') }

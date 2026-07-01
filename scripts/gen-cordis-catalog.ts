@@ -80,10 +80,9 @@ const LINK_MAP: Record<string, string> = {
   FsInfo: 'filesystem.md',
   FsTarget: 'filesystem.md',
   FsVersion: 'filesystem.md',
-  FsWriteExpectation: 'filesystem.md',
+  FsWriteIntent: 'filesystem.md',
   FsWriteOutcome: 'filesystem.md',
-  FileContextExec: 'filesystem.md',
-  FileReadRequest: 'filesystem.md',
+  FsPolicyExec: 'filesystem.md',
   FileReadOutcome: 'filesystem.md',
 }
 

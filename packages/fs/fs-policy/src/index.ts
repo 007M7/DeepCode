@@ -1,10 +1,10 @@
 /**
- * The file-context policy PLUGIN: observed-state, read-before-edit, and
+ * The fs-policy PLUGIN: observed-state, read-before-edit, and
  * "write/edit must be based on the version you read" — added on top of the
  * `ctx.fs` provider seam through the `fs/*` event gate, NOT through a method
- * service. This plugin registers NO `ctx.fileContext` service and exposes no
+ * service. This plugin registers NO `ctx.fsPolicy` service and exposes no
  * `read`/`write`/`edit`/`resolve` methods; it influences the world only by
- * deciding the `fs/write-expectation`/`fs/edit-expectation` waterfalls and
+ * deciding the `fs/write-intent`/`fs/edit-intent` waterfalls and
  * recording on `fs/observed`. That is what keeps `@deepseek-ai/dsh-tool-fs`
  * (the executor) free of any method coupling to the policy layer — removing
  * this plugin gracefully loses the policy and leaves the unconstrained bare
@@ -33,22 +33,22 @@
  *
  * ## Single-slot, first-wins
  *
- * The `fs/write-expectation`/`fs/edit-expectation` listeners do NOT call
+ * The `fs/write-intent`/`fs/edit-intent` listeners do NOT call
  * `next()`: each fully decides its single slot. The slot is first-wins by
  * registration order — this plugin owning it is the default-deployment
  * convention, not an event-enforced invariant (a decider registered before /
  * `prepend`ed would win instead). This is not a composable authorization chain;
  * layered permission/audit/sandbox interception belongs on `tools/execute`.
  *
- * @module @deepseek-ai/dsh-file-context
+ * @module @deepseek-ai/dsh-fs-policy
  */
 
 import type { Context } from 'cordis'
 import { FsError } from '@deepseek-ai/dsh-fs'
-import type { FsTarget, FsVersion, FsWriteExpectation } from '@deepseek-ai/dsh-fs'
-import type { FileContextExec } from './types.ts'
+import type { FsTarget, FsVersion, FsWriteIntent } from '@deepseek-ai/dsh-fs'
+import type { FsPolicyExec } from './types.ts'
 
-export type { FileContextExec } from './types.ts'
+export type { FsPolicyExec } from './types.ts'
 
 /**
  * Per-context observed-file state and the three `fs/*` decisions over it. One
@@ -69,7 +69,7 @@ class ObservedStateGate {
    * the write/edit prior-observation policy.
    */
   private owner(actor: object | undefined): object | undefined {
-    return (actor as FileContextExec | undefined)?.agent?.session
+    return (actor as FsPolicyExec | undefined)?.agent?.session
   }
 
   private get(owner: object, targetKey: string): FsVersion | undefined {
@@ -91,11 +91,11 @@ class ObservedStateGate {
   }
 
   /**
-   * Decide the write expectation: no prior observation ⇒ `createIfAbsent` (only
+   * Decide the write intent: no prior observation ⇒ `createIfAbsent` (only
    * new files can be created blindly); a prior observation ⇒ `replaceIfVersion`
    * at the observed version (existing files replaced only if unchanged).
    */
-  writeExpectation(target: FsTarget, actor: object | undefined): FsWriteExpectation {
+  writeIntent(target: FsTarget, actor: object | undefined): FsWriteIntent {
     const owner = this.owner(actor)
     const prior = owner ? this.get(owner, target.targetKey) : undefined
     return prior ? { kind: 'replaceIfVersion', version: prior } : { kind: 'createIfAbsent' }
@@ -105,7 +105,7 @@ class ObservedStateGate {
    * Decide the edit version guard: requires a prior observation by this owner
    * (else `FS_NOT_OBSERVED`); returns the observed version as the CAS basis.
    */
-  editExpectation(target: FsTarget, actor: object | undefined): { version: FsVersion } {
+  editIntent(target: FsTarget, actor: object | undefined): { version: FsVersion } {
     const owner = this.owner(actor)
     const prior = owner ? this.get(owner, target.targetKey) : undefined
     if (!owner || !prior) {
@@ -122,7 +122,7 @@ class ObservedStateGate {
 }
 
 /** Cordis plugin name used by loader diagnostics. */
-export const name = 'file-context'
+export const name = 'fs-policy'
 
 /**
  * Register the three `fs/*` listeners. No `inject` — this plugin reads no
@@ -138,21 +138,22 @@ export function apply(ctx: Context): void {
     // (HMR safety). The WeakMap itself would be GC'd, but replacing it makes the
     // release observable and immediate for tests.
     gate.clear()
-  }, 'file-context observed-state teardown')
+  }, 'fs-policy observed-state teardown')
 
-  // fs/write-expectation: occupy the single decision slot — do NOT call next().
+  // fs/write-intent: occupy the single decision slot — do NOT call next().
   // Deferred through Promise.resolve().then so the declared Promise return type
   // holds (a throw rejects, never escapes synchronously through the waterfall).
-  ctx.on('fs/write-expectation', (target, actor) => Promise.resolve().then(() => gate.writeExpectation(target, actor)))
+  ctx.on('fs/write-intent', (target, actor) => Promise.resolve().then(() => gate.writeIntent(target, actor)))
 
-  // fs/edit-expectation: occupy the single decision slot — do NOT call next().
+  // fs/edit-intent: occupy the single decision slot — do NOT call next().
   // Deferred the same way so an FS_NOT_OBSERVED throw becomes a rejected promise
   // the edit tool's `await ctx.waterfall(...)` surfaces as its isError result.
-  ctx.on('fs/edit-expectation', (target, actor) => Promise.resolve().then(() => gate.editExpectation(target, actor)))
+  ctx.on('fs/edit-intent', (target, actor) => Promise.resolve().then(() => gate.editIntent(target, actor)))
 
-  // fs/observed: synchronous, side-effect-only WeakMap write (cannot throw under
-  // normal operation); the tool contains any throw so a record bug never fails
-  // the already-completed mutation.
+  // fs/observed: synchronous, side-effect-only WeakMap write. The tool emits
+  // this with a plain (unguarded) ctx.emit, so this listener MUST NOT throw —
+  // a throw would surface as the tool's isError result for a mutation that
+  // already succeeded. A WeakMap.set honors that contract.
   ctx.on('fs/observed', (target, version, actor) => {
     gate.observe(target, version, actor)
   })

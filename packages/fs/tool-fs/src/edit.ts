@@ -1,10 +1,10 @@
 /**
  * The model-facing `edit` tool: update an existing UTF-8 text file by replacing
  * literal text, requiring a unique match by default. The tool is the executor:
- * it dispatches the `fs/edit-expectation` waterfall to obtain the optional
+ * it dispatches the `fs/edit-intent` waterfall to obtain the optional
  * version guard, calls `ctx.fs.editText` directly, and emits `fs/observed`. The
  * default thunk returns `undefined` (unconditional edit of the current content
- * — the bare provider); a policy plugin (`@deepseek-ai/dsh-file-context`)
+ * — the bare provider); a policy plugin (`@deepseek-ai/dsh-fs-policy`)
  * occupies the single decision slot, returning `{ version: vObserved }` or
  * throwing `FS_NOT_OBSERVED` for an unread file. The tool stats ZERO times
  * either way; a missing target is reported by the provider as `FS_STALE_VERSION`.
@@ -52,7 +52,7 @@ export function applyEditTool(ctx: Context): void {
   ctx.systemPrompt.section({
     name: 'tool:edit',
     order: 102,
-    text: 'Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default file-context policy requires it), unless you just created or edited it in this session.',
+    text: 'Use the edit tool for targeted changes to existing UTF-8 text files. It replaces literal old_string with new_string; by default old_string must appear exactly once. If old_string appears multiple times, provide a more specific old_string or set replace_all to true. Read the file first (the default fs-policy requires it), unless you just created or edited it in this session.',
   })
 
   ctx.tools.register(defineTool({
@@ -70,11 +70,11 @@ export function applyEditTool(ctx: Context): void {
       // Single-slot decision: the policy plugin returns { version: vObserved } or
       // throws FS_NOT_OBSERVED; the bare default is undefined (unconditional edit).
       // No stat — the bare default never manufactures a version basis.
-      const expectation = await ctx.waterfall('fs/edit-expectation', target, exec, () => undefined)
+      const intent = await ctx.waterfall('fs/edit-intent', target, exec, () => undefined)
       const outcome = await ctx.fs.editText(
         target,
         { oldString: input.oldString, newString: input.newString, replaceAll: input.replaceAll },
-        expectation,
+        intent,
         exec.signal,
       )
       // Record the observed version (a no-op when no policy plugin listens).

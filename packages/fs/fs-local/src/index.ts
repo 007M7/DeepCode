@@ -21,7 +21,7 @@ import type {
   FsEditRequest,
   FsInfo,
   FsTarget,
-  FsWriteExpectation,
+  FsWriteIntent,
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
 import {
@@ -120,7 +120,7 @@ export class LocalFileSystem extends FileSystem {
   override async writeText(
     target: FsTarget,
     content: string,
-    expected?: FsWriteExpectation,
+    expected?: FsWriteIntent,
     signal?: AbortSignal,
   ): Promise<FsWriteOutcome> {
     return this.withLock(target.targetKey, async () => {

@@ -3,7 +3,7 @@
  * line-numbered content with pagination guidance. The tool is the executor — it
  * stats and reads through `ctx.fs` directly, builds the line window
  * ({@link module:@deepseek-ai/dsh-tool-fs/read-render}), and emits `fs/observed`
- * so a policy plugin (`@deepseek-ai/dsh-file-context`) can record the read. With
+ * so a policy plugin (`@deepseek-ai/dsh-fs-policy`) can record the read. With
  * no policy plugin the emit is simply unheard. This module owns the
  * model-facing schema, argument validation, and the read I/O; the rendering
  * (windowing + formatting) lives in `read-render.ts` and the

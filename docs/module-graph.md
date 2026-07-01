@@ -22,8 +22,8 @@ graph TD
   agent --> session
   compact --> llm
   compact --> session
-  file-context --> fs
   fs-local --> fs
+  fs-policy --> fs
   llm-replay --> llm
   llm-replay --> session
   session-persistence --> session
@@ -120,8 +120,8 @@ graph TD
 | `system-prompt` | `llm` |
 | `agent` | `brand`, `llm`, `session` |
 | `compact` | `llm`, `session` |
-| `file-context` | `fs` |
 | `fs-local` | `fs` |
+| `fs-policy` | `fs` |
 | `llm-replay` | `llm`, `session` |
 | `session-persistence` | `session` |
 | `compact-basic` | `agent`, `compact`, `llm`, `session` |

@@ -3,7 +3,7 @@
  * tools (`dsh-tool-fs`) as the executor, exercised through `ctx.tools.execute()`
  * so nothing bypasses the tool registry. Two deployments:
  *
- *  - DEFAULT — with the real `dsh-file-context` policy gate plugin: read-before-
+ *  - DEFAULT — with the real `dsh-fs-policy` policy gate plugin: read-before-
  *    write/edit, version-guarded mutation, FS_NOT_OBSERVED for unread edits.
  *  - BARE — WITHOUT the policy plugin: every `fs/*` waterfall falls through to
  *    its undefined default, so write/edit are unconditional. This proves the
@@ -22,7 +22,7 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
-import * as FileContext from '@deepseek-ai/dsh-file-context'
+import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 
 let dir: string
@@ -53,14 +53,14 @@ afterEach(async () => {
 // --------------------------------------------------------------------------
 // DEFAULT deployment: the policy gate plugin is loaded.
 // --------------------------------------------------------------------------
-describe('default deployment (with dsh-file-context)', () => {
+describe('default deployment (with dsh-fs-policy)', () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'dsh-tool-fs-'))
     ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(LocalFileSystem, { cwd: dir })
-    await ctx.plugin(FileContext)
+    await ctx.plugin(FsPolicy)
     fiber = await ctx.plugin(ToolFs)
   })
 
@@ -228,7 +228,7 @@ describe('default deployment (with dsh-file-context)', () => {
 // --------------------------------------------------------------------------
 // BARE deployment: the tool suite WITHOUT the policy gate.
 // --------------------------------------------------------------------------
-describe('bare provider (no dsh-file-context)', () => {
+describe('bare provider (no dsh-fs-policy)', () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'dsh-tool-fs-bare-'))
     ctx = new Context()

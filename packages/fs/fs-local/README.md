@@ -6,7 +6,7 @@ The **local-filesystem implementation** of the `ctx.fs` provider seam ([`@deepse
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 
 await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
-// ctx.fs is now the local backend; load @deepseek-ai/dsh-file-context for the
+// ctx.fs is now the local backend; load @deepseek-ai/dsh-fs-policy for the
 // freshness policy gate and @deepseek-ai/dsh-tool-fs to expose read/write/edit.
 ```
 

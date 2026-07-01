@@ -12,6 +12,6 @@
     { "path": "../../core/tools" },
     { "path": "../../core/system-prompt" },
     { "path": "../fs" },
-    { "path": "../file-context" }
+    { "path": "../fs-policy" }
   ]
 }

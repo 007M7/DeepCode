@@ -2,7 +2,7 @@
  * Cordis-free tests for the raw local-filesystem I/O: path resolution, probe,
  * whole-file/streamed text reads, binary/UTF-8 rejection, atomic-write temp
  * safety, literal edit matching, and line-ending handling. Line WINDOWING is
- * policy and lives in `dsh-file-context`, so it is not tested here.
+ * policy and lives in `dsh-fs-policy`, so it is not tested here.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -21,7 +21,7 @@ import {
   writeFileAtomic,
 } from '@deepseek-ai/dsh-fs-local'
 import type { LocalTarget } from '@deepseek-ai/dsh-fs-local'
-import { FsTargetKey } from '@deepseek-ai/dsh-fs'
+import { FsError, FsTargetKey } from '@deepseek-ai/dsh-fs'
 
 let dir: string
 beforeEach(async () => {
@@ -88,6 +88,16 @@ describe('resolveLocalTarget', () => {
   it('rejects a blank path', async () => {
     await expect(resolveLocalTarget(dir, '   ')).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
   })
+
+  it('rejects a path whose ancestor is a file with a structured FsError (ENOTDIR)', async () => {
+    // "afile" is a regular file, so "afile/child.txt" hits ENOTDIR on realpath;
+    // the raw Node error must be translated into the FsError taxonomy so the tool
+    // result keeps its { name, code } metadata.
+    await writeFile(join(dir, 'afile'), 'i am a file')
+    const err = await resolveLocalTarget(dir, 'afile/child.txt').then(() => undefined, (e: unknown) => e)
+    expect(err).toBeInstanceOf(FsError)
+    expect(err).toMatchObject({ code: 'FS_NOT_FOUND' })
+  })
 })
 
 describe('probe', () => {
@@ -127,6 +137,11 @@ describe('probe', () => {
     } finally {
       await new Promise<void>((resolve) => { server.close(() => { resolve() }) })
     }
+  })
+
+  it('returns null when an ancestor path segment is a file (ENOTDIR), not a raw throw', async () => {
+    await writeFile(join(dir, 'afile'), 'i am a file')
+    expect(await probe(join(dir, 'afile', 'child.txt'))).toBeNull()
   })
 })
 

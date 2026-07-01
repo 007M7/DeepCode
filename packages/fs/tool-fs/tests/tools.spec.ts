@@ -1,6 +1,6 @@
 /**
  * Consumer-surface tests for the filesystem tools as the EXECUTOR. They run the
- * REAL `@deepseek-ai/dsh-file-context` gate plugin (the genuine policy
+ * REAL `@deepseek-ai/dsh-fs-policy` gate plugin (the genuine policy
  * collaborator, per the prefer-the-real-implementation rule) over a fake
  * `ctx.fs` provider, so they verify schemas, argument validation, result
  * formatting, FsError→isError propagation, and that each tool dispatches the
@@ -19,10 +19,10 @@ import type {
   FsEditRequest,
   FsInfo,
   FsTarget,
-  FsWriteExpectation,
+  FsWriteIntent,
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
-import * as FileContext from '@deepseek-ai/dsh-file-context'
+import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import { formatReadOutput, STREAM_MIN_SIZE } from '@deepseek-ai/dsh-tool-fs'
 import type { FileReadOutcome } from '@deepseek-ai/dsh-tool-fs'
@@ -31,8 +31,8 @@ import type { FileReadOutcome } from '@deepseek-ai/dsh-tool-fs'
 class FakeFs extends FileSystem {
   files = new Map<string, string>()
   rejectWith?: FsError
-  writeExpectations: (FsWriteExpectation | undefined)[] = []
-  editExpectations: ({ version: FsVersion } | undefined)[] = []
+  writeIntents: (FsWriteIntent | undefined)[] = []
+  editIntents: ({ version: FsVersion } | undefined)[] = []
 
   private throwIfArmed(): void {
     if (this.rejectWith) throw this.rejectWith
@@ -54,16 +54,16 @@ class FakeFs extends FileSystem {
     const content = this.files.get(target.targetKey) ?? ''
     return (async function* () { yield content })()
   }
-  override async writeText(target: FsTarget, content: string, expected?: FsWriteExpectation): Promise<FsWriteOutcome> {
+  override async writeText(target: FsTarget, content: string, expected?: FsWriteIntent): Promise<FsWriteOutcome> {
     this.throwIfArmed()
-    this.writeExpectations.push(expected)
+    this.writeIntents.push(expected)
     const existed = this.files.has(target.targetKey)
     this.files.set(target.targetKey, content)
     return { operation: existed ? 'update' : 'create', version: FsVersion('v2') }
   }
   override async editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }): Promise<FsEditOutcome> {
     this.throwIfArmed()
-    this.editExpectations.push(expected)
+    this.editIntents.push(expected)
     const content = this.files.get(target.targetKey) ?? ''
     this.files.set(target.targetKey, content.split(edit.oldString).join(edit.newString))
     return { replacements: 1, replaceAll: edit.replaceAll, version: FsVersion('v3') }
@@ -75,7 +75,7 @@ async function setup() {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(FakeFs)
-  await ctx.plugin(FileContext)
+  await ctx.plugin(FsPolicy)
   await ctx.plugin(ToolFs)
   const fs = ctx.fs as FakeFs
   return { ctx, fs }
@@ -122,11 +122,16 @@ describe('registration', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(FakeFs)
-    await ctx.plugin(FileContext)
+    await ctx.plugin(FsPolicy)
     const fiber = await ctx.plugin(ToolFs)
+    // Each tool contributes BOTH a schema and a prompt section; disposal must
+    // withdraw both, not just the schemas.
     expect(ctx.tools.schemas()).toHaveLength(3)
+    const sectionNames = (a: { sections: { name: string }[] }) => a.sections.map(s => s.name).sort()
+    expect(sectionNames(await ctx.systemPrompt.assemble())).toEqual(['tool:edit', 'tool:read', 'tool:write'])
     await fiber.dispose()
     expect(ctx.tools.schemas()).toHaveLength(0)
+    expect((await ctx.systemPrompt.assemble()).sections).toHaveLength(0)
   })
 })
 
@@ -174,7 +179,7 @@ describe('read tool', () => {
     expect((await call(ctx, 'read', { file_path: 'a.txt' }, { session })).isError).toBe(false)
     const edited = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'hello', new_string: 'bye' }, { session })
     expect(edited.isError).toBe(false)
-    expect(fs.editExpectations).toEqual([{ version: 'v1' }])
+    expect(fs.editIntents).toEqual([{ version: 'v1' }])
   })
 
   it('propagates FS_NOT_FOUND for an absent file', async () => {
@@ -257,7 +262,7 @@ describe('write tool', () => {
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'hi' }, { session: {} })
     expect(result.isError).toBe(false)
     expect(text(result)).toContain('Created file')
-    expect(fs.writeExpectations).toEqual([{ kind: 'createIfAbsent' }])
+    expect(fs.writeIntents).toEqual([{ kind: 'createIfAbsent' }])
   })
 
   it('rejects a blank file_path', async () => {

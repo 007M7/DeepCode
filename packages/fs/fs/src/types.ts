@@ -1,12 +1,12 @@
 /**
  * Vocabulary for the filesystem provider seam (`ctx.fs`): the opaque
- * target/version identities, the metadata `stat` returns, the write-expectation
+ * target/version identities, the metadata `stat` returns, the write-intent
  * and outcome shapes, the literal-edit request/outcome, and the typed error
  * taxonomy.
  *
  * These types are shared by every backend (`@deepseek-ai/dsh-fs-local` and
  * future sandboxed/remote backends) and by the policy layer
- * (`@deepseek-ai/dsh-file-context`). They are deliberately a *text-storage*
+ * (`@deepseek-ai/dsh-fs-policy`). They are deliberately a *text-storage*
  * vocabulary half a level above byte-level fsspec: `readText`/`streamText` hand
  * back decoded text, never raw bytes. Host-path assumptions stay out — `targetKey`
  * and `version` are opaque branded tokens, and `displayPath` is the only field a
@@ -14,7 +14,7 @@
  *
  * Model-facing concepts (line windows, numbered lines, observed-state) do NOT
  * live here; they belong to the consumer tool and the policy plugin
- * (`@deepseek-ai/dsh-tool-fs` / `@deepseek-ai/dsh-file-context`).
+ * (`@deepseek-ai/dsh-tool-fs` / `@deepseek-ai/dsh-fs-policy`).
  *
  * @module @deepseek-ai/dsh-fs/types
  */
@@ -91,7 +91,7 @@ export interface FsInfo {
  * is expressed by omission, so the write and edit mutations share one symmetric
  * shape (`expected?`: omit = unconditional, present = guarded).
  */
-export type FsWriteExpectation =
+export type FsWriteIntent =
   | { kind: 'createIfAbsent' }
   | { kind: 'replaceIfVersion'; version: FsVersion }
 

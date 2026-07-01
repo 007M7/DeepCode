@@ -8,15 +8,16 @@
  * concerns only — tool names, JSON schemas, argument validation, prompt
  * sections, read windowing, result formatting. It does NOT inject a policy
  * service. Instead, on each write/edit it dispatches a single-slot waterfall
- * (`fs/write-expectation`/`fs/edit-expectation`) to obtain the OPTIONAL version
- * guard, and after every read/write/edit it emits a contained `fs/observed`. A
- * policy plugin (`@deepseek-ai/dsh-file-context`, loaded by the default product
- * config) occupies the decision slot and listens for `fs/observed` to add
- * observed-state + read-before-edit + version-guarded write/edit. With no policy
- * plugin the waterfalls fall through to their `undefined` default (the
- * unconstrained bare provider) and `fs/observed` is unheard — the tool still
- * functions. This package never imports `node:fs`, `node:path`, or an
- * `@deepseek-ai/dsh-fs-local` implementation.
+ * (`fs/write-intent`/`fs/edit-intent`) to obtain the OPTIONAL version guard, and
+ * after every read/write/edit it emits `fs/observed` with a plain (unguarded)
+ * `ctx.emit`. A policy plugin (`@deepseek-ai/dsh-fs-policy`) occupies the
+ * decision slot and listens for `fs/observed` to add observed-state +
+ * read-before-edit + version-guarded write/edit; a deployment that loads these
+ * tools is expected to also load it. With no policy plugin the waterfalls fall
+ * through to their `undefined` default (the unconstrained bare provider) and
+ * `fs/observed` is unheard — the tool still functions. This package never
+ * imports `node:fs`, `node:path`, or an `@deepseek-ai/dsh-fs-local`
+ * implementation.
  *
  * @module @deepseek-ai/dsh-tool-fs
  */

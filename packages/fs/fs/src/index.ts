@@ -2,7 +2,7 @@
  * The filesystem provider seam (`ctx.fs`): an abstract service defining the
  * text-storage primitives a backend provides — resolve a path into a stable
  * target, stat its metadata, read/stream its text, write it atomically with an
- * explicit expectation, and apply a guarded literal edit — without saying HOW.
+ * explicit intent, and apply a guarded literal edit — without saying HOW.
  * Implementations subclass {@link FileSystem} and register themselves as the
  * `fs` service; `@deepseek-ai/dsh-fs-local` (the host filesystem) is the first.
  * Future implementations swap in sandboxed, remote, virtual, or project-scoped
@@ -20,7 +20,7 @@
  * literal-edit critical section — but NOT line windows, numbered lines,
  * rendered footers, or observed-state. Read windowing lives in the model-facing
  * tool (`@deepseek-ai/dsh-tool-fs`); observed-state and read-before-write/edit
- * are policy a plugin (`@deepseek-ai/dsh-file-context`) adds through the `fs/*`
+ * are policy a plugin (`@deepseek-ai/dsh-fs-policy`) adds through the `fs/*`
  * event gate. So a sandboxed/remote backend inherits no model-facing observation
  * policy it has no business carrying.
  *
@@ -41,14 +41,14 @@
  * unconditional write/edit is still atomic; "unconditional" drops the *version*
  * precondition, not the atomicity. Observed-state, read-before-edit, and
  * version-guarded write/edit are NOT provider behavior — they are policy a
- * plugin (`@deepseek-ai/dsh-file-context`) adds on top by supplying the guard.
+ * plugin (`@deepseek-ai/dsh-fs-policy`) adds on top by supplying the guard.
  *
  * ## The fs policy events live here, not in the policy plugin
  *
- * This package owns the `fs/write-expectation`, `fs/edit-expectation`, and
+ * This package owns the `fs/write-intent`, `fs/edit-intent`, and
  * `fs/observed` event vocabulary (see {@link Events}). The emitter is
  * `@deepseek-ai/dsh-tool-fs` and the default listener is
- * `@deepseek-ai/dsh-file-context`; the events live in the one package both
+ * `@deepseek-ai/dsh-fs-policy`; the events live in the one package both
  * already depend on, so the emitter shares a vocabulary with the policy listener
  * without depending on the policy plugin. The events carry only `dsh-fs`
  * vocabulary plus an opaque `object` actor — no model-facing concepts (line
@@ -64,7 +64,7 @@ import type {
   FsInfo,
   FsTarget,
   FsVersion,
-  FsWriteExpectation,
+  FsWriteIntent,
   FsWriteOutcome,
 } from './types.ts'
 
@@ -79,7 +79,7 @@ export type {
   FsErrorCode,
   FsInfo,
   FsTarget,
-  FsWriteExpectation,
+  FsWriteIntent,
   FsWriteOutcome,
 } from './types.ts'
 
@@ -90,11 +90,11 @@ declare module 'cordis' {
 
   interface Events {
     /**
-     * Single-slot decision: produce the write expectation for the next
+     * Single-slot decision: produce the write intent for the next
      * {@link FileSystem.writeText}. The tool dispatches this as an unbound
      * waterfall (no `this`) and supplies a default thunk returning `undefined`
      * (unconditional create-or-overwrite — the bare provider). The
-     * `@deepseek-ai/dsh-file-context` policy listener returns `createIfAbsent`
+     * `@deepseek-ai/dsh-fs-policy` policy listener returns `createIfAbsent`
      * (unobserved actor) or `{ kind: 'replaceIfVersion', version: vObserved }`
      * (observed) and does NOT call `next()` — one decision, not a composable
      * chain. The slot is first-wins: the first non-`next()` decider (registration
@@ -102,23 +102,23 @@ declare module 'cordis' {
      * not layering. `actor` is the opaque tool-execution context, never read here.
      * @mode waterfall
      */
-    'fs/write-expectation'(target: FsTarget, actor: object | undefined, next: () => FsWriteExpectation | undefined | Promise<FsWriteExpectation | undefined>): Promise<FsWriteExpectation | undefined>
+    'fs/write-intent'(target: FsTarget, actor: object | undefined, next: () => FsWriteIntent | undefined | Promise<FsWriteIntent | undefined>): Promise<FsWriteIntent | undefined>
     /**
      * Single-slot decision: produce the optional version guard for the next
      * {@link FileSystem.editText}. The tool dispatches this as an unbound
      * waterfall and supplies a default thunk returning `undefined` (unconditional
      * edit of the current content — the bare provider; no `stat`). The
-     * `@deepseek-ai/dsh-file-context` policy listener returns
+     * `@deepseek-ai/dsh-fs-policy` policy listener returns
      * `{ version: vObserved }`, or throws `FS_NOT_OBSERVED` if the actor is unset
      * or has not observed the target. Does NOT call `next()`: one decision,
-     * first-wins (see {@link Events.'fs/write-expectation'}).
+     * first-wins (see {@link Events.'fs/write-intent'}).
      * @mode waterfall
      */
-    'fs/edit-expectation'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
+    'fs/edit-intent'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
     /**
      * Record that an actor observed a target at a version, after a successful
      * read/write/edit. Fire-and-forget (plain `emit`). A listener MUST be a
-     * synchronous, side-effect-only recorder (`@deepseek-ai/dsh-file-context`'s
+     * synchronous, side-effect-only recorder (`@deepseek-ai/dsh-fs-policy`'s
      * is a `WeakMap.set`): the tool does not guard the emit, so a listener that
      * throws surfaces as the tool's `isError` result, and cordis `emit` does not
      * await listener promises — async or fallible audit/telemetry does not
@@ -147,7 +147,7 @@ declare module 'cordis' {
  *   binary/NUL rejection, and `FS_NOT_TEXT`.
  * - {@link writeText} is atomic temp-file + rename. `expected` is OPTIONAL:
  *   omit it for an unconditional create-or-overwrite (the bare-provider default),
- *   or supply a {@link FsWriteExpectation} to guard the write.
+ *   or supply a {@link FsWriteIntent} to guard the write.
  * - {@link editText} verifies `expected.version` BEFORE literal matching (so a
  *   stale edit reports `FS_STALE_VERSION`, not `FS_EDIT_NOT_FOUND`/
  *   `FS_AMBIGUOUS_EDIT` against newer content), then applies literal replacement
@@ -188,7 +188,7 @@ export abstract class FileSystem extends Service {
    * unconditional create-or-overwrite (the bare provider — no version guard, no
    * read-first requirement). Atomic either way.
    */
-  abstract writeText(target: FsTarget, content: string, expected?: FsWriteExpectation, signal?: AbortSignal): Promise<FsWriteOutcome>
+  abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>
 
   /**
    * Apply a literal edit to an existing UTF-8 text file. When `expected` is

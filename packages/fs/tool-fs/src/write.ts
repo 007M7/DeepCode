@@ -1,10 +1,10 @@
 /**
  * The model-facing `write` tool: create or fully replace a UTF-8 text file. The
- * tool is the executor: it dispatches the `fs/write-expectation` waterfall to
+ * tool is the executor: it dispatches the `fs/write-intent` waterfall to
  * obtain the optional version guard, calls `ctx.fs.writeText` directly, and
  * emits `fs/observed`. The default thunk returns `undefined` (unconditional
  * create-or-overwrite — the bare provider); a policy plugin
- * (`@deepseek-ai/dsh-file-context`) occupies the single decision slot and
+ * (`@deepseek-ai/dsh-fs-policy`) occupies the single decision slot and
  * returns `createIfAbsent`/`replaceIfVersion` instead. The tool stats ZERO
  * times either way.
  *
@@ -39,7 +39,7 @@ export function applyWriteTool(ctx: Context): void {
   ctx.systemPrompt.section({
     name: 'tool:write',
     order: 101,
-    text: 'Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default file-context policy requires it) and prefer edit for targeted changes.',
+    text: 'Use the write tool to create files or completely replace file contents. Existing files are overwritten, so read an existing file first (the default fs-policy requires it) and prefer edit for targeted changes.',
   })
 
   ctx.tools.register(defineTool({
@@ -54,8 +54,8 @@ export function applyWriteTool(ctx: Context): void {
       const target = await ctx.fs.resolve(input.filePath)
       // Single-slot decision: the policy plugin produces createIfAbsent/
       // replaceIfVersion; the bare default is undefined (unconditional). No stat.
-      const expectation = await ctx.waterfall('fs/write-expectation', target, exec, () => undefined)
-      const outcome = await ctx.fs.writeText(target, input.content, expectation, exec.signal)
+      const intent = await ctx.waterfall('fs/write-intent', target, exec, () => undefined)
+      const outcome = await ctx.fs.writeText(target, input.content, intent, exec.signal)
       // Record the observed version (a no-op when no policy plugin listens).
       ctx.emit('fs/observed', target, outcome.version, exec)
       return [{ type: 'text', text: formatWriteOutput(target.displayPath, outcome) }]
