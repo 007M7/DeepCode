@@ -4,7 +4,7 @@
 
 | English | 中文 | 备注 |
 |---|---|---|
-| ACP | ACP | |
+| ACP | ACP | 首次出现可写：ACP（Agent Client Protocol） |
 | AI | AI | 首次出现可写：人工智能（AI） |
 | API | API | |
 | CLI | CLI | 首次出现可写：命令行界面（CLI） |
@@ -19,14 +19,14 @@
 | MCP | MCP | |
 | RAG | RAG | 首次出现可写：检索增强生成（RAG） |
 | SDK | SDK | |
-| SSE | SSE | |
+| SSE | SSE | 首次出现可写：SSE（Server-Sent Events） |
 | agent | agent | 首次出现可写：agent（智能体） |
 | agent loop | agent loop | |
 | fiber | fiber | 首次出现可写：fiber（插件运行时） |
-| fixture | fixture | 首次出现可写：fixture（测试夹具）；指测试前置数据或环境 |
+| fixture | fixture | 指测试前置数据或环境 |
 | fork | fork | 保留英文 |
 | harness | harness | 保留英文 |
-| manifest | manifest | 首次出现可写：manifest（描述模块或工具元数据的文件） |
+| manifest | manifest | 描述模块或工具元数据的文件 |
 | schema DSL | schema DSL | |
 | schema | schema | 保留英文 |
 | seam | seam | 首次出现可写：seam（扩展点） |
