@@ -207,8 +207,20 @@ export class SubagentService extends Service {
         // the SAME array reference the caller consumes would let a mutating
         // `subagent/end` listener corrupt the caller's SubagentResult.output —
         // breaking the observe-only contract. A snapshot makes the event a
-        // read-only view, not a shared handle.
-        this.emitLifecycle('subagent/end', { provider: name, id: run.id, ...agentType, stopReason: result.stopReason, lastAssistantMessage: structuredClone(result.output) })
+        // read-only view, not a shared handle. The clone is wrapped: it runs
+        // inside `onFulfilled`, OUTSIDE emitLifecycle's per-listener containment,
+        // so an uncloneable value (a future non-serializable content-block type,
+        // or a contract-violating result with no `output`) would otherwise become
+        // an unhandled rejection on this detached `.then`. On clone failure, log
+        // and emit the event WITHOUT lastAssistantMessage rather than dropping the
+        // whole `subagent/end`.
+        let lastAssistantMessage: SubagentResult['output'] | undefined
+        try {
+          lastAssistantMessage = structuredClone(result.output)
+        } catch (error: unknown) {
+          this.ctx.logger.warn(`subagent: could not clone ${name} output for subagent/end: ${String(error)}`)
+        }
+        this.emitLifecycle('subagent/end', { provider: name, id: run.id, ...agentType, stopReason: result.stopReason, ...lastAssistantMessage !== undefined ? { lastAssistantMessage } : {} })
       },
       () => { this.emitLifecycle('subagent/end', { provider: name, id: run.id, ...agentType, stopReason: 'error' }) },
     )
