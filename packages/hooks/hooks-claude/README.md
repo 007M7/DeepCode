@@ -25,7 +25,9 @@ In a `cordis.yml`:
     projectDir: .
 ```
 
-The config is parsed **once** at load. A read/parse failure is contained — the bridge logs a warning and registers nothing rather than crashing boot (a typo'd path must not take the agent down). Only `type: 'command'` hooks run; a `prompt`/`agent`/HTTP hook is parsed-and-skipped with a warning.
+The config is parsed **once** at load. `configPath` is **process-level**: a relative path resolves against the process's launch cwd at load time, so a single config applies to the whole process — there is no per-session (`session/new.cwd`) config discovery yet (`TODO(per-session-hook-config)`). A read/parse failure is contained — the bridge logs a warning and registers nothing rather than crashing boot (a typo'd path must not take the agent down). Only `type: 'command'` hooks run; a `prompt`/`agent`/HTTP hook is parsed-and-skipped with a warning.
+
+The hooks **themselves** run in the agent's session workspace: for the agent-scoped points the bridge passes the session's `cwd` (the `session/new.cwd`) as the hook process's working directory, so a hook's `pwd`/relative-path/marker operates in the user's project tree, not the server launch dir.
 
 ## Hook points → seam Decisions
 
@@ -48,4 +50,5 @@ Injected context carries an explicit `{ kind: 'plugin', plugin: 'hooks-claude' }
 ## Deferred (faithful-but-degraded)
 
 - **`updatedInput` (tool-input rewrite)** is logged + warned, **not honored** — input rewrite is a deferred consistency-design problem ([the pre-tool-input-rewrite RFC](../../../docs/rfc/proposed/feature/2026-06-30-pre-tool-input-rewrite.md)).
+- **`systemMessage`** (a hook's user-facing warning) is logged + warned, **not surfaced** — there is no user-message channel on these seams yet (only model-facing `additionalContext`). The shared merge collects it; the bridge does not yet render it.
 - **Stop loop-guard.** CC breaks an infinite force-continue with `stop_hook_active` (true once a Stop hook has fired this run) plus a max-consecutive cap; both are deferred (`TODO(stop-loop-guard)`). Today `stop_hook_active` is always `false`, so a Stop hook that unconditionally blocks would force-continue every step — a hook author must self-limit until the guard lands.

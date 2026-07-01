@@ -31,7 +31,9 @@ In a `cordis.yml`:
     model: deepseek-v4
 ```
 
-The config is parsed **once** at load; a read/parse failure is contained (logs + registers nothing). Only sync `type: 'command'` hooks run — a non-command or `async: true` hook is parsed-and-skipped with a warning. A hook accepts `timeout` or the `timeoutSec` alias. Events outside the five Codex points are dropped at parse.
+The config is parsed **once** at load. `configPath` is **process-level** — a relative path resolves against the process launch cwd at load time, not per-session (`TODO(per-session-hook-config)`). A read/parse failure is contained (logs + registers nothing). Only sync `type: 'command'` hooks run — a non-command or `async: true` hook is parsed-and-skipped with a warning. A hook accepts `timeout` or the `timeoutSec` alias. Events outside the five Codex points are dropped at parse.
+
+The hooks themselves run in the agent's session workspace: for the agent-scoped points the bridge passes the session's `cwd` as the hook process's working directory, so a hook operates in the user's project tree, not the server launch dir.
 
 ## Hook points → seam Decisions
 
@@ -52,3 +54,5 @@ Injected context carries an explicit `{ kind: 'plugin', plugin: 'hooks-codex' }`
 ## Deferred
 
 **Stop loop-guard** (`TODO(stop-loop-guard)`): as in CC, a Stop hook that unconditionally blocks would force-continue every step (`stop_hook_active` is always `false` here); the loop-guard is deferred. A hook author must self-limit until it lands.
+
+**`systemMessage`**: a hook's user-facing warning is logged + warned, not surfaced — there is no user-message channel on these seams yet (only model-facing `additionalContext`).

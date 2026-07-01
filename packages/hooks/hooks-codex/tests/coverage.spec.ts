@@ -436,4 +436,41 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     expect(ran).toBe(false) // the matcher fired → the hook denied the tool
     expect(events(agent).some(e => e.type === 'hook/invoked' && e.data.point === 'PreToolUse')).toBe(true)
   })
+
+  it('a hook emitting a systemMessage is warned as not-yet-surfaced', async () => {
+    const d = dir()
+    hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'sm.sh', '#!/usr/bin/env bash\necho \'{"systemMessage":"heads up"}\'\n') }] }] })
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(join(d, 'hooks.json'), adapter)
+    const warn = vi.fn(); ctx.logger.warn = warn as never
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('systemMessage'))
+    expect(JSON.stringify(adapter.requests[0]!.messages)).not.toContain('heads up')
+  })
+
+  it('runs an agent-scoped hook in the session cwd, not the executor default', async () => {
+    // Same regression as the CC bridge: the Codex bridge must thread the session
+    // cwd as the hook workdir. Executor default = serverDir; session cwd =
+    // sessionDir; the PreToolUse hook's `pwd` marker must land in sessionDir.
+    const serverDir = dir()
+    const sessionDir = dir()
+    const marker = join(sessionDir, 'where')
+    hooks(serverDir, { PreToolUse: [{ hooks: [{ type: 'command', command: 'pwd > where' }] }] })
+    const adapter = new MockAdapter([toolCallResponse('c1', 'Bash', { command: 'x' }), textResponse('done')])
+    const ctx = new Context()
+    await ctx.plugin(LlmService); await ctx.plugin(SessionStore); await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry); await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, cwd: serverDir })
+    await ctx.plugin(HooksCodex, { configPath: join(serverDir, 'hooks.json'), model: 'm' })
+    ctx.llm.registerAdapter(['mock'], adapter)
+    ctx.tools.register(defineTool({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+    const { SessionId } = await import('@deepseek-ai/dsh-session')
+    const handle = ctx.agents.create({ agentId: AgentId('a1'), sessionId: SessionId('s1'), meta: { cwd: sessionDir }, agentOptions: { model: 'mock' } })
+    handle.agent.send([{ type: 'text', text: 'go' }])
+    await waitForIdle(ctx, handle.agent as ReactLoopAgent)
+    expect(existsSync(marker)).toBe(true)
+    expect(readFileSync(marker, 'utf8').trim().endsWith(sessionDir.split('/').pop()!)).toBe(true)
+    await handle.dispose()
+  })
 })

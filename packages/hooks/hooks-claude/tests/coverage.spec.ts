@@ -454,3 +454,79 @@ describe('hooks-claude coverage — detached-listener catch handlers', () => {
     expect(adapter.requests).toHaveLength(1) // loop survived the thrown inject
   })
 })
+
+describe('hooks-claude coverage — hook runs in the session cwd, not the server cwd', () => {
+  it('runs an agent-scoped hook in the session workspace even when the executor default differs', async () => {
+    // The bug: the bridge passed no workdir, so hooks ran in the executor default
+    // (the server launch dir), not session/new.cwd. Here the executor default and
+    // the session cwd are DIFFERENT temp dirs; a PreToolUse hook writes `pwd` to a
+    // marker and we assert it ran in the SESSION cwd.
+    const serverDir = dir()
+    const sessionDir = dir()
+    const marker = join(sessionDir, 'where')
+    // The hook is invoked with cwd = session dir, so a relative marker path lands there.
+    hooks(serverDir, { PreToolUse: [{ hooks: [{ type: 'command', command: 'pwd > where' }] }] })
+    const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    // Executor default cwd = serverDir (deliberately NOT the session cwd).
+    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, cwd: serverDir })
+    await ctx.plugin(HooksClaude, { configPath: join(serverDir, 'hooks.json') })
+    ctx.llm.registerAdapter(['mock'], adapter)
+    ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+
+    const { SessionId } = await import('@deepseek-ai/dsh-session')
+    const handle = ctx.agents.create({ agentId: AgentId('a1'), sessionId: SessionId('s1'), meta: { cwd: sessionDir }, agentOptions: { model: 'mock' } })
+    handle.agent.send([{ type: 'text', text: 'go' }])
+    await waitForIdle(ctx, handle.agent as ReactLoopAgent)
+
+    expect(existsSync(marker)).toBe(true) // the marker landed in the SESSION dir
+    const { readFileSync } = await import('node:fs')
+    const where = readFileSync(marker, 'utf8').trim()
+    // `pwd` may resolve symlinks (/var → /private/var etc.), so compare basenames.
+    expect(where.endsWith(sessionDir.split('/').pop()!)).toBe(true)
+    await handle.dispose()
+  })
+})
+
+describe('hooks-claude coverage — systemMessage is warned, not surfaced', () => {
+  it('a hook emitting a systemMessage is logged as not-yet-surfaced', async () => {
+    const d = dir()
+    const s = sh(d, 'sm.sh', '#!/usr/bin/env bash\necho \'{"systemMessage":"heads up"}\'\n')
+    const path = hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: s }] }] })
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(path, adapter)
+    const warn = vi.fn(); ctx.logger.warn = warn as never
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }])
+    await waitForIdle(ctx, agent)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('systemMessage'))
+    // Not surfaced: the systemMessage text never reaches the model request.
+    expect(JSON.stringify(adapter.requests[0]!.messages)).not.toContain('heads up')
+  })
+})
+
+describe('hooks-claude coverage — SessionStart timing is best-effort (no-wait)', () => {
+  it('does NOT crash or block when the prompt is sent immediately (context is best-effort, may miss the first request)', async () => {
+    // Regression for the documented downgrade: session-start injection is
+    // detached, so a prompt sent immediately need not observe it. This asserts
+    // the SAFE properties (no crash, the turn still runs) WITHOUT waiting for the
+    // inject first — it documents the best-effort timing rather than masking it
+    // by pre-waiting for context/message (which the guaranteed-timing tests do).
+    const d = dir()
+    const s = sh(d, 'start.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"late ctx"}}\'\n')
+    const path = hooks(d, { SessionStart: [{ hooks: [{ type: 'command', command: s }] }] })
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(path, adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    // Send immediately — do NOT wait for the session-start inject.
+    agent.send([{ type: 'text', text: 'go' }])
+    await waitForIdle(ctx, agent)
+    expect(adapter.requests).toHaveLength(1) // the turn ran regardless of hook timing
+  })
+})

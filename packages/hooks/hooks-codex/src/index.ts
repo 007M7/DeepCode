@@ -38,7 +38,12 @@ export const inject = ['bash']
 
 /** Plugin config: where the Codex hooks.json lives + the model name for payloads. */
 export interface Config {
-  /** Path to a Codex `hooks.json`. */
+  /**
+   * Path to a Codex `hooks.json`. PROCESS-LEVEL: read once at load, a relative
+   * path resolves against the process launch cwd.
+   * TODO(per-session-hook-config): per-session project-local discovery from each
+   * `session/new.cwd` is not yet implemented.
+   */
   configPath: string
   /** The model name stamped on every payload (Codex includes `model` on each event). */
   model?: string
@@ -90,6 +95,10 @@ export function apply(ctx: Context, config: Config): void {
   ): Promise<MergedHookOutcome> {
     const groups: MatcherGroup[] = parsed[point] ?? []
     const outputs: HookOutput[] = []
+    // Run the hook in the agent's session workspace (the `session/new` cwd), not
+    // the executor default (the server launch dir) — a hook reading a relative
+    // file or `pwd` must see the user's project tree. Absent for a no-agent run.
+    const workdir = opts.agent?.session.header.cwd
     for (const group of groups) {
       // Codex matches with PURE regex (no literal fast path).
       if (!matchesMatcher(group.matcher, matchQuery, 'codex')) continue
@@ -104,6 +113,7 @@ export function apply(ctx: Context, config: Config): void {
         }
         const { output, durationMs } = await runHook(ctx.bash, hook, {
           payload,
+          ...workdir !== undefined ? { cwd: workdir } : {},
           ...opts.signal ? { signal: opts.signal } : {},
           defaultTimeoutMs,
           trailingNewline: false, // Codex writes stdin WITHOUT a trailing newline.
@@ -126,6 +136,9 @@ export function apply(ctx: Context, config: Config): void {
           output.additionalContext = output.stdout
         }
         outputs.push(output)
+        if (output.systemMessage !== undefined) {
+          ctx.logger.warn(`hooks-codex: ${point} hook emitted a systemMessage, which is not yet surfaced (ignored)`)
+        }
         if (session && opts.turn !== undefined) {
           const stderrSummary = summarize(output.stderr)
           appendHookResult(session, {
@@ -154,6 +167,10 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   // SessionStart: emit. Codex passes a plain-stdout hook's output as additionalContext.
+  // TODO(session-start-gating): a synchronous emit + detached `.then`, so the
+  // injected context is BEST-EFFORT — not guaranteed before the first turn reaches
+  // the model (a slow hook can miss the first request). Gating is a deferred
+  // loop-level change; the contract is "injected as soon as the hook resolves".
   ctx.on('agent/session-start', (agent, source) => {
     void runPoint('SessionStart', source, { ...base(agent, 'SessionStart', model), source }, { agent, plainStdoutAsContext: true })
       .then((merged) => {

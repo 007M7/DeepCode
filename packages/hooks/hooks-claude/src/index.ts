@@ -51,7 +51,13 @@ export const inject = ['bash']
 
 /** Plugin config: where the CC hook config lives + substitution roots. */
 export interface Config {
-  /** Path to a `hooks.json` or a settings file whose `hooks` key holds the config. */
+  /**
+   * Path to a `hooks.json` or a settings file whose `hooks` key holds the config.
+   * PROCESS-LEVEL: read once at load, a relative path resolves against the process
+   * launch cwd, so one config applies to the whole process.
+   * TODO(per-session-hook-config): per-session discovery of a project-local
+   * `hooks.json` from each `session/new.cwd` is not yet implemented.
+   */
   configPath: string
   /** Replaces `${CLAUDE_PLUGIN_ROOT}` in command strings (the plugin's root dir). */
   pluginRoot?: string
@@ -124,6 +130,12 @@ export function apply(ctx: Context, config: Config): void {
   ): Promise<MergedHookOutcome> {
     const groups: MatcherGroup[] = parsed[point] ?? []
     const outputs: HookOutput[] = []
+    // Run the hook in the AGENT'S session workspace (the `session/new` cwd on the
+    // session header), not the executor default (the ACP server's launch dir).
+    // A hook that does `pwd`, reads a relative file, or writes a marker must
+    // operate in the user's project tree. Absent for a no-agent run (falls back
+    // to the executor default).
+    const workdir = opts.agent?.session.header.cwd
     for (const group of groups) {
       if (!matchesMatcher(group.matcher, matchQuery, 'claude')) continue
       for (const hook of group.hooks) {
@@ -138,6 +150,7 @@ export function apply(ctx: Context, config: Config): void {
         const { output, durationMs } = await runHook(ctx.bash, hook, {
           payload,
           ...hookEnv ? { env: hookEnv } : {},
+          ...workdir !== undefined ? { cwd: workdir } : {},
           ...opts.signal ? { signal: opts.signal } : {},
           defaultTimeoutMs,
           trailingNewline: true,
@@ -148,6 +161,9 @@ export function apply(ctx: Context, config: Config): void {
         outputs.push(output)
         if (output.updatedInput !== undefined) {
           ctx.logger.warn(`hooks-claude: ${point} hook requested updatedInput, which is not yet honored (ignored)`)
+        }
+        if (output.systemMessage !== undefined) {
+          ctx.logger.warn(`hooks-claude: ${point} hook emitted a systemMessage, which is not yet surfaced (ignored)`)
         }
         if (session && opts.turn !== undefined) {
           const stderrSummary = summarize(output.stderr)
@@ -180,7 +196,14 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   // --- SessionStart: emit (cannot block). Inject any additionalContext into the
-  // agent so the first request sees it. The matcher subject is the source. ---
+  // agent. The matcher subject is the source.
+  // TODO(session-start-gating): `agent/session-start` is a SYNCHRONOUS emit and
+  // this hook runs on a detached `.then`, so the injected context is BEST-EFFORT
+  // — it is not guaranteed to land before the first turn reaches the model. A
+  // slow hook can miss the first request (the context then arrives as a later
+  // injection turn). Gating startup on the hook is a loop-level change deferred
+  // to the interception seams; today the contract is "injected as soon as the
+  // hook resolves", not "before the first request". ---
   ctx.on('agent/session-start', (agent, source) => {
     void runPoint('SessionStart', source, sessionStartPayload(agent, source), { agent })
       .then((merged) => {
