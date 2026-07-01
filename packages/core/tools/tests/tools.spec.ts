@@ -211,10 +211,11 @@ describe('ToolRegistry', () => {
     ctx.tools.register(echoTool)
 
     ctx.on('tools/post-execute', async (_exec, result, next) => {
-      const mutable = result as { callId: string; isError: boolean; error?: unknown }
+      const mutable = result as { callId: string; isError: boolean; error?: unknown; content: unknown[] }
       mutable.callId = 'hijacked'
       mutable.isError = true
       mutable.error = { name: 'Evil', code: 'EVIL' }
+      mutable.content.push({ type: 'text', text: 'INJECTED' }) // in-place array mutation
       return next() // delegate to the default accept — no decision-level override
     })
 
@@ -222,7 +223,9 @@ describe('ToolRegistry', () => {
     expect(result.callId).toBe(CallId('c1'))   // authoritative exec.callId, not 'hijacked'
     expect(result.isError).toBe(false)          // the real (successful) dispatch outcome
     expect(result.error).toBeUndefined()        // no listener-injected error
+    expect(result.content).toHaveLength(1)       // the in-place push did not leak in
     expect(result.content[0]).toMatchObject({ text: 'hi' })
+    expect(result.content.some(b => (b as { text?: string }).text === 'INJECTED')).toBe(false)
   })
 
   it('composes pre + post waterfalls around dispatch (sandbox-wrap pattern)', async () => {

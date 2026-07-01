@@ -9,8 +9,11 @@
  * - `codex`: every pattern is an unanchored regex (no literal fast path).
  *
  * Both treat an absent / empty / `'*'` pattern as match-all, and both treat an
- * invalid regex as a non-match (the bridge logs it; a broken matcher must not
- * throw into the loop).
+ * invalid regex as a non-match: a broken matcher selects nothing rather than
+ * throwing into the loop. This is SILENT — the boolean return cannot distinguish
+ * "did not match" from "failed to compile", so a typo'd pattern (e.g. `[`)
+ * quietly disables that matcher with no warning. Surfacing bad config would need
+ * a diagnostic-returning variant or parse-time validation (`TODO(matcher-diagnostics)`).
  *
  * @module @deepseek-ai/dsh-hook-protocol/matcher
  */
@@ -43,7 +46,9 @@ export function matchesMatcher(matcher: string | undefined, query: string, mode:
     return new RegExp(pattern).test(query)
   } catch {
     // Invalid regex: a broken matcher selects nothing rather than throwing into
-    // the agent loop. The bridge is responsible for surfacing the bad config.
+    // the agent loop. This is silent — callers get `false`, indistinguishable
+    // from a genuine non-match, so a typo'd pattern quietly disables the matcher.
+    // Surfacing it needs a diagnostic-returning variant (TODO(matcher-diagnostics)).
     return false
   }
 }

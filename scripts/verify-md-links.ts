@@ -20,12 +20,13 @@
  * resolved against the linking file's directory, and the result must exist on
  * disk. This is checker, not fixer: it reports and never rewrites.
  *
- * Scope is the other doc-sync gates' set plus the two AGENTS.md files AND the
- * repo-authored agent-skill Markdown under `.agents/skills/` — those skill
- * files cross-link into the docs tree (e.g. the dsh-code-review skill cites the
- * RFC index), so a rename must not silently break them either: README.md,
- * docs/** /*.md, packages/* /README.md, AGENTS.md, packages/AGENTS.md,
- * .agents/skills/** /*.md. The root and packages/ CLAUDE.md are symlinks to the
+ * Scope is the other doc-sync gates' set plus example Markdown, AGENTS.md
+ * files in those checked trees, AND the repo-authored agent-skill Markdown under
+ * `.agents/skills/` — those skill files cross-link into the docs tree (e.g. the
+ * dsh-code-review skill cites the RFC index), so a rename must not silently
+ * break them either: README.md, docs/** /*.md, packages/* /README.md,
+ * examples/** /*.md, AGENTS.md, packages/AGENTS.md, .agents/skills/** /*.md.
+ * The root, packages/, and examples/ CLAUDE.md files are symlinks to the
  * AGENTS.md files, so they are deduped by real path.
  *
  * Run: `tsx scripts/verify-md-links.ts`.
@@ -42,14 +43,15 @@ import type { Nodes } from 'mdast'
 const root = resolve(import.meta.dirname, '..')
 
 /**
- * Files to check: doc-typecheck's scope, the AGENTS.md pair, and repo-authored
- * agent-skill Markdown (which this repo's own docs reorg rewrites links in).
+ * Files to check: doc-typecheck's scope, example Markdown, the AGENTS.md pair,
+ * and repo-authored agent-skill Markdown.
  */
 const PATTERNS = [
   'README.md',
   'docs/**/*.md',
   'packages/*/*.md',
   'packages/*/*/*.md',
+  'examples/**/*.md',
   'AGENTS.md',
   'packages/AGENTS.md',
   '.agents/skills/**/*.md',

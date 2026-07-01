@@ -471,10 +471,13 @@ export class ToolRegistry extends Service {
     // authoritative-call-id requirement and the "preserve the dispatched
     // isError/error" contract. The decision is the ONLY sanctioned channel for a
     // listener to change the outcome (block, or accept-with-replacement); the
-    // call id is always the authoritative `exec.callId`.
+    // call id is always the authoritative `exec.callId`. `content` is copied into
+    // a fresh array so a listener's in-place `push`/`splice` on `result.content`
+    // cannot leak into the returned content either (the elements are the same
+    // references — the snapshot guards the array structure, not deep immutability).
     const dispatched = {
       callId: exec.callId,
-      content: result.content,
+      content: [...result.content],
       isError: result.isError,
       ...result.error ? { error: result.error } : {},
     }
