@@ -45,6 +45,15 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   return new Promise((resolve) => { const d = ctx.on('agent/status', (s, st) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
 }
 function events(agent: ReactLoopAgent): SessionEvent[] { return [...agent.session.events] }
+/** Poll until `predicate` holds or the deadline passes — robust to detached
+ * emit-listener hooks firing on a `.then` (a fixed sleep flakes under load). */
+async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10): Promise<void> {
+  const deadline = Date.now() + timeout
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error('waitFor: condition not met before deadline')
+    await new Promise(r => setTimeout(r, interval))
+  }
+}
 
 describe('hooks-claude coverage — config option arms + substitution + skip warning', () => {
   it('honors pluginRoot + projectDir substitution and warns on a skipped non-command hook', async () => {
@@ -177,7 +186,7 @@ describe('hooks-claude coverage — Stop continuation + subagent inject/catch', 
     const child = { id: AgentId('child-x'), inject: (content: { type: string; text?: string }[]) => { injected.push(content.map(b => b.text ?? '').join('')) }, session: { header: { id: 'child-x' } } } as unknown as Parameters<typeof ctx.agents.register>[0]
     ctx.agents.register(child)
     ctx.emit('subagent/start', { provider: 'p', id: AgentId('child-x'), agentType: 'r' })
-    await new Promise(r => setTimeout(r, 80))
+    await waitFor(() => injected.includes('child guidance'))
     expect(injected).toContain('child guidance')
   })
 
@@ -193,7 +202,7 @@ describe('hooks-claude coverage — Stop continuation + subagent inject/catch', 
     const child = { id: AgentId('child-y'), inject: () => { throw new Error('inject boom') }, session: { header: { id: 'child-y' } } } as unknown as Parameters<typeof ctx.agents.register>[0]
     ctx.agents.register(child)
     ctx.emit('subagent/start', { provider: 'p', id: AgentId('child-y') })
-    await new Promise(r => setTimeout(r, 80))
+    await waitFor(() => warn.mock.calls.some(c => String(c[0]).includes('SubagentStart hook failed')))
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('SubagentStart hook failed'))
   })
 })
@@ -238,7 +247,7 @@ describe('hooks-claude coverage — default reasons + sparse payloads', () => {
     const path = hooks(d, { SubagentStop: [{ hooks: [{ type: 'command', command: s }] }] })
     const ctx = await harness(path, new MockAdapter([]))
     ctx.emit('subagent/end', { provider: 'p', id: AgentId('child-z'), stopReason: 'completed' }) // no agentType
-    await new Promise(r => setTimeout(r, 80))
+    await waitFor(() => existsSync(marker))
     expect(existsSync(marker)).toBe(true)
   })
 })
@@ -307,7 +316,6 @@ describe('hooks-claude coverage — schema-bypass default + unspawnable hook', (
     // Direct apply with only configPath — bypasses schemastery's defaults, so the
     // runtime `defaultTimeoutMs ?? 600_000` fallback is exercised.
     HooksClaude.apply(ctx, { configPath: join(d, 'hooks.json') })
-    await new Promise(r => setTimeout(r, 10))
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
@@ -438,7 +446,7 @@ describe('hooks-claude coverage — detached-listener catch handlers', () => {
     const original = agent.inject.bind(agent)
     let threw = false
     agent.inject = (() => { threw = true; throw new Error('inject boom') })
-    await new Promise(r => setTimeout(r, 80))
+    await waitFor(() => threw)
     expect(threw).toBe(true)
     agent.inject = original
     agent.send([{ type: 'text', text: 'go' }])

@@ -64,6 +64,20 @@ function events(agent: ReactLoopAgent): SessionEvent[] {
   return [...agent.session.events]
 }
 
+/**
+ * Poll `predicate` until it returns true or the deadline passes. Detached
+ * emit-listener hooks (session-start, subagent) fire on a `.then` the test can't
+ * await directly; polling for the observable EFFECT is robust under load, where a
+ * single fixed sleep flakes ("async state is not synchronous state").
+ */
+async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10): Promise<void> {
+  const deadline = Date.now() + timeout
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error('waitFor: condition not met before deadline')
+    await new Promise(r => setTimeout(r, interval))
+  }
+}
+
 describe('hooks-claude bridge — UserPromptSubmit', () => {
   it('a UserPromptSubmit hook that exits 2 blocks the prompt (rejected turn)', async () => {
     // The UserPromptSubmit hook exits 2 (blocking) with a reason on stderr.
@@ -239,8 +253,11 @@ describe('hooks-claude bridge — SessionStart', () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(dir, adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
-    // session-start fires async; wait a tick for the inject before sending.
-    await new Promise(r => setTimeout(r, 50))
+    // session-start fires async (detached .then → agent.inject); wait for the
+    // injected context/message to actually land before sending, rather than a
+    // fixed sleep that flakes under load.
+    await waitFor(() => events(agent).some(e => e.type === 'context/message'
+      && e.data.content.some(b => b.type === 'text' && b.text.includes('project uses tabs'))))
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
 
@@ -274,10 +291,11 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     // child lookup yields undefined and it simply runs the hook.
     ctx.emit('subagent/start', { provider: 'inproc', id: AgentId('child-1'), agentType: 'researcher' })
     ctx.emit('subagent/end', { provider: 'inproc', id: AgentId('child-1'), agentType: 'researcher', stopReason: 'completed', lastAssistantMessage: [{ type: 'text', text: 'done' }] })
-    // Both hooks run async (detached .then); let them settle.
-    await new Promise(r => setTimeout(r, 80))
 
+    // Both hooks run async (detached .then); poll for their marker files rather
+    // than a fixed sleep that flakes under load.
     const { existsSync } = await import('node:fs')
+    await waitFor(() => existsSync(startMarker) && existsSync(stopMarker))
     expect(existsSync(startMarker)).toBe(true)
     expect(existsSync(stopMarker)).toBe(true)
   })

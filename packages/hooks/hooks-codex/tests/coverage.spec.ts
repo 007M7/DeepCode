@@ -36,6 +36,15 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   return new Promise((resolve) => { const d = ctx.on('agent/status', (s, st) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
 }
 function events(agent: ReactLoopAgent): SessionEvent[] { return [...agent.session.events] }
+/** Poll until `predicate` holds or the deadline passes — robust to detached
+ * emit-listener hooks firing on a `.then` (a fixed sleep flakes under load). */
+async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10): Promise<void> {
+  const deadline = Date.now() + timeout
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error('waitFor: condition not met before deadline')
+    await new Promise(r => setTimeout(r, interval))
+  }
+}
 
 describe('hooks-codex coverage — decision mapping paths', () => {
   it('UserPromptSubmit block (exit 2) → rejected turn; default reason on empty stderr', async () => {
@@ -66,7 +75,8 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(join(d, 'hooks.json'), adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
-    await new Promise(r => setTimeout(r, 60))
+    await waitFor(() => events(agent).some(e => e.type === 'context/message'
+      && e.data.content.some(b => b.type === 'text' && b.text.includes('start-ctx'))))
     agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
     expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('start-ctx')
   })
@@ -148,7 +158,6 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     ctx.logger.warn = warn as never
     // Direct apply (schema bypass) → defaultTimeoutMs ?? 600_000 + model ?? '' fallbacks.
     HooksCodex.apply(ctx, { configPath: join(d, 'hooks.json') })
-    await new Promise(r => setTimeout(r, 10))
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
@@ -174,7 +183,8 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(join(d, 'hooks.json'), adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
-    await new Promise(r => setTimeout(r, 60))
+    // A completed turn proves session-start already ran; the clean no-output hook
+    // injected nothing, so no context/message exists.
     agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
     expect(events(agent).some(e => e.type === 'context/message')).toBe(false)
   })
@@ -187,7 +197,7 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     const warn = vi.fn(); ctx.logger.warn = warn as never
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     agent.inject = (() => { throw new Error('inject boom') })
-    await new Promise(r => setTimeout(r, 60))
+    await waitFor(() => warn.mock.calls.some(c => String(c[0]).includes('SessionStart hook failed')))
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('SessionStart hook failed'))
   })
 
@@ -343,7 +353,8 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(join(d, 'hooks.json'), adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
-    await new Promise(r => setTimeout(r, 60))
+    await waitFor(() => events(agent).some(e => e.type === 'context/message'
+      && e.data.content.some(b => b.type === 'text' && b.text.includes('session preamble'))))
     agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
     expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('session preamble')
   })
