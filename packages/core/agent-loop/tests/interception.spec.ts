@@ -176,10 +176,55 @@ describe('agent/prompt-submit', () => {
     expect(log.some(e => e.type === 'turn/end')).toBe(true)
     expect(log.some(e => e.type === 'user/message')).toBe(false)
     expect(log.some(e => e.type === 'step/start')).toBe(false)
+    // the veto is recorded durably as a prompt/blocked in the open turn
+    const blocked = log.find(e => e.type === 'prompt/blocked')
+    expect(blocked?.type === 'prompt/blocked' && blocked.data).toMatchObject({
+      content: [{ type: 'text', text: 'do something' }],
+      reason: 'blocked by policy',
+    })
     // ended rejected with the block reason
     expect(reasons).toEqual([{ kind: 'rejected', reason: 'blocked by policy' }])
     const turnEnd = log.findLast(e => e.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'rejected', reason: 'blocked by policy' })
+  })
+
+  it('a mixed batch records a prompt/blocked for the vetoed prompt while the allowed one runs', async () => {
+    // Two prompts queued into ONE turn: block "secret", allow "safe". The turn is
+    // NOT rejected (a prompt was allowed), so without a durable prompt/blocked the
+    // vetoed prompt and its reason would vanish from the log entirely.
+    const adapter = new MockAdapter([textResponse('ran once')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    ctx.on('agent/prompt-submit', async (_agent, content, _source, next): Promise<PromptDecision> => {
+      const text = content.map(b => (b.type === 'text' ? b.text : '')).join('')
+      return text === 'secret' ? { kind: 'block', reason: 'policy: no secrets' } : next()
+    })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('session/event', (_s, event: SessionEvent) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
+
+    // both sends land before the loop drains → one batched turn
+    send(agent, 'secret')
+    send(agent, 'safe')
+    await waitForIdle(ctx, agent)
+
+    const log = events(agent)
+    // the allowed prompt became a user/message and drove exactly one model call
+    const userMsgs = log.filter(e => e.type === 'user/message')
+    expect(userMsgs).toHaveLength(1)
+    expect(userMsgs[0]?.type === 'user/message' && userMsgs[0].data.content).toEqual([{ type: 'text', text: 'safe' }])
+    expect(adapter.requests.length).toBeGreaterThanOrEqual(1)
+    // the blocked prompt is durably recorded, with its content + reason
+    const blocked = log.filter(e => e.type === 'prompt/blocked')
+    expect(blocked).toHaveLength(1)
+    expect(blocked[0]?.type === 'prompt/blocked' && blocked[0].data).toMatchObject({
+      content: [{ type: 'text', text: 'secret' }],
+      reason: 'policy: no secrets',
+    })
+    // the turn did NOT reject — a sibling was allowed — so the boundary reason
+    // alone would not have preserved the block
+    expect(reasons.some(r => r.kind === 'rejected')).toBe(false)
   })
 
   it('a throwing prompt-submit listener ends the turn balanced (error), loop survives', async () => {

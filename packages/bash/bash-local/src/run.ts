@@ -15,7 +15,8 @@
  * @module dsh-bash-local/run
  */
 
-import { spawn } from 'node:child_process'
+import { type ChildProcessByStdio, spawn } from 'node:child_process'
+import type { Readable, Writable } from 'node:stream'
 import { randomBytes } from 'node:crypto'
 import { closeSync, mkdtempSync, openSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -298,17 +299,20 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
     throw new Error(`aborted before spawn: ${String(spec.signal.reason ?? 'aborted')}`)
   }
 
-  // stdin is ALWAYS a pipe (kept literal so the typed spawn overload guarantees
-  // non-null stdout/stderr) and is closed immediately: with bytes when a caller
-  // supplied stdin, empty otherwise. A closed empty pipe gives a reading child
-  // EOF exactly as `/dev/null` would, so the no-stdin path (every model-driven
-  // call) is unchanged.
-  const child = spawn('bash', ['-c', spec.command], {
-    cwd: spec.cwd,
-    env: childEnv(spec.env),
-    stdio: ['pipe', 'pipe', 'pipe'],
-    detached: true,
-  })
+  // stdin is a pipe ONLY when the caller supplied bytes; with none it is `ignore`
+  // (fd 0 → /dev/null) — the exact pre-seam default. This matters: a spawn pipe
+  // and /dev/null are NOT observationally identical (node's pipe is an AF_UNIX
+  // socket, so a command that probes stdin's type — `test -c /dev/stdin`, `stat
+  // /proc/self/fd/0` — sees a char device vs a socket), so the no-stdin path
+  // (every model-driven call) must keep /dev/null rather than regress to a socket.
+  // Two LITERAL `stdio` tuples (not one variable tuple): only a literal lets the
+  // typed `spawn` overload infer non-null stdout/stderr, which the
+  // `ChildProcessByStdio` annotation captures (stdin `Writable | null`; stdout/
+  // stderr the non-null `Readable` the collectors attach to without a cast).
+  const env = childEnv(spec.env)
+  const child: ChildProcessByStdio<Writable | null, Readable, Readable> = spec.stdin !== undefined
+    ? spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true })
+    : spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
 
   const stdout = new OutputCollector(spec.maxOutputBytes, 'stdout', spillDir)
   const stderr = new OutputCollector(spec.maxOutputBytes, 'stderr', spillDir)
@@ -343,10 +347,12 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
   }
   spec.signal?.addEventListener('abort', onAbort, { once: true })
 
-  // Write stdin and close it. This handler must exist: an unhandled 'error' on
-  // the stream would throw and crash the host. We swallow the error rather than
-  // reject `done`, and that is correct for ANY stdin-write error, not just the
-  // common one — the stdin write is BEST-EFFORT, while the command's authoritative
+  // Write stdin and close it, but ONLY when the caller supplied bytes — with no
+  // stdin, fd 0 is `ignore` (/dev/null) and `child.stdin` is null. The error
+  // handler must exist whenever we write: an unhandled 'error' on the stream
+  // would throw and crash the host. We swallow the error rather than reject
+  // `done`, and that is correct for ANY stdin-write error, not just the common
+  // one — the stdin write is BEST-EFFORT, while the command's authoritative
   // outcome is its exit code + captured output, which the `close` handler reports
   // regardless of whether the write landed. The expected case is EPIPE (the child
   // exited without reading, so closing our end of a still-full pipe fails); a rare
@@ -354,8 +360,10 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
   // surfaces that itself through its own exit/output (e.g. a hook that gets
   // truncated JSON errors out) — rejecting here would instead discard that real
   // output and turn it into an opaque infrastructure error, which is worse.
-  child.stdin.on('error', () => { /* stdin write is best-effort; outcome rides on exit/output. */ })
-  child.stdin.end(spec.stdin ?? '')
+  if (child.stdin !== null) {
+    child.stdin.on('error', () => { /* stdin write is best-effort; outcome rides on exit/output. */ })
+    child.stdin.end(spec.stdin)
+  }
 
   const done = new Promise<SpawnOutcome>((resolve, reject) => {
     child.on('error', (error) => {

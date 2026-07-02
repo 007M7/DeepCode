@@ -17,6 +17,17 @@ interface SessionEventMap {
   /** A user-visible prompt (queued message drained at turn start). */
   'user/message': { content: ContentBlock[]; source: MessageSource }
   /**
+   * A queued prompt an `agent/prompt-submit` listener VETOED — the durable
+   * record of a blocked prompt and why. Appended in place of the `user/message`
+   * the prompt would have become, so the block survives replay even in a MIXED
+   * batch where another queued prompt is allowed (there the turn does not end
+   * `rejected`, so the boundary reason alone would not preserve it). `content`
+   * is the original prompt the listener rejected; `reason` is the veto text
+   * ({@link PromptDecision} `block.reason`). NOT a {@link SurfaceEventType}: a
+   * blocked prompt produces no LLM message and never reaches `deriveMessages()`.
+   */
+  'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
+  /**
    * In-session context injection (file-change notices, subdir AGENTS.md,
    * skill content, cron notifications, …). Rendered into the derived history
    * as tagged synthetic context — NOT a user prompt.
