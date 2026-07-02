@@ -88,4 +88,4 @@ Everything that goes beyond "call the model, run the tools, repeat" belongs to p
 - Sandbox, permission, plan mode: `tools/pre-execute` (deny/ask gate), `tools/post-execute`
 - Sub-agents: implemented outside the loop as `ctx.subagents` providers; in-process providers use `ctx.agents.create()` and owned `AgentHandle` teardown, while child streaming/progress and background/poll collection remain deferred.
 - Persistence: `session/event` + `session/flush`
-- UI: `agent/stream-chunk` + `agent/*` events
+- UI: `session/event` (assistant token stream, boundaries, tool activity) + `agent/*` control events (`agent/status`, `agent/created`/`agent/disposed`)

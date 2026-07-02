@@ -52,7 +52,6 @@ Tool interception is the `tools/pre-execute` / `tools/post-execute` pair in [`ds
 
 #### Streaming + tool (emit)
 
-- `agent/stream-chunk` — raw chunk from the model (token-level UI/log feed)
 - `agent/steering` — steering content injected mid-turn
 - `agent/error` — step/turn error
 
