@@ -1,8 +1,10 @@
 /**
  * Minimal stdio UI plugin: reads lines from stdin → `agent.send()`/`steer()`,
- * and renders the agent's stream chunks and tool activity to stdout. A UI is
- * "just a plugin" — it only consumes the `agent/*` event taxonomy and the
- * `agents` service, so the same plugin drives any example or product surface.
+ * and renders the durable transcript to stdout. A UI is "just a plugin" — it
+ * consumes the `session/event` feed (the assistant token stream, turn/step
+ * boundaries, tool activity, todos) plus a few `agent/*` control events
+ * (`agent/status`, `agent/created`/`agent/disposed`) and the `agents` service,
+ * so the same plugin drives any example or product surface.
  *
  * Consolidates what were two near-identical copies under `examples/echo-agent`
  * and `examples/coding-agent` (the latter a superset). This package IS that
@@ -91,25 +93,26 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   ctx.on('agent/created', (agent) => { labelBySession.set(agent.session.header.id, agent.id) })
   ctx.on('agent/disposed', (agent) => { labelBySession.delete(agent.session.header.id) })
 
+  // Transcript rendering off the durable `session/event` feed — the assistant
+  // token stream, turn/step boundaries, tool activity, and todos all come from
+  // the one canonical stream (no agent/* mirrors). A single listener over the
+  // append order keeps `inReasoning` transitions deterministic across chunk and
+  // boundary events.
   let inReasoning = false
-  ctx.on('agent/stream-chunk', (_agent, _turn, _step, chunk) => {
-    if (chunk.type === 'reasoning-delta') {
-      // Dim the chain-of-thought so the final answer stands out.
-      if (!inReasoning) output.write('\x1B[2m')
-      inReasoning = true
-      output.write(chunk.text)
-    } else if (chunk.type === 'text-delta') {
-      if (inReasoning) output.write('\x1B[0m\n')
-      inReasoning = false
-      output.write(chunk.text)
-    }
-  })
-
-  // Transcript rendering off the durable `session/event` feed — turn/step
-  // boundaries, tool activity, and todos all come from the one canonical stream
-  // (no agent/* boundary mirrors).
   ctx.on('session/event', (session, event) => {
-    if (event.type === 'turn/start') {
+    if (event.type === 'assistant/chunk') {
+      const { chunk } = event.data
+      if (chunk.type === 'reasoning-delta') {
+        // Dim the chain-of-thought so the final answer stands out.
+        if (!inReasoning) output.write('\x1B[2m')
+        inReasoning = true
+        output.write(chunk.text)
+      } else if (chunk.type === 'text-delta') {
+        if (inReasoning) output.write('\x1B[0m\n')
+        inReasoning = false
+        output.write(chunk.text)
+      }
+    } else if (event.type === 'turn/start') {
       const label = labelBySession.get(session.header.id) ?? session.header.id
       output.write(`\n[${label} turn ${event.data.turn}] `)
     } else if (event.type === 'turn/end') {

@@ -176,7 +176,7 @@ describe('Agent.cancel()', () => {
     // the step (the turn-scoped marker, not the step AbortController, is what
     // catches this) — no model step runs.
     let streamed = false
-    ctx.on('agent/stream-chunk', () => { streamed = true })
+    ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
     const dispose = ctx.on('session/event', (session, event) => {
       if (session === agent.session && event.type === 'turn/start') agent.cancel('from turn-start')
     })
@@ -205,7 +205,7 @@ describe('Agent.cancel()', () => {
     // cancel check (the one that must closeStep() to balance the already-open
     // step) — distinct from a turn-start cancel, caught before the step opens.
     let streamed = false
-    ctx.on('agent/stream-chunk', () => { streamed = true })
+    ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
     const dispose = ctx.on('session/event', (session, event) => {
       if (session === agent.session && event.type === 'step/start') agent.cancel('from step-start')
     })
@@ -245,7 +245,7 @@ describe('Agent.cancel()', () => {
 
     let disposalDone: Promise<void> | undefined
     let streamed = false
-    ctx.on('agent/stream-chunk', () => { streamed = true })
+    ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
     ctx.on('session/event', (session, event) => {
       if (session === agent.session && event.type === 'step/start') disposalDone = handle.dispose()
     })
@@ -308,7 +308,7 @@ describe('Agent.cancel()', () => {
     // runTurn. The second check (after the running flip) must drop the turn —
     // runTurn would otherwise throw on the now-empty queue.
     let streamed = false
-    ctx.on('agent/stream-chunk', () => { streamed = true })
+    ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'running') agent.cancel('from running listener')
     })

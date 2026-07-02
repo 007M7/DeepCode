@@ -102,6 +102,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Keep one public stop primitive](implemented/simplification/2026-06-20-public-agent-stop-surface.md) | 2026-06-20 |
 | [Fold trace-only session facts into load-bearing events](implemented/simplification/2026-06-20-collapse-trace-only-session-events.md) | 2026-06-20 |
 | [Stop mirroring durable boundaries as agent events](implemented/simplification/2026-06-20-remove-agent-boundary-mirror-events.md) | 2026-06-20 |
+| [Stop mirroring the token stream as an agent event](implemented/simplification/2026-07-02-remove-stream-chunk-mirror.md) | 2026-07-02 |
 
 ### Architecture
 

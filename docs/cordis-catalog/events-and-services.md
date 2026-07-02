@@ -49,7 +49,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:358`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:353`](../../packages/core/agent/src/types.ts)
 
 #### `agent/pre-step` — serial
 
@@ -135,7 +135,7 @@ Steering content was injected into a running turn.
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:352`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:347`](../../packages/core/agent/src/types.ts)
 
 #### `agent/step-result` — waterfall
 
@@ -148,18 +148,6 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
 Source: [`packages/core/agent/src/types.ts:330`](../../packages/core/agent/src/types.ts)
-
-#### `agent/stream-chunk` — emit
-
-A raw StreamChunk arrived from the model (token-level UI/log feed).
-
-```ts cordis-catalog
-'agent/stream-chunk'(agent: Agent, turn: number, step: number, chunk: StreamChunk): void
-```
-
-Types: [Agent](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
-
-Source: [`packages/core/agent/src/types.ts:347`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-continuation` — waterfall
 
