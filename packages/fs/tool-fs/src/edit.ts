@@ -83,5 +83,18 @@ export function applyEditTool(ctx: Context): void {
       ctx.emit('fs/observed', target, outcome.version, exec)
       return [{ type: 'text', text: formatEditOutput(target.displayPath, outcome) }]
     },
+    // Pure display: `edit` kind, a location for editor follow-along, and a short
+    // old→new summary as rawInput (truncated so a large replacement stays a
+    // readable card). The replacement COUNT is not available here — presentResult
+    // only sees `{ content, isError }`, not the outcome — so the title is static.
+    presentCall(args) {
+      const clip = (s: string): string => (s.length > 40 ? `${s.slice(0, 40)}…` : s)
+      return {
+        title: `Edit ${args.file_path}`,
+        kind: 'edit',
+        rawInput: `${JSON.stringify(clip(args.old_string))} → ${JSON.stringify(clip(args.new_string))}`,
+        locations: [{ path: args.file_path }],
+      }
+    },
   }))
 }

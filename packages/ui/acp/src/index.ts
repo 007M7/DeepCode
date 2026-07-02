@@ -836,6 +836,7 @@ export function streamSessionEventUpdate(
           kind: present.kind,
           status: 'in_progress',
           ...present.rawInput !== undefined ? { rawInput: present.rawInput } : {},
+          ...present.locations !== undefined ? { locations: present.locations } : {},
           ...callContent.length > 0 ? { content: callContent } : {},
           ...asTerminal
             ? { _meta: { terminal_info: { terminal_id: event.data.callId, cwd: terminalCwd(present.terminal, terminal.cwd) } } }
@@ -926,6 +927,8 @@ interface ResolvedCallPresentation {
   rawInput?: unknown
   /** UI content shown on the pending call (e.g. a bash description text block above the card). */
   content?: ContentBlock[]
+  /** Files this call reads/modifies (mapped to ACP `tool_call.locations`), for editor follow-along. */
+  locations?: { path: string; line?: number }[]
   /** Tool's request to render as a terminal (the pending side carries the cwd). */
   terminal?: ToolTerminal
 }
@@ -1005,6 +1008,7 @@ export class ToolPresenter {
       kind: present.kind ?? 'other',
       rawInput: present.rawInput,
       ...present.content !== undefined ? { content: present.content } : {},
+      ...present.locations !== undefined ? { locations: present.locations } : {},
       ...present.terminal !== undefined ? { terminal: present.terminal } : {},
     }
   }

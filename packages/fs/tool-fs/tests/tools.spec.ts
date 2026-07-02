@@ -320,3 +320,43 @@ describe('edit tool', () => {
     expect(result.error).toMatchObject({ code: 'FS_NOT_OBSERVED' })
   })
 })
+
+describe('tool-owned presentation (pure presentCall)', () => {
+  // presentCall is a pure display function of args (no I/O); it drives the ACP
+  // card's title/kind and the `locations` an editor follows along to.
+  const presentCall = async (name: string, args: unknown) => {
+    const { ctx } = await setup()
+    return ctx.tools.get(name)?.presentCall?.(args)
+  }
+
+  it('read: titles by file, read kind, location with the offset line', async () => {
+    expect(await presentCall('read', { file_path: 'src/a.ts', offset: 12, limit: 40 })).toEqual({
+      title: 'Read src/a.ts', kind: 'read', rawInput: 'offset 12, limit 40',
+      locations: [{ path: 'src/a.ts', line: 12 }],
+    })
+  })
+
+  it('read: omits rawInput and the location line when offset/limit are unset', async () => {
+    expect(await presentCall('read', { file_path: 'a.txt' })).toEqual({
+      title: 'Read a.txt', kind: 'read', locations: [{ path: 'a.txt' }],
+    })
+  })
+
+  it('write: titles by file, edit kind, location', async () => {
+    expect(await presentCall('write', { file_path: 'out.txt', content: 'x' })).toEqual({
+      title: 'Write out.txt', kind: 'edit', locations: [{ path: 'out.txt' }],
+    })
+  })
+
+  it('edit: titles by file, edit kind, an old→new rawInput summary, location', async () => {
+    expect(await presentCall('edit', { file_path: 'a.txt', old_string: 'foo', new_string: 'bar' })).toEqual({
+      title: 'Edit a.txt', kind: 'edit', rawInput: '"foo" → "bar"', locations: [{ path: 'a.txt' }],
+    })
+  })
+
+  it('edit: clips a long old/new string in the rawInput summary', async () => {
+    const long = 'a'.repeat(60)
+    const p = await presentCall('edit', { file_path: 'a.txt', old_string: long, new_string: 'b' })
+    expect((p as { rawInput: string }).rawInput).toBe(`${JSON.stringify(`${'a'.repeat(40)}…`)} → ${JSON.stringify('b')}`)
+  })
+})

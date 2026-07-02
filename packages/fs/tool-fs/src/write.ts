@@ -62,5 +62,12 @@ export function applyWriteTool(ctx: Context): void {
       ctx.emit('fs/observed', target, outcome.version, exec)
       return [{ type: 'text', text: formatWriteOutput(target.displayPath, outcome) }]
     },
+    // Pure display: `edit` kind (an editor treats create/replace as an edit) and
+    // a location so the UI can follow along to the written file. The create-vs-
+    // overwrite fact lives in the model-facing result text; `presentResult` only
+    // sees `{ content, isError }` (not the outcome), so the title stays static.
+    presentCall(args) {
+      return { title: `Write ${args.file_path}`, kind: 'edit', locations: [{ path: args.file_path }] }
+    },
   }))
 }

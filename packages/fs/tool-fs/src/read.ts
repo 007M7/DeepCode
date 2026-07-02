@@ -101,5 +101,20 @@ export function applyReadTool(ctx: Context): void {
       ctx.emit('fs/observed', target, info.version, exec)
       return [{ type: 'text', text: formatReadOutput(target.displayPath, outcome) }]
     },
+    // Pure display: a UI card titled by the file, `read` kind (icon), and a
+    // location so an editor can follow along to the file (and the read's offset
+    // line). `rawInput` surfaces offset/limit when the model narrowed the read.
+    presentCall(args) {
+      const detail = [
+        ...args.offset !== undefined ? [`offset ${args.offset}`] : [],
+        ...args.limit !== undefined ? [`limit ${args.limit}`] : [],
+      ].join(', ')
+      return {
+        title: `Read ${args.file_path}`,
+        kind: 'read',
+        locations: [{ path: args.file_path, ...args.offset !== undefined ? { line: args.offset } : {} }],
+        ...detail.length > 0 ? { rawInput: detail } : {},
+      }
+    },
   }))
 }
