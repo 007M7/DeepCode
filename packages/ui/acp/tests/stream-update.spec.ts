@@ -356,6 +356,26 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
     }))).toThrow('unreachable variant')
   })
 
+  it('an unknown render-intent RESULT card throws via the exhaustiveness guard (closed union)', () => {
+    // The result-side renderer is also an exhaustive switch + assertNever: a rogue
+    // result card (only reachable by a cast) must throw, so adding a real result
+    // variant later fails to compile at the switch.
+    const rogue: ToolDefinition = {
+      name: 'rogue',
+      description: 'r',
+      parameters: {},
+      execute: async () => [],
+      presentCall: () => ({ card: 'generic', title: 'r' }),
+      presentResult: () => ({ card: 'chart' }) as unknown as ReturnType<NonNullable<ToolDefinition['presentResult']>>,
+    }
+    const presenter = new ToolPresenter(registryOf(rogue))
+    expect(() => updatesWith(
+      presenter,
+      evt('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'rogue', arguments: '{}' }),
+      evt('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'x' }], isError: false }),
+    )).toThrow('unreachable variant')
+  })
+
   it('forwards fs-tool render intents onto the wire (REAL read → generic locations, edit → diff content)', async () => {
     // Use the SHIPPING fs tools (not a stand-in), booted through their real
     // plugins, so the wire tool_call carries the actual presentCall output —
@@ -650,6 +670,17 @@ describe('relative-path display titles (bridge relativizes the title against the
     const ctx = await fsCtx()
     const update = callUpdate(ctx, '/work/proj', 'read', { file_path: '/etc/passwd' })
     expect((update as { title: string }).title).toBe('Read /etc/passwd')
+    await ctx.fiber.dispose()
+  })
+
+  it('an in-workspace file whose relative form starts with `..` chars (a sibling name) still relativizes', async () => {
+    // `/work/proj/..cache/x` is INSIDE the workspace — its relative form
+    // `..cache/x` begins with the chars `..` but is NOT a parent segment. The
+    // guard tests for a `..` SEGMENT, so this relativizes (matching the reference
+    // adapter, which accepts any target under `cwd + sep`).
+    const ctx = await fsCtx()
+    const update = callUpdate(ctx, '/work/proj', 'read', { file_path: '/work/proj/..cache/x.ts' })
+    expect((update as { title: string }).title).toBe('Read ..cache/x.ts')
     await ctx.fiber.dispose()
   })
 

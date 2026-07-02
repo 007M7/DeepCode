@@ -36,7 +36,7 @@
 import type { Context } from 'cordis'
 import { Readable, Writable } from 'node:stream'
 import { randomUUID } from 'node:crypto'
-import { isAbsolute, relative as relativePath, resolve as resolvePath } from 'node:path'
+import { isAbsolute, relative as relativePath, resolve as resolvePath, sep as pathSep } from 'node:path'
 import Schema from 'schemastery'
 import {
   AgentSideConnection,
@@ -1008,9 +1008,12 @@ type AcpToolCallContent =
 function displayTitle(title: string, rawPath: string | undefined, sessionCwd: string | undefined): string {
   if (rawPath === undefined || sessionCwd === undefined || !isAbsolute(rawPath) || !isAbsolute(sessionCwd)) return title
   const rel = relativePath(sessionCwd, rawPath)
-  // `relative` returns a `..`-prefixed path for a target outside the workspace;
-  // only relativize paths that stay inside it (and never to the empty string).
-  if (rel.length === 0 || rel.startsWith('..')) return title
+  // Only relativize a target that stays INSIDE the workspace. `relative` prefixes
+  // a `..` SEGMENT for a target above the cwd — test for the segment (`..` alone
+  // or `..<sep>…`), NOT a bare `..` char prefix, so a sibling like `..cache/x`
+  // (a real in-workspace name) still relativizes. Never relativize to the empty
+  // string (rawPath === cwd — a non-file target).
+  if (rel.length === 0 || rel === '..' || rel.startsWith(`..${pathSep}`)) return title
   return title.split(rawPath).join(rel)
 }
 
@@ -1127,39 +1130,44 @@ function terminalExitMeta(callId: string, view: TerminalResultView): TerminalExi
  */
 function toolResultUpdate(callId: CallId, view: ToolResultView, isError: boolean, terminal: TerminalRendering): ToolCallSessionUpdate {
   const status = isError ? 'failed' as const : 'completed' as const
-  if (view.card === 'terminal') {
-    const output = view.output ?? ''
-    if (terminal.enabled) {
+  switch (view.card) {
+    case 'terminal': {
+      const output = view.output ?? ''
+      if (terminal.enabled) {
+        return {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: callId,
+          status,
+          ...view.title !== undefined ? { title: view.title } : {},
+          _meta: {
+            terminal_output: { terminal_id: callId, data: output },
+            ...terminalExitMeta(callId, view),
+          },
+        }
+      }
+      // No terminal capability: the bridge derives the fenced ```console fallback.
+      const fenced = `\`\`\`console\n${output.replace(/\n+$/, '')}\n\`\`\``
       return {
         sessionUpdate: 'tool_call_update',
         toolCallId: callId,
         status,
+        content: [{ type: 'content', content: { type: 'text', text: fenced } }],
         ...view.title !== undefined ? { title: view.title } : {},
-        _meta: {
-          terminal_output: { terminal_id: callId, data: output },
-          ...terminalExitMeta(callId, view),
-        },
       }
     }
-    // No terminal capability: the bridge derives the fenced ```console fallback.
-    const fenced = `\`\`\`console\n${output.replace(/\n+$/, '')}\n\`\`\``
-    return {
-      sessionUpdate: 'tool_call_update',
-      toolCallId: callId,
-      status,
-      content: [{ type: 'content', content: { type: 'text', text: fenced } }],
-      ...view.title !== undefined ? { title: view.title } : {},
-    }
-  }
-  // The presenter fills a generic result's content from the raw result, so
-  // `content` is always defined here; the guard keeps this total for a
-  // directly-constructed view.
-  return {
-    sessionUpdate: 'tool_call_update',
-    toolCallId: callId,
-    status,
-    /* v8 ignore next -- content always defined via the presenter (see above) */
-    ...view.content !== undefined ? { content: toolResultContent(view.content) } : {},
-    ...view.title !== undefined ? { title: view.title } : {},
+    case 'generic':
+      return {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: callId,
+        status,
+        // The presenter fills a generic result's content from the raw result, so
+        // `content` is always defined here; the guard keeps this total for a
+        // directly-constructed view.
+        /* v8 ignore next -- content always defined via the presenter (see above) */
+        ...view.content !== undefined ? { content: toolResultContent(view.content) } : {},
+        ...view.title !== undefined ? { title: view.title } : {},
+      }
+    default:
+      return assertNever(view, 'ToolResultView.card')
   }
 }
