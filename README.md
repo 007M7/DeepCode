@@ -17,6 +17,6 @@ pnpm run demo:echo     # runnable echo-agent example (no API key needed)
 pnpm run demo:coding   # the real DeepSeek coding agent (needs DEEPSEEK_API_KEY)
 ```
 
-For humans, start with the [development guide](docs/development.md) for local setup, hooks, environment variables, and quality gates, then read the [architecture design](docs/architecture.md) before package work. Local context lives in [packages/](packages/) and [vendor/](vendor/).
+For humans, start with the [development guide](docs/development.md) for local setup, hooks, environment variables, and quality gates, then read the [architecture design](docs/architecture.md) and [documentation graph atlas](docs/graphs/README.md) before package work. Local context lives in [packages/](packages/) and [vendor/](vendor/).
 
 For agents, follow [AGENTS.md](AGENTS.md).

@@ -96,9 +96,11 @@ pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
 pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events-and-services.md from source
 pnpm run verify-cordis-catalog  # fail if the cordis events/services catalog is stale
+pnpm run gen-doc-graphs     # regenerate docs/graphs/*.md from source and curated graph definitions
+pnpm run verify-doc-graphs  # fail if docs/graphs/*.md is stale
 pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
 pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
-pnpm run doc-sync       # doc-typecheck, cordis-catalog freshness, markdown wrap/link, and type-equiv verification
+pnpm run doc-sync       # doc-typecheck, generated doc freshness, markdown wrap/link, and type-equiv verification
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
 pnpm run build          # emit lib/types intermediates, then bundle lib/index.* runtime files
