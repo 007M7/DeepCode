@@ -75,8 +75,8 @@ export class SessionForkService extends Service {
    * service rejects open turns rather than clipping to an older boundary.
    */
   snapshot(source: SessionForkSource): SessionForkSeed {
-    const session = this.resolve(source)
-    this.assertTurnBoundary(session)
+    const session = this._resolve(source)
+    this._assertTurnBoundary(session)
     const seed = session.events.map(event => structuredClone(event))
     return {
       source: session,
@@ -105,7 +105,7 @@ export class SessionForkService extends Service {
     })
   }
 
-  private resolve(source: SessionForkSource): Session {
+  private _resolve(source: SessionForkSource): Session {
     if (typeof source === 'string') {
       const session = this.ctx.sessions.get(source)
       if (session === undefined) throw new SessionForkError(`session "${source}" not found`, 'SESSION_NOT_FOUND')
@@ -120,7 +120,7 @@ export class SessionForkService extends Service {
     return source
   }
 
-  private assertTurnBoundary(session: Session): void {
+  private _assertTurnBoundary(session: Session): void {
     const last = session.events.at(-1)
     if (last !== undefined && last.type !== 'turn/end') {
       throw new SessionForkError(
