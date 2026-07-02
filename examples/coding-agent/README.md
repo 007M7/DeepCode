@@ -1,6 +1,6 @@
 # coding-agent
 
-The real stdio coding-agent wiring: DeepSeek V4 + the bash tool suite + subagent delegation + `todo_write` + stdio chat + JSONL persistence, loaded from `cordis.yml`. Where echo-agent proves the skeleton with mocks, this example is a usable coding assistant.
+The real stdio coding-agent wiring: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite + subagent delegation + `todo_write` + stdio chat + JSONL persistence, loaded from `cordis.yml`. Where echo-agent proves the skeleton with mocks, this example is a usable coding assistant.
 
 ## Run it
 
@@ -11,7 +11,7 @@ The real stdio coding-agent wiring: DeepSeek V4 + the bash tool suite + subagent
 pnpm run demo:coding
 ```
 
-Type a coding task. The agent works through `bash` (+ `bash_output` / `bash_kill` for background tasks): file reads, writes, searches, and test runs all happen through shell commands, each in a fresh `bash -c` (the system prompt tells the model to pass `workdir` instead of `cd`). It can also delegate with `subagent`/`subagent_fork` and track multi-step work with `todo_write` (a whole-list task tracker rendered as a checklist). Reasoning streams dimmed; tool calls/results render inline.
+Type a coding task. The agent works through the `read`/`write`/`edit` filesystem tools for ordinary file operations and `bash` (+ `bash_output` / `bash_kill` for background tasks) for shell commands, searches, and test runs, each in a fresh `bash -c` (the system prompt tells the model to pass `workdir` instead of `cd`). Both the fs tools and bash resolve relative paths against the session workspace. It can also delegate with `subagent`/`subagent_fork` and track multi-step work with `todo_write` (a whole-list task tracker rendered as a checklist). Reasoning streams dimmed; tool calls/results render inline.
 
 ```
 > fix the failing test in /path/to/project
@@ -44,6 +44,7 @@ This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads
 | `subagent`, `subagent-spawn`, `subagent-fork` | the subagent provider registry plus the two in-process backends: a fresh child and a child seeded with the parent's completed-turn prefix |
 | `tool-subagent`, `tool-subagent-fork` | two model-facing `dsh-tool-subagent` loads, each bound to a different provider and exposed under a distinct tool name (`subagent`, `subagent_fork`) |
 | `tool-todo` | the model-facing `todo_write` tool; writes the whole task list to the session log and renders as a checklist in stdio |
+| `fs-local`, `fs-policy`, `tool-fs` | the filesystem stack: the local `ctx.fs` provider, the read-before-write/edit policy gate (on the `fs/*` event gate), and the model-facing `read`/`write`/`edit` tools. Relative paths resolve against the session workspace |
 
 ## End-to-end tests (`pnpm run test:e2e`, key-gated)
 

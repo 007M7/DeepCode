@@ -115,10 +115,11 @@ examples/    Runnable demos (not workspaces; see examples/AGENTS.md). Each is a
              teaching plugins. The app package bundles the agent-core spine +
              front-door cluster + boot glue (a bin). No start.ts. echo-agent =
              mock model + echo tool on dsh-stdio-agent (pnpm run demo:echo, no
-             key). coding-agent = the real thing: DeepSeek V4 + bash tools +
-             subagent + todo_write on the same app (pnpm run demo:coding, needs
-             DEEPSEEK_API_KEY). acp-agent = the coding agent as an ACP server on
-             dsh-acp-agent (pnpm run demo:acp, needs DEEPSEEK_API_KEY).
+             key). coding-agent = the real thing: DeepSeek V4 + fs tools
+             (read/write/edit) + bash tools + subagent + todo_write on the same
+             app (pnpm run demo:coding, needs DEEPSEEK_API_KEY). acp-agent = the
+             coding agent as an ACP server on dsh-acp-agent (pnpm run demo:acp,
+             needs DEEPSEEK_API_KEY).
              cordis.snapshot.yml = the acp leaf with llm-replay for keyless
              snapshot replay.
 docs/        architecture.md — the design doc. module-graph.md — generated

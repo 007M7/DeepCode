@@ -28,7 +28,7 @@ Add to your Zed `settings.json` under `agent_servers`:
 }
 ```
 
-The editor sets each session's `cwd` to the project it opens; the agent's bash tools run there (see the per-session `cwd` note in `packages/ui/acp`). The filesystem tools in this demo use the local filesystem backend and resolve relative paths from the server launch directory, so launch the server from the harness repo with `pnpm --dir …` when using `read`/`write`/`edit` against this checkout.
+The editor sets each session's `cwd` to the project it opens; both the agent's bash tools and the `read`/`write`/`edit` filesystem tools resolve relative paths against that per-session workspace (see the per-session `cwd` note in `packages/ui/acp` and [the per-session cwd RFC](../../docs/rfc/implemented/architecture/2026-07-02-fs-per-session-cwd.md)), so the server can be launched anywhere and each session still acts on its own project directory.
 
 ## Snapshot tests (record-once / replay-deterministic)
 
