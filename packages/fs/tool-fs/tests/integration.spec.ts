@@ -28,8 +28,10 @@ import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 let dir: string
 let ctx: Context
 let fiber: Awaited<ReturnType<Context['plugin']>>
-// A stable session object stands in for an agent session (the file-state owner).
-const session = {}
+// A stable session object stands in for an agent session (the file-state
+// owner). It carries a `header` (no `cwd`) so `sessionCwd(exec)` resolves to
+// `undefined` and the backend falls back to its configured cwd (= `dir`).
+const session = { header: {} }
 
 let callCounter = 0
 function call(name: string, args: unknown) {
@@ -285,5 +287,54 @@ describe('bare provider (no dsh-fs-policy)', () => {
     expect((await call('edit', { file_path: 'a.txt', old_string: 'y', new_string: 'z' })).isError).toBe(false)
     expect(statSpy).not.toHaveBeenCalled()
     statSpy.mockRestore()
+  })
+})
+
+// --------------------------------------------------------------------------
+// Per-session cwd: a relative file_path resolves against the CALLING session's
+// workspace (`exec.agent.session.header.cwd`), NOT the backend's config.cwd —
+// so an ACP editor's per-session dir wins, matching dsh-tool-bash. The regression
+// this guards: before the seam fix the tool passed no cwd, so a relative write
+// landed in config.cwd instead of the session dir.
+// --------------------------------------------------------------------------
+describe('per-session cwd', () => {
+  let sessionDir: string
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'dsh-tool-fs-cfg-'))
+    sessionDir = await mkdtemp(join(tmpdir(), 'dsh-tool-fs-session-'))
+    ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(LocalFileSystem, { cwd: dir }) // config.cwd = dir, NOT sessionDir
+    await ctx.plugin(FsPolicy)
+    fiber = await ctx.plugin(ToolFs)
+  })
+  afterEach(async () => { await rm(sessionDir, { recursive: true, force: true }) })
+
+  const callIn = (sessionObj: object, name: string, args: unknown) =>
+    ctx.tools.execute({
+      callId: CallId(`call-${++callCounter}`),
+      name,
+      arguments: args,
+      agent: { session: sessionObj } as never,
+    })
+
+  it('writes a relative path into the SESSION cwd, not config.cwd', async () => {
+    const result = await callIn({ header: { cwd: sessionDir } }, 'write', { file_path: 'note.txt', content: 'hi' })
+    expect(result.isError).toBe(false)
+    // Verify the WORLD: the file is in the session dir, and NOT in config.cwd.
+    expect(await readFile(join(sessionDir, 'note.txt'), 'utf8')).toBe('hi')
+    await expect(readFile(join(dir, 'note.txt'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('read + edit both resolve against the session cwd (end-to-end)', async () => {
+    // ONE session object across both calls — observed-state keys by owner
+    // identity, so read must record under the same owner the edit reads.
+    const session = { header: { cwd: sessionDir } }
+    await writeFile(join(sessionDir, 'code.txt'), 'alpha')
+    expect((await callIn(session, 'read', { file_path: 'code.txt' })).isError).toBe(false)
+    const edited = await callIn(session, 'edit', { file_path: 'code.txt', old_string: 'alpha', new_string: 'beta' })
+    expect(edited.isError).toBe(false)
+    expect(await readFile(join(sessionDir, 'code.txt'), 'utf8')).toBe('beta')
   })
 })

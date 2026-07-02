@@ -97,8 +97,8 @@ export class LocalFileSystem extends FileSystem {
     }
   }
 
-  override async resolve(path: string): Promise<FsTarget> {
-    const local = await resolveLocalTarget(this.config.cwd, path)
+  override async resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget> {
+    const local = await resolveLocalTarget(opts?.cwd ?? this.config.cwd, path)
     return { inputPath: path, targetKey: local.targetKey, displayPath: local.displayPath }
   }
 

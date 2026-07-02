@@ -17,6 +17,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import { sessionCwd } from './session-cwd.ts'
 
 /** Validate value constraints the schema DSL can't express. */
 export function parseWriteArgs(args: { file_path: string; content: string }): { filePath: string; content: string } {
@@ -51,7 +52,8 @@ export function applyWriteTool(ctx: Context): void {
     },
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseWriteArgs(args)
-      const target = await ctx.fs.resolve(input.filePath)
+      const cwd = sessionCwd(exec)
+      const target = await ctx.fs.resolve(input.filePath, cwd !== undefined ? { cwd } : undefined)
       // Single-slot decision: the policy plugin produces createIfAbsent/
       // replaceIfVersion; the bare default is undefined (unconditional). No stat.
       const intent = await ctx.waterfall('fs/write-intent', target, exec, () => undefined)

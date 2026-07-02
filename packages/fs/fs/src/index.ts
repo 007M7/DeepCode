@@ -165,8 +165,16 @@ export abstract class FileSystem extends Service {
    * perform I/O (a remote/sandboxed backend may need a round-trip to map a path
    * to a stable identity), hence async even though the local backend only
    * normalizes + realpaths.
+   *
+   * `opts.cwd` is the base directory a RELATIVE `path` resolves against; an
+   * absolute `path` ignores it. Omitted ⇒ the backend's own default base (the
+   * local backend uses its configured `cwd`). The CALLER supplies this — the
+   * seam does not read a session or agent — so a tool can resolve against the
+   * caller's per-session workspace (`exec.agent.session.header.cwd`) without the
+   * provider depending on `dsh-agent`/`dsh-session`. Mirrors how `dsh-tool-bash`
+   * defaults a bash `workdir` to the session cwd.
    */
-  abstract resolve(path: string): Promise<FsTarget>
+  abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>
 
   /** Return target metadata, or `undefined` when the target does not exist. */
   abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>

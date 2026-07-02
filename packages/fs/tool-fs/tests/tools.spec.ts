@@ -174,7 +174,7 @@ describe('read tool', () => {
 
   it('records observed state so a follow-up edit by the same session is authorized', async () => {
     const { ctx, fs } = await setup()
-    const session = {}
+    const session = { header: {} }
     fs.files.set('key:a.txt', 'hello')
     expect((await call(ctx, 'read', { file_path: 'a.txt' }, { session })).isError).toBe(false)
     const edited = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'hello', new_string: 'bye' }, { session })
@@ -259,7 +259,7 @@ describe('formatReadOutput footer variants', () => {
 describe('write tool', () => {
   it('formats a create result and uses createIfAbsent (unobserved, with the gate)', async () => {
     const { ctx, fs } = await setup()
-    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'hi' }, { session: {} })
+    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'hi' }, { session: { header: {} } })
     expect(result.isError).toBe(false)
     expect(text(result)).toContain('Created file')
     expect(fs.writeIntents).toEqual([{ kind: 'createIfAbsent' }])
@@ -284,7 +284,7 @@ describe('write tool', () => {
 describe('edit tool', () => {
   it('formats a single-replacement success after a read', async () => {
     const { ctx, fs } = await setup()
-    const session = {}
+    const session = { header: {} }
     fs.files.set('key:a.txt', 'a')
     await call(ctx, 'read', { file_path: 'a.txt' }, { session })
     const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b' }, { session })
@@ -315,7 +315,7 @@ describe('edit tool', () => {
   it('propagates FS_NOT_OBSERVED when the file was never read (the gate decides)', async () => {
     const { ctx, fs } = await setup()
     fs.files.set('key:a.txt', 'hello')
-    const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b' }, { session: {} })
+    const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b' }, { session: { header: {} } })
     expect(result.isError).toBe(true)
     expect(result.error).toMatchObject({ code: 'FS_NOT_OBSERVED' })
   })

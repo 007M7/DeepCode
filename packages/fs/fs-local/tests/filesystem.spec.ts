@@ -51,6 +51,30 @@ describe('registration', () => {
   })
 })
 
+describe('resolve', () => {
+  it('resolves a relative path against opts.cwd, not config.cwd', async () => {
+    // config.cwd is `dir`; a call supplying a DIFFERENT cwd bases the relative
+    // path there (the per-session-workspace seam — mirrors tool-bash workdir).
+    const other = await mkdtemp(join(tmpdir(), 'dsh-fs-other-'))
+    try {
+      await writeFile(join(other, 'x.txt'), 'in other')
+      const viaOther = await fs.resolve('x.txt', { cwd: other })
+      expect(await fs.readText(viaOther)).toBe('in other')
+      // Same relative path with no opts falls back to config.cwd (= dir), where
+      // x.txt does not exist.
+      await expect(fs.readText(await fs.resolve('x.txt'))).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
+    } finally {
+      await rm(other, { recursive: true, force: true })
+    }
+  })
+
+  it('ignores opts.cwd for an ABSOLUTE path', async () => {
+    await writeFile(join(dir, 'abs.txt'), 'absolute')
+    const target = await fs.resolve(join(dir, 'abs.txt'), { cwd: '/nonexistent-base' })
+    expect(await fs.readText(target)).toBe('absolute')
+  })
+})
+
 describe('stat', () => {
   it('returns file metadata, directory type, and undefined for absent', async () => {
     await writeFile(join(dir, 'a.txt'), 'hello')

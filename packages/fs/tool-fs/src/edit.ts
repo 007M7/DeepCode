@@ -18,6 +18,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { FsEditOutcome } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import { sessionCwd } from './session-cwd.ts'
 
 /** Validated `edit` arguments after defaulting. */
 interface EditInput {
@@ -66,7 +67,8 @@ export function applyEditTool(ctx: Context): void {
     },
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseEditArgs(args)
-      const target = await ctx.fs.resolve(input.filePath)
+      const cwd = sessionCwd(exec)
+      const target = await ctx.fs.resolve(input.filePath, cwd !== undefined ? { cwd } : undefined)
       // Single-slot decision: the policy plugin returns { version: vObserved } or
       // throws FS_NOT_OBSERVED; the bare default is undefined (unconditional edit).
       // No stat — the bare default never manufactures a version basis.
