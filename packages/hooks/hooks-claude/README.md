@@ -11,7 +11,7 @@ import type { Config } from '@deepseek-ai/dsh-hooks-claude'
 const config: Config = {
   configPath: '/path/to/hooks.json', // required: a hooks.json or a settings file with a `hooks` key
   pluginRoot: '/path/to/plugin',     // optional: replaces ${CLAUDE_PLUGIN_ROOT} in command strings
-  projectDir: '/path/to/project',    // optional: replaces ${CLAUDE_PROJECT_DIR} AND set as the hook env var
+  projectDir: '/path/to/project',    // optional: replaces ${CLAUDE_PROJECT_DIR} AND sets the hook env var; defaults to the session cwd when omitted
   defaultTimeoutMs: 600_000,         // optional: per-hook timeout when a hook sets none (CC default)
 }
 ```
@@ -34,9 +34,9 @@ The hooks **themselves** run in the agent's session workspace: for the agent-sco
 | CC hook | Harness seam | Mapping |
 |---|---|---|
 | `SessionStart` | `agent/session-start` (emit) | additionalContext → `agent.inject()` into the new session (cannot block) |
-| `UserPromptSubmit` | `agent/prompt-submit` (waterfall) | `deny` → `PromptDecision.block`; additionalContext → `allow` with context |
+| `UserPromptSubmit` | `agent/prompt-submit` (waterfall) | `deny` → `PromptDecision.block`; additionalContext-only → delegate via `next()` then fold context onto the downstream decision (a later listener can still block/rewrite) |
 | `PreToolUse` | `tools/pre-execute` (waterfall) | `deny` → `PreToolDecision.deny`; `ask` → `PreToolDecision.ask` |
-| `PostToolUse` | `tools/post-execute` (waterfall) | `deny` → `block` with feedback; additionalContext → `accept` with context |
+| `PostToolUse` | `tools/post-execute` (waterfall) | `deny` → `block` with feedback; additionalContext-only → delegate via `next()` then fold context onto the downstream decision |
 | `Stop` | `agent/turn-continuation` (waterfall) | a blocking Stop hook forces `continue`, feeding its reason as next-step steering |
 | `SubagentStart` | `subagent/start` (emit) | additionalContext → `agent.inject()` into the live child |
 | `SubagentStop` | `subagent/end` (emit) | observe-only |

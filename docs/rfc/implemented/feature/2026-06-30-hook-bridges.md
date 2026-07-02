@@ -24,9 +24,9 @@ Each bridge maps the neutral `MergedHookOutcome` from the shared lib onto the se
 | Seam | CC | Codex |
 |---|---|---|
 | `agent/session-start` (emit) | additionalContext → `agent.inject()` | plain-stdout output → additionalContext → `agent.inject()` |
-| `agent/prompt-submit` | `deny`→`block`; context→`allow` | `block`→`block`; context→`allow` |
+| `agent/prompt-submit` | `deny`→`block`; context-only→delegate+fold | `block`→`block`; context-only→delegate+fold |
 | `tools/pre-execute` | `deny`→`deny`; `ask`→`ask` | `block`→`deny` (no allow/ask) |
-| `tools/post-execute` | `deny`→`block`+feedback; context→`accept` | same |
+| `tools/post-execute` | `deny`→`block`+feedback; context-only→delegate+fold | same |
 | `agent/turn-continuation` | blocking Stop → `continue` (reason = next-step steering) | same |
 | `subagent/start` (emit) | additionalContext → inject into the live child | — (not a Codex event) |
 | `subagent/end` (emit) | observe-only | — |
@@ -34,6 +34,14 @@ Each bridge maps the neutral `MergedHookOutcome` from the shared lib onto the se
 ### Context source is always the plugin (the mislabel guard)
 
 `agent.inject()` defaults a missing `MessageSource` to `{ kind: 'user' }` — which would record plugin-injected context as if the user had typed it. So every bridge `inject()` and every `HookContext` passes an explicit `{ kind: 'plugin', plugin: 'hooks-claude' | 'hooks-codex' }` source. A test asserts the resulting `context/message.source` is the plugin, never `user`.
+
+### Adding context is not a veto — delegate, then fold
+
+A hook that only attaches `additionalContext` (no block/deny) is NOT a decision the bridge should return on its own: returning `allow`/`accept` from a waterfall listener WITHOUT calling `next()` short-circuits every later `agent/prompt-submit` / `tools/post-execute` listener, so a policy/sandbox plugin registered after the bridge would never see the prompt. So on the context-only path each bridge **delegates via `next()`** and then **folds** its `additionalContext` onto the downstream decision (`concatContext`): a downstream `block`/`deny` still wins (and carries the bridge context too), a downstream `allow`/`accept` keeps its own content rewrite and gains the bridge context. Only a real `deny`/`block` from the hook short-circuits. Tests assert a later listener can still block a prompt a context-only hook allowed, and that both contexts survive when the downstream also adds one.
+
+### CLAUDE_PROJECT_DIR defaults to the session workspace
+
+Claude Code always exports `CLAUDE_PROJECT_DIR`, and common unmodified hooks reference `$CLAUDE_PROJECT_DIR` for project-relative paths. An explicit `config.projectDir` wins; when it is omitted (the default ACP wiring configures only `configPath`), the bridge defaults the env var per-run to the agent's session workspace — the same `session.header.cwd` the hook already runs in — rather than leaving it empty. So a stock project-relative hook works in the default setup.
 
 ### Containment
 

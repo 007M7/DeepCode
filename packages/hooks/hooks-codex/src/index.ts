@@ -166,6 +166,16 @@ export function apply(ctx: Context, config: Config): void {
     return { content, source: PLUGIN_SOURCE }
   }
 
+  /**
+   * Concatenate this bridge's {@link HookContext} (`ours`, always present at the
+   * call sites) with a downstream listener's optional one, so folding our
+   * additionalContext onto a delegated decision drops neither.
+   */
+  function concatContext(ours: HookContext, theirs: HookContext | undefined): HookContext {
+    if (!theirs) return ours
+    return { content: [...ours.content, ...theirs.content], source: ours.source }
+  }
+
   // SessionStart: emit. Codex passes a plain-stdout hook's output as additionalContext.
   // TODO(session-start-gating): a synchronous emit + detached `.then`, so the
   // injected context is BEST-EFFORT — not guaranteed before the first turn reaches
@@ -185,9 +195,16 @@ export function apply(ctx: Context, config: Config): void {
     const turn = lastTurn(agent)
     const merged = await runPoint('UserPromptSubmit', '', { ...turnBase(agent, 'UserPromptSubmit', model), prompt: blocksToText(content) }, { agent, turn, plainStdoutAsContext: true })
     if (merged.decision === 'deny') return { kind: 'block', reason: merged.reason ?? 'blocked by UserPromptSubmit hook' }
-    const context = contextFrom(merged)
-    if (context) return { kind: 'allow', additionalContext: context }
-    return next()
+    // Context alone is not a veto: DELEGATE so a later prompt-submit listener can
+    // still block/rewrite, then fold our context onto its decision.
+    const downstream = await next()
+    const ours = contextFrom(merged)
+    if (!ours || downstream.kind !== 'allow') return downstream
+    return {
+      kind: 'allow',
+      ...downstream.content !== undefined ? { content: downstream.content } : {},
+      additionalContext: concatContext(ours, downstream.additionalContext),
+    }
   })
 
   // PreToolUse → PreToolDecision. Codex blocks only (no allow/ask honored).
@@ -206,8 +223,18 @@ export function apply(ctx: Context, config: Config): void {
     if (merged.decision === 'deny') {
       return { kind: 'block', feedback: [{ type: 'text', text: merged.reason ?? 'blocked by PostToolUse hook' }], ...context ? { additionalContext: context } : {} }
     }
-    if (context) return { kind: 'accept', additionalContext: context }
-    return next()
+    // Context alone is not a veto: DELEGATE, then fold our context onto the
+    // downstream decision (a downstream block carries it too).
+    const downstream = await next()
+    if (!context) return downstream
+    if (downstream.kind === 'block') {
+      return { ...downstream, additionalContext: concatContext(context, downstream.additionalContext) }
+    }
+    return {
+      kind: 'accept',
+      ...downstream.content !== undefined ? { content: downstream.content } : {},
+      additionalContext: concatContext(context, downstream.additionalContext),
+    }
   })
 
   // Stop → ContinuationDecision. A blocking Stop hook forces continuation.

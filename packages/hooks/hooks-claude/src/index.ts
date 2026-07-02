@@ -59,9 +59,17 @@ export interface Config {
    * `hooks.json` from each `session/new.cwd` is not yet implemented.
    */
   configPath: string
-  /** Replaces `${CLAUDE_PLUGIN_ROOT}` in command strings (the plugin's root dir). */
+  /**
+   * Replaces `${CLAUDE_PLUGIN_ROOT}` in command strings (the plugin's root dir).
+   */
   pluginRoot?: string
-  /** Replaces `${CLAUDE_PROJECT_DIR}` in command strings + set as the hook env var. */
+  /**
+   * Replaces `${CLAUDE_PROJECT_DIR}` in command strings AND is exported as the
+   * `CLAUDE_PROJECT_DIR` env var for hook processes. When omitted, the env var
+   * defaults per-run to the agent's session workspace (`session.header.cwd`, the
+   * same dir the hook runs in) — Claude Code always exports this var, and common
+   * unmodified hooks reference `$CLAUDE_PROJECT_DIR` for project-relative paths.
+   */
   projectDir?: string
   /** Default per-hook timeout in ms when a hook sets none (CC default: 600000). */
   defaultTimeoutMs?: number
@@ -111,7 +119,6 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   const defaultTimeoutMs = config.defaultTimeoutMs ?? 600_000
-  const hookEnv = config.projectDir !== undefined ? { CLAUDE_PROJECT_DIR: config.projectDir } : undefined
 
   /**
    * Run every command hook configured for `point` whose matcher selects
@@ -136,6 +143,15 @@ export function apply(ctx: Context, config: Config): void {
     // operate in the user's project tree. Absent for a no-agent run (falls back
     // to the executor default).
     const workdir = opts.agent?.session.header.cwd
+    // CLAUDE_PROJECT_DIR: an explicit config value wins; otherwise default it to
+    // the session workspace (the same dir the hook RUNS in). Claude Code always
+    // exports this var, and common unmodified hooks reference `$CLAUDE_PROJECT_DIR`
+    // (shell expansion at run time) for project-relative paths — leaving it empty
+    // in the default ACP wiring (no `projectDir` configured) would break them even
+    // though the bridge already knows the workspace. Absent only for a no-agent run
+    // with no configured projectDir (nothing to point at).
+    const projectDir = config.projectDir ?? workdir
+    const hookEnv = projectDir !== undefined ? { CLAUDE_PROJECT_DIR: projectDir } : undefined
     for (const group of groups) {
       if (!matchesMatcher(group.matcher, matchQuery, 'claude')) continue
       for (const hook of group.hooks) {
@@ -195,6 +211,16 @@ export function apply(ctx: Context, config: Config): void {
     return { content, source: PLUGIN_SOURCE }
   }
 
+  /**
+   * Concatenate this bridge's {@link HookContext} (`ours`, always present at the
+   * call sites) with a downstream listener's optional one, so folding our
+   * additionalContext onto a delegated decision drops neither.
+   */
+  function concatContext(ours: HookContext, theirs: HookContext | undefined): HookContext {
+    if (!theirs) return ours
+    return { content: [...ours.content, ...theirs.content], source: ours.source }
+  }
+
   // --- SessionStart: emit (cannot block). Inject any additionalContext into the
   // agent. The matcher subject is the source.
   // TODO(session-start-gating): `agent/session-start` is a SYNCHRONOUS emit and
@@ -223,9 +249,18 @@ export function apply(ctx: Context, config: Config): void {
     if (merged.decision === 'deny') {
       return { kind: 'block', reason: merged.reason ?? 'blocked by UserPromptSubmit hook' }
     }
-    const context = contextFrom(merged)
-    if (context) return { kind: 'allow', additionalContext: context }
-    return next()
+    // Our hooks did not block. DELEGATE (attaching context alone is not a veto):
+    // a later `agent/prompt-submit` listener must still get to block or rewrite.
+    // Then fold our additionalContext onto its decision — a downstream block wins
+    // (a dropped prompt makes the context moot; `block` carries no context field).
+    const downstream = await next()
+    const ours = contextFrom(merged)
+    if (!ours || downstream.kind !== 'allow') return downstream
+    return {
+      kind: 'allow',
+      ...downstream.content !== undefined ? { content: downstream.content } : {},
+      additionalContext: concatContext(ours, downstream.additionalContext),
+    }
   })
 
   // --- PreToolUse → PreToolDecision. Matcher subject is the tool name. ---
@@ -245,8 +280,18 @@ export function apply(ctx: Context, config: Config): void {
     if (merged.decision === 'deny') {
       return { kind: 'block', feedback: [{ type: 'text', text: merged.reason ?? 'blocked by PostToolUse hook' }], ...context ? { additionalContext: context } : {} }
     }
-    if (context) return { kind: 'accept', additionalContext: context }
-    return next()
+    // Our hooks did not block. DELEGATE so a later listener can still block/replace,
+    // then fold our context onto its decision (a downstream block carries it too).
+    const downstream = await next()
+    if (!context) return downstream
+    if (downstream.kind === 'block') {
+      return { ...downstream, additionalContext: concatContext(context, downstream.additionalContext) }
+    }
+    return {
+      kind: 'accept',
+      ...downstream.content !== undefined ? { content: downstream.content } : {},
+      additionalContext: concatContext(context, downstream.additionalContext),
+    }
   })
 
   // --- Stop → ContinuationDecision. CC's Stop hook can force the conversation to

@@ -69,6 +69,70 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('ctx-x')
   })
 
+  it('a context-only UserPromptSubmit hook DELEGATES so a later listener can still block', async () => {
+    // Context alone is not a veto: a downstream agent/prompt-submit listener (a
+    // policy plugin registered after the bridge) must still get to block. Before
+    // the fix the bridge returned `allow` without calling next().
+    const d = dir()
+    hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'c.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"bridge ctx"}}\'\n') }] }] })
+    const adapter = new MockAdapter([textResponse('should not run')])
+    const ctx = await harness(join(d, 'hooks.json'), adapter)
+    ctx.on('agent/prompt-submit', async () => ({ kind: 'block' as const, reason: 'policy veto' }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+    expect(adapter.requests).toHaveLength(0)
+    expect(events(agent).some(e => e.type === 'user/message')).toBe(false)
+    const te = events(agent).findLast(e => e.type === 'turn/end')
+    expect(te?.type === 'turn/end' && te.data.reason).toMatchObject({ kind: 'rejected', reason: 'policy veto' })
+  })
+
+  it('folds the bridge additionalContext WITH a downstream listener that also adds context', async () => {
+    const d = dir()
+    hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'c.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"from-bridge"}}\'\n') }] }] })
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(join(d, 'hooks.json'), adapter)
+    ctx.on('agent/prompt-submit', async () => ({
+      kind: 'allow' as const,
+      content: [{ type: 'text' as const, text: 'rewritten-prompt' }],
+      additionalContext: { content: [{ type: 'text' as const, text: 'from-downstream' }], source: { kind: 'plugin' as const, plugin: 'policy' } },
+    }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+    const req = JSON.stringify(adapter.requests[0]!.messages)
+    expect(req).toContain('from-bridge')
+    expect(req).toContain('from-downstream')
+    expect(req).toContain('rewritten-prompt')
+  })
+
+  it('folds the bridge PostToolUse context onto a downstream ACCEPT that replaces content', async () => {
+    const d = dir()
+    hooks(d, { PostToolUse: [{ hooks: [{ type: 'command', command: sh(d, 'pc.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"bridge-note"}}\'\n') }] }] })
+    const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
+    const ctx = await harness(join(d, 'hooks.json'), adapter)
+    ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+    ctx.on('tools/post-execute', async () => ({ kind: 'accept' as const, content: [{ type: 'text' as const, text: 'rewritten-result' }] }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+    const result = events(agent).find(e => e.type === 'tool/result')
+    expect(result?.type === 'tool/result' && result.data.content.some(b => b.type === 'text' && b.text === 'rewritten-result')).toBe(true)
+    expect(events(agent).some(e => e.type === 'context/message' && e.data.content.some(b => b.type === 'text' && b.text.includes('bridge-note')))).toBe(true)
+  })
+
+  it('folds the bridge PostToolUse context onto a downstream listener BLOCK', async () => {
+    const d = dir()
+    hooks(d, { PostToolUse: [{ hooks: [{ type: 'command', command: sh(d, 'pc.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"bridge-note"}}\'\n') }] }] })
+    const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
+    const ctx = await harness(join(d, 'hooks.json'), adapter)
+    ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+    ctx.on('tools/post-execute', async () => ({ kind: 'block' as const, feedback: [{ type: 'text' as const, text: 'downstream-block' }] }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+    const result = events(agent).find(e => e.type === 'tool/result')
+    expect(result?.type === 'tool/result' && result.data.isError).toBe(true)
+    expect(result?.type === 'tool/result' && result.data.content.some(b => b.type === 'text' && b.text.includes('downstream-block'))).toBe(true)
+    expect(events(agent).some(e => e.type === 'context/message' && e.data.content.some(b => b.type === 'text' && b.text.includes('bridge-note')))).toBe(true)
+  })
+
   it('SessionStart additionalContext is injected for the first request', async () => {
     const d = dir()
     hooks(d, { SessionStart: [{ hooks: [{ type: 'command', command: sh(d, 's.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"start-ctx"}}\'\n') }] }] })
