@@ -96,10 +96,14 @@ export interface HookContext {
  * - `allow` proceeds with the prompt; optional `content` REPLACES the prompt
  *   bytes (a rewrite), and optional `additionalContext` is `inject()`ed as a
  *   separate `context/message` the next request also sees.
- * - `block` drops the prompt entirely; `reason` is the durable record of why.
- *   A batch whose every prompt is blocked still opens a zero-step turn that ends
- *   with {@link TurnEndReason} `rejected` (so the boundary stays balanced and a
- *   UI can render "blocked by hook").
+ * - `block` drops the prompt (it never becomes a `user/message`); `reason` is
+ *   the durable record of why. The loop appends a `prompt/blocked` session event
+ *   (carrying the original content, source, and `reason`) in place of the
+ *   dropped `user/message`, so the veto survives replay even in a MIXED batch
+ *   where a sibling prompt is allowed. A batch whose EVERY prompt is blocked
+ *   additionally opens a zero-step turn that ends with {@link TurnEndReason}
+ *   `rejected` (so the boundary stays balanced and a UI can render "blocked by
+ *   hook").
  */
 export type PromptDecision =
   | { kind: 'allow'; content?: ContentBlock[]; additionalContext?: HookContext }

@@ -51,7 +51,7 @@ forever:
   TURN (error-contained):
     'turn/start'
     each queued: waterfall agent/prompt-submit → allow (→ session('user/message'),
-      inject additionalContext) | block (drop)
+      inject additionalContext) | block (→ session('prompt/blocked'), drop)
     if every prompt blocked: 'turn/end'(rejected), no step  ⟵ zero-step turn
     STEP loop:
       drain steering
