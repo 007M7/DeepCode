@@ -385,6 +385,14 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
       )
       if (decision.kind === 'block') {
         lastBlockReason = decision.reason
+        // Record the veto durably: `PromptDecision.reason` is the durable record
+        // of why a prompt was blocked, but a fully-blocked batch's `rejected`
+        // turn/end only preserves the LAST reason, and a MIXED batch (this prompt
+        // blocked, another allowed) does not end `rejected` at all — so without
+        // this append a blocked prompt would vanish from the log whenever any
+        // sibling prompt is allowed. `prompt/blocked` sits in the open turn in
+        // place of the `user/message` this prompt would have become.
+        session.append('prompt/blocked', { content: message.content, source: message.source, reason: decision.reason })
         continue
       }
       anyAllowed = true

@@ -166,11 +166,24 @@ describe('stdin and extra env (set by in-process plugins)', () => {
   })
 
   it('a command that reads stdin sees EOF when none is supplied', async () => {
-    // No stdin → the always-piped-but-empty stdin closes immediately, so `cat`
-    // reads EOF and exits 0 with no output (it does NOT block).
+    // No stdin → fd 0 is /dev/null, so `cat` reads EOF and exits 0 with no
+    // output (it does NOT block).
     const result = await runBash(spec('cat')).done
     expect(result.exitCode).toBe(0)
     expect(result.stdout.text).toBe('')
+  })
+
+  it('gives fd 0 the exact pre-seam type: /dev/null when no stdin, a pipe when supplied', async () => {
+    // The no-stdin path must stay observationally identical to the pre-seam
+    // `ignore` default: a command that probes stdin's file type sees a char
+    // device (/dev/null). Regressing to an always-open pipe would make fd 0 a
+    // socket (node's spawn pipe is an AF_UNIX socket, not a FIFO), flipping
+    // `test -c /dev/stdin` for every model-driven call. When bytes ARE supplied,
+    // fd 0 is that pipe (a socket), as it must be to carry them.
+    const none = await runBash(spec('test -c /dev/stdin && echo char || echo other')).done
+    expect(none.stdout.text).toBe('char\n')
+    const piped = await runBash(spec('test -S /dev/stdin && echo socket || echo other', { stdin: 'x' })).done
+    expect(piped.stdout.text).toBe('socket\n')
   })
 
   it('merges extra env entries onto the scrubbed environment', async () => {

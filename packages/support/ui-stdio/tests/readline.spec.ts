@@ -16,6 +16,9 @@ function fakeContext(): Context {
   return {
     on: vi.fn(() => vi.fn()),
     effect: vi.fn((callback: () => () => void) => callback()),
+    // The UI seeds its label map from the registry at install; this suite only
+    // exercises readline terminal-mode selection, so an empty roster suffices.
+    agents: { list: vi.fn(() => []) },
   } as unknown as Context
 }
 
