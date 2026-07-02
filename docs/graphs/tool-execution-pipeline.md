@@ -10,21 +10,21 @@ This graph shows where policy, hooks, sandboxing, and future filesystem guards f
 ```mermaid
 flowchart TD
   model["Assistant message contains tool-call block"]
-  call["Session event: tool/call"]
+  toolCall["Session event: tool/call"]
   waterfall["ctx.tools.execute()<br/>tools/execute waterfall"]
   policy["Policy / permission / hooks listener"]
-  body["Registered tool execute() body"]
+  toolBody["Registered tool execute() body"]
   owned["Tool-owned session events<br/>todo/write, future fs policy facts"]
-  result["Session event: tool/result"]
+  toolResult["Session event: tool/result"]
   ui["UI presentation<br/>presentCall / presentResult"]
-  model --> call --> waterfall
+  model --> toolCall --> waterfall
   waterfall --> policy
-  policy -->|next()| body
-  policy -->|veto / throw| result
-  body --> owned
-  body --> result
-  call --> ui
-  result --> ui
+  policy -->|next| toolBody
+  policy -->|veto / throw| toolResult
+  toolBody --> owned
+  toolBody --> toolResult
+  toolCall --> ui
+  toolResult --> ui
 ```
 
 Future pressure from the fs stack: PR #128 snapshots a policy rejection card. The graph keeps the veto path explicit because filesystem read-before-edit checks, permission prompts, and hook bridges all belong on this path.

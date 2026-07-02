@@ -53,6 +53,7 @@ The hybrid pages must fail loud when their manifests are stale:
 - The capability seam graph imports the Cordis service collector and asserts every discovered harness `ctx.<key>` is classified in `SERVICE_ROLES`, and every classified key still exists.
 - The tool affordance graph boot-harvests the shipped tool catalog and asserts every tool package has `TOOL_PACKAGE_META`.
 - The event producer/consumer matrix labels itself hybrid because subagent lifecycle events deliberately use `ctx.events.dispatch` for per-listener containment; those dynamic edges are explicit overrides rather than invisible omissions.
+- `verify-mermaid` parses every repo-authored ` ```mermaid ` fence with Mermaid's own parser, so syntax errors fail `doc-sync` locally and in CI instead of showing up as broken GitHub-rendered diagrams.
 
 ## Format choices
 
@@ -62,5 +63,5 @@ Use Mermaid for committed diagrams because GitHub renders it in Markdown and it 
 
 - Maintainers get visual entry points for topology, seams, event flow, lifecycle, session replay, and snapshot behavior.
 - SDK users get a path from use case to package composition instead of only bottom-up package references.
-- `doc-sync` now includes `verify-doc-graphs`, so graph drift is caught with the other doc freshness gates.
+- `doc-sync` now includes `verify-doc-graphs` and `verify-mermaid`, so graph drift and Mermaid syntax errors are caught with the other doc freshness gates.
 - Future fs and hooks work has a concrete place to land new complexity: fs should expand the capability and tool graphs, while hooks should expand the event matrix and tool execution pipeline.

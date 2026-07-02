@@ -11,31 +11,31 @@ This sequence is the visual companion to [architecture.md](../architecture.md#lo
 sequenceDiagram
   participant User
   participant Agent
-  participant Loop
+  participant Driver
   participant Prompt as ctx.systemPrompt
   participant LLM as ctx.llm
   participant Tools as ctx.tools
   participant Session
   participant Persistence
   User->>Agent: send(content)
-  Agent->>Loop: queued work wakes driver
-  Loop->>Session: turn/start + user/message
-  Loop-->>User: agent/turn-start
-  Loop->>Prompt: system-prompt/assemble waterfall
-  Loop-->>Loop: agent/pre-step serial checkpoint
-  Loop->>Session: step/start
-  Loop->>LLM: agent/request waterfall, then llm/stream waterfall
-  LLM-->>Loop: StreamChunk*
-  Loop->>Session: assistant/chunk*
-  Loop-->>User: agent/stream-chunk* (master live mirror)
-  Loop->>Session: assistant/message
-  Loop->>Tools: tools/execute waterfall for each tool-call
+  Agent->>Driver: queued work wakes driver
+  Driver->>Session: turn/start + user/message
+  Driver-->>User: agent/turn-start
+  Driver->>Prompt: system-prompt/assemble waterfall
+  Driver-->>Driver: agent/pre-step serial checkpoint
+  Driver->>Session: step/start
+  Driver->>LLM: agent/request waterfall, then llm/stream waterfall
+  LLM-->>Driver: StreamChunk*
+  Driver->>Session: assistant/chunk*
+  Driver-->>User: agent/stream-chunk* (master live mirror)
+  Driver->>Session: assistant/message
+  Driver->>Tools: tools/execute waterfall for each tool-call
   Tools-->>Session: tool-owned events when applicable
-  Loop->>Session: tool/result
-  Loop-->>Loop: agent/turn-continuation waterfall
-  Loop->>Session: turn/end
-  Loop->>Persistence: session/flush parallel checkpoint
-  Loop-->>User: agent/status idle
+  Driver->>Session: tool/result
+  Driver-->>Driver: agent/turn-continuation waterfall
+  Driver->>Session: turn/end
+  Driver->>Persistence: session/flush parallel checkpoint
+  Driver-->>User: agent/status idle
 ```
 
 Future pressure from the hooks stack: PR #129 removes the live `agent/stream-chunk` mirror and leaves durable `assistant/chunk` on `session/event` as the authoritative token stream. Consumers that need replayable transcript data should already treat `session/event` as the load-bearing path.

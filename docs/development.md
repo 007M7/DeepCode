@@ -99,6 +99,7 @@ pnpm run verify-cordis-catalog  # fail if the cordis events/services catalog is 
 pnpm run gen-doc-graphs     # regenerate docs/graphs/*.md from source and curated graph definitions
 pnpm run verify-doc-graphs  # fail if docs/graphs/*.md is stale
 pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
+pnpm run verify-mermaid  # fail if a ```mermaid diagram has invalid Mermaid syntax
 pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
 pnpm run doc-sync       # doc-typecheck, generated doc freshness, markdown wrap/link, and type-equiv verification
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
