@@ -149,6 +149,26 @@ describe('createStdioChat rendering', () => {
     expect(out.text()).toContain('[orphan-session turn 1] ')
   })
 
+  it('seeds labels for agents already registered before the UI installs', async () => {
+    // The pre-created `main` agent (and any agent surviving an HMR reload of just
+    // this fiber) fired its `agent/created` before the UI's listener existed, so
+    // the live listener alone would miss it. Seeding from `ctx.agents.list()` at
+    // install time is what keeps its turn header showing `[main turn N]` instead
+    // of the raw session id.
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const agent = makeAgent('main')
+    ctx.agents.register(agent) // registered BEFORE the UI plugin below
+    const { runtime, out } = makeRuntime()
+    await ctx.plugin(Object.assign((inner: Context) => {
+      createStdioChat(inner, CONFIG, runtime)
+    }, { inject: ['agents'] }))
+    ctx.emit('session/event', makeSession('main'), {
+      type: 'turn/start', seq: 1, time: 0, data: { turn: 5, trigger: { kind: 'message' } },
+    } as SessionEvent)
+    expect(out.text()).toContain('[main turn 5] ')
+  })
+
   it('resets dim styling at turn/end if a turn ends mid-reasoning', async () => {
     const { ctx, out } = await setup()
     const agent = makeAgent('main')

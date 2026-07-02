@@ -80,8 +80,14 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   // number, so to print the short agent id (`[main turn 1]`) we map the
   // session's id to its agent's id. The session id is not reliably the agent id
   // (a session can be created with an explicit/client-supplied id), so build the
-  // map from `agent/created` rather than parsing the id string.
+  // map from `agent/created` rather than parsing the id string. Seed from the
+  // registry's current agents first: an agent registered before this plugin
+  // installed (e.g. the pre-created `main` agent, or any agent surviving an HMR
+  // reload of just this fiber) already fired its `agent/created`, so the live
+  // listener alone would miss it and its turns would fall back to the raw
+  // session id.
   const labelBySession = new Map<string, string>()
+  for (const agent of ctx.agents.list()) labelBySession.set(agent.session.header.id, agent.id)
   ctx.on('agent/created', (agent) => { labelBySession.set(agent.session.header.id, agent.id) })
   ctx.on('agent/disposed', (agent) => { labelBySession.delete(agent.session.header.id) })
 
