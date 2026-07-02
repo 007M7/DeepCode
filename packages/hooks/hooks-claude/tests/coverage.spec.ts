@@ -433,7 +433,7 @@ describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => 
   it('a context-only UserPromptSubmit hook DELEGATES so a later listener can still block', async () => {
     // A hook that only adds context must NOT short-circuit the waterfall: a
     // downstream agent/prompt-submit listener (a policy plugin) must still get to
-    // block the prompt. Before the fix the bridge returned `allow` without next().
+    // block the prompt. The bridge delegates via next() and folds its context.
     const d = dir()
     const s = sh(d, 'ctx.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"bridge ctx"}}\'\n')
     const path = hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: s }] }] })

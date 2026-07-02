@@ -71,8 +71,8 @@ describe('hooks-codex coverage — decision mapping paths', () => {
 
   it('a context-only UserPromptSubmit hook DELEGATES so a later listener can still block', async () => {
     // Context alone is not a veto: a downstream agent/prompt-submit listener (a
-    // policy plugin registered after the bridge) must still get to block. Before
-    // the fix the bridge returned `allow` without calling next().
+    // policy plugin registered after the bridge) must still get to block. The
+    // bridge delegates via next() and folds its context onto the decision.
     const d = dir()
     hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'c.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"bridge ctx"}}\'\n') }] }] })
     const adapter = new MockAdapter([textResponse('should not run')])

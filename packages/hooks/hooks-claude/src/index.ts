@@ -214,7 +214,12 @@ export function apply(ctx: Context, config: Config): void {
   /**
    * Concatenate this bridge's {@link HookContext} (`ours`, always present at the
    * call sites) with a downstream listener's optional one, so folding our
-   * additionalContext onto a delegated decision drops neither.
+   * additionalContext onto a delegated decision drops neither. The merged block
+   * carries a single `source` — this bridge's — because a `HookContext` holds one
+   * `MessageSource` and the seam cannot represent mixed provenance; the rendered
+   * `context/message` only distinguishes by `source.kind` ('plugin'), so a
+   * downstream plugin's text is still correctly framed as plugin context, not a
+   * user prompt.
    */
   function concatContext(ours: HookContext, theirs: HookContext | undefined): HookContext {
     if (!theirs) return ours
