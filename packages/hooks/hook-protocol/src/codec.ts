@@ -117,8 +117,8 @@ export function parseHookOutput(exitCode: number | undefined, stdout: string, st
 /**
  * Fold a parsed structured-stdout object into `output` (mutates in place).
  * `expectedEventName` (the firing event) gates the per-event `hookSpecificOutput`
- * block: a block whose `hookEventName` names a different event has its
- * event-scoped fields discarded (only its `hookEventName` is recorded).
+ * block: a block whose `hookEventName` names a different event — OR omits it — has
+ * its event-scoped fields discarded (any present `hookEventName` is still recorded).
  */
 function applyStructured(output: HookOutput, parsed: Record<string, unknown>, expectedEventName?: string): void {
   const cont = bool(parsed, 'continue')
@@ -146,11 +146,14 @@ function applyStructured(output: HookOutput, parsed: Record<string, unknown>, ex
     // Always surface the discriminator (for the log/diagnostics), even on a
     // mismatch — the record should show what the malformed block claimed.
     if (eventName !== undefined) output.hookEventName = eventName
-    // The schemas key this block by event: if it names a DIFFERENT event than the
-    // one firing, it is malformed — discard its event-scoped fields (a PreToolUse
-    // block must not deny a Stop hook). A caller that passes no expectedEventName
-    // opts out of the check (applies the block as-is).
-    if (expectedEventName !== undefined && eventName !== undefined && eventName !== expectedEventName) {
+    // The schemas key this block by event: when a caller passes the firing event
+    // (`expectedEventName`), the block's `hookEventName` MUST name it. A different
+    // name — or a MISSING one — is malformed under the keyed schema, so discard the
+    // event-scoped fields (a PreToolUse block must not deny a Stop hook; nor may a
+    // discriminator-less block silently apply PreToolUse-scoped permission fields to
+    // whatever event is firing). A caller that passes no expectedEventName opts out
+    // of the check (applies the block as-is).
+    if (expectedEventName !== undefined && eventName !== expectedEventName) {
       return
     }
     const permission = permissionDecisionOf(str(hso, 'permissionDecision'))

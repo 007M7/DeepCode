@@ -121,11 +121,23 @@ describe('parseHookOutput — structured stdout (exit 0 only)', () => {
     expect(out.decision).toBe('deny')
   })
 
-  it('applies a block that has NO hookEventName regardless of expectedEventName', () => {
-    // No discriminator to mismatch — the block applies (a hook that omits the key).
+  it('DISCARDS a block with NO hookEventName when a firing event is expected', () => {
+    // Under the keyed schema a missing discriminator is as malformed as a
+    // mismatched one: a discriminator-less block must not apply its event-scoped
+    // permission fields to whatever event happens to be firing.
+    const out = parseHookOutput(0, JSON.stringify({
+      hookSpecificOutput: { permissionDecision: 'deny', additionalContext: 'x' },
+    }), '', 'Stop')
+    expect(out.hookEventName).toBeUndefined() // none to record
+    expect(out.decision).toBeUndefined() // event-scoped fields discarded
+    expect(out.additionalContext).toBeUndefined()
+  })
+
+  it('applies a discriminator-less block when expectedEventName is omitted (opt-out)', () => {
+    // With no firing event to validate against, the block applies as-is.
     const out = parseHookOutput(0, JSON.stringify({
       hookSpecificOutput: { permissionDecision: 'deny' },
-    }), '', 'Stop')
+    }), '')
     expect(out.decision).toBe('deny')
   })
 
