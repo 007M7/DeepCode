@@ -338,3 +338,73 @@ describe('per-session cwd', () => {
     expect(await readFile(join(sessionDir, 'code.txt'), 'utf8')).toBe('beta')
   })
 })
+
+// --------------------------------------------------------------------------
+// Abort-through-the-tool, tool-tier concurrency, and the fs/observed contract —
+// all through ctx.tools.execute() against the REAL backend + policy.
+// --------------------------------------------------------------------------
+describe('signal, concurrency, and the fs/observed contract', () => {
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'dsh-tool-fs-'))
+    ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(LocalFileSystem, { cwd: dir })
+    await ctx.plugin(FsPolicy)
+    fiber = await ctx.plugin(ToolFs)
+  })
+
+  const session = { header: {} }
+  const callSig = (signal: AbortSignal, name: string, args: unknown) =>
+    ctx.tools.execute({ callId: CallId(`c-${++callCounter}`), name, arguments: args, agent: { session } as never, signal })
+  const callOwned = (name: string, args: unknown) =>
+    ctx.tools.execute({ callId: CallId(`c-${++callCounter}`), name, arguments: args, agent: { session } as never })
+
+  it('a pre-aborted signal makes read/write/edit return isError FS_ABORTED', async () => {
+    await writeFile(join(dir, 'a.txt'), 'hello')
+    const read = await callSig(AbortSignal.abort(), 'read', { file_path: 'a.txt' })
+    expect(read.isError).toBe(true)
+    expect(read.error).toMatchObject({ code: 'FS_ABORTED' })
+
+    const write = await callSig(AbortSignal.abort(), 'write', { file_path: 'new.txt', content: 'x' })
+    expect(write.isError).toBe(true)
+    expect(write.error).toMatchObject({ code: 'FS_ABORTED' })
+    await expect(readFile(join(dir, 'new.txt'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+
+    // Read first (un-aborted, SAME session owner) so the edit clears the
+    // observation gate; then the aborted edit fails on the signal, not on
+    // FS_NOT_OBSERVED.
+    expect((await callOwned('read', { file_path: 'a.txt' })).isError).toBe(false)
+    const edit = await callSig(AbortSignal.abort(), 'edit', { file_path: 'a.txt', old_string: 'hello', new_string: 'bye' })
+    expect(edit.isError).toBe(true)
+    expect(edit.error).toMatchObject({ code: 'FS_ABORTED' })
+    expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hello') // unchanged
+  })
+
+  it('two concurrent edits of the same file, same session: one wins, one FS_STALE_VERSION', async () => {
+    await writeFile(join(dir, 'a.txt'), 'base value here')
+    // One read establishes the observed version both edits guard against; then
+    // race two edits so both carry the SAME observed version (the barrier).
+    expect((await callOwned('read', { file_path: 'a.txt' })).isError).toBe(false)
+    const [one, two] = await Promise.all([
+      callOwned('edit', { file_path: 'a.txt', old_string: 'base', new_string: 'ONE', replaceAll: false }),
+      callOwned('edit', { file_path: 'a.txt', old_string: 'value', new_string: 'TWO', replaceAll: false }),
+    ])
+    const errors = [one, two].filter(r => r.isError)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]?.error).toMatchObject({ code: 'FS_STALE_VERSION' })
+    // The world is consistent: exactly one edit landed.
+    const onDisk = await readFile(join(dir, 'a.txt'), 'utf8')
+    expect(onDisk === 'ONE value here' || onDisk === 'base TWO here').toBe(true)
+  })
+
+  it('a throwing fs/observed listener surfaces as isError, but the mutation already hit disk', async () => {
+    // fs/observed is a plain ctx.emit AFTER the write succeeded; a throwing
+    // listener cannot roll the write back — it only turns the tool result into
+    // isError. The file must still carry the written bytes.
+    ctx.on('fs/observed', () => { throw new Error('recording bug') })
+    const result = await callOwned('write', { file_path: 'w.txt', content: 'durable' })
+    expect(result.isError).toBe(true)
+    expect(await readFile(join(dir, 'w.txt'), 'utf8')).toBe('durable')
+  })
+})

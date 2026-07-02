@@ -222,6 +222,22 @@ describe('streamWholeText', () => {
     await writeFile(file, 'one\ntwo')
     expect(await collect(streamWholeText(localTarget(file), new AbortController().signal))).toBe('one\ntwo')
   })
+
+  it('translates a mid-stream abort into FS_ABORTED', async () => {
+    // A multi-chunk file so the stream yields more than once; abort after the
+    // first chunk and assert the structured code, not a raw AbortError.
+    const file = join(dir, 'big.txt')
+    await writeFile(file, 'x'.repeat(256 * 1024))
+    const ac = new AbortController()
+    const run = async (): Promise<void> => {
+      let seen = 0
+      for await (const _chunk of streamWholeText(localTarget(file), ac.signal)) {
+        seen += 1
+        if (seen === 1) ac.abort()
+      }
+    }
+    await expect(run()).rejects.toMatchObject({ code: 'FS_ABORTED' })
+  })
 })
 
 describe('writeFileAtomic — temp-file safety', () => {

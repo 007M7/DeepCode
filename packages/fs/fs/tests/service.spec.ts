@@ -108,4 +108,11 @@ describe('FsError', () => {
     expect(error.name).toBe('FsError')
     expect(error).toBeInstanceOf(Error)
   })
+
+  it('chains an underlying cause through ErrorOptions', () => {
+    const root = new Error('EACCES')
+    const error = new FsError('cannot read', 'FS_ABORTED', { cause: root })
+    expect(error.cause).toBe(root)
+    expect(error.code).toBe('FS_ABORTED')
+  })
 })

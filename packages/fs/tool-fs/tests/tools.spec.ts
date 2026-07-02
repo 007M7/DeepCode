@@ -158,6 +158,20 @@ describe('read tool', () => {
     expect(text(result)).toContain('offset must be a positive integer')
   })
 
+  it('rejects a fractional or NaN offset, and a zero/negative limit', async () => {
+    const { ctx } = await setup()
+    for (const args of [
+      { file_path: 'a.txt', offset: 1.5 },
+      { file_path: 'a.txt', offset: Number.NaN },
+      { file_path: 'a.txt', limit: 0 },
+      { file_path: 'a.txt', limit: -3 },
+    ]) {
+      const result = await call(ctx, 'read', args)
+      expect(result.isError, JSON.stringify(args)).toBe(true)
+      expect(text(result)).toMatch(/must be a positive integer/)
+    }
+  })
+
   it('rejects a limit above the cap', async () => {
     const { ctx } = await setup()
     const result = await call(ctx, 'read', { file_path: 'a.txt', limit: 99999 })
@@ -289,6 +303,15 @@ describe('edit tool', () => {
     await call(ctx, 'read', { file_path: 'a.txt' }, { session })
     const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b' }, { session })
     expect(text(result)).toBe('The file /abs/a.txt has been updated successfully.')
+  })
+
+  it('formats the replace_all success message distinctly', async () => {
+    const { ctx, fs } = await setup()
+    const session = { header: {} }
+    fs.files.set('key:a.txt', 'a a a')
+    await call(ctx, 'read', { file_path: 'a.txt' }, { session })
+    const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b', replace_all: true }, { session })
+    expect(text(result)).toBe('The file /abs/a.txt has been updated. All occurrences were successfully replaced.')
   })
 
   it('rejects identical old/new strings', async () => {

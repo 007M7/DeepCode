@@ -196,6 +196,41 @@ describe('writeText', () => {
       .rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
     expect(lockCount(fs)).toBe(0)
   })
+
+  it('replaceIfVersion returns the post-write version (matches a fresh stat)', async () => {
+    await writeFile(join(dir, 'a.txt'), 'v1')
+    const target = await fs.resolve('a.txt')
+    const before = await versionOf(target)
+    // Change the byte length so the mtimeMs:size token provably differs (a
+    // same-size same-tick rewrite can collide — the documented version-token
+    // limitation; not what this test is about).
+    const outcome = await fs.writeText(target, 'a much longer replacement body', { kind: 'replaceIfVersion', version: before })
+    expect(outcome.version).not.toBe(before)
+    expect(outcome.version).toBe(await versionOf(target))
+  })
+
+  it('honors a pre-aborted signal without creating the file', async () => {
+    const target = await fs.resolve('aborted.txt')
+    await expect(fs.writeText(target, 'x', undefined, AbortSignal.abort()))
+      .rejects.toMatchObject({ code: 'FS_ABORTED' })
+    await expect(stat(join(dir, 'aborted.txt'))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(lockCount(fs)).toBe(0)
+  })
+
+  it('two concurrent guarded writes: one updates, the other is rejected as stale', async () => {
+    await writeFile(join(dir, 'a.txt'), 'base')
+    const target = await fs.resolve('a.txt')
+    const version = await versionOf(target)
+    const results = await Promise.allSettled([
+      fs.writeText(target, 'one', { kind: 'replaceIfVersion', version }),
+      fs.writeText(target, 'two', { kind: 'replaceIfVersion', version }),
+    ])
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1)
+    const rejected = results.filter(r => r.status === 'rejected')
+    expect(rejected).toHaveLength(1)
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({ code: 'FS_STALE_VERSION' })
+    expect(lockCount(fs)).toBe(0)
+  })
 })
 
 describe('editText', () => {
@@ -290,6 +325,41 @@ describe('editText', () => {
     const results = await Promise.allSettled([
       fs.editText(target, { oldString: 'base', newString: 'one', replaceAll: false }, { version }),
       fs.editText(target, { oldString: 'base', newString: 'two', replaceAll: false }, { version }),
+    ])
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1)
+    const rejected = results.filter(r => r.status === 'rejected')
+    expect(rejected).toHaveLength(1)
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({ code: 'FS_STALE_VERSION' })
+    expect(lockCount(fs)).toBe(0)
+  })
+
+  it('honors a pre-aborted signal without rewriting the file', async () => {
+    await writeFile(join(dir, 'a.txt'), 'keep')
+    const target = await fs.resolve('a.txt')
+    await expect(fs.editText(target, { oldString: 'keep', newString: 'x', replaceAll: false }, undefined, AbortSignal.abort()))
+      .rejects.toMatchObject({ code: 'FS_ABORTED' })
+    expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('keep')
+    expect(lockCount(fs)).toBe(0)
+  })
+
+  it('a successful edit refreshes the version so an immediate follow-up edit proceeds', async () => {
+    await writeFile(join(dir, 'a.txt'), 'one two')
+    const target = await fs.resolve('a.txt')
+    const first = await fs.editText(target, { oldString: 'one', newString: 'ONE', replaceAll: false }, { version: await versionOf(target) })
+    // The version the first edit returned is a valid guard for a second edit —
+    // no intervening re-stat needed.
+    const second = await fs.editText(target, { oldString: 'two', newString: 'TWO', replaceAll: false }, { version: first.version })
+    expect(second.replacements).toBe(1)
+    expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('ONE TWO')
+  })
+
+  it('concurrent write vs edit at the same version: one wins, the other is stale', async () => {
+    await writeFile(join(dir, 'a.txt'), 'base')
+    const target = await fs.resolve('a.txt')
+    const version = await versionOf(target)
+    const results = await Promise.allSettled([
+      fs.writeText(target, 'written', { kind: 'replaceIfVersion', version }),
+      fs.editText(target, { oldString: 'base', newString: 'edited', replaceAll: false }, { version }),
     ])
     expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1)
     const rejected = results.filter(r => r.status === 'rejected')

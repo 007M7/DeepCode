@@ -64,6 +64,13 @@ describe('write-intent decision', () => {
     expect(await writeIntent(ctx, target('a.txt'), {})).toEqual({ kind: 'createIfAbsent' })
   })
 
+  it('an actor with an agent but no session has no owner (createIfAbsent)', async () => {
+    // The middle optional-chain rung: agent present, session undefined ⇒ owner
+    // undefined ⇒ unobservable, so a write can only be a blind create.
+    const { ctx } = await setup()
+    expect(await writeIntent(ctx, target('a.txt'), { agent: {} })).toEqual({ kind: 'createIfAbsent' })
+  })
+
   it('an observed target decides replaceIfVersion at the observed version', async () => {
     const { ctx } = await setup()
     const exec = ownerExec({})
@@ -81,6 +88,11 @@ describe('edit-intent decision', () => {
   it('rejects an edit with no owner (cannot prove prior observation)', async () => {
     const { ctx } = await setup()
     await expect(editIntent(ctx, target('a.txt'), undefined)).rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
+  })
+
+  it('rejects an edit whose actor has an agent but no session (no owner)', async () => {
+    const { ctx } = await setup()
+    await expect(editIntent(ctx, target('a.txt'), { agent: {} })).rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
   })
 
   it('returns the observed version as the CAS basis after an observation', async () => {
@@ -164,6 +176,17 @@ describe('single-slot, first-wins', () => {
     const exec = ownerExec({})
     ctx.emit('fs/observed', target('a.txt'), FsVersion('v0'), exec)
     await editIntent(ctx, target('a.txt'), exec)
+    expect(secondRan).toBe(false)
+  })
+
+  it('a SECOND write-intent decider registered AFTER fs-policy is not reached', async () => {
+    const { ctx } = await setup()
+    let secondRan = false
+    ctx.on('fs/write-intent', () => {
+      secondRan = true
+      return Promise.resolve(undefined)
+    })
+    await writeIntent(ctx, target('a.txt'), ownerExec({}))
     expect(secondRan).toBe(false)
   })
 })
