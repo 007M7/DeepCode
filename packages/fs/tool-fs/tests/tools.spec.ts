@@ -352,34 +352,46 @@ describe('tool-owned presentation (pure presentCall)', () => {
     return ctx.tools.get(name)?.presentCall?.(args)
   }
 
-  it('read: titles by file, read kind, location with the offset line', async () => {
+  it('read: generic card titled by file with the read window, read kind, location with the offset line', async () => {
     expect(await presentCall('read', { file_path: 'src/a.ts', offset: 12, limit: 40 })).toEqual({
-      title: 'Read src/a.ts', kind: 'read', rawInput: 'offset 12, limit 40',
+      card: 'generic', title: 'Read src/a.ts (12 - 51)', kind: 'read',
       locations: [{ path: 'src/a.ts', line: 12 }],
     })
   })
 
-  it('read: omits rawInput and the location line when offset/limit are unset', async () => {
+  it('read: bare title and line-1 location when offset/limit are unset', async () => {
     expect(await presentCall('read', { file_path: 'a.txt' })).toEqual({
-      title: 'Read a.txt', kind: 'read', locations: [{ path: 'a.txt' }],
+      card: 'generic', title: 'Read a.txt', kind: 'read', locations: [{ path: 'a.txt', line: 1 }],
     })
   })
 
-  it('write: titles by file, edit kind, location', async () => {
-    expect(await presentCall('write', { file_path: 'out.txt', content: 'x' })).toEqual({
-      title: 'Write out.txt', kind: 'edit', locations: [{ path: 'out.txt' }],
+  it('read: "from line N" window when only offset is set', async () => {
+    expect(await presentCall('read', { file_path: 'a.txt', offset: 5 })).toEqual({
+      card: 'generic', title: 'Read a.txt (from line 5)', kind: 'read', locations: [{ path: 'a.txt', line: 5 }],
     })
   })
 
-  it('edit: titles by file, edit kind, an old→new rawInput summary, location', async () => {
-    expect(await presentCall('edit', { file_path: 'a.txt', old_string: 'foo', new_string: 'bar' })).toEqual({
-      title: 'Edit a.txt', kind: 'edit', rawInput: '"foo" → "bar"', locations: [{ path: 'a.txt' }],
+  it('write: diff card (new-file style, oldText null), location', async () => {
+    expect(await presentCall('write', { file_path: 'out.txt', content: 'hello' })).toEqual({
+      card: 'diff', title: 'Write out.txt',
+      diffs: [{ path: 'out.txt', oldText: null, newText: 'hello' }],
+      locations: [{ path: 'out.txt' }],
     })
   })
 
-  it('edit: clips a long old/new string in the rawInput summary', async () => {
-    const long = 'a'.repeat(60)
-    const p = await presentCall('edit', { file_path: 'a.txt', old_string: long, new_string: 'b' })
-    expect((p as { rawInput: string }).rawInput).toBe(`${JSON.stringify(`${'a'.repeat(40)}…`)} → ${JSON.stringify('b')}`)
+  it('read: a limit with no offset windows from line 1', async () => {
+    expect(await presentCall('read', { file_path: 'a.txt', limit: 10 })).toEqual({
+      card: 'generic', title: 'Read a.txt (1 - 10)', kind: 'read', locations: [{ path: 'a.txt', line: 1 }],
+    })
+  })
+
+  it('edit: an empty old_string maps to oldText null (a whole-file replace diff)', async () => {
+    // presentCall runs on replay of raw logged args, which parseEditArgs does not
+    // gate — an empty old_string must still produce a valid diff (oldText null).
+    expect(await presentCall('edit', { file_path: 'a.txt', old_string: '', new_string: 'seed' })).toEqual({
+      card: 'diff', title: 'Edit a.txt',
+      diffs: [{ path: 'a.txt', oldText: null, newText: 'seed' }],
+      locations: [{ path: 'a.txt' }],
+    })
   })
 })

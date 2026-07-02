@@ -27,7 +27,7 @@ Tool registry and execution waterfall. Tool plugins register their schemas and e
 - `ToolDefinition` — `ToolSchema` + `execute(args, exec): Promise<ContentBlock[]>`, plus optional `presentCall(args)` / `presentResult(args, result)` for tool-owned UI presentation (see below).
 - `ToolExecution` — one pending tool call: `{ callId, name, arguments, agent?, signal? }`.
 - `ToolExecutionResult` — outcome: `{ callId, content, isError, error? }`. On failure with a `HarnessError`, `error: { name, code }` carries the structured failure class alongside the model-facing text (the loop forwards it onto the `tool/result` session event for retry/sandbox plugins and replay).
-- `ToolCallPresentation` / `ToolResultPresentation` — provider-neutral shapes a tool returns from `presentCall` / `presentResult` to own how a UI renders ITS calls (see "Tool-owned UI presentation").
+- `ToolCallView` / `ToolResultView` — provider-neutral `card`-tagged render intents a tool returns from `presentCall` / `presentResult` to own how a UI renders ITS calls (see "Tool-owned UI presentation").
 
 ### Extension points
 
@@ -70,12 +70,17 @@ See `defineTool`, `validateArgs`, `ToolArgsError`, `SchemaSpec`, `InferArgs`, an
 
 ### Tool-owned UI presentation
 
-A tool owns how ITS calls render in a UI (an editor's tool-call card, a CLI log line) — a UI plugin must NOT special-case tool names. A `ToolDefinition` may declare two optional, pure, display-only methods:
+A tool owns how ITS calls render in a UI (an editor's tool-call card, a CLI log line) — a UI plugin must NOT special-case tool names. A `ToolDefinition` may declare two optional, pure, display-only methods that return a **`card`-tagged render intent** (a discriminated union — a tool declares its card kind once and a UI bridge switches on `card`):
 
-- `presentCall(args): ToolCallPresentation | undefined` — the PENDING state: a human-readable `title` (always-visible label), an optional `kind` (`read`/`edit`/`execute`/… for icon/treatment, default `other`), an optional `rawInput` (the salient input to show in a detail view — e.g. a shell command as a string, NOT the whole args object), an optional `content` (UI content shown alongside the title/card — e.g. a bash `description` as a text block above the terminal card), an optional `locations` (`{ path, line? }[]` — the files this call reads/modifies, so a capable UI can follow along / jump to them; the ACP bridge forwards them as `tool_call.locations`), and an optional `terminal` (a neutral `{ cwd? }` asking a capable UI to render this call as a TERMINAL, e.g. for `bash`).
-- `presentResult(args, result): ToolResultPresentation | undefined` — the COMPLETED state, given the same `args` and the `{ content, isError }` result: an optional replacement `title`, reformatted `content` (e.g. wrap command output in a fenced ` ```console ` block — a UI-only affordance that must NOT appear in the model-facing `execute` result), and an optional `terminal` (the `{ output?, exitCode?, signal? }` for a terminal-rendered call). The `ToolTerminal` shape is provider-neutral; a UI bridge (the ACP bridge) maps it to a terminal card (with an exit-status pill) and a UI that can't ignores it and uses `content`.
+- `presentCall(args): ToolCallView | undefined` — the PENDING state, one of:
+  - `{ card: 'generic', title, kind?, rawInput?, content?, locations? }` — the default card: a human-readable `title`, an optional `kind` (`read`/`edit`/`execute`/… for icon/treatment, default `other`), an optional `rawInput` (the salient input to show in a detail view — e.g. a background task id, NOT the whole args object), optional `content` (extra UI content blocks), and optional `locations` (`{ path, line? }[]` — files this call reads/modifies, so a capable UI can follow along; the ACP bridge forwards them as `tool_call.locations`).
+  - `{ card: 'terminal', title, description?, cwd? }` — a shell command: a capable UI renders a terminal card (the `title` is the command, `description` renders above it, `cwd` heads it); an incapable UI falls back to a generic execute card.
+  - `{ card: 'diff', title, diffs, locations? }` — a file create/modify: a capable UI renders an inline diff card from `diffs` (`{ path, oldText, newText }[]`; `oldText: null` for a new file). Used by `write`/`edit`.
+- `presentResult(args, result): ToolResultView | undefined` — the COMPLETED state, given the same `args` and the `{ content, isError }` result, one of:
+  - `{ card: 'generic', title?, content? }` — an optional replacement `title` and reformatted `content`.
+  - `{ card: 'terminal', title?, output?, exitCode?, signal? }` — a terminal run's captured `output` and exit status. A capable UI shows an exit-status pill; an incapable UI gets a fenced ` ```console ` fallback the BRIDGE derives from `output` (the tool does not encode the fences).
 
-Returning `undefined` (or omitting a method) tells a UI to fall back to a generic presentation (title = tool name, raw args as input, raw result content). Both methods must be **pure and side-effect-free**: a UI may call them during live streaming AND during a session-log replay, so they depend only on their arguments. With `defineTool`, `args` is the typed `InferArgs<S>` shape; the helper soft-validates before calling (a malformed/older logged arg shape yields `undefined` rather than throwing, since display must never crash a replay). The shapes are provider-neutral — the ACP bridge (`dsh-acp`) maps them to ACP `tool_call`/`tool_call_update` wire fields, and `dsh-tool-bash` is the reference implementation.
+Returning `undefined` (or omitting a method) tells a UI to fall back to a generic presentation (title = tool name, raw args as input, raw result content). Both methods must be **pure and side-effect-free**: a UI may call them during live streaming AND during a session-log replay, so they depend only on their arguments. With `defineTool`, `args` is the typed `InferArgs<S>` shape; the helper soft-validates before calling (a malformed/older logged arg shape yields `undefined` rather than throwing, since display must never crash a replay). The views are provider-neutral — the ACP bridge (`dsh-acp`) maps each `card` to ACP `tool_call`/`tool_call_update` wire fields (a `diff` card to a `{ type: 'diff' }` content block, a `terminal` card to the `_meta` terminal convention), and relativizes a file card's title against the session cwd. See the render-intent-union RFC (`docs/rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md`); `dsh-tool-bash` (terminal) and `dsh-tool-fs` (diff/generic) are the reference implementations.
 
 ```ts
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -90,13 +95,13 @@ const bash = defineTool({
   async execute(args) {
     return [{ type: 'text', text: `ran: ${args.command}` }]
   },
-  // The command is the readable title; the description rides as a content block.
-  presentCall: args => ({ title: args.command, kind: 'execute', rawInput: args.command, content: [{ type: 'text', text: args.description }] }),
-  // Wrap the output as a console block for the UI (not in the model-facing result).
+  // A terminal card: the command is the title, the description renders above it.
+  presentCall: args => ({ card: 'terminal', title: args.command, description: args.description }),
+  // A terminal result: the raw output + exit; the bridge derives the fenced fallback.
   presentResult: (_args, result) => {
     const block = result.content.length === 1 ? result.content[0] : undefined
     if (block === undefined || block.type !== 'text') return undefined
-    return { content: [{ type: 'text', text: '```console\n' + block.text + '\n```' }] }
+    return { card: 'terminal', output: block.text }
   },
 })
 ```

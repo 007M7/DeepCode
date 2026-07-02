@@ -99,7 +99,7 @@ Tool-call presentation is **owned by each tool** (`presentCall` / `presentResult
 | `ToolCallKind` mapping | S | ✅ | ✅ | ✅ | `execute`/`read`/`edit`/`other` inferred from the tool; richer mapping possible. |
 | `ToolCallStatus` | S | ✅ | ✅ | ✅ | `in_progress` → `completed`/`failed`. |
 | `content` blocks | S | ✅ | ✅ | ✅ | Text content; the description renders above the card. |
-| `diff` content | S | ❌ | ✅ | ✅ | No structured diff rendering for edits (would need a diffing edit tool + presenter). |
+| `diff` content | S | ✅ | ✅ | ✅ | The `write`/`edit` tools declare a `diff` render intent (`presentCall` → `{ card: 'diff' }`); the bridge emits `{ type: 'diff', path, oldText, newText }` content blocks (call-time, args-derived — applied-hunk diffs are a follow-up). |
 | `terminal` content | S | ✅ | ✅ | ✅ | Via the Zed `_meta` terminal convention (see below), not the spec `terminal/*` sub-protocol. |
 | `locations` (follow-along) | S | ✅ | ✅ | ✅ | The `read`/`write`/`edit` tools emit `{ path, line? }` file-location hints via `presentCall`. |
 | `rawInput` | S | ✅ | ⚠️ | ✅ | Parsed tool args surfaced as `rawInput`. |
@@ -147,7 +147,7 @@ Ranked by how commonly the reference adapters ship them and how much UX they unl
 5. **Slash commands** (`available_commands_update`).
 6. **MCP passthrough** (`mcpServers` on `session/new` + `mcpCapabilities`).
 7. **Richer prompt content** — image / embedded `resource` blocks (needs a multimodal model path).
-8. **Diff tool rendering** — structured `diff` content for edit tools (the `locations` follow-along hint already ships on `read`/`write`/`edit`).
+8. **Applied-hunk diff rendering** — the `write`/`edit` diff cards ship (call-time, args-derived: whole `old_string`→`new_string`). Result-time structured-patch hunks with surrounding context (what `claude-agent-acp` derives from a PostToolUse hook) need a new result/event shape carrying the patch — a follow-up.
 9. **Usage reporting** (`usage_update`) — the harness already records token usage internally (on `assistant/message`).
 10. **Editor filesystem delegation** (`fs/read_text_file` / `fs/write_text_file`) — lets the agent see unsaved buffers; lower priority since the harness has direct disk access.
 

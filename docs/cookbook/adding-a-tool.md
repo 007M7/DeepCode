@@ -48,6 +48,26 @@ Follow tool-bash's background pattern: a `run_in_background` flag returns a task
 
 Prefer not to build policy into the tool. The seam is the `tools/execute` waterfall (veto or wrap — see the permission-gate example in [extension-cookbook.md](./extension-cookbook.md)), or a sandboxing implementation behind the tool's executor seam.
 
+## How your tool renders in an editor (ACP presentation)
+
+Your tool's `execute` returns model-facing content; its **editor card** is a separate, optional concern you declare with two pure display methods on the `defineTool` options. Design this alongside `execute`, not after — an editor (Zed, over the ACP bridge) shows the card, and a tool with no presentation falls back to a bland generic card (title = tool name, raw args as input).
+
+Both methods return a **`card`-tagged render intent** — pick the card kind that matches what your tool does:
+
+- `presentCall(args)` → a `ToolCallView` (the PENDING card):
+  - `{ card: 'generic', title, kind?, rawInput?, content?, locations? }` — the default. Set `kind` for an icon (`read`/`search`/…); set `locations: [{ path, line? }]` for any file your tool touches so a capable editor follows along / jumps to it.
+  - `{ card: 'terminal', title, description?, cwd? }` — your call IS a shell command. `title` is the command, `description` renders above the terminal card. (tool-bash.)
+  - `{ card: 'diff', title, diffs, locations? }` — your call creates or modifies a file. `diffs: [{ path, oldText, newText }]` (`oldText: null` for a new file) renders as an inline diff card. (tool-fs `write`/`edit`.)
+- `presentResult(args, { content, isError })` → a `ToolResultView` (the COMPLETED card): `{ card: 'generic', title?, content? }` or `{ card: 'terminal', title?, output?, exitCode?, signal? }` (the run's captured output + exit — the bridge shows an exit pill and derives a fenced ` ```console ` fallback for editors without the terminal capability).
+
+Hard rules (they bite if broken):
+
+- **Purity.** These run on live streaming AND on session-log REPLAY, so they must be pure functions of `args` (+ the result) — NO I/O, NO reading session state, NO clock/random. A diff is derived from the args (`write` uses `oldText: null` because a call-time presenter has no prior file content); the BRIDGE, not the tool, fills the session cwd and relativizes a display-path title. If you find yourself wanting the file's old content or the working directory inside `presentCall`, stop — that belongs on the bridge or a future result-event shape, not the presenter.
+- **UI-only formatting stays out of the model result.** A fenced ` ```console ` block, a diff, a relativized path — none of these may appear in what `execute` returns to the model; they live only in the presentation. (A `terminal` result view carries RAW `output`; the bridge adds the fences.)
+- **`defineTool` soft-validates the display path.** A malformed/older logged arg shape makes the wrapper return `undefined` (a generic fallback) rather than throw — display must never crash a replay.
+
+The neutral vocabulary lives in `dsh-tools` (never import an ACP type into a tool); the ACP bridge maps each `card` to the wire. The design and the why are in [the render-intent-union RFC](../rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md); `dsh-tool-fs` (generic/diff) and `dsh-tool-bash` (terminal) are the reference implementations.
+
 ## Tests every tool needs
 
-Arg-validation rejections, result shaping for every outcome, the HMR disposal test, and — for tools with side effects — an integration spec that drives the tool through the agent loop with a scripted `MockAdapter` (`packages/core/agent-loop/tests/mock-adapter.ts`), asserting the `tool/call` / `tool/result` session events.
+Arg-validation rejections, result shaping for every outcome, the HMR disposal test, and — for tools with side effects — an integration spec that drives the tool through the agent loop with a scripted `MockAdapter` (`packages/core/agent-loop/tests/mock-adapter.ts`), asserting the `tool/call` / `tool/result` session events. **If your tool has an editor card, also add:** a unit test on `presentCall`/`presentResult` asserting the exact view shape, AND — because a unit test proves the shape but not that an editor renders it — a **snapshot scenario** under `examples/acp-agent/tests/snapshots/` that drives the real tool through the ACP bridge and pins the rendered `tool_call` transcript (the card kind is only verified end-to-end there; see the [ACP snapshot-tests RFC](../rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md)). A tool whose card is a `terminal` needs a scenario whose `input.json` sets `terminalOutput: true` to exercise the capable-client `_meta` path.

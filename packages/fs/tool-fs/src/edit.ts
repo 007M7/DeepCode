@@ -14,6 +14,7 @@
 
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { DiffCallView } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { FsEditOutcome } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
@@ -83,16 +84,15 @@ export function applyEditTool(ctx: Context): void {
       ctx.emit('fs/observed', target, outcome.version, exec)
       return [{ type: 'text', text: formatEditOutput(target.displayPath, outcome) }]
     },
-    // Pure display: `edit` kind, a location for editor follow-along, and a short
-    // old→new summary as rawInput (truncated so a large replacement stays a
-    // readable card). The replacement COUNT is not available here — presentResult
-    // only sees `{ content, isError }`, not the outcome — so the title is static.
-    presentCall(args) {
-      const clip = (s: string): string => (s.length > 40 ? `${s.slice(0, 40)}…` : s)
+    // Pure display: a diff card of the literal replacement (old_string →
+    // new_string), derived from the call args. `oldText: old_string || null`
+    // matches claude-agent-acp's Edit arm; new_string is a required arg here, so
+    // it maps straight to newText. A follow-along location points at the file.
+    presentCall(args): DiffCallView {
       return {
+        card: 'diff',
         title: `Edit ${args.file_path}`,
-        kind: 'edit',
-        rawInput: `${JSON.stringify(clip(args.old_string))} → ${JSON.stringify(clip(args.new_string))}`,
+        diffs: [{ path: args.file_path, oldText: args.old_string || null, newText: args.new_string }],
         locations: [{ path: args.file_path }],
       }
     },

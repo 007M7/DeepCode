@@ -14,6 +14,7 @@
 
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { FsError } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
@@ -101,19 +102,21 @@ export function applyReadTool(ctx: Context): void {
       ctx.emit('fs/observed', target, info.version, exec)
       return [{ type: 'text', text: formatReadOutput(target.displayPath, outcome) }]
     },
-    // Pure display: a UI card titled by the file, `read` kind (icon), and a
-    // location so an editor can follow along to the file (and the read's offset
-    // line). `rawInput` surfaces offset/limit when the model narrowed the read.
-    presentCall(args) {
-      const detail = [
-        ...args.offset !== undefined ? [`offset ${args.offset}`] : [],
-        ...args.limit !== undefined ? [`limit ${args.limit}`] : [],
-      ].join(', ')
+    // Pure display: a generic card titled by the file with the read window
+    // appended (`Read foo.txt (5 - 8)`), `read` kind (icon), and a follow-along
+    // location whose line is the read's offset (defaulting to 1). The window is
+    // derived from the RAW args (offset/limit as the model passed them), NOT the
+    // tool's defaulted 1/READ_LIMIT, so an unbounded read shows a bare title.
+    presentCall(args): GenericCallView {
+      const { offset, limit } = args
+      const window = limit !== undefined && limit > 0
+        ? ` (${offset ?? 1} - ${(offset ?? 1) + limit - 1})`
+        : offset !== undefined ? ` (from line ${offset})` : ''
       return {
-        title: `Read ${args.file_path}`,
+        card: 'generic',
+        title: `Read ${args.file_path}${window}`,
         kind: 'read',
-        locations: [{ path: args.file_path, ...args.offset !== undefined ? { line: args.offset } : {} }],
-        ...detail.length > 0 ? { rawInput: detail } : {},
+        locations: [{ path: args.file_path, line: offset ?? 1 }],
       }
     },
   }))

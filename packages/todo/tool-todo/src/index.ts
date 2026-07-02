@@ -118,6 +118,6 @@ export function apply(ctx: Context): void {
         text: `Updated todo list: ${count('pending')} pending, ${count('in_progress')} in progress, ${count('completed')} completed.`,
       }])
     },
-    presentCall: args => ({ title: 'Update todo list', kind: 'other', rawInput: args.todos }),
+    presentCall: args => ({ card: 'generic', title: 'Update todo list', kind: 'other', rawInput: args.todos }),
   }))
 }
