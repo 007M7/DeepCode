@@ -39,6 +39,7 @@
     { "path": "./packages/bash/tool-bash" },
     { "path": "./packages/compact/compact" },
     { "path": "./packages/session-fork/session-fork" },
+    { "path": "./packages/compact/compact-basic" },
     { "path": "./packages/support/invariants" },
     { "path": "./packages/ui/acp" },
     { "path": "./packages/ui/acp-agent" },

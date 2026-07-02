@@ -73,6 +73,15 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
     bash/           abstract bash executor seam (ctx.bash) — interface only
     bash-local/     local-subprocess BashExecutor implementation
     tool-bash/      model-facing bash/bash_output/bash_kill tool schemas
+  compact/        compaction capability family
+    compact/        abstract compaction seam (ctx.compact); backend + tool deferred
+  subagent/       subagent capability family
+    subagent/       provider-registry seam (ctx.subagents)
+    subagent-inprocess/ shared in-process run driver (library, registers nothing)
+    subagent-spawn/ in-process fresh-child backend
+    subagent-fork/  in-process backend seeded from the parent's completed-turn prefix
+    subagent-acp/   out-of-process child over ACP
+    tool-subagent/  model-facing delegation tool over ctx.subagents
   todo/           todo/planning capability family
     tool-todo/      model-facing todo_write tool: writes the whole task list to
                     the session log (todo/write), rendered as a stdio checklist /
@@ -95,20 +104,23 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
                     feeds stdin lines to the agent (shared by the demos)
     llm-replay/     record/replay adapter: short-circuits llm/stream from a
                     recorded session JSONL (keyless snapshot tests)
+    subagent-mock/  scripted SubagentProvider for deterministic seam/tool tests
   util/           low-level zero-dependency utilities shared across groups
     brand/          type-only Branded<B> nominal-typing primitive (no runtime
                     code, no harness deps; owns the brand for cross-boundary ids)
 examples/    Runnable demos (not workspaces; see examples/AGENTS.md). Each is a
              THIN leaf cordis.yml: it picks the swappable backends (an LLM adapter,
-             a bash executor) and loads ONE app package (dsh-stdio-agent or
-             dsh-acp-agent), which bundles the agent-core spine + front-door
-             cluster + boot glue (a bin). No start.ts. echo-agent = mock model +
-             echo tool on dsh-stdio-agent (pnpm run demo:echo, no key).
-             coding-agent = the real thing: DeepSeek V4 + bash tools on the same
-             app (pnpm run demo:coding, needs DEEPSEEK_API_KEY). acp-agent = the
-             coding agent as an ACP server on dsh-acp-agent (pnpm run demo:acp,
-             needs DEEPSEEK_API_KEY). cordis.snapshot.yml = the acp leaf with
-             llm-replay for keyless snapshot replay.
+             a bash executor), loads ONE app package (dsh-stdio-agent or
+             dsh-acp-agent), and may add optional product tools or demo-local
+             teaching plugins. The app package bundles the agent-core spine +
+             front-door cluster + boot glue (a bin). No start.ts. echo-agent =
+             mock model + echo tool on dsh-stdio-agent (pnpm run demo:echo, no
+             key). coding-agent = the real thing: DeepSeek V4 + bash tools +
+             subagent + todo_write on the same app (pnpm run demo:coding, needs
+             DEEPSEEK_API_KEY). acp-agent = the coding agent as an ACP server on
+             dsh-acp-agent (pnpm run demo:acp, needs DEEPSEEK_API_KEY).
+             cordis.snapshot.yml = the acp leaf with llm-replay for keyless
+             snapshot replay.
 docs/        architecture.md — the design doc. module-graph.md — generated
              inter-package dependency graph (Mermaid; `pnpm run gen-module-graph`).
              rfc/ — design decisions and proposals, one kind of doc grouped by
@@ -181,7 +193,21 @@ pnpm run demo:acp   # run examples/acp-agent — the coding agent as an ACP
 CI is the backstop, not the first place a gate runs. Before you open a non-draft PR or move one from draft to ready, run the same gates CI runs, on your own tree, and confirm they pass — do not lean on CI (or a Codex pass) to discover a red gate you could have caught locally. The CI-equivalent local run is:
 
 ```sh
-pnpm run typecheck && pnpm run lint && pnpm run test:coverage && pnpm run test:snapshot && pnpm run doc-sync && pnpm run hygiene && pnpm run build
+set -euo pipefail
+pnpm run typecheck
+pnpm run lint
+pnpm run test:coverage
+pnpm run test:snapshot
+pnpm run doc-sync
+pnpm run verify-module-graph
+pnpm run build
+pnpm run hygiene
+out=$(printf 'echo ci smoke\n' | pnpm run demo:echo 2>&1)
+printf '%s\n' "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
+printf '%s\n' "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
+ls .sessions/_no-cwd/main-session-*.jsonl >/dev/null
+rm -rf .sessions
+pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts
 ```
 
 **`pnpm run test:coverage`, NOT `pnpm run test`, is the gating test command.** `pnpm run test` runs `vitest run` with no coverage; CI's node job runs `test:coverage`, which enforces a **per-file 100%** threshold on `packages/*/*/src`. A suite that is green under `test` can still fail CI on an uncovered line — and that uncovered line is often *dead code* the 100% gate is correctly flagging for deletion (see [§ Defensive patterns](#defensive-patterns-hard-won) "Line coverage is not behavior coverage"), not a missing test to bolt on. `hygiene` (knip + publint + workspace constraints + NodeNext types) and `test:snapshot` (keyless ACP replay) are likewise CI gates that `test` alone does not cover. When you rely on a Codex convergence pass for sign-off, check WHICH commands it ran: a pass that ran `test` but not `test:coverage`/`hygiene`/`doc-sync` has not exercised those gates.
@@ -250,15 +276,15 @@ In the **core** packages (`packages/llm/llm`, `packages/core/tools`, `packages/c
 
 Verbose documentation is fine **as long as docs and code stay strictly in sync**. Out-of-sync docs are worse than no docs. **When you change code, update its docs in the SAME change** — grep the package README and the module/JSDoc comments for the old behavior (config keys, defaults, error codes, wire field names, event names) and fix every hit. CI runs `pnpm run doc-sync` (`doc-typecheck` + `verify-cordis-catalog` + `verify-md-wrap` + `verify-md-links` + `verify-doc-refs` + `verify-package-paths` + `verify-rfc-classification` + `verify-type-equiv`), which typechecks every fenced `ts` block in `README.md`, `docs/**/*.md`, and `packages/*/*.md`, regenerates the cordis events/services catalog from source and fails if the committed copy is stale, asserts no hard-wrapped prose paragraphs, checks that every relative Markdown cross-link resolves, checks that every `docs/*.md` path cited in a source comment resolves, checks that every `packages/<path>` reference naming a real package resolves, checks that every RFC is filed under a valid class folder and listed in its index, and checks that every ` ```ts type-equiv ` doc block still matches its source type — across those files plus `AGENTS.md` / `packages/AGENTS.md` — but that scope does NOT catch prose drift in `AGENTS.md` / `packages/AGENTS.md` / `packages/README.md` (config keys, defaults, error codes), so keeping those in sync remains on the author. Every module has a module-level doc comment explaining its role. Every exported class, interface, type, function, and non-obvious method has a JSDoc that explains semantics (not just the name) — contracts (what events fire when), disposal behavior, error behavior, and extension intent. Internal helpers get docs only where non-obvious. Prefer one-liners when one line suffices.
 
-**Tag every new event with `@mode`.** The cordis events/services catalog ([docs/cordis-catalog/events-and-services.md](docs/cordis-catalog/events-and-services.md)) is GENERATED from source by `scripts/gen-cordis-catalog.ts` — never hand-edit it; run `pnpm run gen-cordis-catalog` and commit the result. When you add an event to an `interface Events` block, its JSDoc MUST carry a `@mode emit|waterfall|parallel` tag (the generator hard-errors without it): use `waterfall` when the signature ends with a `next: () => …` parameter (the listener transforms or vetoes via `next()`), `parallel` when the loop awaits a fan-out with no veto (e.g. an awaited `Promise<void> | void` checkpoint like `session/flush`), and `emit` for plain fire-and-forget notifications. The generator also cross-checks the tag against the signature where the shape is conclusive (a trailing `next` ⇒ waterfall) and hard-errors on a contradiction. Write the rest of the event's JSDoc to stand alone — it is the catalog entry's prose.
+**Tag every new event with `@mode`.** The cordis events/services catalog ([docs/cordis-catalog/events-and-services.md](docs/cordis-catalog/events-and-services.md)) is GENERATED from source by `scripts/gen-cordis-catalog.ts` — never hand-edit it; run `pnpm run gen-cordis-catalog` and commit the result. When you add an event to an `interface Events` block, its JSDoc MUST carry a `@mode emit|waterfall|parallel|serial` tag (the generator hard-errors without it): use `waterfall` when the signature ends with a `next: () => …` parameter (the listener transforms or vetoes via `next()`), `parallel` when the loop awaits a fan-out and must run every listener (e.g. an awaited `Promise<void> | void` checkpoint like `session/flush`), `serial` when the loop awaits listeners in registration order and should isolate side effects (e.g. an ordered surface-mutation checkpoint like `agent/pre-step`; Cordis stops early if a listener returns a bail value, so `void` serial listeners must not return a semantic veto), and `emit` for plain fire-and-forget notifications. The generator also cross-checks the tag against the signature where the shape is conclusive (a trailing `next` ⇒ waterfall) and hard-errors on a contradiction. Write the rest of the event's JSDoc to stand alone — it is the catalog entry's prose.
 
 **The core-data-structures catalog is a maintained surface, not a write-once artifact.** [docs/core-data-structures/](docs/core-data-structures/core.md) catalogs the spine vocabulary (core.md) and the per-seam types (sub-pages). When a change adds, removes, or reshapes a type the catalog documents — a new `…Map` variant, a new content-block or session-event type, a field on `GenerateOptions`/`Agent`/`ToolDefinition`/a bash type, or a whole new core/seam type — update the catalog in the SAME change: edit the prose, and for a pasted ` ```ts type-equiv ` block, re-copy it verbatim and keep `scripts/type-equiv.manifest.json` 1:1 with the blocks. The `verify-type-equiv` gate catches a *drifted paste* of an already-documented type, but it canNOT tell you a brand-new core type was never documented — that judgment is on the author and the reviewer. The definition of "core" (the spine-vs-seam line) is in [core.md § What counts as "core"](docs/core-data-structures/core.md#what-counts-as-core); a genuinely spine-level new type belongs in core.md, a new capability's vocabulary on a sub-page. See [development.md](docs/development.md#documenting-types-verbatim-ts-type-equiv) for the `ts type-equiv` mechanics.
 
 **Document the CURRENT state — the "what" and "why" — never the PROCESS or HISTORY of how it got there.** A comment, JSDoc, or doc paragraph describes what the code *is* and why it is that way, as if it had always been so. Do NOT narrate the change that produced it: no "previously X, now Y", "changed from", "used to", "this replaces", "the old map", "renamed", "moved here", "as of this PR", or "(was …)". **In particular, NEVER name the change unit a reader cannot see — the PR, commit, or stack position that introduced the code — in a comment, JSDoc, OR a test name/description.** A `// (PR D's per-agent teardown)` aside, a `* Tests for the cancel primitive (PR C).` module doc, or an `it('… identity no longer matters')` title that only makes sense relative to a prior design are all the same violation: the reader of the current tree has no "PR D" or "old design" to anchor against, and the reference rots the moment the stack merges. Name the *mechanism* (`the session's AgentHandle teardown`), not the PR. Such phrasing rots the instant the next change lands, and a reader of the current code does not need the diff narrated in prose — that belongs in the commit message, the PR description, or an RFC (the durable home for "why we moved away from X"). Write "the owner token lives on the task in the executor" — not "ownership *now* lives on the executor instead of a plugin-local map". When a contrast genuinely aids understanding (a non-obvious choice between live alternatives), frame it against the alternative as a standing fact ("stored on the executor, NOT the tool plugin, so it survives an HMR reload"), not against the codebase's past. The same rule governs review-fix commits: the *commit message* records what the review caught; the *code comment* it touches states only the resulting truth. RFCs (`docs/rfc/`, grouped into `proposed/` / `implemented/` / `rejected/`) record the *why* behind choices a future reader would otherwise re-litigate (the vendoring policy, event-sourcing, the schema DSL are the existing examples). A PR that introduces such a decision — a new third-party runtime dependency over the vendoring default, a cross-package contract, a security/isolation model, a deviation from a documented architecture rule — writes the RFC in `implemented/` **in the same PR**, and links it from the relevant code. A proposal for future work not yet built goes in `proposed/`. A PR whose changes are mechanical, self-evident, or already covered by an existing RFC needs none — do not manufacture an RFC for a routine change. When unsure, the test is: would a competent maintainer six months from now ask "why was it done this way?" and be unable to answer from the code alone? If yes, write it. See [docs/rfc/README.md](docs/rfc/README.md) for the naming scheme and [docs/AGENTS.md](docs/AGENTS.md) for the cross-link convention.
 
-**Markdown is not hard-wrapped**: write one line per paragraph and let the editor soft-wrap. Hard line breaks mid-paragraph make docs harder to edit and diff — a one-word change reflows and re-diffs the whole paragraph. This applies to prose only: leave fenced code blocks, tables, and list structure intact (a wrapped list item folds to one line per bullet). Code comments / JSDoc are exempt — they stay under the linter's column limit. `pnpm run verify-md-wrap` (part of `doc-sync`) enforces this across `README.md`, `docs/**/*.md`, `packages/*/*.md`, and `AGENTS.md` / `packages/AGENTS.md`; `pnpm run verify-md-links` (also part of `doc-sync`) checks that every relative cross-link in those files resolves.
+**Markdown is not hard-wrapped**: write one line per paragraph and let the editor soft-wrap. Hard line breaks mid-paragraph make docs harder to edit and diff — a one-word change reflows and re-diffs the whole paragraph. This applies to prose only: leave fenced code blocks, tables, and list structure intact (a wrapped list item folds to one line per bullet). Code comments / JSDoc are exempt — they stay under the linter's column limit. `pnpm run verify-md-wrap` (part of `doc-sync`) enforces this across `README.md`, `docs/**/*.md`, `packages/*/*.md`, and `AGENTS.md` / `packages/AGENTS.md`; `pnpm run verify-md-links` (also part of `doc-sync`) checks that every relative cross-link in those files plus `examples/**/*.md` and `.agents/skills/**/*.md` resolves.
 
-**Editing these instructions**: `AGENTS.md` is the real file; `CLAUDE.md` is a symlink to it (at the repo root and in `packages/`). Always edit `AGENTS.md` — never write through the `CLAUDE.md` symlink or replace it with a regular file.
+**Editing these instructions**: `AGENTS.md` is the real file; `CLAUDE.md` is a symlink to it (at the repo root and in `packages/` / `examples/`). Always edit `AGENTS.md` — never write through the `CLAUDE.md` symlink or replace it with a regular file.
 
 ## Vendoring Policy
 
