@@ -35,7 +35,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
   it('boots every shipped tool package and harvests its model-facing schemas', async () => {
     const catalog = await collectToolCatalog()
     const names = catalog.flatMap(entry => entry.schemas.map(s => s.name)).sort()
-    expect(names).toEqual(['bash', 'bash_kill', 'bash_output', 'subagent', 'todo_write'])
+    expect(names).toEqual(['bash', 'bash_kill', 'bash_output', 'edit', 'read', 'subagent', 'todo_write', 'write'])
     // Every tool carries a JSON-Schema `parameters` object (what the model sees).
     for (const entry of catalog) {
       for (const schema of entry.schemas) {
