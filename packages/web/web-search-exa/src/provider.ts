@@ -28,6 +28,12 @@ export const EXA_PROVIDER_ID = 'exa'
 /** Default Exa search endpoint; `/search` is the operation. */
 export const EXA_DEFAULT_BASE_URL = 'https://api.exa.ai'
 
+/** Default retrieval mode: let Exa pick between keyword and neural search. */
+export const EXA_DEFAULT_SEARCH_TYPE = 'auto'
+
+/** Default number of highlight sentences requested per result. */
+export const EXA_DEFAULT_HIGHLIGHTS_PER_RESULT = 1
+
 /** Attribution header sent on every request. Bump with the package version. */
 const USER_AGENT = 'deepseek-harness/0.0.1'
 
@@ -36,6 +42,12 @@ export interface ExaSearchProviderOptions {
   apiKey: string
   /** Endpoint base; `/search` is appended. */
   baseURL: string
+  /** Retrieval mode sent as Exa's `type`. */
+  searchType: 'auto' | 'keyword' | 'neural'
+  /** Default result count when a request carries no `maxResults`. */
+  numResults?: number
+  /** Highlight sentences requested per result (Exa's `highlightsPerUrl`). */
+  highlightsPerResult: number
 }
 
 /**
@@ -73,10 +85,14 @@ export class ExaSearchProvider implements WebSearchProvider {
   status(): WebProviderStatus {
     if (this.options.apiKey.length === 0) return { available: false, reason: 'missing-credential' }
     if (!isValidBaseUrl(this.options.baseURL)) return { available: false, reason: 'misconfigured' }
+    if (!isPositiveInteger(this.options.highlightsPerResult)) return { available: false, reason: 'misconfigured' }
+    if (this.options.numResults !== undefined && !isPositiveInteger(this.options.numResults)) return { available: false, reason: 'misconfigured' }
     return { available: true }
   }
 
   async search(request: WebSearchRequest, exec?: { readonly signal?: AbortSignal }): Promise<WebSearchResult> {
+    // A per-request bound wins over the configured default; either may be absent.
+    const numResults = request.maxResults ?? this.options.numResults
     let response: Response
     try {
       response = await fetch(`${this.options.baseURL}/search`, {
@@ -89,8 +105,9 @@ export class ExaSearchProvider implements WebSearchProvider {
         },
         body: JSON.stringify({
           query: request.query,
-          contents: { highlights: true },
-          ...request.maxResults !== undefined ? { numResults: request.maxResults } : {},
+          type: this.options.searchType,
+          contents: { highlights: { highlightsPerUrl: this.options.highlightsPerResult } },
+          ...numResults !== undefined ? { numResults } : {},
         }),
         ...exec?.signal ? { signal: exec.signal } : {},
       })
@@ -131,6 +148,11 @@ export class ExaSearchProvider implements WebSearchProvider {
 /** True when `baseURL` parses as an absolute URL (a cheap local config check). */
 function isValidBaseUrl(baseURL: string): boolean {
   return URL.canParse(baseURL)
+}
+
+/** True for a request limit that can be sent to Exa (a positive whole number). */
+function isPositiveInteger(value: number): boolean {
+  return Number.isInteger(value) && value > 0
 }
 
 /** True for a fetch/`AbortSignal` abort, surfaced as `WEB_ABORTED`. */

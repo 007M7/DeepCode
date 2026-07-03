@@ -10,10 +10,12 @@
 /** Request body sent to Exa's search endpoint. */
 export interface ExaSearchRequest {
   query: string
+  /** Retrieval mode: keyword, neural (embeddings), or auto (Exa decides). */
+  type: 'auto' | 'keyword' | 'neural'
   /** Exa's result-count control; the seam still enforces the bound on return. */
   numResults?: number
   /** Ask Exa to return highlight sentences per result. */
-  contents: { highlights: true }
+  contents: { highlights: { highlightsPerUrl: number } }
 }
 
 /** One entry of Exa's flat `results[]`. */

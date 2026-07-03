@@ -10,17 +10,18 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-web'
-import { PerplexitySearchProvider, PERPLEXITY_DEFAULT_BASE_URL, PERPLEXITY_DEFAULT_MODEL } from './provider.ts'
+import { PerplexitySearchProvider, PERPLEXITY_DEFAULT_BASE_URL, PERPLEXITY_DEFAULT_MAX_TOKENS, PERPLEXITY_DEFAULT_MODEL } from './provider.ts'
 
 export {
   PERPLEXITY_DEFAULT_BASE_URL,
+  PERPLEXITY_DEFAULT_MAX_TOKENS,
   PERPLEXITY_DEFAULT_MODEL,
   PERPLEXITY_PROVIDER_ID,
   PerplexitySearchProvider,
   mapPerplexityResponse,
   mapPerplexityResult,
 } from './provider.ts'
-export type { PerplexitySearchProviderOptions } from './provider.ts'
+export type { PerplexityRecency, PerplexitySearchProviderOptions } from './provider.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'web-search-perplexity'
@@ -35,18 +36,27 @@ export interface Config {
   baseURL?: string
   /** Search model name. Defaults to `sonar`. */
   model?: string
+  /** Upper bound on generated answer tokens. Defaults to 1024. */
+  maxTokens?: number
+  /** Recency window sent as `search_recency_filter`. Omitted = no filter. */
+  searchRecency?: 'day' | 'week' | 'month' | 'year'
 }
 
 export const Config: z<Config> = z.object({
   apiKey: z.string(),
   baseURL: z.string(),
   model: z.string(),
+  maxTokens: z.number().step(1).min(1),
+  searchRecency: z.union(['day', 'week', 'month', 'year'] as const),
 })
 
 /** Register the Perplexity search provider with `ctx.web`. */
 export function apply(ctx: Context, config: Config): void {
-  const apiKey = config.apiKey ?? process.env.PERPLEXITY_API_KEY ?? ''
-  const baseURL = config.baseURL ?? PERPLEXITY_DEFAULT_BASE_URL
-  const model = config.model ?? PERPLEXITY_DEFAULT_MODEL
-  ctx.web.registerSearchProvider(new PerplexitySearchProvider({ apiKey, baseURL, model }))
+  ctx.web.registerSearchProvider(new PerplexitySearchProvider({
+    apiKey: config.apiKey ?? process.env.PERPLEXITY_API_KEY ?? '',
+    baseURL: config.baseURL ?? PERPLEXITY_DEFAULT_BASE_URL,
+    model: config.model ?? PERPLEXITY_DEFAULT_MODEL,
+    maxTokens: config.maxTokens ?? PERPLEXITY_DEFAULT_MAX_TOKENS,
+    ...config.searchRecency !== undefined ? { searchRecency: config.searchRecency } : {},
+  }))
 }

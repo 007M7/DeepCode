@@ -8,7 +8,7 @@ import {
 } from '@deepseek-ai/dsh-web-search-perplexity'
 import * as perplexityPlugin from '@deepseek-ai/dsh-web-search-perplexity'
 
-const options = { apiKey: 'pplx-key', baseURL: 'https://api.perplexity.test', model: 'sonar' }
+const options = { apiKey: 'pplx-key', baseURL: 'https://api.perplexity.test', model: 'sonar', maxTokens: 1024 }
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' }, ...init })
@@ -80,17 +80,34 @@ describe('PerplexitySearchProvider status', () => {
     expect(new PerplexitySearchProvider({ ...options, baseURL: 'not a url' }).status())
       .toEqual({ available: false, reason: 'misconfigured' })
   })
+
+  it('is misconfigured when maxTokens is not a positive integer', () => {
+    expect(new PerplexitySearchProvider({ ...options, maxTokens: 0 }).status())
+      .toEqual({ available: false, reason: 'misconfigured' })
+    expect(new PerplexitySearchProvider({ ...options, maxTokens: 1.5 }).status())
+      .toEqual({ available: false, reason: 'misconfigured' })
+  })
 })
 
 describe('PerplexitySearchProvider request mapping', () => {
-  it('sends a chat-completions request with the query as a user message', async () => {
+  it('sends a chat-completions request with the query, model and max_tokens', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: 'a' } }], citations: [] }))
     vi.stubGlobal('fetch', fetchMock)
     await new PerplexitySearchProvider(options).search({ query: 'hello' })
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('https://api.perplexity.test/chat/completions')
     expect((init.headers as Record<string, string>)['authorization']).toBe('Bearer pplx-key')
-    expect(JSON.parse(init.body as string)).toEqual({ model: 'sonar', messages: [{ role: 'user', content: 'hello' }] })
+    expect(JSON.parse(init.body as string)).toEqual({ model: 'sonar', max_tokens: 1024, messages: [{ role: 'user', content: 'hello' }] })
+  })
+
+  it('sends search_recency_filter when configured, and omits it otherwise', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: 'a' } }], citations: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+    await new PerplexitySearchProvider({ ...options, searchRecency: 'week' }).search({ query: 'q' })
+    expect(JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)).toMatchObject({ search_recency_filter: 'week' })
+
+    await new PerplexitySearchProvider(options).search({ query: 'q' })
+    expect(JSON.parse((fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1].body as string)).not.toHaveProperty('search_recency_filter')
   })
 
   it('forwards the abort signal', async () => {

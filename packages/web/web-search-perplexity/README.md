@@ -11,6 +11,8 @@ This is an **implementation** package: it registers a provider into `ctx.web`, i
 | `apiKey` | `$PERPLEXITY_API_KEY` | Perplexity API key. Empty/absent → provider `status()` reports `missing-credential`. |
 | `baseURL` | `https://api.perplexity.ai` | Endpoint base; `/chat/completions` is appended. An unparseable value makes `status()` report `misconfigured`. |
 | `model` | `sonar` | Search model name. |
+| `maxTokens` | `1024` | Upper bound on generated answer tokens (`max_tokens`). Must be a positive integer. |
+| `searchRecency` | (unset) | Recency window sent as `search_recency_filter`: `day`, `week`, `month`, or `year`. Unset sends no filter. |
 
 ```yaml
 - id: web-search-perplexity

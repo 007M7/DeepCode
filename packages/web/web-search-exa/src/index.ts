@@ -11,10 +11,17 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-web'
-import { ExaSearchProvider, EXA_DEFAULT_BASE_URL } from './provider.ts'
+import {
+  ExaSearchProvider,
+  EXA_DEFAULT_BASE_URL,
+  EXA_DEFAULT_HIGHLIGHTS_PER_RESULT,
+  EXA_DEFAULT_SEARCH_TYPE,
+} from './provider.ts'
 
 export {
   EXA_DEFAULT_BASE_URL,
+  EXA_DEFAULT_HIGHLIGHTS_PER_RESULT,
+  EXA_DEFAULT_SEARCH_TYPE,
   EXA_PROVIDER_ID,
   ExaSearchProvider,
   mapExaResponse,
@@ -33,16 +40,29 @@ export interface Config {
   apiKey?: string
   /** Endpoint base; `/search` is appended. Defaults to the public API. */
   baseURL?: string
+  /** Retrieval mode sent as Exa's `type`. Defaults to `auto`. */
+  searchType?: 'auto' | 'keyword' | 'neural'
+  /** Default result count when a request carries no `maxResults`. Omitted = none. */
+  numResults?: number
+  /** Highlight sentences requested per result. Defaults to 1. */
+  highlightsPerResult?: number
 }
 
 export const Config: z<Config> = z.object({
   apiKey: z.string(),
   baseURL: z.string(),
+  searchType: z.union(['auto', 'keyword', 'neural'] as const),
+  numResults: z.number().step(1).min(1),
+  highlightsPerResult: z.number().step(1).min(1),
 })
 
 /** Register the Exa search provider with `ctx.web`. */
 export function apply(ctx: Context, config: Config): void {
-  const apiKey = config.apiKey ?? process.env.EXA_API_KEY ?? ''
-  const baseURL = config.baseURL ?? EXA_DEFAULT_BASE_URL
-  ctx.web.registerSearchProvider(new ExaSearchProvider({ apiKey, baseURL }))
+  ctx.web.registerSearchProvider(new ExaSearchProvider({
+    apiKey: config.apiKey ?? process.env.EXA_API_KEY ?? '',
+    baseURL: config.baseURL ?? EXA_DEFAULT_BASE_URL,
+    searchType: config.searchType ?? EXA_DEFAULT_SEARCH_TYPE,
+    highlightsPerResult: config.highlightsPerResult ?? EXA_DEFAULT_HIGHLIGHTS_PER_RESULT,
+    ...config.numResults !== undefined ? { numResults: config.numResults } : {},
+  }))
 }

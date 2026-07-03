@@ -32,6 +32,12 @@ export const PERPLEXITY_DEFAULT_BASE_URL = 'https://api.perplexity.ai'
 /** Default search model. */
 export const PERPLEXITY_DEFAULT_MODEL = 'sonar'
 
+/** Default upper bound on generated answer tokens. */
+export const PERPLEXITY_DEFAULT_MAX_TOKENS = 1024
+
+/** Recency filter values Perplexity accepts for `search_recency_filter`. */
+export type PerplexityRecency = 'day' | 'week' | 'month' | 'year'
+
 /** Attribution header sent on every request. Bump with the package version. */
 const USER_AGENT = 'deepseek-harness/0.0.1'
 
@@ -42,6 +48,10 @@ export interface PerplexitySearchProviderOptions {
   baseURL: string
   /** Search model name. */
   model: string
+  /** Upper bound on generated answer tokens (`max_tokens`). */
+  maxTokens: number
+  /** Optional recency window sent as `search_recency_filter`; omitted = no filter. */
+  searchRecency?: PerplexityRecency
 }
 
 /** Map one structured Perplexity search result to a normalized source. */
@@ -82,6 +92,7 @@ export class PerplexitySearchProvider implements WebSearchProvider {
   status(): WebProviderStatus {
     if (this.options.apiKey.length === 0) return { available: false, reason: 'missing-credential' }
     if (!URL.canParse(this.options.baseURL)) return { available: false, reason: 'misconfigured' }
+    if (!isPositiveInteger(this.options.maxTokens)) return { available: false, reason: 'misconfigured' }
     return { available: true }
   }
 
@@ -98,7 +109,9 @@ export class PerplexitySearchProvider implements WebSearchProvider {
         },
         body: JSON.stringify({
           model: this.options.model,
+          max_tokens: this.options.maxTokens,
           messages: [{ role: 'user', content: request.query }],
+          ...this.options.searchRecency !== undefined ? { search_recency_filter: this.options.searchRecency } : {},
         }),
         ...exec?.signal ? { signal: exec.signal } : {},
       })
@@ -139,4 +152,9 @@ export class PerplexitySearchProvider implements WebSearchProvider {
 /** True for a fetch/`AbortSignal` abort, surfaced as `WEB_ABORTED`. */
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
+}
+
+/** True for a request limit that can be sent to Perplexity (a positive whole number). */
+function isPositiveInteger(value: number): boolean {
+  return Number.isInteger(value) && value > 0
 }
