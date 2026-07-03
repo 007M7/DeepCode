@@ -1,6 +1,6 @@
 /**
  * Tool render-intent vocabulary: the provider-neutral types a tool declares via
- * {@link ToolDefinition.presentCall}/{@link ToolDefinition.presentResult} to say
+ * `ToolDefinition.presentCall`/`ToolDefinition.presentResult` to say
  * how ONE of its calls renders in a UI (an editor's tool-call card, a CLI log
  * line). A UI bridge switches on the `card` tag to map each intent to its own
  * wire shape, so a UI never special-cases tool names.
@@ -62,7 +62,7 @@ export interface FileDiff {
  * switches on `card` to map it to the bridge's own wire shape. Provider-neutral —
  * the tool owns its presentation, so a UI never special-cases tool names.
  *
- * Returned by {@link ToolDefinition.presentCall}. See the render-intent-union
+ * Returned by `ToolDefinition.presentCall`. See the render-intent-union
  * RFC (docs/rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md).
  */
 export type ToolCallView = GenericCallView | TerminalCallView | DiffCallView
@@ -144,7 +144,7 @@ export interface DiffCallView {
  * returns. A `card`-tagged union mirroring {@link ToolCallView}: a UI switches on
  * `card`. Lets the tool reformat its result for a UI distinctly from the
  * model-facing text it returned from `execute`. Returned by
- * {@link ToolDefinition.presentResult}; omitting the method keeps the pending
+ * `ToolDefinition.presentResult`; omitting the method keeps the pending
  * title and renders the raw result content.
  */
 export type ToolResultView = GenericResultView | TerminalResultView | DiffResultView
