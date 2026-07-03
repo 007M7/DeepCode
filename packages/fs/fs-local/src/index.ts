@@ -148,8 +148,9 @@ export class LocalFileSystem extends FileSystem {
 
       // Capture the prior text (the before/after diff basis) BEFORE the write.
       // `null` for a create (no existing file) OR an existing-but-undiffable
-      // file (binary/invalid-UTF-8) — a consumer renders no result-time diff for
-      // either, only the call-time whole-file card.
+      // file (binary/invalid-UTF-8) — a null `before` gives no contextual-hunk
+      // basis, so a consumer falls back to a whole-file diff (the tool still
+      // renders a result-time diff card, not the raw result text).
       const before = existing ? await readTextForDiff(target.targetKey, signal) : null
       await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.internals)
       const after = await probe(target.targetKey)
