@@ -440,16 +440,21 @@ describe('result-time contextual diff (meta + presentResult)', () => {
     expect(view).toEqual({ card: 'diff', title: 'Write a.txt', diffs: [{ path: 'a.txt', oldText: 'a\nb\nc\nOLD\nd\ne\nf', newText: 'a\nb\nc\nNEW\nd\ne\nf' }] })
   })
 
-  it('write CREATE: no before-version → no meta, presentResult returns undefined (call-time card stands)', async () => {
+  it('write CREATE: no before-version → no meta, but presentResult still renders a whole-file diff card', async () => {
+    // A create has no prior content (no `meta`), yet the completed card must be a
+    // `diff` — an ACP tool_call_update.content REPLACES the call's content, so a
+    // non-diff result would clobber the pending new-file diff. The whole-file diff
+    // is derived from the args (oldText:null), replay-safe.
     const { ctx } = await setup()
     const session = { header: {} }
     const result = await call(ctx, 'write', { file_path: 'new.txt', content: 'fresh\n' }, { session })
     expect(result.isError).toBe(false)
     expect(result.meta).toBeUndefined()
-    expect(ctx.tools.get('write')?.presentResult?.({ file_path: 'new.txt', content: 'fresh\n' }, result)).toBeUndefined()
+    const view = ctx.tools.get('write')?.presentResult?.({ file_path: 'new.txt', content: 'fresh\n' }, result)
+    expect(view).toEqual({ card: 'diff', title: 'Write new.txt', diffs: [{ path: 'new.txt', oldText: null, newText: 'fresh\n' }] })
   })
 
-  it('write OVERWRITE with identical content: a before exists but yields no hunk → no meta', async () => {
+  it('write OVERWRITE with identical content: a before exists but yields no hunk → no meta, presentResult falls back to a whole-file diff', async () => {
     const { ctx, fs } = await setup()
     const session = { header: {} }
     fs.files.set('key:a.txt', 'same\n')
@@ -457,6 +462,8 @@ describe('result-time contextual diff (meta + presentResult)', () => {
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'same\n' }, { session })
     expect(result.isError).toBe(false)
     expect(result.meta).toBeUndefined()
+    const view = ctx.tools.get('write')?.presentResult?.({ file_path: 'a.txt', content: 'same\n' }, result)
+    expect(view).toEqual({ card: 'diff', title: 'Write a.txt', diffs: [{ path: 'a.txt', oldText: null, newText: 'same\n' }] })
   })
 
   it('presentResult returns undefined on an error result (nothing applied)', async () => {
@@ -466,10 +473,21 @@ describe('result-time contextual diff (meta + presentResult)', () => {
     expect(ctx.tools.get('write')?.presentResult?.({ file_path: 'a.txt', content: 'y' }, errorResult)).toBeUndefined()
   })
 
-  it('presentResult returns undefined on malformed meta (defensive narrowing)', async () => {
+  it('edit presentResult returns undefined on malformed meta (defensive narrowing)', async () => {
+    // edit has no whole-file fallback (only a literal replacement), so a malformed
+    // meta yields the generic "updated successfully" rendering.
     const { ctx } = await setup()
     const badMeta = { content: [{ type: 'text' as const, text: 'ok' }], isError: false, meta: { diffs: 'nope' } }
     expect(ctx.tools.get('edit')?.presentResult?.({ file_path: 'a.txt', old_string: 'x', new_string: 'y' }, badMeta)).toBeUndefined()
-    expect(ctx.tools.get('write')?.presentResult?.({ file_path: 'a.txt', content: 'y' }, badMeta)).toBeUndefined()
+  })
+
+  it('write presentResult falls back to a whole-file diff on malformed meta (never leaks the result text)', async () => {
+    // write always renders a diff card so the completed update can't clobber the
+    // pending diff with the model-facing text; a malformed meta falls back to the
+    // args-derived whole-file diff, same as a create.
+    const { ctx } = await setup()
+    const badMeta = { content: [{ type: 'text' as const, text: 'ok' }], isError: false, meta: { diffs: 'nope' } }
+    const view = ctx.tools.get('write')?.presentResult?.({ file_path: 'a.txt', content: 'y' }, badMeta)
+    expect(view).toEqual({ card: 'diff', title: 'Write a.txt', diffs: [{ path: 'a.txt', oldText: null, newText: 'y' }] })
   })
 })

@@ -83,14 +83,18 @@ export function applyWriteTool(ctx: Context): void {
         locations: [{ path: args.file_path }],
       }
     },
-    // Result-time display: for an OVERWRITE, the applied contextual-diff hunks on
-    // `meta` supersede the call-time whole-file snippet. A create carries no meta
-    // (no "before"), so this returns undefined and the call-time new-file card
-    // stands; an error or malformed meta also falls through to generic rendering.
+    // Result-time display: a `diff` card so the completed `tool_call_update`
+    // re-installs the diff rather than the model-facing result text (an ACP
+    // `tool_call_update.content` REPLACES the call's content, so a text result
+    // would clobber the pending diff card). An OVERWRITE uses the applied
+    // contextual hunks on `meta`; a CREATE has no `meta` (no prior content), so
+    // its whole-file new-file diff is derived from `args.content` (replay-safe,
+    // matching the call-time card). An error falls through to generic rendering
+    // so its message shows.
     presentResult(args, result: ToolResult): DiffResultView | undefined {
       if (result.isError) return undefined
       const diffs = diffsFromMeta(result.meta)
-      if (diffs === undefined) return undefined
+        ?? [{ path: args.file_path, oldText: null, newText: args.content }]
       return { card: 'diff', title: `Write ${args.file_path}`, diffs }
     },
   }))
