@@ -10,21 +10,30 @@ graph TD
   bash --> brand
   llm --> brand
   bash-local --> bash
+  fs --> brand
+  fs --> llm
   llm-deepseek --> llm
   llm-pi-ai --> llm
   session --> brand
   session --> llm
   system-prompt --> llm
+  web --> llm
   agent --> brand
   agent --> llm
   agent --> session
   compact --> llm
   compact --> session
+  fs-local --> fs
+  fs-policy --> fs
   hook-protocol --> bash
   hook-protocol --> session
   llm-replay --> llm
   llm-replay --> session
   session-persistence --> session
+  web-fetch-local --> web
+  web-search-deepseek --> web
+  web-search-exa --> web
+  web-search-perplexity --> web
   compact-basic --> agent
   compact-basic --> compact
   compact-basic --> llm
@@ -65,9 +74,18 @@ graph TD
   tool-bash --> bash
   tool-bash --> llm
   tool-bash --> tools
+  tool-fs --> fs
+  tool-fs --> llm
+  tool-fs --> session
+  tool-fs --> system-prompt
+  tool-fs --> tools
   tool-todo --> agent
   tool-todo --> session
   tool-todo --> tools
+  tool-web --> llm
+  tool-web --> system-prompt
+  tool-web --> tools
+  tool-web --> web
   agent-core --> agent
   agent-core --> agent-loop
   agent-core --> invariants
@@ -118,15 +136,23 @@ graph TD
 | `bash` | `brand` |
 | `llm` | `brand` |
 | `bash-local` | `bash` |
+| `fs` | `brand`, `llm` |
 | `llm-deepseek` | `llm` |
 | `llm-pi-ai` | `llm` |
 | `session` | `brand`, `llm` |
 | `system-prompt` | `llm` |
+| `web` | `llm` |
 | `agent` | `brand`, `llm`, `session` |
 | `compact` | `llm`, `session` |
+| `fs-local` | `fs` |
+| `fs-policy` | `fs` |
 | `hook-protocol` | `bash`, `session` |
 | `llm-replay` | `llm`, `session` |
 | `session-persistence` | `session` |
+| `web-fetch-local` | `web` |
+| `web-search-deepseek` | `web` |
+| `web-search-exa` | `web` |
+| `web-search-perplexity` | `web` |
 | `compact-basic` | `agent`, `compact`, `llm`, `session` |
 | `invariants` | `agent`, `llm`, `session` |
 | `session-persistence-jsonl` | `session`, `session-persistence` |
@@ -138,7 +164,9 @@ graph TD
 | `hooks-codex` | `agent`, `hook-protocol`, `llm`, `session`, `tools` |
 | `subagent` | `agent`, `llm`, `tools` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |
+| `tool-fs` | `fs`, `llm`, `session`, `system-prompt`, `tools` |
 | `tool-todo` | `agent`, `session`, `tools` |
+| `tool-web` | `llm`, `system-prompt`, `tools`, `web` |
 | `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `system-prompt`, `tool-bash`, `tools` |
 | `hooks-claude` | `agent`, `hook-protocol`, `llm`, `session`, `subagent`, `tools` |
 | `subagent-acp` | `agent`, `llm`, `subagent` |
