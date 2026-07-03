@@ -79,7 +79,7 @@
 | finish reason | 结束原因 | |
 | fingerprint | 指纹 | i18n 机制词：`.zh.md` 首行记录英文源 blob hash 的 `i18n-source` 注释 |
 | foreground run | 前台运行 | |
-| freshness | 新鲜度 | 指译文相对英文源的同步状态 |
+| freshness | 新鲜度 | MDN HTTP 缓存中文同译（freshness lifetime → 新鲜度生命周期）；指译文相对英文源的同步状态 |
 | hook | 钩子 | |
 | implementation | 实现 | |
 | inference | 推理（inference） | 每次提及时保留英文括注，避免与 reasoning 混淆 |
@@ -116,7 +116,7 @@
 | snapshot | 快照 | |
 | spine | 主干 | |
 | staged | 暂存 | git 官方中文同译 |
-| stale | 过期 | 门禁输出保留英文 `stale`，行文译「过期」 |
+| stale | 陈旧 | MDN HTTP 缓存中文同译，与「新鲜（fresh）」成对；门禁输出保留英文 `stale`；expired 才译「过期」 |
 | step | 步骤 | |
 | stream | 流 | |
 | streaming | 流式输出 | |

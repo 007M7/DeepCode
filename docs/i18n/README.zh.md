@@ -16,7 +16,7 @@
   <!-- i18n-source: docs/architecture.md@8a9f0c21d3e4 -->
   ```
 
-  用 blob hash 而不是 commit hash，这样同一个 PR 里改动的英文文件也能算出指纹（`git hash-object docs/foo.md`），过期检测则是纯内容比较。指纹同时也是更新工具：`git cat-file -p <hash>` 能还原过期译文当初依据的确切源文本，`git diff <hash> <当前 blob>` 能隔离出变化的部分，让译文做最小更新而不是整篇重译。
+  用 blob hash 而不是 commit hash，这样同一个 PR 里改动的英文文件也能算出指纹（`git hash-object docs/foo.md`），陈旧检测则是纯内容比较。指纹同时也是更新工具：`git cat-file -p <hash>` 能还原陈旧译文当初依据的确切源文本，`git diff <hash> <当前 blob>` 能隔离出变化的部分，让译文做最小更新而不是整篇重译。
 - **语言切换行。**两个文件在各自 H1 标题之后立即互链：英文文件带 `English | [中文](foo.zh.md)`，中文文件带 `[English](foo.md) | 中文`。
 - **结构与源一一对应。**标题深度与顺序、列表类型、表格列、链接目标与逐字节一致的代码块和英文文件一一对应——完整保持规则见 [translation-rules.md](translation-rules.md)。既有 Markdown 门禁对 `.zh.md` 文件原样生效（`verify-md-wrap`、`verify-md-links`）。
 
@@ -25,12 +25,12 @@
 `pnpm run verify-translation-pairing`（`doc-sync` 的一环，因此 CI 和 pre-push 钩子都会运行）机械地强制这份契约：
 
 1. [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) 中 `required` 列出的每个英文文件都有 `.zh.md` 配对文件。
-2. 每个已存在的 `.zh.md` 文件——无论是否 required——都通过全部检查：其英文源存在（无孤立文件）、指纹等于源的当前 blob hash（无过期译文）、双方都带语言切换行、其结构签名与源按序一致——标题深度、逐字节一致的代码块（信息字符串与内容）、表格列数、列表类型、以及除切换行之外的每个链接目标。
+2. 每个已存在的 `.zh.md` 文件——无论是否 required——都通过全部检查：其英文源存在（无孤立文件）、指纹等于源的当前 blob hash（无陈旧译文）、双方都带语言切换行、其结构签名与源按序一致——标题深度、逐字节一致的代码块（信息字符串与内容）、表格列数、列表类型、以及除切换行之外的每个链接目标。
 3. 列为 `excluded` 的文件完全没有 `.zh.md` 配对。
 
 `pnpm run verify-translation-pairing --list` 打印范围内每篇文档的当前翻译状态——missing、stale 或 ok——是翻译批次的工作清单。它从不失败；它只报告。
 
-这个门禁带来的实际规则是：**当一个 PR 修改了已有 `.zh.md` 配对的英文文档时，同一个 PR 更新译文**（运行 [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) skill），与本仓库既有的代码/README doc-sync 规则完全一致。留下过期译文的 PR 会在 CI 变红。
+这个门禁带来的实际规则是：**当一个 PR 修改了已有 `.zh.md` 配对的英文文档时，同一个 PR 更新译文**（运行 [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) skill），与本仓库既有的代码/README doc-sync 规则完全一致。留下陈旧译文的 PR 会在 CI 变红。
 
 把门禁的边界说白：**门禁绿意味着新鲜且结构健全，不意味着已核验。**它检查指纹和形状；它无法判断中文是否准确、术语是否得当、行文是否自然——那是契约中评审者的那一半，见 [translation-rules.md](translation-rules.md)。一个重打了指纹但翻得潦草的 `.zh.md` 能通过门禁；它不应通过评审。
 
