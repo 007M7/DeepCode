@@ -17,6 +17,7 @@ graph TD
   session --> brand
   session --> llm
   system-prompt --> llm
+  web --> llm
   agent --> brand
   agent --> llm
   agent --> session
@@ -27,6 +28,10 @@ graph TD
   llm-replay --> llm
   llm-replay --> session
   session-persistence --> session
+  web-fetch-local --> web
+  web-search-deepseek --> web
+  web-search-exa --> web
+  web-search-perplexity --> web
   compact-basic --> agent
   compact-basic --> compact
   compact-basic --> llm
@@ -69,6 +74,10 @@ graph TD
   tool-todo --> agent
   tool-todo --> session
   tool-todo --> tools
+  tool-web --> llm
+  tool-web --> system-prompt
+  tool-web --> tools
+  tool-web --> web
   agent-core --> agent
   agent-core --> agent-loop
   agent-core --> invariants
@@ -118,12 +127,17 @@ graph TD
 | `llm-pi-ai` | `llm` |
 | `session` | `brand`, `llm` |
 | `system-prompt` | `llm` |
+| `web` | `llm` |
 | `agent` | `brand`, `llm`, `session` |
 | `compact` | `llm`, `session` |
 | `fs-local` | `fs` |
 | `fs-policy` | `fs` |
 | `llm-replay` | `llm`, `session` |
 | `session-persistence` | `session` |
+| `web-fetch-local` | `web` |
+| `web-search-deepseek` | `web` |
+| `web-search-exa` | `web` |
+| `web-search-perplexity` | `web` |
 | `compact-basic` | `agent`, `compact`, `llm`, `session` |
 | `invariants` | `agent`, `llm`, `session` |
 | `session-persistence-jsonl` | `session`, `session-persistence` |
@@ -136,6 +150,7 @@ graph TD
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |
 | `tool-fs` | `fs`, `llm`, `system-prompt`, `tools` |
 | `tool-todo` | `agent`, `session`, `tools` |
+| `tool-web` | `llm`, `system-prompt`, `tools`, `web` |
 | `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `system-prompt`, `tool-bash`, `tools` |
 | `subagent-acp` | `agent`, `llm`, `subagent` |
 | `subagent-inprocess` | `agent`, `llm`, `session`, `subagent` |
