@@ -547,7 +547,7 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:365`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:366`](../../packages/core/tools/src/index.ts)
 
 ## Inherited tier (cordis core + loader/hmr/timer)
 

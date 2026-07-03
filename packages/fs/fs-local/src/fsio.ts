@@ -386,8 +386,9 @@ export async function readForEdit(
  * Best-effort read of a file's current text for a before/after diff basis, used
  * by an overwrite. Returns the LF-normalized decoded content, or `null` when the
  * file is binary or not valid UTF-8 — a write must succeed regardless of the
- * prior bytes, so an undiffable prior file simply yields no contextual diff
- * (the caller treats `null` the same as an absent file: call-time card only).
+ * prior bytes, so an undiffable prior file simply yields no contextual-hunk basis
+ * (the caller treats `null` the same as an absent file: the result renders a
+ * whole-file diff rather than an applied hunk).
  */
 export async function readTextForDiff(absolutePath: string, signal?: AbortSignal): Promise<string | null> {
   const buffer = await readFileAbortable(absolutePath, 'read', signal)

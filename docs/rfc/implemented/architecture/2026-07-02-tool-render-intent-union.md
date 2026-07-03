@@ -65,6 +65,6 @@ interface TerminalResultView { card: 'terminal'; title?: string; output?: string
 ## Related
 
 - Supersedes the deferral in [Collapse tool-owned UI presentation](../../rejected/simplification/2026-06-20-generic-tool-rendering.md) (rejected — "wait for two real tools and two real consumers, then a tagged render-intent union"). That bar is now met; this is that union.
-- Extended by [Result-time applied-hunk diffs](2026-07-02-result-time-applied-hunk-diffs.md), which adds a persisted `meta` channel so write/edit emit a result-time contextual-hunk `DiffResultView` (context lines + one hunk per `replace_all` site) on top of this union's call-time diff card.
+- Extended by [Result-time applied-hunk diffs](2026-07-02-result-time-applied-hunk-diffs.md), which adds a persisted `meta` channel so write/edit emit a result-time `DiffResultView` — the applied change (a contextual hunk with context lines / one per `replace_all` site, or a whole-file diff for a create) — on top of this union's call-time diff card.
 - Folds `ToolTerminal` into the `terminal` views described by [ACP terminal and tool-call rendering](../feature/2026-06-18-acp-terminal-and-tool-rendering.md) (the `_meta` terminal-card convention and capability gate are unchanged; only the harness-side presentation type changes).
 - The ACP SDK's `Diff` / `ToolCallContent` types back the new `diff` card.

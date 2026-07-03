@@ -1170,10 +1170,12 @@ function toolResultUpdate(callId: CallId, view: ToolResultView, isError: boolean
         ...view.title !== undefined ? { title: view.title } : {},
       }
     case 'diff': {
-      // A result-time applied-hunk diff: emit one `{ type: 'diff' }` content block
-      // per hunk (mirroring the call-side diff arm). `tool_call_update.content`
-      // REPLACES the call's content in an editor, so these hunks supersede the
-      // call-time whole-file snippet the pending card installed.
+      // A result-time diff: emit one `{ type: 'diff' }` content block per entry
+      // (an applied hunk for an edit/overwrite, or a whole-file diff for a
+      // create), mirroring the call-side diff arm. `tool_call_update.content`
+      // REPLACES the call's content in an editor, so this result diff supersedes
+      // the diff the pending card installed (and keeps the model-facing result
+      // text from clobbering it).
       const content: AcpToolCallContent[] = view.diffs.map(d => ({ type: 'diff', path: d.path, oldText: d.oldText, newText: d.newText }))
       return {
         sessionUpdate: 'tool_call_update',

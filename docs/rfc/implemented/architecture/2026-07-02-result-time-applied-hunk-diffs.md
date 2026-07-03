@@ -35,7 +35,7 @@ Per the [capability-seam split](2026-06-13-capability-seams.md), the storage bac
 
 ### 3. The bridge renders a `diff` result card
 
-`ToolResultView` gains a `DiffResultView { card:'diff'; title?; diffs: FileDiff[] }`; the bridge's result-side `switch (view.card)` gets a `diff` arm emitting the `{type:'diff'}` `ToolCallContent` blocks (mirroring the call-side arm). An ACP `tool_call_update.content` REPLACES the call's content in an editor, so the result-time contextual hunk **supersedes** the call-time snippet — the two-update sequence (call snippet, then result hunk) matches `claude-agent-acp` exactly.
+`ToolResultView` gains a `DiffResultView { card:'diff'; title?; diffs: FileDiff[] }`; the bridge's result-side `switch (view.card)` gets a `diff` arm emitting the `{type:'diff'}` `ToolCallContent` blocks (mirroring the call-side arm). An ACP `tool_call_update.content` REPLACES the call's content in an editor, so the result diff **supersedes** the call-time snippet (and keeps the model-facing result text from clobbering it) — the two-update sequence (call snippet, then result diff) matches `claude-agent-acp` exactly.
 
 ### The diff algorithm — a third-party runtime dependency over vendoring
 
@@ -44,7 +44,7 @@ Computing hunks-with-context is a solved problem with sharp edge cases (grouping
 ## Non-goals
 
 - **Live incremental diff streaming.** The hunk is computed once, after the mutation completes; there is no per-keystroke diff.
-- **Diffing a binary/non-UTF-8 overwrite.** `before` is `null` for such a file (it has no text diff basis); the write still succeeds and renders the call-time card only.
+- **Diffing a binary/non-UTF-8 overwrite.** `before` is `null` for such a file (it has no text diff basis); the write still succeeds and the result renders a whole-file diff (`oldText: null`) rather than a contextual hunk.
 - **Rename/move diffs.** Only content diffs of a single resolved path.
 
 ## Related

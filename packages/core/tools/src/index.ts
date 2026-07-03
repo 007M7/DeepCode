@@ -159,8 +159,9 @@ export interface TerminalCallView {
  * A call that creates or modifies files, rendered as an inline diff card by a
  * capable UI. Set by a tool whose call writes/edits a file (e.g. `write`,
  * `edit`). The diffs are derived from the call ARGUMENTS (a create's `oldText` is
- * `null`); the result-time applied-hunk diff (with context) is a separate
- * {@link DiffResultView} the tool emits after `execute`.
+ * `null`); the tool emits a separate {@link DiffResultView} after `execute` — the
+ * applied change (an edit/overwrite hunk with context, or a whole-file diff for a
+ * create).
  */
 export interface DiffCallView {
   card: 'diff'
