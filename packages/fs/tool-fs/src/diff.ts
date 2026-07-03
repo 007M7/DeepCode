@@ -90,4 +90,3 @@ export function diffsFromMeta(meta: unknown): FileDiff[] | undefined {
   if (!Array.isArray(diffs) || diffs.length === 0 || !diffs.every(isFileDiff)) return undefined
   return diffs
 }
-

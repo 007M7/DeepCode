@@ -20,8 +20,8 @@
 
 import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { chmod, mkdir, open, readFile, realpath, rename, rm, stat } from 'node:fs/promises'
-import type { Stats } from 'node:fs'
+import { chmod, mkdir, open, readFile, realpath, readdir, rename, rm, stat } from 'node:fs/promises'
+import type { Dirent, Stats } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { TextDecoder } from 'node:util'
 import { FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
@@ -54,6 +54,10 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 /* v8 ignore stop */
+
+function isPermissionError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && (error.code === 'EACCES' || error.code === 'EPERM')
+}
 
 function throwIfAborted(signal: AbortSignal | undefined, verb: string): void {
   if (signal?.aborted) throw new FsError(`${verb} aborted`, 'FS_ABORTED')
@@ -110,6 +114,15 @@ export interface PathInfo {
   mode: number
   type: 'file' | 'directory' | 'other'
   size: number
+}
+
+/** One local directory child with a resolved target and cheap metadata. */
+export interface LocalDirEntry {
+  name: string
+  type: 'file' | 'directory' | 'other'
+  target: LocalTarget
+  version?: FsVersion
+  size?: number
 }
 
 /**
@@ -170,6 +183,68 @@ export async function probe(absolutePath: string): Promise<PathInfo | null> {
     if (!isENOENT(error) && !isENOTDIR(error)) throw error
     return null
   }
+}
+
+// --- Directory listing ---
+
+function listingIoError(displayPath: string, error: unknown): FsError {
+  /* v8 ignore next -- defensive pass-through for races where a child resolver has already produced a structured FsError. */
+  if (error instanceof FsError) return error
+  /* v8 ignore next -- requires the listed target/parent to disappear between successful preflight and listing/child resolution. */
+  if (isENOENT(error) || isENOTDIR(error)) return new FsError(`cannot list "${displayPath}": not found`, 'FS_NOT_FOUND', { cause: error })
+  if (isPermissionError(error)) return new FsError(`cannot list "${displayPath}": permission denied`, 'FS_PERMISSION_DENIED', { cause: error })
+  return new FsError(`cannot list "${displayPath}": ${errorMessage(error)}`, 'FS_IO_ERROR', { cause: error })
+}
+
+async function resolveListedChildTarget(parent: LocalTarget, name: string): Promise<LocalTarget> {
+  const identity = await resolveLocalTarget(parent.targetKey, name)
+  return { displayPath: join(parent.displayPath, name), targetKey: identity.targetKey }
+}
+
+/**
+ * List direct children of a directory in stable name order. Each child includes
+ * a resolved target plus stat metadata when still available; file contents are
+ * never read.
+ */
+export async function listDirectory(target: LocalTarget, signal?: AbortSignal): Promise<LocalDirEntry[]> {
+  throwIfAborted(signal, 'list')
+  let info: PathInfo | null
+  try {
+    info = await probe(target.targetKey)
+  } catch (error: unknown) {
+    throw listingIoError(target.displayPath, error)
+  }
+  if (!info) throw new FsError(`cannot list "${target.displayPath}": not found`, 'FS_NOT_FOUND')
+  if (info.type !== 'directory') throw new FsError(`cannot list "${target.displayPath}": not a directory`, 'FS_NOT_DIRECTORY')
+
+  let entries: Dirent[]
+  try {
+    entries = await readdir(target.targetKey, { withFileTypes: true, encoding: 'utf8' })
+  } catch (error: unknown) {
+    /* v8 ignore next -- requires permission/kernel failure from readdir after a successful directory stat. */
+    throw listingIoError(target.displayPath, error)
+  }
+  throwIfAborted(signal, 'list')
+
+  const result: LocalDirEntry[] = []
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    throwIfAborted(signal, 'list')
+    try {
+      const childTarget = await resolveListedChildTarget(target, entry.name)
+      const childInfo = await probe(childTarget.targetKey)
+      result.push({
+        name: entry.name,
+        type: childInfo?.type ?? 'other',
+        target: childTarget,
+        ...(childInfo ? { version: childInfo.version } : {}),
+        ...(childInfo?.type === 'file' ? { size: childInfo.size } : {}),
+      })
+    } catch (error: unknown) {
+      throw listingIoError(join(target.displayPath, entry.name), error)
+    }
+    throwIfAborted(signal, 'list')
+  }
+  return result
 }
 
 // --- Reading ---

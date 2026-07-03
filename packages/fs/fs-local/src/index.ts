@@ -1,6 +1,6 @@
 /**
  * Local-filesystem implementation of the `ctx.fs` provider seam.
- * {@link LocalFileSystem} subclasses {@link FileSystem} and backs the six
+ * {@link LocalFileSystem} subclasses {@link FileSystem} and backs the seven
  * text-storage primitives with the host filesystem via
  * {@link module:@deepseek-ai/dsh-fs-local/fsio}. Path resolution uses
  * `realpath`, so the stable `targetKey` is the real file identity (two input
@@ -17,6 +17,7 @@ import { Context } from 'cordis'
 import z from 'schemastery'
 import { FileSystem, FsError, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
+  FsDirEntry,
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
@@ -26,6 +27,7 @@ import type {
 } from '@deepseek-ai/dsh-fs'
 import {
   applyLiteralEdit,
+  listDirectory,
   normalizeLineEndings,
   probe,
   readForEdit,
@@ -41,6 +43,7 @@ import type { FsIoInternals } from './fsio.ts'
 export {
   STREAM_MIN_SIZE,
   applyLiteralEdit,
+  listDirectory,
   probe,
   readForEdit,
   readTextForDiff,
@@ -50,7 +53,7 @@ export {
   streamWholeText,
   writeFileAtomic,
 } from './fsio.ts'
-export type { FsIoInternals, LineEndings, LocalTarget, PathInfo } from './fsio.ts'
+export type { FsIoInternals, LineEndings, LocalDirEntry, LocalTarget, PathInfo } from './fsio.ts'
 
 /** Configuration for the local filesystem backend. */
 export interface Config {
@@ -118,6 +121,17 @@ export class LocalFileSystem extends FileSystem {
 
   override streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
     return Promise.resolve(streamWholeText({ displayPath: target.displayPath, targetKey: target.targetKey }, signal))
+  }
+
+  override async listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]> {
+    const entries = await listDirectory({ displayPath: target.displayPath, targetKey: target.targetKey }, signal)
+    return entries.map(entry => ({
+      name: entry.name,
+      type: entry.type,
+      target: { inputPath: entry.name, targetKey: entry.target.targetKey, displayPath: entry.target.displayPath },
+      ...(entry.version !== undefined ? { version: entry.version } : {}),
+      ...(entry.size !== undefined ? { size: entry.size } : {}),
+    }))
   }
 
   override async writeText(

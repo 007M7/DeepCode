@@ -209,7 +209,7 @@ Single-slot decision: produce the optional version guard for the next FileSystem
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:117`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:119`](../../packages/fs/fs/src/index.ts)
 
 #### `fs/observed` — emit
 
@@ -221,7 +221,7 @@ Record that an actor observed a target at a version, after a successful read/wri
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:129`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:131`](../../packages/fs/fs/src/index.ts)
 
 #### `fs/write-intent` — waterfall
 
@@ -233,7 +233,7 @@ Single-slot decision: produce the write intent for the next FileSystem.writeText
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:105`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:107`](../../packages/fs/fs/src/index.ts)
 
 ### `llm/*`
 
@@ -445,13 +445,14 @@ Source: [`packages/compact/compact/src/index.ts:63`](../../packages/compact/comp
 
 ### `ctx.fs` — `FileSystem` (abstract seam)
 
-Abstract filesystem provider service. Subclass, implement the six text-storage primitives, and load the subclass as a plugin — it registers as `ctx.fs` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+Abstract filesystem provider service. Subclass, implement the seven storage primitives, and load the subclass as a plugin — it registers as `ctx.fs` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
 
 Semantics every backend must honor:
 
 - resolve returns a stable FsTarget; the same underlying file reached by different input paths must yield the same `targetKey` so stale guards and target lookup agree across paths (e.g. through symlinks).
 - stat returns FsInfo metadata (never content) or `undefined` when the target is absent.
 - readText/streamText read the whole regular text file (the stream for large files); both own regular-file checks, UTF-8 decoding, binary/NUL rejection, and `FS_NOT_TEXT`.
+- listDir returns direct children of a directory in stable name order with resolved child targets and cheap metadata only. It never reads file contents. Missing targets throw `FS_NOT_FOUND`, non-directories throw `FS_NOT_DIRECTORY`, permission failures throw `FS_PERMISSION_DENIED`, and other backend I/O failures throw `FS_IO_ERROR`.
 - writeText is atomic temp-file + rename. `expected` is OPTIONAL: omit it for an unconditional create-or-overwrite (the bare-provider default), or supply a FsWriteIntent to guard the write.
 - editText verifies `expected.version` BEFORE literal matching (so a stale edit reports `FS_STALE_VERSION`, not `FS_EDIT_NOT_FOUND`/ `FS_AMBIGUOUS_EDIT` against newer content), then applies literal replacement and writes atomically — all inside one mutation critical section. `expected` is OPTIONAL: omit it for an unconditional edit of the current content (a missing target still reports `FS_STALE_VERSION`).
 
@@ -460,13 +461,14 @@ abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>
 abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>
 abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
 abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
+abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>
 abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>
 abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
 ```
 
 Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:158`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:165`](../../packages/fs/fs/src/index.ts)
 
 ### `ctx.llm` — `LlmService`
 

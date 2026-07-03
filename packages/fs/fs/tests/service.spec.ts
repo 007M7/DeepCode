@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { FileSystem, FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
+  FsDirEntry,
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
@@ -17,7 +18,7 @@ import type {
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
 
-/** A minimal in-memory fake implementing the six provider primitives. */
+/** A minimal in-memory fake implementing the seven provider primitives. */
 class FakeFileSystem extends FileSystem {
   files = new Map<string, string>()
 
@@ -37,6 +38,18 @@ class FakeFileSystem extends FileSystem {
   override async streamText(target: FsTarget): Promise<AsyncIterable<string>> {
     const content = await this.readText(target)
     return (async function* () { yield content })()
+  }
+  override async listDir(target: FsTarget): Promise<FsDirEntry[]> {
+    if (target.targetKey !== 'skills') throw new FsError(`not a directory: ${target.displayPath}`, 'FS_NOT_DIRECTORY')
+    return [
+      {
+        name: 'alpha.md',
+        type: 'file',
+        target: { inputPath: 'skills/alpha.md', targetKey: FsTargetKey('skills/alpha.md'), displayPath: 'skills/alpha.md' },
+        size: 2,
+        version: FsVersion('v1'),
+      },
+    ]
   }
   override async writeText(target: FsTarget, content: string, _expected?: FsWriteIntent): Promise<FsWriteOutcome> {
     const before = this.files.get(target.targetKey) ?? null
@@ -85,6 +98,20 @@ describe('FileSystem provider seam', () => {
     let streamed = ''
     for await (const chunk of await fs.streamText(target)) streamed += chunk
     expect(streamed).toBe(await fs.readText(target))
+  })
+
+  it('listDir returns child entry targets without reading file content', async () => {
+    const ctx = new Context()
+    await ctx.plugin(FakeFileSystem)
+    const fs = ctx.fs as FakeFileSystem
+    const entries = await fs.listDir(await fs.resolve('skills'))
+    expect(entries).toEqual([{
+      name: 'alpha.md',
+      type: 'file',
+      target: { inputPath: 'skills/alpha.md', targetKey: 'skills/alpha.md', displayPath: 'skills/alpha.md' },
+      size: 2,
+      version: 'v1',
+    }])
   })
 
   it('stat returns undefined for an absent target', async () => {

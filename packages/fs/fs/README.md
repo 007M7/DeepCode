@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-fs
 
-The **filesystem provider seam**: an abstract `FileSystem` service (`ctx.fs`) defining the text-storage primitives a backend provides — resolve a path, stat metadata, read/stream text, write atomically, and apply a literal edit — without saying HOW. Both mutations take their version guard **optionally**, so `ctx.fs` on its own is a complete, unconstrained text-storage seam. This package also owns the `fs/*` policy event vocabulary the tool dispatches and the policy plugin listens for.
+The **filesystem provider seam**: an abstract `FileSystem` service (`ctx.fs`) defining the storage primitives a backend provides — resolve a path, stat metadata, read/stream text, list directories, write atomically, and apply a literal edit — without saying HOW. Both mutations take their version guard **optionally**, so `ctx.fs` on its own is a complete, unconstrained text-storage seam. This package also owns the `fs/*` policy event vocabulary the tool dispatches and the policy plugin listens for.
 
 This package is the provider-seam layer of the four-layer filesystem stack, split so each concern can evolve (and be swapped) independently (see [the capability-seam RFC](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md), [the filesystem capability-seam RFC](../../../docs/rfc/implemented/architecture/2026-06-17-filesystem-capability-seam.md), [the split-the-filesystem-seam RFC](../../../docs/rfc/implemented/simplification/2026-06-26-fsspec-style-fs-seam.md), and [the file-context event-gate RFC](../../../docs/rfc/implemented/architecture/2026-06-26-file-context-as-event-gate.md)):
 
@@ -15,7 +15,7 @@ A future sandboxed, virtual, or remote backend implements this interface and the
 
 ## Service API (`ctx.fs`)
 
-A backend subclasses `FileSystem` and implements six primitives.
+A backend subclasses `FileSystem` and implements seven primitives.
 
 | Member | Semantics |
 |---|---|
@@ -23,6 +23,7 @@ A backend subclasses `FileSystem` and implements six primitives.
 | `stat(target, signal?)` | Return `FsInfo` metadata (`version`, `type`, optional `size`), or `undefined` when the target is absent. Never content. |
 | `readText(target, signal?)` | Read the whole regular text file as one decoded string. Owns regular-file checks, UTF-8 decoding, binary/NUL rejection (`FS_NOT_TEXT`). |
 | `streamText(target, signal?)` | Stream the same text as decoded chunks for large files (cross-chunk UTF-8 decoding stays here). |
+| `listDir(target, signal?)` | List direct directory children in stable name order. Returns entry names, entry types, resolved child targets, and cheap metadata (`version`/file `size` when available); never reads file contents. Missing targets throw `FS_NOT_FOUND`, non-directories throw `FS_NOT_DIRECTORY`, permission failures throw `FS_PERMISSION_DENIED`, and other backend I/O failures throw `FS_IO_ERROR`. Broken/disappeared children may be returned as `other` without metadata; child permission/IO failures fail the whole listing with the same structured codes. |
 | `writeText(target, content, expected?, signal?)` | Atomic create/replace. `expected` is OPTIONAL: omit ⇒ unconditional create-or-overwrite; supply an `FsWriteIntent` (`createIfAbsent`/`replaceIfVersion`) to guard. |
 | `editText(target, edit, expected?, signal?)` | Literal edit. `expected` is OPTIONAL: omit ⇒ unconditional edit of the current content; supply `{ version }` to guard (verified BEFORE matching). A missing target reports `FS_STALE_VERSION` either way. Applies and writes atomically — one mutation critical section. |
 
@@ -40,4 +41,4 @@ This package declares three events (see the generated [catalog](../../../docs/co
 
 ## Vocabulary
 
-`FsTargetKey` / `FsVersion` are branded opaque ids ([the branded-ids RFC](../../../docs/rfc/implemented/architecture/2026-06-20-branded-ids.md)) — consumers must not parse `targetKey` or interpret `version`; only `displayPath` is for model/UI output. `FsWriteIntent` is the explicit GUARDED write intent (`createIfAbsent` creates a missing target and rejects an existing one with `FS_NOT_OBSERVED`; `replaceIfVersion` replaces only at the observed version, else `FS_STALE_VERSION`); omitting it from `writeText` is the third, unconditional state. Failures throw `FsError` (extends `HarnessError`, [the structured error taxonomy RFC](../../../docs/rfc/implemented/architecture/2026-06-11-structured-error-taxonomy.md)) carrying a stable `FsErrorCode` (`FS_NOT_FOUND`, `FS_NOT_TEXT`, `FS_NOT_REGULAR_FILE`, `FS_STALE_VERSION`, `FS_NOT_OBSERVED`, `FS_AMBIGUOUS_EDIT`, `FS_EDIT_NOT_FOUND`, `FS_ABORTED`); the tool registry surfaces `{ name, code }` on `isError` results. See `src/types.ts` for the full contracts.
+`FsTargetKey` / `FsVersion` are branded opaque ids ([the branded-ids RFC](../../../docs/rfc/implemented/architecture/2026-06-20-branded-ids.md)) — consumers must not parse `targetKey` or interpret `version`; only `displayPath` is for model/UI output. `FsWriteIntent` is the explicit GUARDED write intent (`createIfAbsent` creates a missing target and rejects an existing one with `FS_NOT_OBSERVED`; `replaceIfVersion` replaces only at the observed version, else `FS_STALE_VERSION`); omitting it from `writeText` is the third, unconditional state. Failures throw `FsError` (extends `HarnessError`, [the structured error taxonomy RFC](../../../docs/rfc/implemented/architecture/2026-06-11-structured-error-taxonomy.md)) carrying a stable `FsErrorCode` (`FS_NOT_FOUND`, `FS_NOT_DIRECTORY`, `FS_NOT_TEXT`, `FS_NOT_REGULAR_FILE`, `FS_PERMISSION_DENIED`, `FS_IO_ERROR`, `FS_STALE_VERSION`, `FS_NOT_OBSERVED`, `FS_AMBIGUOUS_EDIT`, `FS_EDIT_NOT_FOUND`, `FS_ABORTED`); the tool registry surfaces `{ name, code }` on `isError` results. See `src/types.ts` for the full contracts.

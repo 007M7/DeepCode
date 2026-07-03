@@ -79,6 +79,23 @@ export interface FsInfo {
 }
 
 /**
+ * One direct child returned by {@link FileSystem.listDir}. Listing returns
+ * metadata and resolved targets only; it must not read file contents.
+ */
+export interface FsDirEntry {
+  /** Basename of the child inside the listed directory. */
+  name: string
+  /** Whether the child is a regular file, a directory, or something else. */
+  type: 'file' | 'directory' | 'other'
+  /** Resolved child target for follow-up operations. */
+  target: FsTarget
+  /** Opaque freshness token when the backend can report metadata cheaply. */
+  version?: FsVersion
+  /** Byte size of a regular file, when the backend can report it. */
+  size?: number
+}
+
+/**
  * The explicit intent of a guarded {@link FileSystem.writeText} call.
  * `createIfAbsent` creates a missing target and rejects an existing one with
  * `FS_NOT_OBSERVED` (the path the policy plugin uses when the owner has no prior
@@ -148,8 +165,11 @@ export interface FsEditOutcome {
  */
 export type FsErrorCode =
   | 'FS_NOT_FOUND'
+  | 'FS_NOT_DIRECTORY'
   | 'FS_NOT_TEXT'
   | 'FS_NOT_REGULAR_FILE'
+  | 'FS_PERMISSION_DENIED'
+  | 'FS_IO_ERROR'
   | 'FS_STALE_VERSION'
   | 'FS_NOT_OBSERVED'
   | 'FS_AMBIGUOUS_EDIT'

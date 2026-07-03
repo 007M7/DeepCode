@@ -128,6 +128,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Resolve filesystem paths against the caller's session cwd](implemented/architecture/2026-07-02-fs-per-session-cwd.md) | 2026-07-02 |
 | [Tagged render-intent union for tool-call presentation](implemented/architecture/2026-07-02-tool-render-intent-union.md) | 2026-07-02 |
 | [Result-time applied-hunk diffs for file mutations](implemented/architecture/2026-07-02-result-time-applied-hunk-diffs.md) | 2026-07-02 |
+| [Add direct directory listing to the filesystem seam](implemented/architecture/2026-07-03-filesystem-directory-listing-seam.md) | 2026-07-03 |
 
 ### Process
 

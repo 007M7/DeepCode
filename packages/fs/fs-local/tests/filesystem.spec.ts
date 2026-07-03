@@ -7,7 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtemp, readFile, rm, stat, symlink, writeFile, unlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from 'cordis'
@@ -115,6 +115,56 @@ describe('readText / streamText', () => {
 
     await writeFile(join(dir, 'bad'), Buffer.from([0x68, 0xff, 0x69]))
     await expect(fs.readText(await fs.resolve('bad'))).rejects.toMatchObject({ code: 'FS_NOT_TEXT' })
+  })
+})
+
+describe('listDir', () => {
+  it('lists files and directories in stable name order with resolved child targets', async () => {
+    await mkdir(join(dir, 'skills', 'dir-skill'), { recursive: true })
+    await writeFile(join(dir, 'skills', 'zeta.md'), 'zeta')
+    await writeFile(join(dir, 'skills', 'alpha.md'), 'alpha')
+    await symlink(join(dir, 'skills', 'missing-target'), join(dir, 'skills', 'broken-link'))
+
+    const entries = await fs.listDir(await fs.resolve('skills'))
+    expect(entries.map(entry => [entry.name, entry.type])).toEqual([
+      ['alpha.md', 'file'],
+      ['broken-link', 'other'],
+      ['dir-skill', 'directory'],
+      ['zeta.md', 'file'],
+    ])
+    expect(entries.map(entry => entry.target.displayPath)).toEqual([
+      join(dir, 'skills', 'alpha.md'),
+      join(dir, 'skills', 'broken-link'),
+      join(dir, 'skills', 'dir-skill'),
+      join(dir, 'skills', 'zeta.md'),
+    ])
+    expect(entries.map(entry => entry.target.inputPath)).toEqual([
+      'alpha.md',
+      'broken-link',
+      'dir-skill',
+      'zeta.md',
+    ])
+    const materializedEntries = entries.filter(entry => entry.version !== undefined)
+    expect(materializedEntries.map(entry => entry.target.targetKey))
+      .toEqual(await Promise.all(materializedEntries.map(entry => realpath(entry.target.displayPath))))
+    expect(entries.find(entry => entry.name === 'alpha.md')?.size).toBe(5)
+    expect(typeof entries.find(entry => entry.name === 'alpha.md')?.version).toBe('string')
+    expect(entries.find(entry => entry.name === 'broken-link')?.version).toBeUndefined()
+    expect(entries.find(entry => entry.name === 'dir-skill')?.size).toBeUndefined()
+  })
+
+  it('reports a missing directory as FS_NOT_FOUND', async () => {
+    await expect(fs.listDir(await fs.resolve('missing'))).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
+  })
+
+  it('reports a file target as FS_NOT_DIRECTORY', async () => {
+    await writeFile(join(dir, 'a.txt'), 'text')
+    await expect(fs.listDir(await fs.resolve('a.txt'))).rejects.toMatchObject({ code: 'FS_NOT_DIRECTORY' })
+  })
+
+  it('honors a pre-aborted signal', async () => {
+    await mkdir(join(dir, 'skills'), { recursive: true })
+    await expect(fs.listDir(await fs.resolve('skills'), AbortSignal.abort())).rejects.toMatchObject({ code: 'FS_ABORTED' })
   })
 })
 
