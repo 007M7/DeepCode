@@ -40,7 +40,7 @@
 
 **排除**（永不配对，门禁拒绝为它们建 `.zh.md`）：
 
-- `docs/cordis-catalog/`、`docs/tool-catalog/`、`docs/module-graph.md` —— 生成文件；生成器只输出英文，译文在每次重新生成时必然过期。
+- `docs/cordis-catalog/`、`docs/tool-catalog/`、`docs/module-graph.md` —— 生成文件；生成器只输出英文，译文在每次重新生成时必然陈旧。
 - `docs/AGENTS.md` —— agent 指令，与根 `AGENTS.md` 一样只以英文维护。
 - `docs/i18n/terminology.md` —— 术语表本身即是双语构造。
 
