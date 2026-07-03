@@ -1,5 +1,3 @@
-<!-- i18n-source: README.md@33c03fad1450 -->
-
 # DeepSeek Harness
 
 [English](README.md) | 中文

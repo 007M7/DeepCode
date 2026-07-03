@@ -1,5 +1,3 @@
-<!-- i18n-source: docs/development.md@ce431d95c5db -->
-
 # 开发指南
 
 [English](development.md) | 中文
