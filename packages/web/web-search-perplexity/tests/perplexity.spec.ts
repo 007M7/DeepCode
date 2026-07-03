@@ -198,6 +198,18 @@ describe('web-search-perplexity plugin registration', () => {
     expect('default' in perplexityPlugin).toBe(false)
   })
 
+  it('threads maxTokens and searchRecency config into the request', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: 'a' } }], citations: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const ctx = new Context()
+    await ctx.plugin(WebService, { searchProvider: PERPLEXITY_PROVIDER_ID })
+    const fiber = await ctx.plugin(perplexityPlugin, { apiKey: 'pplx-key', maxTokens: 256, searchRecency: 'month' })
+    await ctx.web.search({ query: 'q' })
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(JSON.parse(init.body as string)).toMatchObject({ max_tokens: 256, search_recency_filter: 'month' })
+    await fiber.dispose()
+  })
+
   it('falls back to env key and defaults for base URL and model when config omits them', async () => {
     const prev = process.env.PERPLEXITY_API_KEY
     process.env.PERPLEXITY_API_KEY = 'env-key'
