@@ -59,6 +59,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'fs-edit', hasModelTurn: true, recorded: true },
   { name: 'fs-write-overwrite', hasModelTurn: true, recorded: true },
   { name: 'fs-read-window', hasModelTurn: true, recorded: true },
+  { name: 'fs-policy-reject', hasModelTurn: true, recorded: true },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
   { name: 'error-finish', hasModelTurn: true, recorded: false },
   { name: 'cancel', hasModelTurn: true, recorded: false },
