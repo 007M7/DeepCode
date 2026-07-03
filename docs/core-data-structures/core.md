@@ -20,6 +20,7 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | [persistence.md](persistence.md) | the durability seam: `SessionPersistence`, JSONL + SQLite backends, `session/flush`, crash recovery, `SessionHeader` |
 | [tools.md](tools.md) | `ToolDefinition` full fields, the schema DSL, `ToolExecution`/`ToolResult`, tool-presentation UI types, the `tools/execute` waterfall |
 | [bash.md](bash.md) | the bash executor seam: `BashExecRequest`/`Spec`, `BashRunResult`, background `BashTask`s |
+| [filesystem.md](filesystem.md) | the filesystem seam: `FsTarget`, read/write/edit outcomes, observed-file state, `FsErrorCode` |
 | [compaction.md](compaction.md) | the compaction seam: the `compact/*` session events, `CompactionResult`, the `CompactService` interface |
 | [subagent.md](subagent.md) | the subagent seam: the named-provider registry, `SubagentStartRequest`/`Result`/`Run`, the start-time-vs-runtime capability split |
 
@@ -205,7 +206,7 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /**
      * Seq numbers of events that are provenance sources of this event
      * (e.g. the `assistant/chunk` seqs that built an `assistant/message`,
-     * or the surface nodes shadowed by a compaction marker).
+     * or the surface nodes shadowed by a compaction replace node).
      */
     sourceEventSeqs?: number[]
     /** How this event entered the surface; absent for non-surface events. */
@@ -306,7 +307,7 @@ interface Agent {
 }
 ```
 
-`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`, `systemPrompt?`) is merge-extensible — plugins add creation options by declaration merging. The `agent/*` event taxonomy (lifecycle, turn/step boundaries, the `agent/request`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy).
+`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`, `systemPrompt?`) is merge-extensible — plugins add creation options by declaration merging. The `agent/*` event taxonomy (lifecycle, turn/step boundaries, the serial `agent/pre-step` surface-mutation seam, and the `agent/request`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy).
 
 ## `ToolDefinition`
 

@@ -12,7 +12,8 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`prompt/`](prompt/README.md) | Prompt and request-context extensions that shape model inputs | Product — stable surface |
 | [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
 | [`bash/`](bash/README.md) | Bash capability family: the executor seam, a local impl, and the model-facing tool | Product — stable surface |
-| [`compact/`](compact/README.md) | Compaction capability family: the abstract seam (backend + tool deferred) | Product — stable surface |
+| [`fs/`](fs/README.md) | Filesystem capability family: the abstract seam, a local impl, and the model-facing file tools | Product — stable surface |
+| [`compact/`](compact/README.md) | Compaction capability family: the abstract seam + a basic backend (tool deferred) | Product — stable surface |
 | [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
 | [`todo/`](todo/README.md) | Todo/planning family: the model-facing `todo_write` tool (whole-list task tracking on the session log) | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
@@ -32,11 +33,16 @@ dsh-bash          ← dsh-brand                       (abstract executor seam; b
 dsh-session       ← dsh-llm, dsh-brand
 dsh-system-prompt ← dsh-llm
 dsh-agent         ← dsh-llm, dsh-session, dsh-brand
-dsh-compact       ← dsh-session, dsh-llm                (abstract compaction seam; backend + tool deferred)
+dsh-compact       ← dsh-session, dsh-llm                (abstract compaction seam; tool deferred)
+dsh-compact-basic ← dsh-compact, dsh-session, dsh-llm, dsh-agent  (char/4 + token-budget retention backend)
 dsh-tools         ← dsh-llm, dsh-system-prompt, dsh-agent
 dsh-project-instructions ← dsh-agent, dsh-llm, dsh-paths (AGENTS.md/CLAUDE.md workspace context loader)
 dsh-bash-local    ← dsh-bash                       (BashExecutor impl)
 dsh-tool-bash     ← dsh-bash, dsh-tools            (bash tool schemas)
+dsh-fs            ← dsh-llm, dsh-brand              (filesystem provider seam + fs/* events)
+dsh-fs-local      ← dsh-fs                          (FileSystem impl)
+dsh-fs-policy     ← dsh-fs                          (observed-state + freshness policy gate, no service)
+dsh-tool-fs       ← dsh-fs, dsh-tools               (file tools + executor)
 dsh-llm-deepseek  ← dsh-llm                        (DeepSeek adapter)
 dsh-llm-pi-ai     ← dsh-llm                        (pi-ai-backed adapter)
 dsh-agent-loop    ← dsh-llm, dsh-session, dsh-session-persistence, dsh-system-prompt, dsh-tools, dsh-agent
@@ -74,7 +80,12 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `bash/` | `bash` | Abstract bash executor seam (interface + vocabulary) | `ctx.bash` |
 | `bash-local/` | `bash` | Local-subprocess `BashExecutor` implementation | (registers `ctx.bash`) |
 | `tool-bash/` | `bash` | Model-facing `bash`/`bash_output`/`bash_kill` tool schemas | (registers on `ctx.tools`) |
+| `fs/` | `fs` | Filesystem provider seam: text IO + atomic mutation primitives (optional version guard); owns the `fs/*` events | `ctx.fs` |
+| `fs-local/` | `fs` | Local-filesystem `FileSystem` implementation | (registers `ctx.fs`) |
+| `fs-policy/` | `fs` | Policy gate plugin: observed-state + read-before-edit + version-guarded write/edit via the `fs/*` event gate | (no service — `fs/*` listeners) |
+| `tool-fs/` | `fs` | Model-facing `read`/`write`/`edit` tools + executor (reads via `ctx.fs`, owns read windowing, dispatches `fs/*`) | (registers on `ctx.tools`) |
 | `compact/` | `compact` | Abstract compaction seam + `compact/*` events + `CompactionResult` | `ctx.compact` |
+| `compact-basic/` | `compact` | A backend: char/4 estimation + token-budget retention + `llm.stream()` summarization | (registers `ctx.compact`) |
 | `llm-deepseek/` | `llm` | DeepSeek API adapter (hand-rolled fetch/SSE) | (registers on `ctx.llm`) |
 | `llm-pi-ai/` | `llm` | DeepSeek adapter via `@earendil-works/pi-ai` (design twin) | (registers on `ctx.llm`) |
 | `session-persistence/` | `session-persistence` | Persistence seam + write coordinator | `ctx.sessionPersistence` |

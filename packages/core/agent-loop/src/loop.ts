@@ -12,6 +12,7 @@ import type { FinishReason, GenerateOptions, Message } from '@deepseek-ai/dsh-ll
 import { BlockAssembler, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { ReactLoopAgent } from './agent.ts'
 
@@ -147,10 +148,11 @@ export interface LoopHandle {
  *     drain queued → 'turn/start' → session('user/message'…) → emit agent/turn-start
  *     STEP loop:
  *       drain steering → session('steering/message')  ⟵ catches late steering
- *       session('step/start'); emit agent/step-start    ⟵ append before emit (the event-sourcing RFC)
  *       assembly = ctx.systemPrompt.assemble()        ⟵ waterfall system-prompt/assemble
+ *       await ctx.serial('agent/pre-step')            ⟵ surface mutation (compaction) OUTSIDE the step
+ *       session('step/start'); emit agent/step-start    ⟵ append before emit (the event-sourcing RFC)
  *       req = {model, system, tools, messages: session.deriveMessages(), signal}
- *       req = waterfall agent/request                 ⟵ hooks/compaction/model-switch
+ *       req = waterfall agent/request                 ⟵ hooks/model-switch
  *       stream ctx.llm.stream(req)                    ⟵ waterfall llm/stream (raw chunks)
  *         session('assistant/chunk'); emit agent/stream-chunk
  *       msg = waterfall agent/step-result             ⟵ BEFORE the log append, so the
@@ -386,30 +388,78 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
       // (or turn-start listeners on the first step) joins before the request.
       drainSteering(ctx, agent, turn)
 
+      // The step's AbortController exists BEFORE any async pre-step work so a
+      // dispose() or cancel() — in a synchronous turn-start listener or an
+      // async listener whose effect fires before we block — always has an armed
+      // abort to cancel against. isDisposed below covers disposal, which does
+      // NOT set the cancel marker. Cleared on every exit path below.
+      const abort = new AbortController()
+      handle.setAbort(abort)
+
+      // Assemble the system prompt for this step. Done HERE (before step/start)
+      // because the pre-step seam needs it: compaction measures token pressure
+      // against the system prompt (it counts toward the budget). runStep reuses
+      // this same assembly for the request, so the prompt is assembled once per
+      // step.
+      const assembly = await ctx.systemPrompt.assemble()
+      const fullSystemPrompt = [renderPrompt(assembly), agent.options.systemPrompt ?? '']
+        .filter(text => text.length > 0)
+        .join('\n\n')
+
+      // Interruption landing after assembly: dispose() or cancel() in a
+      // turn-start listener (or a listener whose promise resolved before the
+      // await above) arms either handle.isDisposed() or handle.isCancelled().
+      // The Abort was created first, so any concurrent abort also lands on it.
+      // Drop the about-to-start step WITHOUT running the seam — no step is open
+      // yet, so end the turn accordingly (disposed wins for an unambiguous
+      // reason).
+      if (handle.isCancelled() || handle.isDisposed()) {
+        handle.setAbort(undefined)
+        reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
+        break
+      }
+
+      // Pre-step surface-mutation checkpoint (compaction), fired OUTSIDE the
+      // step: after `turn/start` (and the prior step's close) but before
+      // `step/start`, so a compaction's log-only `compact/*` records and its
+      // replacement node land cleanly outside any step (honest structure that
+      // crash-safety relies on — a dangling `compact/start` sits before the
+      // synthetic `turn/end` repair appends). Serial (awaited, in order, no
+      // veto): each listener completes its surface mutation before the next, so
+      // concurrent listeners cannot interleave their `session.append`s. A
+      // throwing listener escapes to the outer catch, which closes the (not-yet-
+      // open) step as a no-op and ends the turn via failTurn — a broken
+      // pre-step plugin ends the turn, not the loop.
+      await ctx.serial('agent/pre-step', agent, turn, step, fullSystemPrompt, abort.signal)
+
+      // Interruption landing during the pre-step seam: do not open an empty
+      // step. `agent/step-start` listeners get their own check below because
+      // they necessarily run after step/start is appended/emitted.
+      if (handle.isCancelled() || handle.isDisposed()) {
+        handle.setAbort(undefined)
+        reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
+        break
+      }
+
       session.append('step/start', { turn, step })
       stepOpen = true
       ctx.emit('agent/step-start', agent, turn, step)
 
-      const abort = new AbortController()
-      handle.setAbort(abort)
-
-      // Cancel landing in the step-start window: a synchronous `agent/turn-start`
-      // or `agent/step-start` listener (both fire before this point) can have
-      // called `cancel()`, and `runStep` would otherwise run a full extra step
-      // with no AbortController having observed it. Check the marker AFTER
-      // setAbort (so the next-iteration drain sees a clean controller) and before
-      // `runStep`: drop the step, end the turn `aborted`. closeStep balances the
-      // already-appended step/start.
-      if (handle.isCancelled()) {
+      // Cancel landing in the step-start window: a synchronous
+      // `agent/step-start` listener can cancel after the step is already open.
+      // Check AFTER step/start append + emit and before `runStep`: drop the
+      // step, end the turn accordingly. closeStep balances the already-appended
+      // step/start.
+      if (handle.isCancelled() || handle.isDisposed()) {
         handle.setAbort(undefined)
-        reason = { kind: 'aborted', reason: handle.cancelReason() }
+        reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
         closeStep()
         break
       }
 
       let stepOutcome: { hadToolCalls: boolean; finish: FinishReason } | { error: Error }
       try {
-        stepOutcome = await runStep(ctx, agent, turn, step, abort.signal)
+        stepOutcome = await runStep(ctx, agent, turn, step, assembly, fullSystemPrompt, abort.signal)
       } catch (error: unknown) {
         stepOutcome = { error: toError(error) }
       } finally {
@@ -549,21 +599,21 @@ function drainSteering(ctx: Context, agent: ReactLoopAgent, turn: number): boole
   return messages.length > 0
 }
 
-/** One step: assemble request → stream model → record → execute tools. */
+/** One step: derive request from the (already pre-step-mutated) surface →
+ * stream model → record → execute tools. The caller assembles the system prompt
+ * and fires the `agent/pre-step` seam BEFORE opening the step, then passes the
+ * resulting `assembly`/`system` here, so the surface this step derives from
+ * already reflects any compaction. */
 async function runStep(
   ctx: Context,
   agent: ReactLoopAgent,
   turn: number,
   step: number,
+  assembly: PromptAssembly,
+  system: string,
   signal: AbortSignal,
 ): Promise<{ hadToolCalls: boolean; finish: FinishReason }> {
   const { session, options } = agent
-
-  // --- Request assembly ---
-  const assembly = await ctx.systemPrompt.assemble()
-  const system = [renderPrompt(assembly), options.systemPrompt ?? '']
-    .filter(text => text.length > 0)
-    .join('\n\n')
 
   let request: GenerateOptions = {
     model: options.model ?? '',

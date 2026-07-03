@@ -44,6 +44,7 @@
         "./packages/prompt/*/src",
         "./packages/llm/*/src",
         "./packages/bash/*/src",
+        "./packages/fs/*/src",
         "./packages/compact/*/src",
         "./packages/subagent/*/src",
         "./packages/todo/*/src",

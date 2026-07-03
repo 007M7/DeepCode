@@ -44,7 +44,6 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Agent Client Protocol (ACP) support for external editors](proposed/feature/2026-06-14-acp-agent-client-protocol.md) | 2026-06-14 |
 | [Multiplex concurrent ACP sessions over one connection](proposed/feature/2026-06-14-acp-multi-session.md) | 2026-06-14 |
 | [Optional Code Mode — model writes TypeScript against an SDK of all tools](proposed/feature/2026-06-15-optional-code-mode.md) | 2026-06-15 |
-| [Compaction as a capability seam (abstract contract + basic backend)](proposed/feature/2026-06-18-compaction-capability-seam.md) | 2026-06-18 |
 
 ### Simplification
 
@@ -82,7 +81,9 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 
 | Title | First proposed |
 |---|---|
+| [Filesystem tool schemas — model-facing read/write/edit shapes](implemented/feature/2026-06-17-filesystem-tool-schemas.md) | 2026-06-17 |
 | [Rich ACP bash rendering — the terminal card (`_meta`) and command classification](implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) | 2026-06-18 |
+| [Compaction as a capability seam (abstract contract + basic backend)](implemented/feature/2026-06-18-compaction-capability-seam.md) | 2026-06-18 |
 | [Subagent capability seam](implemented/feature/2026-06-21-subagent-capability-seam.md) | 2026-06-21 |
 | [ACP subagent backend (out-of-process delegation)](implemented/feature/2026-06-22-acp-subagent-backend.md) | 2026-06-22 |
 | [Project instruction files (`AGENTS.md` with `CLAUDE.md` fallback)](implemented/feature/2026-06-24-project-instruction-files.md) | 2026-06-24 |
@@ -98,6 +99,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Prune dead methods from the persistence seam](implemented/simplification/2026-06-20-prune-dead-seam-methods.md) | 2026-06-20 |
 | [Keep one public stop primitive](implemented/simplification/2026-06-20-public-agent-stop-surface.md) | 2026-06-20 |
 | [Fold trace-only session facts into load-bearing events](implemented/simplification/2026-06-20-collapse-trace-only-session-events.md) | 2026-06-20 |
+| [Split the filesystem seam — provider text mutations plus the `dsh-fs-policy` plugin](implemented/simplification/2026-06-26-fsspec-style-fs-seam.md) | 2026-06-26 |
 
 ### Architecture
 
@@ -115,12 +117,15 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Two LLM adapters as a design-verification twin](implemented/architecture/2026-06-13-twin-llm-adapters.md) | 2026-06-13 |
 | [Session persistence as an abstract service over `SessionEvent`](implemented/architecture/2026-06-14-session-persistence.md) | 2026-06-14 |
 | [Every session event is enclosed in a turn](implemented/architecture/2026-06-15-turn-enclosure-invariant.md) | 2026-06-15 |
+| [Filesystem capability seam — ctx.fs, local backend, and model-facing filesystem tools](implemented/architecture/2026-06-17-filesystem-capability-seam.md) | 2026-06-17 |
 | [Shared persistence write coordinator](implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md) | 2026-06-18 |
 | [Agent lifecycle and ownership seams](implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md) | 2026-06-18 |
 | [Session surface — a linked list over the event log for LLM message derivation](implemented/architecture/2026-06-18-session-surface.md) | 2026-06-18 |
 | [Reorganize packages into a modular hierarchy](implemented/architecture/2026-06-20-package-hierarchy.md) | 2026-06-20 |
 | [Branded IDs everywhere they belong](implemented/architecture/2026-06-20-branded-ids.md) | 2026-06-20 |
 | [Extract example apps into packages](implemented/architecture/2026-06-20-extract-example-app-packages.md) | 2026-06-20 |
+| [Make `dsh-fs-policy` an event-gate plugin, not a method interface](implemented/architecture/2026-06-26-file-context-as-event-gate.md) | 2026-06-26 |
+| [Resolve filesystem paths against the caller's session cwd](implemented/architecture/2026-07-02-fs-per-session-cwd.md) | 2026-07-02 |
 
 ### Process
 
@@ -136,6 +141,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Core-data-structures catalog and the `ts type-equiv` drift gate](implemented/process/2026-06-20-core-data-structures-catalog.md) | 2026-06-20 |
 | [Generated cordis events + services catalog](implemented/process/2026-06-20-generated-cordis-catalog.md) | 2026-06-20 |
 | [Classify RFCs by kind via path-encoded subdirectories](implemented/process/2026-06-20-rfc-classification.md) | 2026-06-20 |
+| [Generated tool-schema catalog (boot-and-harvest)](implemented/process/2026-07-02-tool-schema-catalog.md) | 2026-07-02 |
 
 ### Testing
 
