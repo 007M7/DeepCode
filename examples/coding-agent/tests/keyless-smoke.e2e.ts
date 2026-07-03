@@ -24,7 +24,7 @@ import { afterEach, describe, expect, it } from 'vitest'
  * product.
  */
 
-// The dsh-stdio-agent bin (the demo:coding entry) and this example's cordis.yml.
+// The dsh-stdio-agent bin (the demo:repl entry) and this example's cordis.yml.
 // The bin resolves its config-path arg from CWD; the test spawns from a temp
 // cwd, so we pass the example config's ABSOLUTE path.
 const binScript = fileURLToPath(new URL('../../../packages/ui/stdio-agent/src/bin.ts', import.meta.url))
@@ -51,7 +51,7 @@ async function bootAndEof(): Promise<{ stdout: string; code: number }> {
   return new Promise((resolve, reject) => {
     const proc = spawn(
       process.execPath,
-      // --expose-internals: cordis.yml loads the HMR plugin (mirrors demo:coding).
+      // --expose-internals: cordis.yml loads the HMR plugin (mirrors demo:repl).
       ['--expose-internals', '--import', tsxLoader, binScript, configPath],
       {
         cwd,
@@ -94,6 +94,6 @@ describe('coding-agent keyless smoke (real cordis.yml via the Loader)', () => {
   it('boots the full plugin tree, prints its banner, and exits cleanly on EOF', async () => {
     const { stdout, code } = await bootAndEof()
     expect(code).toBe(0)
-    expect(stdout).toContain('coding-agent ready.')
+    expect(stdout).toContain('agent REPL ready.')
   }, 15_000)
 })
