@@ -5,16 +5,24 @@
  *
  *   <!-- i18n-source: docs/foo.md@<first 12 hex of git blob hash> -->
  *
- * The gate checks, mechanically, everything the contract promises:
+ * The gate checks, mechanically, the checkable half of the contract:
  *
  *   1. Every English file in the manifest's `required` list has a `.zh.md`
  *      sibling (the enforcement frontier — grows batch by batch).
  *   2. Every EXISTING `.zh.md`, required or not, is sound: its source exists
  *      (no orphans), its fingerprint equals the source's current blob hash
  *      (no stale translations), both sides carry the language-switcher link,
- *      and its fenced-code-block and heading counts match the source.
+ *      and its structural signature matches the source one to one — heading
+ *      depths in order, fenced code blocks VERBATIM (info string + content),
+ *      table column counts, list kinds, and every link target except the
+ *      switcher itself.
  *   3. `excluded` files (generated docs, agent instructions, the bilingual
  *      terminology table) have no `.zh.md` at all.
+ *
+ * What it deliberately does NOT check is translation quality: a green gate
+ * means the pair is fresh and structurally sound, not that the Chinese is
+ * faithful — accuracy, terminology, and tone are the human reviewer's half
+ * of the contract (docs/i18n/translation-rules.md).
  *
  * The fingerprint is a git BLOB hash, not a commit hash, so a translation
  * updated in the same PR as its English source verifies without any history
@@ -51,7 +59,12 @@ const manifest = JSON.parse(readFileSync(join(root, 'scripts/translation-pairing
 /** First line of a translation: fingerprint of the English source it renders. */
 const FINGERPRINT = /^<!-- i18n-source: (?<path>\S+)@(?<hash>[0-9a-f]{12}) -->$/
 
-/** An excluded entry ending in `/` excludes the whole directory. */
+/**
+ * An excluded entry ending in `/` excludes the whole directory. The trailing
+ * slash IS the path boundary — `docs/tool-catalog/` cannot prefix-match a
+ * sibling like `docs/tool-catalog-notes/x.md` — so directory entries in the
+ * manifest must keep their trailing slash.
+ */
 function isExcluded(file: string): boolean {
   return manifest.excluded.some(entry => (entry.endsWith('/') ? file.startsWith(entry) : file === entry))
 }
@@ -64,13 +77,25 @@ function blobHash(content: Buffer): string {
   return hash.digest('hex').slice(0, 12)
 }
 
-/** Counts that must match between a source and its translation. */
-interface Shape {
-  codeBlocks: number
-  headings: number
+/**
+ * The structural signature a translation must reproduce from its source, as
+ * ordered sequences so a swap or a level change is caught, not just a count
+ * change. Prose is deliberately absent: the gate checks shape, never wording.
+ */
+interface Signature {
+  /** Heading depths in document order (h2 → 2). */
+  headings: number[]
+  /** Fenced code blocks verbatim: info string + content, in order. */
+  code: string[]
+  /** Column count of each table, in order. */
+  tables: number[]
+  /** Each list's kind (ordered vs bullet), in order. */
+  lists: string[]
+  /** Every link target in order, the language switcher's excluded. */
+  links: string[]
 }
 
-/** Whether `text` contains a relative markdown link to exactly `target`. */
+/** Whether the tree contains a link to exactly `target` (the switcher check). */
 function linksTo(tree: Nodes, target: string): boolean {
   let found = false
   const visit = (node: Nodes): void => {
@@ -81,16 +106,63 @@ function linksTo(tree: Nodes, target: string): boolean {
   return found
 }
 
-function shapeOf(tree: Nodes): Shape {
-  let codeBlocks = 0
-  let headings = 0
+/** Collect the structural signature, skipping links to `switcherTarget`. */
+function signatureOf(tree: Nodes, switcherTarget: string): Signature {
+  const sig: Signature = { headings: [], code: [], tables: [], lists: [], links: [] }
   const visit = (node: Nodes): void => {
-    if (node.type === 'code') codeBlocks++
-    if (node.type === 'heading') headings++
+    switch (node.type) {
+      case 'heading':
+        sig.headings.push(node.depth)
+        break
+      case 'code':
+        sig.code.push(`\`\`\`${node.lang ?? ''}${node.meta ? ` ${node.meta}` : ''}\n${node.value}`)
+        break
+      case 'table':
+        sig.tables.push(node.children[0]?.children.length ?? 0)
+        break
+      case 'list':
+        sig.lists.push(node.ordered ? 'ordered' : 'bullet')
+        break
+      case 'link':
+        if (node.url !== switcherTarget) sig.links.push(node.url)
+        break
+      default:
+        // Every other node kind is prose or container — not part of the signature.
+        break
+    }
     if ('children' in node) for (const child of node.children) visit(child)
   }
   visit(tree)
-  return { codeBlocks, headings }
+  return sig
+}
+
+/** Render a signature element for an error message, truncated for readability. */
+function show(value: string | number | undefined): string {
+  if (value === undefined) return 'nothing'
+  const text = JSON.stringify(value)
+  return text.length > 72 ? `${text.slice(0, 72)}…` : text
+}
+
+/** First divergence between two signatures, as messages; empty when identical. */
+function signatureDiff(source: Signature, zh: Signature): string[] {
+  const out: string[] = []
+  const fields: [string, (string | number)[], (string | number)[]][] = [
+    ['heading (depth)', source.headings, zh.headings],
+    ['code block', source.code, zh.code],
+    ['table (column count)', source.tables, zh.tables],
+    ['list (kind)', source.lists, zh.lists],
+    ['link target', source.links, zh.links],
+  ]
+  for (const [field, s, z] of fields) {
+    const length = Math.max(s.length, z.length)
+    for (let i = 0; i < length; i++) {
+      if (s[i] !== z[i]) {
+        out.push(`${field} #${i + 1} diverges from the source: source has ${show(s[i])}, translation has ${show(z[i])}`)
+        break
+      }
+    }
+  }
+  return out
 }
 
 function parse(content: string): Nodes {
@@ -135,7 +207,7 @@ for (const zh of translations) {
   }
 
   const zhContent = readFileSync(join(root, zh), 'utf8')
-  const firstLine = zhContent.slice(0, zhContent.indexOf('\n'))
+  const firstLine = zhContent.split('\n', 1)[0] ?? ''
   const match = FINGERPRINT.exec(firstLine)
   if (!match?.groups) {
     errors.push(`${zh}: first line is not an i18n-source fingerprint (expected \`<!-- i18n-source: ${source}@<12-hex> -->\`, got \`${firstLine.slice(0, 60)}\`)`)
@@ -162,13 +234,10 @@ for (const zh of translations) {
   if (!linksTo(sourceTree, basename(zh))) {
     errors.push(`${source}: missing language switcher — no link back to ${basename(zh)}`)
   }
-  const zhShape = shapeOf(zhTree)
-  const sourceShape = shapeOf(sourceTree)
-  if (zhShape.codeBlocks !== sourceShape.codeBlocks) {
-    errors.push(`${zh}: ${zhShape.codeBlocks} fenced code block(s) vs ${sourceShape.codeBlocks} in ${source} — code blocks must mirror the source`)
-  }
-  if (zhShape.headings !== sourceShape.headings) {
-    errors.push(`${zh}: ${zhShape.headings} heading(s) vs ${sourceShape.headings} in ${source} — heading structure must mirror the source`)
+  const sourceSig = signatureOf(sourceTree, basename(zh))
+  const zhSig = signatureOf(zhTree, basename(source))
+  for (const divergence of signatureDiff(sourceSig, zhSig)) {
+    errors.push(`${zh}: ${divergence}`)
   }
   if (!state.has(source)) state.set(source, 'ok')
 }
