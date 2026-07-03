@@ -174,7 +174,8 @@ export interface TodoItem {
  * same events; trace/telemetry = subscribe to the log.
  *
  * Merge-extensible: plugins declare extra event types via declaration merging
- * (e.g. a compaction plugin adds `'compaction/marker'`).
+ * (e.g. the compaction plugin adds `'compact/start'`, `'compact/summary'`,
+ * `'compact/end'`).
  *
  * Durability contract (what a persistence backend relies on): the durable log
  * persists every event verbatim, INCLUDING `assistant/chunk` — `seq` must stay
@@ -311,7 +312,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /**
      * Seq numbers of events that are provenance sources of this event
      * (e.g. the `assistant/chunk` seqs that built an `assistant/message`,
-     * or the surface nodes shadowed by a compaction marker).
+     * or the surface nodes shadowed by a compaction replace node).
      */
     sourceEventSeqs?: number[]
     /** How this event entered the surface; absent for non-surface events. */

@@ -162,9 +162,6 @@ function checkEvent(trace: SessionTrace, event: SessionEvent): void {
       trace.surface.push(event.seq)
     } else {
       const { start, end } = se.surfaceOp
-      if (start > end) {
-        throw new InvariantError(`surface replace: start ${start} must be <= end ${end}`)
-      }
       const startIdx = trace.surface.indexOf(start)
       if (startIdx === -1) {
         throw new InvariantError(`surface replace: start seq ${start} is not on the surface`)

@@ -10,6 +10,8 @@ graph TD
   bash --> brand
   llm --> brand
   bash-local --> bash
+  fs --> brand
+  fs --> llm
   llm-deepseek --> llm
   llm-pi-ai --> llm
   session --> brand
@@ -20,9 +22,15 @@ graph TD
   agent --> session
   compact --> llm
   compact --> session
+  fs-local --> fs
+  fs-policy --> fs
   llm-replay --> llm
   llm-replay --> session
   session-persistence --> session
+  compact-basic --> agent
+  compact-basic --> compact
+  compact-basic --> llm
+  compact-basic --> session
   invariants --> agent
   invariants --> llm
   invariants --> session
@@ -31,6 +39,7 @@ graph TD
   session-persistence-sqlite --> session
   session-persistence-sqlite --> session-persistence
   skill --> agent
+  skill --> fs
   skill --> llm
   tools --> agent
   tools --> llm
@@ -56,6 +65,10 @@ graph TD
   tool-bash --> bash
   tool-bash --> llm
   tool-bash --> tools
+  tool-fs --> fs
+  tool-fs --> llm
+  tool-fs --> system-prompt
+  tool-fs --> tools
   tool-skill --> agent
   tool-skill --> llm
   tool-skill --> skill
@@ -109,24 +122,29 @@ graph TD
 | `bash` | `brand` |
 | `llm` | `brand` |
 | `bash-local` | `bash` |
+| `fs` | `brand`, `llm` |
 | `llm-deepseek` | `llm` |
 | `llm-pi-ai` | `llm` |
 | `session` | `brand`, `llm` |
 | `system-prompt` | `llm` |
 | `agent` | `brand`, `llm`, `session` |
 | `compact` | `llm`, `session` |
+| `fs-local` | `fs` |
+| `fs-policy` | `fs` |
 | `llm-replay` | `llm`, `session` |
 | `session-persistence` | `session` |
+| `compact-basic` | `agent`, `compact`, `llm`, `session` |
 | `invariants` | `agent`, `llm`, `session` |
 | `session-persistence-jsonl` | `session`, `session-persistence` |
 | `session-persistence-sqlite` | `session`, `session-persistence` |
-| `skill` | `agent`, `llm` |
+| `skill` | `agent`, `fs`, `llm` |
 | `tools` | `agent`, `llm`, `system-prompt` |
 | `ui-stdio` | `agent`, `llm`, `session` |
 | `acp` | `agent`, `llm`, `session`, `session-persistence`, `tools` |
 | `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
 | `subagent` | `agent`, `llm`, `tools` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |
+| `tool-fs` | `fs`, `llm`, `system-prompt`, `tools` |
 | `tool-skill` | `agent`, `llm`, `skill`, `tools` |
 | `tool-todo` | `agent`, `session`, `tools` |
 | `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `skill`, `system-prompt`, `tool-bash`, `tool-skill`, `tools` |

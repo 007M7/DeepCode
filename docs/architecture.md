@@ -25,6 +25,9 @@ For a catalog of the **data structures** this architecture moves around — the 
 │  @deepseek-ai/dsh-bash-local      (bash impl)                │
 │  @deepseek-ai/dsh-tool-bash       (bash tool schemas)        │
 │  @deepseek-ai/dsh-tool-skill      (skill loader tool)        │
+│  @deepseek-ai/dsh-fs-local        (filesystem impl)          │
+│  @deepseek-ai/dsh-fs-policy       (filesystem policy gate)   │
+│  @deepseek-ai/dsh-tool-fs         (filesystem tools+executor)│
 │  @deepseek-ai/dsh-subagent-*      (subagent providers)       │
 │  @deepseek-ai/dsh-session-persistence-jsonl (persistence impl)│
 ├─────────────────────────────────────────────────────────────┤
@@ -36,6 +39,7 @@ For a catalog of the **data structures** this architecture moves around — the 
 │  @deepseek-ai/dsh-session-persistence (persistence seam)     │
 │  @deepseek-ai/dsh-llm             (abstract model service)   │
 │  @deepseek-ai/dsh-bash            (abstract bash executor)   │
+│  @deepseek-ai/dsh-fs              (filesystem provider seam)  │
 │  @deepseek-ai/dsh-compact         (abstract compaction seam) │
 │  @deepseek-ai/dsh-subagent        (provider registry seam)   │
 ├─────────────────────────────────────────────────────────────┤
@@ -59,6 +63,7 @@ Dependency rule: **extension** plugins depend on interface packages, never on `d
 | `ctx.agents` | `AgentRegistry` | dsh-agent | live `Agent` handles + the create/resume factory seam (returns an `AgentHandle` = `{ agent, dispose() }` for owned per-agent teardown) |
 | `ctx.agentLoop` | `AgentLoop` | dsh-agent-loop | creates `ReactLoopAgent`s and drives their loops |
 | `ctx.bash` | `BashExecutor` (abstract) | dsh-bash | bash execution seam: foreground runs + background tasks |
+| `ctx.fs` | `FileSystem` (abstract) | dsh-fs | filesystem provider seam: path resolution, stat, text read/stream, atomic writes/edits (optional version guard); owns the `fs/*` policy events |
 | `ctx.compact` | `CompactService` (abstract) | dsh-compact | compaction seam: decide when history is too large, summarize an older range into a single surface node |
 | `ctx.subagents` | `SubagentService` | dsh-subagent | named provider registry for delegating a task to child agents |
 
@@ -75,6 +80,8 @@ Swappable capabilities are split into **three packages** so each part evolves in
 3. **Consumer** (`dsh-tool-bash`) — what the model and other plugins program against (the `bash`/`bash_output`/`bash_kill` tool schemas). Consumers `inject` the interface's ctx key and never import implementation types.
 
 The LLM seam has the same topology folded differently: `dsh-llm` carries the interface (`LlmAdapter`) AND the consumer surface (`ctx.llm.stream()`), with adapters as implementation packages — there the consumer is the loop itself, not a swappable schema surface. Use the full three-package split when the consumer is independently replaceable; keep interface + consumer together when they are one concern. Don't split preemptively: a capability with one conceivable implementation and one consumer stays one package until proven otherwise.
+
+The filesystem capability follows the bash topology with a fourth layer, but the policy is contributed through an **event gate**, not a method service: `dsh-fs` owns the abstract `ctx.fs` provider seam (text IO + atomic mutation primitives whose version guard is optional) and the `fs/*` policy event vocabulary, `dsh-fs-local` provides the local backend, `dsh-tool-fs` is the model-facing `read`/`write`/`edit` tools AND the executor (it reads/writes/edits through `ctx.fs` directly, owns read windowing, dispatches the `fs/*` events), and `dsh-fs-policy` is a policy PLUGIN (no service) that decides the `fs/write-intent`/`fs/edit-intent` waterfalls and records on `fs/observed` to add observed-state + read-before-edit + version-guarded write/edit. Because the tool is not method-coupled to the policy, dropping `dsh-fs-policy` gracefully loses the policy and leaves the unconstrained bare provider rather than breaking the tool at a service-injection boundary. The demo agents (`coding-agent`, `acp-agent`) wire the full stack — `dsh-fs-local` + `dsh-fs-policy` + `dsh-tool-fs` — so `read`/`write`/`edit` are the default file surface (bash stays for shell/tests/search); the tools resolve a relative path against the caller's session cwd, matching bash ([the per-session cwd RFC](rfc/implemented/architecture/2026-07-02-fs-per-session-cwd.md)). See [the fs-policy event-gate RFC](rfc/implemented/architecture/2026-06-26-file-context-as-event-gate.md).
 
 > **"Capability" — two unrelated meanings.** (1) The *seam pattern* above ("one plugin provides a capability, another needs it") is realized by plain Cordis **services + `inject`**: a provider registers a service (`ctx.bash`, declared in `interface Context`); a consumer declares `inject: ['bash']` and its fiber stays pending until the service exists, tearing down via HMR if it later vanishes. No extra library is needed. (2) `@cordisjs/plugin-capability` is a different axis entirely — a **permission/capability-security** service (named permissions with inheritance/dependency, tested against a session via `ctx.capability.test`). It is a candidate for the deferred permissions/sandbox work (the `tools/execute` veto seam), NOT a mechanism for swapping implementations.
 
@@ -140,10 +147,11 @@ forever:
     drain queued → 'turn/start' → session('user/message'…) → emit agent/turn-start
     STEP loop:
       drain steering (late steering from previous step's listeners)
-      session('step/start'); emit agent/step-start
       assembly = ctx.systemPrompt.assemble()          ⟵ waterfall system-prompt/assemble
+      await ctx.serial('agent/pre-step')              ⟵ surface mutation (compaction) OUTSIDE the step
+      session('step/start'); emit agent/step-start
       req = {model, system, tools, messages: session.deriveMessages(), signal}
-      req = waterfall agent/request                   ⟵ hooks, compaction, model switch
+      req = waterfall agent/request                   ⟵ hooks, model switch
       stream ctx.llm.stream(req)                      ⟵ waterfall llm/stream (raw chunks)
         session('assistant/chunk'); emit agent/stream-chunk
       if assembler.finish is error/aborted: throw      ⟵ adapter's in-band error path →
@@ -200,7 +208,7 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 | `/loop` | on `agent/turn-end`, `send()` the next iteration; or force-continue |
 | Dynamic workflow | orchestrator plugin on `agent/turn-end` / `agent/step-end` driving `send`/`steer` (+ sub-agents later) |
 | Queued + steering messages | core `Agent.send()` / `Agent.steer()` |
-| Context compaction (auto + manual) | the `ctx.compact` seam ([dsh-compact](../packages/compact/compact)): a backend summarizes an older surface range into a single `user/message` `replace` op, bracketed by log-only `compact/*` events; auto = check token pressure at turn boundaries, manual = a `/compact` tool. See the [compaction capability-seam RFC](rfc/proposed/feature/2026-06-18-compaction-capability-seam.md) |
+| Context compaction (auto + manual) | the `dsh-compact` seam (`ctx.compact`) + a backend (`dsh-compact-basic`) on the serial `agent/pre-step` seam: a backend summarizes an older surface range into a single `user/message` `replace` op, bracketed by log-only `compact/*` events; auto = check token pressure before each step — runaway-turn survival, manual = a (deferred) `/compact` tool invoking the same `ctx.compact` routine. See the [compaction capability-seam RFC](rfc/implemented/feature/2026-06-18-compaction-capability-seam.md) |
 | System prompt configurability | `ctx.systemPrompt.section()` with ordering |
 | AGENTS.md (root) | a section provider reading the file |
 | AGENTS.md (subdir, on-touch) + file-change notices | `agent.inject()` from a watcher / tool-result listener |
@@ -228,6 +236,6 @@ Code skeletons for the three plugin shapes (tool, hook/permission-gate, UI) and 
 Tracked here deliberately — each is designed-for but not implemented:
 
 - **Inter-agent channels beyond delegation** (shared state, streaming child output, background/poll semantics) remain out of scope for the current `ctx.subagents` seam.
-- **Compaction implementation** (auto thresholds, summarization prompts) on the `agent/request` seam, with its session-event types added by declaration merging.
+- **Compaction** — the `dsh-compact` seam (`ctx.compact`) and the `dsh-compact-basic` backend exist (auto thresholds, summarization on the serial `agent/pre-step` seam, `compact/*` session events via declaration merging). The model-facing `/compact` consumer tool is still deferred. See [the compaction capability-seam RFC](rfc/implemented/feature/2026-06-18-compaction-capability-seam.md).
 - **Parallel tool execution** (concurrency-safety hints on ToolDefinition).
 - **Session branching/tree** (pi-style entry tree) if needed beyond seed-based forking.

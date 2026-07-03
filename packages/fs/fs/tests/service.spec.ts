@@ -1,0 +1,118 @@
+/**
+ * Tests for the filesystem provider seam itself: registration, duplicate-service
+ * behavior, disposal, and the branded id factories. The provider primitives and
+ * policy live in `dsh-fs-local` and `dsh-fs-policy`; this seam owns only the
+ * abstract service contract, so a minimal fake backend exercises it.
+ */
+
+import { describe, expect, it } from 'vitest'
+import { Context } from 'cordis'
+import { FileSystem, FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
+import type {
+  FsEditOutcome,
+  FsEditRequest,
+  FsInfo,
+  FsTarget,
+  FsWriteIntent,
+  FsWriteOutcome,
+} from '@deepseek-ai/dsh-fs'
+
+/** A minimal in-memory fake implementing the six provider primitives. */
+class FakeFileSystem extends FileSystem {
+  files = new Map<string, string>()
+
+  override async resolve(path: string): Promise<FsTarget> {
+    return { inputPath: path, targetKey: FsTargetKey(path), displayPath: path }
+  }
+  override async stat(target: FsTarget): Promise<FsInfo | undefined> {
+    const content = this.files.get(target.targetKey)
+    if (content === undefined) return undefined
+    return { version: FsVersion('v1'), type: 'file', size: content.length }
+  }
+  override async readText(target: FsTarget): Promise<string> {
+    const content = this.files.get(target.targetKey)
+    if (content === undefined) throw new FsError(`not found: ${target.displayPath}`, 'FS_NOT_FOUND')
+    return content
+  }
+  override async streamText(target: FsTarget): Promise<AsyncIterable<string>> {
+    const content = await this.readText(target)
+    return (async function* () { yield content })()
+  }
+  override async writeText(target: FsTarget, content: string, _expected?: FsWriteIntent): Promise<FsWriteOutcome> {
+    const existed = this.files.has(target.targetKey)
+    this.files.set(target.targetKey, content)
+    return { operation: existed ? 'update' : 'create', version: FsVersion('v2') }
+  }
+  override async editText(target: FsTarget, edit: FsEditRequest): Promise<FsEditOutcome> {
+    const content = this.files.get(target.targetKey) ?? ''
+    this.files.set(target.targetKey, content.split(edit.oldString).join(edit.newString))
+    return { replacements: 1, replaceAll: edit.replaceAll, version: FsVersion('v3') }
+  }
+}
+
+describe('FileSystem provider seam', () => {
+  it('registers as ctx.fs and serves the primitives', async () => {
+    const ctx = new Context()
+    await ctx.plugin(FakeFileSystem)
+    const fs = ctx.fs as FakeFileSystem
+    fs.files.set('a.txt', 'hi')
+    const target = await fs.resolve('a.txt')
+    expect((await fs.stat(target))?.type).toBe('file')
+    expect(await fs.readText(target)).toBe('hi')
+  })
+
+  it('throws when a second implementation is loaded (duplicate service)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(FakeFileSystem)
+    await expect(ctx.plugin(FakeFileSystem)).rejects.toThrow()
+  })
+
+  it('removes the service when the providing fiber is disposed', async () => {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(FakeFileSystem)
+    expect(ctx.fs).toBeDefined()
+    await fiber.dispose()
+    expect(ctx.fs).toBeUndefined()
+  })
+
+  it('streamText yields the same text readText returns', async () => {
+    const ctx = new Context()
+    await ctx.plugin(FakeFileSystem)
+    const fs = ctx.fs as FakeFileSystem
+    fs.files.set('a.txt', 'one\ntwo')
+    const target = await fs.resolve('a.txt')
+    let streamed = ''
+    for await (const chunk of await fs.streamText(target)) streamed += chunk
+    expect(streamed).toBe(await fs.readText(target))
+  })
+
+  it('stat returns undefined for an absent target', async () => {
+    const ctx = new Context()
+    await ctx.plugin(FakeFileSystem)
+    const fs = ctx.fs as FakeFileSystem
+    expect(await fs.stat(await fs.resolve('missing.txt'))).toBeUndefined()
+  })
+})
+
+describe('branded id factories', () => {
+  it('FsTargetKey and FsVersion brand a string at compile time (identity at runtime)', () => {
+    expect(FsTargetKey('k')).toBe('k')
+    expect(FsVersion('v')).toBe('v')
+  })
+})
+
+describe('FsError', () => {
+  it('carries a stable code and HarnessError name', () => {
+    const error = new FsError('nope', 'FS_NOT_FOUND')
+    expect(error.code).toBe('FS_NOT_FOUND')
+    expect(error.name).toBe('FsError')
+    expect(error).toBeInstanceOf(Error)
+  })
+
+  it('chains an underlying cause through ErrorOptions', () => {
+    const root = new Error('EACCES')
+    const error = new FsError('cannot read', 'FS_ABORTED', { cause: root })
+    expect(error.cause).toBe(root)
+    expect(error.code).toBe('FS_ABORTED')
+  })
+})

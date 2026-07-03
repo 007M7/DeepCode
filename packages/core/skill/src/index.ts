@@ -13,6 +13,7 @@ import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { Context, Service } from 'cordis'
 import { parse as parseYaml } from 'yaml'
+import type { FileSystem, FsTarget } from '@deepseek-ai/dsh-fs'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-agent'
 
@@ -249,18 +250,13 @@ export class SkillService extends Service {
 }
 
 async function writeSystemSkills(systemRoot: string, ctx: Context): Promise<void> {
-  await mkdir(systemRoot, { recursive: true })
   await Promise.all(SYSTEM_SKILLS.map(async (skill) => {
     const dir = join(systemRoot, skill.name)
     const file = join(dir, 'SKILL.md')
-    try {
-      await access(file)
+    if (await skillFileExists(ctx, file)) {
       return
-    } catch {
-      // Expected first-run path: the bundled system skill has not been installed.
     }
-    await mkdir(dir, { recursive: true })
-    await writeFile(file, renderSkillFile(skill))
+    await writeSkillText(ctx, file, renderSkillFile(skill))
     ctx.logger.debug(`installed system skill ${skill.name} at ${file}`)
   }))
 }
@@ -300,10 +296,8 @@ async function discoverRoot(root: SkillRoot, ctx: Context): Promise<SkillDefinit
 }
 
 async function parseSkillFile(path: string, directory: string, source: SkillSource, ctx: Context): Promise<SkillDefinition | undefined> {
-  let raw: string
-  try {
-    raw = await readFile(path, 'utf8')
-  } catch {
+  const raw = await readSkillText(ctx, path)
+  if (raw === undefined) {
     return undefined
   }
   const parsed = parseFrontmatter(raw)
@@ -332,6 +326,63 @@ async function parseSkillFile(path: string, directory: string, source: SkillSour
     source,
     content: parsed.body.trim(),
   }
+}
+
+function optionalFileSystem(ctx: Context): FileSystem | undefined {
+  return ctx.get('fs')
+}
+
+async function skillFileExists(ctx: Context, path: string): Promise<boolean> {
+  const fs = optionalFileSystem(ctx)
+  if (fs !== undefined) {
+    const target = await fs.resolve(path)
+    return await fs.stat(target) !== undefined
+  }
+  try {
+    await access(path)
+    return true
+  } catch {
+    // Expected first-run path: the bundled system skill has not been installed.
+    return false
+  }
+}
+
+async function writeSkillText(ctx: Context, path: string, content: string): Promise<void> {
+  const fs = optionalFileSystem(ctx)
+  if (fs !== undefined) {
+    await fs.writeText(await fs.resolve(path), content)
+    return
+  }
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, content)
+}
+
+async function readSkillText(ctx: Context, path: string): Promise<string | undefined> {
+  const fs = optionalFileSystem(ctx)
+  if (fs !== undefined) {
+    return await readSkillTextFromFileSystem(ctx, fs, path)
+  }
+  try {
+    return await readFile(path, 'utf8')
+  } catch {
+    return undefined
+  }
+}
+
+async function readSkillTextFromFileSystem(ctx: Context, fs: FileSystem, path: string): Promise<string | undefined> {
+  const target = await fs.resolve(path)
+  const info = await fs.stat(target)
+  if (info === undefined || info.type !== 'file') return undefined
+  try {
+    return await fs.readText(target)
+  } catch (error) {
+    ctx.logger.warn(`skill file ${path} ignored: ${fsReadErrorMessage(target, error)}`)
+    return undefined
+  }
+}
+
+function fsReadErrorMessage(target: FsTarget, error: unknown): string {
+  return `failed to read text file at ${target.displayPath}: ${errorMessage(error)}`
 }
 
 function parseFrontmatter(raw: string): { data: Record<string, unknown>; body: string } | undefined {

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import SkillService from '@deepseek-ai/dsh-skill'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 
 async function tempDir(name: string): Promise<string> {
   return await import('node:fs/promises').then(fs => fs.mkdtemp(join(tmpdir(), `dsh-${name}-`)))
@@ -194,6 +195,24 @@ describe('SkillService', () => {
     expect(await readFile(join(home, '.dsh/skills/.system/dsh-skill-creator/SKILL.md'), 'utf8')).toContain('dsh-skill-creator')
   })
 
+  it('uses the filesystem service when installing bundled system skills', async () => {
+    const home = await tempDir('skill-install-fs')
+    const existing = join(home, '.dsh/skills/.system/dsh-plugin-creator/SKILL.md')
+    await mkdir(join(home, '.dsh/skills/.system/dsh-plugin-creator'), { recursive: true })
+    await writeFile(existing, '---\nname: dsh-plugin-creator\ndescription: Existing system skill\n---\n\nExisting body.\n')
+
+    const ctx = new Context()
+    await ctx.plugin(LocalFileSystem, { cwd: home })
+    await ctx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents') })
+
+    expect((await ctx.skills.list()).map(skill => [skill.name, skill.description])).toEqual([
+      ['dsh-plugin-creator', 'Existing system skill'],
+      ['dsh-skill-creator', 'Create or update DeepSeek Harness SKILL.md instructions.'],
+    ])
+    expect(await readFile(existing, 'utf8')).toContain('Existing body.')
+    expect(await readFile(join(home, '.dsh/skills/.system/dsh-skill-creator/SKILL.md'), 'utf8')).toContain('dsh-skill-creator')
+  })
+
   it('renders bundled system skill files with and without routing metadata', async () => {
     const home = await tempDir('skill-install-render')
 
@@ -203,6 +222,26 @@ describe('SkillService', () => {
 
     expect(await readFile(join(home, '.dsh/skills/.system/dsh-plugin-creator/SKILL.md'), 'utf8')).not.toContain('whenToUse:')
     expect(await readFile(join(home, '.dsh/skills/.system/dsh-skill-creator/SKILL.md'), 'utf8')).toContain('whenToUse:')
+  })
+
+  it('uses the filesystem service for skill file reads when it is available', async () => {
+    const home = await tempDir('skill-read-fs')
+    const root = join(home, '.dsh/skills')
+    await writeFlatSkill(root, 'text-skill', 'Text skill', 'Text body.')
+    await mkdir(join(root, 'empty-dir'), { recursive: true })
+    await mkdir(join(root, 'directory-skill/SKILL.md'), { recursive: true })
+    await writeFile(join(root, 'binary-skill.md'), Buffer.concat([
+      Buffer.from('---\nname: binary-skill\ndescription: Binary skill\n---\n\n'),
+      Buffer.from([0xff]),
+      Buffer.from('\n'),
+    ]))
+
+    const ctx = new Context()
+    await ctx.plugin(LocalFileSystem, { cwd: home })
+    await ctx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false })
+
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['text-skill'])
+    expect(await ctx.skills.get('binary-skill')).toBeUndefined()
   })
 
   it('degrades when bundled system skill installation fails', async () => {
