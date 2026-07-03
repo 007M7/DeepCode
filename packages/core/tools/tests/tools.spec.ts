@@ -52,8 +52,8 @@ describe('ToolRegistry', () => {
       description: 'has presenters',
       parameters: { x: { type: 'string', required: true } },
       async execute() { return [] },
-      presentCall: args => ({ title: args.x }),
-      presentResult: (args, result) => ({ title: args.x, content: result.content }),
+      presentCall: args => ({ card: 'generic', title: args.x }),
+      presentResult: (args, result) => ({ card: 'generic', title: args.x, content: result.content }),
     }))
     const schema = ctx.tools.schemas()[0] as unknown as Record<string, unknown>
     expect(Object.keys(schema).sort()).toEqual(['description', 'name', 'parameters'])
@@ -79,6 +79,38 @@ describe('ToolRegistry', () => {
     ctx.tools.register(echoTool)
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'hi' }], isError: false })
+  })
+
+  it('threads a tool-attached meta (object return form) onto the result', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'meta-tool',
+      async execute() {
+        return { content: [{ type: 'text', text: 'ok' }], meta: { diffs: [{ path: 'a', oldText: null, newText: 'x' }] } }
+      },
+    })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'meta-tool', arguments: {} })
+    expect(result).toEqual({
+      callId: CallId('c1'),
+      content: [{ type: 'text', text: 'ok' }],
+      isError: false,
+      meta: { diffs: [{ path: 'a', oldText: null, newText: 'x' }] },
+    })
+  })
+
+  it('omits meta when the object return form supplies none', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'no-meta-tool',
+      async execute() {
+        return { content: [{ type: 'text', text: 'ok' }] }
+      },
+    })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'no-meta-tool', arguments: {} })
+    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false })
+    expect('meta' in result).toBe(false)
   })
 
   it('returns isError results for unknown tools and throwing tools', async () => {
@@ -906,15 +938,15 @@ describe('defineTool presentation (presentCall / presentResult)', () => {
       presentCall(args) {
         // args is typed { path: string; n?: number } — zero casts.
         expectTypeOf(args).toEqualTypeOf<{ path: string; n?: number }>()
-        return { title: `Open ${args.path}`, kind: 'read', rawInput: args.path }
+        return { card: 'generic', title: `Open ${args.path}`, kind: 'read', rawInput: args.path }
       },
       presentResult(args, result) {
-        return { title: `Opened ${args.path}`, content: result.content }
+        return { card: 'generic', title: `Opened ${args.path}`, content: result.content }
       },
     })
-    expect(tool.presentCall!({ path: '/a', n: 2 })).toEqual({ title: 'Open /a', kind: 'read', rawInput: '/a' })
+    expect(tool.presentCall!({ path: '/a', n: 2 })).toEqual({ card: 'generic', title: 'Open /a', kind: 'read', rawInput: '/a' })
     expect(tool.presentResult!({ path: '/a' }, { content: [{ type: 'text', text: 'x' }], isError: false }))
-      .toEqual({ title: 'Opened /a', content: [{ type: 'text', text: 'x' }] })
+      .toEqual({ card: 'generic', title: 'Opened /a', content: [{ type: 'text', text: 'x' }] })
   })
 
   it('a tool without presentCall/presentResult leaves them undefined (UI falls back generically)', () => {
@@ -934,8 +966,8 @@ describe('defineTool presentation (presentCall / presentResult)', () => {
       description: 'demo',
       parameters: { path: { type: 'string', required: true } },
       async execute() { return [] },
-      presentCall: args => ({ title: args.path }),
-      presentResult: (args, result) => ({ title: args.path, content: result.content }),
+      presentCall: args => ({ card: 'generic', title: args.path }),
+      presentResult: (args, result) => ({ card: 'generic', title: args.path, content: result.content }),
     })
     // Unlike execute (which throws ToolArgsError on a mismatch), the display
     // methods soft-validate and fall back to undefined so a UI never crashes
