@@ -6,7 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { chmod, mkdtemp, readFile, rm, stat, symlink, writeFile, mkdir, readdir, realpath } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, stat, symlink, unlink, writeFile, mkdir, readdir, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:net'
@@ -165,6 +165,32 @@ describe('listDirectory', () => {
     expect(typeof entries.find(entry => entry.name === 'alpha.md')?.version).toBe('string')
     expect(entries.find(entry => entry.name === 'broken-link')?.version).toBeUndefined()
     expect(entries.find(entry => entry.name === 'dir-skill')?.size).toBeUndefined()
+  })
+
+  it('derives child target keys from the listed parent identity', async () => {
+    const realOne = join(dir, 'real-one')
+    const realTwo = join(dir, 'real-two')
+    const link = join(dir, 'link')
+    await mkdir(realOne)
+    await mkdir(realTwo)
+    await writeFile(join(realOne, 'same.txt'), 'one')
+    await writeFile(join(realTwo, 'same.txt'), 'different two')
+    await symlink(realOne, link)
+    const target = await resolveLocalTarget(dir, 'link')
+
+    await unlink(link)
+    await symlink(realTwo, link)
+
+    const entries = await listDirectory(target)
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      name: 'same.txt',
+      target: {
+        displayPath: join(link, 'same.txt'),
+        targetKey: await realpath(join(realOne, 'same.txt')),
+      },
+      size: 3,
+    })
   })
 
   it('rejects missing, non-directory, and aborted listing requests', async () => {

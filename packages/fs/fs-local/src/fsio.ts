@@ -196,6 +196,11 @@ function listingIoError(displayPath: string, error: unknown): FsError {
   return new FsError(`cannot list "${displayPath}": ${errorMessage(error)}`, 'FS_IO_ERROR', { cause: error })
 }
 
+async function resolveListedChildTarget(parent: LocalTarget, name: string): Promise<LocalTarget> {
+  const identity = await resolveLocalTarget(parent.targetKey, name)
+  return { displayPath: join(parent.displayPath, name), targetKey: identity.targetKey }
+}
+
 /**
  * List direct children of a directory in stable name order. Each child includes
  * a resolved target plus stat metadata when still available; file contents are
@@ -225,7 +230,7 @@ export async function listDirectory(target: LocalTarget, signal?: AbortSignal): 
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     throwIfAborted(signal, 'list')
     try {
-      const childTarget = await resolveLocalTarget(target.displayPath, entry.name)
+      const childTarget = await resolveListedChildTarget(target, entry.name)
       const childInfo = await probe(childTarget.targetKey)
       result.push({
         name: entry.name,
