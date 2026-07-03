@@ -2,11 +2,7 @@
 
 [English](README.md) | 中文
 
-DeepSeek Harness 小组的 monorepo。
-
-## 项目
-
-- **DeepSeek Code** — DeepSeek 的编码 agent（智能体）产品。
+**DeepSeek Harness SDK** 是一个基于插件的 SDK，用于构建 agent harness。
 
 ## 开发
 
@@ -16,7 +12,7 @@ DeepSeek Harness 小组的 monorepo。
 pnpm install
 pnpm run test          # vitest
 pnpm run demo:echo     # runnable echo-agent example (no API key needed)
-pnpm run demo:coding   # the real DeepSeek coding agent (needs DEEPSEEK_API_KEY)
+pnpm run demo:coding   # full-featured agent harness demo (needs DEEPSEEK_API_KEY)
 ```
 
 面向人类读者：先读[开发指南](docs/development.md)了解本地环境搭建、钩子、环境变量与质量门禁，动手改 package 之前再读[架构设计](docs/architecture.md)。局部上下文见 [packages/](packages/) 与 [vendor/](vendor/)。
