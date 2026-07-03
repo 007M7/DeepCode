@@ -869,11 +869,11 @@ const noTerminalRendering: TerminalRendering = { enabled: false, cwd: undefined 
  * by name in the registry and applies a generic fallback when a tool defines
  * neither. The returned view is what {@link streamSessionEventUpdate} switches on.
  *
- * The `tool/result` session event carries only `{ callId, content, isError }` —
- * NOT the tool name or args — so to call a tool's `presentResult` (which needs
- * both), the presenter remembers each `tool/call`'s `{ name, args, card }` keyed
- * by callId and looks it up on the matching result. The map is bridge-LOCAL (not
- * a change to the event schema or a core service): one presenter per live session
+ * The `tool/result` session event does NOT carry the tool name or args — so to
+ * call a tool's `presentResult` (which needs both), the presenter remembers each
+ * `tool/call`'s `{ name, args, card }` keyed by callId and looks it up on the
+ * matching result. The map is bridge-LOCAL (not a change to the event schema or a
+ * core service): one presenter per live session
  * (and a throwaway per `session/load` replay), and each entry is removed when its
  * result arrives. In the normal loop a `tool/call` is always followed by a
  * `tool/result` (the registry turns even a thrown tool into an isError result),
