@@ -22,7 +22,7 @@ A future consumer that swaps a session's log in place would want a reset primiti
 
 ## Acceptance criteria
 
-- The three surfaces appear only in this RFC; the agent-loop README lists only the consumed public surface; the inbox spec imports the source module.
+- `invalidate()` and the result `callId` appear only in this RFC; `runLoop`/`Inbox`/`InboxMessage` remain package-internal only — no re-export from the package index and no outside-package importer; the agent-loop README lists only the consumed public surface; the inbox spec imports the source module.
 - The tools/execute contract tests pass with the shrunk result type; no waterfall test fabricates a `callId` on a result.
 
 ## Risks
