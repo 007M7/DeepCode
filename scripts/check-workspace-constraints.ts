@@ -27,6 +27,8 @@ const vendoredPackages = new Set([
   '@cordisjs/plugin-logger-console',
 ])
 
+const localArtifactDirs = new Set(['node_modules'])
+
 /** The subset of package.json fields this constraint check cares about. */
 interface PackageManifest {
   name?: string
@@ -64,10 +66,13 @@ function packageDirs(base: string, depth: number): string[] {
   if (depth === 1) {
     return readdirSync(join(root, base), { withFileTypes: true })
       .filter(entry => entry.isDirectory())
+      .filter(entry => !localArtifactDirs.has(entry.name))
+      .filter(entry => existsSync(join(root, base, entry.name, 'package.json')))
       .map(entry => join(base, entry.name))
   }
   return readdirSync(join(root, base), { withFileTypes: true })
     .filter(entry => entry.isDirectory())
+    .filter(entry => !localArtifactDirs.has(entry.name))
     .flatMap(group => packageDirs(join(base, group.name), depth - 1))
 }
 
@@ -177,6 +182,7 @@ function checkHierarchyShape(): string[] {
     }
     for (const pkg of readdirSync(join(packagesRoot, group.name), { withFileTypes: true })) {
       if (!pkg.isDirectory()) continue
+      if (localArtifactDirs.has(pkg.name)) continue
       const pkgRel = join(groupRel, pkg.name)
       if (!existsSync(join(packagesRoot, group.name, pkg.name, 'package.json'))) {
         errors.push(`${pkgRel}: expected a package here (no package.json found) — the hierarchy is exactly packages/<group>/<pkg>, no deeper nesting`)

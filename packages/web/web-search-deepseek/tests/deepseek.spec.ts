@@ -1,0 +1,362 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Context } from 'cordis'
+import Loader from '@cordisjs/plugin-loader'
+import WebService from '@deepseek-ai/dsh-web'
+import {
+  DeepSeekSearchProvider,
+  citationSnippets,
+  mapAnthropicResponse,
+  DEEPSEEK_PROVIDER_ID,
+} from '@deepseek-ai/dsh-web-search-deepseek'
+import * as deepseekPlugin from '@deepseek-ai/dsh-web-search-deepseek'
+import type { AnthropicResponse } from '@deepseek-ai/dsh-web-search-deepseek/src/types.ts'
+
+const options = {
+  apiKey: 'ds-key',
+  baseURL: 'https://api.deepseek.test/anthropic/v1',
+  model: 'deepseek-chat',
+  apiVersion: '2023-06-01',
+  maxTokens: 4096,
+  maxUses: 5,
+}
+
+function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
+  return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' }, ...init })
+}
+
+/** A response with one result block plus a text block carrying the snippet. */
+function searchResponse(): AnthropicResponse {
+  return {
+    content: [
+      { type: 'text', text: 'Here is what I found.', citations: [{ type: 'web_search_result_location', url: 'https://a.test', cited_text: 'excerpt for A' }] },
+      {
+        type: 'web_search_tool_result',
+        content: [
+          { type: 'web_search_result', url: 'https://a.test', title: 'A', page_age: '2026-02-02' },
+          { type: 'web_search_result', url: 'https://b.test', title: 'B' },
+        ],
+      },
+    ],
+  }
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+describe('citationSnippets', () => {
+  it('maps url → cited_text from text blocks, first occurrence wins', () => {
+    const map = citationSnippets([
+      { type: 'text', citations: [{ url: 'https://a.test', cited_text: 'first' }, { url: 'https://a.test', cited_text: 'second' }] },
+      { type: 'text', citations: [{ url: 'https://b.test', cited_text: 'b text' }] },
+    ])
+    expect(map.get('https://a.test')).toBe('first')
+    expect(map.get('https://b.test')).toBe('b text')
+  })
+
+  it('ignores citations missing url or cited_text', () => {
+    const map = citationSnippets([
+      { type: 'text', citations: [{ url: 'https://a.test' }, { cited_text: 'orphan' }, { url: '', cited_text: 'empty url' }] },
+    ])
+    expect(map.size).toBe(0)
+  })
+})
+
+describe('mapAnthropicResponse', () => {
+  it('joins result items to citation snippets and maps page_age to publishedAt', () => {
+    const result = mapAnthropicResponse('q', searchResponse())
+    expect(result).toEqual({
+      providerId: DEEPSEEK_PROVIDER_ID,
+      query: 'q',
+      sources: [
+        { url: 'https://a.test', title: 'A', snippet: 'excerpt for A', publishedAt: '2026-02-02' },
+        { url: 'https://b.test', title: 'B' },
+      ],
+      truncated: false,
+    })
+  })
+
+  it('dedupes repeated urls across result blocks (first wins)', () => {
+    const result = mapAnthropicResponse('q', {
+      content: [
+        { type: 'web_search_tool_result', content: [{ type: 'web_search_result', url: 'https://a.test', title: 'first' }] },
+        { type: 'web_search_tool_result', content: [{ type: 'web_search_result', url: 'https://a.test', title: 'second' }] },
+      ],
+    })
+    expect(result.sources).toEqual([{ url: 'https://a.test', title: 'first' }])
+  })
+
+  it('skips non-result items and items with an empty url', () => {
+    const result = mapAnthropicResponse('q', {
+      content: [{
+        type: 'web_search_tool_result',
+        content: [
+          { type: 'web_search_result_error', url: 'https://err.test' },
+          { type: 'web_search_result', url: '' },
+          { type: 'web_search_result', url: 'https://ok.test' },
+        ],
+      }],
+    })
+    expect(result.sources).toEqual([{ url: 'https://ok.test' }])
+  })
+
+  it('omits optional fields when absent or empty', () => {
+    const result = mapAnthropicResponse('q', {
+      content: [{ type: 'web_search_tool_result', content: [{ type: 'web_search_result', url: 'https://a.test', title: '', page_age: '' }] }],
+    })
+    expect(result.sources).toEqual([{ url: 'https://a.test' }])
+  })
+
+  it('tolerates a text block with no citations', () => {
+    const result = mapAnthropicResponse('q', {
+      content: [
+        { type: 'text', text: 'no citations here' },
+        { type: 'web_search_tool_result', content: [{ type: 'web_search_result', url: 'https://a.test', title: 'A' }] },
+      ],
+    })
+    expect(result.sources).toEqual([{ url: 'https://a.test', title: 'A' }])
+  })
+
+  it('tolerates a result block with no content array', () => {
+    const result = mapAnthropicResponse('q', {
+      content: [
+        { type: 'web_search_tool_result' },
+        { type: 'web_search_tool_result', content: [{ type: 'web_search_result', url: 'https://a.test' }] },
+      ],
+    })
+    expect(result.sources).toEqual([{ url: 'https://a.test' }])
+  })
+
+  it('throws WEB_PROVIDER_ERROR (strict mode) when no result block is present', () => {
+    expect(() => mapAnthropicResponse('q', { content: [{ type: 'text', text: 'just prose, no search' }] }))
+      .toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+  })
+
+  it('throws WEB_PROVIDER_ERROR when content is absent entirely', () => {
+    expect(() => mapAnthropicResponse('q', {}))
+      .toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+  })
+})
+
+describe('DeepSeekSearchProvider status', () => {
+  it('is unavailable without a key', () => {
+    expect(new DeepSeekSearchProvider({ ...options, apiKey: '' }).status())
+      .toEqual({ available: false, reason: 'missing-credential' })
+  })
+
+  it('is available with a key', () => {
+    expect(new DeepSeekSearchProvider(options).status()).toEqual({ available: true })
+  })
+
+  it('is misconfigured when the base URL is unparseable', () => {
+    expect(new DeepSeekSearchProvider({ ...options, baseURL: 'not a url' }).status())
+      .toEqual({ available: false, reason: 'misconfigured' })
+  })
+
+  it('is misconfigured when request limits are not positive integers', () => {
+    expect(new DeepSeekSearchProvider({ ...options, maxTokens: 0 }).status())
+      .toEqual({ available: false, reason: 'misconfigured' })
+    expect(new DeepSeekSearchProvider({ ...options, maxUses: 0 }).status())
+      .toEqual({ available: false, reason: 'misconfigured' })
+    expect(new DeepSeekSearchProvider({ ...options, maxUses: 1.5 }).status())
+      .toEqual({ available: false, reason: 'misconfigured' })
+  })
+})
+
+describe('DeepSeekSearchProvider request mapping', () => {
+  it('posts an Anthropic Messages request enabling the web_search server tool', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(searchResponse()))
+    vi.stubGlobal('fetch', fetchMock)
+    await new DeepSeekSearchProvider(options).search({ query: 'hello' })
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('https://api.deepseek.test/anthropic/v1/messages')
+    const headers = init.headers as Record<string, string>
+    expect(headers['x-api-key']).toBe('ds-key')
+    expect(headers['authorization']).toBe('Bearer ds-key')
+    expect(headers['anthropic-version']).toBe('2023-06-01')
+    expect(JSON.parse(init.body as string)).toEqual({
+      model: 'deepseek-chat',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'Perform a web search for the query: hello' }] }],
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
+    })
+  })
+
+  it('forwards the abort signal', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(searchResponse()))
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+    await new DeepSeekSearchProvider(options).search({ query: 'q' }, { signal: controller.signal })
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(init.signal).toBe(controller.signal)
+  })
+})
+
+describe('DeepSeekSearchProvider error handling', () => {
+  it('maps an HTTP error to WEB_PROVIDER_ERROR with the provider message', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: { message: 'rate limited' } }, { status: 429 })))
+    await expect(new DeepSeekSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: 'rate limited' }))
+  })
+
+  it('handles a string-form error body', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'bad request' }, { status: 400 })))
+    await expect(new DeepSeekSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ message: 'bad request' }))
+  })
+
+  it('keeps a status-line message when the error body is not JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('upstream error', { status: 503 })))
+    await expect(new DeepSeekSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ message: 'DeepSeek API error (HTTP 503)' }))
+  })
+
+  it('keeps the status-line message when the JSON error body carries no detail', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({}, { status: 500 })))
+    await expect(new DeepSeekSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ message: 'DeepSeek API error (HTTP 500)' }))
+  })
+
+  it('maps an abort to WEB_ABORTED', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new DOMException('aborted', 'AbortError'))))
+    await expect(new DeepSeekSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
+  })
+
+  it('maps an unparseable success body to WEB_PROVIDER_ERROR', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('not json', { status: 200 })))
+    await expect(new DeepSeekSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+  })
+
+  it('maps a well-formed body of the wrong shape to WEB_PROVIDER_ERROR, not a raw TypeError', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ content: {} }, { status: 200 })))
+    await expect(new DeepSeekSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+  })
+
+  it('surfaces an abort during success-body parse as WEB_ABORTED', async () => {
+    const body = { json: () => Promise.reject(new DOMException('aborted', 'AbortError')), ok: true, status: 200 }
+    vi.stubGlobal('fetch', vi.fn(async () => body as unknown as Response))
+    await expect(new DeepSeekSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
+  })
+
+  it('surfaces an abort during error-body parse as WEB_ABORTED', async () => {
+    const body = { json: () => Promise.reject(new DOMException('aborted', 'AbortError')), ok: false, status: 500 }
+    vi.stubGlobal('fetch', vi.fn(async () => body as unknown as Response))
+    await expect(new DeepSeekSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
+  })
+
+  it('maps a network failure to WEB_PROVIDER_ERROR', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new TypeError('connection refused'))))
+    await expect(new DeepSeekSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+  })
+
+  it('strict mode flows through search(): a prose-only response throws WEB_PROVIDER_ERROR', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ content: [{ type: 'text', text: 'no search happened' }] })))
+    await expect(new DeepSeekSearchProvider(options).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+  })
+})
+
+describe('web-search-deepseek plugin registration', () => {
+  it('registers the provider into ctx.web (HMR-safe)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+    const fiber = await ctx.plugin(deepseekPlugin, { apiKey: 'ds-key' })
+    expect(ctx.web.searchStatus()).toEqual({ available: true, providerId: DEEPSEEK_PROVIDER_ID })
+    await fiber.dispose()
+    expect(ctx.web.searchStatus()).toEqual({ available: false, reason: 'configured-missing' })
+  })
+
+  it('rejects maxTokens: 0 at plugin construction', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+    await expect(ctx.plugin(deepseekPlugin, { apiKey: 'ds-key', maxTokens: 0 }))
+      .rejects.toThrow(/maxTokens expected number >= 1/)
+  })
+
+  it('rejects maxUses: 0 at plugin construction', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+    await expect(ctx.plugin(deepseekPlugin, { apiKey: 'ds-key', maxUses: 0 }))
+      .rejects.toThrow(/maxUses expected number >= 1/)
+  })
+
+  it('rejects a fractional maxUses at plugin construction', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+    await expect(ctx.plugin(deepseekPlugin, { apiKey: 'ds-key', maxUses: 1.5 }))
+      .rejects.toThrow(/maxUses expected number multiple of 1/)
+  })
+
+  it('has no default export (namespace plugin export shape)', () => {
+    expect('default' in deepseekPlugin).toBe(false)
+  })
+
+  it('survives the real Loader unwrapExports path keeping name/inject/Config', () => {
+    // A stray `export default apply` would make the cordis Loader's
+    // unwrapExports (`exports.default ?? exports`) collapse the module to the
+    // bare `apply` function, DROPPING `inject: ['web']` — the plugin would then
+    // read ctx.web without injecting it and throw "cannot get property … without
+    // inject" the moment it loads. A hand-built ctx.plugin(namespace) mount
+    // bypasses unwrapExports and cannot catch that, so drive the real path.
+    // Prove it bites: add `export default apply` to src/index.ts, watch this go
+    // red, revert.
+    const loader = Object.create(Loader.prototype) as Loader
+    const unwrapped = loader.unwrapExports(deepseekPlugin) as Record<string, unknown>
+    expect(unwrapped).toBe(deepseekPlugin)
+    expect(unwrapped.name).toBe('web-search-deepseek')
+    expect(unwrapped.inject).toEqual(['web'])
+    expect(typeof unwrapped.apply).toBe('function')
+  })
+
+  it('boots over ctx.web through the unwrapped module without an inject error', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+    const loader = Object.create(Loader.prototype) as Loader
+    const unwrapped = loader.unwrapExports(deepseekPlugin) as Parameters<Context['plugin']>[0]
+    // A collapsed export shape (dropped inject) would throw "without inject" here.
+    const fiber = await ctx.plugin(unwrapped, { apiKey: 'ds-key' })
+    expect(ctx.web.searchStatus()).toEqual({ available: true, providerId: DEEPSEEK_PROVIDER_ID })
+    await fiber.dispose()
+  })
+
+  it('falls back to the env key and defaults when config omits them', async () => {
+    const prev = process.env.DEEPSEEK_API_KEY
+    process.env.DEEPSEEK_API_KEY = 'env-key'
+    try {
+      const fetchMock = vi.fn(async () => jsonResponse(searchResponse()))
+      vi.stubGlobal('fetch', fetchMock)
+      const ctx = new Context()
+      await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+      const fiber = await ctx.plugin(deepseekPlugin, {})
+      expect(ctx.web.searchStatus()).toEqual({ available: true, providerId: DEEPSEEK_PROVIDER_ID })
+      await ctx.web.search({ query: 'q' })
+      const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+      expect(url).toBe('https://api.deepseek.com/anthropic/v1/messages')
+      expect((init.headers as Record<string, string>)['x-api-key']).toBe('env-key')
+      expect(JSON.parse(init.body as string)).toMatchObject({ model: 'deepseek-v4-flash' })
+      await fiber.dispose()
+    } finally {
+      if (prev === undefined) delete process.env.DEEPSEEK_API_KEY
+      else process.env.DEEPSEEK_API_KEY = prev
+    }
+  })
+
+  it('is unavailable when neither config nor env supplies a key', async () => {
+    const prev = process.env.DEEPSEEK_API_KEY
+    delete process.env.DEEPSEEK_API_KEY
+    try {
+      const ctx = new Context()
+      await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+      await ctx.plugin(deepseekPlugin, {})
+      expect(ctx.web.searchStatus()).toEqual({ available: false, reason: 'configured-unavailable' })
+    } finally {
+      if (prev !== undefined) process.env.DEEPSEEK_API_KEY = prev
+    }
+  })
+})

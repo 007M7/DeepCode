@@ -14,6 +14,16 @@
  */
 
 /**
+ * A value that round-trips losslessly through JSON: `null`, a boolean, a finite
+ * number, a string, an array of such values, or a plain object whose values are
+ * such values. The static type companion to {@link isJsonValue} (which validates
+ * the same shape at runtime). Use it to type a payload that must survive
+ * session-log persistence and replay byte-identically — e.g. a tool's private
+ * presentation `meta`.
+ */
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
+
+/**
  * Whether `value` is losslessly JSON-serializable: only `null`, finite numbers,
  * booleans, strings, plain arrays, and plain objects of such values. Rejects
  * `BigInt`, function, symbol, `undefined`, non-finite numbers (`NaN`/`Infinity`,
