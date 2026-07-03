@@ -4,7 +4,7 @@
 
 [English](development.md) | 中文
 
-本指南覆盖参与 DeepSeek Harness 开发所需的本地环境搭建，以及本地钩子、日常检查与 CI 质量门禁的说明。
+本指南覆盖参与 DeepSeek Harness 开发所需的本地环境搭建，并帮助你理解本地钩子、日常检查与 CI 门禁。
 
 ## 前置条件
 
@@ -67,9 +67,9 @@ vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `v
 
 这些钩子并不与 CI 完全一致。特别是：`pre-push` 跑不带覆盖率的单元测试，而 CI 跑 `pnpm run test:coverage`；CI 还会跑 echo-agent 和 built-bin 冒烟测试，并在 Node 24 和 26 上跑矩阵。
 
-## CI 质量门禁
+## CI 门禁
 
-GitHub workflow 在每个 pull request 上运行这些门禁：
+GitHub 工作流在每个 pull request 上运行这些门禁：
 
 - `pnpm install --frozen-lockfile`
 - `pnpm run constraints`
@@ -136,9 +136,9 @@ pnpm run demo:acp
 
 用三种注释标签之一标记代码中的已知问题，按紧急程度排序：
 
-- `FIXME` —— 应当阻塞新版本发布的问题。除非评审者明确同意可以照常合入，发布不应带着未解决的 `FIXME` 出门。
-- `TODO` —— 应当尽快修复的问题，等资源到位就处理。
-- `XXX` —— 也许某天会修的问题；优先级最低，不作承诺。
+- `FIXME`——应当阻塞新版本发布的问题。除非评审者明确同意可以照常合入，发布不应带着未解决的 `FIXME` 出门。
+- `TODO`——应当尽快修复的问题，等资源到位就处理。
+- `XXX`——也许某天会修的问题；优先级最低，不作承诺。
 
 选择与紧急程度匹配的标签，让扫代码的人一眼分清「发布阻塞」和「有空再说」。
 
@@ -150,7 +150,7 @@ pnpm run demo:acp
 { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" }
 ```
 
-`pnpm run verify-type-equiv`（`doc-sync` 的一环）随后通过 TypeScript 解析器从源码提取该符号的声明，并断言文档块与之一致（对空白和注释不敏感，因此文档块可以展示干净的定义、语义由行文承载）。它还强制 1:1 对应：每个 `ts type-equiv` 块恰好有一条 manifest 条目，反之亦然，因此不会有块被静默漏检，也不会有过期条目滞留。`doc-typecheck` 跳过 `ts type-equiv` 块（它们不能独立编译），并将其排除在 opt-out 比例之外。当你改动一个被记录的类型，门禁会失败直到你更新粘贴；当你增删一个块，在同一个变更里更新 manifest。
+`pnpm run verify-type-equiv`（`doc-sync` 的一环）随后通过 TypeScript 解析器从源码提取该符号的声明，并断言文档块与之一致（对空白和注释不敏感，因此文档块可以展示干净的定义，语义由行文承载）。它还强制 1:1 对应：每个 `ts type-equiv` 块恰好有一条 manifest 条目，反之亦然，因此不会有块被静默漏检，也不会有陈旧条目滞留。`doc-typecheck` 跳过 `ts type-equiv` 块（它们不能独立编译），并将其排除在 opt-out 比例之外。当你改动一个被记录的类型，门禁会失败直到你更新粘贴内容；当你增删一个块，在同一个变更里更新 manifest。
 
 ## 架构上下文
 

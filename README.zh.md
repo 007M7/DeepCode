@@ -21,6 +21,6 @@ pnpm run demo:echo     # runnable echo-agent example (no API key needed)
 pnpm run demo:coding   # the real DeepSeek coding agent (needs DEEPSEEK_API_KEY)
 ```
 
-面向人类读者：先读[开发指南](docs/development.md)了解本地环境、钩子、环境变量与质量门禁，动手改 package 之前再读[架构设计](docs/architecture.md)。局部上下文见 [packages/](packages/) 与 [vendor/](vendor/)。
+面向人类读者：先读[开发指南](docs/development.md)了解本地环境搭建、钩子、环境变量与质量门禁，动手改 package 之前再读[架构设计](docs/architecture.md)。局部上下文见 [packages/](packages/) 与 [vendor/](vendor/)。
 
 面向 agent：遵循 [AGENTS.md](AGENTS.md)。

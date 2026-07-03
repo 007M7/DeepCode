@@ -4,7 +4,7 @@
 
 [English](translation-rules.md) | 中文
 
-本文规定如何把本仓库的文档翻译成简体中文。这些规则对人和 agent（智能体）同等生效；应用它们的进仓 agent 工作流是 [.agents/skills/dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md)，配对与新鲜度机制见 [README.md](README.md)。规则级别沿用 RFC 2119 的用法：**必须（MUST）**／**禁止（MUST NOT）**会卡门禁或评审；**应当（SHOULD）**偏离时要说明理由；**可以（MAY）**由译者自行裁量。
+本文规定如何把本仓库的文档翻译成简体中文。这些规则对人和 agent（智能体）同等生效；应用它们的进仓 agent 工作流是 [.agents/skills/dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md)，配对与新鲜度机制见 [README.md](README.md)。规则级别沿用 RFC 2119 的用法：**必须（MUST）**／**禁止（MUST NOT）**会卡门禁或评审；**应当（SHOULD）**偏离时要说明理由；**可以（MAY）**自行裁量。
 
 ## 忠实性
 
@@ -19,9 +19,9 @@
 - 标题层级（相同级别、相同顺序——标题的**文字**要翻译），
 - 列表形态与编号，
 - 表格（相同的列、相同的行序；表头单元格按术语表翻译），
-- 围栏代码块——**逐字节一致，包括注释**；代码属于被验证的表面（` ```ts ` 块要通过 `doc-typecheck` 编译），而被改动的注释是代码块计数门禁看不见的漂移，
+- 围栏代码块——**逐字节一致，包括注释**；代码属于受验证的范围（` ```ts ` 块要通过 `doc-typecheck` 编译），而被改动的注释是代码块计数门禁看不见的漂移，
 - 行内代码（命令、flag、配置键、文件路径、事件名、API 名、版本号）——原样保留，从不翻译或重排，
-- 链接与锚点：每个相对链接必须指向与源文相同的目标——即英文正典文件——这样翻译批次先后落地时链接永不悬空。唯一的 zh 特有链接是语言切换行。链接**文字**翻译；链接目标不翻。
+- 链接与锚点：每个相对链接必须指向与源文相同的目标——即英文正典文件——这样某批译文先于相邻文件落地时，链接也永不悬空。唯一的 zh 特有链接是语言切换行。链接**文字**翻译；链接目标不翻。
 
 本仓库的 Markdown 约定对 `.zh.md` 文件原样生效：一个段落一个物理行（`verify-md-wrap`）、相对链接必须可解析（`verify-md-links`）、文件末尾恰好一个换行。
 
@@ -53,10 +53,10 @@
 
 本文各规则引用的权威出处，供想了解底层依据的人和 agent 查阅：
 
-- [中文文案排版指北](https://github.com/sparanoid/chinese-copywriting-guidelines) —— 中西文混排空格与标点的社区事实标准。
-- [MDN 简体中文翻译指南](https://github.com/mdn/translated-content/blob/main/docs/zh-cn/translation-guide.md) —— 与本文同形态的进仓翻译规则文件；空格、标点与术语表实践。
-- [Kubernetes 中文本地化指南](https://kubernetes.io/zh-cn/docs/contribute/localization_zh/) —— 最大的中文本地化团队的术语首现与标点实践。
-- [Vue.js docs-zh-cn 翻译须知](https://github.com/vuejs-translations/docs-zh-cn/wiki/%E7%BF%BB%E8%AF%91%E9%A1%BB%E7%9F%A5) —— 逐术语的译／留决策与语气。
-- [zh-style-guide](https://zh-style-guide.readthedocs.io) —— 社区中文技术文档写作规范，本文借用了它的规则分类粒度（与 RFC 2119 关键词分级）；它聚合了 GB/T 15834/15835、clreq 与各厂商指南。
-- [W3C clreq](https://www.w3.org/TR/clreq/) 与[微软简体中文风格指南](https://learn.microsoft.com/en-us/globalization/reference/microsoft-style-guides) —— 排版学与厂商本地化的正式基线。
-- GB/T 19682-2005《翻译服务译文质量要求》 —— 国家标准；本文「忠实性」与「术语」两节把它的三项基本要求（忠实原文、术语统一、行文通顺）落成可操作规则。
+- [中文文案排版指北](https://github.com/sparanoid/chinese-copywriting-guidelines)——中西文混排空格与标点的社区事实标准。
+- [MDN 简体中文翻译指南](https://github.com/mdn/translated-content/blob/main/docs/zh-cn/translation-guide.md)——与本文同形态的进仓翻译规则文件；空格、标点与术语表实践。
+- [Kubernetes 中文本地化指南](https://kubernetes.io/zh-cn/docs/contribute/localization_zh/)——最大的中文本地化团队的术语首现与标点实践。
+- [Vue.js docs-zh-cn 翻译须知](https://github.com/vuejs-translations/docs-zh-cn/wiki/%E7%BF%BB%E8%AF%91%E9%A1%BB%E7%9F%A5)——逐术语的译／留决策与语气。
+- [zh-style-guide](https://zh-style-guide.readthedocs.io)——社区中文技术文档写作规范，本文借用了它的规则级别分类体系（与 RFC 2119 关键词分级）；它聚合了 GB/T 15834/15835、clreq 与各厂商指南。
+- [W3C clreq](https://www.w3.org/TR/clreq/) 与[微软简体中文风格指南](https://learn.microsoft.com/en-us/globalization/reference/microsoft-style-guides)——排版学与厂商本地化的正式基线。
+- GB/T 19682-2005《翻译服务译文质量要求》——国家标准；本文「忠实性」与「术语」两节把它的三项基本要求（忠实原文、术语统一、行文通顺）落成可操作规则。
