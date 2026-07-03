@@ -135,7 +135,7 @@ describe('dsh-tool-todo', () => {
     const ctx = await setup()
     const def = ctx.tools.get('todo_write')!
     const todos = [{ content: 'a', status: 'pending' }]
-    expect(def.presentCall?.({ todos })).toEqual({ title: 'Update todo list', kind: 'other', rawInput: todos })
+    expect(def.presentCall?.({ todos })).toEqual({ card: 'generic', title: 'Update todo list', kind: 'other', rawInput: todos })
   })
 
   it('unregisters the tool when its contributing fiber is disposed (HMR-safety)', async () => {

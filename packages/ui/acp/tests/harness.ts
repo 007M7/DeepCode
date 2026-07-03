@@ -19,7 +19,10 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import {
   ClientSideConnection,
@@ -165,6 +168,15 @@ export async function makeBridgeHarness(options: {
    * tool + the bridge's own todo/write→plan mapping, not a stand-in.
    */
   withTodo?: boolean
+  /**
+   * Plug the REAL filesystem stack (`dsh-fs-local` + `dsh-fs-policy` +
+   * `dsh-tool-fs`) so a test can drive `read`/`write`/`edit` through the bridge
+   * and assert their tool-owned presentation (title/kind/`locations`) on the
+   * wire — the shipping tools, not a stand-in. `fsCwd` sets the local backend's
+   * base directory (default: `storageDir`).
+   */
+  withFs?: boolean
+  fsCwd?: string
 } = { storageDir: '' }): Promise<BridgeHarness> {
   const adapter = new MockAdapter(options.script ?? [])
 
@@ -182,6 +194,11 @@ export async function makeBridgeHarness(options: {
   }
   if (options.withTodo) {
     await ctx.plugin(ToolTodo)
+  }
+  if (options.withFs) {
+    await ctx.plugin(LocalFileSystem, { cwd: options.fsCwd ?? options.storageDir })
+    await ctx.plugin(FsPolicy)
+    await ctx.plugin(ToolFs)
   }
   ctx.llm.registerAdapter(['mock'], adapter)
 

@@ -23,7 +23,7 @@ The rule that settled the remaining cases: ***the type you write, hold, or recei
 - A data structure is **core** if it flows through the agent-loop spine — the loop holds, derives, streams, or logs it on every turn regardless of which plugins load (`Message`, `StreamChunk`, `SessionEvent`, the `Agent` handle) — **or** it is the single headline type a plugin author writes against a pipeline (`ToolDefinition`).
 - `ToolDefinition` is core (it is what every tool author writes) **even though the loop never holds one** — authoring-importance overrides the strict flows-through-spine rule for this one headline type. But its typing machinery — the `SchemaSpec`/`InferArgs` DSL — is a sub-page detail (you write a `ToolDefinition`; the type-level machinery that types it you do not). That is the spine-vs-seam line made sharp.
 - `ToolSchema` is core (it is a field of `GenerateOptions`, the model request that flows through every step) even though it is conceptually part of the tool pipeline — *flows through the spine* wins over *conceptual home* when they conflict.
-- The tool-presentation vocabulary (`ToolCallPresentation`, …, carrying a `FIXME(tool-presentation)` redesign marker), the `SessionPersistence` durability seam, and bash vocabulary are sub-pages.
+- The tool-presentation vocabulary (`ToolCallView`/`ToolResultView`, …), the `SessionPersistence` durability seam, and bash vocabulary are sub-pages.
 
 `core.md` is a **self-contained spine doc**: it states the exact type definition of each spine structure with minimal prose and links to sub-pages for the per-seam detail. The sub-pages are `llm-streaming.md`, `session.md`, `persistence.md` (split from session along the in-memory-model vs. durability-seam line), `tools.md`, and `bash.md`.
 
