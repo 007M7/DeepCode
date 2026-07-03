@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
+import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionNotification } from '@agentclientprotocol/sdk'
-import type { ToolDefinition, ToolRegistry } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition, ToolRegistry as ToolRegistryType } from '@deepseek-ai/dsh-tools'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRegistry from '@deepseek-ai/dsh-tools'
+import FsLocal from '@deepseek-ai/dsh-fs-local'
+import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import { streamSessionEventUpdate, agentOptions, todosToPlan, ToolPresenter } from '../src/index.ts'
 
 /** Collect the updates a single event produces (no presenter → generic fallback). */
@@ -20,7 +25,7 @@ function liveUpdatesFor(event: SessionEvent): SessionNotification['update'][] {
 }
 
 /** A tiny tool registry stub exposing just `get` for {@link ToolPresenter}. */
-function registryOf(...tools: ToolDefinition[]): Pick<ToolRegistry, 'get'> {
+function registryOf(...tools: ToolDefinition[]): Pick<ToolRegistryType, 'get'> {
   const map = new Map(tools.map(t => [t.name, t]))
   return { get: name => map.get(name) }
 }
@@ -329,6 +334,38 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
     )
     expect(updates[0]).toMatchObject({ sessionUpdate: 'tool_call', title: 'boom' })
     expect(updates[1]).toMatchObject({ sessionUpdate: 'tool_call_update', content: [{ type: 'content', content: { type: 'text', text: 'raw' } }] })
+  })
+
+  it('forwards a tool-owned `locations` onto the wire tool_call (REAL fs read/edit tools)', async () => {
+    // Use the SHIPPING fs tools (not a stand-in), booted through their real
+    // plugins, so the wire tool_call carries the actual presentCall output —
+    // including `locations` for editor follow-along. (AGENTS.md "prefer the real
+    // implementation over a mock".)
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(FsLocal)
+    await ctx.plugin(ToolFs)
+    const presenter = new ToolPresenter(ctx.tools)
+
+    const [readCall] = updatesWith(presenter, evt('tool/call', {
+      turn: 1, step: 1, callId: CallId('r1'), name: 'read',
+      arguments: JSON.stringify({ file_path: 'src/a.ts', offset: 12 }),
+    }))
+    expect(readCall).toMatchObject({
+      sessionUpdate: 'tool_call', toolCallId: 'r1', title: 'Read src/a.ts', kind: 'read',
+      rawInput: 'offset 12', locations: [{ path: 'src/a.ts', line: 12 }],
+    })
+
+    const [editCall] = updatesWith(presenter, evt('tool/call', {
+      turn: 1, step: 1, callId: CallId('e1'), name: 'edit',
+      arguments: JSON.stringify({ file_path: 'src/b.ts', old_string: 'x', new_string: 'y' }),
+    }))
+    expect(editCall).toMatchObject({
+      sessionUpdate: 'tool_call', toolCallId: 'e1', title: 'Edit src/b.ts', kind: 'edit',
+      locations: [{ path: 'src/b.ts' }],
+    })
+    await ctx.fiber.dispose()
   })
 })
 

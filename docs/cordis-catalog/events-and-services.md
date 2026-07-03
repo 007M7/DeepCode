@@ -197,6 +197,44 @@ Types: [Agent](../core-data-structures/core.md)
 
 Source: [`packages/core/agent/src/types.ts:163`](../../packages/core/agent/src/types.ts)
 
+### `fs/*`
+
+#### `fs/edit-intent` — waterfall
+
+Single-slot decision: produce the optional version guard for the next FileSystem.editText. The tool dispatches this as an unbound waterfall and supplies a default thunk returning `undefined` (unconditional edit of the current content — the bare provider; no `stat`). The `@deepseek-ai/dsh-fs-policy` policy listener returns `{ version: vObserved }`, or throws `FS_NOT_OBSERVED` if the actor is unset or has not observed the target. Does NOT call `next()`: one decision, first-wins (see Events.'fs/write-intent').
+
+```ts cordis-catalog
+'fs/edit-intent'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
+```
+
+Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
+
+Source: [`packages/fs/fs/src/index.ts:117`](../../packages/fs/fs/src/index.ts)
+
+#### `fs/observed` — emit
+
+Record that an actor observed a target at a version, after a successful read/write/edit. Fire-and-forget (plain `emit`). A listener MUST be a synchronous, side-effect-only recorder (`@deepseek-ai/dsh-fs-policy`'s is a `WeakMap.set`): the tool does not guard the emit, so a listener that throws surfaces as the tool's `isError` result, and cordis `emit` does not await listener promises — async or fallible audit/telemetry does not belong here. No listener ⇒ nothing recorded. `actor` is the opaque tool-execution context.
+
+```ts cordis-catalog
+'fs/observed'(target: FsTarget, version: FsVersion, actor: object | undefined): void
+```
+
+Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
+
+Source: [`packages/fs/fs/src/index.ts:129`](../../packages/fs/fs/src/index.ts)
+
+#### `fs/write-intent` — waterfall
+
+Single-slot decision: produce the write intent for the next FileSystem.writeText. The tool dispatches this as an unbound waterfall (no `this`) and supplies a default thunk returning `undefined` (unconditional create-or-overwrite — the bare provider). The `@deepseek-ai/dsh-fs-policy` policy listener returns `createIfAbsent` (unobserved actor) or `{ kind: 'replaceIfVersion', version: vObserved }` (observed) and does NOT call `next()` — one decision, not a composable chain. The slot is first-wins: the first non-`next()` decider (registration order, or `prepend`) occupies it; a second decider is a misconfiguration, not layering. `actor` is the opaque tool-execution context, never read here.
+
+```ts cordis-catalog
+'fs/write-intent'(target: FsTarget, actor: object | undefined, next: () => FsWriteIntent | undefined | Promise<FsWriteIntent | undefined>): Promise<FsWriteIntent | undefined>
+```
+
+Types: [FsTarget](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md)
+
+Source: [`packages/fs/fs/src/index.ts:105`](../../packages/fs/fs/src/index.ts)
+
 ### `llm/*`
 
 #### `llm/stream` — waterfall
@@ -393,6 +431,31 @@ abstract compactRegion( session: Session, start: number, end: number, agent: Com
 
 Source: [`packages/compact/compact/src/index.ts:63`](../../packages/compact/compact/src/index.ts)
 
+### `ctx.fs` — `FileSystem` (abstract seam)
+
+Abstract filesystem provider service. Subclass, implement the six text-storage primitives, and load the subclass as a plugin — it registers as `ctx.fs` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+
+Semantics every backend must honor:
+
+- resolve returns a stable FsTarget; the same underlying file reached by different input paths must yield the same `targetKey` so stale guards and target lookup agree across paths (e.g. through symlinks).
+- stat returns FsInfo metadata (never content) or `undefined` when the target is absent.
+- readText/streamText read the whole regular text file (the stream for large files); both own regular-file checks, UTF-8 decoding, binary/NUL rejection, and `FS_NOT_TEXT`.
+- writeText is atomic temp-file + rename. `expected` is OPTIONAL: omit it for an unconditional create-or-overwrite (the bare-provider default), or supply a FsWriteIntent to guard the write.
+- editText verifies `expected.version` BEFORE literal matching (so a stale edit reports `FS_STALE_VERSION`, not `FS_EDIT_NOT_FOUND`/ `FS_AMBIGUOUS_EDIT` against newer content), then applies literal replacement and writes atomically — all inside one mutation critical section. `expected` is OPTIONAL: omit it for an unconditional edit of the current content (a missing target still reports `FS_STALE_VERSION`).
+
+```ts cordis-catalog
+abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>
+abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>
+abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
+abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
+abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>
+abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
+```
+
+Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
+
+Source: [`packages/fs/fs/src/index.ts:158`](../../packages/fs/fs/src/index.ts)
+
 ### `ctx.llm` — `LlmService`
 
 The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.
@@ -484,7 +547,7 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:277`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:287`](../../packages/core/tools/src/index.ts)
 
 ## Inherited tier (cordis core + loader/hmr/timer)
 

@@ -40,9 +40,11 @@ import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentMock from '@deepseek-ai/dsh-subagent-mock'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 
@@ -96,6 +98,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(LocalBashExecutor)
       await ctx.plugin(ToolBash)
     },
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-fs',
+    dir: 'tool-fs',
+    source: 'packages/fs/tool-fs/src/index.ts',
+    async mount(ctx) {
+      // The tool injects `fs`; boot the local backend to satisfy it. The schemas
+      // do not depend on the policy plugin (an event gate that changes behavior,
+      // not tool shape), so the bare provider is enough to harvest them.
+      await ctx.plugin(LocalFileSystem)
+      await ctx.plugin(ToolFs)
+    },
+    note:
+      'The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent',

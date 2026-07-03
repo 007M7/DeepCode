@@ -278,6 +278,82 @@ importers:
         specifier: ^4.0.0-rc.6
         version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
 
+  packages/fs/fs:
+    devDependencies:
+      '@deepseek-ai/dsh-brand':
+        specifier: workspace:^
+        version: link:../../util/brand
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      cordis:
+        specifier: ^4.0.0-rc.6
+        version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
+
+  packages/fs/fs-local:
+    dependencies:
+      schemastery:
+        specifier: ^3.18.0
+        version: 3.18.0
+    devDependencies:
+      '@deepseek-ai/dsh-fs':
+        specifier: workspace:^
+        version: link:../fs
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      cordis:
+        specifier: ^4.0.0-rc.6
+        version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
+
+  packages/fs/fs-policy:
+    devDependencies:
+      '@deepseek-ai/dsh-fs':
+        specifier: workspace:^
+        version: link:../fs
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      cordis:
+        specifier: ^4.0.0-rc.6
+        version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
+
+  packages/fs/tool-fs:
+    devDependencies:
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-agent-loop':
+        specifier: workspace:^
+        version: link:../../core/agent-loop
+      '@deepseek-ai/dsh-fs':
+        specifier: workspace:^
+        version: link:../fs
+      '@deepseek-ai/dsh-fs-local':
+        specifier: workspace:^
+        version: link:../fs-local
+      '@deepseek-ai/dsh-fs-policy':
+        specifier: workspace:^
+        version: link:../fs-policy
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-llm-deepseek':
+        specifier: workspace:^
+        version: link:../../llm/llm-deepseek
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+      cordis:
+        specifier: ^4.0.0-rc.6
+        version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
+
   packages/llm/llm:
     devDependencies:
       '@deepseek-ai/dsh-brand':
@@ -669,6 +745,12 @@ importers:
       '@deepseek-ai/dsh-bash-local':
         specifier: workspace:^
         version: link:../../bash/bash-local
+      '@deepseek-ai/dsh-fs-local':
+        specifier: workspace:^
+        version: link:../../fs/fs-local
+      '@deepseek-ai/dsh-fs-policy':
+        specifier: workspace:^
+        version: link:../../fs/fs-policy
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
@@ -687,6 +769,9 @@ importers:
       '@deepseek-ai/dsh-tool-bash':
         specifier: workspace:^
         version: link:../../bash/tool-bash
+      '@deepseek-ai/dsh-tool-fs':
+        specifier: workspace:^
+        version: link:../../fs/tool-fs
       '@deepseek-ai/dsh-tool-todo':
         specifier: workspace:^
         version: link:../../todo/tool-todo
