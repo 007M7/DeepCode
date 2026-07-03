@@ -9,7 +9,7 @@
 - Node.js 24 或更新版本。仓库声明 `node >=24`；CI 在 Node 24 和 26 上跑矩阵。
 - 启用了 Corepack 的 pnpm。仓库在 `package.json` 中钉住 `pnpm@11.7.0`；如果 `pnpm --version` 无法通过 Corepack 解析，先运行 `corepack enable`。
 - Git。
-- 可选：一个 DeepSeek API key，用于 coding-agent 演示和真实 API 的 e2e 测试。
+- 可选：一个 DeepSeek API key，用于 REPL/ACP agent（智能体）演示和真实 API 的 e2e 测试。
 
 ## 首次搭建
 
@@ -45,7 +45,7 @@ pnpm run build
 
 ## 环境变量
 
-真实的 DeepSeek 适配器和 coding-agent 演示从环境变量或仓库根目录一个被 gitignore 的 `.env` 读取凭证：
+真实的 DeepSeek 适配器和需要密钥的 agent 演示从环境变量或仓库根目录一个被 gitignore 的 `.env` 读取凭证：
 
 ```sh
 DEEPSEEK_API_KEY=sk-...
@@ -118,13 +118,13 @@ echo 演示不需要 API 凭证：
 pnpm run demo:echo
 ```
 
-coding-agent 演示使用真实的 DeepSeek 适配器，需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
+REPL agent 演示使用真实的 DeepSeek 适配器，需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
 
 ```sh
-pnpm run demo:coding
+pnpm run demo:repl
 ```
 
-ACP 服务器演示把同一个编码 agent（智能体）通过 JSON-RPC stdio 暴露出来，同样需要 `DEEPSEEK_API_KEY`：
+ACP 服务器 agent 演示通过 JSON-RPC stdio 暴露 agent，同样需要 `DEEPSEEK_API_KEY`：
 
 ```sh
 pnpm run demo:acp

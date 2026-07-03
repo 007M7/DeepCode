@@ -15,7 +15,7 @@ This package consolidates what were two near-identical copies under `examples/ec
 - id: ui-stdio
   name: '@deepseek-ai/dsh-ui-stdio'
   config:
-    welcome: 'coding-agent ready. Give it a coding task.'
+    welcome: 'agent REPL ready. Give it a coding task.'
 ```
 
 ## Rendering
