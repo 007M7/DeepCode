@@ -1,5 +1,7 @@
 # Development guide
 
+English | [中文](development.zh.md)
+
 This guide covers the local setup needed to work on DeepSeek Harness and understand the local hooks, daily checks, and CI gates.
 
 ## Prerequisites
