@@ -51,6 +51,15 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 |---|---|
 | [Unify the agent id and the session id](proposed/simplification/2026-06-20-unify-agent-and-session-id.md) | 2026-06-20 |
 | [Stop mirroring durable boundaries as agent events](proposed/simplification/2026-06-20-remove-agent-boundary-mirror-events.md) | 2026-06-20 |
+| [Prune producer-less vocabulary variants (block cache hints, the `agent` message source, the `continuation` turn trigger)](proposed/simplification/2026-07-04-prune-producerless-vocabulary-variants.md) | 2026-07-04 |
+| [Drop `GenerateOptions.prefill` and `ToolSchema.strict` — request knobs with no working end-to-end path](proposed/simplification/2026-07-04-drop-inert-request-knobs.md) | 2026-07-04 |
+| [Drop the unconsumed `web/providers-change` event](proposed/simplification/2026-07-04-drop-web-providers-change-event.md) | 2026-07-04 |
+| [Drop the `image` content block until a path can honor it](proposed/simplification/2026-07-04-drop-image-content-block.md) | 2026-07-04 |
+| [Prune write-only fields and a dead routing knob from the fs seam](proposed/simplification/2026-07-04-prune-write-only-fs-surface.md) | 2026-07-04 |
+| [Prune the unimplemented subagent seam vocabulary](proposed/simplification/2026-07-04-prune-unimplemented-subagent-vocabulary.md) | 2026-07-04 |
+| [Trim unreachable ACP bridge surface — the branding knobs and the kind-sniffing fallback](proposed/simplification/2026-07-04-trim-acp-bridge-unreachable-surface.md) | 2026-07-04 |
+| [Prune dead core-spine surface — `SurfaceManager.invalidate()`, the loop-internal exports, `ToolExecutionResult.callId`](proposed/simplification/2026-07-04-prune-dead-core-spine-surface.md) | 2026-07-04 |
+| [Share the app bins' boot glue instead of maintaining twin copies](proposed/simplification/2026-07-04-share-app-bin-boot-glue.md) | 2026-07-04 |
 
 ### Architecture
 

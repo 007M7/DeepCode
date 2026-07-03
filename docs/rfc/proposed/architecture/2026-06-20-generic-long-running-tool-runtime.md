@@ -22,6 +22,10 @@ The runtime should own:
 
 `dsh-bash` then keeps the bash-specific execution contract: resolve a request into a command spec, run a foreground command, or start a process and hand its streams/process handle to the generic runtime. `dsh-tool-bash` keeps the model-facing command tool, but the follow-up operations become generic long-running-tool operations or a shared utility that bash registers with, rather than bespoke `bash_output`/`bash_kill` plumbing.
 
+## Current seam consumption
+
+A consumer census of the surface the runtime would carve up. Production (`packages/bash/tool-bash/src/index.ts`) consumes `resolve`, `run`, `start`, `ownerOf`, `readOutput`, `kill`, and `onTaskDone`. `get()`/`list()` and the per-task `BashTask.done` promise have test-harness consumers only — `get()`/`list()` were removed once and reverted on the merits (the implementation note in [prune dead methods from the persistence seam](../../implemented/simplification/2026-06-20-prune-dead-seam-methods.md) records the test-migration cost dwarfing the surface removed), and `done` doubles as `dsh-bash-local`'s dispose-to-quiescence primitive. The seam therefore carries two public completion representations — the per-task promise and the global `onTaskDone` listener registry — of which production consumes one: the runtime should pick exactly one public completion surface and record which. One shape wart for the split to dissolve: `BashExecSpec.timeoutMs` is required but ignored by `start()`, an artifact of sharing one spec type between foreground and background execution.
+
 ## Acceptance criteria
 
 - The bash-specific packages no longer define the generic task registry, owner-token authorization, polling, cancellation, or completion-notification machinery.

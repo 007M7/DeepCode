@@ -14,7 +14,7 @@ The agent factory carries TWO ids for what is, in every live consumer, one thing
 - **Config-driven create** (`AgentLoop.create`): a stable `agentId` (e.g. `"echo"`) with a fresh per-run `sessionId` (`${id}-session-<uuid>`).
 - **Resume**: a caller-supplied `agentId` (e.g. `"main"`) on a persisted `resumeSessionId`.
 
-Everywhere a live consumer actually looks an agent up — the **ACP bridge, the only production path** — the two are already unified: `agentId === sessionId === <uuid>`.
+Everywhere a live consumer actually looks an agent up — the **ACP bridge, the only production path** — the two are already unified: `agentId === sessionId === <uuid>`. Concretely, both bridge factory call sites brand `AgentId(sessionId)` directly, and the bridge's reverse lookup keys on the `Agent` object itself — there is no id translation anywhere in the bridge to migrate.
 
 The separation is **latent generality no consumer exercises**: nothing reads a *stable* `agentId` back across runs (each process starts fresh, and persistence keys off the session id, never the agent id). The config path's "stable agentId, fresh sessionId" buys nothing concrete — it is cosmetic. And the `agentId !== sessionId` case is precisely what opens the bash owner-token alias hole: the bash completion-notice routes by `session.header.id`, but the registry enforces uniqueness only on `agentId`, so a programmatic caller registering two agents with different agent ids but the SAME session id can mis-route a notice (see [agent lifecycle and ownership seams](../../implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md) § Seam precondition). The current code documents this as a precondition rather than guaranteeing it.
 
