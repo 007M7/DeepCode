@@ -51,6 +51,10 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 |---|---|
 | [Unify the agent id and the session id](proposed/simplification/2026-06-20-unify-agent-and-session-id.md) | 2026-06-20 |
 | [Stop mirroring durable boundaries as agent events](proposed/simplification/2026-06-20-remove-agent-boundary-mirror-events.md) | 2026-06-20 |
+| [Narrow the subagent seam to synchronous collect](proposed/simplification/2026-07-04-narrow-subagent-synchronous-collect.md) | 2026-07-04 |
+| [Drop idle registry observation surfaces](proposed/simplification/2026-07-04-drop-idle-registry-observation-surfaces.md) | 2026-07-04 |
+| [Prune the bash task roster from the public seam](proposed/simplification/2026-07-04-prune-bash-task-roster.md) | 2026-07-04 |
+| [Remove defaults from the tool-schema DSL](proposed/simplification/2026-07-04-remove-tool-schema-defaults.md) | 2026-07-04 |
 
 ### Architecture
 
