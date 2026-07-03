@@ -15,12 +15,12 @@ Run with: `pnpm run demo:echo`. When prompted, type "echo <something>" to trigge
 
 ## coding-agent
 
-The real thing: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite, `subagent` delegation, and the `todo_write` task tracker on the same `@deepseek-ai/dsh-stdio-agent` app. Where echo-agent proves the skeleton with mocks, this is a usable coding assistant.
+A REPL agent demo: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite, `subagent` delegation, and the `todo_write` task tracker on the same `@deepseek-ai/dsh-stdio-agent` app. The UI is a terminal readline REPL.
 
-Run with: `pnpm run demo:coding` (needs `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [coding-agent/README.md](coding-agent/README.md) for details.
+Run with: `pnpm run demo:repl` (needs `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [coding-agent/README.md](coding-agent/README.md) for details.
 
 ## acp-agent
 
-The same coding agent exposed as an **Agent Client Protocol (ACP)** server over JSON-RPC stdio, via the [`@deepseek-ai/dsh-acp-agent`](../packages/ui/acp-agent) app — drive it from Zed or any other ACP client. Also the home of the keyless snapshot tests.
+An agent demo exposed as an **Agent Client Protocol (ACP)** server over JSON-RPC stdio, via the [`@deepseek-ai/dsh-acp-agent`](../packages/ui/acp-agent) app — drive it from Zed or any other ACP client. Also the home of the keyless snapshot tests.
 
 Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`). See [acp-agent/README.md](acp-agent/README.md) for the Zed setup and the snapshot-test design.

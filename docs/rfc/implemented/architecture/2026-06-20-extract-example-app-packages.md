@@ -37,7 +37,7 @@ The old `base*.yml`/`acp-tail.yml` includes already deduped the *config*, but a 
 ## Verification
 
 - Each example directory is `cordis.yml` (+ the acp `cordis.snapshot.yml`) + `README.md` + tests only — no `start.ts`, no infra preamble; `base.yml`/`base-core.yml`/`acp-tail.yml` are gone.
-- `demo:echo` / `demo:coding` / `demo:acp` run via the app-package `bin`s.
+- `demo:echo` / `demo:repl` / `demo:acp` run via the app-package `bin`s.
 - The new packages carry the per-file 100% coverage gate and a README like every `@deepseek-ai/dsh-*`. Each app package has a keyless **real-load-path** smoke that boots it through its `bin` + the cordis Loader (not a hand-built `ctx.plugin({...})` mount), guarding the `unwrapExports` export-shape bug class ([postmortem 0001](../../../postmortem/0001-acp-default-export-drops-inject.md)).
 - The ACP snapshot **replay** transcript is unchanged: the boot restructuring preserved the plugin set + load order, so `pnpm run test:snapshot` stays green against the committed goldens with no re-record.
 

@@ -94,7 +94,7 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
     acp/            Agent Client Protocol bridge: drive the agent from an ACP
                     editor (Zed) over JSON-RPC stdio
     stdio-agent/    stdio chat APP: agent-core spine + console logger + readline
-                    UI + a pre-created main agent + a bin (the demo:echo/coding
+                    UI + a pre-created main agent + a bin (the demo:echo/repl
                     front door)
     acp-agent/      ACP server APP: agent-core spine + JSONL persistence + the
                     acp bridge, NO stdout logger + a bin (the demo:acp front door)
@@ -115,10 +115,10 @@ examples/    Runnable demos (not workspaces; see examples/AGENTS.md). Each is a
              teaching plugins. The app package bundles the agent-core spine +
              front-door cluster + boot glue (a bin). No start.ts. echo-agent =
              mock model + echo tool on dsh-stdio-agent (pnpm run demo:echo, no
-             key). coding-agent = the real thing: DeepSeek V4 + fs tools
+             key). coding-agent = the REPL agent demo: DeepSeek V4 + fs tools
              (read/write/edit) + bash tools + subagent + todo_write on the same
-             app (pnpm run demo:coding, needs DEEPSEEK_API_KEY). acp-agent = the
-             coding agent as an ACP server on dsh-acp-agent (pnpm run demo:acp,
+             app (pnpm run demo:repl, needs DEEPSEEK_API_KEY). acp-agent = the
+             ACP server agent demo on dsh-acp-agent (pnpm run demo:acp,
              needs DEEPSEEK_API_KEY).
              cordis.snapshot.yml = the acp leaf with llm-replay for keyless
              snapshot replay.
@@ -188,10 +188,10 @@ pnpm run verify-node-next-types  # assert built declarations typecheck for a
 pnpm run doc-sync       # doc-typecheck + verify-cordis-catalog + verify-tool-catalog + verify-md-wrap + verify-md-links + verify-doc-refs + verify-package-paths + verify-rfc-classification + verify-type-equiv + verify-translation-pairing (CI runs this)
 pnpm run demo:echo      # run examples/echo-agent (no API key; type "echo hi" to
                     # see a tool call) — the mock skeleton
-pnpm run demo:coding    # run examples/coding-agent — the real agent (needs
-                    # DEEPSEEK_API_KEY; give it a coding task)
-pnpm run demo:acp   # run examples/acp-agent — the coding agent as an ACP
-                    # server over JSON-RPC stdio (needs DEEPSEEK_API_KEY;
+pnpm run demo:repl      # run examples/coding-agent — the REPL agent demo
+                    # (needs DEEPSEEK_API_KEY; give it a coding task)
+pnpm run demo:acp   # run examples/acp-agent — the ACP server agent demo
+                    # over JSON-RPC stdio (needs DEEPSEEK_API_KEY;
                     # drive it from Zed or another ACP client)
 ```
 
