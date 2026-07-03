@@ -7,7 +7,7 @@
 
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ToolCallPresentation } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { WebFetchBody, WebFetchResult } from '@deepseek-ai/dsh-web'
 import { assertNever } from '@deepseek-ai/dsh-llm'
@@ -44,8 +44,8 @@ export function formatFetchOutput(result: WebFetchResult): string {
 }
 
 /** Pending-call presentation: a fetch card titled by the URL. */
-export function presentFetchCall(args: { url: string; timeout_ms?: number }): ToolCallPresentation {
-  return { title: args.url, kind: 'fetch', rawInput: args.url }
+export function presentFetchCall(args: { url: string; timeout_ms?: number }): GenericCallView {
+  return { card: 'generic', title: args.url, kind: 'fetch', rawInput: args.url }
 }
 
 /** Register the `web_fetch` tool and its system-prompt guidance. */
