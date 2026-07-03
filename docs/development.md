@@ -9,7 +9,7 @@ This guide covers the local setup needed to work on DeepSeek Harness and underst
 - Node.js 24 or newer. The repo declares `node >=24`; CI runs the matrix on Node 24 and 26.
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
 - Git.
-- Optional: a DeepSeek API key for the coding-agent demo and real-API e2e tests.
+- Optional: a DeepSeek API key for the REPL/ACP agent demos and real-API e2e tests.
 
 ## First-time setup
 
@@ -45,7 +45,7 @@ pnpm run build
 
 ## Environment variables
 
-The real DeepSeek adapter and coding-agent demo read credentials from the environment or from a gitignored `.env` at the repo root:
+The real DeepSeek adapter and key-backed agent demos read credentials from the environment or from a gitignored `.env` at the repo root:
 
 ```sh
 DEEPSEEK_API_KEY=sk-...
@@ -118,13 +118,13 @@ The echo demo does not need API credentials:
 pnpm run demo:echo
 ```
 
-The coding-agent demo uses the real DeepSeek adapter and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
+The REPL agent demo uses the real DeepSeek adapter and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
 
 ```sh
-pnpm run demo:coding
+pnpm run demo:repl
 ```
 
-The ACP server demo exposes the same coding agent over JSON-RPC stdio and also needs `DEEPSEEK_API_KEY`:
+The ACP server agent demo exposes the agent over JSON-RPC stdio and also needs `DEEPSEEK_API_KEY`:
 
 ```sh
 pnpm run demo:acp
