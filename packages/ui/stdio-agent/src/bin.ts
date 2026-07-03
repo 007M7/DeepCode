@@ -6,7 +6,7 @@
  * duplicated in their `start.ts`: load the gitignored repo-root `.env`, then
  * drive the cordis Loader against the config path (default `./cordis.yml`).
  *
- * Usage: `dsh-stdio-agent [path-to-cordis.yml]`. The `demo:echo` / `demo:coding`
+ * Usage: `dsh-stdio-agent [path-to-cordis.yml]`. The `demo:echo` / `demo:repl`
  * scripts invoke it with the example's config.
  *
  * @module @deepseek-ai/dsh-stdio-agent/bin
@@ -105,7 +105,7 @@ function assertEntriesLoaded(ctx: Context): void {
  *
  * Bare plugin specifiers in the config (`@deepseek-ai/dsh-*`, npm packages) are
  * resolved by the cordis Loader's internal module loader, which is only active
- * under `node --expose-internals` (the flag the `demo:echo`/`demo:coding` scripts
+ * under `node --expose-internals` (the flag the `demo:echo`/`demo:repl` scripts
  * pass). Without it the Loader falls back to resolving relative to its own module
  * and cannot find the config's plugins, so a consumer running the built bin must
  * pass `--expose-internals` (or install the plugins where node hoists them).

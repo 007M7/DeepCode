@@ -16,6 +16,7 @@ import { SurfaceManager, isSurfaceEligibleType } from './surface.ts'
 
 export * from './types.ts'
 export { isJsonValue } from './json.ts'
+export type { JsonValue } from './json.ts'
 export { interruptedTurnClosers } from './repair.ts'
 export type { SurfaceNode } from './surface.ts'
 export { isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
