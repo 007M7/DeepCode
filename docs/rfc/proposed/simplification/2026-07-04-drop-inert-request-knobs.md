@@ -13,7 +13,7 @@ Both knobs are adapter-symmetric, so removal sheds them from both twins together
 
 ## Proposal
 
-- Remove `prefill` from `GenerateOptions`, both adapters' UNSUPPORTED guards, the tests pinning the throws, the paste lines in [core.md](../../../core-data-structures/core.md), and the adapter README rows documenting the rejection.
+- Remove `prefill` from `GenerateOptions`, both adapters' UNSUPPORTED guards, the tests pinning the throws, the paste lines in [core.md](../../../core-data-structures/core.md), the adapter README rows documenting the rejection, and the cookbook line using prefill as the UNSUPPORTED example ([adding-an-llm-adapter.md](../../../cookbook/adding-an-llm-adapter.md)); amend the [content-block vocabulary RFC](../../implemented/architecture/2026-06-11-content-block-vocabulary.md)'s consequence line naming prefill as having a home, per [implemented/AGENTS.md](../../implemented/AGENTS.md).
 - Remove `strict` from `ToolSchema`, `DefineToolOptions`, `defineTool`, and the `schemas()` allowlist; drop the deepseek serializer branch; simplify the pi-ai payload fixup to the unconditional scrub of pi-ai's own strict default (that half exists for wire parity with the hand-rolled twin and survives); drop the setter tests and the core.md paste line.
 
 This RFC deliberately does NOT touch `temperature`, `stop`, or `maxTokens`: those are honored end-to-end by both adapters and are the natural first targets of a request-mutating hook plugin on `agent/request`.

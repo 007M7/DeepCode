@@ -12,7 +12,7 @@ The merge-extensible vocabulary maps are designed to grow by declaration merging
 
 ## Proposal
 
-Delete `CacheHint` with its three `cache?` fields, the `agent` message-source variant, and the `continuation` turn-trigger variant. Switch the two test fixtures to `injection` triggers (any non-`message` trigger serves their purpose). Update the type-equiv pastes in [core.md](../../../core-data-structures/core.md) and [session.md](../../../core-data-structures/session.md) (and `scripts/type-equiv.manifest.json` where block identity shifts) in the same change.
+Delete `CacheHint` with its three `cache?` fields, the `agent` message-source variant, and the `continuation` turn-trigger variant. Switch the two test fixtures to `injection` triggers (any non-`message` trigger serves their purpose). Update the type-equiv pastes in [core.md](../../../core-data-structures/core.md) and [session.md](../../../core-data-structures/session.md) (and `scripts/type-equiv.manifest.json` where block identity shifts) in the same change, and amend the [content-block vocabulary RFC](../../implemented/architecture/2026-06-11-content-block-vocabulary.md)'s consequence line naming cache hints as having a home, per [implemented/AGENTS.md](../../implemented/AGENTS.md).
 
 Each variant returns the day it gains a real producer, exactly as the maps are designed to grow: a caching feature re-adds `cache` together with the adapter that transmits it; subagent attribution re-adds `agent` together with the backend that stamps it and a consumer that routes on it; an auto-continue feature that genuinely starts new turns re-adds `continuation` with the plugin that emits it.
 
