@@ -25,7 +25,7 @@
 `pnpm run verify-translation-pairing`（`doc-sync` 的一环，因此 CI 和 pre-push 钩子都会运行）机械地强制这份契约：
 
 1. [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) 中 `required` 列出的每个英文文件都有 `.zh.md` 配对文件。
-2. 每个已存在的 `.zh.md` 文件——无论是否 required——都通过全部检查：其英文源存在（无孤儿）、指纹等于源的当前 blob hash（无过期译文）、双方都带语言切换行、其结构签名与源按序一致——标题深度、逐字节一致的代码块（信息串与内容）、表格列数、列表类型、以及除切换行之外的每个链接目标。
+2. 每个已存在的 `.zh.md` 文件——无论是否 required——都通过全部检查：其英文源存在（无孤立文件）、指纹等于源的当前 blob hash（无过期译文）、双方都带语言切换行、其结构签名与源按序一致——标题深度、逐字节一致的代码块（信息字符串与内容）、表格列数、列表类型、以及除切换行之外的每个链接目标。
 3. 列为 `excluded` 的文件完全没有 `.zh.md` 配对。
 
 `pnpm run verify-translation-pairing --list` 打印范围内每篇文档的当前翻译状态——missing、stale 或 ok——是翻译批次的工作清单。它从不失败；它只报告。
