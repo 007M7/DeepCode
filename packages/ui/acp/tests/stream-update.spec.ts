@@ -675,6 +675,32 @@ describe('result-time diff card (REAL fs edit tool → tool_call_update diff blo
     await ctx.fiber.dispose()
   })
 
+  it('the completed diff TITLE relativizes against the session cwd (the result title replaces the card header)', async () => {
+    // A `tool_call_update.title` replaces the card header, so the result-side
+    // diff must relativize its title exactly as the pending card did — otherwise
+    // a completed absolute-path edit flips `Edit src/b.ts` back to the raw
+    // absolute path. The diff/location paths stay absolute (the editor opens the
+    // real path). Drive the REAL fs edit tool with an absolute in-workspace path.
+    const ctx = await fsCtx()
+    const presenter = new ToolPresenter(ctx.tools)
+    const args = JSON.stringify({ file_path: '/work/proj/src/b.ts', old_string: 'OLD', new_string: 'NEW' })
+    const meta = { diffs: [{ path: '/work/proj/src/b.ts', oldText: 'a\nOLD\nb', newText: 'a\nNEW\nb' }] }
+    const out: SessionNotification['update'][] = []
+    const rendering = { enabled: false, cwd: '/work/proj' }
+    for (const event of [
+      evt('tool/call', { turn: 1, step: 1, callId: CallId('e1'), name: 'edit', arguments: args }),
+      evt('tool/result', { turn: 1, step: 1, callId: CallId('e1'), content: [{ type: 'text', text: 'ok' }], isError: false, meta }),
+    ]) streamSessionEventUpdate(SessionId('s1'), event, n => out.push(n.update), presenter, rendering)
+    expect(out[1]).toEqual({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'e1',
+      status: 'completed',
+      title: 'Edit src/b.ts',
+      content: [{ type: 'diff', path: '/work/proj/src/b.ts', oldText: 'a\nOLD\nb', newText: 'a\nNEW\nb' }],
+    })
+    await ctx.fiber.dispose()
+  })
+
   it('a diff result with an EMPTY diffs array and no title omits both keys (nothing to send)', () => {
     // A synthetic tool whose presentResult yields a `diff` card with no hunks and
     // no title — the shipping fs tools never emit this (edit always has a hunk;

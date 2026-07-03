@@ -46,6 +46,7 @@ Computing hunks-with-context is a solved problem with sharp edge cases (grouping
 - **Live incremental diff streaming.** The hunk is computed once, after the mutation completes; there is no per-keystroke diff.
 - **Diffing a binary/non-UTF-8 overwrite.** `before` is `null` for such a file (it has no text diff basis); the write still succeeds and the result renders a whole-file diff (`oldText: null`) rather than a contextual hunk.
 - **Rename/move diffs.** Only content diffs of a single resolved path.
+- **Bounding the overwrite diff basis.** An overwrite reads the whole prior file into memory to compute the contextual hunk (on top of the new content already held), so a very large text overwrite allocates both texts for a UI-only diff. A future refinement can bound the pre-read and fall back to a whole-file / no contextual diff above a size threshold; tracked as `TODO(overwrite-diff-bound)` at the read site.
 
 ## Related
 

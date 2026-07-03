@@ -1178,12 +1178,17 @@ function toolResultUpdate(callId: CallId, view: ToolResultView, isError: boolean
       // the diff the pending card installed (and keeps the model-facing result
       // text from clobbering it).
       const content: AcpToolCallContent[] = view.diffs.map(d => ({ type: 'diff', path: d.path, oldText: d.oldText, newText: d.newText }))
+      // Relativize the replacement title against the session cwd from the diff
+      // path, exactly as the call-side card does — `tool_call_update.title`
+      // replaces the card header, so a raw absolute path here would undo the
+      // pending card's relativized title.
+      const title = view.title !== undefined ? displayTitle(view.title, view.diffs[0]?.path, terminal.cwd) : undefined
       return {
         sessionUpdate: 'tool_call_update',
         toolCallId: callId,
         status,
         ...content.length > 0 ? { content } : {},
-        ...view.title !== undefined ? { title: view.title } : {},
+        ...title !== undefined ? { title } : {},
       }
     }
     default:

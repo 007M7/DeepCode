@@ -151,6 +151,9 @@ export class LocalFileSystem extends FileSystem {
       // file (binary/invalid-UTF-8) — a null `before` gives no contextual-hunk
       // basis, so a consumer falls back to a whole-file diff (the tool still
       // renders a result-time diff card, not the raw result text).
+      // TODO(overwrite-diff-bound): this reads the whole prior file into memory
+      // for a UI-only diff; bound the pre-read and fall back to no contextual
+      // basis above a size threshold (see the applied-hunk-diffs RFC non-goals).
       const before = existing ? await readTextForDiff(target.targetKey, signal) : null
       await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.internals)
       const after = await probe(target.targetKey)
