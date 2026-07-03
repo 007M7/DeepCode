@@ -103,8 +103,8 @@ interface ToolExecutionResult {
   /**
    * The tool-private presentation payload from a successful `execute` (the object
    * return form). Threaded onto the `tool/result` session event and back into
-   * {@link ToolResult} for `presentResult`. Opaque {@link JsonValue}; absent when
-   * the tool attached none or the call failed.
+   * {@link ToolResult} for `presentResult`. Opaque (`unknown`); absent when the
+   * tool attached none or the call failed.
    */
   meta?: unknown
 }
