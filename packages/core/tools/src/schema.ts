@@ -20,7 +20,8 @@
  */
 
 import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
-import type { ToolCallView, ToolDefinition, ToolExecuteReturn, ToolExecution, ToolResult, ToolResultView } from './index.ts'
+import type { ToolDefinition, ToolExecuteReturn, ToolExecution, ToolResult } from './index.ts'
+import type { ToolCallView, ToolResultView } from './presentation.ts'
 
 // ---------------------------------------------------------------------------
 // SchemaSpec — the author-facing per-property type
