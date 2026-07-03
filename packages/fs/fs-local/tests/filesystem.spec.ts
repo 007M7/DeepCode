@@ -203,11 +203,15 @@ describe('writeText', () => {
     expect(outcome.after).toBe('new body')
   })
 
-  it('an overwrite of a CRLF file returns LF-normalized before content', async () => {
-    await writeFile(join(dir, 'a.txt'), 'a\r\nb\r\n')
+  it('an overwrite returns LF-normalized before AND after (a CRLF rewrite is not every-line-changed)', async () => {
+    // The applied-hunk diff bases on `before`/`after`; if `after` kept CRLF while
+    // `before` is LF-normalized, a CRLF rewrite would read as every line changed.
+    // Both sides are LF so only the genuinely-changed line diffs.
+    await writeFile(join(dir, 'a.txt'), 'a\r\nb\r\nc\r\n')
     const target = await fs.resolve('a.txt')
-    const outcome = await fs.writeText(target, 'a\nB\n')
-    expect(outcome.before).toBe('a\nb\n')
+    const outcome = await fs.writeText(target, 'a\r\nB\r\nc\r\n')
+    expect(outcome.before).toBe('a\nb\nc\n')
+    expect(outcome.after).toBe('a\nB\nc\n')
   })
 
   it('an overwrite of a BINARY prior file reports before:null (undiffable), still succeeds', async () => {

@@ -106,7 +106,7 @@ interface ToolExecutionResult {
    * {@link ToolResult} for `presentResult`. Opaque {@link JsonValue}; absent when
    * the tool attached none or the call failed.
    */
-  meta?: JsonValue
+  meta?: unknown
 }
 ```
 
@@ -117,7 +117,7 @@ A waterfall listener receives `(exec, next)`: call `next()` to proceed (possibly
 How a tool wants its call shown in a UI (an editor tool-call card, a CLI log line), provider-neutral so a tool describes itself without depending on any client protocol. `presentCall`/`presentResult` return a **`card`-tagged render intent** — a discriminated union a UI bridge switches on:
 
 - `ToolCallView` (pending): `{ card: 'generic', title, kind?, rawInput?, content?, locations? }` (the default card; `locations` is `{ path, line? }[]` files the call reads/modifies, for editor follow-along), `{ card: 'terminal', title, description?, cwd? }` (a shell command → a terminal card), or `{ card: 'diff', title, diffs, locations? }` (a file create/modify → an inline diff card; `diffs` is `{ path, oldText, newText }[]`, `oldText: null` for a new file).
-- `ToolResultView` (completed): `{ card: 'generic', title?, content? }` or `{ card: 'terminal', title?, output?, exitCode?, signal? }` (the captured run output + exit; a capable UI shows an exit-status pill, an incapable one gets a fenced ` ```console ` fallback the bridge derives from `output`).
+- `ToolResultView` (completed): `{ card: 'generic', title?, content? }`, `{ card: 'terminal', title?, output?, exitCode?, signal? }` (the captured run output + exit; a capable UI shows an exit-status pill, an incapable one gets a fenced ` ```console ` fallback the bridge derives from `output`), or `{ card: 'diff', title?, diffs }` (a completed file mutation → the APPLIED hunks with context lines, one entry per changed site, computed from the before/after file content — distinct from the call-time whole-snippet `diff`, which it supersedes).
 
 `ToolCallKind` (`'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'`) picks an icon on a generic card. `FileLocation` (`{ path, line? }`) and `FileDiff` (`{ path, oldText, newText }`) are the shared file-card vocabulary. The design is pinned in [the render-intent-union RFC](../rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md); the ACP bridge maps a `diff` card to a `{ type: 'diff' }` content block, a `terminal` card to the `_meta` terminal convention, and relativizes a file card's title against the session cwd.
 

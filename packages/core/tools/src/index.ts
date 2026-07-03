@@ -11,7 +11,6 @@ import { Context, Service } from 'cordis'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { JsonValue } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
 export {
@@ -88,13 +87,6 @@ export interface FileDiff {
   oldText: string | null
   /** Content after the change. */
   newText: string
-  /**
-   * Index signature so a `FileDiff` is a valid {@link JsonValue} member — a tool
-   * persists result-time diffs as `tool/result` `meta`, which must round-trip
-   * through the session log. Every declared field is already JSON-compatible;
-   * this only makes the structural compatibility explicit.
-   */
-  [key: string]: string | null
 }
 
 /**
@@ -247,12 +239,13 @@ export interface DiffResultView {
 /**
  * What a tool's `execute` returns. The bare {@link ContentBlock}`[]` form is the
  * common case (model-facing content only); the object form additionally attaches
- * a tool-private `meta` presentation payload ({@link JsonValue}) that the
- * registry threads onto the `tool/result` session event and hands back to the
- * tool's `presentResult`. `meta` is opaque to the core — the tool owns its shape
- * and validates it on the way out — and persists so replay reproduces the card.
+ * a tool-private `meta` presentation payload that the registry threads onto the
+ * `tool/result` session event and hands back to the tool's `presentResult`.
+ * `meta` is opaque to the core (`unknown` — the tool owns and narrows its shape),
+ * and MUST be JSON-serializable: it persists on the durable log (the session
+ * enforces this at `append`), so replay reproduces the card.
  */
-export type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta?: JsonValue }
+export type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta?: unknown }
 
 /** A registered tool: its schema plus the execution function. */
 export interface ToolDefinition extends ToolSchema {
@@ -286,10 +279,10 @@ export interface ToolResult {
   /**
    * The tool-private presentation payload the tool attached from `execute` (via
    * the object return form), threaded verbatim from the `tool/result` event.
-   * Opaque {@link JsonValue}; the tool narrows it back to its own shape. Absent
-   * when the tool attached none.
+   * Opaque (`unknown`); the tool narrows it back to its own shape. Absent when
+   * the tool attached none.
    */
-  meta?: JsonValue
+  meta?: unknown
 }
 
 /** One pending tool call, as it flows through the execution waterfall. */
@@ -336,10 +329,10 @@ export interface ToolExecutionResult {
   /**
    * The tool-private presentation payload from a successful `execute` (the object
    * return form). Threaded onto the `tool/result` session event and back into
-   * {@link ToolResult} for `presentResult`. Opaque {@link JsonValue}; absent when
-   * the tool attached none or the call failed.
+   * {@link ToolResult} for `presentResult`. Opaque (`unknown`); absent when the
+   * tool attached none or the call failed.
    */
-  meta?: JsonValue
+  meta?: unknown
 }
 
 /**

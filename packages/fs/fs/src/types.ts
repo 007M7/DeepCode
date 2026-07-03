@@ -103,11 +103,11 @@ export interface FsWriteOutcome {
   version: FsVersion
   /**
    * The file's content BEFORE the write, or `null` when the file did not exist
-   * (a create). Raw storage text (LF-normalized by the backend), never a diff —
-   * a consumer computes the result-time contextual diff from `before`/`after`.
+   * (a create). LF-normalized storage text (the diff basis), never a diff — a
+   * consumer computes the result-time contextual diff from `before`/`after`.
    */
   before: string | null
-  /** The file's content AFTER the write (the text that was written). */
+  /** The file's content AFTER the write, LF-normalized to share `before`'s diff basis. */
   after: string
 }
 

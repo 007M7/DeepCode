@@ -14,17 +14,17 @@
 
 import { structuredPatch } from 'diff'
 import type { FileDiff } from '@deepseek-ai/dsh-tools'
-import type { JsonValue } from '@deepseek-ai/dsh-session'
 
 /** Context lines shown on each side of an applied hunk (matches claude-agent-acp). */
 export const DIFF_CONTEXT = 3
 
 /**
  * The `write`/`edit` tools' private `tool/result` `meta` payload: the applied
- * contextual-diff hunks. A {@link JsonValue} (persisted with the session log, so
- * `presentResult` reproduces the diff card on replay). The producing tool owns
- * this shape; the bridge only sees the opaque `meta` and the tool narrows it back
- * via {@link diffsFromMeta}.
+ * contextual-diff hunks. Attached opaquely (as `unknown`) on the tool result and
+ * persisted with the session log — it must be JSON-serializable (the session
+ * validates this at `append`), so `presentResult` reproduces the diff card on
+ * replay. The producing tool owns this shape; the bridge only sees the opaque
+ * `meta` and the tool narrows it back via {@link diffsFromMeta}.
  */
 export type FsDiffMeta = { diffs: FileDiff[] }
 
@@ -68,9 +68,9 @@ export function computeHunkDiffs(path: string, before: string, after: string): F
 }
 
 /** Whether `value` is a valid {@link FileDiff} (defensive narrowing from opaque `meta`). */
-function isFileDiff(value: JsonValue): value is FileDiff & JsonValue {
+function isFileDiff(value: unknown): value is FileDiff {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
-  const { path, oldText, newText } = value
+  const { path, oldText, newText } = value as Record<string, unknown>
   return typeof path === 'string'
     && (oldText === null || typeof oldText === 'string')
     && typeof newText === 'string'
@@ -83,9 +83,9 @@ function isFileDiff(value: JsonValue): value is FileDiff & JsonValue {
  * it validates defensively rather than trusting the payload — a bad `meta` yields
  * no diff card (the generic result rendering) instead of a thrown presenter.
  */
-export function diffsFromMeta(meta: JsonValue | undefined): FileDiff[] | undefined {
+export function diffsFromMeta(meta: unknown): FileDiff[] | undefined {
   if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return undefined
-  const diffs = meta.diffs
+  const diffs = (meta as Record<string, unknown>).diffs
   if (!Array.isArray(diffs) || diffs.length === 0 || !diffs.every(isFileDiff)) return undefined
   return diffs
 }

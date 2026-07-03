@@ -66,7 +66,7 @@ import { assertNever, CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import type { JsonValue, SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ToolCallKind, ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } from '@deepseek-ai/dsh-tools'
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
@@ -919,7 +919,7 @@ export class ToolPresenter {
   }
 
   /** Completed-state render intent for a `tool/result`; consumes the remembered `(name, args, card)`. */
-  result(callId: CallId, content: ContentBlock[], isError: boolean, meta?: JsonValue): ToolResultView {
+  result(callId: CallId, content: ContentBlock[], isError: boolean, meta?: unknown): ToolResultView {
     const call = this.pending.get(callId)
     this.pending.delete(callId)
     // No remembered call (unknown/late callId) → nothing to present from; raw content.

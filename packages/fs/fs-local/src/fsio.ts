@@ -429,4 +429,4 @@ export function applyLiteralEdit(
   return { content: content.split(oldNorm).join(newNorm), replacements }
 }
 
-export { restoreLineEndings }
+export { normalizeLineEndings, restoreLineEndings }

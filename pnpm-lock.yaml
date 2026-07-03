@@ -271,9 +271,6 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
-      '@deepseek-ai/dsh-session':
-        specifier: workspace:^
-        version: link:../session
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../system-prompt

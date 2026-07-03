@@ -16,13 +16,13 @@ Add a **persisted, tool-private presentation channel** so a tool's `execute` can
 
 ### 1. A `meta` channel on the tool result (core)
 
-`ToolDefinition.execute` may now return either its model-facing `ContentBlock[]` (unchanged, the common case) OR `{ content: ContentBlock[]; meta?: JsonValue }`:
+`ToolDefinition.execute` may now return either its model-facing `ContentBlock[]` (unchanged, the common case) OR `{ content: ContentBlock[]; meta?: unknown }`:
 
 ```ts ignore-check
-type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta?: JsonValue }
+type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta?: unknown }
 ```
 
-`meta` is an opaque, JSON-serializable payload the core never interprets. The registry threads it onto the `tool/result` **session event** (`{ …, meta?: JsonValue }`), so it is persisted with the log; on replay the same `meta` is read back and handed to `presentResult` via a widened `ToolResult` (`{ content, isError, meta? }`). Because the payload lives in the event log, the diff reproduces on session reload / snapshot replay **for free** — the event-sourcing guarantee, not a re-computation. `JsonValue` is exported from `dsh-session` (paired with the existing `isJsonValue` predicate that already gates every event's serializability at `append`).
+`meta` is an opaque payload the core never interprets — typed `unknown` at every seam (the tool that produced it owns and narrows its shape). It MUST be JSON-serializable: the registry threads it onto the `tool/result` **session event**, and `Session.append` runtime-validates all event data with the existing `isJsonValue` predicate, so a non-serializable `meta` is rejected at the source. On replay the same `meta` is read back and handed to `presentResult` via a widened `ToolResult` (`{ content, isError, meta? }`). Because the payload lives in the event log, the diff reproduces on session reload / snapshot replay **for free** — the event-sourcing guarantee, not a re-computation. Typing `meta` as `unknown` (rather than a shared serializable-value type) keeps the tools core free of a dependency it would otherwise take just to name the type, and the runtime `isJsonValue` gate — not the static type — is what actually enforces serializability.
 
 This is the general shape ("a tool attaches durable result presentation"), not an fs-specific one — any tool can use it.
 
@@ -39,7 +39,7 @@ Per the [capability-seam split](2026-06-13-capability-seams.md), the storage bac
 
 ### The diff algorithm — a third-party runtime dependency over vendoring
 
-Computing hunks-with-context is a solved problem with sharp edge cases (grouping, context coalescing, the trailing-newline marker). Rather than hand-roll it, `dsh-tool-fs` takes a runtime dependency on the npm [`diff`](https://www.npmjs.com/package/diff) package (v9, ships its own types) and uses its `structuredPatch`. The repo's default is to vendor Cordis-framework source, but that policy is about the *framework*; a leaf tool package taking a small, well-known, self-typed utility dependency is the same shape as `dsh-acp` depending on `@agentclientprotocol/sdk`. Vendoring a diff algorithm would be re-implementing a battle-tested one for no benefit — the [pre-release "foundation over blast radius"](../../../../AGENTS.md) reasoning does not argue for re-deriving standard algorithms. The dependency is pinned and its output is normalized in one small module (`packages/fs/tool-fs/src/diff.ts`).
+Computing hunks-with-context is a solved problem with sharp edge cases (grouping, context coalescing, the trailing-newline marker). Rather than hand-roll it, `dsh-tool-fs` takes a runtime dependency on the npm [`diff`](https://www.npmjs.com/package/diff) package (a `^9.0.0` range, exact-pinned by the lockfile; it ships its own types) and uses its `structuredPatch`. The repo's default is to vendor Cordis-framework source, but that policy is about the *framework*; a leaf tool package taking a small, well-known, self-typed utility dependency is the same shape as `dsh-acp` depending on `@agentclientprotocol/sdk`. Vendoring a diff algorithm would be re-implementing a battle-tested one for no benefit — the [pre-release "foundation over blast radius"](../../../../AGENTS.md) reasoning does not argue for re-deriving standard algorithms. The dependency's output is normalized in one small module (`packages/fs/tool-fs/src/diff.ts`).
 
 ## Non-goals
 

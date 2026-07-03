@@ -26,6 +26,7 @@ import type {
 } from '@deepseek-ai/dsh-fs'
 import {
   applyLiteralEdit,
+  normalizeLineEndings,
   probe,
   readForEdit,
   readTextForDiff,
@@ -156,7 +157,10 @@ export class LocalFileSystem extends FileSystem {
         operation: existing ? 'update' : 'create',
         version: this.versionAfterWrite(after, target),
         before,
-        after: content,
+        // LF-normalized to share the diff basis with `before` (also LF): a CRLF
+        // overwrite must not read as every line changed. Line-ending restoration
+        // is a storage detail the applied-hunk diff ignores.
+        after: normalizeLineEndings(content),
       }
     })
   }

@@ -337,7 +337,7 @@ A tool was registered or unregistered (the available tool set changed).
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:49`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:48`](../../packages/core/tools/src/index.ts)
 
 #### `tools/execute` — waterfall
 
@@ -349,7 +349,7 @@ Waterfall around every tool execution — the single seam where sandbox, permiss
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:44`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:43`](../../packages/core/tools/src/index.ts)
 
 ## Services
 
@@ -547,7 +547,7 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:370`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:363`](../../packages/core/tools/src/index.ts)
 
 ## Inherited tier (cordis core + loader/hmr/timer)
 

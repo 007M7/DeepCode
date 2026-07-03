@@ -40,7 +40,6 @@ graph TD
   session-persistence-sqlite --> session-persistence
   tools --> agent
   tools --> llm
-  tools --> session
   tools --> system-prompt
   ui-stdio --> agent
   ui-stdio --> llm
@@ -130,7 +129,7 @@ graph TD
 | `invariants` | `agent`, `llm`, `session` |
 | `session-persistence-jsonl` | `session`, `session-persistence` |
 | `session-persistence-sqlite` | `session`, `session-persistence` |
-| `tools` | `agent`, `llm`, `session`, `system-prompt` |
+| `tools` | `agent`, `llm`, `system-prompt` |
 | `ui-stdio` | `agent`, `llm`, `session` |
 | `acp` | `agent`, `llm`, `session`, `session-persistence`, `tools` |
 | `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
