@@ -259,3 +259,51 @@ Record and update a structured task list for the current work. Send the ENTIRE l
 ```
 
 Source: [`packages/todo/tool-todo/src/index.ts`](../../packages/todo/tool-todo/src/index.ts)
+
+## `@deepseek-ai/dsh-tool-web`
+
+### `web_fetch`
+
+Fetch the content of a specific HTTP(S) URL and return it decoded to text.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "url": {
+      "type": "string",
+      "description": "The HTTP(S) URL to fetch."
+    },
+    "timeout_ms": {
+      "type": "number",
+      "description": "Optional fetch timeout in milliseconds (capped by the provider)."
+    }
+  },
+  "required": [
+    "url"
+  ]
+}
+```
+
+Source: [`packages/web/tool-web/src/index.ts`](../../packages/web/tool-web/src/index.ts)
+
+### `web_search`
+
+Search the web for current information. Returns an optional summary answer and a list of source URLs.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "The search query."
+    }
+  },
+  "required": [
+    "query"
+  ]
+}
+```
+
+Source: [`packages/web/tool-web/src/index.ts`](../../packages/web/tool-web/src/index.ts)

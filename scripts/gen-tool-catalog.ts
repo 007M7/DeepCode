@@ -41,12 +41,16 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import WebService from '@deepseek-ai/dsh-web'
+import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
+import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentMock from '@deepseek-ai/dsh-subagent-mock'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
+import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/tool-catalog/tools.md'
@@ -132,6 +136,21 @@ const TOOL_PACKAGES: ToolPackage[] = [
     source: 'packages/todo/tool-todo/src/index.ts',
     async mount(ctx) {
       await ctx.plugin(ToolTodo)
+    },
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-web',
+    dir: 'tool-web',
+    source: 'packages/web/tool-web/src/index.ts',
+    async mount(ctx) {
+      // The tools inject `web`; boot the seam plus one search and one fetch
+      // provider so both `web_search` and `web_fetch` register. The schemas do
+      // not depend on which provider backs the seam (or on it being available),
+      // so any registered provider is enough to harvest them.
+      await ctx.plugin(WebService)
+      await ctx.plugin(WebSearchExa)
+      await ctx.plugin(WebFetchLocal)
+      await ctx.plugin(ToolWeb)
     },
   },
 ]
