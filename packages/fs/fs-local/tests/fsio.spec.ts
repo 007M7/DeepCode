@@ -6,7 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtemp, readFile, rm, stat, symlink, writeFile, mkdir, readdir, realpath } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, stat, symlink, writeFile, mkdir, readdir, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:net'
@@ -173,6 +173,54 @@ describe('listDirectory', () => {
     await writeFile(file, 'hi')
     await expect(listDirectory(localTarget(file))).rejects.toMatchObject({ code: 'FS_NOT_DIRECTORY' })
     await expect(listDirectory(localTarget(dir), AbortSignal.abort())).rejects.toMatchObject({ code: 'FS_ABORTED' })
+  })
+
+  it('translates directory permission failures into FS_PERMISSION_DENIED', async () => {
+    const root = join(dir, 'restricted')
+    await mkdir(root)
+    await chmod(root, 0o000)
+    try {
+      const error = await listDirectory(localTarget(root)).then(() => undefined, (caught: unknown) => caught)
+      // Root-like environments may still be able to list mode-000 directories.
+      if (error === undefined) return
+      expect(error).toBeInstanceOf(FsError)
+      expect(error).toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+    } finally {
+      await chmod(root, 0o700)
+    }
+  })
+
+  it('translates preflight metadata IO failures into FS_IO_ERROR', async () => {
+    const loop = join(dir, 'loop')
+    await symlink(loop, loop)
+    await expect(listDirectory(localTarget(loop))).rejects.toMatchObject({ code: 'FS_IO_ERROR' })
+  })
+
+  it('translates child resolution failures into structured listing errors', async () => {
+    const root = join(dir, 'listed')
+    await mkdir(root)
+    const loop = join(root, 'loop')
+    await symlink(loop, loop)
+    await expect(listDirectory(localTarget(root))).rejects.toMatchObject({ code: 'FS_IO_ERROR' })
+  })
+
+  it('translates child permission failures into FS_PERMISSION_DENIED', async () => {
+    const root = join(dir, 'listed')
+    const protectedRoot = join(dir, 'protected')
+    const secret = join(protectedRoot, 'secret')
+    await mkdir(root)
+    await mkdir(secret, { recursive: true })
+    await symlink(secret, join(root, 'secret-link'))
+    await chmod(protectedRoot, 0o000)
+    try {
+      const error = await listDirectory(localTarget(root)).then(() => undefined, (caught: unknown) => caught)
+      // Root-like environments may still resolve through mode-000 directories.
+      if (error === undefined) return
+      expect(error).toBeInstanceOf(FsError)
+      expect(error).toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+    } finally {
+      await chmod(protectedRoot, 0o700)
+    }
   })
 })
 

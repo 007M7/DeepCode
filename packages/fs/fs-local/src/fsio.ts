@@ -55,11 +55,9 @@ function errorMessage(error: unknown): string {
 }
 /* v8 ignore stop */
 
-/* v8 ignore start -- requires permission/kernel failures from readdir after a successful directory stat. */
 function isPermissionError(error: unknown): boolean {
   return error instanceof Error && 'code' in error && (error.code === 'EACCES' || error.code === 'EPERM')
 }
-/* v8 ignore stop */
 
 function throwIfAborted(signal: AbortSignal | undefined, verb: string): void {
   if (signal?.aborted) throw new FsError(`${verb} aborted`, 'FS_ABORTED')
@@ -189,13 +187,14 @@ export async function probe(absolutePath: string): Promise<PathInfo | null> {
 
 // --- Directory listing ---
 
-/* v8 ignore start -- requires permission/kernel failures from readdir after a successful directory stat. */
 function listingIoError(displayPath: string, error: unknown): FsError {
+  /* v8 ignore next -- defensive pass-through for races where a child resolver has already produced a structured FsError. */
+  if (error instanceof FsError) return error
+  /* v8 ignore next -- requires the listed target/parent to disappear between successful preflight and listing/child resolution. */
   if (isENOENT(error) || isENOTDIR(error)) return new FsError(`cannot list "${displayPath}": not found`, 'FS_NOT_FOUND', { cause: error })
   if (isPermissionError(error)) return new FsError(`cannot list "${displayPath}": permission denied`, 'FS_PERMISSION_DENIED', { cause: error })
   return new FsError(`cannot list "${displayPath}": ${errorMessage(error)}`, 'FS_IO_ERROR', { cause: error })
 }
-/* v8 ignore stop */
 
 /**
  * List direct children of a directory in stable name order. Each child includes
@@ -204,7 +203,12 @@ function listingIoError(displayPath: string, error: unknown): FsError {
  */
 export async function listDirectory(target: LocalTarget, signal?: AbortSignal): Promise<LocalDirEntry[]> {
   throwIfAborted(signal, 'list')
-  const info = await probe(target.targetKey)
+  let info: PathInfo | null
+  try {
+    info = await probe(target.targetKey)
+  } catch (error: unknown) {
+    throw listingIoError(target.displayPath, error)
+  }
   if (!info) throw new FsError(`cannot list "${target.displayPath}": not found`, 'FS_NOT_FOUND')
   if (info.type !== 'directory') throw new FsError(`cannot list "${target.displayPath}": not a directory`, 'FS_NOT_DIRECTORY')
 
@@ -217,19 +221,25 @@ export async function listDirectory(target: LocalTarget, signal?: AbortSignal): 
   }
   throwIfAborted(signal, 'list')
 
-  return await Promise.all(entries
-    .sort((left, right) => left.name.localeCompare(right.name))
-    .map(async (entry): Promise<LocalDirEntry> => {
+  const result: LocalDirEntry[] = []
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    throwIfAborted(signal, 'list')
+    try {
       const childTarget = await resolveLocalTarget(target.displayPath, entry.name)
       const childInfo = await probe(childTarget.targetKey)
-      return {
+      result.push({
         name: entry.name,
         type: childInfo?.type ?? 'other',
         target: childTarget,
         ...(childInfo ? { version: childInfo.version } : {}),
         ...(childInfo?.type === 'file' ? { size: childInfo.size } : {}),
-      }
-    }))
+      })
+    } catch (error: unknown) {
+      throw listingIoError(join(target.displayPath, entry.name), error)
+    }
+    throwIfAborted(signal, 'list')
+  }
+  return result
 }
 
 // --- Reading ---

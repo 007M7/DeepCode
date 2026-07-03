@@ -138,6 +138,12 @@ describe('listDir', () => {
       join(dir, 'skills', 'dir-skill'),
       join(dir, 'skills', 'zeta.md'),
     ])
+    expect(entries.map(entry => entry.target.inputPath)).toEqual([
+      'alpha.md',
+      'broken-link',
+      'dir-skill',
+      'zeta.md',
+    ])
     const materializedEntries = entries.filter(entry => entry.version !== undefined)
     expect(materializedEntries.map(entry => entry.target.targetKey))
       .toEqual(await Promise.all(materializedEntries.map(entry => realpath(entry.target.displayPath))))

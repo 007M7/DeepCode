@@ -39,7 +39,6 @@ abstract resolve(path: string): Promise<FsTarget>
 abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>
 abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
 abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
-abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>
 abstract writeText(target: FsTarget, content: string, expected: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>
 abstract editText(target: FsTarget, edit: FsEditRequest, expected: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
 
@@ -49,20 +48,12 @@ interface FsInfo {
   size?: number
 }
 
-interface FsDirEntry {
-  name: string
-  type: 'file' | 'directory' | 'other'
-  target: FsTarget
-  version?: FsVersion
-  size?: number
-}
-
 type FsWriteIntent =
   | { kind: 'createIfAbsent' }
   | { kind: 'replaceIfVersion'; version: FsVersion }
 ```
 
-`stat` returns metadata, not content. `version` is the freshness token; `type` lets the executor reject directories/special files before reading; `size` lets the `read` tool choose `readText` vs `streamText` without probing by failure. `undefined` means absent. `listDir` returns direct children in stable name order with child names, types, resolved targets, and cheap metadata only; it does not read file contents.
+`stat` returns metadata, not content. `version` is the freshness token; `type` lets the executor reject directories/special files before reading; `size` lets the `read` tool choose `readText` vs `streamText` without probing by failure. `undefined` means absent.
 
 `readText` reads the whole regular text file. `streamText` streams the same text semantics for large files. Both provider primitives own regular-file checks, UTF-8 decoding, binary/NUL rejection, and `FS_NOT_TEXT`; the policy layer never handles raw bytes or reimplements cross-chunk decoding. `readText` is the small-file/direct whole-file primitive, while large model-facing reads use `streamText`.
 
@@ -116,13 +107,17 @@ It keeps the interface/implementation/consumer discipline, consumer-never-import
 
 ## Acceptance Criteria
 
-- `dsh-fs` exposes exactly `resolve`/`stat`/`readText`/`streamText`/`listDir`/`writeText`/`editText`; `stat` returns `FsInfo | undefined`; `listDir` returns stable direct-child metadata without reading contents; `writeText` uses `FsWriteIntent` (`createIfAbsent` or `replaceIfVersion`); removed types/primitives are gone, and the old `applyEdit` API is replaced by `editText`.
+- `dsh-fs` exposes exactly `resolve`/`stat`/`readText`/`streamText`/`writeText`/`editText`; `stat` returns `FsInfo | undefined`; `writeText` uses `FsWriteIntent` (`createIfAbsent` or `replaceIfVersion`); removed types/primitives are gone, and the old `applyEdit` API is replaced by `editText`.
 - `dsh-fs-policy` adds the observed-state + `read`/`write`/`edit` freshness policy and has HMR/disposal coverage. (It does so as a gate PLUGIN on the `fs/*` events with no `ctx.fileContext` service, per [the event-gate RFC](../architecture/2026-06-26-file-context-as-event-gate.md) — the original service form this RFC proposed was reworked.)
 - `dsh-tool-fs` reaches the policy decisions and model-facing schemas stay byte-for-byte unchanged; the observation contract (a read records observed-state; a direct `ctx.fs` read does not) is documented and tested. (The tool injects `fs` and dispatches the `fs/*` events rather than injecting a `fileContext` service, per the event-gate RFC.)
 - Windowed read authorizing edit is shown to fail on the pre-refit code and pass after the refit. Existing version-CAS behavior is preserved with a regression test; it is not claimed as a pre-refit failure. An edit based on a stale read must report `FS_STALE_VERSION` before attempting literal matching.
 - `dsh-fs-local` carries no line, view, or `formatReadBody` logic; it does carry provider-level `editText` logic.
 - Docs and generated artifacts are updated: `docs/architecture.md`, `packages/README.md`, fs package READMEs, `docs/core-data-structures/filesystem.md`, affected `type-equiv` blocks and `scripts/type-equiv.manifest.json`, Cordis catalog, module graph, and doc references.
 - Gates stay green: normal `doc-sync`, `pnpm run knip`, and `pnpm run test:coverage` with 100% per-file coverage.
+
+## Later extension
+
+The seam was later extended with direct directory listing by [Add direct directory listing to the filesystem seam](../architecture/2026-07-03-filesystem-directory-listing-seam.md). That follow-up is tracked separately so this RFC's acceptance criteria continue to describe the fsspec-style refit that originally shipped.
 
 ## Risks
 

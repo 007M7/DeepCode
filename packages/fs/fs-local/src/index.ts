@@ -125,7 +125,7 @@ export class LocalFileSystem extends FileSystem {
     return entries.map(entry => ({
       name: entry.name,
       type: entry.type,
-      target: { inputPath: entry.target.displayPath, targetKey: entry.target.targetKey, displayPath: entry.target.displayPath },
+      target: { inputPath: entry.name, targetKey: entry.target.targetKey, displayPath: entry.target.displayPath },
       ...(entry.version !== undefined ? { version: entry.version } : {}),
       ...(entry.size !== undefined ? { size: entry.size } : {}),
     }))
