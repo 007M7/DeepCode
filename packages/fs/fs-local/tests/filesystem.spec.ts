@@ -188,6 +188,53 @@ describe('writeText', () => {
     await expect(fs.writeText(target, 'x')).rejects.toMatchObject({ code: 'FS_NOT_REGULAR_FILE' })
   })
 
+  it('a create reports before:null and after = the written content (no prior file)', async () => {
+    const target = await fs.resolve('new.txt')
+    const outcome = await fs.writeText(target, 'fresh')
+    expect(outcome.before).toBeNull()
+    expect(outcome.after).toBe('fresh')
+  })
+
+  it('an overwrite reports before = the OLD content and after = the new content', async () => {
+    await writeFile(join(dir, 'a.txt'), 'old body')
+    const target = await fs.resolve('a.txt')
+    const outcome = await fs.writeText(target, 'new body')
+    expect(outcome.before).toBe('old body')
+    expect(outcome.after).toBe('new body')
+  })
+
+  it('an overwrite returns LF-normalized before AND after (a CRLF rewrite is not every-line-changed)', async () => {
+    // The applied-hunk diff bases on `before`/`after`; if `after` kept CRLF while
+    // `before` is LF-normalized, a CRLF rewrite would read as every line changed.
+    // Both sides are LF so only the genuinely-changed line diffs.
+    await writeFile(join(dir, 'a.txt'), 'a\r\nb\r\nc\r\n')
+    const target = await fs.resolve('a.txt')
+    const outcome = await fs.writeText(target, 'a\r\nB\r\nc\r\n')
+    expect(outcome.before).toBe('a\nb\nc\n')
+    expect(outcome.after).toBe('a\nB\nc\n')
+  })
+
+  it('an overwrite of a BINARY prior file reports before:null (undiffable), still succeeds', async () => {
+    await writeFile(join(dir, 'a.bin'), Buffer.from([0x00, 0x01, 0x02]))
+    const target = await fs.resolve('a.bin')
+    const outcome = await fs.writeText(target, 'now text')
+    expect(outcome.operation).toBe('update')
+    expect(outcome.before).toBeNull()
+    expect(outcome.after).toBe('now text')
+  })
+
+  it('an overwrite of an INVALID-UTF-8 (non-NUL) prior file reports before:null, still succeeds', async () => {
+    // 0xff is never valid UTF-8 but is not a NUL, so it exercises the decoder's
+    // fatal-throw path (not the NUL-scan short-circuit): an undiffable prior file
+    // still yields a successful write with no before-content basis.
+    await writeFile(join(dir, 'a.bin'), Buffer.from([0x68, 0xff, 0x69]))
+    const target = await fs.resolve('a.bin')
+    const outcome = await fs.writeText(target, 'now valid')
+    expect(outcome.operation).toBe('update')
+    expect(outcome.before).toBeNull()
+    expect(outcome.after).toBe('now valid')
+  })
+
   it('releases per-target mutation locks after success and failure', async () => {
     const target = await fs.resolve('a.txt')
     await fs.writeText(target, 'created', { kind: 'createIfAbsent' })
@@ -240,6 +287,17 @@ describe('editText', () => {
     const outcome = await fs.editText(target, { oldString: 'world', newString: 'there', replaceAll: false }, { version: await versionOf(target) })
     expect(outcome.replacements).toBe(1)
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hello there')
+  })
+
+  it('reports before/after content (the applied-hunk basis), LF-normalized', async () => {
+    await writeFile(join(dir, 'a.txt'), 'a\r\nOLD\r\nb\r\n')
+    const target = await fs.resolve('a.txt')
+    const outcome = await fs.editText(target, { oldString: 'OLD', newString: 'NEW', replaceAll: false })
+    expect(outcome.before).toBe('a\nOLD\nb\n')
+    expect(outcome.after).toBe('a\nNEW\nb\n')
+    // The written file keeps the original CRLF endings (before/after are the
+    // LF-normalized diff basis, not the on-disk bytes).
+    expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('a\r\nNEW\r\nb\r\n')
   })
 
   it('checks the stale version BEFORE literal matching', async () => {

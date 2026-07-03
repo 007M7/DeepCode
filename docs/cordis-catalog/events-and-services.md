@@ -259,7 +259,7 @@ A session was created in the store.
 'session/created'(session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:34`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:35`](../../packages/core/session/src/index.ts)
 
 #### `session/event` — emit
 
@@ -271,7 +271,7 @@ An event was appended to a session log (sync, fire-and-forget). This is the per-
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:40`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:41`](../../packages/core/session/src/index.ts)
 
 #### `session/flush` — parallel
 
@@ -281,7 +281,7 @@ Awaited durability checkpoint. The agent loop awaits `ctx.parallel('session/flus
 'session/flush'(session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:49`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:50`](../../packages/core/session/src/index.ts)
 
 ### `subagent/*`
 
@@ -350,6 +350,18 @@ Waterfall around every tool execution — the single seam where sandbox, permiss
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:43`](../../packages/core/tools/src/index.ts)
+
+### `web/*`
+
+#### `web/providers-change` — emit
+
+Fired after the provider registry changes — a search or fetch provider was registered or disposed. Carries no payload and no capability graph: it means only "the provider registry changed; observers may recompute status from `ctx.web`". `searchStatus()` / `fetchStatus()` stay derived, not stored.
+
+```ts cordis-catalog
+'web/providers-change'(this: WebService): void
+```
+
+Source: [`packages/web/web/src/index.ts:65`](../../packages/web/web/src/index.ts)
 
 ## Services
 
@@ -507,7 +519,7 @@ get(id: SessionId): Session | undefined
 list(): Session[]
 ```
 
-Source: [`packages/core/session/src/index.ts:322`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:323`](../../packages/core/session/src/index.ts)
 
 ### `ctx.subagents` — `SubagentService`
 
@@ -547,7 +559,31 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:287`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:366`](../../packages/core/tools/src/index.ts)
+
+### `ctx.web` — `WebService`
+
+The web access service. Registered as `ctx.web` (one instance per context).
+
+Selection semantics (identical for status and execution, never order- dependent):
+
+- A configured id that is registered and `status().available` → that provider.
+- A configured id not registered → `configured-missing` / `WEB_PROVIDER_CONFIGURED_MISSING`.
+- A configured id registered but unavailable → `configured-unavailable` / `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`.
+- No id configured, exactly one registered usable provider → that provider.
+- No id configured, multiple usable providers → `ambiguous` / `WEB_PROVIDER_AMBIGUOUS`.
+- No id configured, no usable provider → `none` / `WEB_PROVIDER_UNAVAILABLE`.
+
+```ts cordis-catalog
+registerSearchProvider(provider: WebSearchProvider): () => void
+registerFetchProvider(provider: WebFetchProvider): () => void
+searchStatus(): WebCapabilityStatus
+fetchStatus(): WebCapabilityStatus
+async search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>
+async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>
+```
+
+Source: [`packages/web/web/src/index.ts:105`](../../packages/web/web/src/index.ts)
 
 ## Inherited tier (cordis core + loader/hmr/timer)
 

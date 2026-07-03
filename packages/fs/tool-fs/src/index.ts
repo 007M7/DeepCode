@@ -32,6 +32,8 @@ export { applyWriteTool, formatWriteOutput, parseWriteArgs } from './write.ts'
 export { applyEditTool, formatEditOutput, parseEditArgs } from './edit.ts'
 export { READ_MAX_BYTES, READ_MAX_LINE_LENGTH, buildWindow, formatReadOutput } from './read-render.ts'
 export type { FileReadOutcome, FileTextLine, ReadWindow, WindowResult } from './read-render.ts'
+export { DIFF_CONTEXT, computeHunkDiffs, diffsFromMeta } from './diff.ts'
+export type { FsDiffMeta } from './diff.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-fs'
