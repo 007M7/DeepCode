@@ -1126,9 +1126,10 @@ function terminalExitMeta(callId: string, view: TerminalResultView): TerminalExi
  * (the terminal card consumes them and `content` is OMITTED — a
  * `tool_call_update.content` REPLACES the call's content collection in Zed, so
  * re-sending would clobber the terminal block the call installed) and otherwise
- * derives the fenced ```console fallback from `output`. A `diff` result emits the
- * applied-hunk `{ type: 'diff' }` content blocks, which replace the call-time
- * whole-file snippet in the editor.
+ * derives the fenced ```console fallback from `output`. A `diff` result emits its
+ * `{ type: 'diff' }` content blocks (an applied hunk, or a whole-file diff for a
+ * create), which replace the diff the call installed — so the model-facing result
+ * text can never clobber it.
  */
 function toolResultUpdate(callId: CallId, view: ToolResultView, isError: boolean, terminal: TerminalRendering): ToolCallSessionUpdate {
   const status = isError ? 'failed' as const : 'completed' as const

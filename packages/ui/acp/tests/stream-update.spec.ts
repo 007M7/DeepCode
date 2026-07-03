@@ -677,9 +677,10 @@ describe('result-time diff card (REAL fs edit tool → tool_call_update diff blo
 
   it('a diff result with an EMPTY diffs array and no title omits both keys (nothing to send)', () => {
     // A synthetic tool whose presentResult yields a `diff` card with no hunks and
-    // no title — the shipping fs tools never emit this (edit always has a hunk; an
-    // empty write returns undefined), so a stand-in is the only way to exercise
-    // the empty-content AND absent-title branches of the result-side diff arm.
+    // no title — the shipping fs tools never emit this (edit always has a hunk;
+    // write always falls back to a whole-file diff), so a stand-in is the only way
+    // to exercise the empty-content AND absent-title branches of the result-side
+    // diff arm.
     const emptyDiffTool: ToolDefinition = {
       name: 'writer',
       description: 'writes a file',

@@ -81,7 +81,8 @@ function isFileDiff(value: unknown): value is FileDiff {
  * hunks, or `undefined` when it is absent/malformed. `presentResult` runs on
  * arbitrary logged `meta` (possibly from an older shape or a hand-edited log), so
  * it validates defensively rather than trusting the payload — a bad `meta` yields
- * no diff card (the generic result rendering) instead of a thrown presenter.
+ * `undefined`, and the caller decides the fallback (edit → the generic result
+ * rendering; write → an args-derived whole-file diff), never a thrown presenter.
  */
 export function diffsFromMeta(meta: unknown): FileDiff[] | undefined {
   if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return undefined
