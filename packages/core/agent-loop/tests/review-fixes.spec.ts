@@ -1047,3 +1047,275 @@ describe('surface: assistant/message omits sourceEventSeqs when no chunks stream
     expect(JSON.stringify(agent.session.deriveMessages())).toContain('injected')
   })
 })
+
+
+
+describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
+  it('disposal during system-prompt assembly drops the about-to-start step as disposed', { timeout: 30000 }, async () => {
+    // Block `system-prompt/assemble` on a promise. Start disposal (which
+    // calls stop() synchronously, setting status=disposed), then release the
+    // block. The loop must check isDisposed() after assembly and end the turn
+    // `disposed` — no LLM call. Don't await fiber.dispose() before releasing
+    // the blocker: the dispose chain awaits agent.done, which hangs until the
+    // loop unblocks.
+    const adapter = new MockAdapter(['hang'])
+    let releaseAssemble!: () => void
+    const blocked = new Promise<void>(r => void (releaseAssemble = r))
+
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(Invariants, { freeze: false })
+    ctx.llm.registerAdapter(['mock'], adapter)
+
+    // Blocking listener on the parent context (survives fiber disposal).
+    const unlisten = ctx.on('system-prompt/assemble', async function (_assembly, next) {
+      await blocked
+      return next()
+    })
+
+    let agent!: ReactLoopAgent
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      agent = inner.agentLoop.create(AgentId('a-dispose-assemble'), { model: 'mock' })
+    }, { inject: ['agentLoop'] }))
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+
+    send(agent, 'go')
+    // Give the loop time to enter the step and reach assemble().
+    await new Promise(r => setTimeout(r, 50))
+
+    // Start disposal — stop() sets status=disposed synchronously, then the
+    // disposer's await agent.done hangs because the loop is blocked in the
+    // waterfall. Do NOT await yet; release the blocker first.
+    const disposalDone = fiber.dispose()
+
+    // Now release the blocked waterfall — the loop unblocks, checks
+    // isDisposed(), and exits, which resolves agent.done and disposalDone.
+    releaseAssemble()
+    await disposalDone
+    await agent.done
+    unlisten()
+
+    const e = [...agent.session.events]
+    expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
+    expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
+    const turnEnd = e.findLast(x => x.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
+    // No step was opened, no LLM call was made.
+    expect(e.some(x => x.type === 'step/start')).toBe(false)
+    expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
+    // agent/turn-end may not fire when disposal happens during assembly: the
+    // fiber's disposer (stop→status=disposed) runs before closeTurn(true)'s
+    // emit, and the LIFO chain disposes effects in reverse registration order.
+    // The turn/end durable record is the one that matters.
+  })
+
+  it('cancel during system-prompt assembly drops the about-to-start step as aborted', { timeout: 30000 }, async () => {
+    const adapter = new MockAdapter([textResponse('should not appear')])
+    let releaseAssemble!: () => void
+    const blocker = new Promise<void>(r => void (releaseAssemble = r))
+
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(Invariants, { freeze: false })
+    ctx.llm.registerAdapter(['mock'], adapter)
+
+    const unlisten = ctx.on('system-prompt/assemble', async function (_assembly, next) {
+      await blocker
+      return next()
+    })
+
+    let agent!: ReactLoopAgent
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      agent = inner.agentLoop.create(AgentId('a-cancel-assemble'), { model: 'mock' })
+    }, { inject: ['agentLoop'] }))
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+
+    send(agent, 'go')
+    await new Promise(r => setTimeout(r, 50))
+    agent.cancel('user cancelled during assembly')
+
+    releaseAssemble()
+    await waitForIdle(ctx, agent)
+    await fiber.dispose()
+    await agent.done
+    unlisten()
+
+    const e = [...agent.session.events]
+    expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
+    expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
+    const turnEnd = e.findLast(x => x.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({
+      kind: 'aborted',
+      reason: 'user cancelled during assembly',
+    })
+    expect(e.some(x => x.type === 'step/start')).toBe(false)
+    expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
+    expect(e.some(x => x.type === 'assistant/message')).toBe(false)
+    expect(adapter.requests).toHaveLength(0)
+    expect(reasons).toEqual([{ kind: 'aborted', reason: 'user cancelled during assembly' }])
+  })
+
+  it('disposal during agent/pre-step seam ends the turn disposed', { timeout: 15000 }, async () => {
+    // Block the `agent/pre-step` serial seam on a promise we control, then
+    // dispose the agent's fiber. When the block releases, the loop must see
+    // isDisposed() at the post-seam check and end the turn disposed.
+    const adapter = new MockAdapter(['hang'])
+    let releasePreStep!: () => void
+    const blocker = new Promise<void>(r => void (releasePreStep = r))
+
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(Invariants, { freeze: false })
+    ctx.llm.registerAdapter(['mock'], adapter)
+
+    ctx.on('agent/pre-step', async () => {
+      await blocker
+    })
+
+    let agent!: ReactLoopAgent
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      agent = inner.agentLoop.create(AgentId('a-dispose-prestep'), { model: 'mock' })
+    }, { inject: ['agentLoop'] }))
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+
+    send(agent, 'go')
+    await new Promise(r => setTimeout(r, 50))
+
+    // Start disposal, then release the block, then await disposal.
+    const disposalDone = fiber.dispose()
+    releasePreStep()
+    await disposalDone
+    await agent.done
+
+    // After the pre-step seam finishes, the post-seam cancel/dispose check
+    // catches disposal. The step was never opened, no LLM call was made.
+    const e = [...agent.session.events]
+    expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
+    expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
+    const turnEnd = e.findLast(x => x.type === 'turn/end')
+    // Disposal wins the post-seam check — reason is `disposed`.
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
+    expect(e.some(x => x.type === 'step/start')).toBe(false)
+    expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
+    // agent/turn-end may not fire when disposal happens during pre-step: the
+    // fiber's disposer runs before closeTurn(true)'s emit. The durable turn/end
+    // is the authoritative record.
+  })
+
+  it('cancel during agent/pre-step seam ends the turn aborted', { timeout: 15000 }, async () => {
+    // Block `agent/pre-step`, then cancel() the agent. When the block releases,
+    // the post-seam check catches cancellation and ends the turn aborted.
+    const adapter = new MockAdapter(['hang'])
+    let releasePreStep!: () => void
+    const blocker = new Promise<void>(r => void (releasePreStep = r))
+
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(Invariants, { freeze: false })
+    ctx.llm.registerAdapter(['mock'], adapter)
+
+    ctx.on('agent/pre-step', async () => {
+      await blocker
+    })
+
+    let agent!: ReactLoopAgent
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      agent = inner.agentLoop.create(AgentId('a-cancel-prestep'), { model: 'mock' })
+    }, { inject: ['agentLoop'] }))
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('agent/turn-end', (_a, _t, reason) => void reasons.push(reason))
+
+    send(agent, 'go')
+    await new Promise(r => setTimeout(r, 30))
+    agent.cancel('user cancelled')
+
+    releasePreStep()
+    await waitForIdle(ctx, agent)
+    await fiber.dispose()
+    await agent.done
+
+    const e = [...agent.session.events]
+    expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
+    expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
+    const turnEnd = e.findLast(x => x.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: 'user cancelled' })
+    expect(e.some(x => x.type === 'step/start')).toBe(false)
+    expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
+    expect(reasons).toEqual([{ kind: 'aborted', reason: 'user cancelled' }])
+  })
+
+  it('disposal during assembly does not leak an LLM call or append assistant/chunk', { timeout: 15000 }, async () => {
+    // The key assertion from the original bug report: after disposal, no
+    // assistant/chunk or assistant/message appears — the turn ends disposed
+    // before any model interaction.
+    const adapter = new MockAdapter([textResponse('should not appear')])
+    let releaseAssemble!: () => void
+    const blocker = new Promise<void>(r => void (releaseAssemble = r))
+
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(Invariants, { freeze: false })
+    ctx.llm.registerAdapter(['mock'], adapter)
+
+    ctx.on('system-prompt/assemble', async function (_assembly, next) {
+      await blocker
+      return next()
+    })
+
+    let agent!: ReactLoopAgent
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      agent = inner.agentLoop.create(AgentId('a-dispose-no-leak'), { model: 'mock' })
+    }, { inject: ['agentLoop'] }))
+
+    send(agent, 'go')
+    await new Promise(r => setTimeout(r, 50))
+
+    const disposalDone = fiber.dispose()
+    releaseAssemble()
+    await disposalDone
+    await agent.done
+
+    const e = [...agent.session.events]
+    expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
+    expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
+    // The critical assertions: after disposal, the turn has no assistant
+    // artifacts — the turn ended disposed before the model was invoked.
+    expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
+    expect(e.some(x => x.type === 'assistant/message')).toBe(false)
+    expect(adapter.requests).toHaveLength(0)
+    // The durable turn/end reason is the authoritative record; agent/turn-end
+    // may not fire when disposal interleaves with closeTurn(true)'s emit.
+  })
+})

@@ -110,6 +110,16 @@ export interface ToolCallPresentation {
    */
   content?: ContentBlock[]
   /**
+   * Files this call reads or modifies, so a capable UI can "follow along" —
+   * highlight or jump to the file (and line) as the tool runs. Provider-neutral
+   * `{ path, line? }` pairs; a UI bridge maps them to its own affordance (the ACP
+   * bridge forwards them as `tool_call.locations`). `path` is what the tool
+   * operated on (the model-facing path); `line` is an optional 1-based line to
+   * focus (e.g. a read's offset). Omit for a call that touches no file (e.g.
+   * `bash`).
+   */
+  locations?: { path: string; line?: number }[]
+  /**
    * Ask a capable UI to render this call as a TERMINAL (a command running in a
    * working directory), not a generic tool card — set by a tool whose call IS a
    * shell command (e.g. `bash`). Provider-neutral; a UI bridge maps it to its

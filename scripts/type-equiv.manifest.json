@@ -42,6 +42,18 @@
     { "doc": "docs/core-data-structures/bash.md", "symbol": "BashTask", "source": "packages/bash/bash/src/types.ts" },
     { "doc": "docs/core-data-structures/bash.md", "symbol": "BashTaskRead", "source": "packages/bash/bash/src/types.ts" },
 
+    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsTarget", "source": "packages/fs/fs/src/types.ts" },
+    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsTargetKey", "source": "packages/fs/fs/src/types.ts" },
+    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsVersion", "source": "packages/fs/fs/src/types.ts" },
+    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsInfo", "source": "packages/fs/fs/src/types.ts" },
+    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsWriteIntent", "source": "packages/fs/fs/src/types.ts" },
+    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsWriteOutcome", "source": "packages/fs/fs/src/types.ts" },
+    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsEditRequest", "source": "packages/fs/fs/src/types.ts" },
+    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsEditOutcome", "source": "packages/fs/fs/src/types.ts" },
+    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsErrorCode", "source": "packages/fs/fs/src/types.ts" },
+    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsPolicyExec", "source": "packages/fs/fs-policy/src/types.ts" },
+    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FileReadOutcome", "source": "packages/fs/tool-fs/src/read-render.ts" },
+
     { "doc": "docs/core-data-structures/compaction.md", "symbol": "CompactionResult", "source": "packages/compact/compact/src/types.ts" },
 
     { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentCapabilities", "source": "packages/subagent/subagent/src/types.ts" },

@@ -179,11 +179,45 @@ declare module 'cordis' {
      */
     'agent/step-end'(agent: Agent, turn: number, step: number): void
 
-    // ---- interception seams (waterfall) ----
+    // ---- step/request extension seams (serial + waterfall) ----
+    /**
+     * Awaited pre-step surface-mutation checkpoint, fired once per step AFTER
+     * `turn/start` (and after the prior step closed) but BEFORE this step's
+     * `step/start` — so anything a listener appends lands OUTSIDE the step,
+     * between `turn/start`/`step/end` and the upcoming `step/start`. `step` is
+     * the number of the step about to start. The loop awaits
+     * `ctx.serial('agent/pre-step', …)` after assembling the system prompt, then
+     * opens the step and derives the request history ONCE from whatever the
+     * surface now holds. This is where compaction belongs: it mutates the session
+     * surface in place (shadowing an older range with a summary node) with its
+     * log-only `compact/*` records cleanly outside any step, and the single
+     * subsequent derive reflects the mutation — so there is no double-derive and
+     * no listener can see (or be expected to act on) an assembled `messages`
+     * array that does not exist yet.
+     *
+     * Serial (awaited in registration order), not a waterfall: a listener
+     * mutates the surface as a side effect; there is nothing to transform, but
+     * the loop must wait for the mutation to complete before opening the step
+     * and deriving. Cordis `serial` bails early if a listener returns a bail
+     * value; this event is typed and documented as `void`, so listeners must not
+     * return a semantic veto value. `fullSystemPrompt` is the assembled prompt a
+     * listener needs to measure pressure (the system prompt counts toward the
+     * budget). `signal` cancels any in-flight work a listener starts (e.g. a
+     * summarization model call).
+     * @mode serial
+     */
+    // TODO: `fullSystemPrompt` is a smell on a generic per-step seam — compaction
+    // is its only consumer, so a wide event carries a string just one listener
+    // reads. Revisit if no second consumer appears: e.g. hand listeners a lazy
+    // prompt provider, or move token-pressure measurement behind a
+    // compaction-specific seam instead of the shared pre-step checkpoint.
+    'agent/pre-step'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal): Promise<void> | void
     /**
      * Waterfall: mutate the fully-assembled {@link GenerateOptions} before the
-     * model call (hooks, compaction, model switching, tool filtering, …). Call
-     * `next()` to delegate, or return without it to short-circuit.
+     * model call (hooks, model switching, tool filtering, …). Call `next()` to
+     * delegate, or return without it to short-circuit. For surface mutation that
+     * must precede history derivation (compaction), use {@link agent/pre-step}
+     * instead — by the time this fires, `options.messages` is already derived.
      * @mode waterfall
      */
     'agent/request'(agent: Agent, turn: number, step: number, options: GenerateOptions, next: () => Promise<GenerateOptions>): Promise<GenerateOptions>
