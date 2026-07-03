@@ -27,6 +27,13 @@
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
 
+# Local filesystem provider for agent-core's project-instructions loader. This
+# does not expose model-facing read/write/edit tools in the echo demo.
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
+  config:
+    cwd: !!js process.cwd()
+
 # The stdio chat app: console logger + the agent-core spine (pre-creating the
 # `main` agent on the mock model) + JSONL persistence + the readline UI.
 - id: stdio-agent

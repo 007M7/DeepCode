@@ -36,7 +36,7 @@ dsh-agent         ← dsh-llm, dsh-session, dsh-brand
 dsh-compact       ← dsh-session, dsh-llm                (abstract compaction seam; tool deferred)
 dsh-compact-basic ← dsh-compact, dsh-session, dsh-llm, dsh-agent  (char/4 + token-budget retention backend)
 dsh-tools         ← dsh-llm, dsh-system-prompt, dsh-agent
-dsh-project-instructions ← dsh-agent, dsh-llm, dsh-paths (AGENTS.md/CLAUDE.md workspace context loader)
+dsh-project-instructions ← dsh-agent, dsh-fs, dsh-llm, dsh-paths (AGENTS.md/CLAUDE.md workspace context loader)
 dsh-bash-local    ← dsh-bash                       (BashExecutor impl)
 dsh-tool-bash     ← dsh-bash, dsh-tools            (bash tool schemas)
 dsh-fs            ← dsh-llm, dsh-brand              (filesystem provider seam + fs/* events)

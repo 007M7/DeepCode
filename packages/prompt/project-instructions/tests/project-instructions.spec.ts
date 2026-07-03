@@ -9,9 +9,17 @@ import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { AgentId } from '@deepseek-ai/dsh-agent'
+import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
+import type {
+  FsEditOutcome,
+  FsEditRequest,
+  FsInfo,
+  FsTarget,
+  FsWriteIntent,
+  FsWriteOutcome,
+} from '@deepseek-ai/dsh-fs'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import {
-  apply,
-  Config as ProjectInstructionsConfig,
   discoverBaselineInstructionFiles,
   loadBaselineInstructions,
   renderProjectInstructions,
@@ -25,6 +33,52 @@ async function tempRepo(): Promise<string> {
 async function write(path: string, content: string): Promise<void> {
   await mkdir(join(path, '..'), { recursive: true })
   await writeFile(path, content)
+}
+
+class RecordingFileSystem extends FileSystem {
+  entries = new Map<string, { type: FsInfo['type']; content?: string }>()
+  throwOnStat = new Set<string>()
+  readTargets: string[] = []
+
+  override async resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget> {
+    const absolute = join(opts?.cwd ?? '/', path)
+    return { inputPath: path, targetKey: FsTargetKey(absolute), displayPath: absolute }
+  }
+
+  override async stat(target: FsTarget): Promise<FsInfo | undefined> {
+    if (this.throwOnStat.has(target.targetKey)) throw new Error(`stat failed: ${target.displayPath}`)
+    const entry = this.entries.get(target.targetKey)
+    if (entry === undefined) return undefined
+    const info: FsInfo = {
+      version: FsVersion(`v:${target.targetKey}`),
+      type: entry.type,
+    }
+    if (entry.content !== undefined) info.size = Buffer.byteLength(entry.content, 'utf8')
+    return info
+  }
+
+  override async readText(target: FsTarget): Promise<string> {
+    this.readTargets.push(target.targetKey)
+    return this.entries.get(target.targetKey)?.content ?? ''
+  }
+
+  override async streamText(target: FsTarget): Promise<AsyncIterable<string>> {
+    const content = await this.readText(target)
+    return (async function* () { yield content })()
+  }
+
+  override async writeText(_target: FsTarget, _content: string, _expected?: FsWriteIntent): Promise<FsWriteOutcome> {
+    return { operation: 'update', version: FsVersion('unused') }
+  }
+
+  override async editText(_target: FsTarget, _edit: FsEditRequest): Promise<FsEditOutcome> {
+    return { replacements: 0, replaceAll: false, version: FsVersion('unused') }
+  }
+}
+
+async function mountProjectInstructions(ctx: Context, config: projectInstructions.Config): Promise<Awaited<ReturnType<Context['plugin']>>> {
+  await ctx.plugin(LocalFileSystem, { cwd: '/' })
+  return ctx.plugin(projectInstructions, config)
 }
 
 function stubAgent(cwd?: string): Agent {
@@ -439,7 +493,7 @@ describe('project instruction request injection', () => {
       await mkdir(join(root, '.git'), { recursive: true })
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
-      await ctx.plugin({ name: 'project-instructions', apply }, { dshHome: home })
+      await mountProjectInstructions(ctx, { dshHome: home })
 
       const request: GenerateOptions = {
         model: 'mock',
@@ -460,6 +514,169 @@ describe('project instruction request injection', () => {
     }
   })
 
+  it('loads instruction file content through ctx.fs instead of direct node reads', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'node fs rule')
+      const ctx = new Context()
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'ctx.fs rule' })
+      await ctx.plugin(projectInstructions, { dshHome: home })
+
+      const request: GenerateOptions = {
+        model: 'mock',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
+      }
+      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+
+      expect(firstText(result.messages[0])).toContain('ctx.fs rule')
+      expect(firstText(result.messages[0])).not.toContain('node fs rule')
+      expect(fs.readTargets).toEqual([join(root, 'AGENTS.md')])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('loads user-global and CLAUDE fallback content through ctx.fs', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(home, 'AGENTS.md'), 'node global rule')
+      await write(join(root, 'CLAUDE.md'), 'node claude rule')
+      const ctx = new Context()
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(home, 'AGENTS.md'), { type: 'file', content: 'ctx global rule' })
+      fs.entries.set(join(root, 'CLAUDE.md'), { type: 'file', content: 'ctx claude rule' })
+      await ctx.plugin(projectInstructions, { dshHome: home })
+
+      const request: GenerateOptions = {
+        model: 'mock',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
+      }
+      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+
+      expect(firstText(result.messages[0])).toContain('ctx global rule')
+      expect(firstText(result.messages[0])).toContain('ctx claude rule')
+      expect(firstText(result.messages[0])).not.toContain('node global rule')
+      expect(firstText(result.messages[0])).not.toContain('node claude rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('skips lstat-visible instruction files when ctx.fs reports a non-file target', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'node fs rule')
+      const ctx = new Context()
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'AGENTS.md'), { type: 'directory' })
+      await ctx.plugin(projectInstructions, { dshHome: home })
+
+      const request: GenerateOptions = {
+        model: 'mock',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
+      }
+      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+
+      expect(result.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('loads instruction files when ctx.fs omits the metadata size', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'node fs rule')
+      const ctx = new Context()
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'AGENTS.md'), { type: 'file' })
+      await ctx.plugin(projectInstructions, { dshHome: home })
+
+      const request: GenerateOptions = {
+        model: 'mock',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
+      }
+      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+
+      expect(firstText(result.messages[0])).toContain('## AGENTS.md')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('skips lstat-visible instruction files when ctx.fs cannot stat them', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'node fs rule')
+      const ctx = new Context()
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.throwOnStat.add(join(root, 'AGENTS.md'))
+      await ctx.plugin(projectInstructions, { dshHome: home })
+
+      const request: GenerateOptions = {
+        model: 'mock',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
+      }
+      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+
+      expect(result.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('treats ctx.fs marker lookup failures as absent root markers', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      const ctx = new Context()
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.throwOnStat.add(join(root, '.git'))
+      fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'repo rule' })
+      await ctx.plugin(projectInstructions, { dshHome: home })
+
+      const request: GenerateOptions = {
+        model: 'mock',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
+      }
+      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+
+      expect(firstText(result.messages[0])).toContain('repo rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('keeps different session cwd instruction files isolated in one context', async () => {
     const repoA = await tempRepo()
     const repoB = await tempRepo()
@@ -470,7 +687,7 @@ describe('project instruction request injection', () => {
       await write(join(repoA, 'AGENTS.md'), 'repo A only')
       await write(join(repoB, 'AGENTS.md'), 'repo B only')
       const ctx = new Context()
-      await ctx.plugin({ name: 'project-instructions', apply }, { dshHome: home })
+      await mountProjectInstructions(ctx, { dshHome: home })
       const requestA: GenerateOptions = { model: 'mock', messages: [{ role: 'user', content: [{ type: 'text', text: 'A' }] }] }
       const requestB: GenerateOptions = { model: 'mock', messages: [{ role: 'user', content: [{ type: 'text', text: 'B' }] }] }
 
@@ -497,7 +714,8 @@ describe('project instruction request injection', () => {
       await write(join(root, 'AGENTS.md'), 'root schema default rule')
       await write(join(cwd, 'AGENTS.md'), 'child schema default rule')
       const ctx = new Context()
-      await ctx.plugin({ name: 'project-instructions', Config: ProjectInstructionsConfig, apply }, {})
+      await ctx.plugin(LocalFileSystem, { cwd: '/' })
+      await ctx.plugin(projectInstructions, {})
       const request: GenerateOptions = { model: 'mock', messages: [{ role: 'user', content: [{ type: 'text', text: 'prompt' }] }] }
 
       const result = await ctx.waterfall('agent/request', stubAgent(cwd), 1, 1, request, async () => request)
@@ -517,7 +735,7 @@ describe('project instruction request injection', () => {
       await mkdir(join(root, '.git'), { recursive: true })
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
-      const fiber = await ctx.plugin({ name: 'project-instructions', apply }, { dshHome: home })
+      const fiber = await mountProjectInstructions(ctx, { dshHome: home })
       await fiber.dispose()
 
       const request: GenerateOptions = {
@@ -540,7 +758,7 @@ describe('project instruction request injection', () => {
       await mkdir(join(root, '.git'), { recursive: true })
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
-      await ctx.plugin({ name: 'project-instructions', apply }, { dshHome: home, baselineMaxBytes: 0 })
+      await mountProjectInstructions(ctx, { dshHome: home, baselineMaxBytes: 0 })
 
       const request: GenerateOptions = {
         model: 'mock',
@@ -562,7 +780,7 @@ describe('project instruction request injection', () => {
       await mkdir(join(root, '.git'), { recursive: true })
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
-      await ctx.plugin({ name: 'project-instructions', apply }, { dshHome: home, baselineMaxBytes: -1 })
+      await mountProjectInstructions(ctx, { dshHome: home, baselineMaxBytes: -1 })
 
       const request: GenerateOptions = {
         model: 'mock',
@@ -583,7 +801,7 @@ describe('project instruction request injection', () => {
     try {
       await mkdir(join(root, '.git'), { recursive: true })
       const ctx = new Context()
-      await ctx.plugin({ name: 'project-instructions', apply }, { dshHome: home })
+      await mountProjectInstructions(ctx, { dshHome: home })
 
       const request: GenerateOptions = {
         model: 'mock',

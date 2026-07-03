@@ -24,6 +24,9 @@
       "path": "../../core/agent-core"
     },
     {
+      "path": "../../prompt/project-instructions"
+    },
+    {
       "path": "../../session-persistence/session-persistence-jsonl"
     }
   ]

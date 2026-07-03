@@ -1,7 +1,7 @@
 /**
  * Project instruction file loader: discovers `AGENTS.md` with `CLAUDE.md`
- * fallback on the per-session workspace path and injects it as fenced
- * workspace context for each model request.
+ * fallback on the per-session workspace path, reads them through `ctx.fs`, and
+ * injects them as fenced workspace context for each model request.
  *
  * @module @deepseek-ai/dsh-project-instructions
  */
@@ -12,9 +12,11 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { FileSystem, FsTarget } from '@deepseek-ai/dsh-fs'
 import { DEFAULT_DSH_HOME_DISPLAY, defaultDshHome, resolveDshHome } from '@deepseek-ai/dsh-paths'
 
 export const name = 'project-instructions'
+export const inject = ['fs']
 
 const DEFAULT_BASELINE_MAX_BYTES = 64 * 1024
 const DEFAULT_PROJECT_ROOT_MARKERS = ['.git'] as const
@@ -48,6 +50,7 @@ export interface InstructionFile {
 
 interface DiscoveredInstructionFile extends InstructionFile {
   signature: FileSignature
+  target?: FsTarget
 }
 
 export interface LoadedInstructionFile extends InstructionFile {
@@ -74,8 +77,8 @@ interface ResolvedConfig {
 }
 
 interface FileSignature {
-  mtimeMs: number
-  size: number
+  version: string
+  size: number | undefined
 }
 
 interface CachedContent extends FileSignature {
@@ -117,11 +120,11 @@ function truncateUtf8(value: string, maxBytes: number): string {
   return truncated
 }
 
-async function statFile(path: string): Promise<FileSignature | undefined> {
+async function nodeStatFile(path: string): Promise<FileSignature | undefined> {
   try {
     const info = await lstat(path)
     if (!info.isFile()) return undefined
-    return { mtimeMs: info.mtimeMs, size: info.size }
+    return { version: `${info.mtimeMs}:${info.size}`, size: info.size }
   } catch {
     // Expected race/absence: a candidate file may not exist, or may disappear
     // between directory discovery and stat. Treat it as not loadable.
@@ -129,7 +132,35 @@ async function statFile(path: string): Promise<FileSignature | undefined> {
   }
 }
 
-async function existsAsMarker(path: string): Promise<boolean> {
+async function fsStatFile(path: string, fileSystem: FileSystem): Promise<DiscoveredInstructionFile['signature'] & { target: FsTarget } | undefined> {
+  const noFollow = await nodeStatFile(path)
+  if (noFollow === undefined) return undefined
+  try {
+    const target = await fileSystem.resolve(path)
+    const info = await fileSystem.stat(target)
+    if (info?.type !== 'file') return undefined
+    return { version: info.version, size: info.size ?? noFollow.size, target }
+  } catch {
+    // Expected race/absence: the no-follow check passed, but the backing fs
+    // provider could no longer resolve/stat the target. Treat it as not loadable.
+    return undefined
+  }
+}
+
+async function statFile(path: string, fileSystem?: FileSystem): Promise<(DiscoveredInstructionFile['signature'] & { target?: FsTarget }) | undefined> {
+  return fileSystem === undefined ? nodeStatFile(path) : fsStatFile(path, fileSystem)
+}
+
+async function existsAsMarker(path: string, fileSystem?: FileSystem): Promise<boolean> {
+  if (fileSystem !== undefined) {
+    try {
+      const target = await fileSystem.resolve(path)
+      return await fileSystem.stat(target) !== undefined
+    } catch {
+      // Expected absence while walking ancestors.
+      return false
+    }
+  }
   try {
     await stat(path)
     return true
@@ -139,11 +170,11 @@ async function existsAsMarker(path: string): Promise<boolean> {
   }
 }
 
-async function findProjectRoot(cwd: string, markers: readonly string[]): Promise<string> {
+async function findProjectRoot(cwd: string, markers: readonly string[], fileSystem?: FileSystem): Promise<string> {
   let current = resolve(cwd)
   for (;;) {
     for (const marker of markers) {
-      if (await existsAsMarker(join(current, marker))) return current
+      if (await existsAsMarker(join(current, marker), fileSystem)) return current
     }
     const parent = dirname(current)
     if (parent === current) return resolve(cwd)
@@ -170,17 +201,30 @@ async function firstExistingInstructionFile(
   dir: string,
   root: string,
   enableClaudeFallback: boolean,
+  fileSystem?: FileSystem,
 ): Promise<DiscoveredInstructionFile | undefined> {
   const agentsPath = join(dir, 'AGENTS.md')
-  const agentsSignature = await statFile(agentsPath)
+  const agentsSignature = await statFile(agentsPath, fileSystem)
   if (agentsSignature !== undefined) {
-    return { absolutePath: agentsPath, displayPath: relativeDisplay(root, agentsPath), signature: agentsSignature }
+    const { target, ...signature } = agentsSignature
+    return {
+      absolutePath: agentsPath,
+      displayPath: relativeDisplay(root, agentsPath),
+      signature,
+      ...target === undefined ? {} : { target },
+    }
   }
   if (!enableClaudeFallback) return undefined
   const claudePath = join(dir, 'CLAUDE.md')
-  const claudeSignature = await statFile(claudePath)
+  const claudeSignature = await statFile(claudePath, fileSystem)
   if (claudeSignature !== undefined) {
-    return { absolutePath: claudePath, displayPath: relativeDisplay(root, claudePath), signature: claudeSignature }
+    const { target, ...signature } = claudeSignature
+    return {
+      absolutePath: claudePath,
+      displayPath: relativeDisplay(root, claudePath),
+      signature,
+      ...target === undefined ? {} : { target },
+    }
   }
   return undefined
 }
@@ -189,7 +233,7 @@ function relativeDisplay(root: string, path: string): string {
   return relative(root, path)
 }
 
-async function discoverInstructionFiles(options: DiscoverOptions): Promise<DiscoveredInstructionFile[]> {
+async function discoverInstructionFiles(options: DiscoverOptions, fileSystem?: FileSystem): Promise<DiscoveredInstructionFile[]> {
   const config = resolveConfig(options)
   const files: DiscoveredInstructionFile[] = []
   const seen = new Set<string>()
@@ -200,17 +244,23 @@ async function discoverInstructionFiles(options: DiscoverOptions): Promise<Disco
   }
 
   const userGlobal = join(config.dshHome, 'AGENTS.md')
-  const userGlobalSignature = await statFile(userGlobal)
+  const userGlobalSignature = await statFile(userGlobal, fileSystem)
   if (userGlobalSignature !== undefined) {
+    const { target, ...signature } = userGlobalSignature
     const defaultHome = resolve(defaultDshHome())
     const displayPath = config.dshHome === defaultHome ? `${DEFAULT_DSH_HOME_DISPLAY}/AGENTS.md` : '$DSH_HOME/AGENTS.md'
-    addFile({ absolutePath: userGlobal, displayPath, signature: userGlobalSignature })
+    addFile({
+      absolutePath: userGlobal,
+      displayPath,
+      signature,
+      ...target === undefined ? {} : { target },
+    })
   }
 
   const cwd = resolve(options.cwd)
-  const projectRoot = await findProjectRoot(cwd, config.projectRootMarkers)
+  const projectRoot = await findProjectRoot(cwd, config.projectRootMarkers, fileSystem)
   for (const dir of ancestorChain(projectRoot, cwd)) {
-    const file = await firstExistingInstructionFile(dir, projectRoot, config.enableClaudeFallback)
+    const file = await firstExistingInstructionFile(dir, projectRoot, config.enableClaudeFallback, fileSystem)
     if (file !== undefined) addFile(file)
   }
   return files
@@ -220,13 +270,21 @@ export async function discoverBaselineInstructionFiles(options: DiscoverOptions)
   return (await discoverInstructionFiles(options)).map(({ absolutePath, displayPath }) => ({ absolutePath, displayPath }))
 }
 
-async function readCached(path: string, signature: FileSignature, cache: InstructionContentCache): Promise<string | undefined> {
+async function readCached(
+  file: DiscoveredInstructionFile,
+  cache: InstructionContentCache,
+  fileSystem?: FileSystem,
+): Promise<string | undefined> {
+  const path = file.absolutePath
+  const { signature } = file
   const cached = cache.get(path)
-  if (cached !== undefined && cached.mtimeMs === signature.mtimeMs && cached.size === signature.size) {
+  if (cached !== undefined && cached.version === signature.version && cached.size === signature.size) {
     return cached.content
   }
   try {
-    const content = await readFile(path, 'utf8')
+    const content = fileSystem === undefined || file.target === undefined
+      ? await readFile(path, 'utf8')
+      : await fileSystem.readText(file.target)
     cache.set(path, { ...signature, content })
     return content
   } catch {
@@ -236,14 +294,17 @@ async function readCached(path: string, signature: FileSignature, cache: Instruc
   }
 }
 
-export async function loadBaselineInstructions(options: LoadOptions): Promise<RenderedProjectInstructions | undefined> {
+export async function loadBaselineInstructions(
+  options: LoadOptions,
+  fileSystem?: FileSystem,
+): Promise<RenderedProjectInstructions | undefined> {
   const config = resolveConfig(options)
   if (config.baselineMaxBytes <= 0 || !Number.isFinite(config.baselineMaxBytes)) return undefined
   const cache = options.cache ?? new Map<string, CachedContent>()
-  const discovered = await discoverInstructionFiles(options)
+  const discovered = await discoverInstructionFiles(options, fileSystem)
   const loaded: LoadedInstructionFile[] = []
   for (const file of discovered) {
-    const content = await readCached(file.absolutePath, file.signature, cache)
+    const content = await readCached(file, cache, fileSystem)
     if (content !== undefined) loaded.push({ absolutePath: file.absolutePath, displayPath: file.displayPath, content })
   }
   if (loaded.length === 0) return undefined
@@ -379,7 +440,7 @@ export function apply(ctx: Context, config: Config): void {
       baselineMaxBytes: resolved.baselineMaxBytes,
       enableClaudeFallback: resolved.enableClaudeFallback,
       cache,
-    })
+    }, ctx.fs)
     if (instructions !== undefined) {
       request.messages = [workspaceContextMessage(instructions.text), ...request.messages]
     }

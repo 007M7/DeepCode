@@ -108,7 +108,7 @@ Replay/fork = `ctx.sessions.create(id, { seed: seedEvents })`. Trace/telemetry =
 
 Plugins contribute `PromptSection`s (named, ordered, static or computed) and tool-schema providers. `assemble()` returns a `PromptAssembly { sections, tools }` through the `system-prompt/assemble` waterfall.
 
-Prompt/context extension plugins that shape model inputs without owning a core service live under `packages/prompt/`. `dsh-project-instructions` is the reference case: it is semantically prompt/context assembly, but it uses the per-agent `agent/request` seam instead of a global `ctx.systemPrompt.section()` so concurrent sessions with different cwd values stay isolated. Shared filesystem path conventions such as the default DSH home live in the low-level `dsh-paths` utility package rather than in the prompt plugin.
+Prompt/context extension plugins that shape model inputs without owning a core service live under `packages/prompt/`. `dsh-project-instructions` is the reference case: it is semantically prompt/context assembly, but it uses the per-agent `agent/request` seam instead of a global `ctx.systemPrompt.section()` so concurrent sessions with different cwd values stay isolated, and it reads instruction content through the `ctx.fs` provider seam. Shared filesystem path conventions such as the default DSH home live in the low-level `dsh-paths` utility package rather than in the prompt plugin.
 
 Tool schemas are deliberately **part of the assembly**: "what the model is told it can do" is one coherent thing managed here, even though adapters transmit schemas as the wire-level `tools` field rather than prompt text.
 
@@ -210,8 +210,8 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 | Queued + steering messages | core `Agent.send()` / `Agent.steer()` |
 | Context compaction (auto + manual) | the `dsh-compact` seam (`ctx.compact`) + a backend (`dsh-compact-basic`) on the serial `agent/pre-step` seam: a backend summarizes an older surface range into a single `user/message` `replace` op, bracketed by log-only `compact/*` events; auto = check token pressure before each step — runaway-turn survival, manual = a (deferred) `/compact` tool invoking the same `ctx.compact` routine. See the [compaction capability-seam RFC](rfc/implemented/feature/2026-06-18-compaction-capability-seam.md) |
 | System prompt configurability | `ctx.systemPrompt.section()` with ordering |
-| AGENTS.md (baseline) | `dsh-project-instructions` wraps `agent/request`, discovers `$DSH_HOME/AGENTS.md` plus the project-root→cwd ancestor chain, and prepends fenced workspace context |
-| AGENTS.md (subdir, on-touch) + file-change notices | deferred until structured file tools can report touched paths; late context should use `agent.inject()` |
+| AGENTS.md (baseline) | `dsh-project-instructions` wraps `agent/request`, discovers `$DSH_HOME/AGENTS.md` plus the project-root→cwd ancestor chain, reads them through `ctx.fs`, and prepends fenced workspace context |
+| AGENTS.md (subdir, on-touch) + file-change notices | deferred until structured file tools define the touched-path reporting semantics; late context should use `agent.inject()` |
 | Built-in tools (Read/Write/Edit/Bash/…) | `ctx.tools.register()`; schemas flow into the assembly automatically. **Bash: implemented** — `dsh-bash` (seam) + `dsh-bash-local` (subprocesses) + `dsh-tool-bash` (`bash`/`bash_output`/`bash_kill`, incl. background tasks). **`todo_write`: implemented** — `dsh-tool-todo` writes the whole task list to the session log (`todo/write`), rendered as a stdio checklist / ACP `plan` |
 | ToolSearch / progressive disclosure | wrap `agent/request`, filter `req.tools` |
 | Tool sandbox (landlock / sandbox-exec) | wrap `tools/execute`, or implement a sandboxing `BashExecutor` (the dsh-bash seam) |

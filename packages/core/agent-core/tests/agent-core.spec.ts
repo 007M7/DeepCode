@@ -7,6 +7,7 @@ import Loader from '@cordisjs/plugin-loader'
 import * as agentCore from '../src/index.ts'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { MockAdapter, textResponse } from '../../agent-loop/tests/mock-adapter.ts'
 import type { Message } from '@deepseek-ai/dsh-llm'
 
@@ -80,6 +81,7 @@ describe('dsh-agent-core bundle', () => {
       await writeFile(join(root, 'AGENTS.md'), 'bundled project rule')
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await mount()
+      await ctx.plugin(LocalFileSystem, { cwd: '/' })
       ctx.llm.registerAdapter(['mock'], adapter)
       const handle = ctx.agents.create({
         agentId: AgentId('main'),

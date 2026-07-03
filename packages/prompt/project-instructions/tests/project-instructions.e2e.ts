@@ -12,9 +12,10 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import * as ProjectInstructions from '@deepseek-ai/dsh-project-instructions'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
-const PROBE = 'DSH_PROJECT_INSTRUCTIONS_PROBE_BANANA'
+const PROBE = 'banana-271828'
 
 let ctx: Context | undefined
 let workdir: string | undefined
@@ -29,13 +30,14 @@ afterEach(async () => {
 async function harness(): Promise<{ ctx: Context; agent: Agent }> {
   workdir = await mkdtemp(join(tmpdir(), 'dsh-project-instructions-e2e-'))
   await mkdir(join(workdir, '.git'), { recursive: true })
-  await writeFile(join(workdir, 'AGENTS.md'), `For this repository, every assistant response must include exactly this probe token: ${PROBE}.\n`)
+  await writeFile(join(workdir, 'AGENTS.md'), `If the user asks for the project instruction handshake, reply with exactly this string and nothing else: ${PROBE}.\n`)
   ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
+  await ctx.plugin(LocalFileSystem, { cwd: '/' })
   await ctx.plugin(ProjectInstructions)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LlmDeepSeek, { models: ['deepseek-v4-flash'] })
@@ -75,7 +77,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('project instructions e2e: real m
   it('obeys a probe instruction loaded from the workspace', async () => {
     const live = await harness()
 
-    live.agent.send([{ type: 'text', text: 'Reply with the repository probe token only.' }])
+    live.agent.send([{ type: 'text', text: 'Project instruction handshake?' }])
     await waitForIdle(live.ctx, live.agent)
 
     expect(finalText([...live.agent.session.events])).toContain(PROBE)

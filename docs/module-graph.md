@@ -35,6 +35,7 @@ graph TD
   invariants --> llm
   invariants --> session
   project-instructions --> agent
+  project-instructions --> fs
   project-instructions --> llm
   project-instructions --> paths
   session-persistence-jsonl --> session
@@ -133,7 +134,7 @@ graph TD
 | `session-persistence` | `session` |
 | `compact-basic` | `agent`, `compact`, `llm`, `session` |
 | `invariants` | `agent`, `llm`, `session` |
-| `project-instructions` | `agent`, `llm`, `paths` |
+| `project-instructions` | `agent`, `fs`, `llm`, `paths` |
 | `session-persistence-jsonl` | `session`, `session-persistence` |
 | `session-persistence-sqlite` | `session`, `session-persistence` |
 | `tools` | `agent`, `llm`, `system-prompt` |
