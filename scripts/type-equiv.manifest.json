@@ -61,6 +61,15 @@
     { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentResult", "source": "packages/subagent/subagent/src/types.ts" },
     { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentStopReasonMap", "source": "packages/subagent/subagent/src/types.ts" },
     { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentRun", "source": "packages/subagent/subagent/src/types.ts" },
-    { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentProvider", "source": "packages/subagent/subagent/src/types.ts" }
+    { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentProvider", "source": "packages/subagent/subagent/src/types.ts" },
+
+    { "doc": "docs/core-data-structures/web.md", "symbol": "WebSearchRequest", "source": "packages/web/web/src/types.ts" },
+    { "doc": "docs/core-data-structures/web.md", "symbol": "WebSearchResult", "source": "packages/web/web/src/types.ts" },
+    { "doc": "docs/core-data-structures/web.md", "symbol": "WebSearchSource", "source": "packages/web/web/src/types.ts" },
+    { "doc": "docs/core-data-structures/web.md", "symbol": "WebFetchRequest", "source": "packages/web/web/src/types.ts" },
+    { "doc": "docs/core-data-structures/web.md", "symbol": "WebFetchResult", "source": "packages/web/web/src/types.ts" },
+    { "doc": "docs/core-data-structures/web.md", "symbol": "WebFetchBody", "source": "packages/web/web/src/types.ts" },
+    { "doc": "docs/core-data-structures/web.md", "symbol": "WebProviderStatus", "source": "packages/web/web/src/types.ts" },
+    { "doc": "docs/core-data-structures/web.md", "symbol": "WebCapabilityStatus", "source": "packages/web/web/src/types.ts" }
   ]
 }

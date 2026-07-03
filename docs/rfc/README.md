@@ -123,6 +123,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Reorganize packages into a modular hierarchy](implemented/architecture/2026-06-20-package-hierarchy.md) | 2026-06-20 |
 | [Branded IDs everywhere they belong](implemented/architecture/2026-06-20-branded-ids.md) | 2026-06-20 |
 | [Extract example apps into packages](implemented/architecture/2026-06-20-extract-example-app-packages.md) | 2026-06-20 |
+| [Web capability seam — provider registry and model-facing web tools](implemented/architecture/2026-06-24-web-capability-seam.md) | 2026-06-24 |
 | [Make `dsh-fs-policy` an event-gate plugin, not a method interface](implemented/architecture/2026-06-26-file-context-as-event-gate.md) | 2026-06-26 |
 | [Resolve filesystem paths against the caller's session cwd](implemented/architecture/2026-07-02-fs-per-session-cwd.md) | 2026-07-02 |
 
