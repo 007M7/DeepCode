@@ -59,6 +59,7 @@
 
 import { Context, Service } from 'cordis'
 import type {
+  FsDirEntry,
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
@@ -76,6 +77,7 @@ export {
 export type {
   FsEditOutcome,
   FsEditRequest,
+  FsDirEntry,
   FsErrorCode,
   FsInfo,
   FsTarget,
@@ -131,7 +133,7 @@ declare module 'cordis' {
 }
 
 /**
- * Abstract filesystem provider service. Subclass, implement the six text-storage
+ * Abstract filesystem provider service. Subclass, implement the seven storage
  * primitives, and load the subclass as a plugin — it registers as `ctx.fs` (one
  * implementation per context; loading a second throws, cordis' standard
  * duplicate-service behavior).
@@ -145,6 +147,11 @@ declare module 'cordis' {
  * - {@link readText}/{@link streamText} read the whole regular text file (the
  *   stream for large files); both own regular-file checks, UTF-8 decoding,
  *   binary/NUL rejection, and `FS_NOT_TEXT`.
+ * - {@link listDir} returns direct children of a directory in stable name order
+ *   with resolved child targets and cheap metadata only. It never reads file
+ *   contents. Missing targets throw `FS_NOT_FOUND`, non-directories throw
+ *   `FS_NOT_DIRECTORY`, permission failures throw `FS_PERMISSION_DENIED`, and
+ *   other backend I/O failures throw `FS_IO_ERROR`.
  * - {@link writeText} is atomic temp-file + rename. `expected` is OPTIONAL:
  *   omit it for an unconditional create-or-overwrite (the bare-provider default),
  *   or supply a {@link FsWriteIntent} to guard the write.
@@ -189,6 +196,12 @@ export abstract class FileSystem extends Service {
    * touches raw bytes.
    */
   abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
+
+  /**
+   * List direct children of a directory in stable name order. Returns resolved
+   * child targets plus cheap metadata only; never reads file contents.
+   */
+  abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>
 
   /**
    * Create or fully replace a UTF-8 text file atomically. `expected` is the

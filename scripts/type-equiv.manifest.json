@@ -46,6 +46,7 @@
     { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsTargetKey", "source": "packages/fs/fs/src/types.ts" },
     { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsVersion", "source": "packages/fs/fs/src/types.ts" },
     { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsInfo", "source": "packages/fs/fs/src/types.ts" },
+    { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsDirEntry", "source": "packages/fs/fs/src/types.ts" },
     { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsWriteIntent", "source": "packages/fs/fs/src/types.ts" },
     { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsWriteOutcome", "source": "packages/fs/fs/src/types.ts" },
     { "doc": "docs/core-data-structures/filesystem.md", "symbol": "FsEditRequest", "source": "packages/fs/fs/src/types.ts" },

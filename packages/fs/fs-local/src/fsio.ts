@@ -20,8 +20,8 @@
 
 import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { chmod, mkdir, open, readFile, realpath, rename, rm, stat } from 'node:fs/promises'
-import type { Stats } from 'node:fs'
+import { chmod, mkdir, open, readFile, realpath, readdir, rename, rm, stat } from 'node:fs/promises'
+import type { Dirent, Stats } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { TextDecoder } from 'node:util'
 import { FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
@@ -52,6 +52,12 @@ function isAbortError(error: unknown): boolean {
 /* v8 ignore start -- composes secondary cleanup-failure messages, which require a filesystem/kernel fault after the primary failure. */
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+/* v8 ignore stop */
+
+/* v8 ignore start -- requires permission/kernel failures from readdir after a successful directory stat. */
+function isPermissionError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && (error.code === 'EACCES' || error.code === 'EPERM')
 }
 /* v8 ignore stop */
 
@@ -112,6 +118,15 @@ export interface PathInfo {
   size: number
 }
 
+/** One local directory child with a resolved target and cheap metadata. */
+export interface LocalDirEntry {
+  name: string
+  type: 'file' | 'directory' | 'other'
+  target: LocalTarget
+  version?: FsVersion
+  size?: number
+}
+
 /**
  * Resolve a path to its absolute display path and realpath identity. Relative
  * paths are based on `cwd`. When the file itself does not yet exist, the
@@ -170,6 +185,51 @@ export async function probe(absolutePath: string): Promise<PathInfo | null> {
     if (!isENOENT(error) && !isENOTDIR(error)) throw error
     return null
   }
+}
+
+// --- Directory listing ---
+
+/* v8 ignore start -- requires permission/kernel failures from readdir after a successful directory stat. */
+function listingIoError(displayPath: string, error: unknown): FsError {
+  if (isENOENT(error) || isENOTDIR(error)) return new FsError(`cannot list "${displayPath}": not found`, 'FS_NOT_FOUND', { cause: error })
+  if (isPermissionError(error)) return new FsError(`cannot list "${displayPath}": permission denied`, 'FS_PERMISSION_DENIED', { cause: error })
+  return new FsError(`cannot list "${displayPath}": ${errorMessage(error)}`, 'FS_IO_ERROR', { cause: error })
+}
+/* v8 ignore stop */
+
+/**
+ * List direct children of a directory in stable name order. Each child includes
+ * a resolved target plus stat metadata when still available; file contents are
+ * never read.
+ */
+export async function listDirectory(target: LocalTarget, signal?: AbortSignal): Promise<LocalDirEntry[]> {
+  throwIfAborted(signal, 'list')
+  const info = await probe(target.targetKey)
+  if (!info) throw new FsError(`cannot list "${target.displayPath}": not found`, 'FS_NOT_FOUND')
+  if (info.type !== 'directory') throw new FsError(`cannot list "${target.displayPath}": not a directory`, 'FS_NOT_DIRECTORY')
+
+  let entries: Dirent[]
+  try {
+    entries = await readdir(target.targetKey, { withFileTypes: true, encoding: 'utf8' })
+  } catch (error: unknown) {
+    /* v8 ignore next -- requires permission/kernel failure from readdir after a successful directory stat. */
+    throw listingIoError(target.displayPath, error)
+  }
+  throwIfAborted(signal, 'list')
+
+  return await Promise.all(entries
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map(async (entry): Promise<LocalDirEntry> => {
+      const childTarget = await resolveLocalTarget(target.displayPath, entry.name)
+      const childInfo = await probe(childTarget.targetKey)
+      return {
+        name: entry.name,
+        type: childInfo?.type ?? 'other',
+        target: childTarget,
+        ...(childInfo ? { version: childInfo.version } : {}),
+        ...(childInfo?.type === 'file' ? { size: childInfo.size } : {}),
+      }
+    }))
 }
 
 // --- Reading ---

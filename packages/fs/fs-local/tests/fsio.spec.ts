@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { createServer } from 'node:net'
 import {
   applyLiteralEdit,
+  listDirectory,
   probe,
   readForEdit,
   readWholeText,
@@ -142,6 +143,36 @@ describe('probe', () => {
   it('returns null when an ancestor path segment is a file (ENOTDIR), not a raw throw', async () => {
     await writeFile(join(dir, 'afile'), 'i am a file')
     expect(await probe(join(dir, 'afile', 'child.txt'))).toBeNull()
+  })
+})
+
+describe('listDirectory', () => {
+  it('lists direct children in stable order without reading content', async () => {
+    const root = join(dir, 'skills')
+    await mkdir(join(root, 'dir-skill'), { recursive: true })
+    await writeFile(join(root, 'zeta.md'), 'zeta')
+    await writeFile(join(root, 'alpha.md'), 'alpha')
+    await symlink(join(root, 'missing-target'), join(root, 'broken-link'))
+
+    const entries = await listDirectory(localTarget(root))
+    expect(entries.map(entry => [entry.name, entry.type])).toEqual([
+      ['alpha.md', 'file'],
+      ['broken-link', 'other'],
+      ['dir-skill', 'directory'],
+      ['zeta.md', 'file'],
+    ])
+    expect(entries.find(entry => entry.name === 'alpha.md')?.size).toBe(5)
+    expect(typeof entries.find(entry => entry.name === 'alpha.md')?.version).toBe('string')
+    expect(entries.find(entry => entry.name === 'broken-link')?.version).toBeUndefined()
+    expect(entries.find(entry => entry.name === 'dir-skill')?.size).toBeUndefined()
+  })
+
+  it('rejects missing, non-directory, and aborted listing requests', async () => {
+    await expect(listDirectory(localTarget(join(dir, 'missing')))).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
+    const file = join(dir, 'a.txt')
+    await writeFile(file, 'hi')
+    await expect(listDirectory(localTarget(file))).rejects.toMatchObject({ code: 'FS_NOT_DIRECTORY' })
+    await expect(listDirectory(localTarget(dir), AbortSignal.abort())).rejects.toMatchObject({ code: 'FS_ABORTED' })
   })
 })
 

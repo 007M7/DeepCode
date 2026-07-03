@@ -30,7 +30,7 @@ The read-before-write/edit and observed-state policy is a fourth package, `@deep
 
 The first backend is deliberately local-only: `dsh-fs-local` implements `ctx.fs` against the host filesystem. Future sibling backends can provide sandboxed, remote, virtual, or project-scoped filesystems behind the same interface.
 
-The first consumer is deliberately text-file-only: `dsh-tool-fs` exposes model-facing `read`, `write`, and `edit` tools for UTF-8 text files. Future consumers can add directory listing, search/glob, binary-safe operations, file watching, or higher-level project operations without changing the local backend package, as long as the needed capability exists on `ctx.fs`.
+The first model-facing consumer is deliberately text-file-only: `dsh-tool-fs` exposes model-facing `read`, `write`, and `edit` tools for UTF-8 text files. The provider seam also includes direct directory listing (`listDir`) so non-model-facing consumers such as skill discovery can enumerate roots through `ctx.fs` without importing `node:fs`; future consumers can add search/glob, binary-safe operations, file watching, or higher-level project operations without changing the local backend package, as long as the needed capability exists on `ctx.fs`.
 
 Filesystem permissions and sandboxing are not implied by this split. The local backend resolves relative paths from its configured base directory, but containment policy is a separate decision: either a stricter `ctx.fs` implementation enforces it, or a permission/sandbox plugin wraps `tools/execute` and vetoes calls before they reach the consumer.
 
@@ -57,9 +57,10 @@ The root `tool-fs` plugin registers the full filesystem tool suite (`read`, `wri
 
 `@deepseek-ai/dsh-fs` owns a semantic filesystem service. It is higher-level than `readFile` / `writeFile` so `tool-fs` does not reimplement path resolution, versioning, text decoding, binary rejection, pagination, atomic replacement, symlink behavior, or literal edit semantics.
 
-The exact TypeScript signatures are implementation details for the PR, but the interface must cover four semantic operations:
+The exact TypeScript signatures are implementation details for the PR, but the interface must cover five semantic operations:
 
 - Resolve a model/plugin-supplied path into a backend-defined target.
+- Stat and list target metadata without reading file contents.
 - Read a bounded UTF-8 text page from a target.
 - Create or replace a UTF-8 text file.
 - Edit an existing UTF-8 text file by literal replacement.
@@ -82,6 +83,8 @@ Resolved targets must expose at least three concepts:
 
 Read and mutation results must include an opaque file `version`. A local backend can use mtime/size or a hash-like token; a remote backend can use a revision id. `ctx.fs` records versions in its file-state store for stale checks; consumers may display related metadata but must not interpret the version token.
 
+`listDir` lists direct directory children in stable name order and returns child names, types, resolved child targets, and cheap metadata (`version` and regular-file `size` when available) without opening file contents. Missing directories report `FS_NOT_FOUND`, non-directory targets report `FS_NOT_DIRECTORY`, permission failures report `FS_PERMISSION_DENIED`, and other backend listing failures report `FS_IO_ERROR`.
+
 The provider hands back decoded text: `readText` returns a whole regular text file, `streamText` streams the same text semantics for large files. Both own regular-file checks, bounded line/output handling is NOT theirs — line windowing, numbered-line rendering, and total-line accounting live in the executor (`dsh-tool-fs`), which reads through `ctx.fs` and renders the model-facing window. The provider owns UTF-8 decoding and binary/NUL rejection; it does not know about line windows or views.
 
 Observed-state recording is not on `ctx.fs`: after a successful read the executor emits `fs/observed`, and the `dsh-fs-policy` plugin records `{ version }` for the deriving owner. There is no `full`/`partial` view — a read at any window records the version, and freshness (not view completeness) authorizes a later write/edit.
@@ -92,7 +95,7 @@ Literal edit is a provider primitive (`editText`), not composed in `tool-fs` fro
 
 The policy plugin, not `ctx.fs`, gates on prior observation: an `edit` requires a prior observation by the owner (else `FS_NOT_OBSERVED`), and the recorded version is passed to `editText` as the CAS basis. With the policy plugin absent, `ctx.fs` alone is a complete unconstrained seam (unconditional write/edit); the tool is never method-coupled to the policy.
 
-Filesystem contract failures are thrown as `FsError extends HarnessError`, and the tool registry converts them into `isError` tool results with structured `{ name, code }` metadata. `dsh-fs` owns this vocabulary rather than each tool inventing messages. The codes are `FS_NOT_FOUND`, `FS_NOT_TEXT`, `FS_STALE_VERSION`, `FS_NOT_OBSERVED`, `FS_NOT_REGULAR_FILE`, `FS_AMBIGUOUS_EDIT`, `FS_EDIT_NOT_FOUND`, and `FS_ABORTED`. (An earlier draft included `FS_PARTIAL_OBSERVATION`; freshness-based authorization has no partial/full distinction, so it was dropped.)
+Filesystem contract failures are thrown as `FsError extends HarnessError`, and the tool registry converts them into `isError` tool results with structured `{ name, code }` metadata. `dsh-fs` owns this vocabulary rather than each tool inventing messages. The codes are `FS_NOT_FOUND`, `FS_NOT_DIRECTORY`, `FS_NOT_TEXT`, `FS_NOT_REGULAR_FILE`, `FS_PERMISSION_DENIED`, `FS_IO_ERROR`, `FS_STALE_VERSION`, `FS_NOT_OBSERVED`, `FS_AMBIGUOUS_EDIT`, `FS_EDIT_NOT_FOUND`, and `FS_ABORTED`. (An earlier draft included `FS_PARTIAL_OBSERVATION`; freshness-based authorization has no partial/full distinction, so it was dropped.)
 
 ## Tool consumer behavior
 

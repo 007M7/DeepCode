@@ -15,6 +15,7 @@ import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import { FileSystem, FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
+  FsDirEntry,
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
@@ -53,6 +54,9 @@ class FakeFs extends FileSystem {
   override async streamText(target: FsTarget): Promise<AsyncIterable<string>> {
     const content = this.files.get(target.targetKey) ?? ''
     return (async function* () { yield content })()
+  }
+  override async listDir(_target: FsTarget): Promise<FsDirEntry[]> {
+    return []
   }
   override async writeText(target: FsTarget, content: string, expected?: FsWriteIntent): Promise<FsWriteOutcome> {
     this.throwIfArmed()
