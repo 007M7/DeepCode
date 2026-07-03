@@ -126,6 +126,8 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Web capability seam — provider registry and model-facing web tools](implemented/architecture/2026-06-24-web-capability-seam.md) | 2026-06-24 |
 | [Make `dsh-fs-policy` an event-gate plugin, not a method interface](implemented/architecture/2026-06-26-file-context-as-event-gate.md) | 2026-06-26 |
 | [Resolve filesystem paths against the caller's session cwd](implemented/architecture/2026-07-02-fs-per-session-cwd.md) | 2026-07-02 |
+| [Tagged render-intent union for tool-call presentation](implemented/architecture/2026-07-02-tool-render-intent-union.md) | 2026-07-02 |
+| [Result-time applied-hunk diffs for file mutations](implemented/architecture/2026-07-02-result-time-applied-hunk-diffs.md) | 2026-07-02 |
 | [Add direct directory listing to the filesystem seam](implemented/architecture/2026-07-03-filesystem-directory-listing-seam.md) | 2026-07-03 |
 
 ### Process
@@ -143,6 +145,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Generated cordis events + services catalog](implemented/process/2026-06-20-generated-cordis-catalog.md) | 2026-06-20 |
 | [Classify RFCs by kind via path-encoded subdirectories](implemented/process/2026-06-20-rfc-classification.md) | 2026-06-20 |
 | [Generated tool-schema catalog (boot-and-harvest)](implemented/process/2026-07-02-tool-schema-catalog.md) | 2026-07-02 |
+| [Bilingual documentation via paired sibling files and a pairing gate](implemented/process/2026-07-02-bilingual-docs-and-pairing-gate.md) | 2026-07-02 |
 
 ### Testing
 

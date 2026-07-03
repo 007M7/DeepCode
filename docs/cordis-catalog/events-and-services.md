@@ -259,7 +259,7 @@ A session was created in the store.
 'session/created'(session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:34`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:35`](../../packages/core/session/src/index.ts)
 
 #### `session/event` — emit
 
@@ -271,7 +271,7 @@ An event was appended to a session log (sync, fire-and-forget). This is the per-
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:40`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:41`](../../packages/core/session/src/index.ts)
 
 #### `session/flush` — parallel
 
@@ -281,7 +281,7 @@ Awaited durability checkpoint. The agent loop awaits `ctx.parallel('session/flus
 'session/flush'(session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:49`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:50`](../../packages/core/session/src/index.ts)
 
 ### `subagent/*`
 
@@ -337,7 +337,7 @@ A tool was registered or unregistered (the available tool set changed).
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:48`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:66`](../../packages/core/tools/src/index.ts)
 
 #### `tools/execute` — waterfall
 
@@ -349,7 +349,7 @@ Waterfall around every tool execution — the single seam where sandbox, permiss
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:43`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:61`](../../packages/core/tools/src/index.ts)
 
 ### `web/*`
 
@@ -521,7 +521,7 @@ get(id: SessionId): Session | undefined
 list(): Session[]
 ```
 
-Source: [`packages/core/session/src/index.ts:322`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:323`](../../packages/core/session/src/index.ts)
 
 ### `ctx.subagents` — `SubagentService`
 
@@ -561,7 +561,7 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:287`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:199`](../../packages/core/tools/src/index.ts)
 
 ### `ctx.web` — `WebService`
 

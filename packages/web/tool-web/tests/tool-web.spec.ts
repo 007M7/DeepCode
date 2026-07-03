@@ -80,7 +80,7 @@ describe('search formatting', () => {
   })
 
   it('presents a search call as a search-kind card titled by the query', () => {
-    expect(presentSearchCall({ query: 'find me' })).toEqual({ title: 'find me', kind: 'search', rawInput: 'find me' })
+    expect(presentSearchCall({ query: 'find me' })).toEqual({ card: 'generic', title: 'find me', kind: 'search', rawInput: 'find me' })
   })
 })
 
@@ -116,7 +116,7 @@ describe('fetch formatting', () => {
   })
 
   it('presents a fetch call as a fetch-kind card titled by the url', () => {
-    expect(presentFetchCall({ url: 'https://a.test' })).toEqual({ title: 'https://a.test', kind: 'fetch', rawInput: 'https://a.test' })
+    expect(presentFetchCall({ url: 'https://a.test' })).toEqual({ card: 'generic', title: 'https://a.test', kind: 'fetch', rawInput: 'https://a.test' })
   })
 })
 

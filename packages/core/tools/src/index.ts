@@ -12,6 +12,7 @@ import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import type { ToolCallView, ToolResultView } from './presentation.ts'
 
 export {
   defineTool,
@@ -25,6 +26,23 @@ export {
   type DefineToolOptions,
   type JsonSchemaObject,
 } from './schema.ts'
+
+// The render-intent vocabulary a tool declares via `presentCall`/`presentResult`
+// lives in its own UI-facing module; re-export it so `@deepseek-ai/dsh-tools`
+// stays the single public surface for consumers (producers + the ACP bridge).
+export type {
+  ToolCallKind,
+  FileLocation,
+  FileDiff,
+  ToolCallView,
+  GenericCallView,
+  TerminalCallView,
+  DiffCallView,
+  ToolResultView,
+  GenericResultView,
+  TerminalResultView,
+  DiffResultView,
+} from './presentation.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -55,157 +73,37 @@ declare module 'cordis' {
 // executes sequentially).
 
 /**
- * Category of a tool call, used by a UI to pick an icon / treatment. A neutral
- * vocabulary owned here (NOT an ACP type) so tools describe themselves without
- * depending on any client protocol; a UI bridge maps it to its own enum. The
- * member set mirrors the common ACP `ToolKind` values; `other` is the default.
+ * What a tool's `execute` returns. The bare {@link ContentBlock}`[]` form is the
+ * common case (model-facing content only); the object form additionally attaches
+ * a tool-private `meta` presentation payload that the registry threads onto the
+ * `tool/result` session event and hands back to the tool's `presentResult`.
+ * `meta` is opaque to the core (`unknown` — the tool owns and narrows its shape),
+ * and MUST be JSON-serializable: it persists on the durable log (the session
+ * enforces this at `append`), so replay reproduces the card.
  */
-export type ToolCallKind = 'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'
-
-// FIXME(tool-presentation): the ToolCallPresentation / ToolResultPresentation /
-// ToolTerminal shapes need a rethink. They grew incrementally (title/kind/
-// rawInput, then a `content` block, then a `terminal` sub-shape carrying cwd/
-// output/exit) and the split of responsibility is now muddy: the call vs result
-// terminal fields overlap, the bridge has to reconcile a `content` block AND a
-// `terminal` block AND `rawInput` per call, and the "pending vs completed"
-// boundary doesn't cleanly map to how editors actually render (terminal card,
-// diff, generic card). Before more tools/UIs depend on this, redesign the type
-// so a tool declares its render INTENT once (e.g. a tagged union over card
-// kinds) rather than a bag of optional fields the bridge stitches together.
-// Pin the design in an RFC and migrate dsh-tool-bash + the ACP bridge together.
-
-/**
- * How a tool wants ONE of its calls shown in a UI (an editor's tool-call card,
- * a CLI log line) BEFORE the result is known — the *pending* state. Provider-
- * neutral: a tool returns this from {@link ToolDefinition.presentCall} and a UI
- * plugin (e.g. the ACP bridge) maps it to its own wire shape. The tool owns its
- * own presentation — the UI must not special-case tool names.
- */
-export interface ToolCallPresentation {
-  /**
-   * Human-readable, always-visible label describing what THIS call does (e.g.
-   * the model-written one-line summary of a bash command). Keep it short — a UI
-   * shows it as a card header / log line. Required: a presentation must have a
-   * title (a UI falls back to the tool name only when `presentCall` is absent).
-   */
-  title: string
-  /** Category for icon/treatment; defaults to `other` when omitted. */
-  kind?: ToolCallKind
-  /**
-   * The salient input to surface in a detail/expanded view — e.g. the bash
-   * COMMAND itself (as a string), so the title can stay a readable summary
-   * while the exact command is still visible. Omit to show nothing; a string is
-   * rendered as-is, an object as pretty JSON. NOT the full raw args object
-   * unless that is genuinely what a reader wants.
-   */
-  rawInput?: unknown
-  /**
-   * UI-facing content to show on the PENDING call alongside the title/card —
-   * harness {@link ContentBlock}s, in render order. A terminal tool uses this to
-   * surface its human-readable `description` as a text block ABOVE the terminal
-   * card (the card itself is requested via {@link terminal} and labelled by the
-   * command in `title`), since the card has no description slot. Omit to show no
-   * extra content. A UI maps these to its own content blocks and renders a
-   * {@link terminal} block (if any) as a terminal card.
-   */
-  content?: ContentBlock[]
-  /**
-   * Files this call reads or modifies, so a capable UI can "follow along" —
-   * highlight or jump to the file (and line) as the tool runs. Provider-neutral
-   * `{ path, line? }` pairs; a UI bridge maps them to its own affordance (the ACP
-   * bridge forwards them as `tool_call.locations`). `path` is what the tool
-   * operated on (the model-facing path); `line` is an optional 1-based line to
-   * focus (e.g. a read's offset). Omit for a call that touches no file (e.g.
-   * `bash`).
-   */
-  locations?: { path: string; line?: number }[]
-  /**
-   * Ask a capable UI to render this call as a TERMINAL (a command running in a
-   * working directory), not a generic tool card — set by a tool whose call IS a
-   * shell command (e.g. `bash`). Provider-neutral; a UI bridge maps it to its
-   * own terminal affordance and a UI that can't falls back to the normal card.
-   * Pair with {@link ToolResultPresentation.terminal} for the output/exit.
-   */
-  terminal?: ToolTerminal
-}
-
-/**
- * A request to render a tool call as a terminal. The pending presentation
- * supplies the working directory; the result presentation (see
- * {@link ToolResultPresentation.terminal}) supplies the captured output and exit
- * status. Provider-neutral — no client-protocol types. A UI that supports
- * terminals shows a cwd-headed terminal card with the command, its output, and
- * an exit-status pill; a UI that does not ignores this and renders the ordinary
- * card/content.
- */
-export interface ToolTerminal {
-  /**
-   * Working directory the command ran in, shown as the terminal header. An
-   * ABSOLUTE path is used as-is; a RELATIVE path is resolved by the UI bridge
-   * against the session workspace (the pure tool presenter can't see the
-   * session cwd). Omit entirely to let the bridge use the session workspace.
-   */
-  cwd?: string
-  /** Captured command output (stdout+stderr as the tool chooses to combine them). Result-state only. */
-  output?: string
-  /**
-   * Process exit code, when the run ended by exiting (not a signal). Result-state
-   * only; lets a capable UI show an exit-status pill on the terminal card. Omit
-   * when the command was killed by a signal or the exit code is unknown.
-   */
-  exitCode?: number
-  /**
-   * Signal name that killed the process (e.g. `SIGTERM`), when it died by signal
-   * rather than exiting. Result-state only; mutually exclusive with `exitCode`.
-   */
-  signal?: string
-}
-
-/**
- * How a tool wants the COMPLETED call shown — the *result* state, after
- * `execute` returns. Lets the tool reformat its result for a UI distinctly from
- * the model-facing text it returned from `execute` (e.g. wrap command output in
- * a fenced ```console block for monospace rendering, which the model-facing
- * result must NOT carry). All fields optional: a UI keeps the pending-state
- * title and renders the raw result content for anything left unset.
- */
-export interface ToolResultPresentation {
-  /** Replacement title for the completed call (e.g. append an exit status). Omit to keep the pending-state title. */
-  title?: string
-  /**
-   * UI-facing result content (harness {@link ContentBlock}s), reformatted from
-   * the model-facing result. Omit to let the UI render the raw result content.
-   * Stays in harness vocabulary; the UI maps these to its own content blocks.
-   */
-  content?: ContentBlock[]
-  /**
-   * Terminal output/exit for a call the pending presentation marked as a
-   * terminal (see {@link ToolCallPresentation.terminal}). A capable UI renders
-   * `output` in the terminal card and shows the exit status; an incapable UI
-   * uses `content` (the tool should supply a text fallback there too).
-   */
-  terminal?: ToolTerminal
-}
+export type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta?: unknown }
 
 /** A registered tool: its schema plus the execution function. */
 export interface ToolDefinition extends ToolSchema {
-  execute(args: unknown, exec: ToolExecution): Promise<ContentBlock[]>
+  execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn>
   /**
-   * Optional: how to present the PENDING state of one call in a UI, derived
-   * from the call's `args` (parsed arguments, `unknown` — the tool validates/
-   * narrows its own input). Returning `undefined` (or omitting the method) tells
-   * a UI to fall back to a generic presentation (title = tool name, raw args as
-   * input). Pure and side-effect-free: a UI may call it during live streaming
-   * AND a session-log replay, so it must depend only on `args`.
+   * Optional: how to present the PENDING state of one call in a UI, derived from
+   * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
+   * its own input). Returns a {@link ToolCallView} (a `card`-tagged render intent),
+   * or `undefined` (or omit the method) to fall back to a generic presentation
+   * (title = tool name, raw args as input). Pure and side-effect-free: a UI may
+   * call it during live streaming AND a session-log replay, so it must depend
+   * only on `args`.
    */
-  presentCall?(args: unknown): ToolCallPresentation | undefined
+  presentCall?(args: unknown): ToolCallView | undefined
   /**
    * Optional: how to present the COMPLETED state, given the same `args` and the
-   * `result` (`execute`'s content + whether it errored). Returning `undefined`
-   * (or omitting the method) tells a UI to keep the pending title and render the
-   * raw result content. Pure and side-effect-free for the same replay reason.
+   * `result` (`execute`'s content + whether it errored). Returns a
+   * {@link ToolResultView}, or `undefined` (or omit the method) to keep the
+   * pending title and render the raw result content. Pure and side-effect-free
+   * for the same replay reason.
    */
-  presentResult?(args: unknown, result: ToolResult): ToolResultPresentation | undefined
+  presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined
 }
 
 /** The completed outcome handed to {@link ToolDefinition.presentResult}. */
@@ -214,6 +112,13 @@ export interface ToolResult {
   content: ContentBlock[]
   /** Whether the call failed. */
   isError: boolean
+  /**
+   * The tool-private presentation payload the tool attached from `execute` (via
+   * the object return form), threaded verbatim from the `tool/result` event.
+   * Opaque (`unknown`); the tool narrows it back to its own shape. Absent when
+   * the tool attached none.
+   */
+  meta?: unknown
 }
 
 /** One pending tool call, as it flows through the execution waterfall. */
@@ -257,6 +162,13 @@ export interface ToolExecutionResult {
    * text in `content` is always present; this is extra structure for code.
    */
   error?: ToolErrorInfo
+  /**
+   * The tool-private presentation payload from a successful `execute` (the object
+   * return form). Threaded onto the `tool/result` session event and back into
+   * {@link ToolResult} for `presentResult`. Opaque (`unknown`); absent when the
+   * tool attached none or the call failed.
+   */
+  meta?: unknown
 }
 
 /**
@@ -361,8 +273,13 @@ export class ToolRegistry extends Service {
           // Unknown tool routes through the same catch as a tool-thrown error, so
           // both failure classes get structured `{ name, code }` from one path.
           if (!tool) throw new ToolNotFoundError(exec.name)
-          const content = await tool.execute(exec.arguments, exec)
-          return { callId: exec.callId, content, isError: false }
+          // Normalize the two `execute` return shapes: a bare ContentBlock[] (no
+          // meta) or a { content, meta } object (a tool attaching a private
+          // presentation payload). An array IS the content; the object carries it.
+          const returned = await tool.execute(exec.arguments, exec)
+          const content = Array.isArray(returned) ? returned : returned.content
+          const meta = Array.isArray(returned) ? undefined : returned.meta
+          return { callId: exec.callId, content, isError: false, ...meta !== undefined ? { meta } : {} }
         } catch (error: unknown) {
           return toolErrorResult(exec.callId, error)
         }

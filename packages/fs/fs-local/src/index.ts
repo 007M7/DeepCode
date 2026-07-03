@@ -28,8 +28,10 @@ import type {
 import {
   applyLiteralEdit,
   listDirectory,
+  normalizeLineEndings,
   probe,
   readForEdit,
+  readTextForDiff,
   readWholeText,
   resolveLocalTarget,
   restoreLineEndings,
@@ -44,6 +46,7 @@ export {
   listDirectory,
   probe,
   readForEdit,
+  readTextForDiff,
   readWholeText,
   resolveLocalTarget,
   restoreLineEndings,
@@ -157,11 +160,25 @@ export class LocalFileSystem extends FileSystem {
       // provider) — no version guard, no read-first requirement. Still atomic
       // (the per-target lock is unconditional), so the write is never torn.
 
+      // Capture the prior text (the before/after diff basis) BEFORE the write.
+      // `null` for a create (no existing file) OR an existing-but-undiffable
+      // file (binary/invalid-UTF-8) — a null `before` gives no contextual-hunk
+      // basis, so a consumer falls back to a whole-file diff (the tool still
+      // renders a result-time diff card, not the raw result text).
+      // TODO(overwrite-diff-bound): this reads the whole prior file into memory
+      // for a UI-only diff; bound the pre-read and fall back to no contextual
+      // basis above a size threshold (see the applied-hunk-diffs RFC non-goals).
+      const before = existing ? await readTextForDiff(target.targetKey, signal) : null
       await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.internals)
       const after = await probe(target.targetKey)
       return {
         operation: existing ? 'update' : 'create',
         version: this.versionAfterWrite(after, target),
+        before,
+        // LF-normalized to share the diff basis with `before` (also LF): a CRLF
+        // overwrite must not read as every line changed. Line-ending restoration
+        // is a storage detail the applied-hunk diff ignores.
+        after: normalizeLineEndings(content),
       }
     })
   }
@@ -197,6 +214,10 @@ export class LocalFileSystem extends FileSystem {
         replacements: edited.replacements,
         replaceAll: edit.replaceAll,
         version: this.versionAfterWrite(after, target),
+        // The LF-normalized before/after text (the applied-hunk diff basis);
+        // line-ending restoration is a storage detail the diff ignores.
+        before: original.content,
+        after: edited.content,
       }
     })
   }

@@ -19,9 +19,9 @@
  * @module dsh-tools/schema
  */
 
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
-import type { ToolCallPresentation, ToolDefinition, ToolExecution, ToolResult, ToolResultPresentation } from './index.ts'
+import type { ToolDefinition, ToolExecuteReturn, ToolExecution, ToolResult } from './index.ts'
+import type { ToolCallView, ToolResultView } from './presentation.ts'
 
 // ---------------------------------------------------------------------------
 // SchemaSpec — the author-facing per-property type
@@ -291,25 +291,27 @@ export interface DefineToolOptions<S extends SchemaSpec> {
   parameters: S
   /**
    * Tool execution function. `args` is typed as {@link InferArgs<S>} — zero
-   * casts needed.
+   * casts needed. Returns either a bare {@link ContentBlock}`[]` (model-facing
+   * content only) or a `{ content, meta }` object to also attach a tool-private
+   * presentation payload (see {@link ToolExecuteReturn}).
    */
-  execute(args: InferArgs<S>, exec: ToolExecution): Promise<ContentBlock[]>
+  execute(args: InferArgs<S>, exec: ToolExecution): Promise<ToolExecuteReturn>
   /**
    * Optional: how to present the PENDING state of one call in a UI (an editor
    * tool-call card, a CLI log line). `args` is the typed, schema-validated
    * argument shape — zero casts. Pure and side-effect-free: a UI may call it
    * during live streaming AND a session-log replay, so depend only on `args`.
    * The tool owns its presentation so a UI never special-cases tool names. See
-   * {@link ToolCallPresentation}.
+   * {@link ToolCallView}.
    */
-  presentCall?(args: InferArgs<S>): ToolCallPresentation | undefined
+  presentCall?(args: InferArgs<S>): ToolCallView | undefined
   /**
    * Optional: how to present the COMPLETED state, given the typed `args` and the
    * `result`. Use it to reformat result content for a UI distinctly from the
    * model-facing text (e.g. a fenced ```console block). Pure and side-effect-
-   * free for the same replay reason. See {@link ToolResultPresentation}.
+   * free for the same replay reason. See {@link ToolResultView}.
    */
-  presentResult?(args: InferArgs<S>, result: ToolResult): ToolResultPresentation | undefined
+  presentResult?(args: InferArgs<S>, result: ToolResult): ToolResultView | undefined
   /** Whether the tool requires structured output (default false). */
   strict?: boolean
 }
@@ -354,7 +356,7 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
     description: options.description,
     parameters: schemaSpecToJsonSchema(options.parameters) as unknown as Record<string, unknown>,
     ...options.strict !== undefined ? { strict: options.strict } : {},
-    async execute(args: unknown, exec: ToolExecution): Promise<ContentBlock[]> {
+    async execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn> {
       // Validate the model-generated args before the typed body runs. On
       // mismatch we throw ToolArgsError; the registry turns it into an
       // isError result so the model can self-correct. After this guard, the
@@ -369,13 +371,13 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
   // fall back to `undefined` (a generic UI presentation) on any mismatch, rather
   // than the hard `ToolArgsError` the execute path raises.
   if (userPresentCall) {
-    tool.presentCall = (args: unknown): ToolCallPresentation | undefined => {
+    tool.presentCall = (args: unknown): ToolCallView | undefined => {
       if (validateArgs(options.parameters, args).length > 0) return undefined
       return userPresentCall(args as InferArgs<S>)
     }
   }
   if (userPresentResult) {
-    tool.presentResult = (args: unknown, result: ToolResult): ToolResultPresentation | undefined => {
+    tool.presentResult = (args: unknown, result: ToolResult): ToolResultView | undefined => {
       if (validateArgs(options.parameters, args).length > 0) return undefined
       return userPresentResult(args as InferArgs<S>, result)
     }

@@ -110,6 +110,32 @@ describe('agent loop', () => {
     expect(types).toContain('tool/result')
   })
 
+  it('threads a tool-attached meta (execute object return) onto the tool/result event', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'writer', { path: 'a.txt' }, 'writing'),
+      textResponse('done'),
+    ])
+    const ctx = await harness(adapter)
+    // A tool that returns the { content, meta } object form: the loop must
+    // persist `meta` on the tool/result event so a UI reproduces the card on replay.
+    ctx.tools.register(defineTool({
+      name: 'writer',
+      description: 'writes a file',
+      parameters: { path: { type: 'string' } },
+      async execute() {
+        return { content: [{ type: 'text', text: 'ok' }], meta: { diffs: [{ path: 'a.txt', oldText: null, newText: 'x' }] } }
+      },
+    }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    send(agent, 'use the tool')
+    await waitForIdle(ctx, agent)
+
+    const toolResult = agent.session.events.find(e => e.type === 'tool/result')
+    expect(toolResult?.type === 'tool/result' && toolResult.data.meta)
+      .toEqual({ diffs: [{ path: 'a.txt', oldText: null, newText: 'x' }] })
+  })
+
   it('passes assembled system prompt and tool schemas into the request', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)

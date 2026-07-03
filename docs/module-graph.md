@@ -69,6 +69,7 @@ graph TD
   tool-bash --> tools
   tool-fs --> fs
   tool-fs --> llm
+  tool-fs --> session
   tool-fs --> system-prompt
   tool-fs --> tools
   tool-todo --> agent
@@ -148,7 +149,7 @@ graph TD
 | `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
 | `subagent` | `agent`, `llm`, `tools` |
 | `tool-bash` | `agent`, `bash`, `llm`, `tools` |
-| `tool-fs` | `fs`, `llm`, `system-prompt`, `tools` |
+| `tool-fs` | `fs`, `llm`, `session`, `system-prompt`, `tools` |
 | `tool-todo` | `agent`, `session`, `tools` |
 | `tool-web` | `llm`, `system-prompt`, `tools`, `web` |
 | `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `system-prompt`, `tool-bash`, `tools` |

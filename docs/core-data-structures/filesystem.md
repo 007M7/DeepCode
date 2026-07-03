@@ -64,6 +64,8 @@ type FsWriteIntent =
 interface FsWriteOutcome {
   operation: 'create' | 'update'
   version: FsVersion
+  before: string | null
+  after: string
 }
 ```
 
@@ -82,6 +84,8 @@ interface FsEditOutcome {
   replacements: number
   replaceAll: boolean
   version: FsVersion
+  before: string
+  after: string
 }
 ```
 

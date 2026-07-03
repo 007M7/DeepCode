@@ -1,5 +1,7 @@
 # DeepSeek Harness
 
+English | [中文](README.zh.md)
+
 Monorepo for the DeepSeek Harness group.
 
 ## Projects
