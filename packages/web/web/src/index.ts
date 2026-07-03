@@ -36,7 +36,6 @@ export {
 } from './types.ts'
 export type {
   WebCapabilityStatus,
-  WebErrorCode,
   WebExecContext,
   WebFetchBody,
   WebFetchProvider,

@@ -309,7 +309,7 @@ Fired after the provider registry changes — a search or fetch provider was reg
 'web/providers-change'(this: WebService): void
 ```
 
-Source: [`packages/web/web/src/index.ts:66`](../../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:65`](../../packages/web/web/src/index.ts)
 
 ## Services
 
@@ -506,7 +506,7 @@ async search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearc
 async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>
 ```
 
-Source: [`packages/web/web/src/index.ts:106`](../../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:105`](../../packages/web/web/src/index.ts)
 
 ## Inherited tier (cordis core + loader/hmr/timer)
 

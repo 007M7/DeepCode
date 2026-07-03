@@ -172,8 +172,19 @@ export interface WebFetchProvider {
 }
 
 /**
- * Stable codes for {@link WebError}. Callers (hooks, tests, UI) route on these.
+ * Typed web error. Extends {@link HarnessError} so it carries a stable,
+ * machine-routable `code` (a `string`, like every other seam's error) and
+ * chains `cause`. `ToolRegistry.execute()` converts a thrown `WebError` into an
+ * error tool result whose structured metadata exposes the code, so callers
+ * (hooks, tests, UI) route on it.
  *
+ * The `code` is an open `string`, NOT a closed union: a provider may raise its
+ * own codes without editing this package, and a consumer must tolerate an
+ * unknown code (a future provider will introduce ones this file never named).
+ * The codes split by who owns them — seam-neutral codes any provider may see,
+ * versus codes specific to a single implementation:
+ *
+ * Seam-neutral (raised by `WebService` selection and the shared contract):
  * - `WEB_PROVIDER_UNAVAILABLE`: no provider configured and none usable.
  * - `WEB_PROVIDER_CONFIGURED_MISSING`: a configured id is not registered.
  * - `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`: a configured id is registered but its
@@ -182,44 +193,18 @@ export interface WebFetchProvider {
  *   exist (selection refuses to pick by registration order).
  * - `WEB_DUPLICATE_PROVIDER`: a registration-time programming error — an id is
  *   already registered for that capability kind.
+ * - `WEB_ABORTED`: the operation was aborted via `WebExecContext.signal`.
+ * - `WEB_PROVIDER_ERROR`: catch-all for a provider's own failure surfaced
+ *   through the seam, including network/transport failure (DNS, connection
+ *   refused, TLS).
+ *
+ * Fetch-transport codes (owned by the `dsh-web-fetch-local` implementation; a
+ * different fetch backend need not raise these and may raise its own):
  * - `WEB_INVALID_URL`: the fetch URL is malformed or not http(s).
  * - `WEB_BLOCKED_URL`: the fetch URL is rejected by policy (credentials in URL).
  * - `WEB_REDIRECT_BLOCKED`: a cross-origin redirect was refused.
  * - `WEB_FETCH_TOO_LARGE`: the response exceeded the byte/character cap.
  * - `WEB_FETCH_TIMEOUT`: the fetch exceeded its timeout.
- * - `WEB_ABORTED`: the operation was aborted via `WebExecContext.signal`.
  * - `WEB_UNSUPPORTED_CONTENT_TYPE`: the response content type cannot be decoded.
- * - `WEB_PROVIDER_ERROR`: catch-all for a provider's own failure surfaced through
- *   the seam, including network/transport failure (DNS, connection refused, TLS).
  */
-export type WebErrorCode =
-  | 'WEB_PROVIDER_UNAVAILABLE'
-  | 'WEB_PROVIDER_CONFIGURED_MISSING'
-  | 'WEB_PROVIDER_CONFIGURED_UNAVAILABLE'
-  | 'WEB_PROVIDER_AMBIGUOUS'
-  | 'WEB_DUPLICATE_PROVIDER'
-  | 'WEB_INVALID_URL'
-  | 'WEB_BLOCKED_URL'
-  | 'WEB_REDIRECT_BLOCKED'
-  | 'WEB_FETCH_TOO_LARGE'
-  | 'WEB_FETCH_TIMEOUT'
-  | 'WEB_ABORTED'
-  | 'WEB_UNSUPPORTED_CONTENT_TYPE'
-  | 'WEB_PROVIDER_ERROR'
-
-/**
- * Typed web error. Extends {@link HarnessError} so it carries a stable
- * {@link WebErrorCode} and chains `cause`. `dsh-web` owns this vocabulary so
- * providers, the seam, and the tool layer raise the same codes instead of each
- * inventing message strings. `ToolRegistry.execute()` converts a thrown
- * `WebError` into an error tool result whose structured metadata exposes the
- * code.
- */
-export class WebError extends HarnessError {
-  override readonly code: WebErrorCode
-
-  constructor(message: string, code: WebErrorCode, options?: ErrorOptions) {
-    super(message, code, options)
-    this.code = code
-  }
-}
+export class WebError extends HarnessError {}
