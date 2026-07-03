@@ -13,6 +13,7 @@
 
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { DiffCallView } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
@@ -62,12 +63,17 @@ export function applyWriteTool(ctx: Context): void {
       ctx.emit('fs/observed', target, outcome.version, exec)
       return [{ type: 'text', text: formatWriteOutput(target.displayPath, outcome) }]
     },
-    // Pure display: `edit` kind (an editor treats create/replace as an edit) and
-    // a location so the UI can follow along to the written file. The create-vs-
-    // overwrite fact lives in the model-facing result text; `presentResult` only
-    // sees `{ content, isError }` (not the outcome), so the title stays static.
-    presentCall(args) {
-      return { title: `Write ${args.file_path}`, kind: 'edit', locations: [{ path: args.file_path }] }
+    // Pure display: a diff card (an editor renders write as a new-file / full-
+    // replace diff). `oldText: null` — a call-time presenter has no access to the
+    // file's prior content, so even an overwrite renders new-file style, matching
+    // claude-agent-acp. A follow-along location points at the written file.
+    presentCall(args): DiffCallView {
+      return {
+        card: 'diff',
+        title: `Write ${args.file_path}`,
+        diffs: [{ path: args.file_path, oldText: null, newText: args.content }],
+        locations: [{ path: args.file_path }],
+      }
     },
   }))
 }

@@ -163,7 +163,7 @@ describe('todosToPlan', () => {
 })
 
 describe('ToolPresenter (tool-owned presentation via the tool registry)', () => {
-  /** A tool whose presentCall/presentResult mirror what tool-bash declares. */
+  /** A tool whose presentCall/presentResult return generic-card views. */
   const bashLike: ToolDefinition = {
     name: 'bash',
     description: 'run a command',
@@ -171,9 +171,10 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
     execute: async () => [],
     presentCall: (args: unknown) => {
       const a = args as { command: string; description: string }
-      return { title: a.description, kind: 'execute', rawInput: a.command }
+      return { card: 'generic', title: a.description, kind: 'execute', rawInput: a.command }
     },
     presentResult: (_args: unknown, result: { content: { type: string }[] }) => ({
+      card: 'generic',
       content: [{ type: 'text', text: `wrapped:${result.content.length}` }],
     }),
   }
@@ -247,8 +248,8 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
       description: 'm',
       parameters: {},
       execute: async () => [],
-      presentCall: () => ({ title: 'Doing a thing' }),
-      presentResult: () => ({ title: 'Did the thing' }),
+      presentCall: () => ({ card: 'generic', title: 'Doing a thing' }),
+      presentResult: () => ({ card: 'generic', title: 'Did the thing' }),
     }
     const presenter = new ToolPresenter(registryOf(minimal))
     const updates = updatesWith(
@@ -336,11 +337,50 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
     expect(updates[1]).toMatchObject({ sessionUpdate: 'tool_call_update', content: [{ type: 'content', content: { type: 'text', text: 'raw' } }] })
   })
 
-  it('forwards a tool-owned `locations` onto the wire tool_call (REAL fs read/edit tools)', async () => {
+  it('an unknown render-intent card throws via the exhaustiveness guard (closed union)', () => {
+    // The bridge switches on `view.card` and ends with assertNever: a rogue card
+    // (only reachable by a cast — the union is closed) must throw, so adding a
+    // real variant later fails to compile at the switch instead of silently
+    // dropping the card.
+    const rogue: ToolDefinition = {
+      name: 'rogue',
+      description: 'r',
+      parameters: {},
+      execute: async () => [],
+      // A card value outside the union — forced with a cast (no valid input reaches this).
+      presentCall: () => ({ card: 'chart', title: 'nope' }) as unknown as ReturnType<NonNullable<ToolDefinition['presentCall']>>,
+    }
+    const presenter = new ToolPresenter(registryOf(rogue))
+    expect(() => updatesWith(presenter, evt('tool/call', {
+      turn: 1, step: 1, callId: CallId('c1'), name: 'rogue', arguments: '{}',
+    }))).toThrow('unreachable variant')
+  })
+
+  it('an unknown render-intent RESULT card throws via the exhaustiveness guard (closed union)', () => {
+    // The result-side renderer is also an exhaustive switch + assertNever: a rogue
+    // result card (only reachable by a cast) must throw, so adding a real result
+    // variant later fails to compile at the switch.
+    const rogue: ToolDefinition = {
+      name: 'rogue',
+      description: 'r',
+      parameters: {},
+      execute: async () => [],
+      presentCall: () => ({ card: 'generic', title: 'r' }),
+      presentResult: () => ({ card: 'chart' }) as unknown as ReturnType<NonNullable<ToolDefinition['presentResult']>>,
+    }
+    const presenter = new ToolPresenter(registryOf(rogue))
+    expect(() => updatesWith(
+      presenter,
+      evt('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'rogue', arguments: '{}' }),
+      evt('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'x' }], isError: false }),
+    )).toThrow('unreachable variant')
+  })
+
+  it('forwards fs-tool render intents onto the wire (REAL read → generic locations, edit → diff content)', async () => {
     // Use the SHIPPING fs tools (not a stand-in), booted through their real
     // plugins, so the wire tool_call carries the actual presentCall output —
-    // including `locations` for editor follow-along. (AGENTS.md "prefer the real
-    // implementation over a mock".)
+    // read's follow-along `locations` and edit's `diff` content block. (AGENTS.md
+    // "prefer the real implementation over a mock".)
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
@@ -352,44 +392,50 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
       turn: 1, step: 1, callId: CallId('r1'), name: 'read',
       arguments: JSON.stringify({ file_path: 'src/a.ts', offset: 12 }),
     }))
+    // A generic card: the read window is in the title, the offset drives the
+    // follow-along location line. No rawInput (the window lives in the title).
     expect(readCall).toMatchObject({
-      sessionUpdate: 'tool_call', toolCallId: 'r1', title: 'Read src/a.ts', kind: 'read',
-      rawInput: 'offset 12', locations: [{ path: 'src/a.ts', line: 12 }],
+      sessionUpdate: 'tool_call', toolCallId: 'r1', title: 'Read src/a.ts (from line 12)', kind: 'read',
+      locations: [{ path: 'src/a.ts', line: 12 }],
     })
+    expect((readCall as { rawInput?: unknown }).rawInput).toBeUndefined()
 
     const [editCall] = updatesWith(presenter, evt('tool/call', {
       turn: 1, step: 1, callId: CallId('e1'), name: 'edit',
       arguments: JSON.stringify({ file_path: 'src/b.ts', old_string: 'x', new_string: 'y' }),
     }))
+    // A diff card: `edit` kind, a `{ type: 'diff' }` content block carrying the
+    // literal old→new replacement, plus the follow-along location.
     expect(editCall).toMatchObject({
       sessionUpdate: 'tool_call', toolCallId: 'e1', title: 'Edit src/b.ts', kind: 'edit',
       locations: [{ path: 'src/b.ts' }],
+      content: [{ type: 'diff', path: 'src/b.ts', oldText: 'x', newText: 'y' }],
     })
     await ctx.fiber.dispose()
   })
 })
 
 describe('terminal-card mapping (capability-gated)', () => {
-  // A tool that asks to render as a terminal — a stand-in for tool-bash's shape,
-  // letting us drive the bridge's terminal mapping without the real executor.
-  type CallTerm = { cwd?: string } | undefined
-  type ResultTerm = { output?: string; exitCode?: number; signal?: string } | undefined
-  const termTool = (callTerminal: CallTerm, resultTerminal: ResultTerm): ToolDefinition => ({
+  // A tool that renders as a terminal — a stand-in for tool-bash's shape, letting
+  // us drive the bridge's terminal mapping without the real executor. `callCard`
+  // selects a terminal call view (optionally with a cwd) or a generic one (for the
+  // orphan-guard test); `resultTerminal` is the terminal result view's output/exit.
+  type CallCard = { card: 'terminal'; cwd?: string } | { card: 'generic' }
+  type ResultTerm = { title?: string; output?: string; exitCode?: number; signal?: string }
+  const termTool = (callCard: CallCard, resultTerminal: ResultTerm): ToolDefinition => ({
     name: 'bash',
     description: 'run a command',
     parameters: {},
     execute: async () => [],
-    presentCall: (args: unknown) => ({
-      title: (args as { command: string }).command,
-      kind: 'execute',
-      rawInput: (args as { command: string }).command,
-      content: [{ type: 'text', text: (args as { description: string }).description }],
-      ...callTerminal !== undefined ? { terminal: callTerminal } : {},
-    }),
-    presentResult: () => ({
-      content: [{ type: 'text', text: 'fallback' }],
-      ...resultTerminal !== undefined ? { terminal: resultTerminal } : {},
-    }),
+    presentCall: (args: unknown) => {
+      const command = (args as { command: string }).command
+      const description = (args as { description: string }).description
+      if (callCard.card === 'terminal') {
+        return { card: 'terminal', title: command, description, ...callCard.cwd !== undefined ? { cwd: callCard.cwd } : {} }
+      }
+      return { card: 'generic', title: command, kind: 'execute', rawInput: command, content: [{ type: 'text', text: description }] }
+    },
+    presentResult: () => ({ card: 'terminal', ...resultTerminal }),
   })
 
   const callEvent = evt('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'bash', arguments: JSON.stringify({ command: 'echo hi', description: 'Greet' }) })
@@ -403,7 +449,7 @@ describe('terminal-card mapping (capability-gated)', () => {
   }
 
   it('capability ON: description content THEN terminal block; cwd from the session header when the tool gives none', () => {
-    const [call, update] = termUpdates(termTool({}, { output: 'hi\n', exitCode: 0 }), true, '/work/proj', callEvent, resultEvent)
+    const [call, update] = termUpdates(termTool({ card: 'terminal' }, { output: 'hi\n', exitCode: 0 }), true, '/work/proj', callEvent, resultEvent)
     expect(call).toMatchObject({
       sessionUpdate: 'tool_call',
       content: [
@@ -422,33 +468,33 @@ describe('terminal-card mapping (capability-gated)', () => {
   })
 
   it('capability ON: an ABSOLUTE tool cwd wins; a RELATIVE one resolves against the session cwd', () => {
-    const [absCall] = termUpdates(termTool({ cwd: '/explicit/abs' }, { output: 'x' }), true, '/work/proj', callEvent)
+    const [absCall] = termUpdates(termTool({ card: 'terminal', cwd: '/explicit/abs' }, { output: 'x' }), true, '/work/proj', callEvent)
     expect((absCall as unknown as { _meta: { terminal_info: { cwd: string } } })._meta.terminal_info.cwd).toBe('/explicit/abs')
-    const [relCall] = termUpdates(termTool({ cwd: 'sub/dir' }, { output: 'x' }), true, '/work/proj', callEvent)
+    const [relCall] = termUpdates(termTool({ card: 'terminal', cwd: 'sub/dir' }, { output: 'x' }), true, '/work/proj', callEvent)
     // Relative workdir resolved against the session cwd — the card header matches
     // where execution actually ran (tool-bash resolves the same way).
     expect((relCall as unknown as { _meta: { terminal_info: { cwd: string } } })._meta.terminal_info.cwd).toBe('/work/proj/sub/dir')
     // No session cwd to resolve against → the relative tool cwd is passed through as-is.
-    const [noSessionCwd] = termUpdates(termTool({ cwd: 'rel/only' }, { output: 'x' }), true, undefined, callEvent)
+    const [noSessionCwd] = termUpdates(termTool({ card: 'terminal', cwd: 'rel/only' }, { output: 'x' }), true, undefined, callEvent)
     expect((noSessionCwd as unknown as { _meta: { terminal_info: { cwd: string } } })._meta.terminal_info.cwd).toBe('rel/only')
   })
 
   it('capability ON: a signal kill maps to terminal_exit.signal', () => {
-    const [, update] = termUpdates(termTool({}, { output: 'gone', signal: 'SIGKILL' }), true, '/w', callEvent, resultEvent)
+    const [, update] = termUpdates(termTool({ card: 'terminal' }, { output: 'gone', signal: 'SIGKILL' }), true, '/w', callEvent, resultEvent)
     expect((update as unknown as { _meta: { terminal_exit: unknown } })._meta.terminal_exit).toEqual({ terminal_id: 'c1', signal: 'SIGKILL' })
   })
 
   it('capability ON: a terminal result with output but NO exit/signal emits terminal_output and NO exit pill', () => {
     // A terminal-rendering tool that reports no structured exit (neither exitCode
     // nor signal) — the card shows output but no exit pill.
-    const [, update] = termUpdates(termTool({}, { output: 'partial' }), true, '/w', callEvent, resultEvent)
+    const [, update] = termUpdates(termTool({ card: 'terminal' }, { output: 'partial' }), true, '/w', callEvent, resultEvent)
     const meta = (update as unknown as { _meta: { terminal_output?: unknown; terminal_exit?: unknown } })._meta
     expect(meta.terminal_output).toEqual({ terminal_id: 'c1', data: 'partial' })
     expect(meta.terminal_exit).toBeUndefined()
   })
 
-  it('capability OFF: no terminal block or _meta; the description content and fenced result still render', () => {
-    const [call, update] = termUpdates(termTool({}, { output: 'hi\n' }), false, '/work/proj', callEvent, resultEvent)
+  it('capability OFF: no terminal block or _meta; the description content and the bridge-derived fenced result render', () => {
+    const [call, update] = termUpdates(termTool({ card: 'terminal' }, { output: 'hi\n' }), false, '/work/proj', callEvent, resultEvent)
     expect(call).toEqual({
       sessionUpdate: 'tool_call',
       toolCallId: 'c1',
@@ -458,24 +504,198 @@ describe('terminal-card mapping (capability-gated)', () => {
       rawInput: 'echo hi',
       content: [{ type: 'content', content: { type: 'text', text: 'Greet' } }],
     })
+    // The bridge derives the fenced ```console fallback from the terminal output.
     expect(update).toEqual({
       sessionUpdate: 'tool_call_update',
       toolCallId: 'c1',
       status: 'completed',
-      content: [{ type: 'content', content: { type: 'text', text: 'fallback' } }],
+      content: [{ type: 'content', content: { type: 'text', text: '```console\nhi\n```' } }],
     })
   })
 
-  it('orphan guard: a result-side terminal with NO call-side terminal is dropped (no orphan terminal_output)', () => {
-    // presentCall declares NO terminal, but presentResult returns one — the
-    // bridge must not emit _meta.terminal_output for a terminal Zed never made.
-    const [call, update] = termUpdates(termTool(undefined, { output: 'hi\n', exitCode: 0 }), true, '/w', callEvent, resultEvent)
-    // The call had no terminal → ordinary tool_call (description content, no _meta).
+  it('orphan guard: a result-side terminal with a GENERIC call is dropped (no orphan terminal_output)', () => {
+    // presentCall is a generic card, but presentResult returns a terminal view —
+    // the bridge must not emit _meta.terminal_output for a terminal Zed never made.
+    const [call, update] = termUpdates(termTool({ card: 'generic' }, { output: 'hi\n', exitCode: 0 }), true, '/w', callEvent, resultEvent)
+    // The call was generic → ordinary tool_call (description content, no _meta).
     expect((call as { _meta?: unknown })._meta).toBeUndefined()
     expect((call as { content: unknown }).content).toEqual([{ type: 'content', content: { type: 'text', text: 'Greet' } }])
-    // The result falls back to text content; NO terminal _meta.
+    // The result falls back to the RAW result content (the tool/result event's text); NO terminal _meta.
     expect((update as { _meta?: unknown })._meta).toBeUndefined()
-    expect((update as { content: unknown }).content).toEqual([{ type: 'content', content: { type: 'text', text: 'fallback' } }])
+    expect((update as { content: unknown }).content).toEqual([{ type: 'content', content: { type: 'text', text: 'hi\n' } }])
+  })
+
+  it('capability ON: a terminal result title replaces the completed-card title; missing output emits empty data', () => {
+    // A terminal result MAY carry a replacement title and MAY omit output (a run
+    // that produced nothing) — the _meta carries empty data, not a dropped key.
+    const [, update] = termUpdates(termTool({ card: 'terminal' }, { title: 'Ran echo', exitCode: 0 }), true, '/w', callEvent, resultEvent)
+    expect(update).toEqual({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'c1',
+      status: 'completed',
+      title: 'Ran echo',
+      _meta: { terminal_output: { terminal_id: 'c1', data: '' }, terminal_exit: { terminal_id: 'c1', exit_code: 0 } },
+    })
+  })
+
+  it('capability OFF: a terminal result title rides on the fenced fallback update', () => {
+    const [, update] = termUpdates(termTool({ card: 'terminal' }, { title: 'Ran echo', output: 'hi\n' }), false, '/w', callEvent, resultEvent)
+    expect(update).toEqual({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'c1',
+      status: 'completed',
+      content: [{ type: 'content', content: { type: 'text', text: '```console\nhi\n```' } }],
+      title: 'Ran echo',
+    })
+  })
+
+  it('a terminal call with NO description and NO capability is a bare execute card (no content key)', () => {
+    // A terminal view whose presentCall omits `description`, with the capability
+    // OFF: no description block and no terminal block → the card carries no content.
+    const noDesc: ToolDefinition = {
+      name: 'bash',
+      description: 'run a command',
+      parameters: {},
+      execute: async () => [],
+      presentCall: (args: unknown) => ({ card: 'terminal', title: (args as { command: string }).command }),
+    }
+    const [call] = termUpdates(noDesc, false, undefined, callEvent)
+    expect(call).toEqual({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'c1',
+      title: 'echo hi',
+      kind: 'execute',
+      status: 'in_progress',
+      rawInput: 'echo hi',
+    })
+  })
+})
+
+describe('diff-card mapping', () => {
+  // A stand-in diff tool, letting us drive the bridge's diff arm across shapes
+  // the shipping fs tools don't emit (no locations, empty diffs).
+  const diffTool = (view: unknown): ToolDefinition => ({
+    name: 'writer',
+    description: 'writes a file',
+    parameters: {},
+    execute: async () => [],
+    presentCall: () => view as ReturnType<NonNullable<ToolDefinition['presentCall']>>,
+  })
+  function callUpdate(tool: ToolDefinition, cwd: string | undefined): SessionNotification['update'] {
+    const presenter = new ToolPresenter(registryOf(tool))
+    const out: SessionNotification['update'][] = []
+    streamSessionEventUpdate(
+      SessionId('s1'),
+      evt('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'writer', arguments: '{}' }),
+      n => out.push(n.update),
+      presenter,
+      { enabled: false, cwd },
+    )
+    return out[0]!
+  }
+
+  it('a diff with NO locations relativizes the title off the first diff path; omits the locations key', () => {
+    const update = callUpdate(diffTool({ card: 'diff', title: 'Write /work/proj/a.txt', diffs: [{ path: '/work/proj/a.txt', oldText: null, newText: 'x' }] }), '/work/proj')
+    expect(update).toEqual({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'c1',
+      title: 'Write a.txt',
+      kind: 'edit',
+      status: 'in_progress',
+      content: [{ type: 'diff', path: '/work/proj/a.txt', oldText: null, newText: 'x' }],
+    })
+  })
+
+  it('a diff with an EMPTY diffs array omits the content key (no diff blocks to send)', () => {
+    const update = callUpdate(diffTool({ card: 'diff', title: 'Write nothing', diffs: [] }), undefined)
+    expect(update).toEqual({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'c1',
+      title: 'Write nothing',
+      kind: 'edit',
+      status: 'in_progress',
+    })
+  })
+})
+
+describe('relative-path display titles (bridge relativizes the title against the session cwd)', () => {
+  // The bridge relativizes a file card's TITLE against the session workspace cwd
+  // (mirroring the reference adapter's toDisplayPath), while leaving locations/
+  // diff paths RAW. Drive it with the REAL fs tools so the title/locations come
+  // from the shipping presentCall, and pass an ABSOLUTE file path (which a real
+  // editor forwards). The presenter is pure/args-only; the cwd is known only here.
+  async function fsCtx(): Promise<Context> {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(FsLocal)
+    await ctx.plugin(ToolFs)
+    return ctx
+  }
+  function callUpdate(ctx: Context, sessionCwd: string | undefined, name: string, args: unknown): SessionNotification['update'] {
+    const presenter = new ToolPresenter(ctx.tools)
+    const out: SessionNotification['update'][] = []
+    streamSessionEventUpdate(
+      SessionId('s1'),
+      evt('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name, arguments: JSON.stringify(args) }),
+      n => out.push(n.update),
+      presenter,
+      { enabled: false, cwd: sessionCwd },
+    )
+    return out[0]!
+  }
+
+  it('read: an absolute path inside the workspace relativizes the TITLE; the location path stays absolute', async () => {
+    const ctx = await fsCtx()
+    const update = callUpdate(ctx, '/work/proj', 'read', { file_path: '/work/proj/src/a.ts', offset: 5 })
+    expect(update).toMatchObject({
+      title: 'Read src/a.ts (from line 5)',
+      locations: [{ path: '/work/proj/src/a.ts', line: 5 }],
+    })
+    await ctx.fiber.dispose()
+  })
+
+  it('edit: the diff TITLE relativizes; the diff/location paths stay absolute (the editor opens the real path)', async () => {
+    const ctx = await fsCtx()
+    const update = callUpdate(ctx, '/work/proj', 'edit', { file_path: '/work/proj/src/b.ts', old_string: 'x', new_string: 'y' })
+    expect(update).toMatchObject({
+      title: 'Edit src/b.ts',
+      locations: [{ path: '/work/proj/src/b.ts' }],
+      content: [{ type: 'diff', path: '/work/proj/src/b.ts', oldText: 'x', newText: 'y' }],
+    })
+    await ctx.fiber.dispose()
+  })
+
+  it('a path OUTSIDE the workspace is left as-is (no `..` title)', async () => {
+    const ctx = await fsCtx()
+    const update = callUpdate(ctx, '/work/proj', 'read', { file_path: '/etc/passwd' })
+    expect((update as { title: string }).title).toBe('Read /etc/passwd')
+    await ctx.fiber.dispose()
+  })
+
+  it('an in-workspace file whose relative form starts with `..` chars (a sibling name) still relativizes', async () => {
+    // `/work/proj/..cache/x` is INSIDE the workspace — its relative form
+    // `..cache/x` begins with the chars `..` but is NOT a parent segment. The
+    // guard tests for a `..` SEGMENT, so this relativizes (matching the reference
+    // adapter, which accepts any target under `cwd + sep`).
+    const ctx = await fsCtx()
+    const update = callUpdate(ctx, '/work/proj', 'read', { file_path: '/work/proj/..cache/x.ts' })
+    expect((update as { title: string }).title).toBe('Read ..cache/x.ts')
+    await ctx.fiber.dispose()
+  })
+
+  it('no session cwd → the absolute title is left unchanged', async () => {
+    const ctx = await fsCtx()
+    const update = callUpdate(ctx, undefined, 'read', { file_path: '/work/proj/src/a.ts' })
+    expect((update as { title: string }).title).toBe('Read /work/proj/src/a.ts')
+    await ctx.fiber.dispose()
+  })
+
+  it('a relative path is passed through unchanged (already display-friendly)', async () => {
+    const ctx = await fsCtx()
+    const update = callUpdate(ctx, '/work/proj', 'read', { file_path: 'src/a.ts' })
+    expect((update as { title: string }).title).toBe('Read src/a.ts')
+    await ctx.fiber.dispose()
   })
 })
 

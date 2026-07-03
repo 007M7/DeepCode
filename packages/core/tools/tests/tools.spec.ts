@@ -52,8 +52,8 @@ describe('ToolRegistry', () => {
       description: 'has presenters',
       parameters: { x: { type: 'string', required: true } },
       async execute() { return [] },
-      presentCall: args => ({ title: args.x }),
-      presentResult: (args, result) => ({ title: args.x, content: result.content }),
+      presentCall: args => ({ card: 'generic', title: args.x }),
+      presentResult: (args, result) => ({ card: 'generic', title: args.x, content: result.content }),
     }))
     const schema = ctx.tools.schemas()[0] as unknown as Record<string, unknown>
     expect(Object.keys(schema).sort()).toEqual(['description', 'name', 'parameters'])
@@ -906,15 +906,15 @@ describe('defineTool presentation (presentCall / presentResult)', () => {
       presentCall(args) {
         // args is typed { path: string; n?: number } — zero casts.
         expectTypeOf(args).toEqualTypeOf<{ path: string; n?: number }>()
-        return { title: `Open ${args.path}`, kind: 'read', rawInput: args.path }
+        return { card: 'generic', title: `Open ${args.path}`, kind: 'read', rawInput: args.path }
       },
       presentResult(args, result) {
-        return { title: `Opened ${args.path}`, content: result.content }
+        return { card: 'generic', title: `Opened ${args.path}`, content: result.content }
       },
     })
-    expect(tool.presentCall!({ path: '/a', n: 2 })).toEqual({ title: 'Open /a', kind: 'read', rawInput: '/a' })
+    expect(tool.presentCall!({ path: '/a', n: 2 })).toEqual({ card: 'generic', title: 'Open /a', kind: 'read', rawInput: '/a' })
     expect(tool.presentResult!({ path: '/a' }, { content: [{ type: 'text', text: 'x' }], isError: false }))
-      .toEqual({ title: 'Opened /a', content: [{ type: 'text', text: 'x' }] })
+      .toEqual({ card: 'generic', title: 'Opened /a', content: [{ type: 'text', text: 'x' }] })
   })
 
   it('a tool without presentCall/presentResult leaves them undefined (UI falls back generically)', () => {
@@ -934,8 +934,8 @@ describe('defineTool presentation (presentCall / presentResult)', () => {
       description: 'demo',
       parameters: { path: { type: 'string', required: true } },
       async execute() { return [] },
-      presentCall: args => ({ title: args.path }),
-      presentResult: (args, result) => ({ title: args.path, content: result.content }),
+      presentCall: args => ({ card: 'generic', title: args.path }),
+      presentResult: (args, result) => ({ card: 'generic', title: args.path, content: result.content }),
     })
     // Unlike execute (which throws ToolArgsError on a mismatch), the display
     // methods soft-validate and fall back to undefined so a UI never crashes

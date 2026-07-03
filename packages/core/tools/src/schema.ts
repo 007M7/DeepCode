@@ -21,7 +21,7 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
-import type { ToolCallPresentation, ToolDefinition, ToolExecution, ToolResult, ToolResultPresentation } from './index.ts'
+import type { ToolCallView, ToolDefinition, ToolExecution, ToolResult, ToolResultView } from './index.ts'
 
 // ---------------------------------------------------------------------------
 // SchemaSpec — the author-facing per-property type
@@ -300,16 +300,16 @@ export interface DefineToolOptions<S extends SchemaSpec> {
    * argument shape — zero casts. Pure and side-effect-free: a UI may call it
    * during live streaming AND a session-log replay, so depend only on `args`.
    * The tool owns its presentation so a UI never special-cases tool names. See
-   * {@link ToolCallPresentation}.
+   * {@link ToolCallView}.
    */
-  presentCall?(args: InferArgs<S>): ToolCallPresentation | undefined
+  presentCall?(args: InferArgs<S>): ToolCallView | undefined
   /**
    * Optional: how to present the COMPLETED state, given the typed `args` and the
    * `result`. Use it to reformat result content for a UI distinctly from the
    * model-facing text (e.g. a fenced ```console block). Pure and side-effect-
-   * free for the same replay reason. See {@link ToolResultPresentation}.
+   * free for the same replay reason. See {@link ToolResultView}.
    */
-  presentResult?(args: InferArgs<S>, result: ToolResult): ToolResultPresentation | undefined
+  presentResult?(args: InferArgs<S>, result: ToolResult): ToolResultView | undefined
   /** Whether the tool requires structured output (default false). */
   strict?: boolean
 }
@@ -369,13 +369,13 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
   // fall back to `undefined` (a generic UI presentation) on any mismatch, rather
   // than the hard `ToolArgsError` the execute path raises.
   if (userPresentCall) {
-    tool.presentCall = (args: unknown): ToolCallPresentation | undefined => {
+    tool.presentCall = (args: unknown): ToolCallView | undefined => {
       if (validateArgs(options.parameters, args).length > 0) return undefined
       return userPresentCall(args as InferArgs<S>)
     }
   }
   if (userPresentResult) {
-    tool.presentResult = (args: unknown, result: ToolResult): ToolResultPresentation | undefined => {
+    tool.presentResult = (args: unknown, result: ToolResult): ToolResultView | undefined => {
       if (validateArgs(options.parameters, args).length > 0) return undefined
       return userPresentResult(args as InferArgs<S>, result)
     }

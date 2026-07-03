@@ -7,7 +7,7 @@
 
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ToolCallPresentation } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { WebSearchResult } from '@deepseek-ai/dsh-web'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -63,8 +63,8 @@ export function formatSearchOutput(result: WebSearchResult): string {
 }
 
 /** Pending-call presentation: a search card titled by the query. */
-export function presentSearchCall(args: { query: string }): ToolCallPresentation {
-  return { title: args.query, kind: 'search', rawInput: args.query }
+export function presentSearchCall(args: { query: string }): GenericCallView {
+  return { card: 'generic', title: args.query, kind: 'search', rawInput: args.query }
 }
 
 /** Register the `web_search` tool and its system-prompt guidance. */
