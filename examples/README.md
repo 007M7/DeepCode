@@ -15,7 +15,7 @@ Run with: `pnpm run demo:echo`. When prompted, type "echo <something>" to trigge
 
 ## coding-agent
 
-The real thing: DeepSeek V4 + the bash tool suite, `subagent` delegation, and the `todo_write` task tracker on the same `@deepseek-ai/dsh-stdio-agent` app. Where echo-agent proves the skeleton with mocks, this is a usable coding assistant.
+The real thing: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite, `subagent` delegation, and the `todo_write` task tracker on the same `@deepseek-ai/dsh-stdio-agent` app. Where echo-agent proves the skeleton with mocks, this is a usable coding assistant.
 
 Run with: `pnpm run demo:coding` (needs `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [coding-agent/README.md](coding-agent/README.md) for details.
 

@@ -6,7 +6,7 @@ The DeepSeek Harness coding agent exposed as an **Agent Client Protocol (ACP)** 
 pnpm run demo:acp          # needs DEEPSEEK_API_KEY (repo-root .env or env)
 ```
 
-This example is just a leaf `cordis.yml`: it loads the [`@deepseek-ai/dsh-acp-agent`](../../packages/ui/acp-agent) app (which bundles the [`@deepseek-ai/dsh-agent-core`](../../packages/core/agent-core) spine, JSONL session persistence, and the `@deepseek-ai/dsh-acp` bridge — with **no pre-created agents**, since ACP `session/new` creates them on demand), the swappable DeepSeek and bash backends, and the optional model-facing `subagent`/`subagent_fork`/`todo_write` tool entries. The app package bakes in the no-stdout-logger cluster, so a leaf has no logger entry to get wrong by default — keeping stdout pure for JSON-RPC.
+This example is just a leaf `cordis.yml`: it loads the [`@deepseek-ai/dsh-acp-agent`](../../packages/ui/acp-agent) app (which bundles the [`@deepseek-ai/dsh-agent-core`](../../packages/core/agent-core) spine, JSONL session persistence, and the `@deepseek-ai/dsh-acp` bridge — with **no pre-created agents**, since ACP `session/new` creates them on demand), the swappable DeepSeek, bash, and filesystem backends, and the model-facing `read`/`write`/`edit`/`subagent`/`subagent_fork`/`todo_write` tool entries. The app package bakes in the no-stdout-logger cluster, so a leaf has no logger entry to get wrong by default — keeping stdout pure for JSON-RPC.
 
 ## stdout is the protocol
 
@@ -28,7 +28,7 @@ Add to your Zed `settings.json` under `agent_servers`:
 }
 ```
 
-The editor sets each session's `cwd` to the project it opens; the agent's bash tools run there (see the per-session `cwd` note in `packages/ui/acp`), so launch the server from the harness repo with `pnpm --dir …` and let ACP carry the workspace path per session.
+The editor sets each session's `cwd` to the project it opens; both the agent's bash tools and the `read`/`write`/`edit` filesystem tools resolve relative paths against that per-session workspace (see the per-session `cwd` note in `packages/ui/acp` and [the per-session cwd RFC](../../docs/rfc/implemented/architecture/2026-07-02-fs-per-session-cwd.md)), so the server can be launched anywhere and each session still acts on its own project directory.
 
 ## Snapshot tests (record-once / replay-deterministic)
 

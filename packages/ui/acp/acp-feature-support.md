@@ -101,7 +101,7 @@ Tool-call presentation is **owned by each tool** (`presentCall` / `presentResult
 | `content` blocks | S | ✅ | ✅ | ✅ | Text content; the description renders above the card. |
 | `diff` content | S | ❌ | ✅ | ✅ | No structured diff rendering for edits (would need a diffing edit tool + presenter). |
 | `terminal` content | S | ✅ | ✅ | ✅ | Via the Zed `_meta` terminal convention (see below), not the spec `terminal/*` sub-protocol. |
-| `locations` (follow-along) | S | ❌ | ✅ | ✅ | No file-location hints emitted. |
+| `locations` (follow-along) | S | ✅ | ✅ | ✅ | The `read`/`write`/`edit` tools emit `{ path, line? }` file-location hints via `presentCall`. |
 | `rawInput` | S | ✅ | ⚠️ | ✅ | Parsed tool args surfaced as `rawInput`. |
 | `rawOutput` | S | ❌ | ⚠️ | ✅ | Not emitted. |
 
@@ -147,7 +147,7 @@ Ranked by how commonly the reference adapters ship them and how much UX they unl
 5. **Slash commands** (`available_commands_update`).
 6. **MCP passthrough** (`mcpServers` on `session/new` + `mcpCapabilities`).
 7. **Richer prompt content** — image / embedded `resource` blocks (needs a multimodal model path).
-8. **Diff + location tool rendering** — `diff` content and `locations` for edit tools.
+8. **Diff tool rendering** — structured `diff` content for edit tools (the `locations` follow-along hint already ships on `read`/`write`/`edit`).
 9. **Usage reporting** (`usage_update`) — the harness already records token usage internally (on `assistant/message`).
 10. **Editor filesystem delegation** (`fs/read_text_file` / `fs/write_text_file`) — lets the agent see unsaved buffers; lower priority since the harness has direct disk access.
 
