@@ -159,7 +159,9 @@ export interface TerminalCallView {
  * A call that creates or modifies files, rendered as an inline diff card by a
  * capable UI. Set by a tool whose call writes/edits a file (e.g. `write`,
  * `edit`). The diffs are derived from the call ARGUMENTS (a create's `oldText` is
- * `null`); result-time applied-hunk diffs are a separate follow-up.
+ * `null`); the tool emits a separate {@link DiffResultView} after `execute` — the
+ * applied change (an edit/overwrite hunk with context, or a whole-file diff for a
+ * create).
  */
 export interface DiffCallView {
   card: 'diff'
@@ -179,7 +181,7 @@ export interface DiffCallView {
  * {@link ToolDefinition.presentResult}; omitting the method keeps the pending
  * title and renders the raw result content.
  */
-export type ToolResultView = GenericResultView | TerminalResultView
+export type ToolResultView = GenericResultView | TerminalResultView | DiffResultView
 
 /**
  * The default completed card: an optional replacement title and reformatted
@@ -217,9 +219,40 @@ export interface TerminalResultView {
   signal?: string
 }
 
+/**
+ * A completed file mutation rendered as an inline diff card, the *result-time*
+ * analogue of {@link DiffCallView}. Set by a tool whose `execute` applied a file
+ * change (e.g. `write`, `edit`): `diffs` are the change to show — typically the
+ * APPLIED hunks computed from the before/after content (one entry per hunk, each
+ * with surrounding context lines), so the editor shows the real change in place;
+ * a tool with no before-image (e.g. a file create) may instead give a whole-file
+ * diff (`oldText: null`). A `tool_call_update`'s content REPLACES the call's
+ * content in an editor, so a mutation tool returns this even when it duplicates
+ * the call-time snippet — otherwise the model-facing result text would replace
+ * (clobber) the pending diff card.
+ */
+export interface DiffResultView {
+  card: 'diff'
+  /** Replacement title for the completed call. Omit to keep the pending-state title. */
+  title?: string
+  /** The change to show, in file order — applied contextual hunks, or a whole-file diff when there is no before-image. */
+  diffs: FileDiff[]
+}
+
+/**
+ * What a tool's `execute` returns. The bare {@link ContentBlock}`[]` form is the
+ * common case (model-facing content only); the object form additionally attaches
+ * a tool-private `meta` presentation payload that the registry threads onto the
+ * `tool/result` session event and hands back to the tool's `presentResult`.
+ * `meta` is opaque to the core (`unknown` — the tool owns and narrows its shape),
+ * and MUST be JSON-serializable: it persists on the durable log (the session
+ * enforces this at `append`), so replay reproduces the card.
+ */
+export type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta?: unknown }
+
 /** A registered tool: its schema plus the execution function. */
 export interface ToolDefinition extends ToolSchema {
-  execute(args: unknown, exec: ToolExecution): Promise<ContentBlock[]>
+  execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn>
   /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
@@ -246,6 +279,13 @@ export interface ToolResult {
   content: ContentBlock[]
   /** Whether the call failed. */
   isError: boolean
+  /**
+   * The tool-private presentation payload the tool attached from `execute` (via
+   * the object return form), threaded verbatim from the `tool/result` event.
+   * Opaque (`unknown`); the tool narrows it back to its own shape. Absent when
+   * the tool attached none.
+   */
+  meta?: unknown
 }
 
 /** One pending tool call, as it flows through the execution waterfall. */
@@ -289,6 +329,13 @@ export interface ToolExecutionResult {
    * text in `content` is always present; this is extra structure for code.
    */
   error?: ToolErrorInfo
+  /**
+   * The tool-private presentation payload from a successful `execute` (the object
+   * return form). Threaded onto the `tool/result` session event and back into
+   * {@link ToolResult} for `presentResult`. Opaque (`unknown`); absent when the
+   * tool attached none or the call failed.
+   */
+  meta?: unknown
 }
 
 /**
@@ -393,8 +440,13 @@ export class ToolRegistry extends Service {
           // Unknown tool routes through the same catch as a tool-thrown error, so
           // both failure classes get structured `{ name, code }` from one path.
           if (!tool) throw new ToolNotFoundError(exec.name)
-          const content = await tool.execute(exec.arguments, exec)
-          return { callId: exec.callId, content, isError: false }
+          // Normalize the two `execute` return shapes: a bare ContentBlock[] (no
+          // meta) or a { content, meta } object (a tool attaching a private
+          // presentation payload). An array IS the content; the object carries it.
+          const returned = await tool.execute(exec.arguments, exec)
+          const content = Array.isArray(returned) ? returned : returned.content
+          const meta = Array.isArray(returned) ? undefined : returned.meta
+          return { callId: exec.callId, content, isError: false, ...meta !== undefined ? { meta } : {} }
         } catch (error: unknown) {
           return toolErrorResult(exec.callId, error)
         }

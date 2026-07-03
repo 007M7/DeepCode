@@ -81,6 +81,38 @@ describe('ToolRegistry', () => {
     expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'hi' }], isError: false })
   })
 
+  it('threads a tool-attached meta (object return form) onto the result', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'meta-tool',
+      async execute() {
+        return { content: [{ type: 'text', text: 'ok' }], meta: { diffs: [{ path: 'a', oldText: null, newText: 'x' }] } }
+      },
+    })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'meta-tool', arguments: {} })
+    expect(result).toEqual({
+      callId: CallId('c1'),
+      content: [{ type: 'text', text: 'ok' }],
+      isError: false,
+      meta: { diffs: [{ path: 'a', oldText: null, newText: 'x' }] },
+    })
+  })
+
+  it('omits meta when the object return form supplies none', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'no-meta-tool',
+      async execute() {
+        return { content: [{ type: 'text', text: 'ok' }] }
+      },
+    })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'no-meta-tool', arguments: {} })
+    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false })
+    expect('meta' in result).toBe(false)
+  })
+
   it('returns isError results for unknown tools and throwing tools', async () => {
     const ctx = await setup()
     ctx.tools.register({

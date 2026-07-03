@@ -127,6 +127,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Make `dsh-fs-policy` an event-gate plugin, not a method interface](implemented/architecture/2026-06-26-file-context-as-event-gate.md) | 2026-06-26 |
 | [Resolve filesystem paths against the caller's session cwd](implemented/architecture/2026-07-02-fs-per-session-cwd.md) | 2026-07-02 |
 | [Tagged render-intent union for tool-call presentation](implemented/architecture/2026-07-02-tool-render-intent-union.md) | 2026-07-02 |
+| [Result-time applied-hunk diffs for file mutations](implemented/architecture/2026-07-02-result-time-applied-hunk-diffs.md) | 2026-07-02 |
 
 ### Process
 

@@ -383,6 +383,26 @@ export async function readForEdit(
 }
 
 /**
+ * Best-effort read of a file's current text for a before/after diff basis, used
+ * by an overwrite. Returns the LF-normalized decoded content, or `null` when the
+ * file is binary or not valid UTF-8 — a write must succeed regardless of the
+ * prior bytes, so an undiffable prior file simply yields no contextual-hunk basis
+ * (the caller treats `null` the same as an absent file: the result renders a
+ * whole-file diff rather than an applied hunk).
+ */
+export async function readTextForDiff(absolutePath: string, signal?: AbortSignal): Promise<string | null> {
+  const buffer = await readFileAbortable(absolutePath, 'read', signal)
+  if (buffer.includes(0)) return null
+  try {
+    return normalizeLineEndings(new TextDecoder('utf-8', { fatal: true }).decode(buffer))
+  } catch (error: unknown) {
+    /* v8 ignore next 2 -- TextDecoder({fatal}) only throws TypeError on invalid bytes; any other throw is an unreachable runtime fault. */
+    if (!(error instanceof TypeError)) throw error
+    return null
+  }
+}
+
+/**
  * Apply a literal replacement to LF-normalized content. Throws
  * `FS_EDIT_NOT_FOUND` on empty `oldString` or zero matches and
  * `FS_AMBIGUOUS_EDIT` on multiple matches when `replaceAll` is false. Returns
@@ -410,4 +430,4 @@ export function applyLiteralEdit(
   return { content: content.split(oldNorm).join(newNorm), replacements }
 }
 
-export { restoreLineEndings }
+export { normalizeLineEndings, restoreLineEndings }

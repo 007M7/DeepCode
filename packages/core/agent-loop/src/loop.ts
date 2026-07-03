@@ -724,6 +724,9 @@ async function runStep(
       content: result.content,
       isError: result.isError,
       ...result.error ? { error: result.error } : {},
+      // The tool's private presentation payload (e.g. a result-time diff),
+      // persisted so a UI bridge reproduces the card on replay.
+      ...result.meta !== undefined ? { meta: result.meta } : {},
     }, { surfaceOp: 'append', sourceEventSeqs: [callEvent.seq] })
     // signal CAN flip during the await above (abort() inside a tool);
     // the analyzer can't see through the await boundary.

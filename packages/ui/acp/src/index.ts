@@ -818,7 +818,7 @@ export function streamSessionEventUpdate(
       return
     }
     case 'tool/result': {
-      const view = presenter.result(event.data.callId, event.data.content, event.data.isError)
+      const view = presenter.result(event.data.callId, event.data.content, event.data.isError, event.data.meta)
       notify({ sessionId, update: toolResultUpdate(event.data.callId, view, event.data.isError, terminal) })
       return
     }
@@ -919,14 +919,14 @@ export class ToolPresenter {
   }
 
   /** Completed-state render intent for a `tool/result`; consumes the remembered `(name, args, card)`. */
-  result(callId: CallId, content: ContentBlock[], isError: boolean): ToolResultView {
+  result(callId: CallId, content: ContentBlock[], isError: boolean, meta?: unknown): ToolResultView {
     const call = this.pending.get(callId)
     this.pending.delete(callId)
     // No remembered call (unknown/late callId) → nothing to present from; raw content.
     if (call === undefined) return { card: 'generic', content }
     let present: ToolResultView | undefined
     try {
-      present = this.tools.get(call.name)?.presentResult?.(call.args, { content, isError })
+      present = this.tools.get(call.name)?.presentResult?.(call.args, { content, isError, ...meta !== undefined ? { meta } : {} })
     } catch (error: unknown) {
       // A throwing presentResult must not break streaming/replay: log + fall back.
       this.onError(`acp: tool "${call.name}" presentResult threw, using raw result: ${String(error)}`)
@@ -1126,7 +1126,10 @@ function terminalExitMeta(callId: string, view: TerminalResultView): TerminalExi
  * (the terminal card consumes them and `content` is OMITTED — a
  * `tool_call_update.content` REPLACES the call's content collection in Zed, so
  * re-sending would clobber the terminal block the call installed) and otherwise
- * derives the fenced ```console fallback from `output`.
+ * derives the fenced ```console fallback from `output`. A `diff` result emits its
+ * `{ type: 'diff' }` content blocks (an applied hunk, or a whole-file diff for a
+ * create), which replace the diff the call installed — so the model-facing result
+ * text can never clobber it.
  */
 function toolResultUpdate(callId: CallId, view: ToolResultView, isError: boolean, terminal: TerminalRendering): ToolCallSessionUpdate {
   const status = isError ? 'failed' as const : 'completed' as const
@@ -1167,6 +1170,27 @@ function toolResultUpdate(callId: CallId, view: ToolResultView, isError: boolean
         ...view.content !== undefined ? { content: toolResultContent(view.content) } : {},
         ...view.title !== undefined ? { title: view.title } : {},
       }
+    case 'diff': {
+      // A result-time diff: emit one `{ type: 'diff' }` content block per entry
+      // (an applied hunk for an edit/overwrite, or a whole-file diff for a
+      // create), mirroring the call-side diff arm. `tool_call_update.content`
+      // REPLACES the call's content in an editor, so this result diff supersedes
+      // the diff the pending card installed (and keeps the model-facing result
+      // text from clobbering it).
+      const content: AcpToolCallContent[] = view.diffs.map(d => ({ type: 'diff', path: d.path, oldText: d.oldText, newText: d.newText }))
+      // Relativize the replacement title against the session cwd from the diff
+      // path, exactly as the call-side card does — `tool_call_update.title`
+      // replaces the card header, so a raw absolute path here would undo the
+      // pending card's relativized title.
+      const title = view.title !== undefined ? displayTitle(view.title, view.diffs[0]?.path, terminal.cwd) : undefined
+      return {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: callId,
+        status,
+        ...content.length > 0 ? { content } : {},
+        ...title !== undefined ? { title } : {},
+      }
+    }
     default:
       return assertNever(view, 'ToolResultView.card')
   }

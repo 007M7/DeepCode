@@ -14,11 +14,12 @@
 
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { DiffCallView } from '@deepseek-ai/dsh-tools'
+import type { DiffCallView, DiffResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { FsEditOutcome } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import { computeHunkDiffs, diffsFromMeta, type FsDiffMeta } from './diff.ts'
 import { sessionCwd } from './session-cwd.ts'
 
 /** Validated `edit` arguments after defaulting. */
@@ -66,7 +67,7 @@ export function applyEditTool(ctx: Context): void {
       new_string: { type: 'string', required: true, description: 'Literal replacement text. Use an empty string to delete the match.' },
       replace_all: { type: 'boolean', description: 'Replace all matches. Defaults to false; when false, old_string must appear exactly once.' },
     },
-    async execute(args, exec): Promise<ContentBlock[]> {
+    async execute(args, exec): Promise<{ content: ContentBlock[]; meta?: FsDiffMeta }> {
       const input = parseEditArgs(args)
       const cwd = sessionCwd(exec)
       const target = await ctx.fs.resolve(input.filePath, cwd !== undefined ? { cwd } : undefined)
@@ -82,7 +83,17 @@ export function applyEditTool(ctx: Context): void {
       )
       // Record the observed version (a no-op when no policy plugin listens).
       ctx.emit('fs/observed', target, outcome.version, exec)
-      return [{ type: 'text', text: formatEditOutput(target.displayPath, outcome) }]
+      // The result-time applied-hunk diff (before→after with context lines). An
+      // edit always changes content (parseEditArgs requires old_string to differ
+      // and editText matches at least once), so there is always at least one hunk.
+      // The bridge renders these as an inline diff that supersedes the call-time
+      // snippet; the display path is the model-facing `file_path` (the bridge
+      // relativizes it).
+      const diffs = computeHunkDiffs(input.filePath, outcome.before, outcome.after)
+      return {
+        content: [{ type: 'text', text: formatEditOutput(target.displayPath, outcome) }],
+        meta: { diffs },
+      }
     },
     // Pure display: a diff card of the literal replacement (old_string →
     // new_string), derived from the call args. `oldText: old_string || null`
@@ -95,6 +106,16 @@ export function applyEditTool(ctx: Context): void {
         diffs: [{ path: args.file_path, oldText: args.old_string || null, newText: args.new_string }],
         locations: [{ path: args.file_path }],
       }
+    },
+    // Result-time display: the applied contextual-diff hunks carried on `meta`.
+    // On success with diffs, a `diff` result card supersedes the call-time
+    // snippet; on error (nothing applied) or malformed meta, fall through to the
+    // generic "updated successfully" rendering.
+    presentResult(args, result: ToolResult): DiffResultView | undefined {
+      if (result.isError) return undefined
+      const diffs = diffsFromMeta(result.meta)
+      if (diffs === undefined) return undefined
+      return { card: 'diff', title: `Edit ${args.file_path}`, diffs }
     },
   }))
 }

@@ -99,7 +99,7 @@ Tool-call presentation is **owned by each tool** (`presentCall` / `presentResult
 | `ToolCallKind` mapping | S | ✅ | ✅ | ✅ | `execute`/`read`/`edit`/`other` inferred from the tool; richer mapping possible. |
 | `ToolCallStatus` | S | ✅ | ✅ | ✅ | `in_progress` → `completed`/`failed`. |
 | `content` blocks | S | ✅ | ✅ | ✅ | Text content; the description renders above the card. |
-| `diff` content | S | ✅ | ✅ | ✅ | The `write`/`edit` tools declare a `diff` render intent (`presentCall` → `{ card: 'diff' }`); the bridge emits `{ type: 'diff', path, oldText, newText }` content blocks (call-time, args-derived — applied-hunk diffs are a follow-up). |
+| `diff` content | S | ✅ | ✅ | ✅ | The `write`/`edit` tools declare a `diff` render intent: `presentCall` → a call-time `{ card: 'diff' }` snippet, and `presentResult` → a result-time `{ card: 'diff' }`. For an edit or an overwrite it carries the applied hunk(s) with surrounding context (one per `replace_all` site), computed from the before/after text and persisted on the `tool/result` event as `meta`; for a create (no before-image) it is an args-derived whole-file diff. The bridge emits `{ type: 'diff', path, oldText, newText }` content blocks; a successful mutation ALWAYS returns the result diff (an ACP `tool_call_update.content` replaces the call's content, so the result diff — not the model-facing text — is what survives). |
 | `terminal` content | S | ✅ | ✅ | ✅ | Via the Zed `_meta` terminal convention (see below), not the spec `terminal/*` sub-protocol. |
 | `locations` (follow-along) | S | ✅ | ✅ | ✅ | The `read`/`write`/`edit` tools emit `{ path, line? }` file-location hints via `presentCall`. |
 | `rawInput` | S | ✅ | ⚠️ | ✅ | Parsed tool args surfaced as `rawInput`. |
@@ -147,7 +147,6 @@ Ranked by how commonly the reference adapters ship them and how much UX they unl
 5. **Slash commands** (`available_commands_update`).
 6. **MCP passthrough** (`mcpServers` on `session/new` + `mcpCapabilities`).
 7. **Richer prompt content** — image / embedded `resource` blocks (needs a multimodal model path).
-8. **Applied-hunk diff rendering** — the `write`/`edit` diff cards ship (call-time, args-derived: whole `old_string`→`new_string`). Result-time structured-patch hunks with surrounding context (what `claude-agent-acp` derives from a PostToolUse hook) need a new result/event shape carrying the patch — a follow-up.
 9. **Usage reporting** (`usage_update`) — the harness already records token usage internally (on `assistant/message`).
 10. **Editor filesystem delegation** (`fs/read_text_file` / `fs/write_text_file`) — lets the agent see unsaved buffers; lower priority since the harness has direct disk access.
 

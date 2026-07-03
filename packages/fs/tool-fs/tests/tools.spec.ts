@@ -57,16 +57,17 @@ class FakeFs extends FileSystem {
   override async writeText(target: FsTarget, content: string, expected?: FsWriteIntent): Promise<FsWriteOutcome> {
     this.throwIfArmed()
     this.writeIntents.push(expected)
-    const existed = this.files.has(target.targetKey)
+    const before = this.files.get(target.targetKey) ?? null
     this.files.set(target.targetKey, content)
-    return { operation: existed ? 'update' : 'create', version: FsVersion('v2') }
+    return { operation: before !== null ? 'update' : 'create', version: FsVersion('v2'), before, after: content }
   }
   override async editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }): Promise<FsEditOutcome> {
     this.throwIfArmed()
     this.editIntents.push(expected)
     const content = this.files.get(target.targetKey) ?? ''
-    this.files.set(target.targetKey, content.split(edit.oldString).join(edit.newString))
-    return { replacements: 1, replaceAll: edit.replaceAll, version: FsVersion('v3') }
+    const after = content.split(edit.oldString).join(edit.newString)
+    this.files.set(target.targetKey, after)
+    return { replacements: 1, replaceAll: edit.replaceAll, version: FsVersion('v3'), before: content, after }
   }
 }
 
@@ -393,5 +394,100 @@ describe('tool-owned presentation (pure presentCall)', () => {
       diffs: [{ path: 'a.txt', oldText: null, newText: 'seed' }],
       locations: [{ path: 'a.txt' }],
     })
+  })
+})
+
+describe('result-time contextual diff (meta + presentResult)', () => {
+  // An edit records the applied contextual hunk on `tool/result` meta, and the
+  // tool's presentResult narrows it back into a `diff` result card the bridge
+  // renders. Drive execute end-to-end so the meta is the REAL computed hunk.
+  const withContext = 'a\nb\nc\nOLD\nd\ne\nf\n'
+
+  it('edit: execute attaches the applied hunk as meta { diffs }', async () => {
+    const { ctx, fs } = await setup()
+    const session = { header: {} }
+    fs.files.set('key:a.txt', withContext)
+    await call(ctx, 'read', { file_path: 'a.txt' }, { session })
+    const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'OLD', new_string: 'NEW' }, { session })
+    expect(result.isError).toBe(false)
+    expect(result.meta).toEqual({
+      diffs: [{ path: 'a.txt', oldText: 'a\nb\nc\nOLD\nd\ne\nf', newText: 'a\nb\nc\nNEW\nd\ne\nf' }],
+    })
+  })
+
+  it('edit: presentResult turns the meta into a diff result card', async () => {
+    const { ctx, fs } = await setup()
+    const session = { header: {} }
+    fs.files.set('key:a.txt', withContext)
+    await call(ctx, 'read', { file_path: 'a.txt' }, { session })
+    const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'OLD', new_string: 'NEW' }, { session })
+    const view = ctx.tools.get('edit')?.presentResult?.({ file_path: 'a.txt', old_string: 'OLD', new_string: 'NEW' }, result)
+    expect(view).toEqual({
+      card: 'diff', title: 'Edit a.txt',
+      diffs: [{ path: 'a.txt', oldText: 'a\nb\nc\nOLD\nd\ne\nf', newText: 'a\nb\nc\nNEW\nd\ne\nf' }],
+    })
+  })
+
+  it('write OVERWRITE: execute attaches a contextual hunk; presentResult renders a diff card', async () => {
+    const { ctx, fs } = await setup()
+    const session = { header: {} }
+    fs.files.set('key:a.txt', withContext)
+    await call(ctx, 'read', { file_path: 'a.txt' }, { session })
+    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'a\nb\nc\nNEW\nd\ne\nf\n' }, { session })
+    expect(result.isError).toBe(false)
+    expect(result.meta).toEqual({ diffs: [{ path: 'a.txt', oldText: 'a\nb\nc\nOLD\nd\ne\nf', newText: 'a\nb\nc\nNEW\nd\ne\nf' }] })
+    const view = ctx.tools.get('write')?.presentResult?.({ file_path: 'a.txt', content: 'x' }, result)
+    expect(view).toEqual({ card: 'diff', title: 'Write a.txt', diffs: [{ path: 'a.txt', oldText: 'a\nb\nc\nOLD\nd\ne\nf', newText: 'a\nb\nc\nNEW\nd\ne\nf' }] })
+  })
+
+  it('write CREATE: no before-version → no meta, but presentResult still renders a whole-file diff card', async () => {
+    // A create has no prior content (no `meta`), yet the completed card must be a
+    // `diff` — an ACP tool_call_update.content REPLACES the call's content, so a
+    // non-diff result would clobber the pending new-file diff. The whole-file diff
+    // is derived from the args (oldText:null), replay-safe.
+    const { ctx } = await setup()
+    const session = { header: {} }
+    const result = await call(ctx, 'write', { file_path: 'new.txt', content: 'fresh\n' }, { session })
+    expect(result.isError).toBe(false)
+    expect(result.meta).toBeUndefined()
+    const view = ctx.tools.get('write')?.presentResult?.({ file_path: 'new.txt', content: 'fresh\n' }, result)
+    expect(view).toEqual({ card: 'diff', title: 'Write new.txt', diffs: [{ path: 'new.txt', oldText: null, newText: 'fresh\n' }] })
+  })
+
+  it('write OVERWRITE with identical content: a before exists but yields no hunk → no meta, presentResult falls back to a whole-file diff', async () => {
+    const { ctx, fs } = await setup()
+    const session = { header: {} }
+    fs.files.set('key:a.txt', 'same\n')
+    await call(ctx, 'read', { file_path: 'a.txt' }, { session })
+    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'same\n' }, { session })
+    expect(result.isError).toBe(false)
+    expect(result.meta).toBeUndefined()
+    const view = ctx.tools.get('write')?.presentResult?.({ file_path: 'a.txt', content: 'same\n' }, result)
+    expect(view).toEqual({ card: 'diff', title: 'Write a.txt', diffs: [{ path: 'a.txt', oldText: null, newText: 'same\n' }] })
+  })
+
+  it('presentResult returns undefined on an error result (nothing applied)', async () => {
+    const { ctx } = await setup()
+    const errorResult = { content: [{ type: 'text' as const, text: 'Error: boom' }], isError: true }
+    expect(ctx.tools.get('edit')?.presentResult?.({ file_path: 'a.txt', old_string: 'x', new_string: 'y' }, errorResult)).toBeUndefined()
+    expect(ctx.tools.get('write')?.presentResult?.({ file_path: 'a.txt', content: 'y' }, errorResult)).toBeUndefined()
+  })
+
+  it('edit presentResult returns undefined on malformed meta (defensive narrowing)', async () => {
+    // edit has no whole-file fallback (only a literal replacement), so a malformed
+    // meta yields the generic "updated successfully" rendering.
+    const { ctx } = await setup()
+    const badMeta = { content: [{ type: 'text' as const, text: 'ok' }], isError: false, meta: { diffs: 'nope' } }
+    expect(ctx.tools.get('edit')?.presentResult?.({ file_path: 'a.txt', old_string: 'x', new_string: 'y' }, badMeta)).toBeUndefined()
+  })
+
+  it('write presentResult falls back to a whole-file diff on malformed meta (never leaks the result text)', async () => {
+    // write always renders a diff card so the completed update can't clobber the
+    // pending diff with the model-facing text; a malformed meta falls back to the
+    // args-derived whole-file diff, same as a create.
+    const { ctx } = await setup()
+    const badMeta = { content: [{ type: 'text' as const, text: 'ok' }], isError: false, meta: { diffs: 'nope' } }
+    const view = ctx.tools.get('write')?.presentResult?.({ file_path: 'a.txt', content: 'y' }, badMeta)
+    expect(view).toEqual({ card: 'diff', title: 'Write a.txt', diffs: [{ path: 'a.txt', oldText: null, newText: 'y' }] })
   })
 })

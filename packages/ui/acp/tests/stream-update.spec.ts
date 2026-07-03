@@ -618,6 +618,119 @@ describe('diff-card mapping', () => {
   })
 })
 
+describe('result-time diff card (REAL fs edit tool → tool_call_update diff blocks)', () => {
+  // Drive the SHIPPING fs edit tool through the bridge: the pending tool/call
+  // installs the call-time snippet, then the tool/result carries the tool's
+  // computed applied-hunk `meta`, which presentResult narrows into a `diff`
+  // result card the bridge forwards as `{ type: 'diff' }` content blocks. Uses
+  // the REAL tool (not a stand-in) per the anti-mock convention, mirroring the
+  // call-side diff test above.
+  async function fsCtx(): Promise<Context> {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(FsLocal)
+    await ctx.plugin(ToolFs)
+    return ctx
+  }
+
+  function updatesWith(presenter: ToolPresenter, ...events: SessionEvent[]): SessionNotification['update'][] {
+    const out: SessionNotification['update'][] = []
+    for (const event of events) streamSessionEventUpdate(SessionId('s1'), event, n => out.push(n.update), presenter)
+    return out
+  }
+
+  it('forwards the applied-hunk meta onto the wire as tool_call_update diff content', async () => {
+    const ctx = await fsCtx()
+    const presenter = new ToolPresenter(ctx.tools)
+    const args = JSON.stringify({ file_path: 'src/b.ts', old_string: 'OLD', new_string: 'NEW' })
+    // The applied hunk the tool would compute and persist on the result meta.
+    const meta = { diffs: [{ path: 'src/b.ts', oldText: 'a\nOLD\nb', newText: 'a\nNEW\nb' }] }
+    const [, resultUpdate] = updatesWith(
+      presenter,
+      evt('tool/call', { turn: 1, step: 1, callId: CallId('e1'), name: 'edit', arguments: args }),
+      evt('tool/result', { turn: 1, step: 1, callId: CallId('e1'), content: [{ type: 'text', text: 'ok' }], isError: false, meta }),
+    )
+    expect(resultUpdate).toEqual({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'e1',
+      status: 'completed',
+      title: 'Edit src/b.ts',
+      content: [{ type: 'diff', path: 'src/b.ts', oldText: 'a\nOLD\nb', newText: 'a\nNEW\nb' }],
+    })
+    await ctx.fiber.dispose()
+  })
+
+  it('an error result carries NO diff card (falls back to raw content)', async () => {
+    const ctx = await fsCtx()
+    const presenter = new ToolPresenter(ctx.tools)
+    const args = JSON.stringify({ file_path: 'src/b.ts', old_string: 'OLD', new_string: 'NEW' })
+    const [, resultUpdate] = updatesWith(
+      presenter,
+      evt('tool/call', { turn: 1, step: 1, callId: CallId('e1'), name: 'edit', arguments: args }),
+      evt('tool/result', { turn: 1, step: 1, callId: CallId('e1'), content: [{ type: 'text', text: 'Error: boom' }], isError: true }),
+    )
+    expect(resultUpdate).toMatchObject({ sessionUpdate: 'tool_call_update', status: 'failed' })
+    expect(resultUpdate).not.toHaveProperty('content', expect.arrayContaining([expect.objectContaining({ type: 'diff' })]))
+    await ctx.fiber.dispose()
+  })
+
+  it('the completed diff TITLE relativizes against the session cwd (the result title replaces the card header)', async () => {
+    // A `tool_call_update.title` replaces the card header, so the result-side
+    // diff must relativize its title exactly as the pending card did — otherwise
+    // a completed absolute-path edit flips `Edit src/b.ts` back to the raw
+    // absolute path. The diff/location paths stay absolute (the editor opens the
+    // real path). Drive the REAL fs edit tool with an absolute in-workspace path.
+    const ctx = await fsCtx()
+    const presenter = new ToolPresenter(ctx.tools)
+    const args = JSON.stringify({ file_path: '/work/proj/src/b.ts', old_string: 'OLD', new_string: 'NEW' })
+    const meta = { diffs: [{ path: '/work/proj/src/b.ts', oldText: 'a\nOLD\nb', newText: 'a\nNEW\nb' }] }
+    const out: SessionNotification['update'][] = []
+    const rendering = { enabled: false, cwd: '/work/proj' }
+    for (const event of [
+      evt('tool/call', { turn: 1, step: 1, callId: CallId('e1'), name: 'edit', arguments: args }),
+      evt('tool/result', { turn: 1, step: 1, callId: CallId('e1'), content: [{ type: 'text', text: 'ok' }], isError: false, meta }),
+    ]) streamSessionEventUpdate(SessionId('s1'), event, n => out.push(n.update), presenter, rendering)
+    expect(out[1]).toEqual({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'e1',
+      status: 'completed',
+      title: 'Edit src/b.ts',
+      content: [{ type: 'diff', path: '/work/proj/src/b.ts', oldText: 'a\nOLD\nb', newText: 'a\nNEW\nb' }],
+    })
+    await ctx.fiber.dispose()
+  })
+
+  it('a diff result with an EMPTY diffs array and no title omits both keys (nothing to send)', () => {
+    // A synthetic tool whose presentResult yields a `diff` card with no hunks and
+    // no title — the shipping fs tools never emit this (edit always has a hunk;
+    // write always falls back to a whole-file diff), so a stand-in is the only way
+    // to exercise the empty-content AND absent-title branches of the result-side
+    // diff arm.
+    const emptyDiffTool: ToolDefinition = {
+      name: 'writer',
+      description: 'writes a file',
+      parameters: {},
+      execute: async () => [],
+      presentCall: () => ({ card: 'diff', title: 'Write x', diffs: [{ path: 'x', oldText: null, newText: 'y' }] }),
+      presentResult: () => ({ card: 'diff', diffs: [] }),
+    }
+    const presenter = new ToolPresenter(registryOf(emptyDiffTool))
+    const [, resultUpdate] = updatesWith(
+      presenter,
+      evt('tool/call', { turn: 1, step: 1, callId: CallId('w1'), name: 'writer', arguments: '{}' }),
+      evt('tool/result', { turn: 1, step: 1, callId: CallId('w1'), content: [{ type: 'text', text: 'ok' }], isError: false }),
+    )
+    expect(resultUpdate).toEqual({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'w1',
+      status: 'completed',
+    })
+    expect(resultUpdate).not.toHaveProperty('content')
+    expect(resultUpdate).not.toHaveProperty('title')
+  })
+})
+
 describe('relative-path display titles (bridge relativizes the title against the session cwd)', () => {
   // The bridge relativizes a file card's TITLE against the session workspace cwd
   // (mirroring the reference adapter's toDisplayPath), while leaving locations/
