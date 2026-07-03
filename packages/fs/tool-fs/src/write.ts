@@ -62,9 +62,10 @@ export function applyWriteTool(ctx: Context): void {
       const outcome = await ctx.fs.writeText(target, input.content, intent, exec.signal)
       // Record the observed version (a no-op when no policy plugin listens).
       ctx.emit('fs/observed', target, outcome.version, exec)
-      // Result-time contextual diff ONLY for an overwrite (a before-version
+      // Attach a contextual hunk as `meta` ONLY for an overwrite (a before-version
       // exists). A create has no "before" — `outcome.before` is null — so it
-      // carries no result diff, leaving just the call-time whole-file card.
+      // carries no `meta`; `presentResult` then renders a whole-file diff from the
+      // args, so the completed card is still a diff (never the result text).
       const diffs = outcome.before !== null ? computeHunkDiffs(input.filePath, outcome.before, outcome.after) : []
       return {
         content: [{ type: 'text', text: formatWriteOutput(target.displayPath, outcome) }],

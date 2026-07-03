@@ -220,19 +220,21 @@ export interface TerminalResultView {
 
 /**
  * A completed file mutation rendered as an inline diff card, the *result-time*
- * analogue of {@link DiffCallView}. Set by a tool whose `execute` applied a
- * file change (e.g. `write`, `edit`): `diffs` are the APPLIED hunks computed
- * from the before/after file content (one entry per hunk, each with surrounding
- * context lines), so the editor shows the real change with context — distinct
- * from the call-time whole-snippet {@link DiffCallView}. A `tool_call_update`'s
- * content REPLACES the call's content in an editor, so this result diff
- * supersedes the pending snippet.
+ * analogue of {@link DiffCallView}. Set by a tool whose `execute` applied a file
+ * change (e.g. `write`, `edit`): `diffs` are the change to show — typically the
+ * APPLIED hunks computed from the before/after content (one entry per hunk, each
+ * with surrounding context lines), so the editor shows the real change in place;
+ * a tool with no before-image (e.g. a file create) may instead give a whole-file
+ * diff (`oldText: null`). A `tool_call_update`'s content REPLACES the call's
+ * content in an editor, so a mutation tool returns this even when it duplicates
+ * the call-time snippet — otherwise the model-facing result text would replace
+ * (clobber) the pending diff card.
  */
 export interface DiffResultView {
   card: 'diff'
   /** Replacement title for the completed call. Omit to keep the pending-state title. */
   title?: string
-  /** One entry per applied hunk (a contextual diff), in file order. */
+  /** The change to show, in file order — applied contextual hunks, or a whole-file diff when there is no before-image. */
   diffs: FileDiff[]
 }
 
