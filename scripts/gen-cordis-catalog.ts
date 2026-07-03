@@ -75,6 +75,15 @@ const LINK_MAP: Record<string, string> = {
   BashRunResult: 'bash.md',
   BashTask: 'bash.md',
   BashTaskRead: 'bash.md',
+  FsEditOutcome: 'filesystem.md',
+  FsEditRequest: 'filesystem.md',
+  FsInfo: 'filesystem.md',
+  FsTarget: 'filesystem.md',
+  FsVersion: 'filesystem.md',
+  FsWriteIntent: 'filesystem.md',
+  FsWriteOutcome: 'filesystem.md',
+  FsPolicyExec: 'filesystem.md',
+  FileReadOutcome: 'filesystem.md',
 }
 
 /** One harness event, extracted from an `interface Events` block. */
