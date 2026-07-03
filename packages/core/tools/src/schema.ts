@@ -19,9 +19,8 @@
  * @module dsh-tools/schema
  */
 
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
-import type { ToolCallView, ToolDefinition, ToolExecution, ToolResult, ToolResultView } from './index.ts'
+import type { ToolCallView, ToolDefinition, ToolExecuteReturn, ToolExecution, ToolResult, ToolResultView } from './index.ts'
 
 // ---------------------------------------------------------------------------
 // SchemaSpec — the author-facing per-property type
@@ -291,9 +290,11 @@ export interface DefineToolOptions<S extends SchemaSpec> {
   parameters: S
   /**
    * Tool execution function. `args` is typed as {@link InferArgs<S>} — zero
-   * casts needed.
+   * casts needed. Returns either a bare {@link ContentBlock}`[]` (model-facing
+   * content only) or a `{ content, meta }` object to also attach a tool-private
+   * presentation payload (see {@link ToolExecuteReturn}).
    */
-  execute(args: InferArgs<S>, exec: ToolExecution): Promise<ContentBlock[]>
+  execute(args: InferArgs<S>, exec: ToolExecution): Promise<ToolExecuteReturn>
   /**
    * Optional: how to present the PENDING state of one call in a UI (an editor
    * tool-call card, a CLI log line). `args` is the typed, schema-validated
@@ -354,7 +355,7 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
     description: options.description,
     parameters: schemaSpecToJsonSchema(options.parameters) as unknown as Record<string, unknown>,
     ...options.strict !== undefined ? { strict: options.strict } : {},
-    async execute(args: unknown, exec: ToolExecution): Promise<ContentBlock[]> {
+    async execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn> {
       // Validate the model-generated args before the typed body runs. On
       // mismatch we throw ToolArgsError; the registry turns it into an
       // isError result so the model can self-correct. After this guard, the

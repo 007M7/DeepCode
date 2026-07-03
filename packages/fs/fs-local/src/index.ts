@@ -28,6 +28,7 @@ import {
   applyLiteralEdit,
   probe,
   readForEdit,
+  readTextForDiff,
   readWholeText,
   resolveLocalTarget,
   restoreLineEndings,
@@ -41,6 +42,7 @@ export {
   applyLiteralEdit,
   probe,
   readForEdit,
+  readTextForDiff,
   readWholeText,
   resolveLocalTarget,
   restoreLineEndings,
@@ -143,11 +145,18 @@ export class LocalFileSystem extends FileSystem {
       // provider) — no version guard, no read-first requirement. Still atomic
       // (the per-target lock is unconditional), so the write is never torn.
 
+      // Capture the prior text (the before/after diff basis) BEFORE the write.
+      // `null` for a create (no existing file) OR an existing-but-undiffable
+      // file (binary/invalid-UTF-8) — a consumer renders no result-time diff for
+      // either, only the call-time whole-file card.
+      const before = existing ? await readTextForDiff(target.targetKey, signal) : null
       await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.internals)
       const after = await probe(target.targetKey)
       return {
         operation: existing ? 'update' : 'create',
         version: this.versionAfterWrite(after, target),
+        before,
+        after: content,
       }
     })
   }
@@ -183,6 +192,10 @@ export class LocalFileSystem extends FileSystem {
         replacements: edited.replacements,
         replaceAll: edit.replaceAll,
         version: this.versionAfterWrite(after, target),
+        // The LF-normalized before/after text (the applied-hunk diff basis);
+        // line-ending restoration is a storage detail the diff ignores.
+        before: original.content,
+        after: edited.content,
       }
     })
   }

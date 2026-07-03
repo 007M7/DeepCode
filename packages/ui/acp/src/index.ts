@@ -66,7 +66,7 @@ import { assertNever, CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
+import type { JsonValue, SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ToolCallKind, ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } from '@deepseek-ai/dsh-tools'
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
@@ -818,7 +818,7 @@ export function streamSessionEventUpdate(
       return
     }
     case 'tool/result': {
-      const view = presenter.result(event.data.callId, event.data.content, event.data.isError)
+      const view = presenter.result(event.data.callId, event.data.content, event.data.isError, event.data.meta)
       notify({ sessionId, update: toolResultUpdate(event.data.callId, view, event.data.isError, terminal) })
       return
     }
@@ -919,14 +919,14 @@ export class ToolPresenter {
   }
 
   /** Completed-state render intent for a `tool/result`; consumes the remembered `(name, args, card)`. */
-  result(callId: CallId, content: ContentBlock[], isError: boolean): ToolResultView {
+  result(callId: CallId, content: ContentBlock[], isError: boolean, meta?: JsonValue): ToolResultView {
     const call = this.pending.get(callId)
     this.pending.delete(callId)
     // No remembered call (unknown/late callId) → nothing to present from; raw content.
     if (call === undefined) return { card: 'generic', content }
     let present: ToolResultView | undefined
     try {
-      present = this.tools.get(call.name)?.presentResult?.(call.args, { content, isError })
+      present = this.tools.get(call.name)?.presentResult?.(call.args, { content, isError, ...meta !== undefined ? { meta } : {} })
     } catch (error: unknown) {
       // A throwing presentResult must not break streaming/replay: log + fall back.
       this.onError(`acp: tool "${call.name}" presentResult threw, using raw result: ${String(error)}`)
@@ -1126,7 +1126,9 @@ function terminalExitMeta(callId: string, view: TerminalResultView): TerminalExi
  * (the terminal card consumes them and `content` is OMITTED — a
  * `tool_call_update.content` REPLACES the call's content collection in Zed, so
  * re-sending would clobber the terminal block the call installed) and otherwise
- * derives the fenced ```console fallback from `output`.
+ * derives the fenced ```console fallback from `output`. A `diff` result emits the
+ * applied-hunk `{ type: 'diff' }` content blocks, which replace the call-time
+ * whole-file snippet in the editor.
  */
 function toolResultUpdate(callId: CallId, view: ToolResultView, isError: boolean, terminal: TerminalRendering): ToolCallSessionUpdate {
   const status = isError ? 'failed' as const : 'completed' as const
@@ -1167,6 +1169,20 @@ function toolResultUpdate(callId: CallId, view: ToolResultView, isError: boolean
         ...view.content !== undefined ? { content: toolResultContent(view.content) } : {},
         ...view.title !== undefined ? { title: view.title } : {},
       }
+    case 'diff': {
+      // A result-time applied-hunk diff: emit one `{ type: 'diff' }` content block
+      // per hunk (mirroring the call-side diff arm). `tool_call_update.content`
+      // REPLACES the call's content in an editor, so these hunks supersede the
+      // call-time whole-file snippet the pending card installed.
+      const content: AcpToolCallContent[] = view.diffs.map(d => ({ type: 'diff', path: d.path, oldText: d.oldText, newText: d.newText }))
+      return {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: callId,
+        status,
+        ...content.length > 0 ? { content } : {},
+        ...view.title !== undefined ? { title: view.title } : {},
+      }
+    }
     default:
       return assertNever(view, 'ToolResultView.card')
   }

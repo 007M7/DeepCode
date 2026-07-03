@@ -1,5 +1,6 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { CallId, ContentBlock, MessageSource, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { JsonValue } from './json.ts'
 
 /** Identifies one session in the store (and its persistence artifacts). */
 export type SessionId = Branded<'SessionId'>
@@ -210,7 +211,16 @@ export interface SessionEventMap {
    */
   'assistant/message': { turn: number; step: number; content: ContentBlock[]; usage?: TokenUsage }
   'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
-  'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string } }
+  /**
+   * A completed tool call's model-facing result, plus an optional tool-private
+   * `meta` presentation payload. `meta` is opaque to the core — the producing
+   * tool owns its shape and reads it back in `presentResult` — and is a
+   * {@link JsonValue} so it persists in the durable log and reproduces on replay
+   * (a UI bridge renders the identical card from a loaded session). Absent unless
+   * the tool attaches one (e.g. `dsh-tool-fs` carries its result-time contextual
+   * diff here).
+   */
+  'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string }; meta?: JsonValue }
   /** Steering content injected between steps of a running turn. */
   'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
   /**

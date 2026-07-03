@@ -13,11 +13,12 @@
 
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { DiffCallView } from '@deepseek-ai/dsh-tools'
+import type { DiffCallView, DiffResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import { computeHunkDiffs, diffsFromMeta, type FsDiffMeta } from './diff.ts'
 import { sessionCwd } from './session-cwd.ts'
 
 /** Validate value constraints the schema DSL can't express. */
@@ -51,7 +52,7 @@ export function applyWriteTool(ctx: Context): void {
       file_path: { type: 'string', required: true, description: 'Path to write, resolved by the filesystem backend.' },
       content: { type: 'string', required: true, description: 'Full UTF-8 text content to write.' },
     },
-    async execute(args, exec): Promise<ContentBlock[]> {
+    async execute(args, exec): Promise<{ content: ContentBlock[]; meta?: FsDiffMeta }> {
       const input = parseWriteArgs(args)
       const cwd = sessionCwd(exec)
       const target = await ctx.fs.resolve(input.filePath, cwd !== undefined ? { cwd } : undefined)
@@ -61,7 +62,14 @@ export function applyWriteTool(ctx: Context): void {
       const outcome = await ctx.fs.writeText(target, input.content, intent, exec.signal)
       // Record the observed version (a no-op when no policy plugin listens).
       ctx.emit('fs/observed', target, outcome.version, exec)
-      return [{ type: 'text', text: formatWriteOutput(target.displayPath, outcome) }]
+      // Result-time contextual diff ONLY for an overwrite (a before-version
+      // exists). A create has no "before" — `outcome.before` is null — so it
+      // carries no result diff, leaving just the call-time whole-file card.
+      const diffs = outcome.before !== null ? computeHunkDiffs(input.filePath, outcome.before, outcome.after) : []
+      return {
+        content: [{ type: 'text', text: formatWriteOutput(target.displayPath, outcome) }],
+        ...diffs.length > 0 ? { meta: { diffs } } : {},
+      }
     },
     // Pure display: a diff card (an editor renders write as a new-file / full-
     // replace diff). `oldText: null` — a call-time presenter has no access to the
@@ -74,6 +82,16 @@ export function applyWriteTool(ctx: Context): void {
         diffs: [{ path: args.file_path, oldText: null, newText: args.content }],
         locations: [{ path: args.file_path }],
       }
+    },
+    // Result-time display: for an OVERWRITE, the applied contextual-diff hunks on
+    // `meta` supersede the call-time whole-file snippet. A create carries no meta
+    // (no "before"), so this returns undefined and the call-time new-file card
+    // stands; an error or malformed meta also falls through to generic rendering.
+    presentResult(args, result: ToolResult): DiffResultView | undefined {
+      if (result.isError) return undefined
+      const diffs = diffsFromMeta(result.meta)
+      if (diffs === undefined) return undefined
+      return { card: 'diff', title: `Write ${args.file_path}`, diffs }
     },
   }))
 }

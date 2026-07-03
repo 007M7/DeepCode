@@ -101,6 +101,14 @@ export interface FsWriteOutcome {
   operation: 'create' | 'update'
   /** Opaque version of the file after the write. */
   version: FsVersion
+  /**
+   * The file's content BEFORE the write, or `null` when the file did not exist
+   * (a create). Raw storage text (LF-normalized by the backend), never a diff —
+   * a consumer computes the result-time contextual diff from `before`/`after`.
+   */
+  before: string | null
+  /** The file's content AFTER the write (the text that was written). */
+  after: string
 }
 
 /** A literal-replacement edit request. */
@@ -121,6 +129,14 @@ export interface FsEditOutcome {
   replaceAll: boolean
   /** Opaque version of the file after the edit. */
   version: FsVersion
+  /**
+   * The file's content BEFORE the edit. Raw storage text (LF-normalized by the
+   * backend), never a diff — a consumer computes the result-time contextual diff
+   * (the applied hunk with context) from `before`/`after`.
+   */
+  before: string
+  /** The file's content AFTER the edit. */
+  after: string
 }
 
 /**

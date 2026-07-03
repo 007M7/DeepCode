@@ -10,7 +10,7 @@ A `ToolSchema` (the model-facing fields) plus the `execute` function and optiona
 
 ```ts type-equiv
 interface ToolDefinition extends ToolSchema {
-  execute(args: unknown, exec: ToolExecution): Promise<ContentBlock[]>
+  execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn>
   /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
@@ -100,6 +100,13 @@ interface ToolExecutionResult {
    * text in `content` is always present; this is extra structure for code.
    */
   error?: ToolErrorInfo
+  /**
+   * The tool-private presentation payload from a successful `execute` (the object
+   * return form). Threaded onto the `tool/result` session event and back into
+   * {@link ToolResult} for `presentResult`. Opaque {@link JsonValue}; absent when
+   * the tool attached none or the call failed.
+   */
+  meta?: JsonValue
 }
 ```
 
