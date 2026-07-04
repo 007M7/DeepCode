@@ -53,7 +53,6 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 |---|---|
 | [Unify the agent id and the session id](proposed/simplification/2026-06-20-unify-agent-and-session-id.md) | 2026-06-20 |
 | [Prune dead core-spine surface — `SurfaceManager.invalidate()`, the loop-internal exports, `ToolExecutionResult.callId`](proposed/simplification/2026-07-04-prune-dead-core-spine-surface.md) | 2026-07-04 |
-| [Trim unreachable ACP bridge surface — the branding knobs and the kind-sniffing fallback](proposed/simplification/2026-07-04-trim-acp-bridge-unreachable-surface.md) | 2026-07-04 |
 
 ### Architecture
 
@@ -119,6 +118,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Remove the `agent/steering` mirror emit](implemented/simplification/2026-07-04-remove-agent-steering-mirror.md) | 2026-07-04 |
 | [Share the app bins' boot glue instead of maintaining twin copies](implemented/simplification/2026-07-04-share-app-bin-boot-glue.md) | 2026-07-04 |
 | [Tighten the hook-protocol contract — dialect, discarded fields, double defaults, and lib-owned `hook/result` semantics](implemented/simplification/2026-07-04-tighten-hook-protocol-contract.md) | 2026-07-04 |
+| [Trim unreachable ACP bridge surface — the branding knobs and the kind-sniffing fallback](implemented/simplification/2026-07-04-trim-acp-bridge-unreachable-surface.md) | 2026-07-04 |
 
 ### Architecture
 
