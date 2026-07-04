@@ -36,7 +36,7 @@ The child is a separate process, so it inherits an environment. Credential-shape
 
 ## Testing
 
-Designed at every tier the backend touches, per the AGENTS.md "design test infrastructure up front" rule:
+Designed at every tier the backend touches, per the root AGENTS.md rule that a new capability shape names its coverage at every tier at plan time:
 
 - **Keyless unit/integration** (`subagent-acp.spec.ts`): spawns a scripted mock ACP server subprocess (`tests/mock-acp-server.ts`) and drives it through the real backend over real ACP stdio. Covers: the prompt round-trip + output accumulation; every StopReason mapping; cancellation via `run.cancel()` and via the request signal; the already-aborted-before-start case; the cancel-races-ahead-of-newSession case; a torn-pipe-after-cancel (child crashes on cancel) settling `aborted`; permission auto-answer under both policies (including the allow-policy-no-allow-option fallback); a non-message update consumed but not accumulated; a nonexistent-command spawn failure settling `error`; HMR provider cleanup; and the namespace export shape. 100% per-file coverage.
 - **With-key e2e** (`subagent-acp.e2e.ts`): the harness drives ITSELF — the backend spawns the real `acp-agent` example process and a real model in that child answers a prompt (PONG) and does real file work (writes `proof.txt`, verified on disk). Self-skips without `DEEPSEEK_API_KEY`. This is the "talk to our own process" smoke and the out-of-process analogue of the in-process spawn e2e.

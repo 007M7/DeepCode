@@ -105,6 +105,7 @@ export abstract class SessionPersistence extends Service {
    * until the first {@link append} (lazy materialization), in which case a
    * created-but-never-appended session is absent from {@link list}
    * — abandoned sessions leave nothing behind.
+   * @param meta - the immutable header (id, version, cwd, lineage) to record.
    */
   abstract create(meta: SessionHeader): Promise<void>
 
@@ -114,6 +115,8 @@ export abstract class SessionPersistence extends Service {
    * contracts: the first event's `seq` MUST equal the stored next-seq (after
    * `load` has durably closed any interrupted turn). Rejects non-JSON-
    * serializable `event.data` with an error naming the offending event type.
+   * @param id - the session the batch belongs to.
+   * @param events - the contiguous batch to persist, in seq order.
    */
   abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 
@@ -138,10 +141,16 @@ export abstract class SessionPersistence extends Service {
    * COMMITTED region (at or before the last real `turn/end`) makes the session
    * unloadable (reject). Rejects an unknown format `version`. See the session-persistence RFC for
    * the crash-recovery contract.
+   * @param id - the persisted session to reload.
+   * @returns the header plus the event log, ending on a balanced `turn/end` —
+   *   immediately usable as a session seed.
    */
   abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
 
-  /** Lightweight listing from metadata, without a full-log parse. */
+  /**
+   * Lightweight listing from metadata, without a full-log parse.
+   * @returns one header per materialized session.
+   */
   abstract list(): Promise<SessionHeader[]>
 }
 

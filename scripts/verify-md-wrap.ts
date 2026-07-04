@@ -1,6 +1,6 @@
 /**
  * Doc-sync gate: enforce the repo's "Markdown is not hard-wrapped" convention
- * (AGENTS.md § Type Safety and Documentation) — prose paragraphs are written as
+ * (docs/AGENTS.md § Writing rules) — prose paragraphs are written as
  * one physical line per paragraph and the editor soft-wraps. A hard-wrapped
  * paragraph (a one-word edit reflows and re-diffs the whole block) is a defect
  * this script catches before review.
