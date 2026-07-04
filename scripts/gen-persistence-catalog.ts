@@ -25,7 +25,12 @@
  * (it becomes the catalog entry), and an `@mode` tag on a member is a hard
  * error — dispatch modes belong to cordis bus events, and a log event has none
  * (see docs/rfc/implemented/process/2026-07-04-persistence-log-catalog.md).
- * Violations aggregate into ONE error listing every offender.
+ * Structural holes are hard errors for the same reason: a member that is not a
+ * property signature with an explicit payload type, a top-level
+ * `interface SessionEventMap` outside the owning package, and a duplicate
+ * declaration of one event would each let something join (or impersonate)
+ * `keyof SessionEventMap` without a truthful catalog row. Violations aggregate
+ * into ONE error listing every offender.
  *
  * The surface/log-only badge is parsed from the `SurfaceEventType` union in the
  * owning package (never hand-listed here), and every union member must name a
@@ -156,8 +161,12 @@ function parseJsDoc(raw: string): { doc: string; hasMode: boolean } {
     para = []
   }
   for (const line of inner) {
-    if (/^@mode\b/.test(line)) { hasMode = true; flushPara(); inTags = true; continue }
-    if (line.startsWith('@')) { flushPara(); inTags = true; continue }
+    // Tag detection runs on the trimmed line: the normalization above strips at
+    // most one post-`*` space, so an extra-indented `*  @mode` still reaches
+    // here with leading whitespace and must not leak into prose.
+    const tagLine = line.trimStart()
+    if (/^@mode\b/.test(tagLine)) { hasMode = true; flushPara(); inTags = true; continue }
+    if (tagLine.startsWith('@')) { flushPara(); inTags = true; continue }
     if (inTags) continue // block-tag territory: continuations are never prose
     if (line.trim() === '') { flushPara(); continue }
     if (/^-\s+/.test(line)) {
@@ -194,16 +203,18 @@ function reportViolations(violations: string[]): void {
  * top-level declaration (in `@deepseek-ai/dsh-session`) and any declaration
  * merge inside a `declare module '@deepseek-ai/dsh-session'` block. Both forms
  * declare members of the SAME merged interface, so both are catalogued
- * uniformly; nothing else in the repo may name an interface `SessionEventMap`.
+ * uniformly. `topLevel` distinguishes the owning form so the caller can verify
+ * it actually lives in the owning package — an unrelated local interface that
+ * happens to share the name must not be catalogued as the on-disk vocabulary.
  */
-function sessionEventMapDecls(sf: ts.SourceFile): ts.InterfaceDeclaration[] {
-  const decls: ts.InterfaceDeclaration[] = []
+function sessionEventMapDecls(sf: ts.SourceFile): { decl: ts.InterfaceDeclaration; topLevel: boolean }[] {
+  const decls: { decl: ts.InterfaceDeclaration; topLevel: boolean }[] = []
   for (const stmt of sf.statements) {
-    if (ts.isInterfaceDeclaration(stmt) && stmt.name.text === 'SessionEventMap') decls.push(stmt)
+    if (ts.isInterfaceDeclaration(stmt) && stmt.name.text === 'SessionEventMap') decls.push({ decl: stmt, topLevel: true })
     if (ts.isModuleDeclaration(stmt) && ts.isStringLiteral(stmt.name) && stmt.name.text === SESSION_MODULE
       && stmt.body && ts.isModuleBlock(stmt.body)) {
       for (const inner of stmt.body.statements) {
-        if (ts.isInterfaceDeclaration(inner) && inner.name.text === 'SessionEventMap') decls.push(inner)
+        if (ts.isInterfaceDeclaration(inner) && inner.name.text === 'SessionEventMap') decls.push({ decl: inner, topLevel: false })
       }
     }
   }
@@ -211,11 +222,31 @@ function sessionEventMapDecls(sf: ts.SourceFile): ts.InterfaceDeclaration[] {
 }
 
 /**
+ * The npm package name owning a `packages/<group>/<pkg>/…` source file, read
+ * from that package's manifest — or null when the manifest is missing or
+ * unparseable (the caller treats null as "ownership unverifiable").
+ */
+function packageNameFor(rel: string, scanRoot: string): string | null {
+  const dir = rel.split('/').slice(0, 3).join('/')
+  try {
+    const manifest = JSON.parse(readFileSync(resolve(scanRoot, dir, 'package.json'), 'utf8')) as { name?: string }
+    return typeof manifest.name === 'string' ? manifest.name : null
+  } catch {
+    // Missing or malformed package.json — every real workspace package has one,
+    // so this only arises in stripped-down fixture trees; either way ownership
+    // cannot be verified and the caller reports the declaration.
+    return null
+  }
+}
+
+/**
  * Walk every `SessionEventMap` declaration (the owning interface plus every
  * plugin declaration merge) and extract its events, hard-erroring (aggregated)
  * on any completeness violation: a member without description prose, an
- * `@mode` tag (a category error — log events have no dispatch mode), a
- * non-literal member name, or the same event declared twice.
+ * `@mode` tag (a category error — log events have no dispatch mode), a member
+ * that is not a property signature with an explicit payload type, a
+ * non-literal member name, a top-level declaration outside the owning package,
+ * or the same event declared twice.
  * `scanRoot` defaults to the repo root; tests pass a fixture dir.
  */
 export function collectLogEvents(scanRoot: string = root): LogEventEntry[] {
@@ -227,10 +258,27 @@ export function collectLogEvents(scanRoot: string = root): LogEventEntry[] {
     const text = readFileSync(abs, 'utf8')
     if (!text.includes('SessionEventMap')) continue
     const sf = ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, true)
-    for (const decl of sessionEventMapDecls(sf)) {
+    for (const { decl, topLevel } of sessionEventMapDecls(sf)) {
+      if (topLevel) {
+        // The top-level form is the OWNING vocabulary; anywhere else, a
+        // same-named local interface is a different type entirely and must not
+        // be catalogued as on-disk events.
+        const pkg = packageNameFor(rel, scanRoot)
+        if (pkg !== SESSION_MODULE) {
+          violations.push(`top-level interface SessionEventMap (${pointer(rel, sf, decl)}) is outside ${SESSION_MODULE} (package ${pkg ?? 'unknown'}). Rename the interface, or contribute events via declare module '${SESSION_MODULE}'.`)
+          continue
+        }
+      }
       for (const member of decl.members) {
-        if (!ts.isPropertySignature(member) || !member.type) continue
         const src = pointer(rel, sf, member)
+        if (!ts.isPropertySignature(member) || !member.type) {
+          // A method-form or type-less member still joins `keyof SessionEventMap`,
+          // so skipping it silently would be exactly the undocumented-event hole
+          // this catalog exists to close.
+          const label = (member as { name?: ts.Node }).name?.getText(sf) ?? member.getText(sf).replace(/\s+/g, ' ')
+          violations.push(`SessionEventMap member ${label} (${src}) is not a property signature with an explicit payload type; declare every log event as 'scope/name': <payload>.`)
+          continue
+        }
         if (!ts.isStringLiteral(member.name)) {
           violations.push(`log event at ${src} has a non-literal name; the catalog needs string-literal event names.`)
           continue

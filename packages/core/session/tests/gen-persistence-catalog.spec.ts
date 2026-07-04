@@ -50,9 +50,13 @@ afterEach(() => {
   while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true })
 })
 
+/** The manifest that marks a fixture package as the owning session package. */
+const OWNER_MANIFEST = '{ "name": "@deepseek-ai/dsh-session" }\n'
+
 describe('gen-persistence-catalog collectLogEvents', () => {
   it('extracts a documented member of the owning top-level interface', () => {
     const events = collectLogEvents(make({
+      'packages/core/fix/package.json': OWNER_MANIFEST,
       'packages/core/fix/src/types.ts':
         'export interface SessionEventMap {\n  /** A thing was recorded. */\n  \'fix/happened\': { turn: number }\n}\n',
     }))
@@ -64,6 +68,14 @@ describe('gen-persistence-catalog collectLogEvents', () => {
       payload: '{ turn: number }',
       source: 'packages/core/fix/src/types.ts:3',
     })
+  })
+
+  it('hard-errors on a top-level interface outside the owning package', () => {
+    expect(() => collectLogEvents(make({
+      'packages/group/alien/package.json': '{ "name": "@deepseek-ai/dsh-alien" }\n',
+      'packages/group/alien/src/types.ts':
+        'export interface SessionEventMap {\n  /** Not the real vocabulary. */\n  \'alien/event\': { turn: number }\n}\n',
+    }))).toThrow(/top-level interface SessionEventMap .* is outside @deepseek-ai\/dsh-session \(package @deepseek-ai\/dsh-alien\)/)
   })
 
   it('extracts a member declaration-merged via the session module', () => {
@@ -93,6 +105,24 @@ describe('gen-persistence-catalog collectLogEvents', () => {
     expect(() => collectLogEvents(make({
       'packages/group/fix/src/types.ts': merge('    /**\n     * Documented, but mistagged.\n     * @mode emit\n     */\n    \'fix/tagged\': { turn: number }'),
     }))).toThrow(/carries an @mode tag/)
+  })
+
+  it('hard-errors on an extra-indented @mode tag (does not leak into prose)', () => {
+    expect(() => collectLogEvents(make({
+      'packages/group/fix/src/types.ts': merge('    /**\n     * Documented, but mistagged.\n     *   @mode emit\n     */\n    \'fix/indented\': { turn: number }'),
+    }))).toThrow(/carries an @mode tag/)
+  })
+
+  it('hard-errors on a method-form member (it still joins keyof SessionEventMap)', () => {
+    expect(() => collectLogEvents(make({
+      'packages/group/fix/src/types.ts': merge('    /** Documented, wrong shape. */\n    \'fix/method\'(turn: number): void'),
+    }))).toThrow(/not a property signature with an explicit payload type/)
+  })
+
+  it('hard-errors on a property member with no payload type annotation', () => {
+    expect(() => collectLogEvents(make({
+      'packages/group/fix/src/types.ts': merge('    /** Documented, no payload. */\n    \'fix/bare\''),
+    }))).toThrow(/not a property signature with an explicit payload type/)
   })
 
   it('hard-errors on a non-literal member name', () => {
