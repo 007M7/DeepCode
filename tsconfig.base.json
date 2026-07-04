@@ -48,6 +48,7 @@
         "./packages/subagent/*/src",
         "./packages/web/*/src",
         "./packages/todo/*/src",
+        "./packages/hooks/*/src",
         "./packages/session-persistence/*/src",
         "./packages/ui/*/src",
         "./packages/util/*/src",

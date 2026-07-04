@@ -25,6 +25,8 @@ graph TD
   compact --> session
   fs-local --> fs
   fs-policy --> fs
+  hook-protocol --> bash
+  hook-protocol --> session
   llm-replay --> llm
   llm-replay --> session
   session-persistence --> session
@@ -133,6 +135,7 @@ graph TD
 | `compact` | `llm`, `session` |
 | `fs-local` | `fs` |
 | `fs-policy` | `fs` |
+| `hook-protocol` | `bash`, `session` |
 | `llm-replay` | `llm`, `session` |
 | `session-persistence` | `session` |
 | `web-fetch-local` | `web` |

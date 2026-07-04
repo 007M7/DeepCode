@@ -6,7 +6,7 @@ Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/t
 
 ## `SessionEventMap` — the event vocabulary
 
-The append-only event types. Merge-extensible: a plugin declares extra event types via declaration merging — e.g. the [compaction seam](compaction.md) adds `compact/start` / `compact/summary` / `compact/end`.
+The append-only event types. Merge-extensible: a plugin declares extra event types via declaration merging — e.g. the [compaction seam](compaction.md) adds `compact/start` / `compact/summary` / `compact/end`, and `@deepseek-ai/dsh-hook-protocol` adds log-only `hook/invoked` / `hook/result` provenance for a hook bridge. Like `compact/*`, these are NOT `SurfaceEventType`s (no `surfaceOp`).
 
 ```ts type-equiv
 interface SessionEventMap {
@@ -221,6 +221,17 @@ interface TurnEndReasonMap {
 ## The turn-enclosure invariant
 
 Every session event lives **inside** a turn (between a `turn/start` and its `turn/end`). The loop appends queued `user/message` events *after* `turn/start`, and an idle `agent.inject()` wraps its `context/message` in a one-shot `injection` turn. This makes the turn the single durability/replay boundary: a backend can treat anything after the last `turn/end` as an interrupted-crash tail without risking the loss of legitimately-recorded between-turn context. The `dsh-invariants` plugin enforces it in dev (a message event outside an open turn throws). See [the turn-enclosure invariant RFC](../rfc/implemented/architecture/2026-06-15-turn-enclosure-invariant.md).
+
+## Plugin-contributed log-only events
+
+A plugin may declaration-merge extra `SessionEventMap` types. These are **log-only**: NOT `SurfaceEventType`s (they carry no `surfaceOp` and contribute nothing to derived history), but, like every event, they must sit inside an open turn. The compaction seam's `compact/*` are documented on [compaction.md](compaction.md); the hook bridges' `hook/*` provenance (from `@deepseek-ai/dsh-hook-protocol`) are:
+
+| Event | Payload | Role |
+|---|---|---|
+| `hook/invoked` | `{ turn, point, dialect, matcher?, handlerId }` | A hook command was invoked at a hook `point` (`PreToolUse`, `Stop`, …). `dialect` is the bridge (`claude`/`codex`/`native`); `matcher` the matcher-group pattern that selected it (absent for match-all); `handlerId` correlates with the result. |
+| `hook/result` | `{ turn, point, handlerId, decision, exitCode?, stderrSummary?, durationMs }` | The decided outcome, paired by `handlerId`. `decision` is the resolved neutral outcome (`deny`/`allow`/`block`/`stop`/`pass`/…); `exitCode` absent when the hook could not run; `stderrSummary` the truncated block-reason source. |
+
+The mid-turn hook points (`PreToolUse`/`PostToolUse`/`UserPromptSubmit`/`Stop`) fire inside the loop's open turn, so their `hook/*` records are turn-enclosed by construction. `SessionStart` gets no `hook/*` record — its injected `context/message` is the durable evidence — because it has no open turn to enclose one (see the hooks RFC).
 
 ## Durability contract
 

@@ -62,6 +62,7 @@
     { "path": "./packages/subagent/subagent-spawn" },
     { "path": "./packages/subagent/subagent-fork" },
     { "path": "./packages/subagent/subagent-acp" },
-    { "path": "./packages/todo/tool-todo" }
+    { "path": "./packages/todo/tool-todo" },
+    { "path": "./packages/hooks/hook-protocol" }
   ]
 }

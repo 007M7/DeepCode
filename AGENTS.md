@@ -86,6 +86,10 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
     tool-todo/      model-facing todo_write tool: writes the whole task list to
                     the session log (todo/write), rendered as a stdio checklist /
                     ACP plan
+  hooks/          hook bridges + shared wire protocol
+    hook-protocol/  shared Claude Code / Codex hook wire-protocol core (library,
+                    not a plugin): matcher primitive, exit-code/stdout codec,
+                    runHook (via ctx.bash), most-restrictive merge, hook/* events
   session-persistence/   persistence capability family
     session-persistence/         durable persistence seam + write coordinator
     session-persistence-jsonl/    JSONL-sidecar backend
