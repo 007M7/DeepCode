@@ -19,7 +19,7 @@
  *   live `Agent`. Two shapes: INTERCEPTION seams (the `agent/prompt-submit`/
  *   `agent/request`/`agent/step-result`/`agent/turn-continuation` waterfalls and
  *   the serial `agent/pre-step`) that mutate/veto, and TRANSIENT emits
- *   (`agent/status`, `agent/stream-chunk`, `agent/error`, `agent/created`/
+ *   (`agent/status`, `agent/error`, `agent/created`/
  *   `agent/disposed`, `agent/queued`, `agent/steering`, `agent/session-start`)
  *   that notify with the `Agent` in hand. Turn/step boundaries are NOT here —
  *   they are durable `session/event` records. Answers "right now, with the agent
@@ -44,7 +44,7 @@
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { ContentBlock, GenerateOptions, Message, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 
 /** Identifies one live agent in the registry. */
 export type AgentId = Branded<'AgentId'>
@@ -340,11 +340,6 @@ declare module 'cordis' {
     'agent/turn-continuation'(agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>
 
     // ---- streaming + tool notifications (emit) ----
-    /**
-     * A raw {@link StreamChunk} arrived from the model (token-level UI/log feed).
-     * @mode emit
-     */
-    'agent/stream-chunk'(agent: Agent, turn: number, step: number, chunk: StreamChunk): void
     /**
      * Steering content was injected into a running turn.
      * @mode emit

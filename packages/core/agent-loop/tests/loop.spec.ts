@@ -163,13 +163,10 @@ describe('agent loop', () => {
     expect(request!.tools?.map(t => t.name)).toEqual(['noop'])
   })
 
-  it('records raw chunks for replay and emits agent/stream-chunk', async () => {
+  it('records raw chunks for replay as assistant/chunk session events', async () => {
     const adapter = new MockAdapter([textResponse('abc')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
-
-    const streamed: StreamChunk[] = []
-    ctx.on('agent/stream-chunk', (_agent, _turn, _step, chunk) => void streamed.push(chunk))
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
@@ -177,7 +174,6 @@ describe('agent loop', () => {
     const chunkEvents = agent.session.events.filter(e => e.type === 'assistant/chunk')
     // textResponse('abc') = block-start + 3 deltas + block-end + usage + finish = 7
     expect(chunkEvents).toHaveLength(7)
-    expect(streamed).toHaveLength(7)
     // replay: chunk events alone re-assemble to the recorded assistant message
     const deltaText = chunkEvents
       .flatMap(e => e.type === 'assistant/chunk' ? [e.data.chunk] : [])
@@ -711,10 +707,10 @@ describe('agent loop', () => {
     ctx.on('session/event', (_s, event) => { if (event.type === 'turn/start') turns.push(event.data.turn) })
 
     // queue two messages while idle — first starts turn 1 immediately;
-    // queue the second during turn 1 via a stream-chunk hook
+    // queue the second during turn 1 when the first assistant chunk streams
     let queued = false
-    ctx.on('agent/stream-chunk', () => {
-      if (!queued) {
+    ctx.on('session/event', (_s, event) => {
+      if (event.type === 'assistant/chunk' && !queued) {
         queued = true
         send(agent, 'second message')
       }

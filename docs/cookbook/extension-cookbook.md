@@ -30,7 +30,7 @@ export function apply(ctx: Context) {
 
 ## A UI plugin
 
-A UI plugin consumes `agent/stream-chunk` and session events for rendering, and drives input back in via `agent.send()` / `agent.steer()`.
+A UI plugin renders from the `session/event` feed (the assistant token stream as `assistant/chunk`, plus turn/step boundaries and tool activity), and drives input back in via `agent.send()` / `agent.steer()`.
 
 ```ts
 import type { Context } from 'cordis'
@@ -43,8 +43,10 @@ export const name = 'my-ui'
 export const inject = ['agents']
 
 export function apply(ctx: Context) {
-  ctx.on('agent/stream-chunk', (agent, turn, step, chunk) => {
-    if (chunk.type === 'text-delta') render(chunk.text)
+  ctx.on('session/event', (_session, event) => {
+    if (event.type === 'assistant/chunk' && event.data.chunk.type === 'text-delta') {
+      render(event.data.chunk.text)
+    }
   })
   onUserInput(text => ctx.agents.get(AgentId('main'))?.send([{ type: 'text', text }]))
 }

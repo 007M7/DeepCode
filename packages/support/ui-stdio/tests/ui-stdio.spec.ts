@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { createStdioChat, type Config, type StdioRuntime } from '../src/index.ts'
 
@@ -69,6 +69,11 @@ function makeSession(agentId: string): Session {
   return { header: { id: `${agentId}-session` } } as Session
 }
 
+/** An `assistant/chunk` session event carrying one raw stream chunk. */
+function chunkEvent(chunk: StreamChunk): SessionEvent {
+  return { type: 'assistant/chunk', seq: 0, time: 0, data: { turn: 1, step: 0, chunk } }
+}
+
 const CONFIG: Config = { welcome: 'hi there', agent: 'main' }
 
 async function setup(config: Config = CONFIG, runtimeOver: Partial<StdioRuntime> = {}) {
@@ -102,25 +107,23 @@ describe('createStdioChat rendering', () => {
 
   it('renders text-delta chunks verbatim', async () => {
     const { ctx, out } = await setup()
-    const agent = makeAgent('main')
-    ctx.emit('agent/stream-chunk', agent, 1, 0, { type: 'text-delta', index: 0, text: 'hello' })
+    ctx.emit('session/event', makeSession('main'), chunkEvent({ type: 'text-delta', index: 0, text: 'hello' }))
     expect(out.text()).toContain('hello')
   })
 
   it('wraps reasoning-delta in the dim SGR and resets on the following text-delta', async () => {
     const { ctx, out } = await setup()
-    const agent = makeAgent('main')
-    ctx.emit('agent/stream-chunk', agent, 1, 0, { type: 'reasoning-delta', index: 0, text: 'think' })
-    ctx.emit('agent/stream-chunk', agent, 1, 0, { type: 'reasoning-delta', index: 0, text: 'more' })
-    ctx.emit('agent/stream-chunk', agent, 1, 0, { type: 'text-delta', index: 0, text: 'answer' })
+    const session = makeSession('main')
+    ctx.emit('session/event', session, chunkEvent({ type: 'reasoning-delta', index: 0, text: 'think' }))
+    ctx.emit('session/event', session, chunkEvent({ type: 'reasoning-delta', index: 0, text: 'more' }))
+    ctx.emit('session/event', session, chunkEvent({ type: 'text-delta', index: 0, text: 'answer' }))
     expect(out.text()).toContain('\x1B[2mthinkmore\x1B[0m\nanswer')
   })
 
   it('ignores stream-chunk types it does not render', async () => {
     const { ctx, out } = await setup()
     const before = out.text()
-    const agent = makeAgent('main')
-    ctx.emit('agent/stream-chunk', agent, 1, 0, { type: 'block-start', index: 0, blockType: 'text' })
+    ctx.emit('session/event', makeSession('main'), chunkEvent({ type: 'block-start', index: 0, blockType: 'text' }))
     expect(out.text()).toBe(before)
   })
 
@@ -171,9 +174,9 @@ describe('createStdioChat rendering', () => {
 
   it('resets dim styling at turn/end if a turn ends mid-reasoning', async () => {
     const { ctx, out } = await setup()
-    const agent = makeAgent('main')
-    ctx.emit('agent/stream-chunk', agent, 1, 0, { type: 'reasoning-delta', index: 0, text: 'mid' })
-    ctx.emit('session/event', makeSession('main'), {
+    const session = makeSession('main')
+    ctx.emit('session/event', session, chunkEvent({ type: 'reasoning-delta', index: 0, text: 'mid' }))
+    ctx.emit('session/event', session, {
       type: 'turn/end', seq: 1, time: 0, data: { turn: 1, reason: { kind: 'completed' } },
     } as SessionEvent)
     expect(out.text()).toContain('\x1B[2mmid\x1B[0m')
@@ -230,8 +233,7 @@ describe('createStdioChat rendering', () => {
 
   it('resets dim styling when a todo/write interrupts reasoning', async () => {
     const { ctx, out } = await setup()
-    const agent = makeAgent('main')
-    ctx.emit('agent/stream-chunk', agent, 1, 0, { type: 'reasoning-delta', index: 0, text: 'r' })
+    ctx.emit('session/event', {} as Session, chunkEvent({ type: 'reasoning-delta', index: 0, text: 'r' }))
     ctx.emit('session/event', {} as Session, {
       type: 'todo/write', seq: 1, time: 0,
       data: { todos: [{ content: 'a task', status: 'pending' }] },
@@ -241,9 +243,8 @@ describe('createStdioChat rendering', () => {
 
   it('resets dim styling when a tool/call interrupts reasoning', async () => {
     const { ctx, out } = await setup()
-    const agent = makeAgent('main')
-    ctx.emit('agent/stream-chunk', agent, 1, 0, { type: 'reasoning-delta', index: 0, text: 'r' })
     const session = {} as Session
+    ctx.emit('session/event', session, chunkEvent({ type: 'reasoning-delta', index: 0, text: 'r' }))
     ctx.emit('session/event', session, {
       type: 'tool/call', seq: 1, time: 0,
       data: { turn: 1, step: 0, callId: 'c1', name: 'bash', arguments: '{}' },

@@ -104,6 +104,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Fold trace-only session facts into load-bearing events](implemented/simplification/2026-06-20-collapse-trace-only-session-events.md) | 2026-06-20 |
 | [Stop mirroring durable boundaries as agent events](implemented/simplification/2026-06-20-remove-agent-boundary-mirror-events.md) | 2026-06-20 |
 | [Split the filesystem seam — provider text mutations plus the `dsh-fs-policy` plugin](implemented/simplification/2026-06-26-fsspec-style-fs-seam.md) | 2026-06-26 |
+| [Stop mirroring the token stream as an agent event](implemented/simplification/2026-07-02-remove-stream-chunk-mirror.md) | 2026-07-02 |
 
 ### Architecture
 

@@ -158,7 +158,7 @@ export interface LoopHandle {
  *       req = {model, system, tools, messages: session.deriveMessages(), signal}
  *       req = waterfall agent/request                 ⟵ hooks/model-switch
  *       stream ctx.llm.stream(req)                    ⟵ waterfall llm/stream (raw chunks)
- *         session('assistant/chunk'); emit agent/stream-chunk
+ *         session('assistant/chunk')
  *       msg = waterfall agent/step-result             ⟵ BEFORE the log append, so the
  *       session('assistant/message' {content, usage?})   session records what actually ran
  *       each tool-call in msg (sequential, abort-checked):
@@ -681,7 +681,6 @@ async function runStep(
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
     const chunkEvent = session.append('assistant/chunk', { turn, step, chunk })
     chunkSeqs.push(chunkEvent.seq)
-    ctx.emit('agent/stream-chunk', agent, turn, step, chunk)
     assembler.push(chunk)
   }
 

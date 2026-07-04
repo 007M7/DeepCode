@@ -163,7 +163,7 @@ forever:
       req = {model, system, tools, messages: session.deriveMessages(), signal}
       req = waterfall agent/request                   ⟵ hooks, model switch
       stream ctx.llm.stream(req)                      ⟵ waterfall llm/stream (raw chunks)
-        session('assistant/chunk'); emit agent/stream-chunk
+        session('assistant/chunk')
       if assembler.finish is error/aborted: throw      ⟵ adapter's in-band error path →
                                                          step error (turn ends error/aborted,
                                                          not a normal completed message)
@@ -237,7 +237,7 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 | Skills | section + tool registration; `inject()` skill content on invocation |
 | Memory | section provider + tool |
 | Scheduled tasks (cron) | plugin registers model-callable scheduling tools; timer fires → `send(…, {source: {kind: 'cron', …}})` when idle / `inject()` notification when busy |
-| UI (GUI; CLI emits JSONL) | listen `agent/stream-chunk` + `session/event`; input → `send()` |
+| UI (GUI; CLI emits JSONL) | listen `session/event` (assistant chunks, boundaries, tool activity); input → `send()` |
 | Telemetry / replayable trace | `session/event` → JSONL; replay = `sessions.create(id, { seed })` |
 | DeepSeek V4 (and other) models | `LlmAdapter` subclass via `registerAdapter`. **Implemented twice**: `dsh-llm-deepseek` (hand-rolled) and `dsh-llm-pi-ai` (pi-ai-backed) |
 | Plugin hot-reload | every registration is a `ctx.effect` → vendored HMR just works |
