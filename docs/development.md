@@ -98,8 +98,11 @@ pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
 pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events.md + services.md from source
 pnpm run verify-cordis-catalog  # fail if either cordis catalog is stale
+pnpm run gen-doc-graphs     # regenerate generated relationship docs from source and curated graph definitions
+pnpm run verify-doc-graphs  # fail if generated relationship docs are stale
 pnpm run gen-rfc-index          # regenerate the docs/rfc/README.md index tables from the RFC tree
 pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
+pnpm run verify-mermaid  # fail if a ```mermaid diagram has invalid Mermaid syntax
 pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
 pnpm run verify-doc-budgets  # fail if a budgeted standing doc exceeds its word ceiling
 pnpm run doc-sync       # all Markdown/doc gates; see the doc-sync script in package.json for the full list
@@ -110,7 +113,7 @@ pnpm run verify-node-next-types  # fail if built declarations are not NodeNext-c
 pnpm run hygiene        # knip, publint, workspace constraints, and NodeNext declaration check
 ```
 
-When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets, cordis events/services catalog drift, and hard-wrapped markdown prose, but broader prose/API sync still needs review.
+When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets, generated doc freshness, markdown wrap/link drift, type equivalence, translation pairing, Mermaid syntax, and doc budgets, but broader prose/API sync still needs review.
 
 ## Demos
 

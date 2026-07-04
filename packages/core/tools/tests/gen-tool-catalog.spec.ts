@@ -93,10 +93,13 @@ describe('gen-tool-catalog render', () => {
       {
         pkg: '@deepseek-ai/dsh-tool-demo',
         source: 'packages/demo/tool-demo/src/index.ts',
+        requires: ['ctx.tools'],
+        writes: ['tool/result'],
         schemas: [{ name: 'demo', description: 'A demo tool.', parameters: { type: 'object', properties: {} } }],
       },
     ]
     const md = render(catalog)
+    expect(md).toContain('| `@deepseek-ai/dsh-tool-demo` | `demo` | `ctx.tools` | `tool/result` |')
     expect(md).toContain('## `@deepseek-ai/dsh-tool-demo`')
     expect(md).toContain('### `demo`')
     expect(md).toContain('A demo tool.')

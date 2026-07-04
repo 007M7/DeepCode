@@ -15,6 +15,6 @@ pnpm run demo:repl     # REPL agent demo (needs DEEPSEEK_API_KEY)
 pnpm run demo:acp      # ACP server agent demo (needs DEEPSEEK_API_KEY)
 ```
 
-For humans, start with the [development guide](docs/development.md) for local setup, hooks, environment variables, and quality gates, then read the [architecture design](docs/architecture.md) before package work. Local context lives in [packages/](packages/) and [vendor/](vendor/).
+For humans, start with the [development guide](docs/development.md) for local setup, hooks, environment variables, and quality gates, then read the [architecture design](docs/architecture.md) and [documentation graph index](docs/graph-atlas.md) before package work. Local context lives in [packages/](packages/) and [vendor/](vendor/).
 
 For agents, follow [AGENTS.md](AGENTS.md).

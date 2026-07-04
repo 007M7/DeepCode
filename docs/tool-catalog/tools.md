@@ -9,6 +9,18 @@ This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (par
 
 Scope: shipped product tools under `packages/*/tool-*`, each booted with its DEFAULT config. The registered tool NAME can be a load-time config (e.g. `tool-subagent`'s `toolName`), so a deployment may surface a package under a different or additional name — a per-package note records those shipped aliases where they exist. The `examples/` demo tools (e.g. `echo`) are excluded, matching the cordis catalog's packages-only scope.
 
+## Tool Package Map
+
+This table connects model-visible tool names to the plugin package and service seams behind them. Exact JSON Schemas follow in the package sections below.
+
+| Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Deployment note |
+| --- | --- | --- | --- | --- | --- |
+| `@deepseek-ai/dsh-tool-bash` | `bash`, `bash_kill`, `bash_output` | `ctx.tools`, `ctx.bash` | `tool/call`, `tool/result`, `context/message via agent.inject() for background completion notices` | - | The bash/bash_output/bash_kill tools are model-facing consumers of the bash executor seam. |
+| `@deepseek-ai/dsh-tool-fs` | `edit`, `read`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after successful file operations`, `tool/result` | - | The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin. |
+| `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`, `ctx.subagents` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/coding-agent/cordis.yml` and `examples/acp-agent/cordis.yml`. |
+| `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan. |
+| `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
+
 ## `@deepseek-ai/dsh-tool-bash`
 
 ### `bash`
@@ -90,6 +102,8 @@ Read new output from a background bash task started with `bash` + `run_in_backgr
 ```
 
 Source: [`packages/bash/tool-bash/src/index.ts`](../../packages/bash/tool-bash/src/index.ts)
+
+The bash/bash_output/bash_kill tools are model-facing consumers of the bash executor seam.
 
 ## `@deepseek-ai/dsh-tool-fs`
 
@@ -260,6 +274,8 @@ Record and update a structured task list for the current work. Send the ENTIRE l
 
 Source: [`packages/todo/tool-todo/src/index.ts`](../../packages/todo/tool-todo/src/index.ts)
 
+todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan.
+
 ## `@deepseek-ai/dsh-tool-web`
 
 ### `web_fetch`
@@ -307,3 +323,5 @@ Search the web for current information. Returns an optional summary answer and a
 ```
 
 Source: [`packages/web/tool-web/src/index.ts`](../../packages/web/tool-web/src/index.ts)
+
+web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps.

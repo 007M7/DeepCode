@@ -2,7 +2,7 @@
 
 This document describes the architecture of the DeepSeek Harness — the foundation of **DeepSeek Code**. The governing principle: **everything is a plugin**. The core is deliberately tiny — a handful of abstract services plus one concrete loop plugin (`dsh-agent-loop`) — and every product feature is a plugin against the extension surface described here, without modifying the loop. The stack is three tiers: plugins (the loop itself, seam implementations, model-facing tools, bridges) over interface/service packages (each owning one `ctx` key and its vocabulary) over the vendored Cordis kernel (`vendor/`).
 
-This document covers **behavior**; type shapes live in [core-data-structures/](core-data-structures/core.md), the per-event/service reference in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, per-package contracts in the package READMEs ([map](../packages/README.md)).
+This document covers **behavior**; type shapes live in [core-data-structures/](core-data-structures/core.md), the per-event/service reference in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, visual relationship maps in the [documentation graph index](graph-atlas.md), and per-package contracts in the package READMEs ([map](../packages/README.md)).
 
 ## Service map
 

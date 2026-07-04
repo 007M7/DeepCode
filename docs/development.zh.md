@@ -98,8 +98,11 @@ pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
 pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events.md + services.md from source
 pnpm run verify-cordis-catalog  # fail if either cordis catalog is stale
+pnpm run gen-doc-graphs     # regenerate generated relationship docs from source and curated graph definitions
+pnpm run verify-doc-graphs  # fail if generated relationship docs are stale
 pnpm run gen-rfc-index          # regenerate the docs/rfc/README.md index tables from the RFC tree
 pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
+pnpm run verify-mermaid  # fail if a ```mermaid diagram has invalid Mermaid syntax
 pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
 pnpm run verify-doc-budgets  # fail if a budgeted standing doc exceeds its word ceiling
 pnpm run doc-sync       # all Markdown/doc gates; see the doc-sync script in package.json for the full list
@@ -110,7 +113,7 @@ pnpm run verify-node-next-types  # fail if built declarations are not NodeNext-c
 pnpm run hygiene        # knip, publint, workspace constraints, and NodeNext declaration check
 ```
 
-改动 package 的公开行为时，在同一个变更里更新相关 README 或 JSDoc。`pnpm run doc-sync` 能抓住被检查的 TypeScript 片段、cordis 事件/服务目录漂移和硬折行的 markdown 段落，但更广泛的行文/API 同步仍需评审把关。
+改动 package 的公开行为时，在同一个变更里更新相关 README 或 JSDoc。`pnpm run doc-sync` 能抓住被检查的 TypeScript 片段、生成文档新鲜度、markdown 换行/链接漂移、type-equiv、翻译配对、Mermaid 语法和文档预算，但更广泛的行文/API 同步仍需评审把关。
 
 ## 演示
 

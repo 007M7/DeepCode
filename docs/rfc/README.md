@@ -169,6 +169,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Classify RFCs by kind via path-encoded subdirectories](implemented/process/2026-06-20-rfc-classification.md) | 2026-06-20 |
 | [Bilingual documentation via paired sibling files and a pairing gate](implemented/process/2026-07-02-bilingual-docs-and-pairing-gate.md) | 2026-07-02 |
 | [Generated tool-schema catalog (boot-and-harvest)](implemented/process/2026-07-02-tool-schema-catalog.md) | 2026-07-02 |
+| [Documentation graph index for maintainers and SDK users](implemented/process/2026-07-03-documentation-graph-atlas.md) | 2026-07-03 |
 | [JSDoc completeness gate for the cordis surface](implemented/process/2026-07-04-cordis-jsdoc-completeness-gate.md) | 2026-07-04 |
 | [Documentation tiers, budgets, and the ceiling gate](implemented/process/2026-07-04-doc-tiers-and-budgets.md) | 2026-07-04 |
 | [Generate the RFC index tables](implemented/process/2026-07-04-generate-rfc-index-tables.md) | 2026-07-04 |
