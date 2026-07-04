@@ -66,7 +66,10 @@ describe('acp bridge — turn outcomes', () => {
     const toolCalls = harness.updates.filter(u => u.sessionUpdate === 'tool_call')
     const toolUpdates = harness.updates.filter(u => u.sessionUpdate === 'tool_call_update')
     expect(toolCalls).toHaveLength(1)
-    expect(toolCalls[0]).toMatchObject({ toolCallId: 'c1', title: 'bash', kind: 'execute', status: 'in_progress' })
+    // The inline stand-in declares no presentCall, so the generic fallback
+    // renders kind `other` (kinds are tool-owned; the bridge never sniffs the
+    // name — the REAL dsh-tool-bash test below covers the execute card).
+    expect(toolCalls[0]).toMatchObject({ toolCallId: 'c1', title: 'bash', kind: 'other', status: 'in_progress' })
     expect(toolUpdates).toHaveLength(1)
     expect(toolUpdates[0]).toMatchObject({ toolCallId: 'c1', status: 'completed' })
 
