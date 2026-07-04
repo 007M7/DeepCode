@@ -89,7 +89,7 @@ Source: [`packages/core/session/src/types.ts:235`](../../packages/core/session/s
 
 #### `hook/invoked` — log-only
 
-A hook command was invoked at a hook point — log-only provenance (like `compact/*`; NOT a SurfaceEventType, carries no `surfaceOp`). `dialect` is the bridge that ran it (`claude`/`codex`/`native`), `point` the hook point (`PreToolUse`, `Stop`, …), `matcher` the matcher-group pattern that selected it (absent for match-all), `handlerId` a stable id for the command (so an invoked/result pair correlates). `turn` is the open turn the invocation lives inside.
+A hook command was invoked at a hook point — log-only provenance (like `compact/*`; NOT a SurfaceEventType, carries no `surfaceOp`). `dialect` is the bridge that ran it (`claude`/`codex`), `point` the hook point (`PreToolUse`, `Stop`, …), `matcher` the matcher-group pattern that selected it (absent for match-all), `handlerId` a stable id for the command (so an invoked/result pair correlates). `turn` is the open turn the invocation lives inside.
 
 ```ts persistence-catalog
 'hook/invoked': { turn: number; point: string; dialect: HookDialect; matcher?: string; handlerId: string }
@@ -99,13 +99,13 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:27`](../../packages/hooks/ho
 
 #### `hook/result` — log-only
 
-A hook command's outcome — log-only, paired with a prior `hook/invoked` (same `handlerId`). `decision` is the resolved dialect-neutral outcome the bridge mapped it to (`allow`/`deny`/`ask`/`block`/`continue`/`stop`/`pass`), `exitCode` the process exit (absent if it never ran), `stderrSummary` a truncated stderr (the block reason source on exit 2), `durationMs` the wall time. `turn` matches the `hook/invoked`.
+A hook command's outcome — log-only, paired with a prior `hook/invoked` (same `handlerId`). `decision` is the dialect-neutral outcome derived by `appendHookResult` (which owns the rule): the hook's parsed decision (`approve`/`allow`/`block`/`deny`/`ask`), else `'stop'` when it asked to halt via `continue:false`, else `'pass'`. `exitCode` is the process exit (absent if it never ran), `stderrSummary` the trimmed stderr truncated to the bridge's configured cap (the block reason source on exit 2), `durationMs` the wall-clock runtime (audit timing; snapshot replay normalizes it). `turn` matches the `hook/invoked`.
 
 ```ts persistence-catalog
 'hook/result': { turn: number; point: string; handlerId: string; decision: string; exitCode?: number; stderrSummary?: string; durationMs: number }
 ```
 
-Source: [`packages/hooks/hook-protocol/src/types.ts:42`](../../packages/hooks/hook-protocol/src/types.ts)
+Source: [`packages/hooks/hook-protocol/src/types.ts:45`](../../packages/hooks/hook-protocol/src/types.ts)
 
 ### `prompt/*`
 

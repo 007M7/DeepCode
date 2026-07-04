@@ -50,30 +50,32 @@ describe('streamSessionEventUpdate', () => {
       .toEqual([])
   })
 
-  it('maps tool/call to an in_progress tool_call with inferred kind and parsed rawInput (generic fallback, no presenter)', () => {
+  it('maps tool/call to an in_progress tool_call with kind other and parsed rawInput (generic fallback, no presenter)', () => {
     const updates = updatesFor(evt('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'bash', arguments: '{"command":"ls"}' }))
     expect(updates).toEqual([{
       sessionUpdate: 'tool_call',
       toolCallId: 'c1',
       title: 'bash',
-      kind: 'execute',
+      // The fallback never sniffs a kind from the tool name — even a name a
+      // first-party tool uses (`bash`) renders `other`; kinds are tool-owned
+      // via presentCall.
+      kind: 'other',
       status: 'in_progress',
       rawInput: { command: 'ls' },
     }])
   })
 
-  it('infers tool kinds: read*/write*/edit*/other', () => {
-    const kind = (name: string): unknown =>
-      updatesFor(evt('tool/call', { turn: 1, step: 1, callId: CallId('c'), name, arguments: '' }))[0]
-    expect((kind('read_file') as { kind: string }).kind).toBe('read')
-    expect((kind('write') as { kind: string }).kind).toBe('edit')
-    expect((kind('edit_file') as { kind: string }).kind).toBe('edit')
-    expect((kind('frobnicate') as { kind: string }).kind).toBe('other')
-  })
-
   it('falls back to the raw argument string when tool arguments are not JSON', () => {
     const update = updatesFor(evt('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'bash', arguments: 'not json' }))[0]
     expect((update as { rawInput: unknown }).rawInput).toBe('not json')
+  })
+
+  it('parses EMPTY tool arguments to an empty-object rawInput (a zero-arg call, not the raw-string fallback)', () => {
+    // `JSON.parse('')` throws, so without the empty-string guard a zero-arg
+    // call would render `rawInput: ''` via the non-JSON fallback; the guard
+    // normalizes it to `{}`.
+    const update = updatesFor(evt('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'noop', arguments: '' }))[0]
+    expect((update as { rawInput: unknown }).rawInput).toEqual({})
   })
 
   it('maps tool/result to completed/failed tool_call_update with text content', () => {

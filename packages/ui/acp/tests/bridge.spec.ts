@@ -33,7 +33,7 @@ describe('acp bridge', () => {
     expect(res.protocolVersion).toBe(PROTOCOL_VERSION)
     expect(res.agentCapabilities?.loadSession).toBe(true)
     expect(res.agentCapabilities?.promptCapabilities).toMatchObject({ image: false, audio: false })
-    expect(res.agentInfo?.name).toBe('deepseek-harness-acp')
+    expect(res.agentInfo).toEqual({ name: 'deepseek-harness-acp', version: '0.0.1' })
   })
 
   it('session/new creates a session and a full prompt turn streams text then settles end_turn', async () => {
@@ -148,14 +148,13 @@ describe('acp bridge', () => {
     await expect(harness.client.authenticate({ methodId: 'whatever' })).resolves.toBeDefined()
   })
 
-  it('honors agentName/agentVersion/systemPrompt config', async () => {
+  it('honors systemPrompt config', async () => {
     harness = await makeBridgeHarness({
       storageDir,
       script: [textResponse('ok')],
-      config: { agentName: 'custom-agent', agentVersion: '9.9.9', systemPrompt: 'be terse' },
+      config: { systemPrompt: 'be terse' },
     })
-    const res = await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
-    expect(res.agentInfo).toMatchObject({ name: 'custom-agent', version: '9.9.9' })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     // Create + prompt so the systemPrompt config flows through agentOptions and
     // reaches the model request.
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })

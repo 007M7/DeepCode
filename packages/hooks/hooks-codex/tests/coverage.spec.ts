@@ -229,7 +229,7 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     expect(res?.type === 'hook/result' && res.data.stderrSummary).toBe('x'.repeat(40) + '…')
   })
 
-  it('warns on a skipped async hook and a direct apply() defaults the timeout', async () => {
+  it('warns on a skipped async hook and a direct apply() (schema bypass) runs', async () => {
     const d = dir()
     const marker = join(d, 'ran')
     hooks(d, { UserPromptSubmit: [{ hooks: [
@@ -243,7 +243,7 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     await ctx.plugin(ToolRegistry); await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
     ctx.logger.warn = warn as never
-    // Direct apply (schema bypass) → defaultTimeoutMs ?? 600_000 + model ?? '' fallbacks.
+    // Direct apply (schema bypass) → the `model ?? ''` fallback is exercised.
     HooksCodex.apply(ctx, { configPath: join(d, 'hooks.json') })
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
