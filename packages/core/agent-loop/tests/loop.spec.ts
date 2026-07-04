@@ -46,15 +46,20 @@ describe('agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
+    // All boundaries — turn and step — are durable session events on the
+    // session/event feed (no agent/* mirror). Record them in fire order to
+    // assert the full boundary nesting.
     const order: string[] = []
-    for (const name of ['agent/turn-start', 'agent/step-start', 'agent/step-end', 'agent/turn-end'] as const) {
-      ctx.on(name, () => void order.push(name))
-    }
+    ctx.on('session/event', (_session, event) => {
+      if (event.type === 'turn/start' || event.type === 'step/start' || event.type === 'step/end' || event.type === 'turn/end') {
+        order.push(event.type)
+      }
+    })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
 
-    expect(order).toEqual(['agent/turn-start', 'agent/step-start', 'agent/step-end', 'agent/turn-end'])
+    expect(order).toEqual(['turn/start', 'step/start', 'step/end', 'turn/end'])
 
     const types = agent.session.events.map(e => e.type)
     // turn/start opens the turn, THEN the queued user message is recorded inside
@@ -158,13 +163,10 @@ describe('agent loop', () => {
     expect(request!.tools?.map(t => t.name)).toEqual(['noop'])
   })
 
-  it('records raw chunks for replay and emits agent/stream-chunk', async () => {
+  it('records raw chunks for replay as assistant/chunk session events', async () => {
     const adapter = new MockAdapter([textResponse('abc')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
-
-    const streamed: StreamChunk[] = []
-    ctx.on('agent/stream-chunk', (_agent, _turn, _step, chunk) => void streamed.push(chunk))
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
@@ -172,7 +174,6 @@ describe('agent loop', () => {
     const chunkEvents = agent.session.events.filter(e => e.type === 'assistant/chunk')
     // textResponse('abc') = block-start + 3 deltas + block-end + usage + finish = 7
     expect(chunkEvents).toHaveLength(7)
-    expect(streamed).toHaveLength(7)
     // replay: chunk events alone re-assemble to the recorded assistant message
     const deltaText = chunkEvents
       .flatMap(e => e.type === 'assistant/chunk' ? [e.data.chunk] : [])
@@ -295,9 +296,9 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let steps = 0
-    ctx.on('agent/step-end', () => void steps++)
+    ctx.on('session/event', (_session, event) => { if (event.type === 'step/end') steps++ })
     ctx.on('agent/turn-continuation', async (_agent, _turn, _defaultDecision, next) => {
-      if (steps < 3) return true
+      if (steps < 3) return { action: 'continue' as const }
       return next()
     })
 
@@ -320,7 +321,7 @@ describe('agent loop', () => {
     }))
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    ctx.on('agent/turn-continuation', async () => false as const)
+    ctx.on('agent/turn-continuation', async () => ({ action: 'stop' }) as const)
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -456,7 +457,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     // wait until the stream is hanging, then cancel
@@ -476,7 +477,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -501,16 +502,16 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let steps = 0
-    ctx.on('agent/step-end', () => void steps++)
+    ctx.on('session/event', (_session, event) => { if (event.type === 'step/end') steps++ })
     // Force exactly one continuation (step 1 → step 2), then defer to default
     // (step 2 is a plain stop with no tool calls → stops).
     ctx.on('agent/turn-continuation', async (_agent, _turn, _defaultDecision, next) => {
-      if (steps < 2) return true
+      if (steps < 2) return { action: 'continue' as const }
       return next()
     })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -532,7 +533,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'first')
     await waitForIdle(ctx, agent)
@@ -565,7 +566,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -607,7 +608,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -626,7 +627,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -666,7 +667,7 @@ describe('agent loop', () => {
     ])
   })
 
-  it('stops the turn when agent/step-end listener failure has recorded an error', async () => {
+  it('stops the turn when a step/end session-event listener failure has recorded an error', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'echo', { text: 'x' }),
       textResponse('should not run'),
@@ -682,8 +683,11 @@ describe('agent loop', () => {
     }))
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     let threw = false
-    ctx.on('agent/step-end', () => {
-      if (!threw) { threw = true; throw new Error('bad step-end listener') }
+    // A throwing step/end session-event listener is the surviving boundary-listener
+    // failure path (step boundaries have no agent/* mirror): closeStep contains it
+    // and surfaces it as a turn error rather than stranding the turn open.
+    ctx.on('session/event', (_session, event) => {
+      if (event.type === 'step/end' && !threw) { threw = true; throw new Error('bad step/end listener') }
     })
 
     send(agent, 'go')
@@ -700,13 +704,13 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const turns: number[] = []
-    ctx.on('agent/turn-start', (_agent, turn) => void turns.push(turn))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/start') turns.push(event.data.turn) })
 
     // queue two messages while idle — first starts turn 1 immediately;
-    // queue the second during turn 1 via a stream-chunk hook
+    // queue the second during turn 1 when the first assistant chunk streams
     let queued = false
-    ctx.on('agent/stream-chunk', () => {
-      if (!queued) {
+    ctx.on('session/event', (_s, event) => {
+      if (event.type === 'assistant/chunk' && !queued) {
         queued = true
         send(agent, 'second message')
       }
@@ -747,7 +751,7 @@ describe('agent loop', () => {
     const errors: Error[] = []
     const reasons: TurnEndReason[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)

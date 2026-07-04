@@ -10,7 +10,7 @@
 import { Context, Service } from 'cordis'
 import { randomUUID } from 'node:crypto'
 import z from 'schemastery'
-import type { AgentFactory, AgentHandle, AgentId, AgentOptions, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
+import type { AgentFactory, AgentHandle, AgentId, AgentOptions, CreateAgentOptions, ResumeAgentOptions, SessionStartSource } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -129,7 +129,7 @@ export class AgentLoop extends Service implements AgentFactory {
     // session + agent down as one ordered chain, capturing the loop's closing
     // flush). The whole effect is owned by THIS fiber; no AgentHandle is needed.
     const session = this.ctx.sessions.prepare(SessionId(`${id}-session-${randomUUID()}`), { meta: {} })
-    const { agent } = this.start(id, options, session)
+    const { agent } = this.start(id, options, session, 'startup')
     return agent
   }
 
@@ -152,7 +152,9 @@ export class AgentLoop extends Service implements AgentFactory {
       ...options.seed !== undefined ? { seed: options.seed } : {},
       meta: options.meta ?? {},
     })
-    return this.startOwned(options.agentId, options.agentOptions ?? {}, session)
+    // A seeded (forked) create is still a fresh start, NOT a resume — `resume`
+    // is reserved for reloading a PERSISTED session via resume()/resumeWith().
+    return this.startOwned(options.agentId, options.agentOptions ?? {}, session, 'startup')
   }
 
   /**
@@ -224,7 +226,7 @@ export class AgentLoop extends Service implements AgentFactory {
         ...meta.seedLength !== undefined ? { seedLength: meta.seedLength } : {},
       },
     })
-    return this.startOwned(options.agentId, options.agentOptions ?? {}, session)
+    return this.startOwned(options.agentId, options.agentOptions ?? {}, session, 'resume')
   }
 
   /**
@@ -261,14 +263,33 @@ export class AgentLoop extends Service implements AgentFactory {
    * so a throwing `session/created`/`agent/created` listener unwinds the
    * already-yielded disposers instead of leaking.
    *
+   * `source` says why the session began ({@link SessionStartSource}); it is
+   * emitted as `agent/session-start` once, AFTER the agent is registered (so a
+   * listener can resolve the agent via `ctx.agents.get(id)` and `inject()` into
+   * it) and BEFORE the loop starts its first turn. The emit is contained: a
+   * throwing session-start listener must not abort agent construction — it is
+   * logged, and the agent still starts. (Unlike a turn-boundary throw, there is
+   * no open turn here to balance; the durable evidence of a session-start hook
+   * is whatever it `inject()`ed.)
+   *
    * Returns the agent plus the composite effect's disposer (`disposeAgent`).
    */
-  private start(id: AgentId, options: AgentOptions, session: Session): { agent: ReactLoopAgent; disposeAgent: () => Promise<void> } {
+  private start(
+    id: AgentId, options: AgentOptions, session: Session, source: SessionStartSource,
+  ): { agent: ReactLoopAgent; disposeAgent: () => Promise<void> } {
     const agent = new ReactLoopAgent(this.ctx, id, options, session)
     const dispose = this.ctx.effect(function* (this: AgentLoop) {
       yield this.ctx.sessions.enter(session)
       this.ctx.sessions.announce(session)
       yield this.ctx.agents.register(agent)
+      // Fire AFTER register (a listener can ctx.agents.get(id) + inject()) and
+      // BEFORE the loop's first turn. Contained: a throwing listener is logged,
+      // never aborts construction (no open turn to balance here).
+      try {
+        this.ctx.emit('agent/session-start', agent, source)
+      } catch (error: unknown) {
+        this.ctx.logger.warn(`agent "${id}": agent/session-start listener threw: ${String(error)}`)
+      }
       const stop = agent.start()
       // Disposed FIRST (LIFO): request loop stop (sync), then AWAIT the loop's
       // actual exit so its closing flush lands while onAppend (yielded above,
@@ -295,8 +316,8 @@ export class AgentLoop extends Service implements AgentFactory {
    * `AgentHandle.dispose(): Promise<void>` contract (mirrors the ACP `quiesce()`
    * helper).
    */
-  private startOwned(id: AgentId, options: AgentOptions, session: Session): AgentHandle {
-    const { agent, disposeAgent } = this.start(id, options, session)
+  private startOwned(id: AgentId, options: AgentOptions, session: Session, source: SessionStartSource): AgentHandle {
+    const { agent, disposeAgent } = this.start(id, options, session, source)
     let disposing: Promise<void> | undefined
     return { agent, dispose: () => (disposing ??= disposeAgent()) }
   }

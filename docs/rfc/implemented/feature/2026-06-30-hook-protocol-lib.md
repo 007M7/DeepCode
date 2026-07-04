@@ -1,0 +1,32 @@
+# RFC: dsh-hook-protocol — the shared Claude Code / Codex hook wire-protocol core
+
+Status: implemented (accepted 2026-06-30)
+
+<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
+
+## Context
+
+The hooks subsystem ships two bridge plugins: one that runs a user's existing Claude Code (CC) hooks, one for Codex hooks. Studying the reference implementations (`~/repos/refs/claude-code`, `~/repos/refs/codex`) surfaced a decisive fact: **Codex deliberately reimplements a SUBSET of the CC hook protocol.** Its engine reads the same `hooks.json`, uses the same matcher-group shape, the same exit-code/structured-stdout output contract, and the same command-hook execution model — Codex's source even names the engine after Claude's and comments where it "intentionally diverges." So the two bridges would otherwise duplicate the bulk of the protocol.
+
+This RFC introduces `@deepseek-ai/dsh-hook-protocol`, a **library** (not a plugin — it registers and injects nothing) holding the genuinely-identical primitives both bridges build on. The split between shared and per-dialect is the design's center of gravity.
+
+## Decision
+
+A new `packages/hooks/` group with `hook-protocol` as a pure library. It owns four primitive families and the `hook/*` session events; each bridge plugin (`dsh-hooks-claude`, `dsh-hooks-codex`) owns what genuinely differs.
+
+**Shared (here):**
+- **Matcher** — `matchesMatcher(pattern, query, mode)`. The ONE axis the dialects differ on is collapsed to the `mode` parameter: `claude` treats a pure `[A-Za-z0-9_|]+` pattern as a literal (pipe = exact-match alternation) and anything else as a regex; `codex` is always an unanchored regex. Match-all on absent/`''`/`'*'`; an invalid regex matches nothing (never throws into the loop).
+- **Execution** — `runHook(bash, hook, options, now)`. Runs a command hook through the `ctx.bash` seam rather than a bespoke `spawn`: the executor already provides the scrubbed-but-overridable env, process-group kills, and timeout the protocol needs, and `dsh-bash`'s `stdin`/`env` fields (added in the bash-seam PR for exactly this) are the trusted-plugin surface an in-process bridge is allowed to use. It serializes the bridge-built payload to stdin (trailing newline iff CC), honors the hook's `timeoutSec`, and never throws (an executor rejection becomes a non-blocking-error `HookOutput`).
+- **Decode** — `parseHookOutput(exit, stdout, stderr)`, the exit-code + structured-stdout codec, producing a dialect-neutral `HookOutput`. Exit `0` → lenient JSON parse of stdout; exit `2` → blocking error with `stderr` as the reason (surfaced as `decision: 'block'` so no caller needs a separate exit-code branch); other → non-blocking error. Parses the full CC superset (`continue`/`stopReason`/`suppressOutput`/`decision`/`hookSpecificOutput.{permissionDecision,additionalContext,updatedInput}`/`systemMessage`); the bridge honors only the subset meaningful for its dialect.
+- **Merge** — `mergeHookOutputs(outputs)`, folding multiple matched hooks into one most-restrictive `MergedHookOutcome`: permission precedence **deny > ask > allow**, halt sticky on the first `continue:false`, block reasons joined `\n\n`, context/system-messages accumulated in order.
+- **`hook/*` session events** — `hook/invoked` / `hook/result`, declaration-merged into `SessionEventMap` (log-only, like `compact/*` — NOT `SurfaceEventType`s), with `appendHookInvoked`/`appendHookResult` helpers so the invoked/result pairing and turn-enclosure stay consistent across bridges.
+
+**Per-dialect (the bridge plugins):** building each event's stdin payload (CC's base+per-event field sets vs Codex's snake_case with `turn_id`/`model` extras), the dialect's env + `${CLAUDE_PLUGIN_ROOT}` substitution (CC) vs none (Codex), and mapping the neutral `HookOutput`/`MergedHookOutcome` onto the harness's seam-specific typed Decisions (`PreToolDecision`, `PromptDecision`, `ContinuationDecision`, `PostToolDecision`).
+
+### Why "shared core + per-dialect adapters", not "one parameterized engine"
+
+A single engine parameterized by a full `dialect` descriptor was considered and rejected. The payload construction and decision mapping are where the dialects genuinely diverge (different field names, different supported outputs, CC's env/substitution); folding those into a data-driven descriptor would make the *bridge* logic indirect — a reader of `dsh-hooks-claude` would have to chase a descriptor to see what payload it sends. Keeping the truly-identical primitives shared (matcher, codec, runner, merge, events) and letting each bridge write its own straightforward payload+mapping keeps each bridge readable standalone, at the cost of a little duplication in the payload shape. The primitives are the part where duplication would actually be dangerous (a divergent matcher or exit-code rule is a correctness bug); the payload is the part where explicitness beats sharing.
+
+## Consequences
+
+The two bridge plugins become thin: parse the config file, pick a matcher mode, build the per-event payload+env, call `runHook` + `mergeHookOutputs`, map the outcome to a Decision, and append `hook/*`. The protocol's correctness-critical halves (matcher semantics, exit-code contract, merge precedence) live in one tested place — `hook-protocol` ships with heavy unit tests (matcher per-mode, codec per exit-code/field, runner plumbing with a stub executor, merge precedence, the `hook/*` helpers) at per-file 100%. Input rewrite (`updatedInput`) is parsed but not honored (the deferred [pre-tool-input-rewrite RFC](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md)); a bridge logs+warns on it. The package is a library, so it has no `cordis.yml` load path of its own — its real-load-path coverage comes through the bridge plugins that consume it.

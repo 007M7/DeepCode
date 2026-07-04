@@ -857,3 +857,105 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
     expect(ctx.tools.get('bash')?.presentCall?.({ command: 'ls' })).toBeUndefined()
   })
 })
+
+describe('the model-facing bash tool builds its request from named args only (no {...args} forward)', () => {
+  /**
+   * Records every {@link BashExecRequest} the consumer hands to `resolve()`, so a
+   * test can assert what the model-facing tool DID and DID NOT forward. The `bash`
+   * tool does not expose `stdin`/`env` as parameters (bash syntax already gives a
+   * model that power), so it must build its request from named args only and
+   * never spread unknown tool-call keys into it. This guard's job is to catch a
+   * future refactor that blindly forwards `...args` — which would silently thread
+   * model input into the post-scrub `env` merge — NOT to defend a trust boundary
+   * (the credential scrub in dsh-bash-local is the security control; see the
+   * bash-stdin-env RFC). Foreground `run()` returns a canned result; `start()` is
+   * unused here.
+   */
+  class RecordingBashExecutor extends BashExecutor {
+    readonly requests: BashExecRequest[] = []
+    resolve(request: BashExecRequest): BashExecSpec {
+      this.requests.push(request)
+      return {
+        command: request.command,
+        workdir: request.workdir ?? process.cwd(),
+        timeoutMs: request.timeoutMs ?? 0,
+        ...request.signal ? { signal: request.signal } : {},
+        ...request.stdin !== undefined ? { stdin: request.stdin } : {},
+        ...request.env !== undefined ? { env: request.env } : {},
+        owner: request.owner,
+      }
+    }
+    run(): Promise<BashRunResult> {
+      return Promise.resolve({
+        exitCode: 0, signal: null, timedOut: false, aborted: false, timeoutMs: 0,
+        stdout: { text: 'ok', truncated: false }, stderr: { text: '', truncated: false },
+      })
+    }
+    start(): BashTask { throw new Error('unused') }
+    get(): BashTask | undefined { return undefined }
+    ownerOf(): OwnerToken | undefined { return undefined }
+    list(): BashTask[] { return [] }
+    readOutput(): BashTaskRead { throw new Error('unused') }
+    kill(): boolean { return false }
+  }
+
+  async function setupRecording() {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(RecordingBashExecutor)
+    await ctx.plugin(ToolBash)
+    return { ctx, bash: ctx.bash as RecordingBashExecutor }
+  }
+
+  it('does not forward env/stdin even when the model includes them as extra arguments', async () => {
+    const { ctx, bash } = await setupRecording()
+    // Extra args: the model includes `env` and `stdin` keys hoping they reach the
+    // executor. The bash tool's schema ignores unknown keys, and execute() builds
+    // the request from only command/workdir/timeoutMs/signal — so the recorded
+    // request carries NEITHER. (Not a security wall — the model could set an env
+    // var or feed stdin via shell syntax anyway; this just keeps the request
+    // shape honest so a future `...args` spread can't silently forward input.)
+    await ctx.tools.execute({
+      callId: CallId('no-forward-1'),
+      name: 'bash',
+      arguments: {
+        command: 'echo hi',
+        description: 'echo',
+        env: { SNEAKY_API_KEY: 'leak' },
+        stdin: 'malicious payload',
+      },
+    })
+    expect(bash.requests).toHaveLength(1)
+    const request = bash.requests[0]!
+    expect(request.command).toBe('echo hi')
+    expect('env' in request).toBe(false)
+    expect('stdin' in request).toBe(false)
+  })
+
+  it('a background bash call likewise carries no env/stdin', async () => {
+    const { ctx, bash } = await setupRecording()
+    // start() throws in this recorder, but resolve() runs first and records the
+    // request — which is all this no-forward assertion needs.
+    await ctx.tools.execute({
+      callId: CallId('no-forward-2'),
+      name: 'bash',
+      arguments: {
+        command: 'sleep 1',
+        description: 'sleep',
+        run_in_background: true,
+        env: { TOKEN: 'leak' },
+        stdin: 'x',
+      },
+    })
+    expect(bash.requests).toHaveLength(1)
+    const request = bash.requests[0]!
+    expect('env' in request).toBe(false)
+    expect('stdin' in request).toBe(false)
+    // The owner token IS set on a background call (the isolation fence) — proving
+    // the recorder sees the real request the consumer built, so the absent
+    // env/stdin above is a real negative, not a recorder that drops everything.
+    expect('owner' in request).toBe(true)
+  })
+})

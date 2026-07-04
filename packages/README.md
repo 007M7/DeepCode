@@ -16,6 +16,7 @@ Packages are grouped by modular role at `packages/<group>/<pkg>/`. The group dir
 | [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
 | [`web/`](web/README.md) | Web capability family: the abstract seam, search/fetch provider impls, and the model-facing web tools | Product — stable surface |
 | [`todo/`](todo/README.md) | Todo/planning family: the model-facing `todo_write` tool (whole-list task tracking on the session log) | Product — stable surface |
+| [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence capability family: the seam + JSONL/SQLite backends | Product — stable surface |
 | [`ui/`](ui/README.md) | Editor/client integration surfaces (the ACP bridge) | Product — stable surface |
 | [`support/`](support/README.md) | Dev/test/example infrastructure (invariants, stdio UI, replay adapter) | Support — lower compatibility expectations |
@@ -76,7 +77,7 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `llm/` | `llm` | Abstract LLM service + content-block vocabulary + chunk assembler | `ctx.llm` |
 | `session/` | `core` | Event-sourced session log + in-memory store | `ctx.sessions` |
 | `system-prompt/` | `core` | Prompt-section + tool-schema assembly registry | `ctx.systemPrompt` |
-| `tools/` | `core` | Tool registry + `tools/execute` waterfall | `ctx.tools` |
+| `tools/` | `core` | Tool registry + `tools/pre-execute`/`tools/post-execute` pipeline | `ctx.tools` |
 | `agent/` | `core` | Agent interface, registry, `agent/*` event vocabulary | `ctx.agents` |
 | `agent-loop/` | `core` | THE concrete loop plugin: `ReactLoopAgent` + the loop driver | `ctx.agentLoop` |
 | `agent-core/` | `core` | Bundle plugin: the providerless/executor-less/UI-less spine as code (forwards `agent-loop`'s `agents`) | (loads the spine) |
@@ -114,6 +115,9 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `subagent-mock/` | `support` | Scripted `SubagentProvider` for testing the seam through the real load path | (registers on `ctx.subagents`) |
 | `tool-subagent/` | `subagent` | Model-facing `subagent` delegation tool over `ctx.subagents` | (registers on `ctx.tools`) |
 | `tool-todo/` | `todo` | Model-facing `todo_write` tool; writes the whole task list to the session log (`todo/write`) | (registers on `ctx.tools`) |
+| `hook-protocol/` | `hooks` | Shared Claude Code / Codex hook wire-protocol library: matcher, codec, `runHook`, merge, `hook/*` events | (none — library, no service) |
+| `hooks-claude/` | `hooks` | Bridge: runs a Claude Code `hooks.json` / settings on the interception seams | (registers event listeners) |
+| `hooks-codex/` | `hooks` | Bridge: runs a Codex `hooks.json` (a subset of the CC protocol) on the seams | (registers event listeners) |
 | `brand/` | `util` | Type-only `Branded<B>` nominal-typing primitive (no runtime code, no harness deps) | (none — type-only) |
 
 Each package has its own `README.md` with purpose, service API, events, extension points, and deliberate non-goals (TODOs).
