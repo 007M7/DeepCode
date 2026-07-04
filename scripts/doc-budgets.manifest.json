@@ -1,10 +1,10 @@
 {
-  "AGENTS.md": 1500,
-  "docs/AGENTS.md": 1250,
-  "docs/architecture.md": 1800,
+  "AGENTS.md": 1575,
+  "docs/AGENTS.md": 1315,
+  "docs/architecture.md": 1890,
   "docs/defensive-patterns.md": 550,
   "docs/testing.md": 800,
-  "examples/AGENTS.md": 579,
+  "examples/AGENTS.md": 610,
   "packages/AGENTS.md": 450,
-  "packages/README.md": 600
+  "packages/README.md": 605
 }
