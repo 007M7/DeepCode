@@ -186,12 +186,14 @@ describe('PerplexitySearchProvider error handling', () => {
 
 describe('web-search-perplexity plugin registration', () => {
   it('registers the provider into ctx.web (HMR-safe)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ choices: [{ message: { content: 'a' } }], citations: [] })))
     const ctx = new Context()
     await ctx.plugin(WebService, { searchProvider: PERPLEXITY_PROVIDER_ID })
     const fiber = await ctx.plugin(perplexityPlugin, { apiKey: 'pplx-key' })
-    expect(ctx.web.searchStatus()).toEqual({ available: true, providerId: PERPLEXITY_PROVIDER_ID })
+    await expect(ctx.web.search({ query: 'q' })).resolves.toMatchObject({ providerId: PERPLEXITY_PROVIDER_ID })
     await fiber.dispose()
-    expect(ctx.web.searchStatus()).toEqual({ available: false, reason: 'configured-missing' })
+    await expect(ctx.web.search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_CONFIGURED_MISSING' }))
   })
 
   it('has no default export (namespace plugin export shape)', () => {
@@ -219,7 +221,6 @@ describe('web-search-perplexity plugin registration', () => {
       const ctx = new Context()
       await ctx.plugin(WebService, { searchProvider: PERPLEXITY_PROVIDER_ID })
       const fiber = await ctx.plugin(perplexityPlugin, {})
-      expect(ctx.web.searchStatus()).toEqual({ available: true, providerId: PERPLEXITY_PROVIDER_ID })
       await ctx.web.search({ query: 'q' })
       const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
       expect(url).toBe('https://api.perplexity.ai/chat/completions')
@@ -238,7 +239,8 @@ describe('web-search-perplexity plugin registration', () => {
       const ctx = new Context()
       await ctx.plugin(WebService, { searchProvider: PERPLEXITY_PROVIDER_ID })
       await ctx.plugin(perplexityPlugin, {})
-      expect(ctx.web.searchStatus()).toEqual({ available: false, reason: 'configured-unavailable' })
+      await expect(ctx.web.search({ query: 'q' }))
+        .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_CONFIGURED_UNAVAILABLE' }))
     } finally {
       if (prev !== undefined) process.env.PERPLEXITY_API_KEY = prev
     }

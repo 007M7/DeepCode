@@ -5,10 +5,11 @@ Status: implemented (accepted 2026-07-01)
 <!-- Shipped in AMENDED, narrowed form: the four turn/step BOUNDARY mirrors are
      removed; `agent/steering` and `agent/stream-chunk` were RETAINED here (they
      are not durable-boundary mirrors — see "Scope: what is and isn't removed").
-     The original proposal bundled `agent/steering` into the removal; validating
-     against the code showed it is a distinct live-only signal, so it stayed.
-     `agent/stream-chunk` was later removed by its own decision — see
-     [Stop mirroring the token stream as an agent event](2026-07-02-remove-stream-chunk-mirror.md). -->
+     The original proposal bundled `agent/steering` into the removal; keeping it
+     out kept this RFC's scope to boundaries. Each retained event was later
+     removed by its own decision — see
+     [Stop mirroring the token stream as an agent event](2026-07-02-remove-stream-chunk-mirror.md)
+     and [Remove the `agent/steering` mirror emit](2026-07-04-remove-agent-steering-mirror.md). -->
 
 ## Problem
 
@@ -30,7 +31,7 @@ Removed (durable-boundary mirrors — the session log is authoritative for each)
 
 RETAINED — NOT durable-boundary mirrors, so out of scope for this decision:
 
-- `agent/steering` — a live control signal, not a boundary. (The original proposal bundled it into the removal; validating against the code, it is not a duplicate of a durable boundary, so removing it here would have been scope creep. Its fate is a separate future decision.)
+- `agent/steering` — not a boundary, so out of scope for THIS decision (the original proposal bundled it into the removal; that would have been scope creep here). It mirrors the durable `steering/message` control record rather than a boundary, and was removed by its own follow-up: [Remove the `agent/steering` mirror emit](2026-07-04-remove-agent-steering-mirror.md).
 - `agent/stream-chunk` — the live token stream. Out of scope for THIS decision (a mirror of the durable `assistant/chunk`, not a boundary), it was removed by its own follow-up: [Stop mirroring the token stream as an agent event](2026-07-02-remove-stream-chunk-mirror.md).
 - `agent/created`, `agent/disposed`, `agent/status`, `agent/error`, `agent/queued` — lifecycle/control events that are not transcript data. `agent/queued` in particular is an inbox acknowledgement that fires before any durable event exists (cancelled queued work may never enter the log), so it is deliberately live-only.
 
