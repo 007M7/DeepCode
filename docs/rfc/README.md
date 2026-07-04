@@ -1,6 +1,6 @@
 # RFCs
 
-One kind of design doc lives here. An **RFC** records a decision or proposal that shapes this codebase — the *why* and *what we gave up*, the parts code and docs can't carry. (Earlier this split into separate "ADR" and "RFC" trees; they were unified, since most ADRs were simply implemented RFCs.)
+One kind of design doc lives here. An **RFC** records a decision or proposal that shapes this codebase — the *why* and *what we gave up*, the parts code and docs can't carry.
 
 ## Layout and naming
 
