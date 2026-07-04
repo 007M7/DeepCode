@@ -19,6 +19,8 @@ declare module 'cordis' {
      * Waterfall around prompt assembly — mutate or extend the
      * {@link PromptAssembly} (sections + tool schemas) before it is rendered.
      * Bound to the {@link SystemPrompt} service; call `next()` to delegate.
+     * @param assembly - the assembly built from the registered sections and
+     *   tool providers; listeners may mutate it or return a replacement.
      * @mode waterfall
      */
     'system-prompt/assemble'(this: SystemPrompt, assembly: PromptAssembly, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>
@@ -80,6 +82,8 @@ export class SystemPrompt extends Service {
    * Contribute a text section to the system prompt. Order is determined by
    * `section.order` (ascending). The section is removed when the calling
    * fiber is disposed. Emits `system-prompt/change` on register/unregister.
+   * @param section - the section to contribute (name, order, text or provider).
+   * @returns the disposer that removes the section.
    */
   section(section: PromptSection): () => void {
     const dispose = this.ctx.effect(function* (this: SystemPrompt) {
@@ -105,6 +109,8 @@ export class SystemPrompt extends Service {
    * Contribute a tool-schema provider that is evaluated at each assembly
    * call (so it can reflect the live registry state). The provider is
    * removed when the calling fiber is disposed. Emits `system-prompt/change`.
+   * @param provider - evaluated at every {@link assemble} for fresh schemas.
+   * @returns the disposer that removes the provider.
    */
   tools(provider: () => ToolSchema[]): () => void {
     const dispose = this.ctx.effect(function* (this: SystemPrompt) {
@@ -132,6 +138,7 @@ export class SystemPrompt extends Service {
    * listeners the opportunity to mutate or replace the assembly before it
    * reaches the model. Await the result before reading the assembly values —
    * waterfall listeners may be async.
+   * @returns the assembly after the waterfall has run.
    */
   assemble(): Promise<PromptAssembly> {
     const assembly: PromptAssembly = {
