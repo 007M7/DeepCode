@@ -327,18 +327,6 @@ Types: [ToolExecution](../core-data-structures/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:66`](../../packages/core/tools/src/index.ts)
 
-### `web/*`
-
-#### `web/providers-change` — emit
-
-Fired after the provider registry changes — a search or fetch provider was registered or disposed. Carries no payload and no capability graph: it means only "the provider registry changed; observers may recompute status from `ctx.web`". `searchStatus()` / `fetchStatus()` stay derived, not stored.
-
-```ts cordis-catalog
-'web/providers-change'(this: WebService): void
-```
-
-Source: [`packages/web/web/src/index.ts:65`](../../packages/web/web/src/index.ts)
-
 ## Services
 
 The `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
@@ -543,25 +531,23 @@ Source: [`packages/core/tools/src/index.ts:268`](../../packages/core/tools/src/i
 
 The web access service. Registered as `ctx.web` (one instance per context).
 
-Selection semantics (identical for status and execution, never order- dependent):
+Selection semantics (resolved at execution time, never order-dependent):
 
 - A configured id that is registered and `status().available` → that provider.
-- A configured id not registered → `configured-missing` / `WEB_PROVIDER_CONFIGURED_MISSING`.
-- A configured id registered but unavailable → `configured-unavailable` / `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`.
+- A configured id not registered → `WEB_PROVIDER_CONFIGURED_MISSING`.
+- A configured id registered but unavailable → `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`.
 - No id configured, exactly one registered usable provider → that provider.
-- No id configured, multiple usable providers → `ambiguous` / `WEB_PROVIDER_AMBIGUOUS`.
-- No id configured, no usable provider → `none` / `WEB_PROVIDER_UNAVAILABLE`.
+- No id configured, multiple usable providers → `WEB_PROVIDER_AMBIGUOUS`.
+- No id configured, no usable provider → `WEB_PROVIDER_UNAVAILABLE`.
 
 ```ts cordis-catalog
 registerSearchProvider(provider: WebSearchProvider): () => void
 registerFetchProvider(provider: WebFetchProvider): () => void
-searchStatus(): WebCapabilityStatus
-fetchStatus(): WebCapabilityStatus
 async search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>
 async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>
 ```
 
-Source: [`packages/web/web/src/index.ts:105`](../../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:87`](../../packages/web/web/src/index.ts)
 
 ## Inherited tier (cordis core + loader/hmr/timer)
 

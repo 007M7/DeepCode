@@ -48,9 +48,6 @@ graph TD
   tools --> agent
   tools --> llm
   tools --> system-prompt
-  ui-stdio --> agent
-  ui-stdio --> llm
-  ui-stdio --> session
   acp --> agent
   acp --> llm
   acp --> session
@@ -119,9 +116,9 @@ graph TD
   acp-agent --> session-persistence-jsonl
   stdio-agent --> agent
   stdio-agent --> agent-core
+  stdio-agent --> llm
   stdio-agent --> session
   stdio-agent --> session-persistence-jsonl
-  stdio-agent --> ui-stdio
   subagent-fork --> agent
   subagent-fork --> session
   subagent-fork --> subagent
@@ -158,7 +155,6 @@ graph TD
 | `session-persistence-jsonl` | `session`, `session-persistence` |
 | `session-persistence-sqlite` | `session`, `session-persistence` |
 | `tools` | `agent`, `llm`, `system-prompt` |
-| `ui-stdio` | `agent`, `llm`, `session` |
 | `acp` | `agent`, `llm`, `session`, `session-persistence`, `tools` |
 | `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
 | `hooks-codex` | `agent`, `hook-protocol`, `llm`, `session`, `tools` |
@@ -174,6 +170,6 @@ graph TD
 | `subagent-mock` | `agent`, `llm`, `subagent` |
 | `tool-subagent` | `agent`, `llm`, `subagent`, `tools` |
 | `acp-agent` | `acp`, `agent-core`, `session-persistence-jsonl` |
-| `stdio-agent` | `agent`, `agent-core`, `session`, `session-persistence-jsonl`, `ui-stdio` |
+| `stdio-agent` | `agent`, `agent-core`, `llm`, `session`, `session-persistence-jsonl` |
 | `subagent-fork` | `agent`, `session`, `subagent`, `subagent-inprocess` |
 | `subagent-spawn` | `subagent`, `subagent-inprocess` |

@@ -264,12 +264,14 @@ describe('DeepSeekSearchProvider error handling', () => {
 
 describe('web-search-deepseek plugin registration', () => {
   it('registers the provider into ctx.web (HMR-safe)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(searchResponse())))
     const ctx = new Context()
     await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
     const fiber = await ctx.plugin(deepseekPlugin, { apiKey: 'ds-key' })
-    expect(ctx.web.searchStatus()).toEqual({ available: true, providerId: DEEPSEEK_PROVIDER_ID })
+    await expect(ctx.web.search({ query: 'q' })).resolves.toMatchObject({ providerId: DEEPSEEK_PROVIDER_ID })
     await fiber.dispose()
-    expect(ctx.web.searchStatus()).toEqual({ available: false, reason: 'configured-missing' })
+    await expect(ctx.web.search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_CONFIGURED_MISSING' }))
   })
 
   it('rejects maxTokens: 0 at plugin construction', async () => {
@@ -315,13 +317,14 @@ describe('web-search-deepseek plugin registration', () => {
   })
 
   it('boots over ctx.web through the unwrapped module without an inject error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(searchResponse())))
     const ctx = new Context()
     await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(deepseekPlugin) as Parameters<Context['plugin']>[0]
     // A collapsed export shape (dropped inject) would throw "without inject" here.
     const fiber = await ctx.plugin(unwrapped, { apiKey: 'ds-key' })
-    expect(ctx.web.searchStatus()).toEqual({ available: true, providerId: DEEPSEEK_PROVIDER_ID })
+    await expect(ctx.web.search({ query: 'q' })).resolves.toMatchObject({ providerId: DEEPSEEK_PROVIDER_ID })
     await fiber.dispose()
   })
 
@@ -334,7 +337,6 @@ describe('web-search-deepseek plugin registration', () => {
       const ctx = new Context()
       await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
       const fiber = await ctx.plugin(deepseekPlugin, {})
-      expect(ctx.web.searchStatus()).toEqual({ available: true, providerId: DEEPSEEK_PROVIDER_ID })
       await ctx.web.search({ query: 'q' })
       const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
       expect(url).toBe('https://api.deepseek.com/anthropic/v1/messages')
@@ -354,7 +356,8 @@ describe('web-search-deepseek plugin registration', () => {
       const ctx = new Context()
       await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
       await ctx.plugin(deepseekPlugin, {})
-      expect(ctx.web.searchStatus()).toEqual({ available: false, reason: 'configured-unavailable' })
+      await expect(ctx.web.search({ query: 'q' }))
+        .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_CONFIGURED_UNAVAILABLE' }))
     } finally {
       if (prev !== undefined) process.env.DEEPSEEK_API_KEY = prev
     }
