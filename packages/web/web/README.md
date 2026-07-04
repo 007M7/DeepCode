@@ -18,8 +18,7 @@ Search and fetch share no request schema and no business logic, but they are del
 
 | Member | Semantics |
 |---|---|
-| `registerSearchProvider(provider)` / `registerFetchProvider(provider)` | Register a backend. Throws `WebError` `WEB_DUPLICATE_PROVIDER` on a duplicate id within that capability kind. Returns a disposer; emits `web/providers-change` on register and on dispose. Disposed with the calling fiber. |
-| `searchStatus()` / `fetchStatus()` | Derived (never stored) `WebCapabilityStatus`: whether the capability has a selected usable provider, or the broad category it fails in. Diagnostics + execution-resolution input. |
+| `registerSearchProvider(provider)` / `registerFetchProvider(provider)` | Register a backend. Throws `WebError` `WEB_DUPLICATE_PROVIDER` on a duplicate id within that capability kind. Returns a disposer. Disposed with the calling fiber. |
 | `search(request, exec?)` | Resolve the search provider and run one search. Enforces `request.maxResults` on the result (truncates `sources[]`, sets `truncated`). Throws `WebError` when the capability cannot run. |
 | `fetch(request, exec?)` | Resolve the fetch provider and retrieve one URL. A non-2xx response is a result, not a throw. Throws `WebError` for failures to safely retrieve or represent the resource. |
 
@@ -27,18 +26,18 @@ Providers register **capabilities**, not tools. `dsh-tool-web` is the only owner
 
 ## Selection
 
-Selection never depends on registration, config, or HMR order. A capability has an explicit provider id (config `searchProvider`/`fetchProvider`, or env `$DSH_WEB_SEARCH_PROVIDER`/`$DSH_WEB_FETCH_PROVIDER` feeding the same fields), or auto-selects when exactly one usable provider is registered:
+Selection never depends on registration, config, or HMR order. A capability has an explicit provider id (config `searchProvider`/`fetchProvider`, or env `$DSH_WEB_SEARCH_PROVIDER`/`$DSH_WEB_FETCH_PROVIDER` feeding the same fields), or auto-selects when exactly one usable provider is registered. `search()`/`fetch()` resolve the provider at execution time:
 
-| Situation | `WebCapabilityStatus` | Execution |
-|---|---|---|
-| configured id registered and `status().available` | `available` for it | runs |
-| configured id not registered | `configured-missing` | `WEB_PROVIDER_CONFIGURED_MISSING` |
-| configured id registered but unavailable | `configured-unavailable` | `WEB_PROVIDER_CONFIGURED_UNAVAILABLE` |
-| no id, exactly one registered usable provider | `available` for it | runs |
-| no id, no usable provider | `none` | `WEB_PROVIDER_UNAVAILABLE` |
-| no id, multiple usable providers | `ambiguous` | `WEB_PROVIDER_AMBIGUOUS` |
+| Situation | Execution |
+|---|---|
+| configured id registered and `status().available` | runs that provider |
+| configured id not registered | `WEB_PROVIDER_CONFIGURED_MISSING` |
+| configured id registered but unavailable | `WEB_PROVIDER_CONFIGURED_UNAVAILABLE` |
+| no id, exactly one registered usable provider | runs it |
+| no id, no usable provider | `WEB_PROVIDER_UNAVAILABLE` |
+| no id, multiple usable providers | `WEB_PROVIDER_AMBIGUOUS` |
 
-`WebCapabilityStatus` carries only `available` + a `reason` discriminant (plus the winning `providerId` on the available branch). The branchable per-reason detail lives in the thrown `WebError`, which is the surface callers route on — so the same fact never gets two homes that can disagree. A provider's own `status()` is a cheap local check (credential presence, parseable config) and **must not make network calls**; `dsh-tool-web` reads only the aggregated `searchStatus()`/`fetchStatus()`, never each provider's `status()` directly.
+The failure branches throw `WebError`, whose structured code (plus message detail — the missing id, the ambiguous candidate set) is the surface callers route on. A provider's own `status()` is a cheap local check (credential presence, parseable config) that feeds this execution-time selection and **must not make network calls**; `dsh-tool-web` never calls a provider's `status()` — it executes through `ctx.web.search()`/`fetch()` and routes on the thrown codes, so provider selection has one owner.
 
 ## Vocabulary
 
