@@ -1,6 +1,6 @@
 # RFCs
 
-One kind of design doc lives here. An **RFC** records a decision or proposal that shapes this codebase — the *why* and *what we gave up*, the parts code and docs can't carry. (Earlier this split into separate "ADR" and "RFC" trees; they were unified, since most ADRs were simply implemented RFCs.)
+One kind of design doc lives here. An **RFC** records a decision or proposal that shapes this codebase — the *why* and *what we gave up*, the parts code and docs can't carry.
 
 ## Layout and naming
 
@@ -168,6 +168,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Classify RFCs by kind via path-encoded subdirectories](implemented/process/2026-06-20-rfc-classification.md) | 2026-06-20 |
 | [Generated tool-schema catalog (boot-and-harvest)](implemented/process/2026-07-02-tool-schema-catalog.md) | 2026-07-02 |
 | [Bilingual documentation via paired sibling files and a pairing gate](implemented/process/2026-07-02-bilingual-docs-and-pairing-gate.md) | 2026-07-02 |
+| [Documentation tiers, budgets, and the ceiling gate](implemented/process/2026-07-04-doc-tiers-and-budgets.md) | 2026-07-04 |
 
 ### Testing
 
