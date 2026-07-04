@@ -202,8 +202,8 @@ interface SessionRecord {
  * Drive the in-flight prompt's settle from the harness event stream. The bridge
  * settles off the durable log: the `turn/end` session event on the
  * `session/event` feed for the prompt's own turn, with the agent
- * erroring/settling to idle as a fallback (AGENTS.md "honor cross-seam contracts
- * on BOTH sides") for the case where a throwing peer `session/event` listener
+ * erroring/settling to idle as a fallback (docs/defensive-patterns.md "honor
+ * cross-seam contracts on BOTH sides") for the case where a throwing peer `session/event` listener
  * starved the bridge's listener before it saw the boundary. The first of these
  * to fire settles the prompt; `settle` is then cleared so the others are no-ops
  * (settle-exactly-once).

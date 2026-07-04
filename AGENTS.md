@@ -4,7 +4,7 @@ This is the monorepo of the DeepSeek Harness group; it hosts **DeepSeek Code**, 
 
 ## Pre-release stance: foundation over blast radius
 
-**This applies only while the harness is unreleased — remove this section at the first tagged release.** There are no external consumers, so optimize for the correct foundation, not a small diff: move files, rename public symbols, repackage plugins, and update every reference in the same change. No backward-compat shims, deprecation aliases, or re-export stubs. On-disk formats need no migrations — a backend REJECTS anything not at the current version. Two sanctioned version stances: monotonic bump-and-reject (the SQLite backend's `SCHEMA_VERSION`), and a pinned `0` that absorbs all shape churn (`SESSION_FORMAT_VERSION` in `dsh-session`, documented "no compatibility implied") so the instability stays explicit. Real version policy begins at the first release.
+**This applies only while the harness is unreleased — remove this section at the first tagged release.** There are no external consumers, so optimize for the correct foundation, not a small diff: move files, rename public symbols, repackage plugins, and update every reference in the same change. No backward-compat shims, deprecation aliases, or re-export stubs. On-disk formats need no migrations — a backend REJECTS anything not at the current version. Two sanctioned version stances: monotonic bump-and-reject (the SQLite backend's `SCHEMA_VERSION`), and a pinned `0` that absorbs all shape churn (`SESSION_FORMAT_VERSION` in `dsh-session`, documented "no compatibility implied"). Real version policy begins at the first release.
 
 ## Repository layout
 
@@ -38,8 +38,8 @@ pnpm install            # pnpm workspaces, node >= 24
 pnpm run test           # vitest unit tests
 pnpm run test:coverage  # THE gating test run: per-file 100% coverage on packages/*/*/src
 pnpm run test:e2e       # real-API tests; self-skip without DEEPSEEK_API_KEY
-pnpm run test:snapshot  # keyless ACP replay vs committed goldens; filter one: pnpm run test:snapshot -t <name>
-pnpm run test:snapshot:record  # re-record goldens against the real API (needs key)
+pnpm run test:snapshot  # keyless ACP replay vs goldens; filter: -t <name>
+pnpm run test:snapshot:record  # re-record goldens (needs key)
 pnpm run typecheck
 pnpm run lint
 pnpm run build          # tsc emits lib/types, tsdown bundles runtime
@@ -47,12 +47,12 @@ pnpm run hygiene        # knip + publint + workspace constraints + NodeNext cons
 pnpm run doc-sync       # all documentation gates; see the doc-sync script in package.json
 pnpm run demo:echo      # mock-model REPL, no key needed
 pnpm run demo:repl      # real REPL coding agent (needs DEEPSEEK_API_KEY)
-pnpm run demo:acp       # ACP server agent over JSON-RPC stdio (needs DEEPSEEK_API_KEY)
+pnpm run demo:acp       # ACP server agent (needs DEEPSEEK_API_KEY)
 ```
 
 ### Run the CI gates locally before marking a PR ready
 
-CI is the backstop, not the first place a gate runs. From a fresh clone or worktree, run `pnpm run build` once first — publint and the NodeNext check validate built `lib/`. The CI-equivalent run:
+CI is the backstop, not the first run. From a fresh clone or worktree, `pnpm run build` first — publint and the NodeNext check validate built `lib/`. The CI-equivalent run:
 
 ```sh
 set -euo pipefail
@@ -80,9 +80,9 @@ Real-API tests and demos read `DEEPSEEK_API_KEY` (and optional `DEEPSEEK_BASE_UR
 
 ## Conventions
 
-- Every npm package is `@deepseek-ai/dsh-<name>`; vendored packages keep upstream names and are `private: true`. `cordis` is a peerDependency (+ devDependency) of every harness package.
+- Every npm package is `@deepseek-ai/dsh-<name>`; vendored packages keep upstream names and are `private: true`. `cordis` is a peerDependency (+ dev) of every harness package.
 - ESM everywhere (`"type": "module"`). Cross-package imports use package names, never relative paths; in-package relative imports use explicit `.ts` extensions. Dev/test/demo run unbuilt via tsx + the root tsconfig `paths` map; building is only for consumers outside the repo.
-- **Registrations are effects**: every contribution goes through `ctx.effect()` / `ctx.on()`; a registry's `register()` returns the disposer. Every registry gets an HMR-safety test.
+- **Registrations are effects**: every contribution goes through `ctx.effect()` / `ctx.on()`; a registry's `register()` returns the disposer.
 - **Typed events via declaration merging**; extensible unions use the merge-extensible-map pattern (`ContentBlockMap`, `SessionEventMap`, …). Every new event's JSDoc carries an `@mode` tag — the catalog generator hard-errors without it; mode semantics are in the [generated catalog](docs/cordis-catalog/events-and-services.md) header and [the catalog RFC](docs/rfc/implemented/process/2026-06-20-generated-cordis-catalog.md).
 - **Discriminated unions: `switch` on the tag**, not if-chains. Closed unions end with `default: assertNever(...)`; merge-extensible unions must NOT — handle known cases and fall through `default` with a comment.
 - **Waterfall listeners MUST call `next()`** to delegate; returning without it is the veto ([semantics](docs/architecture.md#cordis-waterfall-semantics-important)).
@@ -98,16 +98,16 @@ Real-API tests and demos read `DEEPSEEK_API_KEY` (and optional `DEEPSEEK_BASE_UR
 - **A tool's ACP render intent is part of its design**, decided up front (`generic`/`terminal`/`diff`, `locations`); presentation methods are pure functions of `args` ([render-intent RFC](docs/rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md), [cookbook](docs/cookbook/adding-a-tool.md)).
 - **A new capability seam, lifecycle shape, or transcript surface names its coverage at every tier (unit, e2e, snapshot) at plan time** and verifies the harness can express it — a gap is scheduled work, not a mid-build surprise.
 - **Merge PRs with merge commits** (`gh pr merge --merge`), never squash/rebase. **Never rewrite a pushed branch**; update a child by merging its parent down. **A review fix lands on the PR that introduced the issue, as a separate commit**, then merges down ([stacked-review guide](docs/cookbook/responding-to-pr-review-on-a-stack.md)).
-- TODO markers by urgency: `FIXME` / `TODO` / `XXX` ([semantics](docs/development.md)).
+- TODO markers: `FIXME`/`TODO`/`XXX` by urgency ([semantics](docs/development.md)).
 - Files end with exactly one trailing newline; `git diff --check` (pre-push) gates it.
 
 ## Defensive patterns
 
-[docs/defensive-patterns.md](docs/defensive-patterns.md) carries the hard-won bug-class rules: report orthogonal outcomes independently; honor cross-seam contracts on both sides; async state is not synchronous state; dispose must reach quiescence; contain callback exceptions; never hand untrusted output the ambient environment or predictable paths. Read it before writing lifecycle, concurrency, subprocess, or teardown code.
+[docs/defensive-patterns.md](docs/defensive-patterns.md) carries the hard-won bug-class rules: report orthogonal outcomes independently; honor cross-seam contracts on both sides; async state is not synchronous state; dispose must reach quiescence; contain callback exceptions; never hand untrusted output the ambient environment or predictable paths. Read it before lifecycle, concurrency, subprocess, or teardown work.
 
 ## Type safety and documentation
 
-Everything compiles under `strict: true` with `noImplicitAny`; every remaining `any` carries a comment saying why a narrower type is infeasible. Lean toward the stricter lint rule and the extra mechanical gate: encode invariants in checks (`verify-*` scripts), preferring a narrow justified escape hatch over a rule left off globally. Type gymnastics are acceptable inside core packages when they buy plugin-author DX (the `defineTool` schema DSL is the canonical example).
+Everything compiles under `strict: true` with `noImplicitAny`; every remaining `any` carries a comment saying why a narrower type is infeasible. Every module has a module-level doc comment; every export (and non-obvious method) has a JSDoc explaining semantics — contracts, disposal, errors — not the name restated; internal helpers only where non-obvious; one-liners when one line suffices. Lean toward the stricter lint rule and the extra mechanical gate: encode invariants in checks (`verify-*` scripts), preferring a narrow justified escape hatch over a rule left off globally. Type gymnastics are acceptable inside core packages when they buy plugin-author DX (the `defineTool` schema DSL is the canonical example).
 
 Docs are part of every change: code changes update their README and JSDoc in the SAME change; a bilingual-pair edit updates the counterpart and re-records ([i18n contract](docs/i18n/README.md)). The writing rules — document the current state never the history, one physical line per paragraph, one home per fact — and the word-budget gate live in [docs/AGENTS.md](docs/AGENTS.md).
 

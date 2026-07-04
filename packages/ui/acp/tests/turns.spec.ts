@@ -79,7 +79,7 @@ describe('acp bridge — turn outcomes', () => {
   it('the REAL bash tool drives the tool-call UI end-to-end: command title + description block + console output', async () => {
     // Use the SHIPPING tool (dsh-tool-bash + dsh-bash-local), not an inline
     // stand-in, so this verifies the actual presentCall/presentResult the editor
-    // sees (AGENTS.md "prefer the real implementation over a mock in tests").
+    // sees (docs/testing.md "prefer the real implementation over a mock").
     // The mock MODEL still scripts the tool call (no real LLM needed), but the
     // tool and executor are real: a real `echo` runs and its real output flows
     // back through the bridge.

@@ -1,6 +1,6 @@
 # AGENTS.md — Implemented RFCs
 
-These are RFCs whose decision has **shipped**. The repo-wide and docs-wide rules still apply ([root AGENTS.md](../../../AGENTS.md) § "Type Safety and Documentation", [docs/AGENTS.md](../../AGENTS.md)); this file adds one rule specific to this folder.
+These are RFCs whose decision has **shipped**. The repo-wide and docs-wide rules still apply ([root AGENTS.md](../../../AGENTS.md) § "Type safety and documentation", [docs/AGENTS.md](../../AGENTS.md)); this file adds one rule specific to this folder.
 
 ## Keep an implemented RFC current with what actually shipped
 
