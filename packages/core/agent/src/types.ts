@@ -20,7 +20,7 @@
  *   `agent/request`/`agent/step-result`/`agent/turn-continuation` waterfalls and
  *   the serial `agent/pre-step`) that mutate/veto, and TRANSIENT emits
  *   (`agent/status`, `agent/error`, `agent/created`/
- *   `agent/disposed`, `agent/queued`, `agent/steering`, `agent/session-start`)
+ *   `agent/disposed`, `agent/queued`, `agent/session-start`)
  *   that notify with the `Agent` in hand. Turn/step boundaries are NOT here —
  *   they are durable `session/event` records. Answers "right now, with the agent
  *   object — intercept or observe."
@@ -367,16 +367,7 @@ declare module 'cordis' {
      */
     'agent/turn-continuation'(agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>
 
-    // ---- streaming + tool notifications (emit) ----
-    /**
-     * Steering content was injected into a running turn.
-     * @param agent - the agent that absorbed the steering.
-     * @param turn - the running turn that received it.
-     * @param content - the injected blocks.
-     * @param source - the steering message's resolved source.
-     * @mode emit
-     */
-    'agent/steering'(agent: Agent, turn: number, content: ContentBlock[], source: MessageSource): void
+    // ---- error notifications (emit) ----
     /**
      * A step or turn errored. The loop reports a failure here (plus the logger)
      * even when the error has no in-turn position for a session `error` event.

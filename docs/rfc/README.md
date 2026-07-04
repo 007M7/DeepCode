@@ -53,12 +53,8 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 |---|---|
 | [Unify the agent id and the session id](proposed/simplification/2026-06-20-unify-agent-and-session-id.md) | 2026-06-20 |
 | [Drop `GenerateOptions.prefill` and `ToolSchema.strict` — request knobs with no working end-to-end path](proposed/simplification/2026-07-04-drop-inert-request-knobs.md) | 2026-07-04 |
-| [Drop the unconsumed web observation surface — the `providers-change` event and the status methods](proposed/simplification/2026-07-04-drop-unconsumed-web-observation-surface.md) | 2026-07-04 |
-| [Fold the stdio UI helper into the stdio app](proposed/simplification/2026-07-04-fold-stdio-ui-helper.md) | 2026-07-04 |
 | [Prune dead core-spine surface — `SurfaceManager.invalidate()`, the loop-internal exports, `ToolExecutionResult.callId`](proposed/simplification/2026-07-04-prune-dead-core-spine-surface.md) | 2026-07-04 |
 | [Prune write-only fields and a dead routing knob from the fs seam](proposed/simplification/2026-07-04-prune-write-only-fs-surface.md) | 2026-07-04 |
-| [Remove the `agent/steering` mirror emit](proposed/simplification/2026-07-04-remove-agent-steering-mirror.md) | 2026-07-04 |
-| [Share the app bins' boot glue instead of maintaining twin copies](proposed/simplification/2026-07-04-share-app-bin-boot-glue.md) | 2026-07-04 |
 | [Tighten the hook-protocol contract — dialect, discarded fields, double defaults, and lib-owned `hook/result` semantics](proposed/simplification/2026-07-04-tighten-hook-protocol-contract.md) | 2026-07-04 |
 | [Trim unreachable ACP bridge surface — the branding knobs and the kind-sniffing fallback](proposed/simplification/2026-07-04-trim-acp-bridge-unreachable-surface.md) | 2026-07-04 |
 
@@ -84,7 +80,6 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 |---|---|
 | [Deterministic tests, the replay invariant fixture, and race stress](proposed/testing/2026-06-11-deterministic-and-stress-testing.md) | 2026-06-11 |
 | [Mutation testing as the coverage counterweight](proposed/testing/2026-06-11-mutation-testing.md) | 2026-06-11 |
-| [Single-source the acp-agent replay config](proposed/testing/2026-07-04-single-source-acp-replay-config.md) | 2026-07-04 |
 <!-- gen-rfc-index:end proposed -->
 
 ## Implemented
@@ -119,7 +114,11 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Split the filesystem seam — provider text mutations plus the `dsh-fs-policy` plugin](implemented/simplification/2026-06-26-fsspec-style-fs-seam.md) | 2026-06-26 |
 | [Stop mirroring the token stream as an agent event](implemented/simplification/2026-07-02-remove-stream-chunk-mirror.md) | 2026-07-02 |
 | [Drop the `image` content block until a path can honor it](implemented/simplification/2026-07-04-drop-image-content-block.md) | 2026-07-04 |
+| [Drop the unconsumed web observation surface — the `providers-change` event and the status methods](implemented/simplification/2026-07-04-drop-unconsumed-web-observation-surface.md) | 2026-07-04 |
+| [Fold the stdio UI helper into the stdio app](implemented/simplification/2026-07-04-fold-stdio-ui-helper.md) | 2026-07-04 |
 | [Prune producer-less vocabulary variants (block cache hints, the `agent` message source, the `continuation` turn trigger)](implemented/simplification/2026-07-04-prune-producerless-vocabulary-variants.md) | 2026-07-04 |
+| [Remove the `agent/steering` mirror emit](implemented/simplification/2026-07-04-remove-agent-steering-mirror.md) | 2026-07-04 |
+| [Share the app bins' boot glue instead of maintaining twin copies](implemented/simplification/2026-07-04-share-app-bin-boot-glue.md) | 2026-07-04 |
 
 ### Architecture
 
@@ -185,6 +184,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Record fork and mixed spawn+fork snapshot scenarios](implemented/testing/2026-06-22-fork-snapshot-scenarios.md) | 2026-06-22 |
 | [Per-session snapshot replay for nested agents](implemented/testing/2026-06-22-subagent-snapshot-replay.md) | 2026-06-22 |
 | [Hook snapshot matrix — end-to-end goldens for both bridges](implemented/testing/2026-07-04-hook-snapshot-matrix.md) | 2026-07-04 |
+| [Single-source the acp-agent replay config](implemented/testing/2026-07-04-single-source-acp-replay-config.md) | 2026-07-04 |
 <!-- gen-rfc-index:end implemented -->
 
 ## Rejected

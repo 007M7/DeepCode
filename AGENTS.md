@@ -21,8 +21,8 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   todo/        the todo_write tool
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
-  ui/          ACP bridge + the stdio/ACP app packages (each with a bin)
-  support/     dev/test infrastructure: invariants, ui-stdio, llm-replay, subagent-mock
+  ui/          ACP bridge + app-boot glue + the stdio/ACP app bins
+  support/     dev/test infrastructure: invariants, llm-replay, subagent-mock
   util/        zero-dependency utilities (Branded<B>)
 examples/    Runnable demos: thin cordis.yml leaves over the app packages (see examples/AGENTS.md)
 docs/        architecture, generated catalogs, RFCs, postmortems, cookbook (see docs/AGENTS.md)
