@@ -317,21 +317,20 @@ export class ToolRegistry extends Service {
 
   /**
    * Return all registered tool schemas — exactly the model-facing fields
-   * (`name`, `description`, `parameters`, and `strict` when set), as sent to the
-   * model via the system-prompt assembly. Constructed EXPLICITLY rather than by
-   * stripping known non-schema members: a `ToolDefinition` also carries
-   * `execute` and the optional `presentCall`/`presentResult` UI callbacks, and
-   * those (especially the functions) must never leak into a model request. An
-   * allowlist can't drift when a new non-schema member is added to the
-   * definition; a denylist (rest-destructure) would silently leak it.
+   * (`name`, `description`, `parameters`), as sent to the model via the
+   * system-prompt assembly. Constructed EXPLICITLY rather than by stripping
+   * known non-schema members: a `ToolDefinition` also carries `execute` and the
+   * optional `presentCall`/`presentResult` UI callbacks, and those (especially
+   * the functions) must never leak into a model request. An allowlist can't
+   * drift when a new non-schema member is added to the definition; a denylist
+   * (rest-destructure) would silently leak it.
    * @returns one deep-cloned schema per registered tool, in registration order.
    */
   schemas(): ToolSchema[] {
-    return [...this.store.values()].map(({ name, description, parameters, strict }): ToolSchema => ({
+    return [...this.store.values()].map(({ name, description, parameters }): ToolSchema => ({
       name,
       description,
       parameters: structuredClone(parameters),
-      ...strict !== undefined ? { strict } : {},
     }))
   }
 

@@ -15,7 +15,6 @@
  * @module dsh-llm-deepseek/serialize
  */
 
-import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type { WireMessage, WireRequest, WireTool } from './types.ts'
 
@@ -98,19 +97,8 @@ export function serializeMessages(messages: Message[]): WireMessage[] {
   return wire
 }
 
-/**
- * Build the full wire request. Throws `LlmError('UNSUPPORTED')` for
- * `prefill` (DeepSeek's chat-prefix completion is a Beta feature on a
- * different base URL — see README).
- */
+/** Build the full wire request. */
 export function serializeRequest(options: GenerateOptions, defaults: RequestDefaults = {}): WireRequest {
-  if (options.prefill !== undefined) {
-    throw new LlmError(
-      'prefill is not supported by the DeepSeek adapter (Beta chat-prefix completion is future work)',
-      'UNSUPPORTED',
-    )
-  }
-
   const messages: WireMessage[] = []
   if (options.system !== undefined) {
     messages.push({ role: 'system', content: options.system })
@@ -123,8 +111,6 @@ export function serializeRequest(options: GenerateOptions, defaults: RequestDefa
       name: tool.name,
       description: tool.description,
       parameters: tool.parameters,
-      // strict is officially supported (Beta); pass the tool author's choice.
-      ...tool.strict !== undefined ? { strict: tool.strict } : {},
     },
   }))
 

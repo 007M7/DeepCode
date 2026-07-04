@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CallId, LlmError } from '@deepseek-ai/dsh-llm'
+import { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { serializeMessages, serializeRequest } from '@deepseek-ai/dsh-llm-deepseek'
 
@@ -155,17 +155,17 @@ describe('serializeRequest', () => {
     expect(wire.stop).toEqual(['END'])
   })
 
-  it('maps tools with strict passthrough', () => {
+  it('maps tools to the wire function shape', () => {
     const wire = serializeRequest(request({
       messages: history,
       tools: [
         { name: 'a', description: 'A', parameters: { type: 'object', properties: {} } },
-        { name: 'b', description: 'B', parameters: { type: 'object', properties: {} }, strict: true },
+        { name: 'b', description: 'B', parameters: { type: 'object', properties: { x: { type: 'string' } } } },
       ],
     }))
     expect(wire.tools).toEqual([
       { type: 'function', function: { name: 'a', description: 'A', parameters: { type: 'object', properties: {} } } },
-      { type: 'function', function: { name: 'b', description: 'B', parameters: { type: 'object', properties: {} }, strict: true } },
+      { type: 'function', function: { name: 'b', description: 'B', parameters: { type: 'object', properties: { x: { type: 'string' } } } } },
     ])
   })
 
@@ -184,17 +184,6 @@ describe('serializeRequest', () => {
     const wire = serializeRequest(request({ messages: history }))
     expect(wire.thinking).toBeUndefined()
     expect(wire.reasoning_effort).toBeUndefined()
-  })
-
-  it('rejects prefill with an UNSUPPORTED LlmError', () => {
-    expect(() => serializeRequest(request({ prefill: [{ type: 'text', text: 'Sure' }] })))
-      .toThrow(LlmError)
-    try {
-      serializeRequest(request({ prefill: [] }))
-      expect.unreachable()
-    } catch (error) {
-      expect((error as LlmError).code).toBe('UNSUPPORTED')
-    }
   })
 })
 

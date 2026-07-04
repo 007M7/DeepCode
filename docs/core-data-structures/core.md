@@ -130,8 +130,6 @@ interface GenerateOptions {
   system?: string
   /** Tool schemas (adapters map to the provider's `tools` field). */
   tools?: ToolSchema[]
-  /** Assistant prefix continuation (prefill). */
-  prefill?: ContentBlock[]
   temperature?: number
   maxTokens?: number
   /**
@@ -180,7 +178,6 @@ interface ToolSchema {
   description: string
   /** JSON Schema object for the arguments. */
   parameters: Record<string, unknown>
-  strict?: boolean
 }
 ```
 

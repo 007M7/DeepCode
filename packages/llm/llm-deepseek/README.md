@@ -28,12 +28,10 @@ A second, independent implementation of the same seam exists in `@deepseek-ai/ds
 - Streaming only (`stream_options.include_usage` always on). `usage` may arrive attached to the finish chunk or as a trailing usage-only chunk — the translator defers both to `[DONE]`, so `usage` always precedes `finish` and nothing follows `finish`.
 - The first thinking-mode chunk carries `reasoning_content: ""` — handled (no spurious reasoning block).
 - **Reasoning passback rule**: on assistant turns that carried tool calls, `reasoning_content` is serialized back in history (required by the API in thinking mode); on tool-call-free turns it is dropped (ignored anyway — saves tokens).
-- `strict` on tool schemas passes through (officially Beta; the public API wants the `/beta` base URL for it, the internal endpoint accepts it directly).
 - Cache accounting: `cacheReadTokens` ← `prompt_cache_hit_tokens` / `prompt_tokens_details.cached_tokens`; DeepSeek reports no cache-write metric.
 
 ## Limitations (MVP, documented deliberately)
 
-- `prefill` throws `LlmError('UNSUPPORTED')` — DeepSeek's chat-prefix completion is a Beta feature on the `/beta` base URL; future work.
 - `tool_choice` is not mapped (not part of the core vocabulary).
 
 ## Errors
