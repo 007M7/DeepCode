@@ -10,10 +10,12 @@
  */
 
 /**
- * Backend configuration. Every knob is REQUIRED except `auto`: there is no
- * concrete data yet to justify default thresholds/budgets, so a consumer must
- * state each value explicitly rather than inherit a guessed default. `auto`
- * alone defaults to `true` (auto-compaction is the intended posture).
+ * Backend configuration. Every knob is REQUIRED except `auto` and
+ * `charsPerToken`: there is no concrete data yet to justify default
+ * thresholds/budgets, so a consumer must state each value explicitly rather
+ * than inherit a guessed default. `auto` alone defaults to `true`
+ * (auto-compaction is the intended posture), and `charsPerToken` defaults to
+ * the English-text heuristic its estimator was calibrated on.
  */
 export interface BasicCompactConfig {
   /** Context window size in tokens. */
@@ -30,13 +32,21 @@ export interface BasicCompactConfig {
   compactionRetries: number
   /** Enable automatic compaction on the `agent/pre-step` seam (default true). */
   auto?: boolean
+  /**
+   * Text density for the token estimator: estimated tokens = chars /
+   * `charsPerToken`. Defaults to 4 (typical English text). A CJK-heavy
+   * deployment should set ~1-2 — CJK runs at roughly 1-2 chars per token, so
+   * the default UNDERestimates several-fold and compaction fires far too late.
+   * May be fractional.
+   */
+  charsPerToken?: number
 }
 
-/** Resolved config with `auto` defaulted. */
+/** Resolved config with `auto` and `charsPerToken` defaulted. */
 export type ResolvedConfig = Required<BasicCompactConfig>
 
 /**
- * Default `auto` when unset and reject nonsensical numeric knobs.
+ * Default `auto`/`charsPerToken` when unset and reject nonsensical numeric knobs.
  *
  * Convergence is not a static config invariant: provider generation caps can be
  * spent on hidden or surfaced reasoning tokens, and the model may emit a summary
@@ -46,13 +56,14 @@ export type ResolvedConfig = Required<BasicCompactConfig>
  * throwing if the surface still exceeds the threshold.
  */
 export function resolveConfig(config: BasicCompactConfig): ResolvedConfig {
-  const resolved: ResolvedConfig = { auto: true, ...config }
+  const resolved: ResolvedConfig = { auto: true, charsPerToken: 4, ...config }
 
   assertPositiveInteger('contextWindow', resolved.contextWindow)
   assertRatio('thresholdRatio', resolved.thresholdRatio)
   assertNonNegativeInteger('retainTokens', resolved.retainTokens)
   assertPositiveInteger('maxTokens', resolved.maxTokens)
   assertNonNegativeInteger('compactionRetries', resolved.compactionRetries)
+  assertPositiveFinite('charsPerToken', resolved.charsPerToken)
   if (typeof resolved.summarizationModel !== 'string') {
     throw new Error('BasicCompactConfig: summarizationModel must be a string.')
   }
@@ -71,6 +82,12 @@ function assertPositiveInteger(name: string, value: number): void {
 function assertNonNegativeInteger(name: string, value: number): void {
   if (!Number.isInteger(value) || value < 0) {
     throw new Error(`BasicCompactConfig: ${name} (${value}) must be a non-negative integer.`)
+  }
+}
+
+function assertPositiveFinite(name: string, value: number): void {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    throw new Error(`BasicCompactConfig: ${name} (${value}) must be a positive finite number.`)
   }
 }
 

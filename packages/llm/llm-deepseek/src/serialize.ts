@@ -11,7 +11,6 @@
  *   rule for thinking mode — required there, ignored elsewhere, so we save
  *   the tokens elsewhere); `tool-call` → `tool_calls[]`
  * - `tool-result` → its own `{role: 'tool'}` message (text flattened)
- * - `image` → skipped (MVP limitation, documented in the README)
  *
  * @module dsh-llm-deepseek/serialize
  */

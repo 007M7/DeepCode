@@ -87,11 +87,10 @@ interface ContentBlockMap {
   'reasoning': ReasoningBlock
   'tool-call': ToolCallBlock
   'tool-result': ToolResultBlock
-  'image': ImageBlock
 }
 ```
 
-The block interfaces (full fields in source): `TextBlock` (`text`), `ReasoningBlock` (thinking, distinct from visible text), `ToolCallBlock` (`id: CallId`, `name`, raw-JSON `arguments`), `ToolResultBlock` (`toolCallId`, nested `content: ContentBlock[]`, `isError?`), `ImageBlock` (`url`, `mimeType?`). `ContentBlock = ContentBlockMap[ContentBlockType]`.
+The block interfaces (full fields in source): `TextBlock` (`text`), `ReasoningBlock` (thinking, distinct from visible text), `ToolCallBlock` (`id: CallId`, `name`, raw-JSON `arguments`), `ToolResultBlock` (`toolCallId`, nested `content: ContentBlock[]`, `isError?`). `ContentBlock = ContentBlockMap[ContentBlockType]`. The core set is limited to blocks every shipping path honors — multimodal content (images, audio, …) has no core block type; a feature that needs one adds it via the merge-extensible map together with the adapter/UI/compaction support that honors it.
 
 A `Message` is a role plus blocks:
 

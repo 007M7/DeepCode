@@ -8,7 +8,7 @@ A SQLite durable session-persistence backend — a second `SessionPersistence` i
 
 Each `SessionEvent` maps 1:1 onto a row in an `events` table `(session_id, seq, type, time, data, source_event_seqs, surface_op)` — `data` is the event payload as JSON text, so the row shape is the event verbatim (including `assistant/chunk`, keeping `seq` contiguous). The two `TEXT` columns `source_event_seqs` and `surface_op` are nullable; they store the event's optional surface-metadata fields (see [session surface](../../../docs/rfc/implemented/architecture/2026-06-18-session-surface.md)). Out-of-log metadata (`SessionHeader`) lives in a `sessions` row. A `sessions` row is written only by the first `append` — its existence is the lazy-materialization signal (`list` reports exactly the sessions that have a row), so no separate column is needed.
 
-The repo targets Node ≥ 24 (the root `engines` field), which includes the stable `node:sqlite` module. The database opens with `foreign_keys = ON` (so `ON DELETE CASCADE` drops a session's events with its row) and `journal_mode = WAL`. The table-layout version is stored in `PRAGMA user_version` and checked on open: a fresh database is stamped with the current `SCHEMA_VERSION`; a database written by any other, incompatible build (a non-current `user_version`, older or newer) is rejected rather than opened against an unknown layout — there is no migration (unreleased software).
+The repo targets Node ≥ 24 (the root `engines` field), which includes the stable `node:sqlite` module. The database opens with `foreign_keys = ON` (so `ON DELETE CASCADE` drops a session's events with its row) and the configured `journal_mode` (default `wal`; pick a rollback-journal mode like `delete` on filesystems where WAL's shared-memory files do not work, e.g. network mounts). The table-layout version is stored in `PRAGMA user_version` and checked on open: a fresh database is stamped with the current `SCHEMA_VERSION`; a database written by any other, incompatible build (a non-current `user_version`, older or newer) is rejected rather than opened against an unknown layout — there is no migration (unreleased software).
 
 ## Contract semantics over rows
 
@@ -21,6 +21,7 @@ The repo targets Node ≥ 24 (the root `engines` field), which includes the stab
 ```ts
 interface Config {
   path: string   // SQLite database file path, or ':memory:' for an in-process DB
+  journalMode?: 'wal' | 'delete' | 'truncate' | 'persist'   // journal_mode pragma; default 'wal'
 }
 ```
 

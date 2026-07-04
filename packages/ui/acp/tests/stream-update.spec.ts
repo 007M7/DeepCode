@@ -91,7 +91,7 @@ describe('streamSessionEventUpdate', () => {
   it('drops non-text tool-result content (text-only)', () => {
     const update = updatesFor(evt('tool/result', {
       turn: 1, step: 1, callId: CallId('c1'),
-      content: [{ type: 'image', url: 'https://x/y.png' }],
+      content: [{ type: 'reasoning', text: 'private' }],
       isError: false,
     }))[0]
     expect((update as { content: unknown[] }).content).toEqual([])

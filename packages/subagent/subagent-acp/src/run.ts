@@ -73,16 +73,16 @@ export interface AcpRunSpec {
   /**
    * Grace period (ms) for the child's EOF-driven quiesce in
    * {@link SubagentRun.dispose} — the window to flush persistence and tear down
-   * its OWN nested subprocesses before the parent escalates to a signal. Defaults
-   * to {@link DEFAULT_DISPOSE_EOF_GRACE_MS}; a test injects a small value.
+   * its OWN nested subprocesses before the parent escalates to a signal. The
+   * plugin fills this from its `disposeEofGraceMs` config.
    */
-  disposeEofGraceMs?: number
+  disposeEofGraceMs: number
   /**
    * Grace period (ms) between `SIGTERM` and the `SIGKILL` escalation in
-   * {@link SubagentRun.dispose}. Defaults to {@link DEFAULT_DISPOSE_GRACE_MS};
-   * a test injects a small value to exercise the escalation without a long wait.
+   * {@link SubagentRun.dispose}. The plugin fills this from its
+   * `disposeGraceMs` config.
    */
-  disposeGraceMs?: number
+  disposeGraceMs: number
   /**
    * Sink for a child-level failure that the run flattened into a stop reason
    * (the seam contract forbids `result` rejecting). The driver calls this with
@@ -94,19 +94,20 @@ export interface AcpRunSpec {
 }
 
 /**
- * Default grace for the child's EOF-driven quiesce on dispose — the window for it
- * to flush persistence and tear down its OWN nested subprocesses (which may run
- * their own `SIGTERM`→`SIGKILL` escalation) before the parent escalates to a
- * signal. Deliberately LARGER than {@link DEFAULT_DISPOSE_GRACE_MS}: a cooperative
- * child whose teardown is itself waiting on a signal-trapping grandchild (e.g. a
- * bash subprocess in its own ~3s SIGTERM→SIGKILL grace) plus a final flush needs
- * MORE than a single signal-grace of headroom, or the parent's SIGTERM cuts it off
- * exactly as it reaches its own SIGKILL+flush. The child is an arbitrary ACP agent,
- * so this is a standalone generous default, NOT derived from any child's internals.
+ * Default grace for the child's EOF-driven quiesce on dispose (the
+ * `disposeEofGraceMs` config) — the window for it to flush persistence and tear
+ * down its OWN nested subprocesses (which may run their own `SIGTERM`→`SIGKILL`
+ * escalation) before the parent escalates to a signal. Deliberately LARGER than
+ * {@link DEFAULT_DISPOSE_GRACE_MS}: a cooperative child whose teardown is itself
+ * waiting on a signal-trapping grandchild (e.g. a bash subprocess in its own ~3s
+ * SIGTERM→SIGKILL grace) plus a final flush needs MORE than a single
+ * signal-grace of headroom, or the parent's SIGTERM cuts it off exactly as it
+ * reaches its own SIGKILL+flush. The child is an arbitrary ACP agent, so this is
+ * a standalone generous default, NOT derived from any child's internals.
  */
 export const DEFAULT_DISPOSE_EOF_GRACE_MS = 6_000
 
-/** Default grace between SIGTERM and SIGKILL on dispose (mirrors the bash executor). */
+/** Default grace between SIGTERM and SIGKILL on dispose (the `disposeGraceMs` config; mirrors the bash executor). */
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 
 /**
@@ -372,8 +373,8 @@ export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Su
       // Reach quiescence, not merely request it (dispose must AWAIT the child
       // actually stopping). If the child is already gone, nothing to do.
       if (child.exitCode !== null || child.signalCode !== null) return
-      const eofGraceMs = spec.disposeEofGraceMs ?? DEFAULT_DISPOSE_EOF_GRACE_MS
-      const graceMs = spec.disposeGraceMs ?? DEFAULT_DISPOSE_GRACE_MS
+      const eofGraceMs = spec.disposeEofGraceMs
+      const graceMs = spec.disposeGraceMs
       // 1. Graceful: end the ACP request stream (stdin EOF) and let the child
       //    quiesce ON ITS OWN. Our acp-agent has NO SIGTERM handler in a normal
       //    session — it tears down via the server bridge's connection-close path

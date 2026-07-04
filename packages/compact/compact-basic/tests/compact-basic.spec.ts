@@ -811,14 +811,22 @@ describe('BasicCompactService token estimation (char/4 heuristic)', () => {
     ])).toBe(10)
   })
 
-  it('estimates image blocks at fixed 85 tokens', () => {
-    const svc = new BasicCompactService(new Context(), cfg({ auto: false }))
-    expect(svc.estimateContentTokens([{ type: 'image', url: 'https://example.com/img.png' }])).toBe(85)
-  })
-
   it('returns 0 for empty content blocks', () => {
     const svc = new BasicCompactService(new Context(), cfg({ auto: false }))
     expect(svc.estimateContentTokens([])).toBe(0)
+  })
+
+  it('honors a configured charsPerToken (fractional densities included)', () => {
+    // 'this is a somewhat longer text block' = 36 chars.
+    const blocks: ContentBlock[] = [{ type: 'text', text: 'this is a somewhat longer text block' }]
+    // charsPerToken 2: ceil(36/2)+4 = 22 — a CJK-density config doubles the estimate.
+    const dense = new BasicCompactService(new Context(), cfg({ auto: false, charsPerToken: 2 }))
+    expect(dense.estimateContentTokens(blocks)).toBe(22)
+    // Fractional density is legal: ceil(36/1.5)+4 = 28.
+    const fractional = new BasicCompactService(new Context(), cfg({ auto: false, charsPerToken: 1.5 }))
+    expect(fractional.estimateContentTokens(blocks)).toBe(28)
+    // The system-prompt term scales with the same knob: 36-char prompt at density 2 → ceil(36/2) = 18.
+    expect(dense.estimateTokens([], 'this is a somewhat longer text block')).toBe(18)
   })
 })
 
@@ -862,6 +870,10 @@ describe('BasicCompactService config validation', () => {
     )).toThrow(/summarizationModel must be a string/)
     expect(() => new BasicCompactService(new Context(), cfg({ auto: 'no' } as unknown as Partial<BasicCompactConfig>)))
       .toThrow(/auto must be a boolean/)
+    expect(() => new BasicCompactService(new Context(), cfg({ auto: false, charsPerToken: 0 })))
+      .toThrow(/charsPerToken .* positive finite number/)
+    expect(() => new BasicCompactService(new Context(), cfg({ auto: false, charsPerToken: Number.NaN })))
+      .toThrow(/charsPerToken .* positive finite number/)
   })
 
   it('accepts a large retain budget because convergence is enforced dynamically', () => {
@@ -1324,7 +1336,7 @@ describe('BasicCompactService edge cases', () => {
     s.append('assistant/message', {
       turn: 1, step: 1,
       content: [
-        { type: 'tool-result', toolCallId: CallId('n1'), content: [{ type: 'image', url: 'https://x/n.png' }] },
+        { type: 'tool-result', toolCallId: CallId('n1'), content: [{ type: 'chart', data: 'x' } as unknown as ContentBlock] },
         { type: 'custom-widget', payload: 'x' } as unknown as ContentBlock,
         { type: 'tool-call', id: CallId('b1'), name: 'bash', arguments: '{}' },
       ],
@@ -1343,7 +1355,7 @@ describe('BasicCompactService edge cases', () => {
     const nodes = s.surface.nodes
     await compactRegion(svc, s, nodes[0]!.seq, nodes[nodes.length - 1]!.seq, 'm')
     const { text } = svc.summarizeCalls[0]!
-    expect(text).toContain('[tool-result: [image]]') // nested tool-result with content
+    expect(text).toContain('[tool-result: [chart]]') // nested tool-result with content
     expect(text).toContain('[custom-widget]') // unknown block placeholder
     expect(text).toContain('Tool result (call b1): [tool-result]') // empty nested → bare placeholder
   })
@@ -1510,25 +1522,28 @@ describe('BasicCompactService edge cases', () => {
   it('renders non-text blocks as type-tagged placeholders across all message kinds', async () => {
     const svc = createTestService()
     const s = new Session(SessionId('placeholders'))
+    // A plugin-added block type (merge-extensible ContentBlockMap) — the
+    // placeholder path must cover every message kind, not just assistant.
+    const chart = (id: string): ContentBlock => ({ type: 'chart', data: id } as unknown as ContentBlock)
     s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     s.append('step/start', { turn: 1, step: 1 })
-    // user/message with only an image block → '[image]' placeholder.
-    s.append('user/message', { content: [{ type: 'image', url: 'https://x/y.png' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    // assistant/message with an image block AND the tool-call its tool/result
-    // answers (so the surface is tool-pairing balanced) → '[image]' placeholder.
+    // user/message with only a plugin-added block → '[chart]' placeholder.
+    s.append('user/message', { content: [chart('y')], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    // assistant/message with a plugin-added block AND the tool-call its
+    // tool/result answers (so the surface is tool-pairing balanced).
     s.append('assistant/message', {
       turn: 1, step: 1,
       content: [
-        { type: 'image', url: 'https://x/z.png' },
+        chart('z'),
         { type: 'tool-call', id: CallId('e1'), name: 'bash', arguments: '{}' },
       ],
     }, { surfaceOp: 'append' })
-    // tool/result with an image block → '[image]' placeholder.
+    // tool/result with a plugin-added block → '[chart]' placeholder.
     s.append('tool/call', { turn: 1, step: 1, callId: CallId('e1'), name: 'bash', arguments: '{}' })
-    s.append('tool/result', { turn: 1, step: 1, callId: CallId('e1'), content: [{ type: 'image', url: 'https://x/r.png' }], isError: false }, { surfaceOp: 'append' })
-    // context/message and steering/message with image content.
-    s.append('context/message', { content: [{ type: 'image', url: 'https://x/c.png' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    s.append('steering/message', { turn: 1, content: [{ type: 'image', url: 'https://x/s.png' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    s.append('tool/result', { turn: 1, step: 1, callId: CallId('e1'), content: [chart('r')], isError: false }, { surfaceOp: 'append' })
+    // context/message and steering/message with plugin-added content.
+    s.append('context/message', { content: [chart('c')], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    s.append('steering/message', { turn: 1, content: [chart('s')], source: { kind: 'user' } }, { surfaceOp: 'append' })
     s.append('step/end', { turn: 1, step: 1 })
     s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     s.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -1537,11 +1552,11 @@ describe('BasicCompactService edge cases', () => {
     await compactRegion(svc, s, nodes[0]!.seq, nodes[nodes.length - 1]!.seq, 'm')
     const { text } = svc.summarizeCalls[0]!
     // Every non-text block surfaces as a placeholder rather than being dropped.
-    expect(text).toContain('User: [image]')
-    expect(text).toContain('Assistant: [image]')
-    expect(text).toContain('Tool result (call e1): [image]')
-    expect(text).toContain('[Context: [image]]')
-    expect(text).toContain('[Steering: [image]]')
+    expect(text).toContain('User: [chart]')
+    expect(text).toContain('Assistant: [chart]')
+    expect(text).toContain('Tool result (call e1): [chart]')
+    expect(text).toContain('[Context: [chart]]')
+    expect(text).toContain('[Steering: [chart]]')
   })
 
 })

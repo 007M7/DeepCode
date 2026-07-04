@@ -21,7 +21,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   todo/        the todo_write tool
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
-  ui/          ACP bridge + app-boot glue + the stdio/ACP app packages (each with a bin)
+  ui/          ACP bridge + app-boot glue + the stdio/ACP app bins
   support/     dev/test infrastructure: invariants, llm-replay, subagent-mock
   util/        zero-dependency utilities (Branded<B>)
 examples/    Runnable demos: thin cordis.yml leaves over the app packages (see examples/AGENTS.md)
@@ -89,6 +89,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY` (and optional `DEEPSEEK_BASE_UR
 - **Plugins, not loop changes**: new behavior goes on the documented extension seams; changing `agent-loop` requires updating docs/architecture.md.
 - **Capability seams are three packages** — interface / implementation / consumer ([capability seams](docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)); don't split preemptively.
 - **Explicit > implicit at package seams**: no optional field silently filled by a hidden `?? default` inside `run()`; defaulting is an explicit `resolve(request): Spec` step in the owning implementation (the `dsh-bash` request/spec split is the template).
+- **No hardcoded tunables in plugins**: anything two deployments could want different — timeouts, caps, grace periods, model names, base URLs — is a defaulted, validated `Config` field, not a literal; a `DEFAULT_*` constant or test-only seam is not configurability. The test: changeable from `cordis.yml`, no code edit. Protocol/wire constants, external-spec values, security invariants stay hardcoded.
 - **Opaque cross-boundary ids are branded** (`Branded<B>` from `dsh-brand`), never bare `string` ([branded IDs](docs/rfc/implemented/architecture/2026-06-20-branded-ids.md)).
 - **An empty `catch` names what it swallows** and why nothing else can reach it; keep the `try` to one statement.
 - **Symmetry is usually more correct**: parallel values get parallel form; asymmetry is a smell for a missed extraction.

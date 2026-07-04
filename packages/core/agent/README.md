@@ -50,9 +50,8 @@ Turn and step boundaries are NOT mirrored as `agent/*` emits: a consumer that ne
 
 Tool interception is the `tools/pre-execute` / `tools/post-execute` pair in [`dsh-tools`](../tools/README.md) (`PreToolDecision` allow/deny/ask, `PostToolDecision` accept/block) — same typed-Decision idiom, owned there because it is the tool registry's seam.
 
-#### Live control notifications (emit)
+#### Error notifications (emit)
 
-- `agent/steering` — steering content injected mid-turn
 - `agent/error` — step/turn error
 
 The model's token stream is NOT an `agent/*` event: read it off the durable `session/event` feed as `assistant/chunk` (the same feed persistence and the ACP bridge use).

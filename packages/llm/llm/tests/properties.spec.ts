@@ -81,7 +81,7 @@ describe('BlockAssembler properties', () => {
     fc.assert(fc.property(streamArb, (chunks) => {
       const blocks = feed(chunks).blocks()
       for (const block of blocks) {
-        expect(['text', 'reasoning', 'tool-call', 'tool-result', 'image']).toContain(block.type)
+        expect(['text', 'reasoning', 'tool-call', 'tool-result']).toContain(block.type)
       }
     }))
   })
