@@ -22,14 +22,10 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { CallId } from './brand.ts'
 
-/** Cache hint attached to a content block (provider-interpreted). */
-export type CacheHint = 'ephemeral'
-
 /** Plain text visible to the end user. */
 export interface TextBlock {
   type: 'text'
   text: string
-  cache?: CacheHint
 }
 
 /** Reasoning / thinking content, distinct from visible text. */
@@ -54,7 +50,6 @@ export interface ToolResultBlock {
   toolCallId: CallId
   content: ContentBlock[]
   isError?: boolean
-  cache?: CacheHint
 }
 
 /**
@@ -91,7 +86,6 @@ export interface Message {
 export interface MessageSourceMap {
   user: { kind: 'user' }
   plugin: { kind: 'plugin'; plugin: string }
-  agent: { kind: 'agent'; agentId: string }
 }
 
 export type MessageSource = MessageSourceMap[keyof MessageSourceMap]

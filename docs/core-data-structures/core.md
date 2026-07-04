@@ -107,7 +107,6 @@ Where a message came from is itself a merge-extensible sum type:
 interface MessageSourceMap {
   user: { kind: 'user' }
   plugin: { kind: 'plugin'; plugin: string }
-  agent: { kind: 'agent'; agentId: string }
 }
 ```
 
