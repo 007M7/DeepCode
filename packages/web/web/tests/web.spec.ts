@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import WebService, {
   WebError,
@@ -42,18 +42,14 @@ async function mountWeb(config: ConstructorParameters<typeof WebService>[1] = {}
 }
 
 describe('WebService registration', () => {
-  it('registers and disposes a search provider, emitting providers-change each way', async () => {
-    const { ctx, web } = await mountWeb()
-    const changed = vi.fn()
-    ctx.on('web/providers-change', changed)
+  it('registers a search provider and unregisters it via the returned disposer', async () => {
+    const { web } = await mountWeb()
 
     const dispose = web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
-    expect(changed).toHaveBeenCalledTimes(1)
-    expect(web.searchStatus()).toEqual({ available: true, providerId: 'exa' })
+    await expect(web.search({ query: 'q' })).resolves.toMatchObject({ providerId: 'exa' })
 
     dispose()
-    expect(changed).toHaveBeenCalledTimes(2)
-    expect(web.searchStatus()).toEqual({ available: false, reason: 'none' })
+    await expect(web.search({ query: 'q' })).rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_UNAVAILABLE' }))
   })
 
   it('throws WEB_DUPLICATE_PROVIDER on a duplicate search id', async () => {
@@ -69,94 +65,26 @@ describe('WebService registration', () => {
     expect(() => web.registerFetchProvider(makeFetchProvider('shared', available, fetchResult('shared')))).not.toThrow()
   })
 
-  it('rolls back a registration when a providers-change listener throws', async () => {
-    const { ctx, web } = await mountWeb()
-    ctx.on('web/providers-change', () => { throw new Error('listener boom') })
-    expect(() => web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa')))))
-      .toThrow('listener boom')
-    // The throwing listener must not leave the provider in the registry.
-    expect(web.searchStatus()).toEqual({ available: false, reason: 'none' })
-  })
-
   it('disposes provider registrations when the contributing fiber is disposed (HMR safety)', async () => {
     const { ctx, web } = await mountWeb()
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       inner.web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
     }, { inject: ['web'] }))
-    expect(web.searchStatus()).toEqual({ available: true, providerId: 'exa' })
+    await expect(web.search({ query: 'q' })).resolves.toMatchObject({ providerId: 'exa' })
     await fiber.dispose()
-    expect(web.searchStatus()).toEqual({ available: false, reason: 'none' })
-  })
-})
-
-describe('WebService selection status', () => {
-  it('reports none when nothing is registered', async () => {
-    const { web } = await mountWeb()
-    expect(web.searchStatus()).toEqual({ available: false, reason: 'none' })
-    expect(web.fetchStatus()).toEqual({ available: false, reason: 'none' })
-  })
-
-  it('auto-selects the single usable provider when no id is configured', async () => {
-    const { web } = await mountWeb()
-    web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
-    expect(web.searchStatus()).toEqual({ available: true, providerId: 'exa' })
-  })
-
-  it('reports ambiguous when multiple usable providers exist and none is configured', async () => {
-    const { web } = await mountWeb()
-    web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
-    web.registerSearchProvider(makeSearchProvider('perplexity', available, () => Promise.resolve(searchResult('perplexity'))))
-    expect(web.searchStatus()).toEqual({ available: false, reason: 'ambiguous' })
-  })
-
-  it('ignores unusable providers when auto-selecting', async () => {
-    const { web } = await mountWeb()
-    web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
-    web.registerSearchProvider(makeSearchProvider('perplexity', unavailable, () => Promise.resolve(searchResult('perplexity'))))
-    expect(web.searchStatus()).toEqual({ available: true, providerId: 'exa' })
-  })
-
-  it('reports none when providers exist but none are usable', async () => {
-    const { web } = await mountWeb()
-    web.registerSearchProvider(makeSearchProvider('exa', unavailable, () => Promise.resolve(searchResult('exa'))))
-    expect(web.searchStatus()).toEqual({ available: false, reason: 'none' })
-  })
-
-  it('honors a configured id over a different registered provider', async () => {
-    const { web } = await mountWeb({ searchProvider: 'perplexity' })
-    web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
-    web.registerSearchProvider(makeSearchProvider('perplexity', available, () => Promise.resolve(searchResult('perplexity'))))
-    expect(web.searchStatus()).toEqual({ available: true, providerId: 'perplexity' })
-  })
-
-  it('reports configured-missing when the configured id is not registered', async () => {
-    const { web } = await mountWeb({ searchProvider: 'perplexity' })
-    web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
-    expect(web.searchStatus()).toEqual({ available: false, reason: 'configured-missing' })
-  })
-
-  it('reports configured-unavailable when the configured id is registered but unusable', async () => {
-    const { web } = await mountWeb({ searchProvider: 'exa' })
-    web.registerSearchProvider(makeSearchProvider('exa', unavailable, () => Promise.resolve(searchResult('exa'))))
-    expect(web.searchStatus()).toEqual({ available: false, reason: 'configured-unavailable' })
-  })
-
-  it('does not let registration order change auto-selection', async () => {
-    const a = await mountWeb()
-    a.web.registerSearchProvider(makeSearchProvider('exa', unavailable, () => Promise.resolve(searchResult('exa'))))
-    a.web.registerSearchProvider(makeSearchProvider('perplexity', available, () => Promise.resolve(searchResult('perplexity'))))
-    expect(a.web.searchStatus()).toEqual({ available: true, providerId: 'perplexity' })
-
-    const b = await mountWeb()
-    b.web.registerSearchProvider(makeSearchProvider('perplexity', available, () => Promise.resolve(searchResult('perplexity'))))
-    b.web.registerSearchProvider(makeSearchProvider('exa', unavailable, () => Promise.resolve(searchResult('exa'))))
-    expect(b.web.searchStatus()).toEqual({ available: true, providerId: 'perplexity' })
+    await expect(web.search({ query: 'q' })).rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_UNAVAILABLE' }))
   })
 })
 
 describe('WebService execution resolution', () => {
   it('throws WEB_PROVIDER_UNAVAILABLE when nothing is registered', async () => {
     const { web } = await mountWeb()
+    await expect(web.search({ query: 'q' })).rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_UNAVAILABLE' }))
+  })
+
+  it('throws WEB_PROVIDER_UNAVAILABLE when providers exist but none are usable', async () => {
+    const { web } = await mountWeb()
+    web.registerSearchProvider(makeSearchProvider('exa', unavailable, () => Promise.resolve(searchResult('exa'))))
     await expect(web.search({ query: 'q' })).rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_UNAVAILABLE' }))
   })
 
@@ -177,6 +105,32 @@ describe('WebService execution resolution', () => {
     web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
     web.registerSearchProvider(makeSearchProvider('perplexity', available, () => Promise.resolve(searchResult('perplexity'))))
     await expect(web.search({ query: 'q' })).rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_AMBIGUOUS' }))
+  })
+
+  it('runs the configured provider even when another usable provider is registered', async () => {
+    const { web } = await mountWeb({ searchProvider: 'perplexity' })
+    web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
+    web.registerSearchProvider(makeSearchProvider('perplexity', available, () => Promise.resolve(searchResult('perplexity'))))
+    await expect(web.search({ query: 'q' })).resolves.toMatchObject({ providerId: 'perplexity' })
+  })
+
+  it('ignores unusable providers when auto-selecting', async () => {
+    const { web } = await mountWeb()
+    web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
+    web.registerSearchProvider(makeSearchProvider('perplexity', unavailable, () => Promise.resolve(searchResult('perplexity'))))
+    await expect(web.search({ query: 'q' })).resolves.toMatchObject({ providerId: 'exa' })
+  })
+
+  it('does not let registration order change auto-selection', async () => {
+    const a = await mountWeb()
+    a.web.registerSearchProvider(makeSearchProvider('exa', unavailable, () => Promise.resolve(searchResult('exa'))))
+    a.web.registerSearchProvider(makeSearchProvider('perplexity', available, () => Promise.resolve(searchResult('perplexity'))))
+    await expect(a.web.search({ query: 'q' })).resolves.toMatchObject({ providerId: 'perplexity' })
+
+    const b = await mountWeb()
+    b.web.registerSearchProvider(makeSearchProvider('perplexity', available, () => Promise.resolve(searchResult('perplexity'))))
+    b.web.registerSearchProvider(makeSearchProvider('exa', unavailable, () => Promise.resolve(searchResult('exa'))))
+    await expect(b.web.search({ query: 'q' })).resolves.toMatchObject({ providerId: 'perplexity' })
   })
 
   it('runs the selected provider and returns its result', async () => {

@@ -25,7 +25,7 @@ An adapter registry plus a single streaming call surface, interceptable via a wa
 
 ### Content-block vocabulary (`types.ts`)
 
-Messages are arrays of typed content blocks: `text`, `reasoning`, `tool-call`, `tool-result`, `image`. The union is derived from the merge-extensible `ContentBlockMap`, so plugins can add block types via declaration merging.
+Messages are arrays of typed content blocks: `text`, `reasoning`, `tool-call`, `tool-result`. The union is derived from the merge-extensible `ContentBlockMap`, so plugins can add block types via declaration merging. The core set is limited to blocks every shipping path honors — multimodal content (images, audio, …) has no core block type; a feature that needs one adds it via the map together with the adapter/UI/compaction support that honors it.
 
 Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta`, `tool-call-delta`, `block-end`, `usage`, `finish`). `BlockAssembler` is the single shared implementation that assembles chunks into blocks/messages.
 

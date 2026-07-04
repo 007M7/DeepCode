@@ -1,23 +1,18 @@
 /**
- * Minimal stdio UI plugin: reads lines from stdin → `agent.send()`/`steer()`,
- * and renders the durable transcript to stdout. A UI is "just a plugin" — it
- * consumes the `session/event` feed (the assistant token stream, turn/step
- * boundaries, tool activity, todos) plus a few `agent/*` control events
- * (`agent/status`, `agent/created`/`agent/disposed`) and the `agents` service,
- * so the same plugin drives any example or product surface.
+ * The stdio app's readline UI: reads lines from stdin → `agent.send()`/
+ * `steer()`, and renders the durable transcript to stdout. A UI is "just a
+ * plugin" — it consumes the `session/event` feed (the assistant token stream,
+ * turn/step boundaries, tool activity, todos) plus a few `agent/*` control
+ * events (`agent/status`, `agent/created`/`agent/disposed`) and the `agents`
+ * service. Dimmed chain-of-thought rendering plus robust piped-stdin EOF→idle
+ * exit handling, configured via {@link Config}.
  *
- * Consolidates what were two near-identical copies under `examples/echo-agent`
- * and `examples/coding-agent` (the latter a superset). This package IS that
- * superset: dimmed chain-of-thought rendering plus the robust piped-stdin
- * EOF→idle exit handling, configured per consumer via {@link Config}.
+ * An internal module of the stdio app, not a package of its own: the app's
+ * front-door cluster always includes this UI, and nothing else composes it.
+ * The export shape stays named `name`/`inject`/`Config`/`apply` — the plugin
+ * contract the app's `ctx.plugin(uiStdio, …)` mount consumes.
  *
- * Plugin export shape: named `name`/`inject`/`Config`/`apply`, NO default
- * export — the cordis Loader's `unwrapExports` does `exports.default ?? exports`,
- * so a stray default would collapse the module to the bare function and drop
- * the `inject` namespace (see docs/postmortem/0001). The keyless Loader-path
- * e2e smokes in `examples/{echo,coding}-agent` guard this end-to-end.
- *
- * @module @deepseek-ai/dsh-ui-stdio
+ * @module @deepseek-ai/dsh-stdio-agent/stdio-chat
  */
 
 import { createInterface } from 'node:readline'
