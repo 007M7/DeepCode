@@ -13,7 +13,7 @@
 
 import { stream as piStream } from '@earendil-works/pi-ai'
 import type { Model } from '@earendil-works/pi-ai'
-import { LlmAdapter } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { toPiContext, toStreamChunks } from './convert.ts'
@@ -157,6 +157,9 @@ export class PiAiAdapter extends LlmAdapter {
     try {
       const events = piStream(model, toPiContext(options), {
         apiKey: this.options.apiKey,
+        // pi-ai merges caller headers last over its provider defaults, so the
+        // harness attribution always reaches the wire.
+        headers: attributionHeaders(),
         ...options.temperature !== undefined ? { temperature: options.temperature } : {},
         ...options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {},
         signal: controller.signal,

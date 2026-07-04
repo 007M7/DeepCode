@@ -25,6 +25,10 @@ Same shape as llm-deepseek (one-line swap in cordis.yml), with pi-ai's thinking-
     reasoning: high   # off | high | xhigh (xhigh → wire 'max')
 ```
 
+## App attribution
+
+Every request carries the shared attribution header from dsh-llm's `attributionHeaders()`, passed through pi-ai's `headers` stream option (pi-ai merges caller headers last, so it always reaches the wire - the unit suite asserts arrival on the mock server, same as llm-deepseek). OpenRouter-specific app attribution headers are intentionally not sent by this adapter contract; they are deferred to a future explicit OpenRouter adapter or mode. See [dsh-llm § App attribution](../llm/README.md#app-attribution-attributionts).
+
 ## Dependency weight
 
 pi-ai declares the openai/anthropic/google/mistral/AWS SDKs as install-time dependencies. They are lazy-loaded — only the openai SDK actually loads for this adapter — but they do land in `node_modules`. Accepted for a package whose purpose is design verification.

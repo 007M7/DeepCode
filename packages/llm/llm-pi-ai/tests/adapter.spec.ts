@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { buildModel, PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { assemble } from './assemble.ts'
@@ -11,6 +11,8 @@ import { assemble } from './assemble.ts'
 interface MockServer {
   url: string
   requests: unknown[]
+  /** Header bags of received requests, in order (parallel to `requests`). */
+  headers: IncomingMessage['headers'][]
   close(): Promise<void>
 }
 
@@ -22,11 +24,13 @@ afterEach(async () => {
 
 async function mockServer(script: { status?: number; events?: string[]; body?: string }[]): Promise<MockServer> {
   const requests: unknown[] = []
+  const headers: IncomingMessage['headers'][] = []
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     let body = ''
     request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
     request.on('end', () => {
       requests.push(JSON.parse(body))
+      headers.push(request.headers)
       const behavior = script.shift() ?? { status: 500, body: 'script exhausted' }
       if (behavior.status !== undefined && behavior.status !== 200) {
         response.writeHead(behavior.status, { 'content-type': 'application/json' })
@@ -45,6 +49,7 @@ async function mockServer(script: { status?: number; events?: string[]; body?: s
   return {
     url: `http://127.0.0.1:${address.port}`,
     requests,
+    headers,
     close: () => new Promise(resolve => server.close(() => { resolve() })),
   }
 }
@@ -91,6 +96,14 @@ describe('PiAiAdapter against a mock server', () => {
     expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
     expect(result.finish).toEqual({ kind: 'stop' })
     expect(result.usage).toMatchObject({ inputTokens: 3, outputTokens: 1 })
+
+    // Attribution reaches the wire through pi-ai's headers hook: the exact
+    // shared User-Agent, and no provider-specific headers under the
+    // User-Agent-only contract.
+    expect(server.headers[0]?.['user-agent']).toBe(userAgent())
+    expect(server.headers[0]).not.toHaveProperty('http-referer')
+    expect(server.headers[0]).not.toHaveProperty('x-openrouter-title')
+    expect(server.headers[0]).not.toHaveProperty('x-openrouter-categories')
   })
 
   it('streams tool calls with re-stringified arguments', async () => {

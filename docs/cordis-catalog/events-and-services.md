@@ -199,7 +199,7 @@ Waterfall around every streaming model call (retry, caching, routing). Bound to 
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:32`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:33`](../../packages/llm/llm/src/index.ts)
 
 ### `session/*`
 
@@ -434,7 +434,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:70`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:78`](../../packages/llm/llm/src/index.ts)
 
 ### `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 
