@@ -166,6 +166,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Per-session snapshot replay for nested agents](implemented/testing/2026-06-22-subagent-snapshot-replay.md) | 2026-06-22 |
 | [Persist the seed boundary so fork-child replay routes correctly](implemented/testing/2026-06-22-fork-child-replay-seed-boundary.md) | 2026-06-22 |
 | [Record fork and mixed spawn+fork snapshot scenarios](implemented/testing/2026-06-22-fork-snapshot-scenarios.md) | 2026-06-22 |
+| [Hook snapshot matrix — end-to-end goldens for both bridges](implemented/testing/2026-07-04-hook-snapshot-matrix.md) | 2026-07-04 |
 
 ## Rejected
 

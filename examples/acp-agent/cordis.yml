@@ -127,3 +127,15 @@
   name: '@deepseek-ai/dsh-hooks-claude'
   config:
     configPath: ./hooks.json
+
+# The Codex hook bridge, loaded alongside the Claude one. It reads its OWN config
+# file (`./codex-hooks.json`, Codex's snake_case five-event dialect) — the two
+# bridges cannot share one file, so each owns a distinct path. Same process-level
+# read-once semantics and same fails-soft-when-absent contract: a launch cwd with
+# no `codex-hooks.json` registers nothing (a silent no-op through ctx.logger, never
+# stdout). The example ships both bridges so a scenario can exercise EITHER dialect
+# end-to-end by seeding the matching file in its workspace/.
+- id: hooks-codex
+  name: '@deepseek-ai/dsh-hooks-codex'
+  config:
+    configPath: ./codex-hooks.json

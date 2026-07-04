@@ -112,3 +112,14 @@
   name: '@deepseek-ai/dsh-hooks-claude'
   config:
     configPath: ./hooks.json
+
+# The Codex hook bridge, loaded alongside the Claude one (symmetric with
+# cordis.yml so a recorded Codex scenario fires the hook during recording too). It
+# reads its OWN file `./codex-hooks.json` (Codex's dialect) — the two bridges
+# cannot share one config. Same fails-soft-when-absent contract: a scenario that
+# ships `workspace/codex-hooks.json` exercises the Codex path end-to-end; a
+# scenario without one registers nothing (a silent no-op, never reaching stdout).
+- id: hooks-codex
+  name: '@deepseek-ai/dsh-hooks-codex'
+  config:
+    configPath: ./codex-hooks.json

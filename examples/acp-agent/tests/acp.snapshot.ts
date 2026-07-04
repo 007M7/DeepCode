@@ -78,11 +78,42 @@ const SCENARIOS: Scenario[] = [
   { name: 'subagent-multi', hasModelTurn: true, recorded: true, childSessions: 2 },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true, childSessions: 1 },
   { name: 'subagent-mixed', hasModelTurn: true, recorded: true, childSessions: 2 },
-  // A UserPromptSubmit hook blocks the prompt before any step runs: no model
-  // call (keyless, authored — its derived script is empty so it needs no
-  // sidecar), but it persists a `rejected` turn carrying `hook/*` events, so its
-  // log IS compared. The hooks.json riding in workspace/ drives the bridge.
-  { name: 'hook-prompt-block', hasModelTurn: false, comparesLog: true, recorded: false },
+  // Hook matrix — one scenario per hook point × its headline Decision outcome,
+  // across BOTH bridges (Claude `hooks.json`, Codex `codex-hooks.json`, seeded in
+  // workspace/). The block scenarios need no model call: a UserPromptSubmit hook
+  // blocks the prompt before any step runs (keyless, authored — the derived
+  // script is empty so no sidecar), yet persists a `rejected` turn carrying
+  // `hook/*` events, so their logs ARE compared. Every other point fires a real
+  // seam mid-turn, so its transcript is recorded WITH the hook active.
+  { name: 'hook-cc-promptsubmit-block', hasModelTurn: false, comparesLog: true, recorded: false },
+  { name: 'hook-codex-promptsubmit-block', hasModelTurn: false, comparesLog: true, recorded: false },
+  // The mid-turn seams fire during a real model turn, so each is recorded WITH
+  // its hook active (the model's reaction to a deny/block/force-continue is part
+  // of the captured transcript). The Codex bridge exercises the same seams in its
+  // own snake_case dialect.
+  //
+  // Two hook points are deliberately NOT snapshotted, and stay on the bridges'
+  // unit coverage (`bridge.spec.ts` / `coverage.spec.ts`) instead:
+  //   - SessionStart and SubagentStart inject context through a detached,
+  //     best-effort `void runPoint(...).then(agent.inject())` with no turn
+  //     binding, so the resulting `context/message` races the work it precedes
+  //     and lands at a nondeterministic log position — a recorded golden does not
+  //     even reproduce on its own replay.
+  //   - SubagentStop is observe-only with no turn and no injection, so it writes
+  //     NOTHING to the transcript — a golden would be byte-identical to the
+  //     no-hook run and could never be proven to fail.
+  // See the hook-snapshot-matrix RFC for the full rationale.
+  { name: 'hook-cc-promptsubmit-context', hasModelTurn: true, recorded: true },
+  { name: 'hook-cc-pretool-deny', hasModelTurn: true, recorded: true },
+  { name: 'hook-cc-pretool-ask', hasModelTurn: true, recorded: true },
+  { name: 'hook-cc-posttool-block', hasModelTurn: true, recorded: true },
+  { name: 'hook-cc-posttool-context', hasModelTurn: true, recorded: true },
+  { name: 'hook-cc-stop-continue', hasModelTurn: true, recorded: true },
+  { name: 'hook-codex-promptsubmit-context', hasModelTurn: true, recorded: true },
+  { name: 'hook-codex-pretool-block', hasModelTurn: true, recorded: true },
+  { name: 'hook-codex-posttool-block', hasModelTurn: true, recorded: true },
+  { name: 'hook-codex-posttool-context', hasModelTurn: true, recorded: true },
+  { name: 'hook-codex-stop-continue', hasModelTurn: true, recorded: true },
 ]
 
 /** The sibling child-fixture paths for a scenario (`session.1.jsonl` …). */
