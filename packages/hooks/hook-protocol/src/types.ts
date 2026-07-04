@@ -39,8 +39,9 @@ declare module '@deepseek-ai/dsh-session' {
      * (`approve`/`allow`/`block`/`deny`/`ask`), else `'stop'` when it asked to
      * halt via `continue:false`, else `'pass'`. `exitCode` is the process exit
      * (absent if it never ran), `stderrSummary` the trimmed stderr truncated to
-     * 500 characters (the block reason source on exit 2). `turn` matches the
-     * `hook/invoked`.
+     * the bridge's configured cap (the block reason source on exit 2),
+     * `durationMs` the wall-clock runtime (audit timing; snapshot replay
+     * normalizes it). `turn` matches the `hook/invoked`.
      * @mode emit
      */
     'hook/result': {
@@ -50,6 +51,7 @@ declare module '@deepseek-ai/dsh-session' {
       decision: string
       exitCode?: number
       stderrSummary?: string
+      durationMs: number
     }
   }
 }

@@ -53,6 +53,13 @@ export interface RunHookOptions {
   expectedEventName?: string
 }
 
+/** The {@link HookOutput} plus the wall-clock duration of the run (for `hook/result`). */
+export interface RunHookResult {
+  output: HookOutput
+  /** Wall-clock duration of the run, from `now` — durable on the `hook/result` event. */
+  durationMs: number
+}
+
 /**
  * Run `hook` via `bash` with `options.payload` serialized to its stdin, then
  * decode the result into a {@link HookOutput}. The hook's configured
@@ -61,13 +68,16 @@ export interface RunHookOptions {
  * credential scrub (the trusted-plugin path). NEVER throws: an infrastructure
  * failure (the executor rejecting) is surfaced as a {@link HookOutput} with
  * `exitCode: undefined`, so the caller's merge logic treats it as a
- * non-blocking error rather than crashing the turn.
+ * non-blocking error rather than crashing the turn. `now` is injected for
+ * testable durations.
  */
 export async function runHook(
   bash: BashExecutor,
   hook: CommandHook,
   options: RunHookOptions,
-): Promise<HookOutput> {
+  now: () => number,
+): Promise<RunHookResult> {
+  const started = now()
   const timeoutMs = hook.timeoutSec !== undefined ? hook.timeoutSec * 1000 : options.defaultTimeoutMs
   const stdin = JSON.stringify(options.payload) + (options.trailingNewline ? '\n' : '')
 
@@ -86,12 +96,18 @@ export async function runHook(
     // protocol's exit-code contract is numeric, so a signal death maps to
     // `undefined` (a non-blocking error — no clean exit code to act on).
     const exitCode = result.exitCode ?? undefined
-    return parseHookOutput(exitCode, result.stdout.text, result.stderr.text, options.expectedEventName)
+    return {
+      output: parseHookOutput(exitCode, result.stdout.text, result.stderr.text, options.expectedEventName),
+      durationMs: now() - started,
+    }
   } catch (error: unknown) {
     // The executor rejects only on infrastructure faults (unusable workdir,
     // missing shell). A hook that cannot run is a non-blocking error: no exit
     // code, the failure on stderr for the record. The turn proceeds.
     const message = error instanceof Error ? error.message : String(error)
-    return parseHookOutput(undefined, '', message)
+    return {
+      output: parseHookOutput(undefined, '', message),
+      durationMs: now() - started,
+    }
   }
 }

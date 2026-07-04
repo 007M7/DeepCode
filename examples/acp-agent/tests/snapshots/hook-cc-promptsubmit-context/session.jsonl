@@ -1,7 +1,7 @@
 {"type":"session","version":0,"id":"b0c9d2c7-f95b-4750-be8a-10121253b006","createdAt":1783095036603,"cwd":"/tmp/acp-snap-cwd-LW2rSZ"}
 {"type":"turn/start","seq":0,"time":1783095036609,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"hook/invoked","seq":1,"time":1783095036610,"data":{"turn":1,"point":"UserPromptSubmit","dialect":"claude","handlerId":"claude:UserPromptSubmit:1"}}
-{"type":"hook/result","seq":2,"time":1783095036623,"data":{"turn":1,"point":"UserPromptSubmit","handlerId":"claude:UserPromptSubmit:1","decision":"pass","exitCode":0}}
+{"type":"hook/result","seq":2,"time":1783095036623,"data":{"turn":1,"point":"UserPromptSubmit","handlerId":"claude:UserPromptSubmit:1","decision":"pass","exitCode":0,"durationMs":11.874454999999898}}
 {"type":"user/message","seq":3,"time":1783095036623,"data":{"content":[{"type":"text","text":"What is my favorite color? Reply with just the color and stop. Do not use any tools."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"context/message","seq":4,"time":1783095036623,"data":{"content":[{"type":"text","text":"The user has previously stated their favorite color is teal."}],"source":{"kind":"plugin","plugin":"hooks-claude"}},"surfaceOp":"append"}
 {"type":"step/start","seq":5,"time":1783095036624,"data":{"turn":1,"step":1}}

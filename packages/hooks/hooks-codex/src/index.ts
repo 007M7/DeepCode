@@ -121,7 +121,7 @@ export function apply(ctx: Context, config: Config): void {
             ...group.matcher !== undefined ? { matcher: group.matcher } : {},
           })
         }
-        const output = await runHook(ctx.bash, hook, {
+        const { output, durationMs } = await runHook(ctx.bash, hook, {
           payload,
           defaultTimeoutMs,
           ...workdir !== undefined ? { cwd: workdir } : {},
@@ -129,7 +129,7 @@ export function apply(ctx: Context, config: Config): void {
           trailingNewline: false, // Codex writes stdin WITHOUT a trailing newline.
           // Discard a `hookSpecificOutput` block naming a different event.
           expectedEventName: point,
-        })
+        }, () => performance.now())
         // Codex's SessionStart/UserPromptSubmit treat a CLEAN hook's PLAIN
         // (non-JSON) stdout as additionalContext. The codec keeps that raw text on
         // `output.stdout` but only sets `additionalContext` from a JSON
@@ -150,7 +150,7 @@ export function apply(ctx: Context, config: Config): void {
           ctx.logger.warn(`hooks-codex: ${point} hook emitted a systemMessage, which is not yet surfaced (ignored)`)
         }
         if (session && opts.turn !== undefined) {
-          appendHookResult(session, { turn: opts.turn, point, handlerId, output, stderrSummaryMaxChars })
+          appendHookResult(session, { turn: opts.turn, point, handlerId, output, stderrSummaryMaxChars, durationMs })
         }
       }
     }

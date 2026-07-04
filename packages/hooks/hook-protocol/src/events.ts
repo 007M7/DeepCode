@@ -49,6 +49,8 @@ export interface HookResultRecord {
    * {@link DEFAULT_STDERR_SUMMARY_MAX_CHARS} is the reference default.
    */
   stderrSummaryMaxChars: number
+  /** Wall-clock duration of the run (from `runHook`) — durable audit timing. */
+  durationMs: number
 }
 
 /**
@@ -100,5 +102,6 @@ export function appendHookResult(session: Session, record: HookResultRecord): vo
     decision: output.decision ?? (output.continue === false ? 'stop' : 'pass'),
     ...output.exitCode !== undefined ? { exitCode: output.exitCode } : {},
     ...stderrSummary !== undefined ? { stderrSummary } : {},
+    durationMs: record.durationMs,
   })
 }

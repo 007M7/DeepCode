@@ -171,7 +171,7 @@ export function apply(ctx: Context, config: Config): void {
             ...group.matcher !== undefined ? { matcher: group.matcher } : {},
           })
         }
-        const output = await runHook(ctx.bash, hook, {
+        const { output, durationMs } = await runHook(ctx.bash, hook, {
           payload,
           defaultTimeoutMs,
           ...hookEnv ? { env: hookEnv } : {},
@@ -181,7 +181,7 @@ export function apply(ctx: Context, config: Config): void {
           // Discard a `hookSpecificOutput` block whose `hookEventName` names a
           // different event than the one firing (the schemas key it by event).
           expectedEventName: point,
-        })
+        }, () => performance.now())
         outputs.push(output)
         if (output.updatedInput !== undefined) {
           ctx.logger.warn(`hooks-claude: ${point} hook requested updatedInput, which is not yet honored (ignored)`)
@@ -190,7 +190,7 @@ export function apply(ctx: Context, config: Config): void {
           ctx.logger.warn(`hooks-claude: ${point} hook emitted a systemMessage, which is not yet surfaced (ignored)`)
         }
         if (session && opts.turn !== undefined) {
-          appendHookResult(session, { turn: opts.turn, point, handlerId, output, stderrSummaryMaxChars })
+          appendHookResult(session, { turn: opts.turn, point, handlerId, output, stderrSummaryMaxChars, durationMs })
         }
       }
     }

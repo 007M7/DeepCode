@@ -228,8 +228,8 @@ A plugin may declaration-merge extra `SessionEventMap` types. These are **log-on
 
 | Event | Payload | Role |
 |---|---|---|
-| `hook/invoked` | `{ turn, point, dialect, matcher?, handlerId }` | A hook command was invoked at a hook `point` (`PreToolUse`, `Stop`, …). `dialect` is the bridge (`claude`/`codex`); `matcher` the matcher-group pattern that selected it (absent for match-all); `handlerId` correlates with the result. |
-| `hook/result` | `{ turn, point, handlerId, decision, exitCode?, stderrSummary? }` | The decided outcome, paired by `handlerId`. `decision` is the neutral outcome `appendHookResult` derives from the parsed output (the hook's decision, else `'stop'` on `continue:false`, else `'pass'`); `exitCode` absent when the hook could not run; `stderrSummary` the trimmed stderr truncated to 500 chars (the block-reason source on exit 2). |
+| `hook/invoked` | `{ turn, point, dialect, matcher?, handlerId }` | A hook command was invoked at a hook `point` (`PreToolUse`, `Stop`, …). `dialect` is the bridge (`claude`/`codex`/`native`); `matcher` the matcher-group pattern that selected it (absent for match-all); `handlerId` correlates with the result. |
+| `hook/result` | `{ turn, point, handlerId, decision, exitCode?, stderrSummary?, durationMs }` | The decided outcome, paired by `handlerId`. `decision` is the resolved neutral outcome (`deny`/`allow`/`block`/`stop`/`pass`/…); `exitCode` absent when the hook could not run; `stderrSummary` the truncated block-reason source. |
 
 The mid-turn hook points (`PreToolUse`/`PostToolUse`/`UserPromptSubmit`/`Stop`) fire inside the loop's open turn, so their `hook/*` records are turn-enclosed by construction. `SessionStart` gets no `hook/*` record — its injected `context/message` is the durable evidence — because it has no open turn to enclose one (see the hooks RFC).
 

@@ -35,18 +35,18 @@ describe('hook/* session events', () => {
     const session = new Session(SessionId('s'))
     appendHookResult(session, {
       turn: 1, point: 'PreToolUse', handlerId: 'h1',
-      stderrSummaryMaxChars: 500, output: output({ exitCode: 2, stderr: 'blocked', decision: 'deny' }),
+      stderrSummaryMaxChars: 500, durationMs: 5, output: output({ exitCode: 2, stderr: 'blocked', decision: 'deny' }),
     })
     const full = [...session.events].find(e => e.type === 'hook/result')
     if (full?.type === 'hook/result') {
-      expect(full.data).toEqual({ turn: 1, point: 'PreToolUse', handlerId: 'h1', decision: 'deny', exitCode: 2, stderrSummary: 'blocked' })
+      expect(full.data).toEqual({ turn: 1, point: 'PreToolUse', handlerId: 'h1', decision: 'deny', exitCode: 2, stderrSummary: 'blocked', durationMs: 5 })
     }
 
     // A result with no exit code / no stderr (e.g. a hook that could not run) omits both keys.
     const session2 = new Session(SessionId('s2'))
     appendHookResult(session2, {
       turn: 1, point: 'Stop', handlerId: 'h3',
-      stderrSummaryMaxChars: 500, output: output({ exitCode: undefined, decision: 'allow' }),
+      stderrSummaryMaxChars: 500, durationMs: 5, output: output({ exitCode: undefined, decision: 'allow' }),
     })
     const sparse = [...session2.events].find(e => e.type === 'hook/result')
     if (sparse?.type === 'hook/result') {
@@ -58,10 +58,10 @@ describe('hook/* session events', () => {
 
   it('the decision falls back to stop on continue:false, else pass', () => {
     const session = new Session(SessionId('s'))
-    appendHookResult(session, { turn: 1, point: 'Stop', handlerId: 'halt', stderrSummaryMaxChars: 500, output: output({ continue: false }) })
-    appendHookResult(session, { turn: 1, point: 'Stop', handlerId: 'noop', stderrSummaryMaxChars: 500, output: output() })
+    appendHookResult(session, { turn: 1, point: 'Stop', handlerId: 'halt', stderrSummaryMaxChars: 500, durationMs: 5, output: output({ continue: false }) })
+    appendHookResult(session, { turn: 1, point: 'Stop', handlerId: 'noop', stderrSummaryMaxChars: 500, durationMs: 5, output: output() })
     // An explicit decision wins over the continue:false fallback.
-    appendHookResult(session, { turn: 1, point: 'Stop', handlerId: 'both', stderrSummaryMaxChars: 500, output: output({ continue: false, decision: 'block' }) })
+    appendHookResult(session, { turn: 1, point: 'Stop', handlerId: 'both', stderrSummaryMaxChars: 500, durationMs: 5, output: output({ continue: false, decision: 'block' }) })
 
     const decisions = [...session.events]
       .filter(e => e.type === 'hook/result')
@@ -73,7 +73,7 @@ describe('hook/* session events', () => {
     const session = new Session(SessionId('s'))
     appendHookResult(session, {
       turn: 1, point: 'PreToolUse', handlerId: 'long',
-      stderrSummaryMaxChars: 500, output: output({ exitCode: 2, stderr: `  ${'x'.repeat(600)}  ` }),
+      stderrSummaryMaxChars: 500, durationMs: 5, output: output({ exitCode: 2, stderr: `  ${'x'.repeat(600)}  ` }),
     })
     const ev = [...session.events].find(e => e.type === 'hook/result')
     if (ev?.type === 'hook/result') {
@@ -85,7 +85,7 @@ describe('hook/* session events', () => {
     const session = new Session(SessionId('s'))
     appendHookResult(session, {
       turn: 1, point: 'PreToolUse', handlerId: 'edge',
-      stderrSummaryMaxChars: 500, output: output({ exitCode: 2, stderr: 'y'.repeat(500) }),
+      stderrSummaryMaxChars: 500, durationMs: 5, output: output({ exitCode: 2, stderr: 'y'.repeat(500) }),
     })
     const ev = [...session.events].find(e => e.type === 'hook/result')
     if (ev?.type === 'hook/result') {
@@ -96,7 +96,7 @@ describe('hook/* session events', () => {
   it('an invoked/result pair correlates by handlerId', () => {
     const session = new Session(SessionId('s'))
     appendHookInvoked(session, { turn: 1, point: 'PreToolUse', dialect: 'claude', handlerId: 'pair-1' })
-    appendHookResult(session, { turn: 1, point: 'PreToolUse', handlerId: 'pair-1', stderrSummaryMaxChars: 500, output: output({ decision: 'allow' }) })
+    appendHookResult(session, { turn: 1, point: 'PreToolUse', handlerId: 'pair-1', stderrSummaryMaxChars: 500, durationMs: 5, output: output({ decision: 'allow' }) })
 
     const invoked = [...session.events].find(e => e.type === 'hook/invoked')
     const result = [...session.events].find(e => e.type === 'hook/result')
