@@ -336,6 +336,45 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
   })
 
+  it('reports both the append failure and a failed rollback', async () => {
+    const m = meta('rollback-failure')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+
+    const path = logPath(root, undefined, m.id)
+    const handle = await (await import('node:fs/promises')).open(path, 'r')
+    const proto = Object.getPrototypeOf(handle) as { sync: () => Promise<void> }
+    await handle.close()
+    const realSync = proto.sync
+    let failed = false
+    const syncSpy = vi.spyOn(proto, 'sync').mockImplementation(async function (this: unknown) {
+      if (!failed) { failed = true; throw new Error('simulated append fsync failure') }
+      return realSync.call(this)
+    })
+    const backend = ctx.sessionPersistence as unknown as {
+      rollbackAppend: (path: string, size: number) => Promise<void>
+    }
+    const realRollback = backend.rollbackAppend.bind(backend)
+    backend.rollbackAppend = () => Promise.reject(new Error('simulated rollback failure'))
+
+    try {
+      await ctx.sessionPersistence.append(m.id, [
+        { type: 'turn/start', seq: 6, time: 9, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      ] as SessionEvent[])
+      throw new Error('expected append to reject')
+    } catch (error) {
+      expect(error).toBeInstanceOf(AggregateError)
+      const aggregate = error as AggregateError
+      expect(aggregate.message).toContain(`failed to roll back append to "${path}"`)
+      expect(aggregate.errors).toHaveLength(2)
+      expect(aggregate.errors[0]).toMatchObject({ message: 'simulated append fsync failure' })
+      expect(aggregate.errors[1]).toMatchObject({ message: 'simulated rollback failure' })
+    } finally {
+      backend.rollbackAppend = realRollback
+      syncSpy.mockRestore()
+    }
+  })
+
   it('load returns a meta copy: mutating it does not corrupt backend pathing', async () => {
     const m = meta('meta-copy', '/proj')
     await ctx.sessionPersistence.create(m)
