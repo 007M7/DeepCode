@@ -168,6 +168,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Generated tool-schema catalog (boot-and-harvest)](implemented/process/2026-07-02-tool-schema-catalog.md) | 2026-07-02 |
 | [Bilingual documentation via paired sibling files and a pairing gate](implemented/process/2026-07-02-bilingual-docs-and-pairing-gate.md) | 2026-07-02 |
 | [Documentation tiers, budgets, and the ceiling gate](implemented/process/2026-07-04-doc-tiers-and-budgets.md) | 2026-07-04 |
+| [JSDoc completeness gate for the cordis surface](implemented/process/2026-07-04-cordis-jsdoc-completeness-gate.md) | 2026-07-04 |
 
 ### Testing
 

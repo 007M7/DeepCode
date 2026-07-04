@@ -121,6 +121,9 @@ export class AgentLoop extends Service implements AgentFactory {
    * deliberate resume-or-create policy (resume the prior session if one exists,
    * else start fresh) or an explicit caller-chosen session id — revisit when the
    * UI/ACP path owns session selection.
+   * @param id - the agent id; also seeds the generated session id.
+   * @param options - loop options (model, limits, …); defaults applied per option.
+   * @returns the running agent, owned by the calling fiber (no handle).
    */
   create(id: AgentId, options: AgentOptions = {}): ReactLoopAgent {
     this.assertAgentIdFree(id)
@@ -142,6 +145,9 @@ export class AgentLoop extends Service implements AgentFactory {
    * `seed` (a balanced completed-turn prefix of the parent's log) so the child
    * starts with the parent's context. Returns an {@link AgentHandle} the owner
    * disposes to tear down exactly this agent.
+   * @param options - agent id, caller-supplied session id, optional seed/meta,
+   *   and agent options.
+   * @returns the handle whose dispose tears down exactly this agent.
    */
   createAgent(options: CreateAgentOptions): AgentHandle {
     // Check the agent id BEFORE preparing the session: register() would reject a
@@ -168,6 +174,8 @@ export class AgentLoop extends Service implements AgentFactory {
    * configured. NOT hard-injected (that would make non-persistent demos pend
    * forever) — callers that need resume (ACP) inject `sessionPersistence`, so
    * by the time this runs the service exists.
+   * @param options - the persisted session id to reload, plus agent id/options.
+   * @returns the handle for the agent resumed on the reconstructed session.
    */
   async resume(options: ResumeAgentOptions): Promise<AgentHandle> {
     // Read the service through `ctx.get('sessionPersistence')` — a direct
