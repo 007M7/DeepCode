@@ -57,6 +57,9 @@ type Mode = 'emit' | 'waterfall' | 'parallel' | 'serial'
  * that manifest documents the `…Map` symbols (`ContentBlockMap`) while
  * signatures reference the derived UNION names (`ContentBlock`), and it lists a
  * few symbols on two pages. Here each name resolves to exactly one PRIMARY page.
+ * TODO(catalog-type-links): add a verifier or generator for link-map coverage
+ * so new hook-era decision types like `PromptDecision` / `PreToolDecision` do
+ * not silently appear in signatures without a "Types:" link.
  */
 const LINK_MAP: Record<string, string> = {
   Agent: 'core.md',
