@@ -63,12 +63,12 @@ describe('BlockAssembler', () => {
 
   it('throws from assemble() when a partial has an unhandled blockType', () => {
     const assembler = new BlockAssembler()
-    // Directly push a block-end for an image block whose block-start never
-    // called ensure — but the image block-type flows through normally.
-    // What we really need is a partial whose blockType is not text/reasoning/tool-call.
-    // We can achieve this via a block-start for 'image' followed by blocks().
-    assembler.push({ type: 'block-start', index: 0, blockType: 'image' } as unknown as StreamChunk)
-    expect(() => assembler.blocks()).toThrow('cannot assemble incomplete block of type "image"')
+    // A partial whose blockType is not text/reasoning/tool-call cannot be
+    // assembled without its block-end. A plugin-added block type (here
+    // 'video', via the merge-extensible ContentBlockMap) opened by a
+    // block-start with no closing block-end exercises that throw.
+    assembler.push({ type: 'block-start', index: 0, blockType: 'video' } as unknown as StreamChunk)
+    expect(() => assembler.blocks()).toThrow('cannot assemble incomplete block of type "video"')
   })
 
   it('mustGet throws when an index is missing from the partials map (invariant violation)', () => {

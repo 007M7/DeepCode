@@ -75,6 +75,7 @@ flowchart TD
   subgraph group_ui["packages/ui"]
     pkg_acp["acp"]
     pkg_acp_agent["acp-agent"]
+    pkg_app_boot["app-boot"]
     pkg_stdio_agent["stdio-agent"]
   end
   pkg_llm --> pkg_brand
@@ -189,9 +190,11 @@ flowchart TD
   pkg_subagent_spawn --> pkg_subagent_inprocess
   pkg_acp_agent --> pkg_acp
   pkg_acp_agent --> pkg_agent_core
+  pkg_acp_agent --> pkg_app_boot
   pkg_acp_agent --> pkg_session_persistence_jsonl
   pkg_stdio_agent --> pkg_agent
   pkg_stdio_agent --> pkg_agent_core
+  pkg_stdio_agent --> pkg_app_boot
   pkg_stdio_agent --> pkg_llm
   pkg_stdio_agent --> pkg_session
   pkg_stdio_agent --> pkg_session_persistence_jsonl
@@ -200,6 +203,7 @@ flowchart TD
 | Package | Group | Depends on |
 | --- | --- | --- |
 | [`brand`](../packages/util/brand) | `util` | — |
+| [`app-boot`](../packages/ui/app-boot) | `ui` | — |
 | [`llm`](../packages/llm/llm) | `llm` | [`brand`](../packages/util/brand) |
 | [`bash`](../packages/bash/bash) | `bash` | [`brand`](../packages/util/brand) |
 | [`llm-deepseek`](../packages/llm/llm-deepseek) | `llm` | [`llm`](../packages/llm/llm) |
@@ -241,5 +245,5 @@ flowchart TD
 | [`subagent-mock`](../packages/support/subagent-mock) | `support` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent) |
 | [`subagent-fork`](../packages/subagent/subagent-fork) | `subagent` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) |
 | [`subagent-spawn`](../packages/subagent/subagent-spawn) | `subagent` | [`subagent`](../packages/subagent/subagent), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) |
-| [`acp-agent`](../packages/ui/acp-agent) | `ui` | [`acp`](../packages/ui/acp), [`agent-core`](../packages/core/agent-core), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl) |
-| [`stdio-agent`](../packages/ui/stdio-agent) | `ui` | [`agent`](../packages/core/agent), [`agent-core`](../packages/core/agent-core), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl) |
+| [`acp-agent`](../packages/ui/acp-agent) | `ui` | [`acp`](../packages/ui/acp), [`agent-core`](../packages/core/agent-core), [`app-boot`](../packages/ui/app-boot), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl) |
+| [`stdio-agent`](../packages/ui/stdio-agent) | `ui` | [`agent`](../packages/core/agent), [`agent-core`](../packages/core/agent-core), [`app-boot`](../packages/ui/app-boot), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl) |

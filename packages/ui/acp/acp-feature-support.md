@@ -63,7 +63,7 @@ These are capabilities the bridge would *drive* on the editor. The harness runs 
 | `sessionCapabilities.*` | S | ❌ | ✅ | ✅ | None advertised (list/delete/resume/close/additionalDirectories/fork all off). |
 | `auth.logout` | S | ❌ | ✅ | ✅ | Not advertised. |
 | `authMethods[]` | S | ⚠️ | ✅ | ✅ | Advertised as empty (no auth required to reach the model). |
-| `agentInfo` (name/version) | S | ✅ | ✅ | ✅ | From `agentName` / `agentVersion` config. |
+| `agentInfo` (name/version) | S | ✅ | ✅ | ✅ | Fixed literals: `deepseek-harness-acp` / `0.0.1` (not config). |
 | `_meta` custom caps | S | ❌ | ✅ | — | E.g. Claude's `claudeCode.promptQueueing`. The bridge advertises no custom `_meta`. |
 
 ### 3b. `clientCapabilities` (consumed by the bridge)
@@ -96,7 +96,7 @@ Tool-call presentation is **owned by each tool** (`presentCall` / `presentResult
 
 | Feature | Stable | Bridge | Claude | Codex | Notes |
 |---|---|---|---|---|---|
-| `ToolCallKind` mapping | S | ✅ | ✅ | ✅ | `execute`/`read`/`edit`/`other` inferred from the tool; richer mapping possible. |
+| `ToolCallKind` mapping | S | ✅ | ✅ | ✅ | `execute`/`read`/`edit` declared by each tool's `presentCall`; presenter-less tools render `other` (no name sniffing); richer mapping possible. |
 | `ToolCallStatus` | S | ✅ | ✅ | ✅ | `in_progress` → `completed`/`failed`. |
 | `content` blocks | S | ✅ | ✅ | ✅ | Text content; the description renders above the card. |
 | `diff` content | S | ✅ | ✅ | ✅ | The `write`/`edit` tools declare a `diff` render intent: `presentCall` → a call-time `{ card: 'diff' }` snippet, and `presentResult` → a result-time `{ card: 'diff' }`. For an edit or an overwrite it carries the applied hunk(s) with surrounding context (one per `replace_all` site), computed from the before/after text and persisted on the `tool/result` event as `meta`; for a create (no before-image) it is an args-derived whole-file diff. The bridge emits `{ type: 'diff', path, oldText, newText }` content blocks; a successful mutation ALWAYS returns the result diff (an ACP `tool_call_update.content` replaces the call's content, so the result diff — not the model-facing text — is what survives). |

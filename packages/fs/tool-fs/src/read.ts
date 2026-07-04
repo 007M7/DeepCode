@@ -109,10 +109,8 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
 
       const outcome: FileReadOutcome = {
         offset: input.offset,
-        limit: input.limit,
         lines: window.lines,
         totalLines: window.totalLines,
-        version: info.version,
         ...window.truncatedByBytes ? { truncatedByBytes: true } : {},
       }
       // Record the observed version (a no-op when no policy plugin listens). The

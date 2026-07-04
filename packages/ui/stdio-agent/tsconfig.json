@@ -18,6 +18,9 @@
       "path": "../../../vendor/loader"
     },
     {
+      "path": "../app-boot"
+    },
+    {
       "path": "../../../vendor/logger-console"
     },
     {

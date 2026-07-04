@@ -106,17 +106,4 @@ describe('gen-tool-catalog render', () => {
     expect(md).toContain('```json')
     expect(md).toContain('Source: [`packages/demo/tool-demo/src/index.ts`]')
   })
-
-  it('renders the strict flag when a schema sets it', () => {
-    const catalog: ToolCatalog = [
-      {
-        pkg: '@deepseek-ai/dsh-tool-demo',
-        source: 'packages/demo/tool-demo/src/index.ts',
-        requires: ['ctx.tools'],
-        writes: ['tool/result'],
-        schemas: [{ name: 'demo', description: '', parameters: { type: 'object', properties: {} }, strict: true }],
-      },
-    ]
-    expect(render(catalog)).toContain('Strict: `true`')
-  })
 })

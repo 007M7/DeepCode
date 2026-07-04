@@ -62,18 +62,6 @@ describe('ToolRegistry', () => {
     expect(schema.execute).toBeUndefined()
   })
 
-  it('schemas() preserves `strict` when set (allowlist keeps the model-facing fields)', async () => {
-    const ctx = await setup()
-    ctx.tools.register(defineTool({
-      name: 'strict-tool',
-      description: 'd',
-      parameters: { x: { type: 'string', required: true } },
-      strict: true,
-      async execute() { return [] },
-    }))
-    expect(ctx.tools.schemas()[0]).toMatchObject({ name: 'strict-tool', strict: true })
-  })
-
   it('executes a tool and returns its content', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
@@ -609,44 +597,6 @@ describe('schema DSL edge cases', () => {
       type: 'array',
       items: { type: 'string' },
     })
-  })
-
-  it('defineTool passes through strict flag when set to true', () => {
-    const tool = defineTool({
-      name: 'strict-tool',
-      description: 'A strict tool',
-      parameters: { input: { type: 'string' } },
-      strict: true,
-      async execute(args) {
-        return [{ type: 'text' as const, text: args.input ?? '' }]
-      },
-    })
-    expect(tool.strict).toBe(true)
-  })
-
-  it('defineTool omits strict when not provided', () => {
-    const tool = defineTool({
-      name: 'non-strict-tool',
-      description: 'A non-strict tool',
-      parameters: { input: { type: 'string' } },
-      async execute(args) {
-        return [{ type: 'text' as const, text: args.input ?? '' }]
-      },
-    })
-    expect('strict' in tool).toBe(false)
-  })
-
-  it('defineTool strict=false is included', () => {
-    const tool = defineTool({
-      name: 'explicitly-non-strict',
-      description: 'Explicitly non-strict',
-      parameters: { input: { type: 'string' } },
-      strict: false,
-      async execute(args) {
-        return [{ type: 'text' as const, text: args.input ?? '' }]
-      },
-    })
-    expect(tool.strict).toBe(false)
   })
 
   it('handles enum and default together in one property', () => {

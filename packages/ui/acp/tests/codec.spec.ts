@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ContentBlock as AcpContentBlock } from '@agentclientprotocol/sdk'
 import {
@@ -33,9 +34,9 @@ describe('harnessBlockToAcpContent', () => {
     expect(harnessBlockToAcpContent({ type: 'text', text: 'hi' })).toEqual({ type: 'text', text: 'hi' })
   })
 
-  it('returns undefined for non-text blocks (reasoning/tool/image)', () => {
+  it('returns undefined for non-text blocks (reasoning / plugin-added)', () => {
     expect(harnessBlockToAcpContent({ type: 'reasoning', text: 'think' })).toBeUndefined()
-    expect(harnessBlockToAcpContent({ type: 'image', url: 'https://x/y.png', mimeType: 'image/png' })).toBeUndefined()
+    expect(harnessBlockToAcpContent({ type: 'chart', data: 'x' } as unknown as ContentBlock)).toBeUndefined()
   })
 })
 

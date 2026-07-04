@@ -73,9 +73,9 @@ type WebFetchBody =
   | { readonly kind: 'text'; readonly content: string }
 ```
 
-## Provider and capability status
+## Provider status
 
-A provider's `status()` is a cheap LOCAL check (credential presence, parseable config) and **must not make network calls**. It is an input to selection, not a health system.
+A provider's `status()` is a cheap LOCAL check (credential presence, parseable config) and **must not make network calls**. It is an input to execution-time selection, not a health system: `search()`/`fetch()` read it to pick a usable provider, and a selection failure surfaces as the structured `WebError` the caller routes on — which carries the branchable detail (the missing id, the ambiguous candidate set) in its code and message.
 
 ```ts type-equiv
 type WebProviderStatus =
@@ -83,15 +83,7 @@ type WebProviderStatus =
   | { readonly available: false; readonly reason: 'missing-credential' | 'misconfigured' }
 ```
 
-The service aggregates provider status into a `WebCapabilityStatus`: whether the capability has a selected usable provider, or the broad category in which selection fails. It carries the winning `providerId` on the available branch but NOT the per-reason payload (the missing id, the ambiguous set) — that branchable detail lives in the thrown `WebError`, the surface callers route on, so the same fact never gets two homes that can disagree.
-
-```ts type-equiv
-type WebCapabilityStatus =
-  | { readonly available: true; readonly providerId: string }
-  | { readonly available: false; readonly reason: 'none' | 'configured-missing' | 'configured-unavailable' | 'ambiguous' }
-```
-
-Selection never depends on registration, config, or HMR order: a capability has an explicit provider id (config `searchProvider`/`fetchProvider`, or the matching env var feeding the same field), or auto-selects when exactly one usable provider is registered; multiple usable providers with no configured id is `ambiguous`, not first-wins.
+Selection never depends on registration, config, or HMR order: a capability has an explicit provider id (config `searchProvider`/`fetchProvider`, or the matching env var feeding the same field), or auto-selects when exactly one usable provider is registered; multiple usable providers with no configured id is `WEB_PROVIDER_AMBIGUOUS`, not first-wins.
 
 ## Errors
 
@@ -99,4 +91,4 @@ Selection never depends on registration, config, or HMR order: a capability has 
 
 ## The service
 
-`WebService` (`ctx.web`, defined in [`packages/web/web/src/index.ts`](../../packages/web/web/src/index.ts)) is a provider registry plus a provider-selecting execution surface, close to `LlmService`'s shape: `registerSearchProvider`/`registerFetchProvider` (duplicate ids throw `WEB_DUPLICATE_PROVIDER`, return disposers, emit `web/providers-change`), `searchStatus`/`fetchStatus` (derived, never stored), and `search`/`fetch` (resolve the provider at call time, throw a structured `WebError` when the capability cannot run). Providers issue requests with the platform-native `fetch` (Node 24), mirroring `dsh-llm-deepseek`; the `dsh-web-fetch-local` provider owns safe retrieval (http/https-only, credential rejection, byte/char/timeout/redirect caps, same-origin-only redirects with per-hop re-validation, charset decoding) while `dsh-tool-web` owns presentation (HTML→markdown). SSRF / private-network blocking is deferred (see the RFC) — until it lands, `web_fetch` must not be enabled where it can reach sensitive internal targets.
+`WebService` (`ctx.web`, defined in [`packages/web/web/src/index.ts`](../../packages/web/web/src/index.ts)) is a provider registry plus a provider-selecting execution surface, close to `LlmService`'s shape: `registerSearchProvider`/`registerFetchProvider` (duplicate ids throw `WEB_DUPLICATE_PROVIDER`, return disposers) and `search`/`fetch` (resolve the provider at call time, throw a structured `WebError` when the capability cannot run). Providers issue requests with the platform-native `fetch` (Node 24), mirroring `dsh-llm-deepseek`; the `dsh-web-fetch-local` provider owns safe retrieval (http/https-only, credential rejection, byte/char/timeout/redirect caps, same-origin-only redirects with per-hop re-validation, charset decoding) while `dsh-tool-web` owns presentation (HTML→markdown). SSRF / private-network blocking is deferred (see the RFC) — until it lands, `web_fetch` must not be enabled where it can reach sensitive internal targets.

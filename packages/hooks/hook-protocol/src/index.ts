@@ -12,7 +12,9 @@
  * - {@link mergeHookOutputs} — fold multiple matched hooks into one
  *   most-restrictive {@link MergedHookOutcome} (deny > ask > allow).
  * - {@link appendHookInvoked} / {@link appendHookResult} — the log-only `hook/*`
- *   session-event helpers (declaration-merged into `SessionEventMap`).
+ *   session-event helpers (declaration-merged into `SessionEventMap`);
+ *   `appendHookResult` derives the durable `decision`/`stderrSummary` from the
+ *   {@link HookOutput} so the shared event's semantics live in one place.
  *
  * Each bridge owns what genuinely DIFFERS: building the per-event stdin payload
  * (CC vs Codex field sets), the dialect's env/substitution, and mapping the
@@ -29,10 +31,10 @@ export type {
   MatcherMode,
 } from './types.ts'
 export { matchesMatcher } from './matcher.ts'
-export { BLOCKING_EXIT_CODE, parseHookOutput } from './codec.ts'
-export { runHook } from './runner.ts'
+export { parseHookOutput } from './codec.ts'
+export { DEFAULT_HOOK_TIMEOUT_MS, runHook } from './runner.ts'
 export type { RunHookOptions, RunHookResult } from './runner.ts'
 export { mergeHookOutputs } from './merge.ts'
 export type { MergedDecision, MergedHookOutcome } from './merge.ts'
-export { appendHookInvoked, appendHookResult, summarizeStderr } from './events.ts'
+export { appendHookInvoked, appendHookResult, DEFAULT_STDERR_SUMMARY_MAX_CHARS, summarizeStderr } from './events.ts'
 export type { HookInvocation, HookResultRecord } from './events.ts'

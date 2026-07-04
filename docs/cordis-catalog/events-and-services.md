@@ -49,7 +49,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:389`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:380`](../../packages/core/agent/src/types.ts)
 
 #### `agent/pre-step` — serial
 
@@ -125,18 +125,6 @@ Types: [Agent](../core-data-structures/core.md)
 
 Source: [`packages/core/agent/src/types.ts:250`](../../packages/core/agent/src/types.ts)
 
-#### `agent/steering` — emit
-
-Steering content was injected into a running turn.
-
-```ts cordis-catalog
-'agent/steering'(agent: Agent, turn: number, content: ContentBlock[], source: MessageSource): void
-```
-
-Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
-
-Source: [`packages/core/agent/src/types.ts:379`](../../packages/core/agent/src/types.ts)
-
 #### `agent/step-result` — waterfall
 
 Waterfall: post-process the assembled assistant Message before tool dispatch (validation, content rewriting, …).
@@ -211,7 +199,7 @@ Waterfall around every streaming model call (retry, caching, routing). Bound to 
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:32`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:33`](../../packages/llm/llm/src/index.ts)
 
 ### `session/*`
 
@@ -326,18 +314,6 @@ Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook pl
 Types: [ToolExecution](../core-data-structures/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:66`](../../packages/core/tools/src/index.ts)
-
-### `web/*`
-
-#### `web/providers-change` — emit
-
-Fired after the provider registry changes — a search or fetch provider was registered or disposed. Carries no payload and no capability graph: it means only "the provider registry changed; observers may recompute status from `ctx.web`". `searchStatus()` / `fetchStatus()` stay derived, not stored.
-
-```ts cordis-catalog
-'web/providers-change'(this: WebService): void
-```
-
-Source: [`packages/web/web/src/index.ts:65`](../../packages/web/web/src/index.ts)
 
 ## Services
 
@@ -458,7 +434,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:70`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:78`](../../packages/llm/llm/src/index.ts)
 
 ### `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 
@@ -543,25 +519,23 @@ Source: [`packages/core/tools/src/index.ts:268`](../../packages/core/tools/src/i
 
 The web access service. Registered as `ctx.web` (one instance per context).
 
-Selection semantics (identical for status and execution, never order- dependent):
+Selection semantics (resolved at execution time, never order-dependent):
 
 - A configured id that is registered and `status().available` → that provider.
-- A configured id not registered → `configured-missing` / `WEB_PROVIDER_CONFIGURED_MISSING`.
-- A configured id registered but unavailable → `configured-unavailable` / `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`.
+- A configured id not registered → `WEB_PROVIDER_CONFIGURED_MISSING`.
+- A configured id registered but unavailable → `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`.
 - No id configured, exactly one registered usable provider → that provider.
-- No id configured, multiple usable providers → `ambiguous` / `WEB_PROVIDER_AMBIGUOUS`.
-- No id configured, no usable provider → `none` / `WEB_PROVIDER_UNAVAILABLE`.
+- No id configured, multiple usable providers → `WEB_PROVIDER_AMBIGUOUS`.
+- No id configured, no usable provider → `WEB_PROVIDER_UNAVAILABLE`.
 
 ```ts cordis-catalog
 registerSearchProvider(provider: WebSearchProvider): () => void
 registerFetchProvider(provider: WebFetchProvider): () => void
-searchStatus(): WebCapabilityStatus
-fetchStatus(): WebCapabilityStatus
 async search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>
 async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>
 ```
 
-Source: [`packages/web/web/src/index.ts:105`](../../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:87`](../../packages/web/web/src/index.ts)
 
 ## Inherited tier (cordis core + loader/hmr/timer)
 

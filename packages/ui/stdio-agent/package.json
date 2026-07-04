@@ -32,6 +32,7 @@
   "peerDependencies": {
     "@cordisjs/plugin-include": "^1.0.4",
     "@cordisjs/plugin-loader": "^1.0.0-rc.4",
+    "@deepseek-ai/dsh-app-boot": "^0.0.1",
     "@cordisjs/plugin-logger-console": "^1.0.0",
     "@deepseek-ai/dsh-agent": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
@@ -44,6 +45,7 @@
   "devDependencies": {
     "@cordisjs/plugin-include": "workspace:^",
     "@cordisjs/plugin-loader": "workspace:^",
+    "@deepseek-ai/dsh-app-boot": "workspace:^",
     "@cordisjs/plugin-logger-console": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",

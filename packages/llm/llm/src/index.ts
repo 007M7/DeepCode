@@ -10,6 +10,7 @@ import { Context, Service } from 'cordis'
 import type { GenerateOptions, StreamChunk } from './types.ts'
 import { HarnessError } from './error.ts'
 
+export * from './attribution.ts'
 export * from './brand.ts'
 export * from './never.ts'
 export * from './error.ts'
@@ -57,6 +58,13 @@ export class LlmError extends HarnessError {
  * fetch/SSE) and `@deepseek-ai/dsh-llm-pi-ai` (pi-ai-backed) — two
  * deliberately different internals over the same contract; see the
  * adapter contract documented on `StreamChunk` in `./types.ts`.
+ *
+ * App attribution is part of the adapter contract: every HTTP request to a
+ * provider carries the headers from `attributionHeaders()` (`./attribution.ts`)
+ * — the standard `User-Agent` baseline everywhere. An adapter proves it with
+ * a wire-level test (a mock server asserting the received header), or, for a
+ * library-backed adapter, by asserting the library's header hook delivers the
+ * same value to the wire.
  */
 export abstract class LlmAdapter {
   /** Stream one model call as raw chunks. The only required method. */

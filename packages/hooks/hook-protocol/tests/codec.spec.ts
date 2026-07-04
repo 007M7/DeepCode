@@ -38,13 +38,12 @@ describe('parseHookOutput — exit code semantics', () => {
 })
 
 describe('parseHookOutput — structured stdout (exit 0 only)', () => {
-  it('parses top-level continue/stopReason/suppressOutput/systemMessage', () => {
+  it('parses top-level continue/stopReason/systemMessage', () => {
     const out = parseHookOutput(0, JSON.stringify({
-      continue: false, stopReason: 'budget exceeded', suppressOutput: true, systemMessage: 'heads up',
+      continue: false, stopReason: 'budget exceeded', systemMessage: 'heads up',
     }), '')
     expect(out.continue).toBe(false)
     expect(out.stopReason).toBe('budget exceeded')
-    expect(out.suppressOutput).toBe(true)
     expect(out.systemMessage).toBe('heads up')
   })
 
