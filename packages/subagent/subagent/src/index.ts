@@ -61,6 +61,25 @@ declare module 'cordis' {
 
   interface Events {
     /**
+     * A provider became resolvable in the {@link SubagentService} registry.
+     * Consumers that derive state from a named provider (e.g. the model-facing
+     * tool wording in `dsh-tool-subagent`) react HERE instead of assuming load
+     * order — the cordis Loader starts sibling plugins concurrently, so
+     * "listed earlier in cordis.yml" does not mean "registered earlier".
+     * @param provider - the provider that just registered, live in the registry.
+     * @mode emit
+     */
+    'subagent/provider-added'(provider: SubagentProvider): void
+    /**
+     * A provider left the registry (its plugin's fiber was disposed — an
+     * unload or an HMR reload). Consumers holding provider-derived state drop
+     * it here; a reload re-fires `subagent/provider-added` with the fresh
+     * provider.
+     * @param name - the registry name that no longer resolves.
+     * @mode emit
+     */
+    'subagent/provider-removed'(name: string): void
+    /**
      * A subagent run started — emitted after the provider is resolved and its
      * capabilities validated, as the child run begins. Paired with
      * {@link Events['subagent/end']}.
@@ -130,7 +149,9 @@ export class SubagentService extends Service {
   /**
    * Register a provider under its `provider.name`. Throws {@link SubagentError}
    * (`DUPLICATE_PROVIDER`) if the name is already taken. Effect-scoped: disposed
-   * with the calling fiber (HMR-safe).
+   * with the calling fiber (HMR-safe). Emits `subagent/provider-added` after
+   * the registration and `subagent/provider-removed` on unregistration, so
+   * consumers can mirror provider lifecycle instead of assuming load order.
    * @param provider - the provider; its `name` is the registry key.
    * @returns the disposer that unregisters the provider.
    */
@@ -140,9 +161,14 @@ export class SubagentService extends Service {
         throw new SubagentError(`a subagent provider named "${provider.name}" is already registered`, 'DUPLICATE_PROVIDER')
       }
       this.providers.set(provider.name, provider)
+      // Yield the rollback BEFORE emitting `subagent/provider-added`: a
+      // throwing added-listener then unregisters the provider (and announces
+      // the removal) instead of leaking it into the registry.
       yield () => {
         this.providers.delete(provider.name)
+        this.ctx.emit('subagent/provider-removed', provider.name)
       }
+      this.ctx.emit('subagent/provider-added', provider)
     }.bind(this), 'subagents.registerProvider()')
     // ctx.effect's disposer returns Promise<void>; our disposer API is
     // synchronous fire-and-forget — discard the (always-resolved) promise.

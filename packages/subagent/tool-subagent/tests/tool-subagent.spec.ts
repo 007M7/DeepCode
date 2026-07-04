@@ -195,19 +195,56 @@ describe('dsh-tool-subagent', () => {
     expect(text(result)).toContain('requires a calling agent')
   })
 
-  it('fails loud AT LOAD when the bound provider is not registered (backend must load first)', async () => {
-    // The tool description states the provider's context contract, so apply()
-    // resolves the provider at load time — a missing backend is a wiring error
-    // surfaced immediately, not a lying description discovered at model time.
+  it('registers when the provider appears LATER — no load-order requirement (Loader starts siblings concurrently)', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(SubagentService)
-    await expect(async () => {
-      await ctx.plugin(tool, { provider: 'does-not-exist' })
-      await new Promise(r => setTimeout(r, 20))
-    }).rejects.toThrow('is not registered; load its backend plugin before tool-subagent')
+    // Tool first: no provider yet — the tool must be absent, not broken.
+    // Direct apply (schema bypass): also covers the waiting-note's default
+    // toolName fallback, which validated config pre-fills.
+    tool.apply(ctx, { provider: 'mock' })
     expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(false)
+    // Backend arrives (as a delayed sibling fiber would): the tool appears.
+    await ctx.plugin(mock, { name: 'mock', reply: 'late but fine' })
+    expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(true)
+    const result = await callSubagent(ctx, { description: 'd', prompt: 'p' })
+    expect(text(result)).toBe('late but fine')
+  })
+
+  it('mirrors the provider lifecycle: gone on backend dispose, re-derived wording on re-registration', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    const backend = await ctx.plugin(mock, { name: 'mock' }) // spawn-shaped (inherits: false)
+    await ctx.plugin(tool, { provider: 'mock' })
+    expect(ctx.tools.schemas().find(s => s.name === 'subagent')!.description).toContain('does not see this conversation')
+
+    // Backend unloads (HMR shape): the tool must not outlive its provider.
+    await backend.dispose()
+    expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(false)
+
+    // Backend reloads with a DIFFERENT contract: the wording is re-derived
+    // from the fresh provider, not served stale from the first mount.
+    await ctx.plugin(mock, { name: 'mock', inheritsParentContext: true })
+    expect(ctx.tools.schemas().find(s => s.name === 'subagent')!.description).toContain('INHERITS this conversation')
+  })
+
+  it('ignores lifecycle events for OTHER providers', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    await ctx.plugin(mock, { name: 'mock' })
+    await ctx.plugin(tool, { provider: 'mock' })
+    // An unrelated provider registering (added-event with another name) and
+    // unregistering (removed-event with another name) must not touch the tool.
+    const other = await ctx.plugin(mock, { name: 'other', inheritsParentContext: true })
+    expect(ctx.tools.schemas().filter(s => s.name === 'subagent')).toHaveLength(1)
+    expect(ctx.tools.schemas().find(s => s.name === 'subagent')!.description).toContain('does not see this conversation')
+    await other.dispose()
+    expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(true)
   })
 
   it('derives spawn-shaped wording from a fresh-context provider (default mock)', async () => {

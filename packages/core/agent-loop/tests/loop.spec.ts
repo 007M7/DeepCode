@@ -182,11 +182,13 @@ describe('agent loop', () => {
     expect(adapter.requests[0]!.system).toBe('Working in /work/space.')
   })
 
-  it('contains a strict-variable render failure: the turn errors, the loop survives', async () => {
+  it('contains a strict-variable render failure: the turn errors, the loop keeps serving turns', async () => {
     // A persona claiming {{cwd}} on a session with NO cwd is a deployment
     // authoring error — renderPrompt throws, the turn ends with an error, and
-    // the agent (and loop) stay alive for the next prompt.
-    const adapter = new MockAdapter([textResponse('never reached'), textResponse('ok')])
+    // the same agent must then RUN a later turn to completion (not merely
+    // report idle status): a rescue listener supplies the variable and the
+    // follow-up prompt reaches the model.
+    const adapter = new MockAdapter([textResponse('ok after rescue')])
     const ctx = await harness(adapter)
     const errors: Error[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
@@ -199,7 +201,21 @@ describe('agent loop', () => {
     expect(errors.some(e => e.message.includes('no value for this assembly'))).toBe(true)
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('error')
-    expect(agent.status).toBe('idle') // contained: the loop is still serving
+
+    // The loop survived: a waterfall listener rescues {{cwd}} and the SAME
+    // agent completes a real model turn.
+    ctx.on('system-prompt/assemble', async (assembly, _context, next) => {
+      assembly.variables['cwd'] = '/rescued'
+      return next()
+    })
+    send(agent, 'again')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]!.system).toBe('In /rescued.')
+    const turnEnds = agent.session.events.filter(e => e.type === 'turn/end')
+    expect(turnEnds).toHaveLength(2)
+    expect(turnEnds[1]?.type === 'turn/end' && turnEnds[1].data.reason.kind).toBe('completed')
   })
 
   it('records raw chunks for replay as assistant/chunk session events', async () => {

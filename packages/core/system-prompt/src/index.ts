@@ -101,8 +101,8 @@ export interface PromptAssembly {
 /** Valid variable names: how they are written between the braces. */
 const VARIABLE_NAME = /^[a-z][a-z0-9_]*$/
 
-/** A complete `{{...}}` reference group (any inner content, validated after). */
-const REFERENCE = /\{\{([^{}]*)\}\}/g
+/** A complete `{{...}}` reference group at the scan position (validated after). */
+const GROUP_AT = /^\{\{([^{}]*)\}\}/
 
 /**
  * Renders the text part of an assembly: interpolates `{{variable}}`
@@ -111,10 +111,11 @@ const REFERENCE = /\{\{([^{}]*)\}\}/g
  *
  * Strict by design (fail loud beats shipping a malformed prompt): a reference
  * to an unregistered variable, to a registered variable with no value for
- * this assembly, or a complete `{{...}}` group that is not a well-formed
- * variable name (e.g. `{{ model }}`) throws. Only complete double-brace
- * groups are interpreted; a lone `{{` without a closing `}}` passes through
- * verbatim.
+ * this assembly, a complete `{{…}}` group that is not a well-formed variable
+ * name (e.g. `{{ model }}`), or a `{{` that does not open a complete group
+ * while a `}}` still follows (e.g. `{{{model}}}`, `{{a{b}}`) all throw. A
+ * lone `{{` with no `}}` anywhere after it is ordinary prose and passes
+ * through verbatim. Substituted values are never re-scanned.
  */
 export function renderPrompt(assembly: PromptAssembly): string {
   return assembly.sections
@@ -125,11 +126,33 @@ export function renderPrompt(assembly: PromptAssembly): string {
 
 /** Interpolate one section's `{{variable}}` references (see {@link renderPrompt}). */
 function interpolate(section: AssembledSection, variables: Record<string, string | undefined>): string {
-  return section.text.replace(REFERENCE, (_match, name: string) => {
+  const text = section.text
+  let result = ''
+  let last = 0
+  for (let open = text.indexOf('{{'); open >= 0; open = text.indexOf('{{', last)) {
+    const group = GROUP_AT.exec(text.slice(open))
+    if (group === null) {
+      // No complete simple group starts at this `{{`. A `}}` further on means
+      // a mangled reference (extra or nested braces) — fail loud. With no
+      // closing `}}` anywhere after, it is ordinary prose (shell, JSON) and
+      // passes through verbatim.
+      if (text.indexOf('}}', open + 2) >= 0) {
+        throw new Error(`malformed prompt variable reference at "${text.slice(open, open + 16)}…" in section "${section.name}" (references are complete simple {{name}} groups)`)
+      }
+      result += text.slice(last, open + 2)
+      last = open + 2
+      continue
+    }
+    // group[0] is the whole `{{...}}` match (a plain string, no optional
+    // index): the name is its interior. `{{}}` yields '' → the malformed path.
+    const name = group[0].slice(2, -2)
     if (!VARIABLE_NAME.test(name)) {
       throw new Error(`malformed prompt variable reference "{{${name}}}" in section "${section.name}" (variable names match ${String(VARIABLE_NAME)})`)
     }
-    if (!(name in variables)) {
+    // Object.hasOwn, NOT `in`: `in` walks the prototype chain, so an
+    // unregistered `{{constructor}}` would resolve to Object.prototype's and
+    // splice a function's source text into the prompt instead of throwing.
+    if (!Object.hasOwn(variables, name)) {
       const known = Object.keys(variables)
       throw new Error(`unknown prompt variable "{{${name}}}" in section "${section.name}"; registered variables: ${known.length > 0 ? known.join(', ') : '(none)'}`)
     }
@@ -137,8 +160,10 @@ function interpolate(section: AssembledSection, variables: Record<string, string
     if (value === undefined) {
       throw new Error(`prompt variable "{{${name}}}" has no value for this assembly (section "${section.name}")`)
     }
-    return value
-  })
+    result += text.slice(last, open) + value
+    last = open + group[0].length
+  }
+  return result + text.slice(last)
 }
 
 /**

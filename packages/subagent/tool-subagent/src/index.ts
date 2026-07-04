@@ -14,9 +14,11 @@
  * The tool DESCRIPTION is derived from the bound provider's context contract
  * ({@link providerWording}): a fresh-context provider (spawn, ACP) gets the
  * standalone-prompt wording, an inheriting provider (fork) tells the model the
- * child already sees the conversation's completed turns. `apply` therefore
- * resolves the provider at load time and throws if it is not registered yet —
- * list the backend plugin before this one in `cordis.yml`.
+ * child already sees the conversation's completed turns. The tool MIRRORS the
+ * provider's lifecycle via `subagent/provider-added`/`-removed` — it registers
+ * when the provider is (or becomes) available and unregisters when the
+ * provider goes away — so no load-order requirement exists and an HMR reload
+ * of the backend re-derives the wording from the fresh provider.
  *
  * Collection is SYNCHRONOUS this cut: `execute` starts a run and awaits
  * `run.result` inside a `try/finally` that always disposes the run, so the
@@ -33,7 +35,7 @@ import z from 'schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
+import type { SubagentProvider, SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 
 export const name = 'tool-subagent'
 export const inject = ['tools', 'subagents']
@@ -136,73 +138,96 @@ export function providerWording(inherits: boolean): { description: string; promp
 }
 
 export function apply(ctx: Context, config: Config): void {
-  // Resolve the bound provider NOW: the tool description must state the
-  // provider's context contract, so the backend plugin must be loaded before
-  // this one (list it earlier in cordis.yml). Fail loud at load, not with a
-  // lying description at model time.
-  const provider = ctx.subagents.getProvider(config.provider)
-  if (provider === undefined) {
-    throw new Error(
-      `subagent provider "${config.provider}" is not registered; load its backend plugin before tool-subagent`)
-  }
-  const wording = providerWording(provider.inheritsParentContext)
-  ctx.tools.register(defineTool({
-    name: config.toolName ?? 'subagent',
-    description: wording.description,
-    parameters: {
-      description: {
-        type: 'string',
-        required: true,
-        description: 'A short (3-5 word) description of the delegated task, for display.',
+  // The tool MIRRORS its provider's lifecycle instead of assuming load order:
+  // the cordis Loader starts sibling entries concurrently, so "backend listed
+  // first in cordis.yml" does not guarantee "provider registered first", and
+  // an HMR reload of the backend replaces the provider while this fiber stays
+  // loaded. Register the tool when the bound provider is (or becomes)
+  // available — deriving the wording from THAT provider — and unregister it
+  // when the provider goes away, so the description can never outlive or
+  // predate the provider it describes.
+  let disposeTool: (() => void) | undefined
+  const mount = (provider: SubagentProvider): void => {
+    const wording = providerWording(provider.inheritsParentContext)
+    disposeTool = ctx.tools.register(defineTool({
+      name: config.toolName ?? 'subagent',
+      description: wording.description,
+      parameters: {
+        description: {
+          type: 'string',
+          required: true,
+          description: 'A short (3-5 word) description of the delegated task, for display.',
+        },
+        prompt: {
+          type: 'string',
+          required: true,
+          description: wording.promptDescription,
+        },
       },
-      prompt: {
-        type: 'string',
-        required: true,
-        description: wording.promptDescription,
-      },
-    },
-    async execute(args, exec): Promise<ContentBlock[]> {
-      const parent = exec.agent
-      if (!parent) {
-        // The loop sets `exec.agent` for every model-driven call; its absence
-        // means a non-agent caller invoked the tool directly, which has no
-        // parent to attribute the child to. Fail loud rather than guess.
-        throw new Error('subagent tool requires a calling agent (exec.agent was undefined)')
-      }
-
-      const request: SubagentStartRequest = {
-        prompt: [{ type: 'text', text: args.prompt }],
-        parent,
-        ...exec.signal ? { signal: exec.signal } : {},
-        ...config.agentOptions ? { agentOptions: config.agentOptions } : {},
-      }
-
-      const run: SubagentRun = ctx.subagents.start(config.provider, request)
-
-      // Bridge the tool's abort signal to the run: if the parent step is
-      // aborted while the child is in flight, cancel the child too.
-      const onAbort = (): void => { run.cancel('parent step aborted') }
-      exec.signal?.addEventListener('abort', onAbort, { once: true })
-      // `addEventListener` does NOT fire for a signal already aborted before this
-      // line, so a step cancelled before the tool ran would never reach the
-      // child. Cancel explicitly in that case — the bridge must honor an
-      // already-aborted signal, not lean on each provider re-checking it.
-      if (exec.signal?.aborted) run.cancel('parent step aborted')
-
-      try {
-        const result = await run.result
-        const error = stopReasonError(result)
-        if (error !== undefined) {
-          // Map a non-clean finish to an isError result (the registry turns a
-          // throw into an isError). Report the reason, not partial output.
-          throw new Error(error)
+      async execute(args, exec): Promise<ContentBlock[]> {
+        const parent = exec.agent
+        if (!parent) {
+          // The loop sets `exec.agent` for every model-driven call; its absence
+          // means a non-agent caller invoked the tool directly, which has no
+          // parent to attribute the child to. Fail loud rather than guess.
+          throw new Error('subagent tool requires a calling agent (exec.agent was undefined)')
         }
-        return [{ type: 'text', text: outputText(result.output) }]
-      } finally {
-        exec.signal?.removeEventListener('abort', onAbort)
-        // Always reach child quiescence — never leak a live idle child/session.
-        await run.dispose()
-      }
-    },
-  }))
+
+        const request: SubagentStartRequest = {
+          prompt: [{ type: 'text', text: args.prompt }],
+          parent,
+          ...exec.signal ? { signal: exec.signal } : {},
+          ...config.agentOptions ? { agentOptions: config.agentOptions } : {},
+        }
+
+        const run: SubagentRun = ctx.subagents.start(config.provider, request)
+
+        // Bridge the tool's abort signal to the run: if the parent step is
+        // aborted while the child is in flight, cancel the child too.
+        const onAbort = (): void => { run.cancel('parent step aborted') }
+        exec.signal?.addEventListener('abort', onAbort, { once: true })
+        // `addEventListener` does NOT fire for a signal already aborted before this
+        // line, so a step cancelled before the tool ran would never reach the
+        // child. Cancel explicitly in that case — the bridge must honor an
+        // already-aborted signal, not lean on each provider re-checking it.
+        if (exec.signal?.aborted) run.cancel('parent step aborted')
+
+        try {
+          const result = await run.result
+          const error = stopReasonError(result)
+          if (error !== undefined) {
+            // Map a non-clean finish to an isError result (the registry turns a
+            // throw into an isError). Report the reason, not partial output.
+            throw new Error(error)
+          }
+          return [{ type: 'text', text: outputText(result.output) }]
+        } finally {
+          exec.signal?.removeEventListener('abort', onAbort)
+          // Always reach child quiescence — never leak a live idle child/session.
+          await run.dispose()
+        }
+      },
+    }))
+  }
+
+  // Listeners first, then the presence check: both run synchronously, so no
+  // registration can slip between them; the `disposeTool === undefined` guard
+  // makes a same-tick added-event after a successful mount a no-op.
+  ctx.on('subagent/provider-added', (provider) => {
+    if (provider.name === config.provider && disposeTool === undefined) mount(provider)
+  })
+  ctx.on('subagent/provider-removed', (name) => {
+    if (name !== config.provider || disposeTool === undefined) return
+    disposeTool()
+    disposeTool = undefined
+  })
+  const present = ctx.subagents.getProvider(config.provider)
+  if (present !== undefined) {
+    mount(present)
+  } else {
+    // Not an error: the backend's fiber may simply activate after this one.
+    // The tool appears the moment the provider registers; a typo'd provider
+    // name shows up as this note plus a tool that never materializes.
+    ctx.logger.info(`subagent provider "${config.provider}" not registered yet; the "${config.toolName ?? 'subagent'}" tool will register when it appears`)
+  }
 }

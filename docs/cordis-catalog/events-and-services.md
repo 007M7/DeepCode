@@ -245,7 +245,27 @@ A subagent run settled — emitted when SubagentRun.result resolves (any stop re
 'subagent/end'(info: SubagentRunEndInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:77`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:96`](../../packages/subagent/subagent/src/index.ts)
+
+#### `subagent/provider-added` — emit
+
+A provider became resolvable in the SubagentService registry. Consumers that derive state from a named provider (e.g. the model-facing tool wording in `dsh-tool-subagent`) react HERE instead of assuming load order — the cordis Loader starts sibling plugins concurrently, so "listed earlier in cordis.yml" does not mean "registered earlier".
+
+```ts cordis-catalog
+'subagent/provider-added'(provider: SubagentProvider): void
+```
+
+Source: [`packages/subagent/subagent/src/index.ts:72`](../../packages/subagent/subagent/src/index.ts)
+
+#### `subagent/provider-removed` — emit
+
+A provider left the registry (its plugin's fiber was disposed — an unload or an HMR reload). Consumers holding provider-derived state drop it here; a reload re-fires `subagent/provider-added` with the fresh provider.
+
+```ts cordis-catalog
+'subagent/provider-removed'(name: string): void
+```
+
+Source: [`packages/subagent/subagent/src/index.ts:81`](../../packages/subagent/subagent/src/index.ts)
 
 #### `subagent/start` — emit
 
@@ -255,7 +275,7 @@ A subagent run started — emitted after the provider is resolved and its capabi
 'subagent/start'(info: SubagentRunInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:70`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:89`](../../packages/subagent/subagent/src/index.ts)
 
 ### `system-prompt/*`
 
@@ -486,7 +506,7 @@ list(): string[]
 start(name: string, request: SubagentStartRequest): SubagentRun
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:123`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:142`](../../packages/subagent/subagent/src/index.ts)
 
 ### `ctx.systemPrompt` — `SystemPrompt`
 
@@ -499,7 +519,7 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
 assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:149`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:174`](../../packages/core/system-prompt/src/index.ts)
 
 ### `ctx.tools` — `ToolRegistry`
 

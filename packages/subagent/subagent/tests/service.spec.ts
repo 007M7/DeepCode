@@ -45,6 +45,38 @@ function baseRequest(overrides: Partial<SubagentStartRequest> = {}): SubagentSta
 }
 
 describe('SubagentService', () => {
+  it('announces provider lifecycle: added on register, removed on dispose', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const added: string[] = []
+    const removed: string[] = []
+    ctx.on('subagent/provider-added', provider => void added.push(provider.name))
+    ctx.on('subagent/provider-removed', name => void removed.push(name))
+
+    const dispose = ctx.subagents.registerProvider(new StubProvider('alpha'))
+    expect(added).toEqual(['alpha'])
+    expect(removed).toEqual([])
+
+    dispose()
+    expect(removed).toEqual(['alpha'])
+  })
+
+  it('rolls back the registration when a provider-added listener throws', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    let threw = false
+    const off = ctx.on('subagent/provider-added', () => {
+      if (!threw) { threw = true; throw new Error('boom added listener') }
+    })
+
+    expect(() => ctx.subagents.registerProvider(new StubProvider('alpha'))).toThrow('boom added listener')
+    expect(ctx.subagents.getProvider('alpha')).toBeUndefined() // nothing leaked
+
+    off()
+    ctx.subagents.registerProvider(new StubProvider('alpha'))
+    expect(ctx.subagents.getProvider('alpha')).toBeDefined()
+  })
+
   it('registers a provider and starts a run on it by name', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)

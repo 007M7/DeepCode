@@ -325,13 +325,51 @@ describe('SystemPrompt', () => {
       })).toThrow('malformed prompt variable reference "{{ model }}" in section "s"')
     })
 
-    it('leaves a lone {{ without a closing }} verbatim (only complete groups are interpreted)', () => {
+    it('leaves a lone {{ verbatim only when NO }} follows anywhere after it', () => {
       const text = renderPrompt({
         sections: [{ name: 's', order: 0, text: 'shell ${X:-{{fallback} stays' }],
         tools: [],
         variables: {},
       })
       expect(text).toBe('shell ${X:-{{fallback} stays')
+    })
+
+    it.each([
+      { text: '{{{model}}}', label: 'extra outer braces' },
+      { text: 'x {{a{b}} y {{model}}', label: 'nested brace inside a would-be group' },
+    ])('throws on a mangled reference with a }} still following ($label)', ({ text }) => {
+      expect(() => renderPrompt({
+        sections: [{ name: 's', order: 0, text }],
+        tools: [],
+        variables: { model: 'm' },
+      })).toThrow('malformed prompt variable reference at')
+    })
+
+    it('rejects {{constructor}} as UNKNOWN — prototype properties are not variables', () => {
+      // `in` would find Object.prototype.constructor and splice function
+      // source into the prompt; Object.hasOwn must reject it instead.
+      expect(() => renderPrompt({
+        sections: [{ name: 's', order: 0, text: 'on {{constructor}}' }],
+        tools: [],
+        variables: { model: 'm' },
+      })).toThrow('unknown prompt variable "{{constructor}}"')
+    })
+
+    it('a variable NAMED like a prototype property works once actually registered', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      ctx.systemPrompt.section({ name: 's', order: 0, text: '{{constructor}}' })
+      ctx.systemPrompt.variable('constructor', () => 'own-value')
+      expect(renderPrompt(await ctx.systemPrompt.assemble())).toBe('own-value')
+    })
+
+    it('never re-scans substituted values (a value containing {{sneaky}} stays literal)', () => {
+      const text = renderPrompt({
+        sections: [{ name: 's', order: 0, text: 'v = {{model}}!' }],
+        tools: [],
+        variables: { model: 'literal {{sneaky}} inside' },
+      })
+      expect(text).toBe('v = literal {{sneaky}} inside!')
     })
   })
 })
