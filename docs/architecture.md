@@ -1,50 +1,46 @@
 # DeepSeek Harness Architecture
 
-This document describes the architecture of the DeepSeek Harness — the foundation of **DeepSeek Code**. The governing principle, from the [microkernel design discussion][microkernel-doc]: **everything is a plugin**. The core is deliberately tiny — a handful of abstract services plus one concrete loop plugin (`dsh-agent-loop`) — and every product feature is a plugin against the extension surface described here, without modifying the loop.
+This document describes the architecture of the DeepSeek Harness — the foundation of **DeepSeek Code**. The governing principle: **everything is a plugin**. The core is deliberately tiny — a handful of abstract services plus one concrete loop plugin (`dsh-agent-loop`) — and every product feature is a plugin against the extension surface described here, without modifying the loop. The stack is three tiers: plugins (the loop itself, seam implementations, model-facing tools, bridges) over interface/service packages (each owning one `ctx` key and its vocabulary) over the vendored Cordis kernel (`vendor/`).
 
-This document covers **behavior**; type shapes live in [core-data-structures/](core-data-structures/core.md), the per-event/service reference in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, per-package contracts in the package READMEs ([map](../packages/README.md)). Requirement context: [Coding Harness MVP 需求分析][mvp-doc].
-
-[microkernel-doc]: https://trtgsjkv6r.feishu.cn/wiki/VS9Lw1kQki6mDJk2UHocyuphnsc
-[mvp-doc]: https://trtgsjkv6r.feishu.cn/wiki/ZwK6wfBE9i91V6kzMGYcgRGanxg
-
-## Layering
-
-```
-┌────────────────────────────────────────────────────────────────┐
-│  extension + implementation plugins                            │
-│    dsh-agent-loop — THE concrete loop plugin                   │
-│    LLM adapters · executors/backends · model-facing tools      │
-│    subagent providers · hook bridges · UI bridges              │
-├────────────────────────────────────────────────────────────────┤
-│  interface/service packages (each owns a ctx key + vocabulary) │
-│    dsh-agent · dsh-tools · dsh-system-prompt · dsh-session     │
-│    dsh-llm · dsh-bash · dsh-fs · dsh-web · dsh-compact         │
-│    dsh-subagent · dsh-session-persistence                      │
-├────────────────────────────────────────────────────────────────┤
-│  vendor/: pinned Cordis framework source (cordis, loader, …)   │
-└────────────────────────────────────────────────────────────────┘
-```
-
-Dependency rule: extension plugins depend on interfaces, never on `dsh-agent-loop` (the loop is swappable); the sanctioned exception is the composition bundle `dsh-agent-core`, whose job is assembling the concrete spine ([full rule + generated graph](../packages/README.md#dependencies)).
+This document covers **behavior**; type shapes live in [core-data-structures/](core-data-structures/core.md), the per-event/service reference in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, per-package contracts in the package READMEs ([map](../packages/README.md)).
 
 ## Service map
+
+The spine — the product API under `packages/core/`:
+
+| ctx key | Package | Role |
+|---|---|---|
+| `ctx.sessions` | dsh-session | creates/holds event-sourced `Session`s |
+| `ctx.systemPrompt` | dsh-system-prompt | ordered sections + tool schemas → `assemble()` |
+| `ctx.tools` | dsh-tools | tool definitions; `execute()` through waterfall |
+| `ctx.agents` | dsh-agent | live `Agent` handles + create/resume factory (returns `AgentHandle { agent, dispose() }`) |
+| `ctx.agentLoop` | dsh-agent-loop | THE concrete loop plugin: creates and drives `ReactLoopAgent`s |
+
+The swappable capability seams:
 
 | ctx key | Package | Role |
 |---|---|---|
 | `ctx.llm` | dsh-llm | adapter registry; `stream()` |
-| `ctx.sessions` | dsh-session | creates/holds event-sourced `Session`s |
 | `ctx.sessionPersistence` | dsh-session-persistence | durable persistence: create/append/load/list |
-| `ctx.systemPrompt` | dsh-system-prompt | ordered sections + tool schemas → `assemble()` |
-| `ctx.tools` | dsh-tools | tool definitions; `execute()` through waterfall |
-| `ctx.agents` | dsh-agent | live `Agent` handles + create/resume factory (returns `AgentHandle { agent, dispose() }`) |
-| `ctx.agentLoop` | dsh-agent-loop | creates and drives `ReactLoopAgent`s |
 | `ctx.bash` | dsh-bash | bash execution: foreground runs + background tasks |
 | `ctx.fs` | dsh-fs | filesystem provider: read/stream, atomic writes/edits; owns the `fs/*` policy events |
 | `ctx.compact` | dsh-compact | compaction: detect pressure, summarize an older range |
 | `ctx.web` | dsh-web | search/fetch provider registries + `WebError` taxonomy |
 | `ctx.subagents` | dsh-subagent | named provider registry for delegating to child agents |
 
+Dependency rule: plugins depend on these interfaces, never on `dsh-agent-loop` — the loop is swappable; the sanctioned exception is the composition bundle `dsh-agent-core`, whose job is assembling the concrete spine ([full rule + generated graph](../packages/README.md#dependencies)).
+
 All registrations go through `ctx.effect()` and return disposers, so hot-reload and fiber disposal clean up automatically (full service interfaces: the generated [services catalog](cordis-catalog/services.md)).
+
+## Cordis waterfall semantics
+
+`ctx.waterfall` is **around-middleware**, not a value reducer. Each listener receives `(...args, next)`:
+
+- call `next()` to delegate to later listeners (and ultimately the core behavior), possibly wrapping it;
+- return a value **without** calling `next()` to short-circuit (veto);
+- listeners run in registration order; `prepend: true` jumps the queue.
+
+Composition caveat: values propagate through `next()`'s **return value** — a listener that returns a *new* object makes earlier listeners' mutations invisible downstream. Prefer mutate-then-`next()` for cooperative middleware; return a replacement only to take over the result.
 
 ## Capability seams: interface / implementation / consumer
 
@@ -57,7 +53,7 @@ Two seams bend the template deliberately:
 
 > The seam pattern is plain Cordis services + `inject` (a consumer's fiber stays pending until the service exists). Despite the name, `@cordisjs/plugin-capability` is unrelated — a permission-security service (a candidate for the deferred permissions work), not a mechanism for swapping implementations.
 
-## The vocabulary (dsh-llm)
+## Content blocks and streaming (dsh-llm)
 
 Messages are arrays of typed **content blocks** (`text`, `reasoning`, `tool-call`, `tool-result`); the union derives from the merge-extensible `ContentBlockMap`; the same pattern types `MessageSource`, `FinishReason`, `TurnTrigger`, `TurnEndReason`. The core set is limited to blocks every shipping path honors — multimodal content (images, audio, …) has no core block type; a feature that needs one adds it via the map in the same coordinated change that maps it in the adapters, surfaces it in the UI bridges, and prices it in compaction ([the drop-image RFC](rfc/implemented/simplification/2026-07-04-drop-image-content-block.md)). Streaming is a raw chunk protocol (`block-start` … `finish`) with `BlockAssembler` as the single shared chunk→block assembler; the loop logs raw chunks (replay fidelity) while assembling them. `LlmAdapter` is the provider seam: subclass, implement `stream()`, register via `ctx.llm.registerAdapter(models, adapter)`; `dsh-llm-deepseek` and `dsh-llm-pi-ai` implement the one contract as deliberate design twins ([twin RFC](rfc/implemented/architecture/2026-06-13-twin-llm-adapters.md)). The StreamChunk conventions (usage/finish ordering, raw-string tool arguments, the two sanctioned error paths) are pinned in `dsh-llm/src/types.ts` and [llm-streaming.md](core-data-structures/llm-streaming.md).
 
@@ -138,19 +134,9 @@ A turn ends with one `TurnEndReason` — `completed`, `aborted`, `error`, `dispo
 
 **Turn-enclosure invariant**: every session event lives inside a turn, making the turn the single durability/replay boundary — anything after the last `turn/end` is an interrupted-crash tail. `dsh-invariants` enforces it in dev ([invariant RFC](rfc/implemented/architecture/2026-06-15-turn-enclosure-invariant.md)).
 
-### Event taxonomy
+## Event taxonomy
 
 The `agent/*` events are declared in `dsh-agent` (so nothing depends on the loop package); each other service declares its own (`tools/*`, `llm/*`, `system-prompt/*`, `session/*`). The full catalog — signatures, dispatch modes, prose — is generated from source and freshness-gated: [cordis-catalog/events.md](cordis-catalog/events.md). Domain semantics (session = the fact log, agent = the live surface): [the event-domain RFC](rfc/implemented/architecture/2026-06-30-event-domain-semantics.md).
-
-### Cordis waterfall semantics (important)
-
-`ctx.waterfall` is **around-middleware**, not a value reducer. Each listener receives `(...args, next)`:
-
-- call `next()` to delegate to later listeners (and ultimately the core behavior), possibly wrapping it;
-- return a value **without** calling `next()` to short-circuit (veto);
-- listeners run in registration order; `prepend: true` jumps the queue.
-
-Composition caveat: values propagate through `next()`'s **return value** — a listener that returns a *new* object makes earlier listeners' mutations invisible downstream. Prefer mutate-then-`next()` for cooperative middleware; return a replacement only to take over the result.
 
 ## Extension guide
 

@@ -6,7 +6,7 @@ Status: implemented (accepted 2026-06-11)
 
 ## Context
 
-The product principle (see the 微内核Harness实现思路 design doc) is "everything is a plugin": hooks, /goal, /loop, dynamic workflows, compaction, sandboxing, permissions, UI, persistence, MCP, skills must all be writable as plugins without modifying the core. Candidate mechanisms considered: a purpose-built middleware stack (koa-compose style), an explicit phase state machine plugins can insert into, or Cordis's native event system.
+The product principle is "everything is a plugin": hooks, /goal, /loop, dynamic workflows, compaction, sandboxing, permissions, UI, persistence, MCP, skills must all be writable as plugins without modifying the core. Candidate mechanisms considered: a purpose-built middleware stack (koa-compose style), an explicit phase state machine plugins can insert into, or Cordis's native event system.
 
 ## Decision
 
