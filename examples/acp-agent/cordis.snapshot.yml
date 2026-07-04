@@ -19,7 +19,14 @@
   config:
     path: ./cordis.yml
     patches:
+      # The name is an assertion, not an override: the include skips the patch
+      # (warning if a logger exists) when the id points at a different plugin,
+      # so this can never disable the wrong entry. If cordis.yml ever RENAMES
+      # the id, the patch degrades to a skip — replay output stays correct
+      # (llm-replay still short-circuits the stream) but the stale patch and a
+      # futile keyless adapter entry linger until review catches them.
       - id: llm-deepseek
+        name: '@deepseek-ai/dsh-llm-deepseek'
         disabled: true
       - insert:
           - id: llm-replay
