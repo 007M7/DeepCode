@@ -81,7 +81,6 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 |---|---|
 | [Deterministic tests, the replay invariant fixture, and race stress](proposed/testing/2026-06-11-deterministic-and-stress-testing.md) | 2026-06-11 |
 | [Mutation testing as the coverage counterweight](proposed/testing/2026-06-11-mutation-testing.md) | 2026-06-11 |
-| [Single-source the acp-agent replay config](proposed/testing/2026-07-04-single-source-acp-replay-config.md) | 2026-07-04 |
 <!-- gen-rfc-index:end proposed -->
 
 ## Implemented
@@ -185,6 +184,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Record fork and mixed spawn+fork snapshot scenarios](implemented/testing/2026-06-22-fork-snapshot-scenarios.md) | 2026-06-22 |
 | [Per-session snapshot replay for nested agents](implemented/testing/2026-06-22-subagent-snapshot-replay.md) | 2026-06-22 |
 | [Hook snapshot matrix — end-to-end goldens for both bridges](implemented/testing/2026-07-04-hook-snapshot-matrix.md) | 2026-07-04 |
+| [Single-source the acp-agent replay config](implemented/testing/2026-07-04-single-source-acp-replay-config.md) | 2026-07-04 |
 <!-- gen-rfc-index:end implemented -->
 
 ## Rejected
