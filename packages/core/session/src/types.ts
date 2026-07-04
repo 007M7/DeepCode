@@ -91,7 +91,6 @@ export interface CreateSessionOptions {
  */
 export interface TurnTriggerMap {
   message: { kind: 'message'; source: MessageSource }
-  continuation: { kind: 'continuation' }
   /**
    * An out-of-band context injection (`agent.inject()`) made while the agent
    * was idle. The loop wraps the injected `context/message` in a one-shot turn

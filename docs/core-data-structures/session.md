@@ -164,7 +164,6 @@ Everything else (`turn/*`, `step/*`) is structural and does not project into a m
 ```ts type-equiv
 interface TurnTriggerMap {
   message: { kind: 'message'; source: MessageSource }
-  continuation: { kind: 'continuation' }
   /**
    * An out-of-band context injection (`agent.inject()`) made while the agent
    * was idle. The loop wraps the injected `context/message` in a one-shot turn
