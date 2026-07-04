@@ -30,4 +30,4 @@ This RFC deliberately does NOT touch `temperature`, `stop`, or `maxTokens`: thos
 
 ## Risks
 
-A hooks/config plugin arriving via the interception seams may want to set request fields — it will reach for `temperature`/`stop` (kept, working), not a field adapters reject. If chat-prefix completion or strict mode become product features, the re-add lands with the adapter/endpoint work, where the contract can say what actually happens rather than "everyone throws".
+The shipped hook bridges set no request fields at all, and a request-mutating plugin (an `agent/request` waterfall listener) would reach for `temperature`/`stop` (kept, working), not a field adapters reject. If chat-prefix completion or strict mode become product features, the re-add lands with the adapter/endpoint work, where the contract can say what actually happens rather than "everyone throws".

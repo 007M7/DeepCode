@@ -60,6 +60,8 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Trim unreachable ACP bridge surface — the branding knobs and the kind-sniffing fallback](proposed/simplification/2026-07-04-trim-acp-bridge-unreachable-surface.md) | 2026-07-04 |
 | [Prune dead core-spine surface — `SurfaceManager.invalidate()`, the loop-internal exports, `ToolExecutionResult.callId`](proposed/simplification/2026-07-04-prune-dead-core-spine-surface.md) | 2026-07-04 |
 | [Share the app bins' boot glue instead of maintaining twin copies](proposed/simplification/2026-07-04-share-app-bin-boot-glue.md) | 2026-07-04 |
+| [Remove the `agent/steering` mirror emit](proposed/simplification/2026-07-04-remove-agent-steering-mirror.md) | 2026-07-04 |
+| [Tighten the hook-protocol contract — the `native` dialect, `suppressOutput`, and lib-owned `hook/result` semantics](proposed/simplification/2026-07-04-tighten-hook-protocol-contract.md) | 2026-07-04 |
 
 ### Architecture
 
@@ -83,6 +85,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 |---|---|
 | [Mutation testing as the coverage counterweight](proposed/testing/2026-06-11-mutation-testing.md) | 2026-06-11 |
 | [Deterministic tests, the replay invariant fixture, and race stress](proposed/testing/2026-06-11-deterministic-and-stress-testing.md) | 2026-06-11 |
+| [Single-source the acp-agent replay config](proposed/testing/2026-07-04-single-source-acp-replay-config.md) | 2026-07-04 |
 
 ## Implemented
 
