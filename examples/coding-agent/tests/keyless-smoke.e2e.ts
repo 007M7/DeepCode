@@ -18,9 +18,10 @@ import { afterEach, describe, expect, it } from 'vitest'
  * `apply()` only requires a key to be PRESENT (it does not validate it and only
  * uses it when a stream actually starts), so a dummy key lets the tree boot
  * while the absence of any prompt guarantees no network call. The value is the
- * real-Loader-path guard for the app + bundle + UI plugin export shapes (a broken
- * `export default` that drops `inject`/`Config` would crash here — see postmortem
- * 0001), complementing coding-agent's with-key e2e suites which prove the real
+ * real-Loader-path guard that the composed tree boots (see postmortem 0001;
+ * the app carries no `inject`, so its export SHAPE is pinned by the stdio-agent
+ * unit suite's unwrap assertion, not by a crash here),
+ * complementing coding-agent's with-key e2e suites which prove the real
  * product.
  */
 
