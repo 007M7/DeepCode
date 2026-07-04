@@ -188,9 +188,11 @@ pnpm run verify-doc-refs  # assert every docs/*.md path cited in a packages|exam
                     # TypeScript comment resolves (catches a moved/renamed doc)
 pnpm run verify-package-paths  # assert every packages/<path> cited in Markdown or a
                     # TypeScript comment resolves when it names a real (moved) package
+pnpm run gen-rfc-index  # regenerate the docs/rfc/README.md index tables from the
+                    # RFC tree (marker-delimited; rows from path + H1 + filename date)
 pnpm run verify-rfc-classification  # assert every RFC lives in a valid
-                    # {lifecycle}/{class}/ folder and docs/rfc/README.md lists it
-                    # under the matching heading (closed class set + index completeness)
+                    # {lifecycle}/{class}/ folder and the generated README index
+                    # regions are fresh (closed class set + index freshness)
 pnpm run verify-translation-pairing  # assert the bilingual pairing contract
                     # (docs/i18n/README.md): required docs have a complete pair
                     # (foo.md + foo.zh.md + foo.i18n.yaml); every pair matches its

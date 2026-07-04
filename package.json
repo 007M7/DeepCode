@@ -34,6 +34,7 @@
     "verify-translation-pairing": "tsx scripts/verify-translation-pairing.ts",
     "verify-node-next-types": "tsx scripts/verify-node-next-types.ts",
     "gen-cordis-catalog": "tsx scripts/gen-cordis-catalog.ts",
+    "gen-rfc-index": "tsx scripts/gen-rfc-index.ts",
     "verify-cordis-catalog": "tsx scripts/gen-cordis-catalog.ts --check",
     "gen-tool-catalog": "tsx scripts/gen-tool-catalog.ts",
     "verify-tool-catalog": "tsx scripts/gen-tool-catalog.ts --check",

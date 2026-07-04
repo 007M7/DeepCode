@@ -1,4 +1,4 @@
-# RFC: Pre-tool input rewrite — a consistent design (proposed)
+# RFC: Pre-tool input rewrite — a consistent design
 
 Status: proposed (2026-06-30)
 
