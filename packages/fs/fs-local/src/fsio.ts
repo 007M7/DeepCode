@@ -82,8 +82,9 @@ function versionOf(info: Stats): FsVersion {
 }
 
 /**
- * Test seam: lets specs pin the temp-file name (to prove exclusive-open
- * behavior) without a name race.
+ * Test seam: lets specs pin the atomic-write temp names (to prove
+ * exclusive-open behavior without a name race) and observe the staged temp
+ * file before it is renamed over the target.
  */
 export interface FsIoInternals {
   /** Override the generated private staging-dir name (relative to the target dir). */

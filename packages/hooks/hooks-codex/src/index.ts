@@ -24,10 +24,11 @@ import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionRes
 import {
   appendHookInvoked,
   appendHookResult,
+  DEFAULT_HOOK_TIMEOUT_MS,
+  DEFAULT_STDERR_SUMMARY_MAX_CHARS,
   matchesMatcher,
   mergeHookOutputs,
   runHook,
-  summarizeStderr,
   type HookOutput,
   type MatcherGroup,
   type MergedHookOutcome,
@@ -57,8 +58,8 @@ export interface Config {
 export const Config: z<Config> = z.object({
   configPath: z.string().required(),
   model: z.string().default(''),
-  defaultTimeoutMs: z.number().default(600_000),
-  stderrSummaryMaxChars: z.number().default(500),
+  defaultTimeoutMs: z.number().default(DEFAULT_HOOK_TIMEOUT_MS),
+  stderrSummaryMaxChars: z.number().default(DEFAULT_STDERR_SUMMARY_MAX_CHARS),
 })
 
 let handlerCounter = 0
@@ -78,8 +79,9 @@ function assertPositiveInteger(name: string, value: number): void {
 export function apply(ctx: Context, config: Config): void {
   // Validate the cap BEFORE the config-file parse: a bad value must fail the
   // load loudly, not be skipped by the parse-failure early return.
-  const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? 500
+  const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? DEFAULT_STDERR_SUMMARY_MAX_CHARS
   assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
+  const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
   let parsed: CodexHookConfig = {}
   try {
     const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
@@ -93,7 +95,6 @@ export function apply(ctx: Context, config: Config): void {
     return
   }
 
-  const defaultTimeoutMs = config.defaultTimeoutMs ?? 600_000
   const model = config.model ?? ''
 
   async function runPoint(
@@ -122,9 +123,9 @@ export function apply(ctx: Context, config: Config): void {
         }
         const { output, durationMs } = await runHook(ctx.bash, hook, {
           payload,
+          defaultTimeoutMs,
           ...workdir !== undefined ? { cwd: workdir } : {},
           ...opts.signal ? { signal: opts.signal } : {},
-          defaultTimeoutMs,
           trailingNewline: false, // Codex writes stdin WITHOUT a trailing newline.
           // Discard a `hookSpecificOutput` block naming a different event.
           expectedEventName: point,
@@ -149,14 +150,7 @@ export function apply(ctx: Context, config: Config): void {
           ctx.logger.warn(`hooks-codex: ${point} hook emitted a systemMessage, which is not yet surfaced (ignored)`)
         }
         if (session && opts.turn !== undefined) {
-          const stderrSummary = summarizeStderr(output.stderr, stderrSummaryMaxChars)
-          appendHookResult(session, {
-            turn: opts.turn, point, handlerId,
-            decision: output.decision ?? (output.continue === false ? 'stop' : 'pass'),
-            ...output.exitCode !== undefined ? { exitCode: output.exitCode } : {},
-            ...stderrSummary !== undefined ? { stderrSummary } : {},
-            durationMs,
-          })
+          appendHookResult(session, { turn: opts.turn, point, handlerId, output, stderrSummaryMaxChars, durationMs })
         }
       }
     }

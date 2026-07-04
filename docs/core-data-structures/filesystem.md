@@ -12,7 +12,6 @@ Every operation resolves a user-supplied path to an opaque backend target first.
 
 ```ts type-equiv
 interface FsTarget {
-  inputPath: string
   targetKey: FsTargetKey
   displayPath: string
 }
@@ -81,8 +80,6 @@ interface FsEditRequest {
 
 ```ts type-equiv
 interface FsEditOutcome {
-  replacements: number
-  replaceAll: boolean
   version: FsVersion
   before: string
   after: string
@@ -109,16 +106,14 @@ interface FsPolicyExec {
 
 ## Read outcome (consumer / read rendering)
 
-A text read is bounded by line window, byte cap, and backend limits. The outcome the model-facing `read` tool renders carries the file's version at read time; there is no `full`/`partial` view — authorization is freshness-based, so any windowed read can authorize a later write/edit when the file is unchanged. Read windowing and this outcome shape live in `dsh-tool-fs` (the executor that owns the read), not in the policy plugin.
+A text read is bounded by line window, byte cap, and backend limits. The outcome the model-facing `read` tool renders is purely presentational; there is no `full`/`partial` view — authorization is freshness-based (the tool emits `fs/observed` with the stat's version directly), so any windowed read can authorize a later write/edit when the file is unchanged. Read windowing and this outcome shape live in `dsh-tool-fs` (the executor that owns the read), not in the policy plugin.
 
 ```ts type-equiv
 interface FileReadOutcome {
   offset: number
-  limit: number
   lines: FileTextLine[]
   totalLines: number
   truncatedByBytes?: true
-  version: FsVersion
 }
 ```
 

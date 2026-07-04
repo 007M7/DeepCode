@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { BashExecRequest, BashExecSpec, BashExecutor, BashRunResult } from '@deepseek-ai/dsh-bash'
-import { runHook } from '@deepseek-ai/dsh-hook-protocol'
+import { DEFAULT_HOOK_TIMEOUT_MS, runHook } from '@deepseek-ai/dsh-hook-protocol'
 
 /**
  * A minimal stand-in for the bits of {@link BashExecutor} that {@link runHook}
@@ -89,6 +89,7 @@ describe('runHook — payload + env + stdin plumbing', () => {
     const { bash, specs } = recordingBash(async () => result())
     await runHook(bash, { command: 'h' }, { payload: {}, defaultTimeoutMs: 60000, trailingNewline: true }, clock())
     expect(specs[0]!.timeoutMs).toBe(60000)
+    expect(DEFAULT_HOOK_TIMEOUT_MS).toBe(600_000) // the CC/Codex reference default (10 minutes)
   })
 
   it('passes the abort signal through', async () => {

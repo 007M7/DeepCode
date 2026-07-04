@@ -21,7 +21,7 @@
 import type { HookOutput } from './types.ts'
 
 /** The exit code a hook uses to signal a blocking error (stderr → model). */
-export const BLOCKING_EXIT_CODE = 2
+const BLOCKING_EXIT_CODE = 2
 
 /** Read a string field from a parsed object, or `undefined` if absent/wrong type. */
 function str(obj: Record<string, unknown>, key: string): string | undefined {
@@ -72,7 +72,7 @@ function permissionDecisionOf(value: string | undefined): HookOutput['decision']
  * `additionalContext`/`updatedInput`) are DISCARDED — a `PreToolUse` block on a
  * `Stop` hook must not deny the `Stop`. The block's `hookEventName` is still
  * surfaced (for the log/diagnostics), and the event-agnostic top-level fields
- * (`decision`/`reason`/`continue`/`stopReason`/`suppressOutput`/`systemMessage`)
+ * (`decision`/`reason`/`continue`/`stopReason`/`systemMessage`)
  * are unaffected. Omit `expectedEventName` (or pass a matching one) to apply the
  * block as-is — a caller that doesn't key by event opts out of the check.
  */
@@ -125,8 +125,6 @@ function applyStructured(output: HookOutput, parsed: Record<string, unknown>, ex
   if (cont !== undefined) output.continue = cont
   const stopReason = str(parsed, 'stopReason')
   if (stopReason !== undefined) output.stopReason = stopReason
-  const suppress = bool(parsed, 'suppressOutput')
-  if (suppress !== undefined) output.suppressOutput = suppress
   const sysMsg = str(parsed, 'systemMessage')
   if (sysMsg !== undefined) output.systemMessage = sysMsg
 

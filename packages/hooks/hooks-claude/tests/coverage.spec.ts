@@ -322,8 +322,8 @@ describe('hooks-claude coverage — more default/sparse arms', () => {
   })
 })
 
-describe('hooks-claude coverage — schema-bypass default + unspawnable hook', () => {
-  it('a direct apply() (schema bypass) defaults the timeout and runs', async () => {
+describe('hooks-claude coverage — schema-bypass apply + unspawnable hook', () => {
+  it('a direct apply() (schema bypass) with only configPath runs', async () => {
     const d = dir()
     const marker = join(d, 'ran')
     const s = sh(d, 'h.sh', `#!/usr/bin/env bash\ntouch "${marker}"\n`)
@@ -337,8 +337,9 @@ describe('hooks-claude coverage — schema-bypass default + unspawnable hook', (
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-    // Direct apply with only configPath — bypasses schemastery's defaults, so the
-    // runtime `defaultTimeoutMs ?? 600_000` fallback is exercised.
+    // Direct apply with only configPath — bypasses schemastery's defaults, so
+    // the bridge must run on the raw minimal config (the per-hook timeout is
+    // the protocol lib's reference default, not a config knob).
     HooksClaude.apply(ctx, { configPath: join(d, 'hooks.json') })
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
