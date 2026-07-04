@@ -40,7 +40,7 @@ class FakeFs extends FileSystem {
   }
 
   override async resolve(path: string): Promise<FsTarget> {
-    return { inputPath: path, targetKey: FsTargetKey(`key:${path}`), displayPath: `/abs/${path}` }
+    return { targetKey: FsTargetKey(`key:${path}`), displayPath: `/abs/${path}` }
   }
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
     this.throwIfArmed()
@@ -71,7 +71,7 @@ class FakeFs extends FileSystem {
     const content = this.files.get(target.targetKey) ?? ''
     const after = content.split(edit.oldString).join(edit.newString)
     this.files.set(target.targetKey, after)
-    return { replacements: 1, replaceAll: edit.replaceAll, version: FsVersion('v3'), before: content, after }
+    return { version: FsVersion('v3'), before: content, after }
   }
 }
 
@@ -252,7 +252,7 @@ describe('read tool', () => {
 })
 
 describe('formatReadOutput footer variants', () => {
-  const base: FileReadOutcome = { offset: 1, limit: 2000, lines: [{ number: 1, text: 'x' }], totalLines: 1, version: FsVersion('v') }
+  const base: FileReadOutcome = { offset: 1, lines: [{ number: 1, text: 'x' }], totalLines: 1 }
 
   it('reports a byte-capped read', () => {
     const out = formatReadOutput('/f', { ...base, totalLines: 99, truncatedByBytes: true })
