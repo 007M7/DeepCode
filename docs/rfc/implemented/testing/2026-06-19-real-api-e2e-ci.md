@@ -6,7 +6,7 @@ Status: implemented (accepted 2026-06-19)
 
 ## Context
 
-The harness leans hard on real-API tests by policy: AGENTS.md § Secrets argues that a no-key suite proves the plumbing but not the product, and the [ACP inject postmortem](../../../postmortem/0001-acp-default-export-drops-inject.md) is the standing proof — 178 keyless tests stayed green while a real editor session crashed instantly. The real-API e2e suite (`pnpm run test:e2e`, the `*.e2e.ts` files) exists precisely to close that gap: it drives the agent against the live DeepSeek API — real model calls, real bash tools, multi-turn, resume, ACP-over-stdio.
+The harness leans hard on real-API tests by policy: [docs/testing.md](../../../testing.md) argues that a no-key suite proves the plumbing but not the product, and the [ACP inject postmortem](../../../postmortem/0001-acp-default-export-drops-inject.md) is the standing proof — 178 keyless tests stayed green while a real editor session crashed instantly. The real-API e2e suite (`pnpm run test:e2e`, the `*.e2e.ts` files) exists precisely to close that gap: it drives the agent against the live DeepSeek API — real model calls, real bash tools, multi-turn, resume, ACP-over-stdio.
 
 But until this change **nothing in CI ran it**. The default gate ([.github/workflows/ci.yml](../../../../.github/workflows/ci.yml)) is deliberately keyless — it carries no secret, runs on every push and PR including from forks, and stays green for any contributor. `test:e2e` self-skips without a key (`describe.skipIf(!process.env.DEEPSEEK_API_KEY)`), so even if ci.yml invoked it, a keyless runner would skip it green. The real-API safety net therefore only fired when a developer happened to run it locally with a key in their environment — i.e. unreliably, and never as a merge gate.
 
@@ -22,7 +22,7 @@ ci.yml's value is that it is keyless, forkable, and always-green: any contributo
 
 ### Cost is not the constraint; reliability is
 
-The usual reason to ration real-API CI — token cost — does not apply here: we are DeepSeek and internal inference is effectively free. So the design optimizes for *coverage and signal*, not for minimizing calls. The suite runs in full (all six `*.e2e.ts` files), on multiple triggers, on every trusted PR. This is the CI embodiment of the AGENTS.md "lean on with-key e2e tests" policy.
+The usual reason to ration real-API CI — token cost — does not apply here: we are DeepSeek and internal inference is effectively free. So the design optimizes for *coverage and signal*, not for minimizing calls. The suite runs in full (all six `*.e2e.ts` files), on multiple triggers, on every trusted PR. This is the CI embodiment of the [docs/testing.md](../../../testing.md) with-key policy.
 
 ### Triggers: trusted events only
 

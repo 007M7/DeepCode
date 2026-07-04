@@ -25,7 +25,7 @@ An agent was registered in the AgentRegistry and is ready to receive messages.
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:233`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:234`](../../packages/core/agent/src/types.ts)
 
 #### `agent/disposed` — emit
 
@@ -37,7 +37,7 @@ An agent was disposed and removed from the registry; its fiber and any in-flight
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:239`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:241`](../../packages/core/agent/src/types.ts)
 
 #### `agent/error` — emit
 
@@ -49,7 +49,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:353`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:389`](../../packages/core/agent/src/types.ts)
 
 #### `agent/pre-step` — serial
 
@@ -63,7 +63,7 @@ Serial (awaited in registration order), not a waterfall: a listener mutates the 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:305`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:319`](../../packages/core/agent/src/types.ts)
 
 #### `agent/prompt-submit` — waterfall
 
@@ -75,7 +75,7 @@ Waterfall: decide what happens to ONE drained queued message before it becomes a
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:315`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:332`](../../packages/core/agent/src/types.ts)
 
 #### `agent/queued` — emit
 
@@ -87,7 +87,7 @@ A message entered the agent's inbox (queued or steering). `source` is the resolv
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:252`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:259`](../../packages/core/agent/src/types.ts)
 
 #### `agent/request` — waterfall
 
@@ -99,7 +99,7 @@ Waterfall: mutate the fully-assembled GenerateOptions before the model call (hoo
 
 Types: [Agent](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:324`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:345`](../../packages/core/agent/src/types.ts)
 
 #### `agent/session-start` — emit
 
@@ -111,7 +111,7 @@ The agent's session lifecycle began, fired once before its first turn. `source` 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:265`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:274`](../../packages/core/agent/src/types.ts)
 
 #### `agent/status` — emit
 
@@ -123,7 +123,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive lifecycle 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:246`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:250`](../../packages/core/agent/src/types.ts)
 
 #### `agent/steering` — emit
 
@@ -135,7 +135,7 @@ Steering content was injected into a running turn.
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:347`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:379`](../../packages/core/agent/src/types.ts)
 
 #### `agent/step-result` — waterfall
 
@@ -147,7 +147,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:330`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:355`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-continuation` — waterfall
 
@@ -159,7 +159,7 @@ Waterfall: override the turn-continuation decision via a typed ContinuationDecis
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:340`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:368`](../../packages/core/agent/src/types.ts)
 
 ### `fs/*`
 
@@ -173,7 +173,7 @@ Single-slot decision: produce the optional version guard for the next FileSystem
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:119`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:123`](../../packages/fs/fs/src/index.ts)
 
 #### `fs/observed` — emit
 
@@ -185,7 +185,7 @@ Record that an actor observed a target at a version, after a successful read/wri
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:131`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:138`](../../packages/fs/fs/src/index.ts)
 
 #### `fs/write-intent` — waterfall
 
@@ -197,7 +197,7 @@ Single-slot decision: produce the write intent for the next FileSystem.writeText
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:107`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:109`](../../packages/fs/fs/src/index.ts)
 
 ### `llm/*`
 
@@ -211,7 +211,7 @@ Waterfall around every streaming model call (retry, caching, routing). Bound to 
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:31`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:32`](../../packages/llm/llm/src/index.ts)
 
 ### `session/*`
 
@@ -223,7 +223,7 @@ A session was created in the store.
 'session/created'(session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:35`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:36`](../../packages/core/session/src/index.ts)
 
 #### `session/event` — emit
 
@@ -235,7 +235,7 @@ An event was appended to a session log (sync, fire-and-forget). This is the per-
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:41`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:44`](../../packages/core/session/src/index.ts)
 
 #### `session/flush` — parallel
 
@@ -245,7 +245,7 @@ Awaited durability checkpoint. The agent loop awaits `ctx.parallel('session/flus
 'session/flush'(session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:50`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:54`](../../packages/core/session/src/index.ts)
 
 ### `subagent/*`
 
@@ -257,7 +257,7 @@ A subagent run settled — emitted when SubagentRun.result resolves (any stop re
 'subagent/end'(info: SubagentRunEndInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:75`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:77`](../../packages/subagent/subagent/src/index.ts)
 
 #### `subagent/start` — emit
 
@@ -267,7 +267,7 @@ A subagent run started — emitted after the provider is resolved and its capabi
 'subagent/start'(info: SubagentRunInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:69`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:70`](../../packages/subagent/subagent/src/index.ts)
 
 ### `system-prompt/*`
 
@@ -279,7 +279,7 @@ Waterfall around prompt assembly — mutate or extend the PromptAssembly (sectio
 'system-prompt/assemble'(this: SystemPrompt, assembly: PromptAssembly, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:24`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:26`](../../packages/core/system-prompt/src/index.ts)
 
 #### `system-prompt/change` — emit
 
@@ -289,7 +289,7 @@ A section or tool provider was registered or unregistered (the assembly inputs c
 'system-prompt/change'(): void
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:30`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:32`](../../packages/core/system-prompt/src/index.ts)
 
 ### `tools/*`
 
@@ -301,7 +301,7 @@ A tool was registered or unregistered (the available tool set changed).
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:84`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:87`](../../packages/core/tools/src/index.ts)
 
 #### `tools/post-execute` — waterfall
 
@@ -313,7 +313,7 @@ Waterfall AFTER a tool runs — where hook plugins inspect the result and accept
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:79`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:82`](../../packages/core/tools/src/index.ts)
 
 #### `tools/pre-execute` — waterfall
 
@@ -325,7 +325,7 @@ Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook pl
 
 Types: [ToolExecution](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:65`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:66`](../../packages/core/tools/src/index.ts)
 
 ### `web/*`
 
@@ -444,7 +444,7 @@ abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: F
 
 Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:165`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:172`](../../packages/fs/fs/src/index.ts)
 
 ### `ctx.llm` — `LlmService`
 
@@ -458,7 +458,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:69`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:70`](../../packages/llm/llm/src/index.ts)
 
 ### `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 
@@ -497,7 +497,7 @@ get(id: SessionId): Session | undefined
 list(): Session[]
 ```
 
-Source: [`packages/core/session/src/index.ts:323`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:327`](../../packages/core/session/src/index.ts)
 
 ### `ctx.subagents` — `SubagentService`
 
@@ -510,7 +510,7 @@ list(): string[]
 start(name: string, request: SubagentStartRequest): SubagentRun
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:121`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:123`](../../packages/subagent/subagent/src/index.ts)
 
 ### `ctx.systemPrompt` — `SystemPrompt`
 
@@ -522,7 +522,7 @@ tools(provider: () => ToolSchema[]): () => void
 assemble(): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:71`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:73`](../../packages/core/system-prompt/src/index.ts)
 
 ### `ctx.tools` — `ToolRegistry`
 
@@ -537,7 +537,7 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:265`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:268`](../../packages/core/tools/src/index.ts)
 
 ### `ctx.web` — `WebService`
 

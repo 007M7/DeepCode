@@ -126,6 +126,8 @@ export class AgentRegistry extends Service {
    * Register the agent-creation factory (the loop calls this on construction,
    * effect-scoped). Throws if a factory is already registered. Returns the
    * disposer; on dispose the factory slot is cleared.
+   * @param factory - the loop-owned factory {@link create}/{@link resume} delegate to.
+   * @returns the disposer that clears the factory slot.
    */
   setFactory(factory: AgentFactory): () => void {
     const dispose = this.ctx.effect(() => {
@@ -142,6 +144,8 @@ export class AgentRegistry extends Service {
    * agent): this constructs the agent and its session. Throws if no factory is
    * registered. Returns an {@link AgentHandle} — the owner disposes it to tear
    * down exactly this agent.
+   * @param options - agent id, session id/seed/metadata, and agent options.
+   * @returns the handle whose dispose tears down exactly this agent.
    */
   create(options: CreateAgentOptions): AgentHandle {
     if (this.factory === undefined) throw new Error(NO_FACTORY_MESSAGE)
@@ -152,6 +156,8 @@ export class AgentRegistry extends Service {
    * Load a persisted session and resume an agent on it through the registered
    * factory. Rejects if no factory is registered; the factory rejects if
    * session persistence is not configured. Returns an {@link AgentHandle}.
+   * @param options - the persisted session id plus agent id and options.
+   * @returns the handle for the resumed agent.
    */
   async resume(options: ResumeAgentOptions): Promise<AgentHandle> {
     if (this.factory === undefined) throw new Error(NO_FACTORY_MESSAGE)
@@ -162,6 +168,8 @@ export class AgentRegistry extends Service {
    * Register a live agent. Throws if an agent with the same id is already
    * registered. Emits `agent/created` on registration and `agent/disposed`
    * when the calling fiber is disposed. Returns the disposer.
+   * @param agent - the already-constructed agent to record in the store.
+   * @returns the disposer that removes the agent and emits `agent/disposed`.
    */
   register(agent: Agent): () => void {
     const dispose = this.ctx.effect(function* (this: AgentRegistry) {
@@ -200,10 +208,19 @@ export class AgentRegistry extends Service {
     return () => void dispose()
   }
 
+  /**
+   * Look up a live agent.
+   * @param id - the agent id to look up.
+   * @returns the agent, or undefined when no live agent has that id.
+   */
   get(id: AgentId): Agent | undefined {
     return this.store.get(id)
   }
 
+  /**
+   * All live agents, in registration order.
+   * @returns a fresh array; mutating it does not affect the registry.
+   */
   list(): Agent[] {
     return [...this.store.values()]
   }
