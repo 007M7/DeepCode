@@ -20,6 +20,7 @@ const config: Config = {
   configPath: '/path/to/.codex/hooks.json', // required
   model: 'deepseek-v4',                      // optional: stamped on every payload (Codex includes `model`)
   defaultTimeoutMs: 600_000,                 // optional: per-hook timeout when a hook sets none
+  stderrSummaryMaxChars: 500,                // optional: char cap on the hook/result event's persisted stderr summary
 }
 ```
 

@@ -26,6 +26,7 @@ declare module 'cordis' {
      * Waterfall around every streaming model call (retry, caching, routing).
      * Bound to the {@link LlmService}; call `next()` to reach the resolved
      * adapter's stream, or yield your own chunks to short-circuit.
+     * @param options - the full request; listeners may rewrite it before delegating.
      * @mode waterfall
      */
     'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
@@ -77,6 +78,9 @@ export class LlmService extends Service {
    * Register an adapter for the given model names. Throws `LlmError` with code
    * `DUPLICATE_ADAPTER` if any model already has an adapter (all-or-nothing).
    * Disposed with the fiber.
+   * @param models - every model name this adapter should serve.
+   * @param adapter - the adapter that streams calls for those models.
+   * @returns the disposer that unregisters all of them.
    */
   registerAdapter(models: string[], adapter: LlmAdapter): () => void {
     const dispose = this.ctx.effect(function* (this: LlmService) {
@@ -95,7 +99,10 @@ export class LlmService extends Service {
     return () => void dispose()
   }
 
-  /** Model names with a registered adapter. */
+  /**
+   * Model names with a registered adapter.
+   * @returns the registered names, in registration order.
+   */
   models(): string[] {
     return [...this.adapters.keys()]
   }
@@ -110,6 +117,8 @@ export class LlmService extends Service {
    * Stream one model call as raw chunks (token-level deltas). Throws
    * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
    * `options.model`. Dispatches through the `llm/stream` waterfall.
+   * @param options - the full request; `options.model` selects the adapter.
+   * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
    */
   stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     return this.ctx.waterfall(this, 'llm/stream', options, () => {

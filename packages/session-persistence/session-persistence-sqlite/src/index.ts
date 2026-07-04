@@ -28,7 +28,7 @@ import {
 } from '@deepseek-ai/dsh-session-persistence'
 import type { Session, SessionEvent, SurfaceEventType, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
-  openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
+  type JournalMode, openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
 } from './schema.ts'
 
 export { SCHEMA_VERSION } from './schema.ts'
@@ -54,6 +54,13 @@ export interface Config {
    * dirs) on construction.
    */
   path: string
+  /**
+   * SQLite `journal_mode` pragma. `wal` (the default) is the recorded
+   * durability model; pick a rollback-journal mode (`delete`/`truncate`/
+   * `persist`) on filesystems where WAL's shared-memory files do not work
+   * (network mounts). See {@link JournalMode}.
+   */
+  journalMode?: JournalMode
 }
 
 /**
@@ -66,6 +73,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
 
   static Config: z<Config> = z.object({
     path: z.string().required(),
+    journalMode: z.union(['wal', 'delete', 'truncate', 'persist'] as const).default('wal'),
   })
 
   /**
@@ -83,18 +91,19 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     super(ctx)
     // Open the database asynchronously (the parent directory may need creating);
     // every hook awaits `ready` first. Opening synchronously would force a sync
-    // mkdir and block plugin apply.
-    this.ready = this.openDb(config.path)
+    // mkdir and block plugin apply. schemastery (static Config) has already
+    // filled `journalMode`; the cast records that runtime fact.
+    this.ready = this.openDb(config.path, (config as Required<Config>).journalMode)
     this.coordinator = new PersistenceCoordinator<number>(this.ctx, this)
   }
 
-  private async openDb(path: string): Promise<void> {
+  private async openDb(path: string, journalMode: JournalMode): Promise<void> {
     if (path !== ':memory:') {
       const abs = resolve(path)
       await mkdir(dirname(abs), { recursive: true, mode: 0o700 })
-      this.db = openDatabase(abs)
+      this.db = openDatabase(abs, journalMode)
     } else {
-      this.db = openDatabase(path)
+      this.db = openDatabase(path, journalMode)
     }
   }
 

@@ -46,4 +46,4 @@ pnpm run test:coverage  # 100% per-file over src (types.ts exempt)
 pnpm run build && pnpm run hygiene
 ```
 
-Test expectations: every registry/registration needs an HMR-safety test (register from a child fiber, dispose it, assert cleanup). Excessive tests are welcome — see AGENTS.md.
+Test expectations: every registry/registration needs an HMR-safety test (register from a child fiber, dispose it, assert cleanup). Excessive tests are welcome — see [docs/testing.md](../testing.md).
