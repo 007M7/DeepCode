@@ -62,6 +62,12 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Share the app bins' boot glue instead of maintaining twin copies](proposed/simplification/2026-07-04-share-app-bin-boot-glue.md) | 2026-07-04 |
 | [Remove the `agent/steering` mirror emit](proposed/simplification/2026-07-04-remove-agent-steering-mirror.md) | 2026-07-04 |
 | [Tighten the hook-protocol contract — the `native` dialect, `suppressOutput`, and lib-owned `hook/result` semantics](proposed/simplification/2026-07-04-tighten-hook-protocol-contract.md) | 2026-07-04 |
+| [Narrow the subagent seam to synchronous collect](proposed/simplification/2026-07-04-narrow-subagent-synchronous-collect.md) | 2026-07-04 |
+| [Drop idle registry and status observation surfaces](proposed/simplification/2026-07-04-drop-idle-registry-observation-surfaces.md) | 2026-07-04 |
+| [Remove defaults from the tool-schema DSL](proposed/simplification/2026-07-04-remove-tool-schema-defaults.md) | 2026-07-04 |
+| [Trim unused hook protocol and bridge surface](proposed/simplification/2026-07-04-trim-hook-protocol-surface.md) | 2026-07-04 |
+| [Narrow the pre-tool gate to shipped behavior](proposed/simplification/2026-07-04-narrow-pre-tool-gate.md) | 2026-07-04 |
+| [Fold the stdio UI helper into the stdio app](proposed/simplification/2026-07-04-fold-stdio-ui-helper.md) | 2026-07-04 |
 
 ### Architecture
 
@@ -78,6 +84,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [API extractor reports](proposed/process/2026-06-11-api-extractor-reports.md) | 2026-06-11 |
 | [Supply chain checks and vendor drift verification](proposed/process/2026-06-11-supply-chain-and-vendor-drift.md) | 2026-06-11 |
 | [Discover package inventories instead of maintaining static lists](proposed/process/2026-06-20-discover-package-inventory.md) | 2026-06-20 |
+| [Generate the RFC index tables](proposed/process/2026-07-04-generate-rfc-index-tables.md) | 2026-07-04 |
 
 ### Testing
 
