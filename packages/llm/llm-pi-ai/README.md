@@ -31,7 +31,7 @@ pi-ai declares the openai/anthropic/google/mistral/AWS SDKs as install-time depe
 
 ## Limitations
 
-Same MVP contract as llm-deepseek: `prefill` throws `UNSUPPORTED`, images are not representable, `tool_choice` is not mapped.
+Same MVP contract as llm-deepseek: `prefill` throws `UNSUPPORTED`, `tool_choice` is not mapped.
 
 ## Testing
 

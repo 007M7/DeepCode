@@ -27,6 +27,7 @@ import {
   matchesMatcher,
   mergeHookOutputs,
   runHook,
+  summarizeStderr,
   type HookOutput,
   type MatcherGroup,
   type MergedHookOutcome,
@@ -49,12 +50,15 @@ export interface Config {
   model?: string
   /** Default per-hook timeout in ms when a hook sets none (Codex default: 600000). */
   defaultTimeoutMs?: number
+  /** Character cap for the `hook/result` event's persisted stderr summary. */
+  stderrSummaryMaxChars?: number
 }
 
 export const Config: z<Config> = z.object({
   configPath: z.string().required(),
   model: z.string().default(''),
   defaultTimeoutMs: z.number().default(600_000),
+  stderrSummaryMaxChars: z.number().default(500),
 })
 
 let handlerCounter = 0
@@ -64,13 +68,18 @@ function nextHandlerId(point: string): string {
 
 const PLUGIN_SOURCE: MessageSource = { kind: 'plugin', plugin: 'hooks-codex' }
 
-function summarize(stderr: string): string | undefined {
-  const t = stderr.trim()
-  if (t.length === 0) return undefined
-  return t.length > 500 ? t.slice(0, 500) + '…' : t
+/** The summary cap bounds a persisted event field — a positive integer or the slice misbehaves silently. */
+function assertPositiveInteger(name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`hooks-codex: ${name} must be a positive integer`)
+  }
 }
 
 export function apply(ctx: Context, config: Config): void {
+  // Validate the cap BEFORE the config-file parse: a bad value must fail the
+  // load loudly, not be skipped by the parse-failure early return.
+  const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? 500
+  assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
   let parsed: CodexHookConfig = {}
   try {
     const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
@@ -140,7 +149,7 @@ export function apply(ctx: Context, config: Config): void {
           ctx.logger.warn(`hooks-codex: ${point} hook emitted a systemMessage, which is not yet surfaced (ignored)`)
         }
         if (session && opts.turn !== undefined) {
-          const stderrSummary = summarize(output.stderr)
+          const stderrSummary = summarizeStderr(output.stderr, stderrSummaryMaxChars)
           appendHookResult(session, {
             turn: opts.turn, point, handlerId,
             decision: output.decision ?? (output.continue === false ? 'stop' : 'pass'),

@@ -23,12 +23,12 @@ function hooks(d: string, h: unknown): string {
   writeFileSync(join(d, 'hooks.json'), JSON.stringify({ hooks: h })); return join(d, 'hooks.json')
 }
 
-async function harness(configPath: string, adapter: MockAdapter): Promise<Context> {
+async function harness(configPath: string, adapter: MockAdapter, opts: { stderrSummaryMaxChars?: number } = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LlmService); await ctx.plugin(SessionStore); await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry); await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-  await ctx.plugin(HooksCodex, { configPath, model: 'm' })
+  await ctx.plugin(HooksCodex, { configPath, model: 'm', ...opts })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
@@ -204,6 +204,29 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
     const res = events(agent).find(e => e.type === 'hook/result')
     expect(res?.type === 'hook/result' && res.data.stderrSummary?.endsWith('…')).toBe(true)
+    expect(res?.type === 'hook/result' && res.data.stderrSummary?.length).toBe(501) // default 500-char cap + ellipsis
+  })
+
+  it('rejects a non-positive or fractional stderrSummaryMaxChars at load', async () => {
+    const d = dir()
+    hooks(d, {})
+    for (const bad of [0, -5, 1.5, Number.NaN]) {
+      const adapter = new MockAdapter([])
+      await expect(harness(join(d, 'hooks.json'), adapter, { stderrSummaryMaxChars: bad }))
+        .rejects.toThrow(/hooks-codex: stderrSummaryMaxChars must be a positive integer/)
+    }
+  })
+
+  it('the stderr summary cap is plugin config (stderrSummaryMaxChars)', async () => {
+    const d = dir()
+    hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: sh(d, 'l.sh', '#!/usr/bin/env bash\nprintf "x%.0s" {1..600} >&2\nexit 2\n') }] }] })
+    const adapter = new MockAdapter([toolCallResponse('c1', 'Bash', { command: 'x' }), textResponse('done')])
+    const ctx = await harness(join(d, 'hooks.json'), adapter, { stderrSummaryMaxChars: 40 })
+    ctx.tools.register(defineTool({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
+    const res = events(agent).find(e => e.type === 'hook/result')
+    expect(res?.type === 'hook/result' && res.data.stderrSummary).toBe('x'.repeat(40) + '…')
   })
 
   it('warns on a skipped async hook and a direct apply() defaults the timeout', async () => {

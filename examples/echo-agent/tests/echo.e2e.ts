@@ -13,11 +13,12 @@ import { afterEach, describe, expect, it } from 'vitest'
  *
  * This is the guard the per-file unit suite structurally cannot be: it drives
  * the `@deepseek-ai/dsh-stdio-agent` app plugin, the `@deepseek-ai/dsh-agent-core`
- * bundle it loads, the extracted `@deepseek-ai/dsh-ui-stdio` plugin, AND the
- * example-local `mock-llm.ts` / `echo-tool.ts` through their REAL load path, so
- * a broken plugin export shape (a stray `export default` that `unwrapExports`
- * would collapse, dropping `inject`/`Config`) fails here even though hand-mounted
- * unit tests stay green (see docs/postmortem/0001). It needs no API key — the
+ * bundle it loads, the app's in-package readline UI module, AND the
+ * example-local `mock-llm.ts` / `echo-tool.ts` through their REAL load path
+ * (see docs/postmortem/0001). The app itself carries no `inject`, so a stray
+ * `export default` would boot rather than crash here — the export SHAPE is
+ * pinned by the explicit unwrap assertion in the stdio-agent unit suite; this
+ * smoke proves the composed tree actually runs. It needs no API key — the
  * `mock-echo` adapter never touches the network — so it runs in the default e2e
  * gate.
  *

@@ -28,6 +28,7 @@ function spec(command: string, overrides: Partial<Parameters<typeof runBash>[0]>
     cwd: process.cwd(),
     timeoutMs: 0,
     maxOutputBytes: 64_000,
+    graceMs: 3_000,
     ...overrides,
   }
 }
@@ -106,7 +107,7 @@ describe('runBash', () => {
   })
 
   it('escalates to SIGKILL when SIGTERM is trapped', async () => {
-    const running = runBash(spec('trap \'\' TERM; echo ready; sleep 60'), { graceMs: 200 })
+    const running = runBash(spec('trap \'\' TERM; echo ready; sleep 60', { graceMs: 200 }))
     await waitForStdout(running, 'ready\n')
     running.kill()
     const result = await running.done
