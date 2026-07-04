@@ -5,26 +5,35 @@
 
 Maintenance mode: curated Mermaid flow; exact tool schemas and event signatures live in generated catalogs.
 
-This graph shows where policy, hooks, sandboxing, and future filesystem guards fit without changing the loop. The key extension point is the `tools/execute` waterfall.
+This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, and UI rendering fit without changing the loop. The key extension points are the `tools/pre-execute` and `tools/post-execute` waterfalls.
 
 ```mermaid
 flowchart TD
   model["Assistant message contains tool-call block"]
-  toolCall["Session event: tool/call"]
-  waterfall["ctx.tools.execute()<br/>tools/execute waterfall"]
-  policy["Policy / permission / hooks listener"]
+  toolCall["Session event: tool/call<br/>logged before execution"]
+  presentCall["UI pending card<br/>presentCall(args)"]
+  pre["tools/pre-execute waterfall<br/>hooks, permission, sandbox"]
+  denied["deny or ask<br/>tool body skipped"]
   toolBody["Registered tool execute() body"]
-  owned["Tool-owned session events<br/>todo/write, future fs policy facts"]
-  toolResult["Session event: tool/result"]
-  ui["UI presentation<br/>presentCall / presentResult"]
-  model --> toolCall --> waterfall
-  waterfall --> policy
-  policy -->|next| toolBody
-  policy -->|veto / throw| toolResult
+  fsGate["fs/write-intent or fs/edit-intent<br/>tool-fs mutations only"]
+  owned["Tool-owned session events<br/>todo/write, fs/observed, hook/invoked, hook/result"]
+  post["tools/post-execute waterfall<br/>accept, block, replace, add context"]
+  context["Buffered additionalContext<br/>context/message after all tool results"]
+  toolResult["Session event: tool/result<br/>single model-facing outcome"]
+  presentResult["UI completed card<br/>presentResult(args, result)"]
+  model --> toolCall
+  toolCall --> presentCall
+  toolCall --> pre
+  pre -->|allow| toolBody
+  pre -->|deny or ask| denied
+  denied --> post
+  toolBody --> fsGate
+  fsGate --> toolBody
   toolBody --> owned
-  toolBody --> toolResult
-  toolCall --> ui
-  toolResult --> ui
+  toolBody --> post
+  post --> context
+  post --> toolResult
+  toolResult --> presentResult
 ```
 
-Future pressure from the fs stack: PR #128 snapshots a policy rejection card. The graph keeps the veto path explicit because filesystem read-before-edit checks, permission prompts, and hook bridges all belong on this path.
+Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate, while hook bridges and future permission prompts live on the generic tool waterfalls. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service.

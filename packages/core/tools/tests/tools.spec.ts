@@ -4,7 +4,7 @@ import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, {
   defineTool, schemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
-  type InferArgs, type SchemaSpec, type ToolExecutionResult,
+  type InferArgs, type SchemaSpec, type PreToolDecision, type PostToolDecision,
 } from '@deepseek-ai/dsh-tools'
 
 async function setup() {
@@ -52,8 +52,8 @@ describe('ToolRegistry', () => {
       description: 'has presenters',
       parameters: { x: { type: 'string', required: true } },
       async execute() { return [] },
-      presentCall: args => ({ title: args.x }),
-      presentResult: (args, result) => ({ title: args.x, content: result.content }),
+      presentCall: args => ({ card: 'generic', title: args.x }),
+      presentResult: (args, result) => ({ card: 'generic', title: args.x, content: result.content }),
     }))
     const schema = ctx.tools.schemas()[0] as unknown as Record<string, unknown>
     expect(Object.keys(schema).sort()).toEqual(['description', 'name', 'parameters'])
@@ -79,6 +79,38 @@ describe('ToolRegistry', () => {
     ctx.tools.register(echoTool)
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'hi' }], isError: false })
+  })
+
+  it('threads a tool-attached meta (object return form) onto the result', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'meta-tool',
+      async execute() {
+        return { content: [{ type: 'text', text: 'ok' }], meta: { diffs: [{ path: 'a', oldText: null, newText: 'x' }] } }
+      },
+    })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'meta-tool', arguments: {} })
+    expect(result).toEqual({
+      callId: CallId('c1'),
+      content: [{ type: 'text', text: 'ok' }],
+      isError: false,
+      meta: { diffs: [{ path: 'a', oldText: null, newText: 'x' }] },
+    })
+  })
+
+  it('omits meta when the object return form supplies none', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'no-meta-tool',
+      async execute() {
+        return { content: [{ type: 'text', text: 'ok' }] }
+      },
+    })
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'no-meta-tool', arguments: {} })
+    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false })
+    expect('meta' in result).toBe(false)
   })
 
   it('returns isError results for unknown tools and throwing tools', async () => {
@@ -112,53 +144,150 @@ describe('ToolRegistry', () => {
     expect(err.message).toBe('unknown tool "ghost"')
   })
 
-  it('lets tools/execute waterfall listeners veto a call (permission pattern)', async () => {
+  it('lets a tools/pre-execute listener deny a call (permission pattern)', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
 
-    ctx.on('tools/execute', async (exec, next): Promise<ToolExecutionResult> => {
-      if (exec.name === 'echo') {
-        return {
-          callId: exec.callId,
-          content: [{ type: 'text', text: 'denied by policy' }],
-          isError: true,
-        }
-      }
+    ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
+      if (exec.name === 'echo') return { kind: 'deny', reason: 'denied by policy' }
       return next()
     })
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
-    expect(result.content[0]).toMatchObject({ text: 'denied by policy' })
+    expect(result.content[0]).toMatchObject({ text: 'Error: denied by policy' })
   })
 
-  it('composes multiple tools/execute listeners (sandbox-wrap pattern)', async () => {
+  it('an ask decision degrades to deny until the permission system lands', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+
+    ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> =>
+      ({ kind: 'ask', reason: 'needs approval' }))
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({ text: 'Error: needs approval' })
+  })
+
+  it('an ask decision with no reason degrades to deny with a default message', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+
+    ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({ text: 'Error: tool "echo" requires approval (not yet supported)' })
+  })
+
+  it('a tools/post-execute listener can replace the result content (accept) ', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+
+    ctx.on('tools/post-execute', async (_exec, _result, _next): Promise<PostToolDecision> =>
+      ({ kind: 'accept', content: [{ type: 'text', text: 'rewritten' }] }))
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    expect(result.isError).toBe(false)
+    expect(result.content[0]).toMatchObject({ text: 'rewritten' })
+  })
+
+  it('a tools/post-execute block turns the call into an isError with corrective feedback', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+
+    ctx.on('tools/post-execute', async (_exec, _result, _next): Promise<PostToolDecision> =>
+      ({ kind: 'block', feedback: [{ type: 'text', text: 'output rejected: try again' }] }))
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({ text: 'output rejected: try again' })
+  })
+
+  it('a block decision can ALSO attach additionalContext', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+
+    ctx.on('tools/post-execute', async (_exec, _result, _next): Promise<PostToolDecision> =>
+      ({
+        kind: 'block',
+        feedback: [{ type: 'text', text: 'rejected' }],
+        additionalContext: { content: [{ type: 'text', text: 'why it was rejected' }], source: { kind: 'plugin', plugin: 'test' } },
+      }))
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({ text: 'rejected' })
+    expect(result.additionalContext).toMatchObject({ content: [{ text: 'why it was rejected' }], source: { kind: 'plugin', plugin: 'test' } })
+  })
+
+  it('a post-execute additionalContext rides on the result for the loop to buffer', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+
+    ctx.on('tools/post-execute', async (_exec, _result, _next): Promise<PostToolDecision> =>
+      ({ kind: 'accept', additionalContext: { content: [{ type: 'text', text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' } } }))
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    expect(result.additionalContext).toMatchObject({ content: [{ text: 'fyi' }], source: { kind: 'plugin', plugin: 'test' } })
+  })
+
+  it('a post-execute listener mutating the result object cannot corrupt callId/isError/error', async () => {
+    // The decision is the ONLY sanctioned channel to change the outcome. A
+    // listener that reaches in and mutates the passed result reference (flipping
+    // isError, rewriting callId, attaching a bogus error) must NOT affect what
+    // execute() returns — the registry snapshots the authoritative fields before
+    // the waterfall and rebuilds from the snapshot + decision.
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+
+    ctx.on('tools/post-execute', async (_exec, result, next) => {
+      const mutable = result as { callId: string; isError: boolean; error?: unknown; content: unknown[] }
+      mutable.callId = 'hijacked'
+      mutable.isError = true
+      mutable.error = { name: 'Evil', code: 'EVIL' }
+      mutable.content.push({ type: 'text', text: 'INJECTED' }) // in-place array mutation
+      return next() // delegate to the default accept — no decision-level override
+    })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    expect(result.callId).toBe(CallId('c1'))   // authoritative exec.callId, not 'hijacked'
+    expect(result.isError).toBe(false)          // the real (successful) dispatch outcome
+    expect(result.error).toBeUndefined()        // no listener-injected error
+    expect(result.content).toHaveLength(1)       // the in-place push did not leak in
+    expect(result.content[0]).toMatchObject({ text: 'hi' })
+    expect(result.content.some(b => (b as { text?: string }).text === 'INJECTED')).toBe(false)
+  })
+
+  it('composes pre + post waterfalls around dispatch (sandbox-wrap pattern)', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
 
     const order: string[] = []
-    ctx.on('tools/execute', async (_exec, next) => {
-      order.push('first:before')
-      const result = await next()
-      order.push('first:after')
-      return result
+    ctx.on('tools/pre-execute', async (_exec, next) => {
+      order.push('pre:before')
+      const decision = await next()
+      order.push('pre:after')
+      return decision
     })
-    ctx.on('tools/execute', async (_exec, next) => {
-      order.push('second:before')
-      const result = await next()
-      order.push('second:after')
-      return result
+    ctx.on('tools/post-execute', async (_exec, _result, next) => {
+      order.push('post:before')
+      const decision = await next()
+      order.push('post:after')
+      return decision
     })
 
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'x' } })
     expect(result.isError).toBe(false)
-    expect(order).toEqual(['first:before', 'second:before', 'second:after', 'first:after'])
+    // pre runs fully (gate) before dispatch, then post runs over the result.
+    expect(order).toEqual(['pre:before', 'pre:after', 'post:before', 'post:after'])
   })
 
-  it('returns an isError result when a tools/execute listener throws', async () => {
+  it('returns an isError result when a tools/pre-execute listener throws', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
-    ctx.on('tools/execute', async () => {
+    ctx.on('tools/pre-execute', async () => {
       throw new Error('permission hook broke')
     })
 
@@ -171,10 +300,26 @@ describe('ToolRegistry', () => {
     })
   })
 
-  it('preserves structured error info when a tools/execute listener throws HarnessError', async () => {
+  it('returns an isError result when a tools/post-execute listener throws', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
-    ctx.on('tools/execute', async () => {
+    ctx.on('tools/post-execute', async () => {
+      throw new Error('post hook broke')
+    })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+
+    expect(result).toEqual({
+      callId: CallId('c1'),
+      content: [{ type: 'text', text: 'Error: post hook broke' }],
+      isError: true,
+    })
+  })
+
+  it('preserves structured error info when a tools/pre-execute listener throws HarnessError', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    ctx.on('tools/pre-execute', async () => {
       throw new HarnessError('denied', 'DENIED')
     })
 
@@ -906,15 +1051,15 @@ describe('defineTool presentation (presentCall / presentResult)', () => {
       presentCall(args) {
         // args is typed { path: string; n?: number } — zero casts.
         expectTypeOf(args).toEqualTypeOf<{ path: string; n?: number }>()
-        return { title: `Open ${args.path}`, kind: 'read', rawInput: args.path }
+        return { card: 'generic', title: `Open ${args.path}`, kind: 'read', rawInput: args.path }
       },
       presentResult(args, result) {
-        return { title: `Opened ${args.path}`, content: result.content }
+        return { card: 'generic', title: `Opened ${args.path}`, content: result.content }
       },
     })
-    expect(tool.presentCall!({ path: '/a', n: 2 })).toEqual({ title: 'Open /a', kind: 'read', rawInput: '/a' })
+    expect(tool.presentCall!({ path: '/a', n: 2 })).toEqual({ card: 'generic', title: 'Open /a', kind: 'read', rawInput: '/a' })
     expect(tool.presentResult!({ path: '/a' }, { content: [{ type: 'text', text: 'x' }], isError: false }))
-      .toEqual({ title: 'Opened /a', content: [{ type: 'text', text: 'x' }] })
+      .toEqual({ card: 'generic', title: 'Opened /a', content: [{ type: 'text', text: 'x' }] })
   })
 
   it('a tool without presentCall/presentResult leaves them undefined (UI falls back generically)', () => {
@@ -934,8 +1079,8 @@ describe('defineTool presentation (presentCall / presentResult)', () => {
       description: 'demo',
       parameters: { path: { type: 'string', required: true } },
       async execute() { return [] },
-      presentCall: args => ({ title: args.path }),
-      presentResult: (args, result) => ({ title: args.path, content: result.content }),
+      presentCall: args => ({ card: 'generic', title: args.path }),
+      presentResult: (args, result) => ({ card: 'generic', title: args.path, content: result.content }),
     })
     // Unlike execute (which throws ToolArgsError on a mismatch), the display
     // methods soft-validate and fall back to undefined so a UI never crashes

@@ -135,6 +135,16 @@ export interface TurnEndReasonMap {
   disposed: { kind: 'disposed' }
   'max-tokens': { kind: 'max-tokens' }
   /**
+   * The turn's entire prompt batch was BLOCKED before any step ran — every
+   * drained queued message was vetoed by an `agent/prompt-submit` listener (a
+   * hook). The turn still opened (so the boundary stays balanced and the block
+   * is a durable in-turn fact), but ran zero steps. `reason` carries the block
+   * message from the vetoing decision. Distinct from `aborted` (a user-driven
+   * cancel) and `error` (a failure): the prompt was rejected by policy, not
+   * interrupted or broken. A UI renders it as "prompt blocked by hook".
+   */
+  rejected: { kind: 'rejected'; reason: string }
+  /**
    * The turn never ended on its own: the process crashed mid-turn and a
    * persistence backend later closed the orphaned (open) turn on reload so the
    * log stays balanced. SYNTHESIZED by the backend's crash-recovery repair — no
@@ -195,6 +205,17 @@ export interface SessionEventMap {
   /** A user-visible prompt (queued message drained at turn start). */
   'user/message': { content: ContentBlock[]; source: MessageSource }
   /**
+   * A queued prompt an `agent/prompt-submit` listener VETOED — the durable
+   * record of a blocked prompt and why. Appended in place of the `user/message`
+   * the prompt would have become, so the block survives replay even in a MIXED
+   * batch where another queued prompt is allowed (there the turn does not end
+   * `rejected`, so the boundary reason alone would not preserve it). `content`
+   * is the original prompt the listener rejected; `reason` is the veto text
+   * ({@link PromptDecision} `block.reason`). NOT a {@link SurfaceEventType}: a
+   * blocked prompt produces no LLM message and never reaches `deriveMessages()`.
+   */
+  'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
+  /**
    * In-session context injection (file-change notices, subdir AGENTS.md,
    * skill content, cron notifications, …). Rendered into the derived history
    * as tagged synthetic context — NOT a user prompt.
@@ -210,7 +231,16 @@ export interface SessionEventMap {
    */
   'assistant/message': { turn: number; step: number; content: ContentBlock[]; usage?: TokenUsage }
   'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
-  'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string } }
+  /**
+   * A completed tool call's model-facing result, plus an optional tool-private
+   * `meta` presentation payload. `meta` is opaque to the core (`unknown` — the
+   * producing tool owns its shape and reads it back in `presentResult`) but MUST
+   * be JSON-serializable: `Session.append` runtime-validates all event data with
+   * `isJsonValue`, so a non-serializable `meta` is rejected at the source, and the
+   * durable log reproduces the identical card on replay. Absent unless the tool
+   * attaches one (e.g. `dsh-tool-fs` carries its result-time contextual diff here).
+   */
+  'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string }; meta?: unknown }
   /** Steering content injected between steps of a running turn. */
   'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
   /**

@@ -106,6 +106,23 @@ describe('LocalBashExecutor.run', () => {
     const { bash } = await setup()
     await expect(bash.run(bash.resolve({ command: 'true', workdir: '/nonexistent-dsh' }))).rejects.toThrow(/ENOENT/)
   })
+
+  it('resolve() carries stdin/env onto the spec, and run() threads them to the command', async () => {
+    const { bash } = await setup()
+    const spec = bash.resolve({ command: 'cat; echo "[$DSH_SEAM_VAR]"', stdin: 'piped\n', env: { DSH_SEAM_VAR: 'env-ok' } })
+    // resolve() keeps the stdin/env fields verbatim (optional, no default).
+    expect(spec.stdin).toBe('piped\n')
+    expect(spec.env).toEqual({ DSH_SEAM_VAR: 'env-ok' })
+    const result = await bash.run(spec)
+    expect(result.stdout.text).toBe('piped\n[env-ok]\n')
+  })
+
+  it('resolve() omits stdin/env when the request supplies neither', async () => {
+    const { bash } = await setup()
+    const spec = bash.resolve({ command: 'true' })
+    expect('stdin' in spec).toBe(false)
+    expect('env' in spec).toBe(false)
+  })
 })
 
 describe('LocalBashExecutor background tasks', () => {
@@ -129,6 +146,19 @@ describe('LocalBashExecutor background tasks', () => {
     expect(first.id).toBe('bash-1')
     expect(second.id).toBe('bash-2')
     await Promise.all([first.done, second.done])
+  })
+
+  it('threads stdin and extra env into a background task', async () => {
+    const { bash } = await setup()
+    const task = bash.start(bash.resolve({
+      command: 'cat; echo "[$DSH_BG_VAR]"',
+      stdin: 'bg-stdin\n',
+      env: { DSH_BG_VAR: 'bg-env' },
+    }))
+    const read = await readUntil(bash, task.id, '[bg-env]')
+    expect(read.delta).toContain('bg-stdin')
+    await task.done
+    expect(task.exitCode).toBe(0)
   })
 
   it('readOutput returns increments without re-delivery', async () => {

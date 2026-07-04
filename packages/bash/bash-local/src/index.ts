@@ -4,8 +4,8 @@
  * own process group (see `./run.ts` for the plumbing and the agent-tool
  * survey notes), tracks background tasks, and kills everything on dispose.
  *
- * TODO(permissions/sandbox): execution policy does NOT belong here — wrap
- * the `tools/execute` waterfall (see docs/architecture.md § plugin
+ * TODO(permissions/sandbox): execution policy does NOT belong here — use
+ * the `tools/pre-execute` deny/ask gate (see docs/architecture.md § plugin
  * checklist) or implement a sandboxing `BashExecutor`. Reference points:
  * Claude Code wraps commands in sandbox-exec/bubblewrap; Codex applies
  * seatbelt/landlock plus an execpolicy prefix-rule engine.
@@ -116,6 +116,10 @@ export class LocalBashExecutor extends BashExecutor {
       workdir: request.workdir ?? this.config.cwd ?? process.cwd(),
       timeoutMs,
       ...request.signal ? { signal: request.signal } : {},
+      // Carry stdin/env through verbatim — optional, no config default (absent
+      // means none). env merges AFTER the scrub in run.ts.
+      ...request.stdin !== undefined ? { stdin: request.stdin } : {},
+      ...request.env !== undefined ? { env: request.env } : {},
       // Carry the owner through verbatim (required-but-nullable on the spec):
       // the executor never interprets it — the consumer's access policy does.
       owner: request.owner,
@@ -129,6 +133,8 @@ export class LocalBashExecutor extends BashExecutor {
       timeoutMs: spec.timeoutMs,
       maxOutputBytes: this.config.maxOutputBytes,
       signal: spec.signal,
+      stdin: spec.stdin,
+      env: spec.env,
     }, this.internals).done
     return { ...outcome, timeoutMs: spec.timeoutMs }
   }
@@ -145,6 +151,8 @@ export class LocalBashExecutor extends BashExecutor {
       timeoutMs: 0,
       maxOutputBytes: this.config.maxOutputBytes,
       signal: spec.signal,
+      stdin: spec.stdin,
+      env: spec.env,
     }, this.internals)
 
     const id = BashTaskId(`bash-${this.nextTaskId++}`)

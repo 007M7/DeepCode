@@ -91,6 +91,100 @@ Read new output from a background bash task started with `bash` + `run_in_backgr
 
 Source: [`packages/bash/tool-bash/src/index.ts`](../../packages/bash/tool-bash/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-fs`
+
+### `edit`
+
+Edit an existing UTF-8 text file by replacing literal text.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "file_path": {
+      "type": "string",
+      "description": "Path to edit, resolved by the filesystem backend."
+    },
+    "old_string": {
+      "type": "string",
+      "description": "Literal text to replace. Must match exactly."
+    },
+    "new_string": {
+      "type": "string",
+      "description": "Literal replacement text. Use an empty string to delete the match."
+    },
+    "replace_all": {
+      "type": "boolean",
+      "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once."
+    }
+  },
+  "required": [
+    "file_path",
+    "old_string",
+    "new_string"
+  ]
+}
+```
+
+Source: [`packages/fs/tool-fs/src/index.ts`](../../packages/fs/tool-fs/src/index.ts)
+
+### `read`
+
+Read a UTF-8 text file and return line-numbered content.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "file_path": {
+      "type": "string",
+      "description": "Path to read, resolved by the filesystem backend."
+    },
+    "offset": {
+      "type": "number",
+      "description": "1-based first line to return. Defaults to 1."
+    },
+    "limit": {
+      "type": "number",
+      "description": "Maximum number of lines to return. Defaults to 2000."
+    }
+  },
+  "required": [
+    "file_path"
+  ]
+}
+```
+
+Source: [`packages/fs/tool-fs/src/index.ts`](../../packages/fs/tool-fs/src/index.ts)
+
+### `write`
+
+Create or fully replace a UTF-8 text file.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "file_path": {
+      "type": "string",
+      "description": "Path to write, resolved by the filesystem backend."
+    },
+    "content": {
+      "type": "string",
+      "description": "Full UTF-8 text content to write."
+    }
+  },
+  "required": [
+    "file_path",
+    "content"
+  ]
+}
+```
+
+Source: [`packages/fs/tool-fs/src/index.ts`](../../packages/fs/tool-fs/src/index.ts)
+
+The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin.
+
 ## `@deepseek-ai/dsh-tool-subagent`
 
 ### `subagent`
@@ -165,3 +259,51 @@ Record and update a structured task list for the current work. Send the ENTIRE l
 ```
 
 Source: [`packages/todo/tool-todo/src/index.ts`](../../packages/todo/tool-todo/src/index.ts)
+
+## `@deepseek-ai/dsh-tool-web`
+
+### `web_fetch`
+
+Fetch the content of a specific HTTP(S) URL and return it decoded to text.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "url": {
+      "type": "string",
+      "description": "The HTTP(S) URL to fetch."
+    },
+    "timeout_ms": {
+      "type": "number",
+      "description": "Optional fetch timeout in milliseconds (capped by the provider)."
+    }
+  },
+  "required": [
+    "url"
+  ]
+}
+```
+
+Source: [`packages/web/tool-web/src/index.ts`](../../packages/web/tool-web/src/index.ts)
+
+### `web_search`
+
+Search the web for current information. Returns an optional summary answer and a list of source URLs.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "The search query."
+    }
+  },
+  "required": [
+    "query"
+  ]
+}
+```
+
+Source: [`packages/web/tool-web/src/index.ts`](../../packages/web/tool-web/src/index.ts)

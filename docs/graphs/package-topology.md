@@ -30,6 +30,12 @@ flowchart TD
     pkg_bash_local["bash-local"]
     pkg_tool_bash["tool-bash"]
   end
+  subgraph group_fs["packages/fs"]
+    pkg_fs["fs"]
+    pkg_fs_local["fs-local"]
+    pkg_fs_policy["fs-policy"]
+    pkg_tool_fs["tool-fs"]
+  end
   subgraph group_compact["packages/compact"]
     pkg_compact["compact"]
     pkg_compact_basic["compact-basic"]
@@ -42,13 +48,26 @@ flowchart TD
     pkg_subagent_spawn["subagent-spawn"]
     pkg_tool_subagent["tool-subagent"]
   end
+  subgraph group_web["packages/web"]
+    pkg_tool_web["tool-web"]
+    pkg_web["web"]
+    pkg_web_fetch_local["web-fetch-local"]
+    pkg_web_search_deepseek["web-search-deepseek"]
+    pkg_web_search_exa["web-search-exa"]
+    pkg_web_search_perplexity["web-search-perplexity"]
+  end
+  subgraph group_todo["packages/todo"]
+    pkg_tool_todo["tool-todo"]
+  end
+  subgraph group_hooks["packages/hooks"]
+    pkg_hook_protocol["hook-protocol"]
+    pkg_hooks_claude["hooks-claude"]
+    pkg_hooks_codex["hooks-codex"]
+  end
   subgraph group_session_persistence["packages/session-persistence"]
     pkg_session_persistence["session-persistence"]
     pkg_session_persistence_jsonl["session-persistence-jsonl"]
     pkg_session_persistence_sqlite["session-persistence-sqlite"]
-  end
-  subgraph group_todo["packages/todo"]
-    pkg_tool_todo["tool-todo"]
   end
   subgraph group_support["packages/support"]
     pkg_invariants["invariants"]
@@ -69,11 +88,22 @@ flowchart TD
   pkg_session --> pkg_llm
   pkg_system_prompt --> pkg_llm
   pkg_bash_local --> pkg_bash
+  pkg_fs --> pkg_brand
+  pkg_fs --> pkg_llm
+  pkg_web --> pkg_llm
   pkg_agent --> pkg_brand
   pkg_agent --> pkg_llm
   pkg_agent --> pkg_session
+  pkg_fs_local --> pkg_fs
+  pkg_fs_policy --> pkg_fs
   pkg_compact --> pkg_llm
   pkg_compact --> pkg_session
+  pkg_web_fetch_local --> pkg_web
+  pkg_web_search_deepseek --> pkg_web
+  pkg_web_search_exa --> pkg_web
+  pkg_web_search_perplexity --> pkg_web
+  pkg_hook_protocol --> pkg_bash
+  pkg_hook_protocol --> pkg_session
   pkg_session_persistence --> pkg_session
   pkg_llm_replay --> pkg_llm
   pkg_llm_replay --> pkg_session
@@ -104,12 +134,26 @@ flowchart TD
   pkg_tool_bash --> pkg_bash
   pkg_tool_bash --> pkg_llm
   pkg_tool_bash --> pkg_tools
+  pkg_tool_fs --> pkg_fs
+  pkg_tool_fs --> pkg_llm
+  pkg_tool_fs --> pkg_session
+  pkg_tool_fs --> pkg_system_prompt
+  pkg_tool_fs --> pkg_tools
   pkg_subagent --> pkg_agent
   pkg_subagent --> pkg_llm
   pkg_subagent --> pkg_tools
+  pkg_tool_web --> pkg_llm
+  pkg_tool_web --> pkg_system_prompt
+  pkg_tool_web --> pkg_tools
+  pkg_tool_web --> pkg_web
   pkg_tool_todo --> pkg_agent
   pkg_tool_todo --> pkg_session
   pkg_tool_todo --> pkg_tools
+  pkg_hooks_codex --> pkg_agent
+  pkg_hooks_codex --> pkg_hook_protocol
+  pkg_hooks_codex --> pkg_llm
+  pkg_hooks_codex --> pkg_session
+  pkg_hooks_codex --> pkg_tools
   pkg_acp --> pkg_agent
   pkg_acp --> pkg_llm
   pkg_acp --> pkg_session
@@ -134,6 +178,12 @@ flowchart TD
   pkg_tool_subagent --> pkg_llm
   pkg_tool_subagent --> pkg_subagent
   pkg_tool_subagent --> pkg_tools
+  pkg_hooks_claude --> pkg_agent
+  pkg_hooks_claude --> pkg_hook_protocol
+  pkg_hooks_claude --> pkg_llm
+  pkg_hooks_claude --> pkg_session
+  pkg_hooks_claude --> pkg_subagent
+  pkg_hooks_claude --> pkg_tools
   pkg_subagent_mock --> pkg_agent
   pkg_subagent_mock --> pkg_llm
   pkg_subagent_mock --> pkg_subagent
@@ -163,8 +213,17 @@ flowchart TD
 | [`session`](../../packages/core/session) | `core` | [`brand`](../../packages/util/brand), [`llm`](../../packages/llm/llm) |
 | [`system-prompt`](../../packages/core/system-prompt) | `core` | [`llm`](../../packages/llm/llm) |
 | [`bash-local`](../../packages/bash/bash-local) | `bash` | [`bash`](../../packages/bash/bash) |
+| [`fs`](../../packages/fs/fs) | `fs` | [`brand`](../../packages/util/brand), [`llm`](../../packages/llm/llm) |
+| [`web`](../../packages/web/web) | `web` | [`llm`](../../packages/llm/llm) |
 | [`agent`](../../packages/core/agent) | `core` | [`brand`](../../packages/util/brand), [`llm`](../../packages/llm/llm), [`session`](../../packages/core/session) |
+| [`fs-local`](../../packages/fs/fs-local) | `fs` | [`fs`](../../packages/fs/fs) |
+| [`fs-policy`](../../packages/fs/fs-policy) | `fs` | [`fs`](../../packages/fs/fs) |
 | [`compact`](../../packages/compact/compact) | `compact` | [`llm`](../../packages/llm/llm), [`session`](../../packages/core/session) |
+| [`web-fetch-local`](../../packages/web/web-fetch-local) | `web` | [`web`](../../packages/web/web) |
+| [`web-search-deepseek`](../../packages/web/web-search-deepseek) | `web` | [`web`](../../packages/web/web) |
+| [`web-search-exa`](../../packages/web/web-search-exa) | `web` | [`web`](../../packages/web/web) |
+| [`web-search-perplexity`](../../packages/web/web-search-perplexity) | `web` | [`web`](../../packages/web/web) |
+| [`hook-protocol`](../../packages/hooks/hook-protocol) | `hooks` | [`bash`](../../packages/bash/bash), [`session`](../../packages/core/session) |
 | [`session-persistence`](../../packages/session-persistence/session-persistence) | `session-persistence` | [`session`](../../packages/core/session) |
 | [`llm-replay`](../../packages/support/llm-replay) | `support` | [`llm`](../../packages/llm/llm), [`session`](../../packages/core/session) |
 | [`tools`](../../packages/core/tools) | `core` | [`agent`](../../packages/core/agent), [`llm`](../../packages/llm/llm), [`system-prompt`](../../packages/core/system-prompt) |
@@ -175,13 +234,17 @@ flowchart TD
 | [`ui-stdio`](../../packages/support/ui-stdio) | `support` | [`agent`](../../packages/core/agent), [`llm`](../../packages/llm/llm), [`session`](../../packages/core/session) |
 | [`agent-loop`](../../packages/core/agent-loop) | `core` | [`agent`](../../packages/core/agent), [`llm`](../../packages/llm/llm), [`session`](../../packages/core/session), [`session-persistence`](../../packages/session-persistence/session-persistence), [`system-prompt`](../../packages/core/system-prompt), [`tools`](../../packages/core/tools) |
 | [`tool-bash`](../../packages/bash/tool-bash) | `bash` | [`agent`](../../packages/core/agent), [`bash`](../../packages/bash/bash), [`llm`](../../packages/llm/llm), [`tools`](../../packages/core/tools) |
+| [`tool-fs`](../../packages/fs/tool-fs) | `fs` | [`fs`](../../packages/fs/fs), [`llm`](../../packages/llm/llm), [`session`](../../packages/core/session), [`system-prompt`](../../packages/core/system-prompt), [`tools`](../../packages/core/tools) |
 | [`subagent`](../../packages/subagent/subagent) | `subagent` | [`agent`](../../packages/core/agent), [`llm`](../../packages/llm/llm), [`tools`](../../packages/core/tools) |
+| [`tool-web`](../../packages/web/tool-web) | `web` | [`llm`](../../packages/llm/llm), [`system-prompt`](../../packages/core/system-prompt), [`tools`](../../packages/core/tools), [`web`](../../packages/web/web) |
 | [`tool-todo`](../../packages/todo/tool-todo) | `todo` | [`agent`](../../packages/core/agent), [`session`](../../packages/core/session), [`tools`](../../packages/core/tools) |
+| [`hooks-codex`](../../packages/hooks/hooks-codex) | `hooks` | [`agent`](../../packages/core/agent), [`hook-protocol`](../../packages/hooks/hook-protocol), [`llm`](../../packages/llm/llm), [`session`](../../packages/core/session), [`tools`](../../packages/core/tools) |
 | [`acp`](../../packages/ui/acp) | `ui` | [`agent`](../../packages/core/agent), [`llm`](../../packages/llm/llm), [`session`](../../packages/core/session), [`session-persistence`](../../packages/session-persistence/session-persistence), [`tools`](../../packages/core/tools) |
 | [`agent-core`](../../packages/core/agent-core) | `core` | [`agent`](../../packages/core/agent), [`agent-loop`](../../packages/core/agent-loop), [`invariants`](../../packages/support/invariants), [`llm`](../../packages/llm/llm), [`session`](../../packages/core/session), [`system-prompt`](../../packages/core/system-prompt), [`tool-bash`](../../packages/bash/tool-bash), [`tools`](../../packages/core/tools) |
 | [`subagent-acp`](../../packages/subagent/subagent-acp) | `subagent` | [`agent`](../../packages/core/agent), [`llm`](../../packages/llm/llm), [`subagent`](../../packages/subagent/subagent) |
 | [`subagent-inprocess`](../../packages/subagent/subagent-inprocess) | `subagent` | [`agent`](../../packages/core/agent), [`llm`](../../packages/llm/llm), [`session`](../../packages/core/session), [`subagent`](../../packages/subagent/subagent) |
 | [`tool-subagent`](../../packages/subagent/tool-subagent) | `subagent` | [`agent`](../../packages/core/agent), [`llm`](../../packages/llm/llm), [`subagent`](../../packages/subagent/subagent), [`tools`](../../packages/core/tools) |
+| [`hooks-claude`](../../packages/hooks/hooks-claude) | `hooks` | [`agent`](../../packages/core/agent), [`hook-protocol`](../../packages/hooks/hook-protocol), [`llm`](../../packages/llm/llm), [`session`](../../packages/core/session), [`subagent`](../../packages/subagent/subagent), [`tools`](../../packages/core/tools) |
 | [`subagent-mock`](../../packages/support/subagent-mock) | `support` | [`agent`](../../packages/core/agent), [`llm`](../../packages/llm/llm), [`subagent`](../../packages/subagent/subagent) |
 | [`subagent-fork`](../../packages/subagent/subagent-fork) | `subagent` | [`agent`](../../packages/core/agent), [`session`](../../packages/core/session), [`subagent`](../../packages/subagent/subagent), [`subagent-inprocess`](../../packages/subagent/subagent-inprocess) |
 | [`subagent-spawn`](../../packages/subagent/subagent-spawn) | `subagent` | [`subagent`](../../packages/subagent/subagent), [`subagent-inprocess`](../../packages/subagent/subagent-inprocess) |

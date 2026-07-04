@@ -48,6 +48,12 @@ flowchart LR
     cfg_coding --> plugin_coding_tool_subagent_fork
     plugin_coding_tool_todo["tool-todo<br/>@deepseek-ai/dsh-tool-todo"]
     cfg_coding --> plugin_coding_tool_todo
+    plugin_coding_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
+    cfg_coding --> plugin_coding_fs_local
+    plugin_coding_fs_policy["fs-policy<br/>@deepseek-ai/dsh-fs-policy"]
+    cfg_coding --> plugin_coding_fs_policy
+    plugin_coding_tool_fs["tool-fs<br/>@deepseek-ai/dsh-tool-fs"]
+    cfg_coding --> plugin_coding_tool_fs
   end
   subgraph example_acp["examples/acp-agent"]
     cfg_acp["cordis.yml"]
@@ -70,6 +76,16 @@ flowchart LR
     cfg_acp --> plugin_acp_tool_subagent_fork
     plugin_acp_tool_todo["tool-todo<br/>@deepseek-ai/dsh-tool-todo"]
     cfg_acp --> plugin_acp_tool_todo
+    plugin_acp_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
+    cfg_acp --> plugin_acp_fs_local
+    plugin_acp_fs_policy["fs-policy<br/>@deepseek-ai/dsh-fs-policy"]
+    cfg_acp --> plugin_acp_fs_policy
+    plugin_acp_tool_fs["tool-fs<br/>@deepseek-ai/dsh-tool-fs"]
+    cfg_acp --> plugin_acp_tool_fs
+    plugin_acp_hooks_claude["hooks-claude<br/>@deepseek-ai/dsh-hooks-claude"]
+    cfg_acp --> plugin_acp_hooks_claude
+    plugin_acp_hooks_codex["hooks-codex<br/>@deepseek-ai/dsh-hooks-codex"]
+    cfg_acp --> plugin_acp_hooks_codex
   end
   bundle_stdio["@deepseek-ai/dsh-stdio-agent"] --> bundle_agent_core["@deepseek-ai/dsh-agent-core"]
   bundle_stdio --> bundle_jsonl["@deepseek-ai/dsh-session-persistence-jsonl"]
@@ -86,5 +102,5 @@ flowchart LR
 | Example | Parsed plugin ids | Config |
 | --- | --- | --- |
 | `examples/echo-agent` | `hmr`, `mock-llm`, `echo-tool`, `bash`, `stdio-agent` | [`examples/echo-agent/cordis.yml`](../../examples/echo-agent/cordis.yml) |
-| `examples/coding-agent` | `hmr`, `llm-deepseek`, `bash`, `stdio-agent`, `compact-basic`, `subagent`, `subagent-spawn`, `subagent-fork`, `tool-subagent`, `tool-subagent-fork`, `tool-todo` | [`examples/coding-agent/cordis.yml`](../../examples/coding-agent/cordis.yml) |
-| `examples/acp-agent` | `llm-deepseek`, `bash`, `acp-agent`, `subagent`, `subagent-spawn`, `subagent-fork`, `tool-subagent`, `tool-subagent-fork`, `tool-todo` | [`examples/acp-agent/cordis.yml`](../../examples/acp-agent/cordis.yml) |
+| `examples/coding-agent` | `hmr`, `llm-deepseek`, `bash`, `stdio-agent`, `compact-basic`, `subagent`, `subagent-spawn`, `subagent-fork`, `tool-subagent`, `tool-subagent-fork`, `tool-todo`, `fs-local`, `fs-policy`, `tool-fs` | [`examples/coding-agent/cordis.yml`](../../examples/coding-agent/cordis.yml) |
+| `examples/acp-agent` | `llm-deepseek`, `bash`, `acp-agent`, `subagent`, `subagent-spawn`, `subagent-fork`, `tool-subagent`, `tool-subagent-fork`, `tool-todo`, `fs-local`, `fs-policy`, `tool-fs`, `hooks-claude`, `hooks-codex` | [`examples/acp-agent/cordis.yml`](../../examples/acp-agent/cordis.yml) |

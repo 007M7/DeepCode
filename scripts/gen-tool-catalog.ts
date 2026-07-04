@@ -40,11 +40,17 @@ import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import WebService from '@deepseek-ai/dsh-web'
+import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
+import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentMock from '@deepseek-ai/dsh-subagent-mock'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
+import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/tool-catalog/tools.md'
@@ -98,6 +104,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
   },
   {
+    pkg: '@deepseek-ai/dsh-tool-fs',
+    dir: 'tool-fs',
+    source: 'packages/fs/tool-fs/src/index.ts',
+    async mount(ctx) {
+      // The tool injects `fs`; boot the local backend to satisfy it. The schemas
+      // do not depend on the policy plugin (an event gate that changes behavior,
+      // not tool shape), so the bare provider is enough to harvest them.
+      await ctx.plugin(LocalFileSystem)
+      await ctx.plugin(ToolFs)
+    },
+    note:
+      'The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin.',
+  },
+  {
     pkg: '@deepseek-ai/dsh-tool-subagent',
     dir: 'tool-subagent',
     source: 'packages/subagent/tool-subagent/src/index.ts',
@@ -116,6 +136,21 @@ const TOOL_PACKAGES: ToolPackage[] = [
     source: 'packages/todo/tool-todo/src/index.ts',
     async mount(ctx) {
       await ctx.plugin(ToolTodo)
+    },
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-web',
+    dir: 'tool-web',
+    source: 'packages/web/tool-web/src/index.ts',
+    async mount(ctx) {
+      // The tools inject `web`; boot the seam plus one search and one fetch
+      // provider so both `web_search` and `web_fetch` register. The schemas do
+      // not depend on which provider backs the seam (or on it being available),
+      // so any registered provider is enough to harvest them.
+      await ctx.plugin(WebService)
+      await ctx.plugin(WebSearchExa)
+      await ctx.plugin(WebFetchLocal)
+      await ctx.plugin(ToolWeb)
     },
   },
 ]

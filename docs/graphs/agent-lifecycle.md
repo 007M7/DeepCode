@@ -5,37 +5,45 @@
 
 Maintenance mode: curated Mermaid sequence; exact event signatures live in the generated Cordis catalog.
 
-This sequence is the visual companion to [architecture.md](../architecture.md#loop-lifecycle-session--turn--step). It shows the durable session event path separately from live `agent/*` notifications.
+This sequence is the visual companion to [architecture.md](../architecture.md#loop-lifecycle-session--turn--step). It keeps durable replay facts on `session/event` and live control/status on `agent/*`.
 
 ```mermaid
 sequenceDiagram
   participant User
   participant Agent
   participant Driver
+  participant Hooks as hook listeners
   participant Prompt as ctx.systemPrompt
   participant LLM as ctx.llm
   participant Tools as ctx.tools
   participant Session
   participant Persistence
+  participant SDK as UI or SDK listener
   User->>Agent: send(content)
+  Agent-->>SDK: agent/queued
   Agent->>Driver: queued work wakes driver
-  Driver->>Session: turn/start + user/message
-  Driver-->>User: agent/turn-start
+  Driver-->>SDK: agent/status running
+  Driver->>Session: turn/start
+  Driver->>Hooks: agent/prompt-submit waterfall
+  Hooks-->>Driver: allow, block, or add context
+  Driver->>Session: user/message or rejected turn/end
   Driver->>Prompt: system-prompt/assemble waterfall
   Driver-->>Driver: agent/pre-step serial checkpoint
   Driver->>Session: step/start
   Driver->>LLM: agent/request waterfall, then llm/stream waterfall
   LLM-->>Driver: StreamChunk*
   Driver->>Session: assistant/chunk*
-  Driver-->>User: agent/stream-chunk* (master live mirror)
+  Session-->>SDK: session/event assistant/chunk*
+  Driver->>Hooks: agent/step-result waterfall
   Driver->>Session: assistant/message
-  Driver->>Tools: tools/execute waterfall for each tool-call
+  Driver->>Session: tool/call
+  Driver->>Tools: execute through pre and post waterfalls
   Tools-->>Session: tool-owned events when applicable
-  Driver->>Session: tool/result
-  Driver-->>Driver: agent/turn-continuation waterfall
+  Driver->>Session: tool/result and step/end
+  Driver->>Hooks: agent/turn-continuation waterfall
   Driver->>Session: turn/end
   Driver->>Persistence: session/flush parallel checkpoint
-  Driver-->>User: agent/status idle
+  Driver-->>SDK: agent/status idle
 ```
 
-Future pressure from the hooks stack: PR #129 removes the live `agent/stream-chunk` mirror and leaves durable `assistant/chunk` on `session/event` as the authoritative token stream. Consumers that need replayable transcript data should already treat `session/event` as the load-bearing path.
+SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request shaping, steering, continuation, and errors.

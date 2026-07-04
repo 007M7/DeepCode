@@ -16,6 +16,13 @@ flowchart LR
   toolpkg__deepseek_ai_dsh_tool_bash --> requires_ctx_tools
   requires_ctx_bash["ctx.bash"]
   toolpkg__deepseek_ai_dsh_tool_bash --> requires_ctx_bash
+  toolpkg__deepseek_ai_dsh_tool_fs["tool-fs<br/>edit, read, write"]
+  model --> toolpkg__deepseek_ai_dsh_tool_fs
+  toolpkg__deepseek_ai_dsh_tool_fs --> requires_ctx_tools
+  requires_ctx_fs["ctx.fs"]
+  toolpkg__deepseek_ai_dsh_tool_fs --> requires_ctx_fs
+  requires_ctx_systemPrompt["ctx.systemPrompt"]
+  toolpkg__deepseek_ai_dsh_tool_fs --> requires_ctx_systemPrompt
   toolpkg__deepseek_ai_dsh_tool_subagent["tool-subagent<br/>subagent"]
   model --> toolpkg__deepseek_ai_dsh_tool_subagent
   toolpkg__deepseek_ai_dsh_tool_subagent --> requires_ctx_tools
@@ -26,10 +33,18 @@ flowchart LR
   toolpkg__deepseek_ai_dsh_tool_todo --> requires_ctx_tools
   requires_owning_Agent_session["owning Agent session"]
   toolpkg__deepseek_ai_dsh_tool_todo --> requires_owning_Agent_session
+  toolpkg__deepseek_ai_dsh_tool_web["tool-web<br/>web_fetch, web_search"]
+  model --> toolpkg__deepseek_ai_dsh_tool_web
+  toolpkg__deepseek_ai_dsh_tool_web --> requires_ctx_tools
+  requires_ctx_web["ctx.web"]
+  toolpkg__deepseek_ai_dsh_tool_web --> requires_ctx_web
+  toolpkg__deepseek_ai_dsh_tool_web --> requires_ctx_systemPrompt
 ```
 
 | Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Note |
 | --- | --- | --- | --- | --- | --- |
 | `@deepseek-ai/dsh-tool-bash` | `bash`, `bash_kill`, `bash_output` | `ctx.tools`, `ctx.bash` | `tool/call`, `tool/result`, `context/message via agent.inject() for background completion notices` | - | The bash/bash_output/bash_kill tools are model-facing consumers of the bash executor seam. |
+| `@deepseek-ai/dsh-tool-fs` | `edit`, `read`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after successful file operations`, `tool/result` | - | read/write/edit are the model-facing filesystem tools; read windowing lives here, while read-before-edit policy is supplied by fs-policy through fs/* events. |
 | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`, `ctx.subagents` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The default package schema registers subagent; shipped coding/acp configs load it twice to expose spawn and fork backends. |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan. |
+| `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |

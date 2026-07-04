@@ -44,13 +44,13 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Agent Client Protocol (ACP) support for external editors](proposed/feature/2026-06-14-acp-agent-client-protocol.md) | 2026-06-14 |
 | [Multiplex concurrent ACP sessions over one connection](proposed/feature/2026-06-14-acp-multi-session.md) | 2026-06-14 |
 | [Optional Code Mode — model writes TypeScript against an SDK of all tools](proposed/feature/2026-06-15-optional-code-mode.md) | 2026-06-15 |
+| [Pre-tool input rewrite — a consistent design](proposed/feature/2026-06-30-pre-tool-input-rewrite.md) | 2026-06-30 |
 
 ### Simplification
 
 | Title | First proposed |
 |---|---|
 | [Unify the agent id and the session id](proposed/simplification/2026-06-20-unify-agent-and-session-id.md) | 2026-06-20 |
-| [Stop mirroring durable boundaries as agent events](proposed/simplification/2026-06-20-remove-agent-boundary-mirror-events.md) | 2026-06-20 |
 
 ### Architecture
 
@@ -81,11 +81,16 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 
 | Title | First proposed |
 |---|---|
+| [Filesystem tool schemas — model-facing read/write/edit shapes](implemented/feature/2026-06-17-filesystem-tool-schemas.md) | 2026-06-17 |
 | [Rich ACP bash rendering — the terminal card (`_meta`) and command classification](implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) | 2026-06-18 |
 | [Compaction as a capability seam (abstract contract + basic backend)](implemented/feature/2026-06-18-compaction-capability-seam.md) | 2026-06-18 |
 | [Subagent capability seam](implemented/feature/2026-06-21-subagent-capability-seam.md) | 2026-06-21 |
 | [ACP subagent backend (out-of-process delegation)](implemented/feature/2026-06-22-acp-subagent-backend.md) | 2026-06-22 |
 | [The `todo_write` tool — model task list as event-sourced session state](implemented/feature/2026-06-29-todo-write-tool.md) | 2026-06-29 |
+| [Interception seams — the typed-Decision surface a hook programs against](implemented/feature/2026-06-30-interception-seams.md) | 2026-06-30 |
+| [Subagent lifecycle enrichment — lastAssistantMessage (observe-only)](implemented/feature/2026-06-30-subagent-observe-enrich.md) | 2026-06-30 |
+| [dsh-hook-protocol — the shared Claude Code / Codex hook wire-protocol core](implemented/feature/2026-06-30-hook-protocol-lib.md) | 2026-06-30 |
+| [dsh-hooks-claude + dsh-hooks-codex — the Claude Code / Codex hook bridges](implemented/feature/2026-06-30-hook-bridges.md) | 2026-06-30 |
 
 ### Simplification
 
@@ -97,6 +102,9 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Prune dead methods from the persistence seam](implemented/simplification/2026-06-20-prune-dead-seam-methods.md) | 2026-06-20 |
 | [Keep one public stop primitive](implemented/simplification/2026-06-20-public-agent-stop-surface.md) | 2026-06-20 |
 | [Fold trace-only session facts into load-bearing events](implemented/simplification/2026-06-20-collapse-trace-only-session-events.md) | 2026-06-20 |
+| [Stop mirroring durable boundaries as agent events](implemented/simplification/2026-06-20-remove-agent-boundary-mirror-events.md) | 2026-06-20 |
+| [Split the filesystem seam — provider text mutations plus the `dsh-fs-policy` plugin](implemented/simplification/2026-06-26-fsspec-style-fs-seam.md) | 2026-06-26 |
+| [Stop mirroring the token stream as an agent event](implemented/simplification/2026-07-02-remove-stream-chunk-mirror.md) | 2026-07-02 |
 
 ### Architecture
 
@@ -114,12 +122,21 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Two LLM adapters as a design-verification twin](implemented/architecture/2026-06-13-twin-llm-adapters.md) | 2026-06-13 |
 | [Session persistence as an abstract service over `SessionEvent`](implemented/architecture/2026-06-14-session-persistence.md) | 2026-06-14 |
 | [Every session event is enclosed in a turn](implemented/architecture/2026-06-15-turn-enclosure-invariant.md) | 2026-06-15 |
+| [Filesystem capability seam — ctx.fs, local backend, and model-facing filesystem tools](implemented/architecture/2026-06-17-filesystem-capability-seam.md) | 2026-06-17 |
 | [Shared persistence write coordinator](implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md) | 2026-06-18 |
 | [Agent lifecycle and ownership seams](implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md) | 2026-06-18 |
 | [Session surface — a linked list over the event log for LLM message derivation](implemented/architecture/2026-06-18-session-surface.md) | 2026-06-18 |
 | [Reorganize packages into a modular hierarchy](implemented/architecture/2026-06-20-package-hierarchy.md) | 2026-06-20 |
 | [Branded IDs everywhere they belong](implemented/architecture/2026-06-20-branded-ids.md) | 2026-06-20 |
 | [Extract example apps into packages](implemented/architecture/2026-06-20-extract-example-app-packages.md) | 2026-06-20 |
+| [Web capability seam — provider registry and model-facing web tools](implemented/architecture/2026-06-24-web-capability-seam.md) | 2026-06-24 |
+| [Make `dsh-fs-policy` an event-gate plugin, not a method interface](implemented/architecture/2026-06-26-file-context-as-event-gate.md) | 2026-06-26 |
+| [Event-domain semantics — session is the fact log, agent is the live surface](implemented/architecture/2026-06-30-event-domain-semantics.md) | 2026-06-30 |
+| [stdin + extra env on the bash seam](implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md) | 2026-06-30 |
+| [Resolve filesystem paths against the caller's session cwd](implemented/architecture/2026-07-02-fs-per-session-cwd.md) | 2026-07-02 |
+| [Tagged render-intent union for tool-call presentation](implemented/architecture/2026-07-02-tool-render-intent-union.md) | 2026-07-02 |
+| [Result-time applied-hunk diffs for file mutations](implemented/architecture/2026-07-02-result-time-applied-hunk-diffs.md) | 2026-07-02 |
+| [Add direct directory listing to the filesystem seam](implemented/architecture/2026-07-03-filesystem-directory-listing-seam.md) | 2026-07-03 |
 
 ### Process
 
@@ -136,6 +153,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Generated cordis events + services catalog](implemented/process/2026-06-20-generated-cordis-catalog.md) | 2026-06-20 |
 | [Classify RFCs by kind via path-encoded subdirectories](implemented/process/2026-06-20-rfc-classification.md) | 2026-06-20 |
 | [Generated tool-schema catalog (boot-and-harvest)](implemented/process/2026-07-02-tool-schema-catalog.md) | 2026-07-02 |
+| [Bilingual documentation via paired sibling files and a pairing gate](implemented/process/2026-07-02-bilingual-docs-and-pairing-gate.md) | 2026-07-02 |
 | [Documentation graph atlas for maintainers and SDK users](implemented/process/2026-07-03-documentation-graph-atlas.md) | 2026-07-03 |
 
 ### Testing
@@ -149,6 +167,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Per-session snapshot replay for nested agents](implemented/testing/2026-06-22-subagent-snapshot-replay.md) | 2026-06-22 |
 | [Persist the seed boundary so fork-child replay routes correctly](implemented/testing/2026-06-22-fork-child-replay-seed-boundary.md) | 2026-06-22 |
 | [Record fork and mixed spawn+fork snapshot scenarios](implemented/testing/2026-06-22-fork-snapshot-scenarios.md) | 2026-06-22 |
+| [Hook snapshot matrix — end-to-end goldens for both bridges](implemented/testing/2026-07-04-hook-snapshot-matrix.md) | 2026-07-04 |
 
 ## Rejected
 

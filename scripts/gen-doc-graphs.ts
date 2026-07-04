@@ -53,6 +53,7 @@ interface ServiceRole {
   mode: 'core' | 'seam' | 'bundle'
   implementations?: string[]
   consumers?: string[]
+  companions?: string[]
   note: string
 }
 
@@ -73,7 +74,21 @@ interface ToolPackageMeta {
   note: string
 }
 
-const GROUP_ORDER = ['util', 'llm', 'core', 'bash', 'compact', 'subagent', 'session-persistence', 'todo', 'support', 'ui']
+const GROUP_ORDER = [
+  'util',
+  'llm',
+  'core',
+  'bash',
+  'fs',
+  'compact',
+  'subagent',
+  'web',
+  'todo',
+  'hooks',
+  'session-persistence',
+  'support',
+  'ui',
+]
 
 const SERVICE_ROLES: ServiceRole[] = [
   {
@@ -107,7 +122,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'system-prompt',
     title: 'System prompt assembly registry',
     mode: 'core',
-    consumers: ['agent-loop', 'tools'],
+    consumers: ['agent-loop', 'tools', 'tool-fs', 'tool-web'],
     note: 'Collects prompt sections and model-facing tool schemas for each step.',
   },
   {
@@ -115,8 +130,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'tools',
     title: 'Tool registry and execution waterfall',
     mode: 'core',
-    consumers: ['agent-loop', 'tool-bash', 'tool-subagent', 'tool-todo', 'acp'],
-    note: 'Registers tool definitions, exposes schemas to the prompt, and routes calls through tools/execute.',
+    consumers: ['agent-loop', 'tool-bash', 'tool-fs', 'tool-subagent', 'tool-todo', 'tool-web', 'acp'],
+    note: 'Registers tool definitions, exposes schemas to the prompt, and routes calls through tools/pre-execute and tools/post-execute.',
   },
   {
     key: 'agents',
@@ -140,8 +155,18 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Bash executor seam',
     mode: 'seam',
     implementations: ['bash-local'],
-    consumers: ['tool-bash'],
-    note: 'The model-facing bash tools consume this seam; sandboxed or remote executors can replace bash-local.',
+    consumers: ['tool-bash', 'hooks-claude', 'hooks-codex'],
+    note: 'The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors can replace bash-local.',
+  },
+  {
+    key: 'fs',
+    pkg: 'fs',
+    title: 'Filesystem provider seam',
+    mode: 'seam',
+    implementations: ['fs-local'],
+    consumers: ['tool-fs'],
+    companions: ['fs-policy'],
+    note: 'tool-fs executes read/write/edit through ctx.fs; fs-policy contributes observed-state checks through the fs/* event gate.',
   },
   {
     key: 'compact',
@@ -161,6 +186,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     consumers: ['tool-subagent'],
     note: 'Providers implement transports; tool-subagent exposes one configured provider as a model-facing tool name.',
   },
+  {
+    key: 'web',
+    pkg: 'web',
+    title: 'Web access provider registry',
+    mode: 'seam',
+    implementations: ['web-search-exa', 'web-search-perplexity', 'web-search-deepseek', 'web-fetch-local'],
+    consumers: ['tool-web'],
+    note: 'Search and fetch providers register into one ctx.web seam; tool-web owns the stable model-facing names.',
+  },
 ]
 
 const TOOL_PACKAGE_META: Record<string, ToolPackageMeta> = {
@@ -168,6 +202,11 @@ const TOOL_PACKAGE_META: Record<string, ToolPackageMeta> = {
     requires: ['ctx.tools', 'ctx.bash'],
     writes: ['tool/call', 'tool/result', 'context/message via agent.inject() for background completion notices'],
     note: 'The bash/bash_output/bash_kill tools are model-facing consumers of the bash executor seam.',
+  },
+  '@deepseek-ai/dsh-tool-fs': {
+    requires: ['ctx.tools', 'ctx.fs', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'fs/write-intent or fs/edit-intent for mutations', 'fs/observed after successful file operations', 'tool/result'],
+    note: 'read/write/edit are the model-facing filesystem tools; read windowing lives here, while read-before-edit policy is supplied by fs-policy through fs/* events.',
   },
   '@deepseek-ai/dsh-tool-subagent': {
     requires: ['ctx.tools', 'ctx.subagents'],
@@ -179,6 +218,11 @@ const TOOL_PACKAGE_META: Record<string, ToolPackageMeta> = {
     requires: ['ctx.tools', 'owning Agent session'],
     writes: ['tool/call', 'todo/write', 'tool/result'],
     note: 'todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan.',
+  },
+  '@deepseek-ai/dsh-tool-web': {
+    requires: ['ctx.tools', 'ctx.web', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'tool/result'],
+    note: 'web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps.',
   },
 }
 
@@ -331,6 +375,7 @@ function renderCapabilitySeams(pkgs: Pkg[]): string {
   const pkgsByShort = new Map(pkgs.map(pkg => [pkg.short, pkg]))
   const nodes = new Map<string, string>()
   const edges = new Set<string>()
+  const companionEdges = new Set<string>()
   const addNode = (id: string, label: string): void => {
     if (!nodes.has(id)) nodes.set(id, `  ${id}["${escLabel(label)}"]`)
   }
@@ -356,11 +401,15 @@ function renderCapabilitySeams(pkgs: Pkg[]): string {
       addNode(nodeId('pkg', consumer), consumer)
       addEdge(svc, nodeId('pkg', consumer))
     }
+    for (const companion of role.companions ?? []) {
+      addNode(nodeId('pkg', companion), companion)
+      companionEdges.add(`  ${svc} -. event gate .-> ${nodeId('pkg', companion)}`)
+    }
   }
-  lines.push(...nodes.values(), ...[...edges].sort())
-  lines.push('```', '', '| ctx key | Role | Owner | Implementations | Direct consumers | Note |', '| --- | --- | --- | --- | --- | --- |')
+  lines.push(...nodes.values(), ...[...edges].sort(), ...[...companionEdges].sort())
+  lines.push('```', '', '| ctx key | Role | Owner | Implementations | Direct consumers | Companion plugins | Note |', '| --- | --- | --- | --- | --- | --- | --- |')
   for (const role of SERVICE_ROLES) {
-    lines.push(`| \`ctx.${role.key}\` | \`${role.mode}\` | ${pkgLink(pkgsByShort.get(role.pkg), role.pkg)} | ${pkgList(role.implementations, pkgsByShort)} | ${pkgList(role.consumers, pkgsByShort)} | ${tableCell(role.note)} |`)
+    lines.push(`| \`ctx.${role.key}\` | \`${role.mode}\` | ${pkgLink(pkgsByShort.get(role.pkg), role.pkg)} | ${pkgList(role.implementations, pkgsByShort)} | ${pkgList(role.consumers, pkgsByShort)} | ${pkgList(role.companions, pkgsByShort)} | ${tableCell(role.note)} |`)
   }
   lines.push('')
   return lines.join('\n')
@@ -592,40 +641,48 @@ async function renderToolAffordance(): Promise<string> {
 function renderLifecycle(): string {
   return [
     ...generatedHeader('Agent Turn And Step Lifecycle', 'curated Mermaid sequence; exact event signatures live in the generated Cordis catalog'),
-    'This sequence is the visual companion to [architecture.md](../architecture.md#loop-lifecycle-session--turn--step). It shows the durable session event path separately from live `agent/*` notifications.',
+    'This sequence is the visual companion to [architecture.md](../architecture.md#loop-lifecycle-session--turn--step). It keeps durable replay facts on `session/event` and live control/status on `agent/*`.',
     '',
     '```mermaid',
     'sequenceDiagram',
     '  participant User',
     '  participant Agent',
     '  participant Driver',
+    '  participant Hooks as hook listeners',
     '  participant Prompt as ctx.systemPrompt',
     '  participant LLM as ctx.llm',
     '  participant Tools as ctx.tools',
     '  participant Session',
     '  participant Persistence',
+    '  participant SDK as UI or SDK listener',
     '  User->>Agent: send(content)',
+    '  Agent-->>SDK: agent/queued',
     '  Agent->>Driver: queued work wakes driver',
-    '  Driver->>Session: turn/start + user/message',
-    '  Driver-->>User: agent/turn-start',
+    '  Driver-->>SDK: agent/status running',
+    '  Driver->>Session: turn/start',
+    '  Driver->>Hooks: agent/prompt-submit waterfall',
+    '  Hooks-->>Driver: allow, block, or add context',
+    '  Driver->>Session: user/message or rejected turn/end',
     '  Driver->>Prompt: system-prompt/assemble waterfall',
     '  Driver-->>Driver: agent/pre-step serial checkpoint',
     '  Driver->>Session: step/start',
     '  Driver->>LLM: agent/request waterfall, then llm/stream waterfall',
     '  LLM-->>Driver: StreamChunk*',
     '  Driver->>Session: assistant/chunk*',
-    '  Driver-->>User: agent/stream-chunk* (master live mirror)',
+    '  Session-->>SDK: session/event assistant/chunk*',
+    '  Driver->>Hooks: agent/step-result waterfall',
     '  Driver->>Session: assistant/message',
-    '  Driver->>Tools: tools/execute waterfall for each tool-call',
+    '  Driver->>Session: tool/call',
+    '  Driver->>Tools: execute through pre and post waterfalls',
     '  Tools-->>Session: tool-owned events when applicable',
-    '  Driver->>Session: tool/result',
-    '  Driver-->>Driver: agent/turn-continuation waterfall',
+    '  Driver->>Session: tool/result and step/end',
+    '  Driver->>Hooks: agent/turn-continuation waterfall',
     '  Driver->>Session: turn/end',
     '  Driver->>Persistence: session/flush parallel checkpoint',
-    '  Driver-->>User: agent/status idle',
+    '  Driver-->>SDK: agent/status idle',
     '```',
     '',
-    'Future pressure from the hooks stack: PR #129 removes the live `agent/stream-chunk` mirror and leaves durable `assistant/chunk` on `session/event` as the authoritative token stream. Consumers that need replayable transcript data should already treat `session/event` as the load-bearing path.',
+    'SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request shaping, steering, continuation, and errors.',
     '',
   ].join('\n')
 }
@@ -633,29 +690,38 @@ function renderLifecycle(): string {
 function renderToolPipeline(): string {
   return [
     ...generatedHeader('Tool Execution Pipeline', 'curated Mermaid flow; exact tool schemas and event signatures live in generated catalogs'),
-    'This graph shows where policy, hooks, sandboxing, and future filesystem guards fit without changing the loop. The key extension point is the `tools/execute` waterfall.',
+    'This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, and UI rendering fit without changing the loop. The key extension points are the `tools/pre-execute` and `tools/post-execute` waterfalls.',
     '',
     '```mermaid',
     'flowchart TD',
     '  model["Assistant message contains tool-call block"]',
-    '  toolCall["Session event: tool/call"]',
-    '  waterfall["ctx.tools.execute()<br/>tools/execute waterfall"]',
-    '  policy["Policy / permission / hooks listener"]',
+    '  toolCall["Session event: tool/call<br/>logged before execution"]',
+    '  presentCall["UI pending card<br/>presentCall(args)"]',
+    '  pre["tools/pre-execute waterfall<br/>hooks, permission, sandbox"]',
+    '  denied["deny or ask<br/>tool body skipped"]',
     '  toolBody["Registered tool execute() body"]',
-    '  owned["Tool-owned session events<br/>todo/write, future fs policy facts"]',
-    '  toolResult["Session event: tool/result"]',
-    '  ui["UI presentation<br/>presentCall / presentResult"]',
-    '  model --> toolCall --> waterfall',
-    '  waterfall --> policy',
-    '  policy -->|next| toolBody',
-    '  policy -->|veto / throw| toolResult',
+    '  fsGate["fs/write-intent or fs/edit-intent<br/>tool-fs mutations only"]',
+    '  owned["Tool-owned session events<br/>todo/write, fs/observed, hook/invoked, hook/result"]',
+    '  post["tools/post-execute waterfall<br/>accept, block, replace, add context"]',
+    '  context["Buffered additionalContext<br/>context/message after all tool results"]',
+    '  toolResult["Session event: tool/result<br/>single model-facing outcome"]',
+    '  presentResult["UI completed card<br/>presentResult(args, result)"]',
+    '  model --> toolCall',
+    '  toolCall --> presentCall',
+    '  toolCall --> pre',
+    '  pre -->|allow| toolBody',
+    '  pre -->|deny or ask| denied',
+    '  denied --> post',
+    '  toolBody --> fsGate',
+    '  fsGate --> toolBody',
     '  toolBody --> owned',
-    '  toolBody --> toolResult',
-    '  toolCall --> ui',
-    '  toolResult --> ui',
+    '  toolBody --> post',
+    '  post --> context',
+    '  post --> toolResult',
+    '  toolResult --> presentResult',
     '```',
     '',
-    'Future pressure from the fs stack: PR #128 snapshots a policy rejection card. The graph keeps the veto path explicit because filesystem read-before-edit checks, permission prompts, and hook bridges all belong on this path.',
+    'Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate, while hook bridges and future permission prompts live on the generic tool waterfalls. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service.',
     '',
   ].join('\n')
 }
@@ -739,23 +805,26 @@ function renderHotReload(): string {
 function renderSnapshotReplay(): string {
   return [
     ...generatedHeader('ACP Snapshot Replay', 'curated Mermaid sequence based on the snapshot test harness'),
-    'This graph explains what a snapshot scenario proves: recorded real-model session logs are replayed keylessly, then ACP stdout is normalized and diffed.',
+    'This graph explains what a snapshot scenario proves: recorded real-model session logs are replayed keylessly, ACP stdout is normalized and diffed, and scenario workspaces preserve tool side effects that the UI stream alone cannot prove.',
     '',
     '```mermaid',
     'sequenceDiagram',
     '  participant Recorder as Real API recording',
     '  participant Fixture as snapshot fixture',
+    '  participant Workspace',
     '  participant Replay as llm-replay adapter',
     '  participant ACP as acp-agent subprocess',
     '  participant Golden as stdout golden',
     '  Recorder->>Fixture: session.jsonl + workspace inputs',
+    '  Fixture->>Workspace: seed files and hook configs',
     '  Fixture->>Replay: recorded StreamChunk script',
     '  Replay->>ACP: deterministic llm/stream chunks',
+    '  ACP->>Workspace: bash, fs, and hook side effects',
     '  ACP->>Golden: normalized sessionUpdate stream',
     '  Golden-->>ACP: diff must be empty',
     '```',
     '',
-    'Future pressure from the fs stack: policy rejection scenarios are valuable because they prove both world state and failed tool-card rendering, not just that replay returns text.',
+    'The fs and hook snapshot matrix is valuable because it proves world state, hook decisions, and failed tool-card rendering, not just that replay returns text.',
     '',
   ].join('\n')
 }

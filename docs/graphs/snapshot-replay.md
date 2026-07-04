@@ -5,20 +5,23 @@
 
 Maintenance mode: curated Mermaid sequence based on the snapshot test harness.
 
-This graph explains what a snapshot scenario proves: recorded real-model session logs are replayed keylessly, then ACP stdout is normalized and diffed.
+This graph explains what a snapshot scenario proves: recorded real-model session logs are replayed keylessly, ACP stdout is normalized and diffed, and scenario workspaces preserve tool side effects that the UI stream alone cannot prove.
 
 ```mermaid
 sequenceDiagram
   participant Recorder as Real API recording
   participant Fixture as snapshot fixture
+  participant Workspace
   participant Replay as llm-replay adapter
   participant ACP as acp-agent subprocess
   participant Golden as stdout golden
   Recorder->>Fixture: session.jsonl + workspace inputs
+  Fixture->>Workspace: seed files and hook configs
   Fixture->>Replay: recorded StreamChunk script
   Replay->>ACP: deterministic llm/stream chunks
+  ACP->>Workspace: bash, fs, and hook side effects
   ACP->>Golden: normalized sessionUpdate stream
   Golden-->>ACP: diff must be empty
 ```
 
-Future pressure from the fs stack: policy rejection scenarios are valuable because they prove both world state and failed tool-card rendering, not just that replay returns text.
+The fs and hook snapshot matrix is valuable because it proves world state, hook decisions, and failed tool-card rendering, not just that replay returns text.

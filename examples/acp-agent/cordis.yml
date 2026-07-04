@@ -1,8 +1,9 @@
 # The acp-agent plugin tree: the ACP server. Also the snapshot RECORD config
 # (the dsh-acp-agent bin selects it for DSH_SNAPSHOT=record): a real llm-deepseek
 # run whose persisted log the snapshot harness harvests. The swappable DeepSeek
-# adapter and local bash executor, the ACP server app (@deepseek-ai/dsh-acp-agent),
-# and the optional model-facing subagent/todo tools loaded below.
+# adapter, local bash/filesystem executors, the ACP server app
+# (@deepseek-ai/dsh-acp-agent), and the optional model-facing fs/subagent/todo
+# tools loaded below.
 #
 # CRITICAL: this tree loads NO stdout logger and NO hmr — stdout is reserved for
 # the ACP JSON-RPC protocol (see packages/ui/acp). That guarantee is now a
@@ -24,7 +25,7 @@
 
 # Local bash executor for agent-core's tool-bash schema.
 # FIXME(config-comments): keep this executor note from implying bash is the
-# whole tool set; subagent and todo_write are loaded below.
+# whole tool set; filesystem, subagent, and todo_write are loaded below.
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
   config:
@@ -41,12 +42,13 @@
     systemPrompt: |
       You are a coding assistant driven over the Agent Client Protocol.
 
-      Your tools are bash (plus bash_output/bash_kill for background tasks)
-      and subagent. Do ALL file operations through bash: read with
-      cat/sed/head, search with grep, write with heredocs (cat <<'EOF' >
-      file), edit with sed or a rewrite. Each bash call runs in a fresh
-      shell — pass workdir instead of cd. Check the [exit code: N] marker;
-      verify your work. Keep answers brief and factual.
+      Your tools are read/write/edit for file operations, bash (plus
+      bash_output/bash_kill for background tasks), and subagent. Use read to
+      inspect UTF-8 text files, write to create or replace files, and edit for
+      targeted literal replacements. Use bash for shell commands, tests,
+      searches, and operations that are not ordinary file reads or edits. Each
+      bash call runs in a fresh shell — pass workdir instead of cd. Check the
+      [exit code: N] marker; verify your work. Keep answers brief and factual.
 
       Use the subagent tool to delegate a focused, self-contained subtask to
       a fresh child agent (it works in its own context and returns only its
@@ -95,3 +97,45 @@
 # session log (todo/write), surfaced to the ACP client as a `plan` update.
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
+
+# Filesystem capability stack: local provider, read-before-write/edit policy
+# gate, then the model-facing read/write/edit tools. Relative filesystem paths
+# resolve from the server launch cwd; the documented Zed setup launches this
+# demo from the harness checkout with `pnpm --dir`.
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
+  config:
+    cwd: !!js process.cwd()
+
+- id: fs-policy
+  name: '@deepseek-ai/dsh-fs-policy'
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+# The Claude Code hook bridge. `configPath` is PROCESS-LEVEL: it is read ONCE at
+# load and the relative `./hooks.json` resolves against the ACP server's launch
+# cwd, NOT each `session/new.cwd`. So a single `hooks.json` next to where the
+# server starts applies to every session; a project-local, per-session hooks.json
+# is NOT discovered (per-session config resolution is a TODO — see the bridge
+# README). With no file present the parse fails-soft and the bridge registers
+# nothing (a silent no-op). Hooks THEMSELVES run in the session cwd (the bridge
+# passes it as the workdir); only WHERE the config is read from is process-level.
+# stdout is the ACP JSON-RPC channel — the bridge's warnings go through ctx.logger
+# (no exporter here), never to stdout.
+- id: hooks-claude
+  name: '@deepseek-ai/dsh-hooks-claude'
+  config:
+    configPath: ./hooks.json
+
+# The Codex hook bridge, loaded alongside the Claude one. It reads its OWN config
+# file (`./codex-hooks.json`, Codex's snake_case five-event dialect) — the two
+# bridges cannot share one file, so each owns a distinct path. Same process-level
+# read-once semantics and same fails-soft-when-absent contract: a launch cwd with
+# no `codex-hooks.json` registers nothing (a silent no-op through ctx.logger, never
+# stdout). The example ships both bridges so a scenario can exercise EITHER dialect
+# end-to-end by seeding the matching file in its workspace/.
+- id: hooks-codex
+  name: '@deepseek-ai/dsh-hooks-codex'
+  config:
+    configPath: ./codex-hooks.json
