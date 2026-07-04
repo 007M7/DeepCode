@@ -12,22 +12,10 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../../../vendor/schemastery"
-    },
-    {
       "path": "../../../vendor/loader"
     },
     {
-      "path": "../app-boot"
-    },
-    {
-      "path": "../acp"
-    },
-    {
-      "path": "../../core/agent-core"
-    },
-    {
-      "path": "../../session-persistence/session-persistence-jsonl"
+      "path": "../../../vendor/include"
     }
   ]
 }

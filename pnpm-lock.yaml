@@ -873,6 +873,9 @@ importers:
       '@deepseek-ai/dsh-agent-core':
         specifier: workspace:^
         version: link:../../core/agent-core
+      '@deepseek-ai/dsh-app-boot':
+        specifier: workspace:^
+        version: link:../app-boot
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: workspace:^
         version: link:../../session-persistence/session-persistence-jsonl
@@ -882,6 +885,18 @@ importers:
       schemastery:
         specifier: ^3.17.0
         version: 3.18.0
+
+  packages/ui/app-boot:
+    devDependencies:
+      '@cordisjs/plugin-include':
+        specifier: workspace:^
+        version: link:../../../vendor/include
+      '@cordisjs/plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
+      cordis:
+        specifier: ^4.0.0-rc.6
+        version: 4.0.0-rc.6(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
 
   packages/ui/stdio-agent:
     devDependencies:
@@ -900,6 +915,9 @@ importers:
       '@deepseek-ai/dsh-agent-core':
         specifier: workspace:^
         version: link:../../core/agent-core
+      '@deepseek-ai/dsh-app-boot':
+        specifier: workspace:^
+        version: link:../app-boot
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm

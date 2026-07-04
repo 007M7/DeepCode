@@ -7,6 +7,7 @@ Integrations that expose the agent to an external editor or client. These are **
 | `acp/` | Agent Client Protocol bridge: serves the agent to an ACP editor (Zed) over JSON-RPC stdio | (drives `ctx.agents`/`ctx.sessions`) |
 | `stdio-agent/` | Terminal stdio chat APP: the agent-core spine + console logger + readline UI + a pre-created `main` agent, with a `bin` | (composition + `bin`) |
 | `acp-agent/` | ACP server APP: the agent-core spine + JSONL persistence + the `acp` bridge (no stdout logger), with a `bin` | (composition + `bin`) |
+| `app-boot/` | Shared boot glue for the two app bins: `.env` loading, fail-loud Loader guards, snapshot-aware config resolution, the settle-the-tree boot sequence | (library for the bins) |
 
 A UI integration is a client-driver plugin, not a loop change and not a capability seam: it consumes the existing `agent/*` event taxonomy and the `dsh-agent` factory. The readline UI is the unstructured analogue of the `acp` bridge and lives INSIDE the stdio app (the `stdio-chat` module of [`stdio-agent/`](stdio-agent/README.md)): it is scaffolding for that one front door, not an independently swappable integration, so it carries no package boundary of its own.
 
