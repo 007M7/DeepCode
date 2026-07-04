@@ -44,13 +44,13 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Agent Client Protocol (ACP) support for external editors](proposed/feature/2026-06-14-acp-agent-client-protocol.md) | 2026-06-14 |
 | [Multiplex concurrent ACP sessions over one connection](proposed/feature/2026-06-14-acp-multi-session.md) | 2026-06-14 |
 | [Optional Code Mode — model writes TypeScript against an SDK of all tools](proposed/feature/2026-06-15-optional-code-mode.md) | 2026-06-15 |
+| [Pre-tool input rewrite — a consistent design](proposed/feature/2026-06-30-pre-tool-input-rewrite.md) | 2026-06-30 |
 
 ### Simplification
 
 | Title | First proposed |
 |---|---|
 | [Unify the agent id and the session id](proposed/simplification/2026-06-20-unify-agent-and-session-id.md) | 2026-06-20 |
-| [Stop mirroring durable boundaries as agent events](proposed/simplification/2026-06-20-remove-agent-boundary-mirror-events.md) | 2026-06-20 |
 | [Prune producer-less vocabulary variants (block cache hints, the `agent` message source, the `continuation` turn trigger)](proposed/simplification/2026-07-04-prune-producerless-vocabulary-variants.md) | 2026-07-04 |
 | [Drop `GenerateOptions.prefill` and `ToolSchema.strict` — request knobs with no working end-to-end path](proposed/simplification/2026-07-04-drop-inert-request-knobs.md) | 2026-07-04 |
 | [Drop the unconsumed `web/providers-change` event](proposed/simplification/2026-07-04-drop-web-providers-change-event.md) | 2026-07-04 |
@@ -96,6 +96,10 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Subagent capability seam](implemented/feature/2026-06-21-subagent-capability-seam.md) | 2026-06-21 |
 | [ACP subagent backend (out-of-process delegation)](implemented/feature/2026-06-22-acp-subagent-backend.md) | 2026-06-22 |
 | [The `todo_write` tool — model task list as event-sourced session state](implemented/feature/2026-06-29-todo-write-tool.md) | 2026-06-29 |
+| [Interception seams — the typed-Decision surface a hook programs against](implemented/feature/2026-06-30-interception-seams.md) | 2026-06-30 |
+| [Subagent lifecycle enrichment — lastAssistantMessage (observe-only)](implemented/feature/2026-06-30-subagent-observe-enrich.md) | 2026-06-30 |
+| [dsh-hook-protocol — the shared Claude Code / Codex hook wire-protocol core](implemented/feature/2026-06-30-hook-protocol-lib.md) | 2026-06-30 |
+| [dsh-hooks-claude + dsh-hooks-codex — the Claude Code / Codex hook bridges](implemented/feature/2026-06-30-hook-bridges.md) | 2026-06-30 |
 
 ### Simplification
 
@@ -107,7 +111,9 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Prune dead methods from the persistence seam](implemented/simplification/2026-06-20-prune-dead-seam-methods.md) | 2026-06-20 |
 | [Keep one public stop primitive](implemented/simplification/2026-06-20-public-agent-stop-surface.md) | 2026-06-20 |
 | [Fold trace-only session facts into load-bearing events](implemented/simplification/2026-06-20-collapse-trace-only-session-events.md) | 2026-06-20 |
+| [Stop mirroring durable boundaries as agent events](implemented/simplification/2026-06-20-remove-agent-boundary-mirror-events.md) | 2026-06-20 |
 | [Split the filesystem seam — provider text mutations plus the `dsh-fs-policy` plugin](implemented/simplification/2026-06-26-fsspec-style-fs-seam.md) | 2026-06-26 |
+| [Stop mirroring the token stream as an agent event](implemented/simplification/2026-07-02-remove-stream-chunk-mirror.md) | 2026-07-02 |
 
 ### Architecture
 
@@ -134,6 +140,8 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Extract example apps into packages](implemented/architecture/2026-06-20-extract-example-app-packages.md) | 2026-06-20 |
 | [Web capability seam — provider registry and model-facing web tools](implemented/architecture/2026-06-24-web-capability-seam.md) | 2026-06-24 |
 | [Make `dsh-fs-policy` an event-gate plugin, not a method interface](implemented/architecture/2026-06-26-file-context-as-event-gate.md) | 2026-06-26 |
+| [Event-domain semantics — session is the fact log, agent is the live surface](implemented/architecture/2026-06-30-event-domain-semantics.md) | 2026-06-30 |
+| [stdin + extra env on the bash seam](implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md) | 2026-06-30 |
 | [Resolve filesystem paths against the caller's session cwd](implemented/architecture/2026-07-02-fs-per-session-cwd.md) | 2026-07-02 |
 | [Tagged render-intent union for tool-call presentation](implemented/architecture/2026-07-02-tool-render-intent-union.md) | 2026-07-02 |
 | [Result-time applied-hunk diffs for file mutations](implemented/architecture/2026-07-02-result-time-applied-hunk-diffs.md) | 2026-07-02 |
@@ -167,6 +175,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Per-session snapshot replay for nested agents](implemented/testing/2026-06-22-subagent-snapshot-replay.md) | 2026-06-22 |
 | [Persist the seed boundary so fork-child replay routes correctly](implemented/testing/2026-06-22-fork-child-replay-seed-boundary.md) | 2026-06-22 |
 | [Record fork and mixed spawn+fork snapshot scenarios](implemented/testing/2026-06-22-fork-snapshot-scenarios.md) | 2026-06-22 |
+| [Hook snapshot matrix — end-to-end goldens for both bridges](implemented/testing/2026-07-04-hook-snapshot-matrix.md) | 2026-07-04 |
 
 ## Rejected
 

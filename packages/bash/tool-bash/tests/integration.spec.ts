@@ -123,7 +123,10 @@ describe('bash tool through the agent loop', () => {
       textResponse('Background task finished.'),
     ])
     // The second tool call needs the REAL task id from the first result;
-    // a tools/execute waterfall listener rewrites the scripted arguments.
+    // a tools/pre-execute listener rewrites the scripted arguments. (This uses
+    // the low-level capability to mutate `exec` before dispatch — the
+    // unadvertised mechanism behind a future first-class input-rewrite decision;
+    // here it is a test shim to thread the generated id, not a product feature.)
     let taskId = ''
 
     const ctx = await harness(adapter)
@@ -137,7 +140,7 @@ describe('bash tool through the agent loop', () => {
         if (match) taskId = match[1]!
       }
     })
-    ctx.on('tools/execute', async (exec, next) => {
+    ctx.on('tools/pre-execute', async (exec, next) => {
       if (exec.name === 'bash_output') {
         exec.arguments = { task_id: taskId }
       }
