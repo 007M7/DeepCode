@@ -26,9 +26,6 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { TextDecoder } from 'node:util'
 import { FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 
-/** Files at or above this size stream their text; smaller files read whole. */
-export const STREAM_MIN_SIZE = 10 * 1024 * 1024
-
 const BINARY_SAMPLE_BYTES = 8192
 
 function isENOENT(error: unknown): boolean {
@@ -85,13 +82,10 @@ function versionOf(info: Stats): FsVersion {
 }
 
 /**
- * Test seam: lets specs force the streaming read path (via a small
- * `streamMinSize`) and pin the temp-file name (to prove exclusive-open
- * behavior) without a 10 MB fixture or a name race.
+ * Test seam: lets specs pin the temp-file name (to prove exclusive-open
+ * behavior) without a name race.
  */
 export interface FsIoInternals {
-  /** Override {@link STREAM_MIN_SIZE} for read routing. */
-  streamMinSize?: number
   /** Override the generated private staging-dir name (relative to the target dir). */
   tempDirName?: (writePath: string) => string
   /** Override the generated temp-file name (relative to the private staging dir). */

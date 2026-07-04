@@ -20,7 +20,7 @@ describe('acp bridge', () => {
   })
 
   afterEach(async () => {
-    // e2e/integration tests own their resources (AGENTS.md): dispose even on
+    // e2e/integration tests own their resources (docs/testing.md): dispose even on
     // failure so a flaky run never leaks a context or persistence dir.
     if (harness) await harness.dispose()
     harness = undefined

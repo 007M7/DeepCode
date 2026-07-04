@@ -10,7 +10,7 @@ import {
 
 /**
  * Real-API smoke for the DeepSeek search provider. Self-skips without
- * `$DEEPSEEK_API_KEY`, per the with-key e2e policy in AGENTS.md § Secrets. This
+ * `$DEEPSEEK_API_KEY`, per the with-key e2e policy in docs/testing.md. This
  * is the only test that proves DeepSeek's Anthropic-compatible endpoint actually
  * triggers native `web_search` and returns the structured result blocks the
  * provider parses — a mock cannot confirm the wire shape is real.
