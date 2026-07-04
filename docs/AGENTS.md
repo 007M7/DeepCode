@@ -1,6 +1,6 @@
 # AGENTS.md — The documentation standard
 
-This file is the contract for every Markdown surface in the repo: what each documentation tier is for, what belongs elsewhere, and the word budgets the `verify-doc-budgets` gate enforces. The repo-wide writing rules live in the root [AGENTS.md](../AGENTS.md) § "Type Safety and Documentation" and apply to everything here. The audit/apply workflow is the [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) skill; the decision record is [the doc-tiers-and-budgets RFC](rfc/implemented/process/2026-07-04-doc-tiers-and-budgets.md).
+This file is the contract for every Markdown surface in the repo: each tier's job, the writing rules, and the word budgets the `verify-doc-budgets` gate enforces. The audit/apply workflow is the [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) skill; the decision record is [the doc-tiers-and-budgets RFC](rfc/implemented/process/2026-07-04-doc-tiers-and-budgets.md).
 
 ## The tier taxonomy: one home per fact
 
@@ -22,17 +22,27 @@ Every fact has exactly one home — the tier whose job it is — and every other
 
 Placement test: a story about a bug → postmortem. Why we chose X → RFC. How to do task Y → cookbook. What type Z looks like → core-data-structures. What package P promises → its README. A rule every agent must always obey → root AGENTS.md, one line, linking the home that holds the why.
 
+## Writing rules
+
+- **Document the current state — never the process or history that produced it.** Prose describes what the code IS and why, as if it had always been so: no "previously/now/no longer/used to/renamed/moved here", and never name a change unit the reader cannot see — a PR, commit, or stack position — in comments, JSDoc, or test names; name the mechanism instead. A genuinely clarifying contrast is framed against the live alternative as a standing fact, not against the past. The change story belongs in the commit message, the PR description, or an RFC.
+- **A decision worth re-litigating gets an RFC in the same PR.** The test: would a maintainer six months out ask "why was it done this way?" and find no answer in the code? If yes, write one ([when to write one](rfc/README.md)); mechanical or self-evident changes need none.
+- **One physical line per paragraph** (`verify-md-wrap`): the editor soft-wraps; hard breaks make a one-word edit re-diff the whole paragraph. Prose only — code blocks, tables, and list structure stay; code comments stay under the linter's column limit.
+- **Fenced `ts` blocks must compile** (`doc-typecheck`); a pasted type definition is fenced ` ```ts type-equiv ` and registered in the manifest so it cannot drift ([mechanics](development.md#documenting-types-verbatim-ts-type-equiv)).
+- **Every new event's JSDoc carries an `@mode` tag** (emit | waterfall | parallel | serial); the catalog generator hard-errors without it. Write the JSDoc to stand alone — it becomes the catalog entry ([catalog RFC](rfc/implemented/process/2026-06-20-generated-cordis-catalog.md)).
+- **The [core-data-structures catalog](core-data-structures/core.md) updates in the same change** that reshapes a documented type. `verify-type-equiv` catches drifted pastes, not never-documented new types ([what counts as core](core-data-structures/core.md#what-counts-as-core)).
+- **Bilingual pairs update together**: editing either side obligates the counterpart and a re-record in the same change ([i18n contract](i18n/README.md)).
+
 ## Budgets and the ceiling gate
 
 Standing docs accrete: every PR has a lesson it wants to append, and without displacement pressure nothing ever leaves. The gate is that pressure. [scripts/doc-budgets.manifest.json](../scripts/doc-budgets.manifest.json) lists the accretion-prone standing docs with a word ceiling each; `pnpm run verify-doc-budgets` (part of `doc-sync`, so CI and pre-push run it) fails when a doc exceeds its ceiling, and fails when a budgeted file is missing so a rename cannot orphan its budget.
 
-- Ceilings are an enforcement frontier with working headroom: a ceiling sits at least 5% above the doc's current size — routine wording edits pass, real growth trips the gate — and ratchets down (keeping the margin) as the doc is brought to target. Target budgets: root `AGENTS.md` ≤ 1,500 words; `architecture.md` ≤ 1,800; each subtree `AGENTS.md` ≤ 600, except this file (which carries the standard) ≤ 1,000; `packages/README.md` ≤ 600.
-- When the gate goes red, the fix is to relocate or condense per the taxonomy above. Raising a ceiling is the last resort: the PR description must justify it, and the manifest diff is the reviewable act.
+- Ceilings are an enforcement frontier with working headroom: a ceiling sits at least 5% above the doc's current size — routine edits pass, real growth trips the gate — and ratchets down, keeping the margin, as the doc reaches target. Target budgets: root `AGENTS.md` ≤ 1,500 words; `architecture.md` ≤ 1,800; each subtree `AGENTS.md` ≤ 600, except this file (which carries the standard) ≤ 1,250; `packages/README.md` ≤ 600.
+- When the gate goes red, the fix is to relocate or condense per the taxonomy above. Raising a ceiling is the last resort: the PR must justify it; the manifest diff is the reviewable act.
 - Unbudgeted tiers (package READMEs, RFCs, reference matrices) have no ceiling — length is legitimate there when every row is a fact. Review and the slop checklist govern them instead.
 
 ## The slop checklist
 
-Hunt these in any doc you write or review; the [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) skill runs this list as an audit:
+Hunt these in any doc; the [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) skill runs this list as an audit:
 
 - The same rule stated in more than one home. Grep a distinctive phrase; keep one home, convert the rest to links.
 - Narrated history: "previously", "now", "no longer", "used to", "renamed", "was moved", references to PRs or commits. State the current fact; the why belongs in an RFC, the story in a postmortem or git.
@@ -47,4 +57,4 @@ Hunt these in any doc you write or review; the [dsh-doc-standards](../.agents/sk
 
 When one doc refers to another doc, an RFC, a package README, or any file in the repo, link it with a relative Markdown link to the actual path — never bare prose or a number ("see RFC 005"), which is uncheckable and rots on rename. `pnpm run verify-md-links` (part of `doc-sync`; see [the cross-link lint RFC](rfc/implemented/process/2026-06-18-markdown-cross-link-lint.md)) fails when a relative target does not exist, so a rename that orphans a link is caught before review. This is also why RFC files carry dates and topics instead of stable numbers: they survive moves between lifecycle and class folders without dangling references.
 
-The gate checks file existence, not `#anchor` validity — a stale heading fragment on a real file still passes, so verify anchors yourself when linking to one.
+The gate checks file existence, not `#anchor` validity — verify anchors yourself when linking to one.

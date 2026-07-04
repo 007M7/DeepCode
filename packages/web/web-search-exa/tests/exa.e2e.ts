@@ -3,7 +3,7 @@ import { ExaSearchProvider, EXA_DEFAULT_BASE_URL, EXA_DEFAULT_HIGHLIGHTS_PER_RES
 
 /**
  * Real-API smoke for the Exa search provider. Self-skips without `$EXA_API_KEY`
- * (CI has no secrets), per the with-key e2e policy in AGENTS.md § Secrets.
+ * (CI has no secrets), per the with-key e2e policy in docs/testing.md.
  */
 const apiKey = process.env.EXA_API_KEY
 const maybe = apiKey !== undefined && apiKey.length > 0 ? describe : describe.skip

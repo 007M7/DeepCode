@@ -51,8 +51,8 @@ const DESCRIPTION =
  * `InferArgs` maps an `enum` string prop to plain `string`, so the compiler sees
  * `args.todos` as `{ content: string; status: string }[]`; the
  * `status as TodoItem['status']` narrowing records that registry guarantee
- * rather than re-checking it (an unreachable re-check would be dead code — see
- * AGENTS.md "don't validate scenarios that can't happen"). What remains is the
+ * rather than re-checking it (an unreachable re-check would be dead code the
+ * coverage gate would flag). What remains is the
  * value rules the DSL has no vocabulary for: non-empty unique content (stored
  * trimmed, so the persisted value matches the dedupe/length key), and at most
  * one `in_progress` task.
