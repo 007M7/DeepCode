@@ -59,7 +59,6 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Prune producer-less vocabulary variants (block cache hints, the `agent` message source, the `continuation` turn trigger)](proposed/simplification/2026-07-04-prune-producerless-vocabulary-variants.md) | 2026-07-04 |
 | [Prune write-only fields and a dead routing knob from the fs seam](proposed/simplification/2026-07-04-prune-write-only-fs-surface.md) | 2026-07-04 |
 | [Remove the `agent/steering` mirror emit](proposed/simplification/2026-07-04-remove-agent-steering-mirror.md) | 2026-07-04 |
-| [Share the app bins' boot glue instead of maintaining twin copies](proposed/simplification/2026-07-04-share-app-bin-boot-glue.md) | 2026-07-04 |
 | [Tighten the hook-protocol contract — dialect, discarded fields, double defaults, and lib-owned `hook/result` semantics](proposed/simplification/2026-07-04-tighten-hook-protocol-contract.md) | 2026-07-04 |
 | [Trim unreachable ACP bridge surface — the branding knobs and the kind-sniffing fallback](proposed/simplification/2026-07-04-trim-acp-bridge-unreachable-surface.md) | 2026-07-04 |
 
@@ -120,6 +119,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Split the filesystem seam — provider text mutations plus the `dsh-fs-policy` plugin](implemented/simplification/2026-06-26-fsspec-style-fs-seam.md) | 2026-06-26 |
 | [Stop mirroring the token stream as an agent event](implemented/simplification/2026-07-02-remove-stream-chunk-mirror.md) | 2026-07-02 |
 | [Fold the stdio UI helper into the stdio app](implemented/simplification/2026-07-04-fold-stdio-ui-helper.md) | 2026-07-04 |
+| [Share the app bins' boot glue instead of maintaining twin copies](implemented/simplification/2026-07-04-share-app-bin-boot-glue.md) | 2026-07-04 |
 
 ### Architecture
 

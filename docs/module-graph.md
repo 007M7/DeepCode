@@ -113,9 +113,11 @@ graph TD
   tool-subagent --> tools
   acp-agent --> acp
   acp-agent --> agent-core
+  acp-agent --> app-boot
   acp-agent --> session-persistence-jsonl
   stdio-agent --> agent
   stdio-agent --> agent-core
+  stdio-agent --> app-boot
   stdio-agent --> session
   stdio-agent --> session-persistence-jsonl
   subagent-fork --> agent
@@ -128,6 +130,7 @@ graph TD
 
 | Package | Depends on |
 | --- | --- |
+| `app-boot` | — |
 | `brand` | — |
 | `bash` | `brand` |
 | `llm` | `brand` |
@@ -168,7 +171,7 @@ graph TD
 | `subagent-inprocess` | `agent`, `llm`, `session`, `subagent` |
 | `subagent-mock` | `agent`, `llm`, `subagent` |
 | `tool-subagent` | `agent`, `llm`, `subagent`, `tools` |
-| `acp-agent` | `acp`, `agent-core`, `session-persistence-jsonl` |
-| `stdio-agent` | `agent`, `agent-core`, `session`, `session-persistence-jsonl` |
+| `acp-agent` | `acp`, `agent-core`, `app-boot`, `session-persistence-jsonl` |
+| `stdio-agent` | `agent`, `agent-core`, `app-boot`, `session`, `session-persistence-jsonl` |
 | `subagent-fork` | `agent`, `session`, `subagent`, `subagent-inprocess` |
 | `subagent-spawn` | `subagent`, `subagent-inprocess` |

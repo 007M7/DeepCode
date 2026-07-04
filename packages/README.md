@@ -63,8 +63,9 @@ dsh-subagent-acp  ← dsh-subagent, dsh-agent, dsh-llm, @agentclientprotocol/sdk
 dsh-tool-subagent ← dsh-subagent, dsh-tools, dsh-agent, dsh-llm (model-facing delegation tool)
 dsh-tool-todo     ← dsh-tools, dsh-agent, dsh-session  (model-facing todo_write tool; whole list on the session log)
 dsh-agent-core    ← timer, dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent, dsh-invariants, dsh-tool-bash, dsh-agent-loop  (the providerless spine, as one bundle plugin)
-dsh-stdio-agent   ← dsh-agent-core, dsh-session-persistence-jsonl, dsh-agent, dsh-session  (stdio chat APP + readline UI + bin)
-dsh-acp-agent     ← dsh-agent-core, dsh-acp, dsh-session-persistence-jsonl     (ACP server APP + bin)
+dsh-app-boot      ← (cordis + loader only)  (shared bin boot glue: .env, fail-loud guards, boot sequence)
+dsh-stdio-agent   ← dsh-agent-core, dsh-session-persistence-jsonl, dsh-agent, dsh-session, dsh-app-boot  (stdio chat APP + readline UI + bin)
+dsh-acp-agent     ← dsh-agent-core, dsh-acp, dsh-session-persistence-jsonl, dsh-app-boot     (ACP server APP + bin)
 ```
 
 The rule: **extension** plugins depend on interfaces, never on the concrete loop. `dsh-agent-loop` is swappable — UI/hook/tool plugins keep working against the `dsh-agent` vocabulary if the loop is replaced. The sanctioned exception is a **composition/bundle** package like `dsh-agent-core`, whose whole job is to assemble the concrete spine: it depends on `dsh-agent-loop` (and the other concrete spine plugins) on purpose. The rule constrains plugins that EXTEND the system, not the bundle that COMPOSES it — swapping the loop means shipping a different bundle, not rewiring every extension. A swappable capability splits into interface / implementation / consumer packages (the bash trio is the template — see [capability seams](../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)).
@@ -104,6 +105,7 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `acp/` | `ui` | Agent Client Protocol bridge: serves the agent to an ACP editor over JSON-RPC stdio | (drives `ctx.agents`/`ctx.sessions`) |
 | `stdio-agent/` | `ui` | Terminal stdio chat APP: agent-core spine + console logger + readline UI + a pre-created `main` agent, with a `bin` | (composition + `bin`) |
 | `acp-agent/` | `ui` | ACP server APP: agent-core spine + JSONL persistence + the `acp` bridge (no stdout logger), with a `bin` | (composition + `bin`) |
+| `app-boot/` | `ui` | Shared boot glue for the app bins: `.env` loading, fail-loud Loader guards, snapshot-aware config resolution, the boot sequence | (library for the bins) |
 | `llm-replay/` | `support` | Record/replay adapter: short-circuits `llm/stream` with chunks from a recorded session JSONL (keyless snapshot tests) | (listens on `llm/stream`) |
 | `subagent/` | `subagent` | Abstract subagent seam: named-provider registry for delegating to child agents | `ctx.subagents` |
 | `subagent-inprocess/` | `subagent` | Shared in-process subagent run driver used by spawn/fork; pure library, registers nothing | (none) |

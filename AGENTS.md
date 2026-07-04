@@ -112,6 +112,8 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
                     front door)
     acp-agent/      ACP server APP: agent-core spine + JSONL persistence + the
                     acp bridge, NO stdout logger + a bin (the demo:acp front door)
+    app-boot/       shared boot glue for the two app bins: .env loading,
+                    fail-loud Loader guards, config resolution, boot sequence
   support/        dev/test/example infrastructure (lower compat expectations)
     invariants/     dev-mode event-contract invariants + session-log freeze
     llm-replay/     record/replay adapter: short-circuits llm/stream from a
