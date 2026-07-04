@@ -21,7 +21,7 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
-import { type AcpRunSpec, type PermissionPolicy, startAcpRun } from './run.ts'
+import { type AcpRunSpec, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, type PermissionPolicy, startAcpRun } from './run.ts'
 
 export const name = 'subagent-acp'
 export const inject = ['subagents']
@@ -52,6 +52,14 @@ export interface Config {
    * ambient secrets do not leak implicitly.
    */
   env: Record<string, string>
+  /**
+   * Grace period (ms) for the child's EOF-driven quiesce on dispose — its
+   * window to flush persistence and tear down its own nested subprocesses
+   * before the parent escalates to a signal.
+   */
+  disposeEofGraceMs?: number
+  /** Grace period (ms) between `SIGTERM` and the `SIGKILL` escalation on dispose. */
+  disposeGraceMs?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -61,7 +69,19 @@ export const Config: z<Config> = z.object({
   cwd: z.string(),
   permission: z.union(['allow', 'reject'] as const).default('reject'),
   env: z.dict(z.string()).default({}),
+  disposeEofGraceMs: z.number().default(DEFAULT_DISPOSE_EOF_GRACE_MS),
+  disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS),
 })
+
+/** A dispose grace must be a positive finite number (it bounds the teardown wait). */
+function assertPositiveFinite(name: string, value: number): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`subagent-acp: ${name} must be a positive finite number`)
+  }
+}
+
+/** The shape after schemastery applied the defaults (cwd has none). */
+type ResolvedConfig = Required<Omit<Config, 'cwd'>> & Pick<Config, 'cwd'>
 
 /**
  * The ACP provider. Advertises NO start-time capabilities: an out-of-process
@@ -71,7 +91,7 @@ export const Config: z<Config> = z.object({
 class AcpProvider implements SubagentProvider {
   readonly capabilities: SubagentCapabilities = { outputSchema: false, depthLimit: false, toolFilter: false }
 
-  constructor(readonly name: string, private readonly ctx: Context, private readonly config: Config) {}
+  constructor(readonly name: string, private readonly ctx: Context, private readonly config: ResolvedConfig) {}
 
   start(request: SubagentStartRequest) {
     const spec: AcpRunSpec = {
@@ -80,6 +100,8 @@ class AcpProvider implements SubagentProvider {
       cwd: this.config.cwd ?? process.cwd(),
       permission: this.config.permission,
       env: this.config.env,
+      disposeEofGraceMs: this.config.disposeEofGraceMs,
+      disposeGraceMs: this.config.disposeGraceMs,
       onError: (error, stopReason) => {
         // The seam forbids `result` rejecting, so a child-level failure is
         // flattened to a stop reason — preserve it here rather than losing it.
@@ -91,5 +113,9 @@ class AcpProvider implements SubagentProvider {
 }
 
 export function apply(ctx: Context, config: Config): void {
-  ctx.subagents.registerProvider(new AcpProvider(config.providerName, ctx, config))
+  // schemastery (Config) has already filled every defaulted field.
+  const resolved = config as ResolvedConfig
+  assertPositiveFinite('disposeEofGraceMs', resolved.disposeEofGraceMs)
+  assertPositiveFinite('disposeGraceMs', resolved.disposeGraceMs)
+  ctx.subagents.registerProvider(new AcpProvider(resolved.providerName, ctx, resolved))
 }

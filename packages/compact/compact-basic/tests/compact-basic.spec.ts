@@ -820,6 +820,19 @@ describe('BasicCompactService token estimation (char/4 heuristic)', () => {
     const svc = new BasicCompactService(new Context(), cfg({ auto: false }))
     expect(svc.estimateContentTokens([])).toBe(0)
   })
+
+  it('honors a configured charsPerToken (fractional densities included)', () => {
+    // 'this is a somewhat longer text block' = 36 chars.
+    const blocks: ContentBlock[] = [{ type: 'text', text: 'this is a somewhat longer text block' }]
+    // charsPerToken 2: ceil(36/2)+4 = 22 — a CJK-density config doubles the estimate.
+    const dense = new BasicCompactService(new Context(), cfg({ auto: false, charsPerToken: 2 }))
+    expect(dense.estimateContentTokens(blocks)).toBe(22)
+    // Fractional density is legal: ceil(36/1.5)+4 = 28.
+    const fractional = new BasicCompactService(new Context(), cfg({ auto: false, charsPerToken: 1.5 }))
+    expect(fractional.estimateContentTokens(blocks)).toBe(28)
+    // The system-prompt term scales with the same knob: 36-char prompt at density 2 → ceil(36/2) = 18.
+    expect(dense.estimateTokens([], 'this is a somewhat longer text block')).toBe(18)
+  })
 })
 
 describe('BasicCompactService HMR safety', () => {
@@ -862,6 +875,10 @@ describe('BasicCompactService config validation', () => {
     )).toThrow(/summarizationModel must be a string/)
     expect(() => new BasicCompactService(new Context(), cfg({ auto: 'no' } as unknown as Partial<BasicCompactConfig>)))
       .toThrow(/auto must be a boolean/)
+    expect(() => new BasicCompactService(new Context(), cfg({ auto: false, charsPerToken: 0 })))
+      .toThrow(/charsPerToken .* positive finite number/)
+    expect(() => new BasicCompactService(new Context(), cfg({ auto: false, charsPerToken: Number.NaN })))
+      .toThrow(/charsPerToken .* positive finite number/)
   })
 
   it('accepts a large retain budget because convergence is enforced dynamically', () => {

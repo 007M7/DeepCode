@@ -8,7 +8,7 @@ Each tool is registered independently; a product that wants only one disables th
 
 | Tool | Args | Behavior |
 |---|---|---|
-| `web_search` | `query` (string) | Discovery. Returns an optional answer plus source URLs. `max_results` is **not** model-facing — the tool sets the bound (`WEB_SEARCH_MAX_RESULTS = 8`) and passes it to the seam. |
+| `web_search` | `query` (string) | Discovery. Returns an optional answer plus source URLs. `max_results` is **not** model-facing — the tool sets the bound (the `searchMaxResults` config, default 8) and passes it to the seam. |
 | `web_fetch` | `url` (string), `timeout_ms` (number, optional) | Retrieves a specific URL. HTML bodies are rendered to markdown-ish text; text bodies pass through. A non-2xx status is reported, not an error. |
 
 ## Config
@@ -17,6 +17,7 @@ Each tool is registered independently; a product that wants only one disables th
 |---|---|---|
 | `search` | `true` | Register `web_search`. |
 | `fetch` | `true` | Register `web_fetch`. |
+| `searchMaxResults` | `8` | Upper bound on sources returned by one `web_search` call (the seam truncates a longer provider list and flags it). |
 
 ```yaml
 - id: tool-web

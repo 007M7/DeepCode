@@ -3,7 +3,7 @@ import { PerplexitySearchProvider, PERPLEXITY_DEFAULT_BASE_URL, PERPLEXITY_DEFAU
 
 /**
  * Real-API smoke for the Perplexity search provider. Self-skips without
- * `$PERPLEXITY_API_KEY`, per the with-key e2e policy in AGENTS.md § Secrets.
+ * `$PERPLEXITY_API_KEY`, per the with-key e2e policy in docs/testing.md.
  */
 const apiKey = process.env.PERPLEXITY_API_KEY
 const maybe = apiKey !== undefined && apiKey.length > 0 ? describe : describe.skip

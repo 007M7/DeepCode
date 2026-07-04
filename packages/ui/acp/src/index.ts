@@ -202,8 +202,8 @@ interface SessionRecord {
  * Drive the in-flight prompt's settle from the harness event stream. The bridge
  * settles off the durable log: the `turn/end` session event on the
  * `session/event` feed for the prompt's own turn, with the agent
- * erroring/settling to idle as a fallback (AGENTS.md "honor cross-seam contracts
- * on BOTH sides") for the case where a throwing peer `session/event` listener
+ * erroring/settling to idle as a fallback (docs/defensive-patterns.md "honor
+ * cross-seam contracts on BOTH sides") for the case where a throwing peer `session/event` listener
  * starved the bridge's listener before it saw the boundary. The first of these
  * to fire settles the prompt; `settle` is then cleared so the others are no-ops
  * (settle-exactly-once).
@@ -284,7 +284,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     // sessionUpdate returns a promise; a closed connection rejects it. The
     // update is best-effort UI feed, never load-bearing for correctness, so a
     // throwing/rejecting send must not break the turn (the chunk is emitted
-    // inside the model step — see AGENTS.md "contain callback exceptions").
+    // inside the model step — see docs/defensive-patterns.md "contain callback exceptions").
     /* v8 ignore next 3 -- the rejection only fires on a stdout/connection write
        failure (closed pipe), which the in-memory test transport never induces;
        the swallow is a defensive best-effort guard like the loop's emit traps */
@@ -639,7 +639,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
   conn = new AgentSideConnection(makeAgent, stream)
 
   /**
-   * Tear ALL live sessions down to quiescence (AGENTS.md "dispose must reach
+   * Tear ALL live sessions down to quiescence (docs/defensive-patterns.md "dispose must reach
    * quiescence"): for each session settle any pending prompt `cancelled`, then
    * run that session's {@link AgentHandle} `dispose()` — which stops the loop
    * (sets `disposed`, aborts the in-flight step), AWAITS the loop's exit (the
@@ -892,7 +892,7 @@ export class ToolPresenter {
    * @param onError invoked when a tool's `presentCall`/`presentResult` THROWS;
    *   the presenter swallows the error and falls back to the generic
    *   presentation so a buggy display callback can never fail a live turn or a
-   *   `session/load` replay (AGENTS.md "contain callback exceptions at the
+   *   `session/load` replay (docs/defensive-patterns.md "contain callback exceptions at the
    *   boundary"). Defaults to a no-op for callers that don't supply a logger.
    */
   constructor(
