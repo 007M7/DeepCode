@@ -1,12 +1,13 @@
 /**
  * The stdio chat app: the providerless agent spine ({@link
  * @deepseek-ai/dsh-agent-core}) plus the coupled front-door cluster a terminal
- * chat needs — a console logger, the readline `ui-stdio` UI, JSONL session
+ * chat needs — a console logger, the readline UI (the in-package `stdio-chat`
+ * module), JSONL session
  * persistence, and a pre-created `main` agent the UI drives.
  *
  * The cluster is BAKED IN, not left to the leaf: a stdio app always logs to the
  * console (stdout is just the terminal) and always pre-creates the `main` agent
- * `ui-stdio` sends to. The leaf supplies the swappable backends (the LLM
+ * the readline UI sends to. The leaf supplies the swappable backends (the LLM
  * adapter, the bash executor), optional product tools, the optional `hmr`
  * dev-reload plugin, and this app's {@link Config} (model, prompt, persistence
  * root, welcome banner).
@@ -29,8 +30,10 @@
  * Plugin export shape: named `name`/`Config`/`apply`, NO default export — the
  * cordis Loader's `unwrapExports` does `exports.default ?? exports`, so a stray
  * default would collapse the module to the bare `apply` and drop the `Config`
- * namespace (see docs/postmortem/0001). The keyless Loader-path smoke in the
- * echo example guards this end-to-end.
+ * namespace (see docs/postmortem/0001). This app carries no `inject`, so a
+ * collapsed shape would BOOT rather than crash a smoke — the shape is pinned by
+ * the explicit `unwrapExports` assertion in this package's unit suite, and the
+ * keyless echo smoke proves the composed tree runs through the real Loader.
  *
  * @module @deepseek-ai/dsh-stdio-agent
  */
@@ -42,7 +45,7 @@ import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import * as agentCore from '@deepseek-ai/dsh-agent-core'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import * as uiStdio from '@deepseek-ai/dsh-ui-stdio'
+import * as uiStdio from './stdio-chat.ts'
 
 export const name = 'stdio-agent'
 
@@ -81,7 +84,7 @@ export const Config: z<Config> = z.object({
  * Compose the spine with the stdio front door. The console logger comes first
  * (infra), then the agent-core bundle pre-creating the `main` agent from this
  * app's `model`/`systemPrompt`/`resumeSessionId`, then the JSONL backend, then
- * the `ui-stdio` UI bound to `main`. The `hmr` dev-reload plugin is a leaf
+ * the readline UI bound to `main`. The `hmr` dev-reload plugin is a leaf
  * concern (see the module doc), so it is not mounted here.
  */
 export function apply(ctx: Context, config: Config): void {

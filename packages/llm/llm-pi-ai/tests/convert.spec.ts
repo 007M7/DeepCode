@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import type { StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { AssistantMessage, AssistantMessageEvent, Usage } from '@earendil-works/pi-ai'
 import { mapStopReason, mapUsage, toPiContext, toStreamChunks } from '@deepseek-ai/dsh-llm-pi-ai'
 
@@ -171,13 +171,13 @@ describe('toPiContext', () => {
     expect(context.messages.map(message => message.role)).toEqual(['user', 'user', 'toolResult'])
   })
 
-  it('skips image and unknown blocks in assistant content', () => {
+  it('skips plugin-added (unknown) blocks in assistant content', () => {
     const context = toPiContext({
       model: 'm',
       messages: [{
         role: 'assistant',
         content: [
-          { type: 'image', url: 'data:,x' },
+          { type: 'chart', data: 'x' } as unknown as ContentBlock,
           { type: 'text', text: 'visible' },
         ],
       }],
