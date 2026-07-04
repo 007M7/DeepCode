@@ -10,6 +10,7 @@
 import type { Context } from 'cordis'
 import type { FinishReason, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { BlockAssembler, HarnessError } from '@deepseek-ai/dsh-llm'
+import type { ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
@@ -142,10 +143,13 @@ export interface LoopHandle {
  * The agent loop. One invocation drives one agent for its whole lifetime:
  *
  * ```
+ * create agent → emit agent/session-start(source)    ⟵ once, before turn 1
  * forever:
  *   wait for queued messages (idle)
  *   TURN (error-contained — a throwing plugin ends the turn, never the loop):
- *     drain queued → 'turn/start' → session('user/message'…)   ⟵ durable turn boundary (no agent/* mirror)
+ *     'turn/start'; each queued msg: waterfall agent/prompt-submit    ⟵ durable turn boundary (no agent/* mirror)
+ *       allow → session('user/message'…) (+ inject additionalContext) | block → drop
+ *     every prompt blocked → 'turn/end'(rejected), 0 steps
  *     STEP loop:
  *       drain steering → session('steering/message')  ⟵ catches late steering
  *       assembly = ctx.systemPrompt.assemble()        ⟵ waterfall system-prompt/assemble
@@ -158,13 +162,17 @@ export interface LoopHandle {
  *       msg = waterfall agent/step-result             ⟵ BEFORE the log append, so the
  *       session('assistant/message' {content, usage?})   session records what actually ran
  *       each tool-call in msg (sequential, abort-checked):
- *         session('tool/call'); ctx.tools.execute()   ⟵ waterfall tools/execute
+ *         session('tool/call'); ctx.tools.execute()   ⟵ tools/pre-execute (allow/deny/ask)
+ *                                                        → dispatch → tools/post-execute
  *         session('tool/result')
+ *       append buffered post-execute additionalContext → session('context/message')(s)
  *       drain steering → session('steering/message'); emit agent/steering
  *       session('step/end')                           ⟵ durable step boundary (no agent/* mirror)
- *       cont = waterfall agent/turn-continuation(default = hadToolCalls || steered)
- *       if !cont && steering arrived from step/end session-event/continuation listeners: cont = true
- *       if !cont: break
+ *       cont = waterfall agent/turn-continuation       ⟵ ContinuationDecision; default
+ *         {action: hadToolCalls||steered ? 'continue':'stop'}; a continue.reason is
+ *         recorded as next-step steering
+ *       if action==stop && steering arrived (step/end/continuation listeners): continue anyway
+ *       if action==stop: break
  *     session('turn/end')                             ⟵ durable turn boundary (no agent/* mirror)
  *     await ctx.parallel('session/flush', session)    ⟵ durability checkpoint
  *     re-enqueue leftover steering as queued          ⟵ steering is never stranded
@@ -359,14 +367,55 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
     // decides "owed" from the log via isTurnOpen, so even a throwing turn/start
     // listener — append pushes before notifying — still gets its turn/end).
     session.append('turn/start', { turn, trigger })
-    // Record the queued user messages INSIDE the turn (after turn/start), so
-    // every event in the log is turn-enclosed. turn/end is now owed, so a throw
-    // while appending these is caught below and the turn is still closed.
+    // Each drained queued message runs the `agent/prompt-submit` waterfall before
+    // it becomes a `user/message` — a hook can rewrite the prompt or block it.
+    // Recorded INSIDE the turn (after turn/start) so every event is turn-enclosed;
+    // turn/end is now owed, so a throwing prompt-submit listener (the waterfall
+    // throws) is caught below and the turn still closes.
+    let anyAllowed = false
+    // Seeded with a floor (only observable if the batch were empty, which
+    // runTurn never allows — it is called with ≥1 queued message); each `block`
+    // decision carries a required `reason` and overwrites it, so a fully-blocked
+    // batch always reports the last vetoing reason.
+    let lastBlockReason = 'prompt blocked by hook'
     for (const message of queued) {
-      session.append('user/message', { content: message.content, source: message.source }, { surfaceOp: 'append' })
+      const decision = await ctx.waterfall(
+        'agent/prompt-submit', agent, message.content, message.source,
+        () => Promise.resolve<PromptDecision>({ kind: 'allow' }),
+      )
+      if (decision.kind === 'block') {
+        lastBlockReason = decision.reason
+        // Record the veto durably: `PromptDecision.reason` is the durable record
+        // of why a prompt was blocked, but a fully-blocked batch's `rejected`
+        // turn/end only preserves the LAST reason, and a MIXED batch (this prompt
+        // blocked, another allowed) does not end `rejected` at all — so without
+        // this append a blocked prompt would vanish from the log whenever any
+        // sibling prompt is allowed. `prompt/blocked` sits in the open turn in
+        // place of the `user/message` this prompt would have become.
+        session.append('prompt/blocked', { content: message.content, source: message.source, reason: decision.reason })
+        continue
+      }
+      anyAllowed = true
+      // `allow.content` REPLACES the prompt bytes (a rewrite); absent keeps them.
+      const content = decision.content ?? message.content
+      session.append('user/message', { content, source: message.source }, { surfaceOp: 'append' })
+      // `allow.additionalContext` is a SEPARATE context/message the next request
+      // also sees. The turn is open, so inject() appends it into THIS turn.
+      if (decision.additionalContext) {
+        agent.inject(decision.additionalContext.content, { source: decision.additionalContext.source })
+      }
     }
 
     while (true) {
+      // A fully-blocked batch (every prompt vetoed by prompt-submit) opens a
+      // zero-step turn that ends `rejected`: break BEFORE the first step so the
+      // boundary stays balanced (turn/start → turn/end) and the block is a
+      // durable in-turn fact. `anyAllowed` never changes inside the loop, so this
+      // only ever fires on the first iteration.
+      if (!anyAllowed) {
+        reason = { kind: 'rejected', reason: lastBlockReason }
+        break
+      }
       step += 1
 
       // Steering from the previous round's continuation listeners joins before
@@ -484,10 +533,10 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
 
       if (closeStep()) break
 
-      const defaultDecision = stepOutcome.hadToolCalls || steered
-      let shouldContinue: boolean
+      const defaultDecision: ContinuationDecision = { action: stepOutcome.hadToolCalls || steered ? 'continue' : 'stop' }
+      let decision: ContinuationDecision
       try {
-        shouldContinue = await ctx.waterfall(
+        decision = await ctx.waterfall(
           'agent/turn-continuation', agent, turn, defaultDecision,
           () => Promise.resolve(defaultDecision),
         )
@@ -497,9 +546,18 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
         break
       }
 
+      // A forced `continue` may carry model-facing context: record it as
+      // next-STEP steering (the steering channel), so the continued turn's next
+      // iteration drains it before its request — the typed twin of the /goal
+      // step/end-steer pattern.
+      if (decision.action === 'continue' && decision.reason) {
+        agent.inbox.steer({ content: decision.reason.content, source: decision.reason.source })
+      }
+      let shouldContinue = decision.action === 'continue'
+
       // Steering from step/end session-event or continuation listeners (the
-      // /goal pattern) demands the model see it — it overrides a negative
-      // decision; the next iteration's drain records it.
+      // /goal pattern) demands the model see it — it overrides a stop decision;
+      // the next iteration's drain records it.
       if (!shouldContinue && agent.inbox.hasSteering) shouldContinue = true
 
       // A cancel that landed during the continuation window — after the step's
@@ -682,6 +740,12 @@ async function runStep(
   // ToolRegistry.execute converts tool failures (including aborts) into
   // isError results, so abort is re-checked around every call here.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')
+  // Per-step buffer of `additionalContext` attached by tools/post-execute
+  // listeners. Appended as context/message(s) only AFTER every tool/result for
+  // the step, so a multi-call step keeps tool-call/result adjacency
+  // (interleaving context between a call's result and the next call's would
+  // break the pairing the next model request relies on).
+  const pendingContext: HookContext[] = []
   for (const call of toolCalls) {
     /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
@@ -692,6 +756,12 @@ async function runStep(
     } catch {
       parsedArguments = call.arguments
     }
+    // TODO(pre-tool-input-rewrite): tools/pre-execute deliberately cannot rewrite
+    // `arguments` — tool/call (the audit record) and assistant/message (the
+    // model-history source) are logged BEFORE execute, and live consumers (ACP,
+    // tool-bash presentation) read the pre-execution args, so an execution-only
+    // rewrite would desync the UI from what ran. Designing that consistently is
+    // its own proposed RFC (docs/rfc/proposed/feature/…-pre-tool-input-rewrite.md).
     const result = await ctx.tools.execute({
       callId: call.id,
       name: call.name,
@@ -703,7 +773,7 @@ async function runStep(
       turn, step,
       // The correlation id MUST be the loop's authoritative call.id (the
       // model-transcript id that deriveMessages turns into toolCallId), NOT
-      // result.callId — a tools/execute waterfall listener returning a
+      // result.callId — a post-execute waterfall listener returning a
       // mismatched id would otherwise orphan the call↔result pairing in the
       // next model request. A listener-internal id, if ever needed, belongs in
       // a separate diagnostic field, never overloaded onto callId.
@@ -715,12 +785,21 @@ async function runStep(
       // persisted so a UI bridge reproduces the card on replay.
       ...result.meta !== undefined ? { meta: result.meta } : {},
     }, { surfaceOp: 'append', sourceEventSeqs: [callEvent.seq] })
+    // Buffer (don't append yet) any post-execute additionalContext for this call.
+    if (result.additionalContext) pendingContext.push(result.additionalContext)
     // signal CAN flip during the await above (abort() inside a tool);
     // the analyzer can't see through the await boundary.
     /* v8 ignore start -- signal.reason default unreachable: cancel()/disposal always set it */
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
     /* v8 ignore stop */
+  }
+
+  // Append buffered post-execute context AFTER every tool/result, preserving
+  // tool-call/result adjacency across the whole batch. inject() appends into the
+  // open turn (a context/message at its chronological position).
+  for (const context of pendingContext) {
+    agent.inject(context.content, { source: context.source })
   }
 
   return { hadToolCalls: toolCalls.length > 0, finish: assembler.finish }

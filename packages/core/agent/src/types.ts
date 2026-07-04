@@ -16,13 +16,14 @@
  *   durability checkpoint. Answers "what happened, durably/replayably." A
  *   consumer that wants the live transcript subscribes here.
  * - **`agent/*`** (this module) — the LIVE runtime surface. Always carries the
- *   live `Agent`. Two shapes: INTERCEPTION waterfalls (`agent/request`,
- *   `agent/step-result`, `agent/turn-continuation`) that mutate/veto, and
- *   TRANSIENT emits (`agent/status`, `agent/stream-chunk`, `agent/error`,
- *   `agent/created`/`agent/disposed`, `agent/queued`, `agent/steering`) that
- *   notify with the `Agent` in hand. Turn/step boundaries are NOT here — they
- *   are durable `session/event` records (see the rule below). Answers "right
- *   now, with the agent object — intercept or observe."
+ *   live `Agent`. Two shapes: INTERCEPTION seams (the `agent/prompt-submit`/
+ *   `agent/request`/`agent/step-result`/`agent/turn-continuation` waterfalls and
+ *   the serial `agent/pre-step`) that mutate/veto, and TRANSIENT emits
+ *   (`agent/status`, `agent/stream-chunk`, `agent/error`, `agent/created`/
+ *   `agent/disposed`, `agent/queued`, `agent/steering`, `agent/session-start`)
+ *   that notify with the `Agent` in hand. Turn/step boundaries are NOT here —
+ *   they are durable `session/event` records. Answers "right now, with the agent
+ *   object — intercept or observe."
  * - **`tools/*`** (`@deepseek-ai/dsh-tools`) — the tool registry + execution.
  *
  * **The rule:** a durable, replayable fact is a SessionEvent; a live
@@ -33,6 +34,11 @@
  * keeps a session-id→agent map from `agent/created`/`agent/disposed`.
  * See `docs/rfc/implemented/architecture/2026-06-11-microkernel-event-taxonomy.md`
  * and `docs/rfc/implemented/simplification/2026-06-20-remove-agent-boundary-mirror-events.md`.
+ *
+ * The interception waterfalls here (`agent/prompt-submit`, `agent/request`,
+ * `agent/step-result`, `agent/turn-continuation`) each return a typed Decision —
+ * the convention pinned by
+ * `docs/rfc/implemented/feature/2026-06-30-interception-seams.md`.
  *
  * @module @deepseek-ai/dsh-agent/types
  */
@@ -65,6 +71,68 @@ export interface SendOptions {
 }
 
 export type AgentStatus = 'idle' | 'running' | 'disposed'
+
+/**
+ * Model-facing context an interception listener wants the agent to SEE on the
+ * next request — the canonical shape behind every "inject extra context"
+ * decision ({@link PromptDecision}, {@link PostToolDecision},
+ * {@link ContinuationDecision}). It is `agent.inject()`ed as a
+ * `context/message`, so it carries a REQUIRED {@link MessageSource}: `inject()`
+ * defaults a missing source to `{kind:'user'}`, which would MISLABEL plugin
+ * context as a user prompt and corrupt derived history. A bridge sets
+ * `{kind:'plugin', plugin:'…'}`; a native plugin names itself. Required, not
+ * optional — the label is load-bearing, never defaulted here.
+ */
+export interface HookContext {
+  content: ContentBlock[]
+  source: MessageSource
+}
+
+/**
+ * The decision an {@link Agent} `agent/prompt-submit` waterfall listener returns
+ * for ONE drained queued message, before it becomes a `user/message`. Maps onto
+ * the Claude Code `UserPromptSubmit` hook's allow/block + `additionalContext`.
+ *
+ * - `allow` proceeds with the prompt; optional `content` REPLACES the prompt
+ *   bytes (a rewrite), and optional `additionalContext` is `inject()`ed as a
+ *   separate `context/message` the next request also sees.
+ * - `block` drops the prompt (it never becomes a `user/message`); `reason` is
+ *   the durable record of why. The loop appends a `prompt/blocked` session event
+ *   (carrying the original content, source, and `reason`) in place of the
+ *   dropped `user/message`, so the veto survives replay even in a MIXED batch
+ *   where a sibling prompt is allowed. A batch whose EVERY prompt is blocked
+ *   additionally opens a zero-step turn that ends with {@link TurnEndReason}
+ *   `rejected` (so the boundary stays balanced and a UI can render "blocked by
+ *   hook").
+ */
+export type PromptDecision =
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'block'; reason: string }
+
+/**
+ * The decision an {@link Agent} `agent/turn-continuation` waterfall listener
+ * returns. The loop computes the default (`continue` when the step had tool
+ * calls or steering was injected, else `stop`); listeners override it to
+ * force-continue (`/goal`, `/loop`) or force-stop (budget guards).
+ *
+ * A `continue` may carry a `reason`: model-facing context recorded as next-STEP
+ * steering within the SAME turn (the loop enqueues it through the steering
+ * channel, so the continued turn's next step sees it). This is the typed twin of
+ * the existing "steer from a step/end listener" `/goal` pattern.
+ */
+export type ContinuationDecision =
+  | { action: 'stop' }
+  | { action: 'continue'; reason?: HookContext }
+
+/**
+ * Why an agent's session lifecycle began, carried by `agent/session-start`. A
+ * bridge keys its SessionStart hook's matcher on this (Claude Code's
+ * `startup`/`resume`/`clear`/`compact` source set). `startup` = a fresh create
+ * (including a seeded/forked create — a seed is NOT a resume); `resume` = a
+ * persisted session reloaded via `ctx.agents.resume()`. `clear`/`compact` are
+ * driven by those subsystems (compact = `TODO(compaction)`).
+ */
+export type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 
 /**
  * The agent handle — the surface every plugin (UI, hooks, orchestrators)
@@ -183,6 +251,19 @@ declare module 'cordis' {
      */
     'agent/queued'(agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void
 
+    // ---- session lifecycle (emit) ----
+    /**
+     * The agent's session lifecycle began, fired once before its first turn.
+     * `source` says why ({@link SessionStartSource}: fresh startup, a resumed
+     * persisted session, …). A pure NOTIFICATION (emit, not waterfall): it
+     * carries no veto — a session-start listener that wants to seed context does
+     * so via `agent.inject()` (a `context/message` the first request sees), not
+     * by returning a decision. Cannot block the session from starting; that gap
+     * is deliberate (a bridge logs/injects, it does not gate startup).
+     * @mode emit
+     */
+    'agent/session-start'(agent: Agent, source: SessionStartSource): void
+
     // Turn and step boundaries are NOT mirrored as agent/* emits: a consumer
     // that needs them reads the durable `turn/start`/`turn/end`/`step/start`/
     // `step/end` session events off the `session/event` feed (the session log is
@@ -223,6 +304,16 @@ declare module 'cordis' {
     // compaction-specific seam instead of the shared pre-step checkpoint.
     'agent/pre-step'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal): Promise<void> | void
     /**
+     * Waterfall: decide what happens to ONE drained queued message before it
+     * becomes a `user/message` — allow (optionally rewriting the prompt bytes or
+     * attaching `additionalContext`) or block it. Fires inside the already-open
+     * turn, per drained message. Maps onto Claude Code's `UserPromptSubmit` hook.
+     * Call `next()` to delegate to the default (allow unchanged), or return a
+     * {@link PromptDecision} without calling `next()` to short-circuit.
+     * @mode waterfall
+     */
+    'agent/prompt-submit'(agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>
+    /**
      * Waterfall: mutate the fully-assembled {@link GenerateOptions} before the
      * model call (hooks, model switching, tool filtering, …). Call `next()` to
      * delegate, or return without it to short-circuit. For surface mutation that
@@ -238,12 +329,15 @@ declare module 'cordis' {
      */
     'agent/step-result'(agent: Agent, turn: number, step: number, message: Message, next: () => Promise<Message>): Promise<Message>
     /**
-     * Waterfall: override the turn-continuation decision. The default
-     * (computed by the loop) is `hadToolCalls || steeringInjected`. Listeners
-     * can force-continue (/goal, /loop) or force-stop (budget guards).
+     * Waterfall: override the turn-continuation decision via a typed
+     * {@link ContinuationDecision}. The loop's `defaultDecision` is `continue`
+     * when the step had tool calls or steering was injected, else `stop`.
+     * Listeners force-continue (`/goal`, `/loop` — optionally attaching a
+     * `reason` recorded as next-step steering) or force-stop (budget guards).
+     * Call `next()` to delegate to the default, or return a decision to override.
      * @mode waterfall
      */
-    'agent/turn-continuation'(agent: Agent, turn: number, defaultDecision: boolean, next: () => Promise<boolean>): Promise<boolean>
+    'agent/turn-continuation'(agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>
 
     // ---- streaming + tool notifications (emit) ----
     /**

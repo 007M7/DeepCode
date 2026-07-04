@@ -31,6 +31,7 @@ The full `agent/*` event taxonomy is declared via declaration merging in `dsh-ag
 - `agent/created`, `agent/disposed` — registration/deregistration
 - `agent/status` — idle / running / disposed transition
 - `agent/queued` — message entered inbox (source-resolved, steering flag)
+- `agent/session-start` — the session lifecycle began (once, before turn 1), carrying a `SessionStartSource` (`startup` for a fresh or forked create, `resume` for a reloaded persisted session; `clear`/`compact` reserved). A pure notification — it cannot block startup; a listener seeds context via `agent.inject()` (a `context/message` the first request sees).
 
 #### Boundaries are durable session events, not `agent/*` emits
 
@@ -38,10 +39,16 @@ Turn and step boundaries are NOT mirrored as `agent/*` emits: a consumer that ne
 
 #### Interception seams
 
+`agent/pre-step` is a **serial** surface-mutation checkpoint; the rest are **waterfalls** that return a small, seam-specific typed **Decision** union (the unified idiom across the taxonomy — a CC/Codex bridge maps its `permissionDecision`/`decision`/`continue` fields onto these, a native plugin returns them directly):
+
+- `agent/session-start` (emit) — fired once before the first turn; a listener seeds context via `agent.inject()` (it cannot veto startup).
+- `agent/prompt-submit` — decide what happens to one drained queued message before it becomes a `user/message`: `PromptDecision` = `allow` (optionally rewriting the prompt `content` or attaching `additionalContext`) or `block` (drop it; a batch whose every prompt is blocked opens a zero-step turn that ends `rejected`). Maps onto Claude Code's `UserPromptSubmit`.
 - `agent/pre-step` (serial) — mutate the session surface before the step opens and history is derived (compaction). Fires after `turn/start` and before `step/start`, so a listener's appended events land outside the step.
-- `agent/request` (waterfall) — mutate `GenerateOptions` before the model call (hooks, model switching, tool filtering)
-- `agent/step-result` (waterfall) — post-process the assembled assistant message before tool dispatch (validates what the log records)
-- `agent/turn-continuation` (waterfall) — override the continue/stop decision (force-continue /loop, force-stop budget guard)
+- `agent/request` — mutate `GenerateOptions` before the model call (hooks, model switching, tool filtering)
+- `agent/step-result` — post-process the assembled assistant message before tool dispatch (validates what the log records)
+- `agent/turn-continuation` — override the continue/stop decision via `ContinuationDecision` = `{action:'stop'}` or `{action:'continue', reason?}` (a `continue` `reason` is recorded as next-step steering in the same turn — the typed `/goal` pattern). Force-continue `/loop`, force-stop budget guard.
+
+Tool interception is the `tools/pre-execute` / `tools/post-execute` pair in [`dsh-tools`](../tools/README.md) (`PreToolDecision` allow/deny/ask, `PostToolDecision` accept/block) — same typed-Decision idiom, owned there because it is the tool registry's seam.
 
 #### Streaming + tool (emit)
 

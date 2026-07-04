@@ -45,10 +45,14 @@ Agents listed in config are auto-created at startup.
 One invocation of `runLoop()` drives one agent for its whole lifetime:
 
 ```
+create agent → emit agent/session-start(source)   ⟵ once, before turn 1
 forever:
   wait for queued messages (idle)
   TURN (error-contained):
-    drain queued → 'turn/start' → session('user/message')
+    'turn/start'
+    each queued: waterfall agent/prompt-submit → allow (→ session('user/message'),
+      inject additionalContext) | block (→ session('prompt/blocked'), drop)
+    if every prompt blocked: 'turn/end'(rejected), no step  ⟵ zero-step turn
     STEP loop:
       drain steering
       assembly = systemPrompt.assemble()
@@ -58,10 +62,14 @@ forever:
       stream llm.stream(request) → session('assistant/chunk')
       message = waterfall agent/step-result
       session('assistant/message')
-      each tool-call: session('tool/call') → tools.execute() → session('tool/result')
+      each tool-call: session('tool/call')
+        → tools.execute() [waterfall tools/pre-execute → dispatch → tools/post-execute]
+        → session('tool/result')
+      append buffered post-execute additionalContext as session('context/message')(s)
       drain steering → session('steering/message')
-      cont = waterfall agent/turn-continuation
-      if !cont: break
+      cont = waterfall agent/turn-continuation → ContinuationDecision
+        ({action:'continue', reason?} records reason as next-step steering)
+      if action==stop (and no pending steering): break
     session('turn/end')
     await session/flush
     re-enqueue leftover steering as queued
@@ -75,9 +83,9 @@ Cancellation: `agent.cancel()` is the single public stop primitive — it clears
 ### What is NOT here
 
 Everything that goes beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy:
-- Hooks: `agent/pre-step`, `agent/request`, `agent/step-result`, `tools/execute`, `agent/turn-continuation`
+- Hooks: `agent/session-start`, `agent/prompt-submit`, `agent/pre-step`, `agent/request`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation`
 - Compaction: `agent/pre-step`
-- Sandbox, permission, plan mode: `tools/execute`
+- Sandbox, permission, plan mode: `tools/pre-execute` (deny/ask gate), `tools/post-execute`
 - Sub-agents: implemented outside the loop as `ctx.subagents` providers; in-process providers use `ctx.agents.create()` and owned `AgentHandle` teardown, while child streaming/progress and background/poll collection remain deferred.
 - Persistence: `session/event` + `session/flush`
 - UI: `agent/stream-chunk` + `agent/*` events

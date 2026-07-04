@@ -71,7 +71,7 @@ Teardown reaches quiescence: for EVERY live session settle any pending prompt as
 
 ## Known limitations (tracked TODOs)
 
-- **`TODO(rfc010-permission-gate)`** — the `tools/execute` permission gate (`session/request_permission`) is NOT implemented; tools run with the executor's full authority. The `agent→sessionId` reverse map is in place so the gate can route a permission request (which receives only `exec.agent`) back to its originating session. [ACP support](../../../docs/rfc/proposed/feature/2026-06-14-acp-agent-client-protocol.md) and [ACP multi-session](../../../docs/rfc/proposed/feature/2026-06-14-acp-multi-session.md) stay `proposed` until the gate (and per-session permission ownership) land.
+- **`TODO(rfc010-permission-gate)`** — the `tools/pre-execute` permission gate (`session/request_permission`) is NOT implemented; tools run with the executor's full authority. The `agent→sessionId` reverse map is in place so the gate can route a permission request (which receives only `exec.agent`) back to its originating session. [ACP support](../../../docs/rfc/proposed/feature/2026-06-14-acp-agent-client-protocol.md) and [ACP multi-session](../../../docs/rfc/proposed/feature/2026-06-14-acp-multi-session.md) stay `proposed` until the gate (and per-session permission ownership) land.
 - **`additionalDirectories`** — rejected. A session operates in its single `cwd` (see Per-session cwd); widening the tool/filesystem scope to extra roots is a separate sandbox concern, not yet implemented.
 
 ## stdout is the protocol

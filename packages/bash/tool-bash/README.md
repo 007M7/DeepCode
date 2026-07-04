@@ -46,4 +46,4 @@ The `BashExecRequest` seam carries optional `stdin` and `env`, used by the hooks
 
 ## Permissions
 
-`TODO(permissions)`: commands run with the executor's full authority. The permission/sandbox seam is the `tools/execute` waterfall (veto or ask) plus sandboxing `BashExecutor` implementations — see docs/architecture.md. `@cordisjs/plugin-capability` (a named-permission service with a session `test()`) is a candidate building block for that work.
+`TODO(permissions)`: commands run with the executor's full authority. The permission/sandbox seam is the `tools/pre-execute` waterfall (deny or ask) plus sandboxing `BashExecutor` implementations — see docs/architecture.md. `@cordisjs/plugin-capability` (a named-permission service with a session `test()`) is a candidate building block for that work.

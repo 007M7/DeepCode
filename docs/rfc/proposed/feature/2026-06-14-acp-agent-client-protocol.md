@@ -15,7 +15,7 @@ This RFC has a hard prerequisite on [session persistence](../../implemented/arch
 
 ## Proposal
 
-A new plugin package `@deepseek-ai/dsh-acp` — a client-driver / UI plugin, the structured analogue of `stdio-chat`. It is NOT a change to the loop and NOT an [capability seams](../../implemented/architecture/2026-06-13-capability-seams.md) interface/implementation/consumer capability split; it consumes the existing `agent/*` event taxonomy and the `tools/execute` waterfall.
+A new plugin package `@deepseek-ai/dsh-acp` — a client-driver / UI plugin, the structured analogue of `stdio-chat`. It is NOT a change to the loop and NOT an [capability seams](../../implemented/architecture/2026-06-13-capability-seams.md) interface/implementation/consumer capability split; it consumes the existing `agent/*` event taxonomy and the `tools/pre-execute`/`tools/post-execute` waterfalls.
 
 It depends on the official `@agentclientprotocol/sdk` (the `AgentSideConnection` class) — Apache-2.0, actively versioned. The SDK declares a `zod` peer dependency and imports `zod/v4` at runtime, so `packages/ui/acp` must declare `zod` itself (per the workspace dependency constraints). This is the renamed successor to `@zed-industries/agent-client-protocol`, which is now deprecated on npm.
 

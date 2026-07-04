@@ -283,7 +283,7 @@ describe('Agent.cancel()', () => {
       if (subject === agent && !continued) {
         continued = true
         agent.cancel('from continuation')
-        return true // vote to continue — the post-waterfall marker check must override
+        return { action: 'continue' as const } // vote to continue — the post-waterfall marker check must override
       }
       return next()
     })

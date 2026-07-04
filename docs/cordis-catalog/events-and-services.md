@@ -25,7 +25,7 @@ An agent was registered in the AgentRegistry and is ready to receive messages.
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:165`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:233`](../../packages/core/agent/src/types.ts)
 
 #### `agent/disposed` — emit
 
@@ -37,7 +37,7 @@ An agent was disposed and removed from the registry; its fiber and any in-flight
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:171`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:239`](../../packages/core/agent/src/types.ts)
 
 #### `agent/error` — emit
 
@@ -49,7 +49,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:264`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:358`](../../packages/core/agent/src/types.ts)
 
 #### `agent/pre-step` — serial
 
@@ -63,7 +63,19 @@ Serial (awaited in registration order), not a waterfall: a listener mutates the 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:224`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:305`](../../packages/core/agent/src/types.ts)
+
+#### `agent/prompt-submit` — waterfall
+
+Waterfall: decide what happens to ONE drained queued message before it becomes a `user/message` — allow (optionally rewriting the prompt bytes or attaching `additionalContext`) or block it. Fires inside the already-open turn, per drained message. Maps onto Claude Code's `UserPromptSubmit` hook. Call `next()` to delegate to the default (allow unchanged), or return a PromptDecision without calling `next()` to short-circuit.
+
+```ts cordis-catalog
+'agent/prompt-submit'(agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>
+```
+
+Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
+
+Source: [`packages/core/agent/src/types.ts:315`](../../packages/core/agent/src/types.ts)
 
 #### `agent/queued` — emit
 
@@ -75,7 +87,7 @@ A message entered the agent's inbox (queued or steering). `source` is the resolv
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:184`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:252`](../../packages/core/agent/src/types.ts)
 
 #### `agent/request` — waterfall
 
@@ -87,7 +99,19 @@ Waterfall: mutate the fully-assembled GenerateOptions before the model call (hoo
 
 Types: [Agent](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:233`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:324`](../../packages/core/agent/src/types.ts)
+
+#### `agent/session-start` — emit
+
+The agent's session lifecycle began, fired once before its first turn. `source` says why (SessionStartSource: fresh startup, a resumed persisted session, …). A pure NOTIFICATION (emit, not waterfall): it carries no veto — a session-start listener that wants to seed context does so via `agent.inject()` (a `context/message` the first request sees), not by returning a decision. Cannot block the session from starting; that gap is deliberate (a bridge logs/injects, it does not gate startup).
+
+```ts cordis-catalog
+'agent/session-start'(agent: Agent, source: SessionStartSource): void
+```
+
+Types: [Agent](../core-data-structures/core.md)
+
+Source: [`packages/core/agent/src/types.ts:265`](../../packages/core/agent/src/types.ts)
 
 #### `agent/status` — emit
 
@@ -99,7 +123,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive lifecycle 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:178`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:246`](../../packages/core/agent/src/types.ts)
 
 #### `agent/steering` — emit
 
@@ -111,7 +135,7 @@ Steering content was injected into a running turn.
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:258`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:352`](../../packages/core/agent/src/types.ts)
 
 #### `agent/step-result` — waterfall
 
@@ -123,7 +147,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:239`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:330`](../../packages/core/agent/src/types.ts)
 
 #### `agent/stream-chunk` — emit
 
@@ -135,19 +159,19 @@ A raw StreamChunk arrived from the model (token-level UI/log feed).
 
 Types: [Agent](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/agent/src/types.ts:253`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:347`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-continuation` — waterfall
 
-Waterfall: override the turn-continuation decision. The default (computed by the loop) is `hadToolCalls || steeringInjected`. Listeners can force-continue (/goal, /loop) or force-stop (budget guards).
+Waterfall: override the turn-continuation decision via a typed ContinuationDecision. The loop's `defaultDecision` is `continue` when the step had tool calls or steering was injected, else `stop`. Listeners force-continue (`/goal`, `/loop` — optionally attaching a `reason` recorded as next-step steering) or force-stop (budget guards). Call `next()` to delegate to the default, or return a decision to override.
 
 ```ts cordis-catalog
-'agent/turn-continuation'(agent: Agent, turn: number, defaultDecision: boolean, next: () => Promise<boolean>): Promise<boolean>
+'agent/turn-continuation'(agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>
 ```
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:246`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:340`](../../packages/core/agent/src/types.ts)
 
 ### `fs/*`
 
@@ -289,19 +313,31 @@ A tool was registered or unregistered (the available tool set changed).
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:66`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:84`](../../packages/core/tools/src/index.ts)
 
-#### `tools/execute` — waterfall
+#### `tools/post-execute` — waterfall
 
-Waterfall around every tool execution — the single seam where sandbox, permission, hook, and plan-mode plugins wrap or veto a call. Listeners receive `(exec, next)`: call `next()` to proceed (possibly around your own logic), or return a ToolExecutionResult without calling `next()` to short-circuit (veto).
+Waterfall AFTER a tool runs — where hook plugins inspect the result and accept it (optionally REPLACING the model-facing content, and/or attaching `additionalContext` for the next request) or block it with corrective `feedback` (Claude Code's `PostToolUse`). Listeners receive `(exec, result, next)`: call `next()` to delegate to the default (accept unchanged), or return a PostToolDecision to override. The core tool dispatch sits between the two waterfalls as plain code, all inside `execute`'s outer try/catch (and the tool body keeps its own inner try/catch, so a thrown tool still reaches `post-execute` as an `isError` result).
 
 ```ts cordis-catalog
-'tools/execute'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
+'tools/post-execute'(this: ToolRegistry, exec: ToolExecution, result: ToolExecutionResult, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
 ```
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:61`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:79`](../../packages/core/tools/src/index.ts)
+
+#### `tools/pre-execute` — waterfall
+
+Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook plugins allow or deny a call (Claude Code's `PreToolUse`). Listeners receive `(exec, next)`: call `next()` to delegate to the default (allow), or return a PreToolDecision without calling `next()` to short-circuit. A `deny` skips dispatch and yields an `isError` result; the tool body never runs. Input rewrite is deliberately NOT offered here (see PreToolDecision); `ask` degrades to deny until the permission system lands (`FIXME(permissions)`).
+
+```ts cordis-catalog
+'tools/pre-execute'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
+```
+
+Types: [ToolExecution](../core-data-structures/tools.md)
+
+Source: [`packages/core/tools/src/index.ts:65`](../../packages/core/tools/src/index.ts)
 
 ### `web/*`
 
@@ -502,7 +538,7 @@ Source: [`packages/core/system-prompt/src/index.ts:71`](../../packages/core/syst
 
 ### `ctx.tools` — `ToolRegistry`
 
-Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/execute` waterfall. The registry contributes its schemas into the system-prompt assembly.
+Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → dispatch → `tools/post-execute` pipeline. The registry contributes its schemas into the system-prompt assembly.
 
 ```ts cordis-catalog
 register(definition: ToolDefinition): () => void
@@ -513,7 +549,7 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:199`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:265`](../../packages/core/tools/src/index.ts)
 
 ### `ctx.web` — `WebService`
 

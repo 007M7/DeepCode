@@ -44,6 +44,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Agent Client Protocol (ACP) support for external editors](proposed/feature/2026-06-14-acp-agent-client-protocol.md) | 2026-06-14 |
 | [Multiplex concurrent ACP sessions over one connection](proposed/feature/2026-06-14-acp-multi-session.md) | 2026-06-14 |
 | [Optional Code Mode — model writes TypeScript against an SDK of all tools](proposed/feature/2026-06-15-optional-code-mode.md) | 2026-06-15 |
+| [Pre-tool input rewrite — a consistent design](proposed/feature/2026-06-30-pre-tool-input-rewrite.md) | 2026-06-30 |
 
 ### Simplification
 
@@ -86,6 +87,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Subagent capability seam](implemented/feature/2026-06-21-subagent-capability-seam.md) | 2026-06-21 |
 | [ACP subagent backend (out-of-process delegation)](implemented/feature/2026-06-22-acp-subagent-backend.md) | 2026-06-22 |
 | [The `todo_write` tool — model task list as event-sourced session state](implemented/feature/2026-06-29-todo-write-tool.md) | 2026-06-29 |
+| [Interception seams — the typed-Decision surface a hook programs against](implemented/feature/2026-06-30-interception-seams.md) | 2026-06-30 |
 
 ### Simplification
 

@@ -49,7 +49,7 @@ Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 
 ### Session event vocabulary (`types.ts`)
 
-The append-only log: `turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `assistant/message`, `assistant/chunk`, `tool/call`, `tool/result`, `steering/message`, `context/message`, `todo/write`. Token usage rides on `assistant/message.usage`; an operational error's step is on `turn/end.reason` for `kind: 'error'`.
+The append-only log: `turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `prompt/blocked`, `assistant/message`, `assistant/chunk`, `tool/call`, `tool/result`, `steering/message`, `context/message`, `todo/write`. Token usage rides on `assistant/message.usage`; an operational error's step is on `turn/end.reason` for `kind: 'error'`.
 
 Merge-extensible via `SessionEventMap` — the compaction seam adds `compact/start`, `compact/summary`, and `compact/end`.
 

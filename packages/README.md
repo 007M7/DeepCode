@@ -76,7 +76,7 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `llm/` | `llm` | Abstract LLM service + content-block vocabulary + chunk assembler | `ctx.llm` |
 | `session/` | `core` | Event-sourced session log + in-memory store | `ctx.sessions` |
 | `system-prompt/` | `core` | Prompt-section + tool-schema assembly registry | `ctx.systemPrompt` |
-| `tools/` | `core` | Tool registry + `tools/execute` waterfall | `ctx.tools` |
+| `tools/` | `core` | Tool registry + `tools/pre-execute`/`tools/post-execute` pipeline | `ctx.tools` |
 | `agent/` | `core` | Agent interface, registry, `agent/*` event vocabulary | `ctx.agents` |
 | `agent-loop/` | `core` | THE concrete loop plugin: `ReactLoopAgent` + the loop driver | `ctx.agentLoop` |
 | `agent-core/` | `core` | Bundle plugin: the providerless/executor-less/UI-less spine as code (forwards `agent-loop`'s `agents`) | (loads the spine) |

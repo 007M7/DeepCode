@@ -89,7 +89,7 @@ The filesystem capability follows the bash topology with a fourth layer, but the
 
 The web capability uses the same three-package split but folds two capabilities onto one seam: `dsh-web` owns the abstract `ctx.web` service, which is a provider REGISTRY (`registerSearchProvider`/`registerFetchProvider`, registration-order-independent selection, the `WebError` taxonomy) rather than a single backend. Providers register capabilities, not tools — `dsh-web-search-exa`, `dsh-web-search-perplexity`, `dsh-web-search-deepseek`, and `dsh-web-fetch-local` each register into `ctx.web` the way an `LlmAdapter` registers into `ctx.llm`, so they are namespace plugins (`inject: ['web']`), not key-owning services. `dsh-tool-web` is the single consumer that owns the model-facing `web_search`/`web_fetch` schemas, prompt sections, and presentation; it reads only the aggregated `ctx.web.searchStatus()`/`fetchStatus()` and executes through `ctx.web.search()`/`fetch()`, so provider selection has one owner. Search and fetch are deliberately one seam (one thing to inject and configure, one selection policy, one abort/error vocabulary) despite sharing no request schema — see the [web capability seam RFC](rfc/implemented/architecture/2026-06-24-web-capability-seam.md).
 
-> **"Capability" — two unrelated meanings.** (1) The *seam pattern* above ("one plugin provides a capability, another needs it") is realized by plain Cordis **services + `inject`**: a provider registers a service (`ctx.bash`, declared in `interface Context`); a consumer declares `inject: ['bash']` and its fiber stays pending until the service exists, tearing down via HMR if it later vanishes. No extra library is needed. (2) `@cordisjs/plugin-capability` is a different axis entirely — a **permission/capability-security** service (named permissions with inheritance/dependency, tested against a session via `ctx.capability.test`). It is a candidate for the deferred permissions/sandbox work (the `tools/execute` veto seam), NOT a mechanism for swapping implementations.
+> **"Capability" — two unrelated meanings.** (1) The *seam pattern* above ("one plugin provides a capability, another needs it") is realized by plain Cordis **services + `inject`**: a provider registers a service (`ctx.bash`, declared in `interface Context`); a consumer declares `inject: ['bash']` and its fiber stays pending until the service exists, tearing down via HMR if it later vanishes. No extra library is needed. (2) `@cordisjs/plugin-capability` is a different axis entirely — a **permission/capability-security** service (named permissions with inheritance/dependency, tested against a session via `ctx.capability.test`). It is a candidate for the deferred permissions/sandbox work (the `tools/pre-execute` deny/ask gate), NOT a mechanism for swapping implementations.
 
 ## The vocabulary (dsh-llm)
 
@@ -122,7 +122,7 @@ Tool schemas are deliberately **part of the assembly**: "what the model is told 
 
 `ToolRegistry.register()` takes schema + `execute()`. The registry feeds its schemas into the system-prompt assembly automatically.
 
-`execute()` runs through the **`tools/execute` waterfall** — the single seam where sandbox, permission, hooks, and plan-mode plugins wrap or veto a call. This collapses Claude Code's validate → PreToolUse → permission → execute → PostToolUse pipeline into ordered waterfall listeners.
+`execute()` runs through a **two-waterfall pipeline** — `tools/pre-execute` (the allow/deny/ask gate) → core dispatch → `tools/post-execute` (inspect/replace the result, attach context) — the seams where sandbox, permission, hooks, and plan-mode plugins gate or transform a call. This maps Claude Code's validate → PreToolUse → permission → execute → PostToolUse pipeline onto two ordered waterfalls: `pre-execute` returns a `PreToolDecision` (allow/deny/ask), `post-execute` a `PostToolDecision` (accept/block, optionally replacing content or attaching `additionalContext`). Core dispatch sits between them as plain code, inside `execute`'s outer try/catch, with the tool body's own try/catch preserved so a thrown tool still reaches `post-execute` as an `isError`.
 
 **TODO**: tool shapes get revisited now that real tools exist (the bash suite landed; the `TODO(review)` in dsh-tools is still open) — e.g. a concurrency-safety hint for parallel execution; phase 1 executes tool calls sequentially.
 
@@ -146,11 +146,15 @@ Tool schemas are deliberately **part of the assembly**: "what the model is told 
 - **Step**: one model request + its tool executions.
 
 ```
+create agent → emit agent/session-start(source)       ⟵ once, before turn 1 (startup|resume)
 forever:
   wait for queued messages (idle)
   emit agent/status(running)
   TURN (error-contained — a throwing plugin ends the turn, never the loop):
-    drain queued → 'turn/start' → session('user/message'…)   ⟵ durable turn boundary (no agent/* mirror)
+    'turn/start'                                        ⟵ durable turn boundary (no agent/* mirror)
+    each queued msg: waterfall agent/prompt-submit      ⟵ allow (rewrite/+context) | block
+      allow → session('user/message'…); inject additionalContext
+    every prompt blocked → 'turn/end'(rejected), 0 steps ⟵ zero-step turn, model never called
     STEP loop:
       drain steering (late steering from previous step's listeners)
       assembly = ctx.systemPrompt.assemble()          ⟵ waterfall system-prompt/assemble
@@ -166,15 +170,19 @@ forever:
       msg = waterfall agent/step-result               ⟵ runs BEFORE the log append, so the
       session('assistant/message' {content, usage?})     log records what tool dispatch uses
       each tool-call (sequential, abort-checked between calls):
-        session('tool/call'); ctx.tools.execute()     ⟵ waterfall tools/execute
+        session('tool/call'); ctx.tools.execute()     ⟵ waterfall tools/pre-execute (allow/
+          deny/ask gate) → dispatch → tools/post-execute (accept/block, replace, +context)
           tool execution may append tool-owned session events, e.g. `todo/write`
         session('tool/result')
+      append buffered post-execute additionalContext → session('context/message')(s)
+                                                         ⟵ after ALL tool/results (adjacency)
       drain steering → session('steering/message'); emit agent/steering
       session('step/end')                             ⟵ durable step boundary (no agent/* mirror)
-      cont = waterfall agent/turn-continuation(default = hadToolCalls || steered)
-      steering pending forces cont = true (from continuation listeners OR from
-        step/end session-event listeners — the /goal pattern; hasSteering override)
-      if !cont: break
+      cont = waterfall agent/turn-continuation(default = {action: hadToolCalls||steered
+        ? 'continue' : 'stop'}) → ContinuationDecision
+      a continue's reason is recorded as next-step steering (same turn); steering pending
+        also forces continue (continuation OR step/end listeners — the /goal pattern)
+      if action==stop: break
   session('turn/end')                                 ⟵ durable turn boundary (no agent/* mirror)
   await ctx.parallel('session/flush', session)        ⟵ durability checkpoint (failure
                                                          reported via agent/error, not fatal)
@@ -184,7 +192,7 @@ forever:
 
 Error containment: a throwing `agent/turn-continuation` listener or a broken step ends the **turn** with `turn/end { reason: { kind: 'error', step, message, code? } }` — the failure's step number rides on the durable turn reason (there is no separate session `error` event); live diagnostics fire via `agent/error`. Never the driver loop. An adapter that ends its stream with a `finish {kind:'error'}` or `{kind:'aborted'}` chunk (the in-band error path, for adapters that can't throw mid-stream) is likewise translated into a step error, so the turn ends `error`/`aborted` instead of logging a normal `completed` assistant message. A `cancel()` is honored mid-stream **and** between tool calls; disposal mid-turn ends the turn with reason `disposed` and emits `agent/status('disposed')`.
 
-Turn-end reasons: a turn ends with one `TurnEndReason` — `completed`, `aborted`, `error`, `disposed`, or `max-tokens`. `max-tokens` mirrors the model-call `FinishReason` of the same name (DeepSeek's `length`): a step that hit the output-token ceiling makes the turn end `max-tokens` rather than `completed`, by the rule *any `max-tokens` step in the turn surfaces as `max-tokens`* (a continuation plugin may run further steps after one, but the cut-short fact wins; the `disposed`/`aborted`/`error` outcomes still take precedence). This lets a consumer distinguish a clean stop from a truncated one (the ACP bridge maps it to the `max_tokens` stop reason). `TurnEndReason` is merge-extensible; `refusal` and `max_turn_requests` are the next variants to add when an adapter/loop first emits them.
+Turn-end reasons: a turn ends with one `TurnEndReason` — `completed`, `aborted`, `error`, `disposed`, `max-tokens`, `rejected`, or `interrupted`. `max-tokens` mirrors the model-call `FinishReason` of the same name (DeepSeek's `length`): a step that hit the output-token ceiling makes the turn end `max-tokens` rather than `completed`, by the rule *any `max-tokens` step in the turn surfaces as `max-tokens`* (a continuation plugin may run further steps after one, but the cut-short fact wins; the `disposed`/`aborted`/`error` outcomes still take precedence). `rejected` is a zero-step turn whose entire prompt batch was blocked by an `agent/prompt-submit` hook (the turn still opens and closes balanced; the ACP bridge maps it to `cancelled`). `interrupted` is synthesized by a persistence backend closing a crash-orphaned turn on reload. This lets a consumer distinguish a clean stop from a truncated/blocked one (the ACP bridge maps `max-tokens` to the `max_tokens` stop reason). `TurnEndReason` is merge-extensible; `refusal` and `max_turn_requests` are the next variants to add when an adapter/loop first emits them.
 
 A failure that happens once the turn is already closed has no in-turn position for a turn-end error reason (the turn already ended). So a rejecting `session/flush` (the post-`turn/end` durability checkpoint) is reported via `agent/error` + the logger only, NOT as a session event; the turn stays balanced and the persistence backend keeps its buffered events for the next flush.
 
@@ -210,7 +218,7 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 
 | MVP feature | Plugin mechanism |
 |---|---|
-| Hook system (user + project level) | listeners on `agent/request`, `agent/step-result`, `tools/execute`, `agent/turn-continuation`; a hooks plugin bridges config files to shell commands |
+| Hook system (user + project level) | listeners on `agent/session-start`, `agent/prompt-submit`, `agent/request`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation` (each interception waterfall returns a typed Decision); a hooks bridge plugin maps config files / shell commands onto those seams, a native hook plugin uses them directly |
 | `/goal` | force-continue via `agent/turn-continuation` + `steer()` reminders |
 | `/loop` | on the `turn/end` session event, `send()` the next iteration; or force-continue |
 | Dynamic workflow | orchestrator plugin on the `turn/end` (or `step/end`) session event driving `send`/`steer` (+ sub-agents later) |
@@ -221,9 +229,9 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 | AGENTS.md (subdir, on-touch) + file-change notices | `agent.inject()` from a watcher / tool-result listener |
 | Built-in tools (Read/Write/Edit/Bash/…) | `ctx.tools.register()`; schemas flow into the assembly automatically. **Bash: implemented** — `dsh-bash` (seam) + `dsh-bash-local` (subprocesses) + `dsh-tool-bash` (`bash`/`bash_output`/`bash_kill`, incl. background tasks). **`todo_write`: implemented** — `dsh-tool-todo` writes the whole task list to the session log (`todo/write`), rendered as a stdio checklist / ACP `plan` |
 | ToolSearch / progressive disclosure | wrap `agent/request`, filter `req.tools` |
-| Tool sandbox (landlock / sandbox-exec) | wrap `tools/execute`, or implement a sandboxing `BashExecutor` (the dsh-bash seam) |
-| Permission system / AskUserQuestion | wrap `tools/execute` (veto or ask); register an ask tool |
-| Plan mode | wrap `tools/execute` (deny writes) + `agent/request` (inject mode prompt) |
+| Tool sandbox (landlock / sandbox-exec) | `tools/pre-execute` (deny), or implement a sandboxing `BashExecutor` (the dsh-bash seam) |
+| Permission system / AskUserQuestion | `tools/pre-execute` (deny/ask); register an ask tool |
+| Plan mode | `tools/pre-execute` (deny writes) + `agent/request` (inject mode prompt) |
 | Sub-agent delegation | Implemented as the `ctx.subagents` provider-registry seam: `dsh-subagent-spawn` starts a fresh in-process child, `dsh-subagent-fork` seeds a child from the parent's completed-turn prefix, `dsh-subagent-acp` drives an out-of-process child over ACP, and `dsh-tool-subagent` exposes one configured provider to the model |
 | MCP | one plugin per server: discover tools → `ctx.tools.register()` |
 | Skills | section + tool registration; `inject()` skill content on invocation |

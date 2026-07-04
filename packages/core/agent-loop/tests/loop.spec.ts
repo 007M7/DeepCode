@@ -302,7 +302,7 @@ describe('agent loop', () => {
     let steps = 0
     ctx.on('session/event', (_session, event) => { if (event.type === 'step/end') steps++ })
     ctx.on('agent/turn-continuation', async (_agent, _turn, _defaultDecision, next) => {
-      if (steps < 3) return true
+      if (steps < 3) return { action: 'continue' as const }
       return next()
     })
 
@@ -325,7 +325,7 @@ describe('agent loop', () => {
     }))
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    ctx.on('agent/turn-continuation', async () => false as const)
+    ctx.on('agent/turn-continuation', async () => ({ action: 'stop' }) as const)
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -510,7 +510,7 @@ describe('agent loop', () => {
     // Force exactly one continuation (step 1 → step 2), then defer to default
     // (step 2 is a plain stop with no tool calls → stops).
     ctx.on('agent/turn-continuation', async (_agent, _turn, _defaultDecision, next) => {
-      if (steps < 2) return true
+      if (steps < 2) return { action: 'continue' as const }
       return next()
     })
 

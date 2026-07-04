@@ -8,24 +8,20 @@ A tool registers on `ctx.tools`. The annotated `defineTool` example (typed `exec
 
 ## A hook plugin (permission gate)
 
-A hook wraps the `tools/execute` waterfall to veto or rewrite a call — the seam where sandbox, permission, and plan-mode plugins live.
+A hook returns a typed decision from the `tools/pre-execute` gate to allow or deny a call — the seam where sandbox, permission, and plan-mode plugins live. (A "native hook" is just this: an ordinary cordis plugin on the interception seams, returning typed decisions — no external protocol needed.)
 
 ```ts
 import type { Context } from 'cordis'
-import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 
 declare function isAllowed(exec: ToolExecution): Promise<boolean>
 
 export const name = 'permission-gate'
 
 export function apply(ctx: Context) {
-  ctx.on('tools/execute', async (exec, next) => {
+  ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
     if (!(await isAllowed(exec))) {
-      return {
-        callId: exec.callId,
-        content: [{ type: 'text', text: 'Denied by policy.' }],
-        isError: true,
-      }
+      return { kind: 'deny', reason: 'Denied by policy.' }
     }
     return next()
   })

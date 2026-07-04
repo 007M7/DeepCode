@@ -4,7 +4,7 @@ import LlmService, { CallId, MessageSource, StreamChunk } from '@deepseek-ai/dsh
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentId, type ContinuationDecision } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
@@ -272,12 +272,12 @@ describe('HIGH: plugin exceptions are contained', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let threwOnce = false
-    ctx.on('agent/turn-continuation', async (): Promise<boolean> => {
+    ctx.on('agent/turn-continuation', async (): Promise<ContinuationDecision> => {
       if (!threwOnce) {
         threwOnce = true
         throw new Error('broken continuation plugin')
       }
-      return false
+      return { action: 'stop' }
     })
 
     const errors: Error[] = []
@@ -913,7 +913,7 @@ describe('P1-5: a started turn (and any open step) is always closed on a boundar
 })
 
 describe('P1-7: tool/result is logged under the originating call.id, not result.callId', () => {
-  it('a tools/execute listener returning a mismatched callId cannot orphan the call↔result pairing', async () => {
+  it('the loop records tool/result under the model call.id even when a post-execute listener replaces content', async () => {
     // Model emits a tool-call with id "c1", then a final text turn.
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'echo', { x: 1 }),
@@ -927,12 +927,13 @@ describe('P1-7: tool/result is logged under the originating call.id, not result.
       async execute() { return [{ type: 'text', text: 'ok' }] },
     }))
 
-    // A waterfall listener short-circuits with a result carrying the WRONG
-    // callId (a listener-internal/proxy id). The loop must still record the
-    // tool/result under the model's authoritative call.id.
-    ctx.on('tools/execute', (exec) => {
+    // A post-execute listener transforms the result (accept-with-replacement).
+    // The loop must still record the tool/result under the model's authoritative
+    // call.id (the loop ignores result.callId — which the registry always sets to
+    // exec.callId anyway — and uses call.id, the model-transcript id).
+    ctx.on('tools/post-execute', (exec, _result) => {
       expect(exec.callId).toBe(CallId('c1')) // the loop passed the real id in
-      return Promise.resolve({ callId: CallId('wrong-proxy-id'), content: [{ type: 'text', text: 'ok' }], isError: false })
+      return Promise.resolve({ kind: 'accept', content: [{ type: 'text', text: 'ok' }] })
     }, { prepend: true })
 
     const agent = ctx.agentLoop.create(AgentId('a-callid'), { model: 'mock' })
