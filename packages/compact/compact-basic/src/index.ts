@@ -45,9 +45,6 @@ export { resolveConfig } from './types.ts'
 /** Per-block structural overhead for JSON framing / type tag. */
 const BLOCK_OVERHEAD = 4
 
-/** Heuristic token count for an image block (~85 tokens for low-res URL). */
-const IMAGE_TOKEN_COST = 85
-
 /** Role-field framing overhead added per message in {@link BasicCompactService.estimateTokens}. */
 const ROLE_OVERHEAD = 4
 
@@ -235,9 +232,6 @@ export class BasicCompactService extends CompactService {
           break
         case 'tool-result':
           tokens += this.estimateContentTokens(block.content) + BLOCK_OVERHEAD
-          break
-        case 'image':
-          tokens += IMAGE_TOKEN_COST
           break
         default:
           // Unknown block types (merge-extensible ContentBlockMap):
@@ -712,10 +706,10 @@ export class BasicCompactService extends CompactService {
   /**
    * Render content blocks to a single plain-text string for the summarization
    * prompt. Text and reasoning contribute their text; every other block type
-   * contributes a type-tagged placeholder (`[image]`, `[tool-call: name(args)]`,
-   * …) so the summarizer is told what non-text content existed in the region
-   * rather than silently losing it. Blocks join with newlines; empty-text
-   * blocks contribute nothing.
+   * contributes a type-tagged placeholder (`[tool-call: name(args)]`,
+   * `[tool-result: …]`, …) so the summarizer is told what non-text content
+   * existed in the region rather than silently losing it. Blocks join with
+   * newlines; empty-text blocks contribute nothing.
    */
   private _blocksToText(blocks: readonly ContentBlock[]): string {
     const parts: string[] = []
@@ -735,9 +729,6 @@ export class BasicCompactService extends CompactService {
           parts.push(inner ? `[tool-result: ${inner}]` : '[tool-result]')
           break
         }
-        case 'image':
-          parts.push('[image]')
-          break
         // ContentBlockMap is merge-extensible — render an unknown block as a
         // bare type-tagged placeholder so a plugin-added block type is still
         // signalled to the summarizer rather than dropped.

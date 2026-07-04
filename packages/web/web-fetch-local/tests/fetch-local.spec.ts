@@ -377,9 +377,11 @@ describe('web-fetch-local plugin registration', () => {
     const ctx = new Context()
     await ctx.plugin(WebService, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
     const fiber = await ctx.plugin(fetchPlugin, {})
-    expect(ctx.web.fetchStatus()).toEqual({ available: true, providerId: LOCAL_FETCH_PROVIDER_ID })
+    await expect(ctx.web.fetch({ url: `${base}/` }))
+      .resolves.toMatchObject({ providerId: LOCAL_FETCH_PROVIDER_ID, statusCode: 200 })
     await fiber.dispose()
-    expect(ctx.web.fetchStatus()).toEqual({ available: false, reason: 'configured-missing' })
+    await expect(ctx.web.fetch({ url: `${base}/` }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_CONFIGURED_MISSING' }))
   })
 
   it('has no default export (namespace plugin export shape)', () => {
@@ -418,7 +420,8 @@ describe('web-fetch-local plugin registration', () => {
     const ctx = new Context()
     await ctx.plugin(WebService, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
     const fiber = await ctx.plugin(fetchPlugin, { maxRedirects: 0 })
-    expect(ctx.web.fetchStatus()).toEqual({ available: true, providerId: LOCAL_FETCH_PROVIDER_ID })
+    await expect(ctx.web.fetch({ url: `${base}/` }))
+      .resolves.toMatchObject({ providerId: LOCAL_FETCH_PROVIDER_ID, statusCode: 200 })
     await fiber.dispose()
   })
 })

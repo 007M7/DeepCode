@@ -27,7 +27,7 @@ Registration is effect-based (HMR-safe); one adapter per model name — duplicat
 - Allocate block `index`es in first-seen stream order; reuse the index for every delta of the same block.
 - Errors have exactly two sanctioned paths: THROW from `stream()` (transport and protocol failures — use `LlmError` with a stable code), or end the stream with `finish {kind: 'error' | 'aborted'}` (provider in-band failures). Consumers handle both; pick per failure class and document it.
 - Honor `options.signal` (pass it to fetch / your SDK).
-- `prefill` and other unsupported `GenerateOptions` fields: throw `LlmError(..., 'UNSUPPORTED')` rather than silently dropping.
+- A `GenerateOptions` field your provider cannot honor (e.g. a `stop` list on a provider without stop sequences): throw `LlmError(..., 'UNSUPPORTED')` rather than silently dropping it.
 
 Provider-specific request knobs (thinking modes, effort levels) belong in the ADAPTER's Config, not in `GenerateOptions` — the core vocabulary stays provider-neutral.
 

@@ -33,7 +33,7 @@ Removed: `agent/stream-chunk`.
 
 Not touched:
 - `assistant/chunk` (the durable session event) — the authoritative token stream, kept exactly as-is. This RFC removes the LIVE MIRROR, not the persistence (the persistence-removal proposal was separately rejected — see above).
-- `agent/steering` — a live control signal with no durable twin, retained (its fate remains a separate future decision, per the boundary RFC).
+- `agent/steering` — not touched by THIS decision (a control signal, not the token stream). Its durable twin is `steering/message`, and the mirror emit was removed by its own follow-up: [Remove the `agent/steering` mirror emit](2026-07-04-remove-agent-steering-mirror.md).
 - `agent/status`, `agent/error`, `agent/created`/`agent/disposed`, `agent/queued`, `agent/session-start` — lifecycle/control events that are not transcript data and have no durable duplicate.
 
 ## What we give up
