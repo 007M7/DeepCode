@@ -51,6 +51,17 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | Title | First proposed |
 |---|---|
 | [Unify the agent id and the session id](proposed/simplification/2026-06-20-unify-agent-and-session-id.md) | 2026-06-20 |
+| [Prune producer-less vocabulary variants (block cache hints, the `agent` message source, the `continuation` turn trigger)](proposed/simplification/2026-07-04-prune-producerless-vocabulary-variants.md) | 2026-07-04 |
+| [Drop `GenerateOptions.prefill` and `ToolSchema.strict` — request knobs with no working end-to-end path](proposed/simplification/2026-07-04-drop-inert-request-knobs.md) | 2026-07-04 |
+| [Drop the unconsumed web observation surface — the `providers-change` event and the status methods](proposed/simplification/2026-07-04-drop-unconsumed-web-observation-surface.md) | 2026-07-04 |
+| [Drop the `image` content block until a path can honor it](proposed/simplification/2026-07-04-drop-image-content-block.md) | 2026-07-04 |
+| [Prune write-only fields and a dead routing knob from the fs seam](proposed/simplification/2026-07-04-prune-write-only-fs-surface.md) | 2026-07-04 |
+| [Trim unreachable ACP bridge surface — the branding knobs and the kind-sniffing fallback](proposed/simplification/2026-07-04-trim-acp-bridge-unreachable-surface.md) | 2026-07-04 |
+| [Prune dead core-spine surface — `SurfaceManager.invalidate()`, the loop-internal exports, `ToolExecutionResult.callId`](proposed/simplification/2026-07-04-prune-dead-core-spine-surface.md) | 2026-07-04 |
+| [Share the app bins' boot glue instead of maintaining twin copies](proposed/simplification/2026-07-04-share-app-bin-boot-glue.md) | 2026-07-04 |
+| [Remove the `agent/steering` mirror emit](proposed/simplification/2026-07-04-remove-agent-steering-mirror.md) | 2026-07-04 |
+| [Tighten the hook-protocol contract — dialect, discarded fields, double defaults, and lib-owned `hook/result` semantics](proposed/simplification/2026-07-04-tighten-hook-protocol-contract.md) | 2026-07-04 |
+| [Fold the stdio UI helper into the stdio app](proposed/simplification/2026-07-04-fold-stdio-ui-helper.md) | 2026-07-04 |
 
 ### Architecture
 
@@ -67,6 +78,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [API extractor reports](proposed/process/2026-06-11-api-extractor-reports.md) | 2026-06-11 |
 | [Supply chain checks and vendor drift verification](proposed/process/2026-06-11-supply-chain-and-vendor-drift.md) | 2026-06-11 |
 | [Discover package inventories instead of maintaining static lists](proposed/process/2026-06-20-discover-package-inventory.md) | 2026-06-20 |
+| [Generate the RFC index tables](proposed/process/2026-07-04-generate-rfc-index-tables.md) | 2026-07-04 |
 
 ### Testing
 
@@ -74,6 +86,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 |---|---|
 | [Mutation testing as the coverage counterweight](proposed/testing/2026-06-11-mutation-testing.md) | 2026-06-11 |
 | [Deterministic tests, the replay invariant fixture, and race stress](proposed/testing/2026-06-11-deterministic-and-stress-testing.md) | 2026-06-11 |
+| [Single-source the acp-agent replay config](proposed/testing/2026-07-04-single-source-acp-replay-config.md) | 2026-07-04 |
 
 ## Implemented
 
@@ -185,6 +198,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Retire mid-turn steering](rejected/simplification/2026-06-20-retire-mid-turn-steering.md) | 2026-06-20 |
 | [Return the ACP bridge to one live session per connection](rejected/simplification/2026-06-20-single-session-acp-bridge.md) | 2026-06-20 |
 | [Truncate interrupted final turns on load](rejected/simplification/2026-06-20-truncate-interrupted-turns.md) | 2026-06-20 |
+| [Prune the unimplemented subagent seam vocabulary](rejected/simplification/2026-07-04-prune-unimplemented-subagent-vocabulary.md) | 2026-07-04 |
 
 ### Architecture
 
