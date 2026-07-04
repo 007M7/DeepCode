@@ -78,8 +78,6 @@ export interface WireTool {
     name: string
     description: string
     parameters: Record<string, unknown>
-    /** Beta: strict schema adherence (official: requires the /beta base URL). */
-    strict?: boolean
   }
 }
 

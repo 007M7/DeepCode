@@ -110,7 +110,7 @@ describe('DeepSeekAdapter against a mock server', () => {
       stream_options: { include_usage: true },
     })
     // Attribution reaches the wire: the exact shared User-Agent, and no
-    // provider-specific headers without an explicitly configured target.
+    // provider-specific headers under the User-Agent-only contract.
     expect(server.headers[0]?.['user-agent']).toBe(userAgent())
     expect(server.headers[0]).not.toHaveProperty('http-referer')
     expect(server.headers[0]).not.toHaveProperty('x-openrouter-title')

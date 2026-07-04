@@ -16,7 +16,6 @@ import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { DiffCallView, DiffResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { FsEditOutcome } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { computeHunkDiffs, diffsFromMeta, type FsDiffMeta } from './diff.ts'
@@ -43,9 +42,9 @@ export function parseEditArgs(args: { file_path: string; old_string: string; new
   }
 }
 
-/** Format an edit outcome as a Claude-style model-facing success message. */
-export function formatEditOutput(displayPath: string, outcome: FsEditOutcome): string {
-  return outcome.replaceAll
+/** Format an edit success (single-match or replace-all) as a Claude-style model-facing message. */
+export function formatEditOutput(displayPath: string, replaceAll: boolean): string {
+  return replaceAll
     ? `The file ${displayPath} has been updated. All occurrences were successfully replaced.`
     : `The file ${displayPath} has been updated successfully.`
 }
@@ -91,7 +90,7 @@ export function applyEditTool(ctx: Context): void {
       // relativizes it).
       const diffs = computeHunkDiffs(input.filePath, outcome.before, outcome.after)
       return {
-        content: [{ type: 'text', text: formatEditOutput(target.displayPath, outcome) }],
+        content: [{ type: 'text', text: formatEditOutput(target.displayPath, input.replaceAll) }],
         meta: { diffs },
       }
     },

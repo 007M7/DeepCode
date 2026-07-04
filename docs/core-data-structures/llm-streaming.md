@@ -72,7 +72,6 @@ interface ContentBlockMap {
   'reasoning': ReasoningBlock
   'tool-call': ToolCallBlock
   'tool-result': ToolResultBlock
-  'image': ImageBlock
 }
 ```
 

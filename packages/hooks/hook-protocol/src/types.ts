@@ -18,7 +18,7 @@ declare module '@deepseek-ai/dsh-session' {
     /**
      * A hook command was invoked at a hook point — log-only provenance (like
      * `compact/*`; NOT a {@link SurfaceEventType}, carries no `surfaceOp`).
-     * `dialect` is the bridge that ran it (`claude`/`codex`/`native`), `point`
+     * `dialect` is the bridge that ran it (`claude`/`codex`), `point`
      * the hook point (`PreToolUse`, `Stop`, …), `matcher` the matcher-group
      * pattern that selected it (absent for match-all), `handlerId` a stable id
      * for the command (so an invoked/result pair correlates). `turn` is the open
@@ -34,11 +34,14 @@ declare module '@deepseek-ai/dsh-session' {
     }
     /**
      * A hook command's outcome — log-only, paired with a prior `hook/invoked`
-     * (same `handlerId`). `decision` is the resolved dialect-neutral outcome the
-     * bridge mapped it to (`allow`/`deny`/`ask`/`block`/`continue`/`stop`/`pass`),
-     * `exitCode` the process exit (absent if it never ran), `stderrSummary` a
-     * truncated stderr (the block reason source on exit 2), `durationMs` the wall
-     * time. `turn` matches the `hook/invoked`.
+     * (same `handlerId`). `decision` is the dialect-neutral outcome derived by
+     * `appendHookResult` (which owns the rule): the hook's parsed decision
+     * (`approve`/`allow`/`block`/`deny`/`ask`), else `'stop'` when it asked to
+     * halt via `continue:false`, else `'pass'`. `exitCode` is the process exit
+     * (absent if it never ran), `stderrSummary` the trimmed stderr truncated to
+     * the bridge's configured cap (the block reason source on exit 2),
+     * `durationMs` the wall-clock runtime (audit timing; snapshot replay
+     * normalizes it). `turn` matches the `hook/invoked`.
      * @mode emit
      */
     'hook/result': {
@@ -53,8 +56,12 @@ declare module '@deepseek-ai/dsh-session' {
   }
 }
 
-/** Which protocol dialect a hook config / invocation belongs to. */
-export type HookDialect = 'claude' | 'codex' | 'native'
+/**
+ * The bridge that ran a hook — the CC bridge stamps `'claude'`, the Codex
+ * bridge `'codex'`. A native plugin on the interception seams is not a bridge
+ * and writes no `hook/*` provenance (see the interception-seams RFC).
+ */
+export type HookDialect = 'claude' | 'codex'
 
 /**
  * One configured command hook (the `{ type: 'command', command, timeout? }`
@@ -115,8 +122,6 @@ export interface HookOutput {
   continue?: boolean
   /** Human-readable reason shown when {@link continue} is `false`. */
   stopReason?: string
-  /** Hide the hook's stdout from the transcript (CC `suppressOutput`). */
-  suppressOutput?: boolean
   /**
    * The neutral blocking decision a hook expressed, folded from the two channels
    * the reference protocols keep DISTINCT: the legacy top-level `decision`

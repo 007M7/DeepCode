@@ -79,7 +79,7 @@
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" or"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" command"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"."}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"tool_call","toolCallId":"call_00_XLxXjqVljRIC2KwFZCKX3369","title":"bash","kind":"execute","status":"in_progress","rawInput":{"command":"echo HELLO"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"tool_call","toolCallId":"call_00_XLxXjqVljRIC2KwFZCKX3369","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"echo HELLO"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_00_XLxXjqVljRIC2KwFZCKX3369","status":"failed","content":[{"type":"content","content":{"type":"text","text":"tool output rejected by codex policy: summarize instead"}}]}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"The"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" tool"}}}}
@@ -99,7 +99,7 @@
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" invoke"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" it"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"."}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"tool_call","toolCallId":"call_00_twNfzWSJ9WJn8YeoGVIi1932","title":"bash","kind":"execute","status":"in_progress","rawInput":{"command":"printf 'HELLO\\n'"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"tool_call","toolCallId":"call_00_twNfzWSJ9WJn8YeoGVIi1932","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"printf 'HELLO\\n'"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_00_twNfzWSJ9WJn8YeoGVIi1932","status":"failed","content":[{"type":"content","content":{"type":"text","text":"tool output rejected by codex policy: summarize instead"}}]}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"Every"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" attempt"}}}}
@@ -139,7 +139,7 @@
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" is"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" working"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":":"}}}}
-{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"tool_call","toolCallId":"call_00_xOnTckie072jHuPhX0Mz5115","title":"bash","kind":"execute","status":"in_progress","rawInput":{"command":"pwd"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"tool_call","toolCallId":"call_00_xOnTckie072jHuPhX0Mz5115","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"pwd"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_00_xOnTckie072jHuPhX0Mz5115","status":"failed","content":[{"type":"content","content":{"type":"text","text":"tool output rejected by codex policy: summarize instead"}}]}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"It"}}}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":" seems"}}}}

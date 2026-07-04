@@ -67,7 +67,7 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
-import type { ToolCallKind, ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } from '@deepseek-ai/dsh-tools'
+import type { ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } from '@deepseek-ai/dsh-tools'
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -117,10 +117,6 @@ export interface AcpConfig {
   model?: string
   /** Per-agent system prompt. */
   systemPrompt?: string
-  /** Agent/server name reported to the client in `initialize`. */
-  agentName?: string
-  /** Agent/server version reported to the client in `initialize`. */
-  agentVersion?: string
   /**
    * Transport stream override. Production omits this (the plugin wires
    * `process.stdin`/`process.stdout` via `ndJsonStream`). Tests inject an
@@ -134,8 +130,6 @@ export interface AcpConfig {
 export const Config: Schema<AcpConfig> = Schema.object({
   model: Schema.string(),
   systemPrompt: Schema.string(),
-  agentName: Schema.string().default('deepseek-harness-acp'),
-  agentVersion: Schema.string().default('0.0.1'),
 })
 
 /**
@@ -209,13 +203,6 @@ interface SessionRecord {
  * (settle-exactly-once).
  */
 export function apply(ctx: Context, config: AcpConfig): void {
-  // TODO(double-default): these literals duplicate the Config schema defaults
-  // (`agentName`/`agentVersion` `.default(...)` above). The Loader applies the
-  // schema before apply() runs, so the `??` only fires for direct-apply unit
-  // tests. Pick one home for the default to avoid drift.
-  const agentName = config.agentName ?? 'deepseek-harness-acp'
-  const agentVersion = config.agentVersion ?? '0.0.1'
-
   // Capture the injected services NOW, during apply(), while we are inside this
   // plugin's fiber (where `inject` grants access). The ACP method handlers run
   // LATER, from the AgentSideConnection's JSON-RPC read loop — a context that is
@@ -430,7 +417,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
         terminalOutputCap = params.clientCapabilities?._meta?.['terminal_output'] === true
         return Promise.resolve({
           protocolVersion,
-          agentInfo: { name: agentName, version: agentVersion },
+          // Fixed server identity: this bridge IS the harness ACP server, so the
+          // branding is a literal, not config (no shipped surface sets it).
+          agentInfo: { name: 'deepseek-harness-acp', version: '0.0.1' },
           agentCapabilities: {
             loadSession: true,
             // Baseline prompt blocks only: text plus resource_link rendered as
@@ -911,9 +900,11 @@ export class ToolPresenter {
       this.onError(`acp: tool "${name}" presentCall threw, using generic presentation: ${String(error)}`)
       present = undefined
     }
-    // No tool-owned presentation: fall back to the tool name as the title and the
-    // full parsed args as the raw input (the generic card).
-    const view: ToolCallView = present ?? { card: 'generic', title: name, kind: toolKindFor(name), rawInput: args }
+    // No tool-owned presentation: fall back to the tool name as the title, the
+    // full parsed args as the raw input, and kind `other` (the generic card).
+    // The kind is never sniffed from the name — the bridge does not special-case
+    // tool names; a tool that wants a richer kind declares `presentCall`.
+    const view: ToolCallView = present ?? { card: 'generic', title: name, kind: 'other', rawInput: args }
     this.pending.set(callId, { name, args, card: view.card })
     return view
   }
@@ -951,16 +942,8 @@ export class ToolPresenter {
  * results pass their raw content through unchanged.
  */
 export const nullToolPresenter: Pick<ToolPresenter, 'call' | 'result'> = {
-  call: (_callId, name, argsJson) => ({ card: 'generic', title: name, kind: toolKindFor(name), rawInput: parseToolArguments(argsJson) }),
+  call: (_callId, name, argsJson) => ({ card: 'generic', title: name, kind: 'other', rawInput: parseToolArguments(argsJson) }),
   result: (_callId, content) => ({ card: 'generic', content }),
-}
-
-/** Map a harness tool name to an ACP ToolKind (best-effort; default `other`). */
-function toolKindFor(name: string): ToolCallKind {
-  if (name === 'bash' || name === 'bash_output' || name === 'bash_kill') return 'execute'
-  if (name === 'read' || name.startsWith('read')) return 'read'
-  if (name === 'write' || name === 'edit' || name.startsWith('edit')) return 'edit'
-  return 'other'
 }
 
 /** Parse a tool-call arguments JSON string for `rawInput`; raw string on failure. */

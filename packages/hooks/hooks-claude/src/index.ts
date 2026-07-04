@@ -31,6 +31,8 @@ import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionRes
 import {
   appendHookInvoked,
   appendHookResult,
+  DEFAULT_HOOK_TIMEOUT_MS,
+  DEFAULT_STDERR_SUMMARY_MAX_CHARS,
   matchesMatcher,
   mergeHookOutputs,
   runHook,
@@ -73,13 +75,16 @@ export interface Config {
   projectDir?: string
   /** Default per-hook timeout in ms when a hook sets none (CC default: 600000). */
   defaultTimeoutMs?: number
+  /** Character cap for the `hook/result` event's persisted stderr summary. */
+  stderrSummaryMaxChars?: number
 }
 
 export const Config: z<Config> = z.object({
   configPath: z.string().required(),
   pluginRoot: z.string(),
   projectDir: z.string(),
-  defaultTimeoutMs: z.number().default(600_000),
+  defaultTimeoutMs: z.number().default(DEFAULT_HOOK_TIMEOUT_MS),
+  stderrSummaryMaxChars: z.number().default(DEFAULT_STDERR_SUMMARY_MAX_CHARS),
 })
 
 /** A stable per-handler id so an invoked/result pair correlates in the log. */
@@ -91,14 +96,19 @@ function nextHandlerId(point: string): string {
 /** The `{kind:'plugin'}` source stamped on every context this bridge injects. */
 const PLUGIN_SOURCE: MessageSource = { kind: 'plugin', plugin: 'hooks-claude' }
 
-/** Truncate a stderr blob for the `hook/result` summary field. */
-function summarize(stderr: string): string | undefined {
-  const t = stderr.trim()
-  if (t.length === 0) return undefined
-  return t.length > 500 ? t.slice(0, 500) + '…' : t
+/** The summary cap bounds a persisted event field — a positive integer or the slice misbehaves silently. */
+function assertPositiveInteger(name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`hooks-claude: ${name} must be a positive integer`)
+  }
 }
 
 export function apply(ctx: Context, config: Config): void {
+  // Validate the cap BEFORE the config-file parse: a bad value must fail the
+  // load loudly, not be skipped by the parse-failure early return.
+  const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? DEFAULT_STDERR_SUMMARY_MAX_CHARS
+  assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
+  const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
   // --- Parse the config ONCE at load. A read/parse failure is contained: the
   // bridge logs and registers nothing rather than crashing boot (a typo'd path
   // must not take the agent down). ---
@@ -117,8 +127,6 @@ export function apply(ctx: Context, config: Config): void {
     ctx.logger.warn(`hooks-claude: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
     return
   }
-
-  const defaultTimeoutMs = config.defaultTimeoutMs ?? 600_000
 
   /**
    * Run every command hook configured for `point` whose matcher selects
@@ -165,10 +173,10 @@ export function apply(ctx: Context, config: Config): void {
         }
         const { output, durationMs } = await runHook(ctx.bash, hook, {
           payload,
+          defaultTimeoutMs,
           ...hookEnv ? { env: hookEnv } : {},
           ...workdir !== undefined ? { cwd: workdir } : {},
           ...opts.signal ? { signal: opts.signal } : {},
-          defaultTimeoutMs,
           trailingNewline: true,
           // Discard a `hookSpecificOutput` block whose `hookEventName` names a
           // different event than the one firing (the schemas key it by event).
@@ -182,14 +190,7 @@ export function apply(ctx: Context, config: Config): void {
           ctx.logger.warn(`hooks-claude: ${point} hook emitted a systemMessage, which is not yet surfaced (ignored)`)
         }
         if (session && opts.turn !== undefined) {
-          const stderrSummary = summarize(output.stderr)
-          appendHookResult(session, {
-            turn: opts.turn, point, handlerId,
-            decision: output.decision ?? (output.continue === false ? 'stop' : 'pass'),
-            ...output.exitCode !== undefined ? { exitCode: output.exitCode } : {},
-            ...stderrSummary !== undefined ? { stderrSummary } : {},
-            durationMs,
-          })
+          appendHookResult(session, { turn: opts.turn, point, handlerId, output, stderrSummaryMaxChars, durationMs })
         }
       }
     }

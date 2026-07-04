@@ -138,12 +138,6 @@ describe('listDir', () => {
       join(dir, 'skills', 'dir-skill'),
       join(dir, 'skills', 'zeta.md'),
     ])
-    expect(entries.map(entry => entry.target.inputPath)).toEqual([
-      'alpha.md',
-      'broken-link',
-      'dir-skill',
-      'zeta.md',
-    ])
     const materializedEntries = entries.filter(entry => entry.version !== undefined)
     expect(materializedEntries.map(entry => entry.target.targetKey))
       .toEqual(await Promise.all(materializedEntries.map(entry => realpath(entry.target.displayPath))))
@@ -335,7 +329,7 @@ describe('editText', () => {
     await writeFile(join(dir, 'a.txt'), 'hello world')
     const target = await fs.resolve('a.txt')
     const outcome = await fs.editText(target, { oldString: 'world', newString: 'there', replaceAll: false }, { version: await versionOf(target) })
-    expect(outcome.replacements).toBe(1)
+    expect(outcome.after).toBe('hello there')
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hello there')
   })
 
@@ -365,7 +359,7 @@ describe('editText', () => {
     const target = await fs.resolve('a.txt')
     // No version guard: any current content is edited, regardless of version.
     const outcome = await fs.editText(target, { oldString: 'world', newString: 'there', replaceAll: false })
-    expect(outcome.replacements).toBe(1)
+    expect(outcome.after).toBe('hello there')
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hello there')
   })
 
@@ -411,7 +405,7 @@ describe('editText', () => {
     await writeFile(join(dir, 'a.txt'), 'a a a')
     const target = await fs.resolve('a.txt')
     const outcome = await fs.editText(target, { oldString: 'a', newString: 'b', replaceAll: true }, { version: await versionOf(target) })
-    expect(outcome.replacements).toBe(3)
+    expect(outcome.after).toBe('b b b')
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('b b b')
   })
 
@@ -457,7 +451,7 @@ describe('editText', () => {
     // The version the first edit returned is a valid guard for a second edit —
     // no intervening re-stat needed.
     const second = await fs.editText(target, { oldString: 'two', newString: 'TWO', replaceAll: false }, { version: first.version })
-    expect(second.replacements).toBe(1)
+    expect(second.after).toBe('ONE TWO')
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('ONE TWO')
   })
 

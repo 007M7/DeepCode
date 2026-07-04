@@ -21,8 +21,8 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   todo/        the todo_write tool
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
-  ui/          ACP bridge + the stdio/ACP app packages (each with a bin)
-  support/     dev/test infrastructure: invariants, ui-stdio, llm-replay, subagent-mock
+  ui/          ACP bridge + app-boot glue + the stdio/ACP app bins
+  support/     dev/test infrastructure: invariants, llm-replay, subagent-mock
   util/        zero-dependency utilities (Branded<B>)
 examples/    Runnable demos: thin cordis.yml leaves over the app packages (see examples/AGENTS.md)
 docs/        architecture, generated catalogs, RFCs, postmortems, cookbook (see docs/AGENTS.md)
@@ -83,12 +83,13 @@ Real-API tests and demos read `DEEPSEEK_API_KEY` (and optional `DEEPSEEK_BASE_UR
 - Every npm package is `@deepseek-ai/dsh-<name>`; vendored packages keep upstream names and are `private: true`. `cordis` is a peerDependency (+ dev) of every harness package.
 - ESM everywhere (`"type": "module"`). Cross-package imports use package names, never relative paths; in-package relative imports use explicit `.ts` extensions. Dev/test/demo run unbuilt via tsx + the root tsconfig `paths` map; building is only for consumers outside the repo.
 - **Registrations are effects**: every contribution goes through `ctx.effect()` / `ctx.on()`; a registry's `register()` returns the disposer.
-- **Typed events via declaration merging**; extensible unions use the merge-extensible-map pattern (`ContentBlockMap`, `SessionEventMap`, …). Every new event's JSDoc carries an `@mode` tag — the catalog generator hard-errors without it; mode semantics are in the [generated catalog](docs/cordis-catalog/events-and-services.md) header and [the catalog RFC](docs/rfc/implemented/process/2026-06-20-generated-cordis-catalog.md).
+- **Typed events via declaration merging**; extensible unions use the merge-extensible-map pattern (`ContentBlockMap`, `SessionEventMap`, …). Every new event's JSDoc carries an `@mode` tag and a `@param` per payload parameter (`this`/trailing `next` exempt); every public service-class method documents each parameter and non-void return (`@param`/`@returns`) — the catalog generator hard-errors otherwise ([completeness RFC](docs/rfc/implemented/process/2026-07-04-cordis-jsdoc-completeness-gate.md)); mode semantics are in the [generated catalog](docs/cordis-catalog/events-and-services.md) header and [the catalog RFC](docs/rfc/implemented/process/2026-06-20-generated-cordis-catalog.md).
 - **Discriminated unions: `switch` on the tag**, not if-chains. Closed unions end with `default: assertNever(...)`; merge-extensible unions must NOT — handle known cases and fall through `default` with a comment.
 - **Waterfall listeners MUST call `next()`** to delegate; returning without it is the veto ([semantics](docs/architecture.md#cordis-waterfall-semantics-important)).
 - **Plugins, not loop changes**: new behavior goes on the documented extension seams; changing `agent-loop` requires updating docs/architecture.md.
 - **Capability seams are three packages** — interface / implementation / consumer ([capability seams](docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)); don't split preemptively.
 - **Explicit > implicit at package seams**: no optional field silently filled by a hidden `?? default` inside `run()`; defaulting is an explicit `resolve(request): Spec` step in the owning implementation (the `dsh-bash` request/spec split is the template).
+- **No hardcoded tunables in plugins**: anything two deployments could want different — timeouts, caps, grace periods, model names, base URLs — is a defaulted, validated `Config` field, not a literal; a `DEFAULT_*` constant or test-only seam is not configurability. The test: changeable from `cordis.yml`, no code edit. Protocol/wire constants, external-spec values, security invariants stay hardcoded.
 - **Opaque cross-boundary ids are branded** (`Branded<B>` from `dsh-brand`), never bare `string` ([branded IDs](docs/rfc/implemented/architecture/2026-06-20-branded-ids.md)).
 - **An empty `catch` names what it swallows** and why nothing else can reach it; keep the `try` to one statement.
 - **Symmetry is usually more correct**: parallel values get parallel form; asymmetry is a smell for a missed extraction.

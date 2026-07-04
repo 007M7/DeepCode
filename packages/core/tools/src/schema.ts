@@ -312,8 +312,6 @@ export interface DefineToolOptions<S extends SchemaSpec> {
    * free for the same replay reason. See {@link ToolResultView}.
    */
   presentResult?(args: InferArgs<S>, result: ToolResult): ToolResultView | undefined
-  /** Whether the tool requires structured output (default false). */
-  strict?: boolean
 }
 
 /**
@@ -355,7 +353,6 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
     name: options.name,
     description: options.description,
     parameters: schemaSpecToJsonSchema(options.parameters) as unknown as Record<string, unknown>,
-    ...options.strict !== undefined ? { strict: options.strict } : {},
     async execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn> {
       // Validate the model-generated args before the typed body runs. On
       // mismatch we throw ToolArgsError; the registry turns it into an

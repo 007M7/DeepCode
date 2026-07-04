@@ -69,8 +69,8 @@ export function turnEndToStopReason(reason: TurnEndReason): StopReason {
  * client as message content. Today only `text` maps; `resource_link` is an
  * ACP prompt-only input rendered into text by {@link acpPromptToText};
  * `reasoning` is surfaced via `agent_thought_chunk`
- * streaming rather than as a message block, and `tool-call`/`tool-result`/
- * `image` are handled by the tool-call update path or not advertised.
+ * streaming rather than as a message block, and `tool-call`/`tool-result`
+ * are handled by the tool-call update path.
  */
 export function harnessBlockToAcpContent(block: ContentBlock): AcpContentBlock | undefined {
   switch (block.type) {
@@ -78,7 +78,7 @@ export function harnessBlockToAcpContent(block: ContentBlock): AcpContentBlock |
       return { type: 'text', text: block.text }
     // reasoning → streamed as agent_thought_chunk, not a message block
     // tool-call / tool-result → the tool_call / tool_call_update path
-    // image → not advertised
+    // plugin-added block types → not surfaced
     default:
       return undefined
   }

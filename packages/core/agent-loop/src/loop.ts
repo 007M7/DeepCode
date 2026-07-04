@@ -166,7 +166,7 @@ export interface LoopHandle {
  *                                                        → dispatch → tools/post-execute
  *         session('tool/result')
  *       append buffered post-execute additionalContext → session('context/message')(s)
- *       drain steering → session('steering/message'); emit agent/steering
+ *       drain steering → session('steering/message')
  *       session('step/end')                           ⟵ durable step boundary (no agent/* mirror)
  *       cont = waterfall agent/turn-continuation       ⟵ ContinuationDecision; default
  *         {action: hadToolCalls||steered ? 'continue':'stop'}; a continue.reason is
@@ -420,7 +420,7 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
 
       // Steering from the previous round's continuation listeners joins before
       // the request.
-      drainSteering(ctx, agent, turn)
+      drainSteering(agent, turn)
 
       // The step's AbortController exists BEFORE any async pre-step work so a
       // dispose() or cancel() — in a synchronous turn-start listener or an
@@ -529,7 +529,7 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
       if (stepReason) reason = stepReason
 
       // Steering that arrived during streaming/tool execution.
-      const steered = drainSteering(ctx, agent, turn)
+      const steered = drainSteering(agent, turn)
 
       if (closeStep()) break
 
@@ -635,11 +635,10 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
 }
 
 /** Drain the steering queue into the session. Returns whether any arrived. */
-function drainSteering(ctx: Context, agent: ReactLoopAgent, turn: number): boolean {
+function drainSteering(agent: ReactLoopAgent, turn: number): boolean {
   const messages = agent.inbox.drainSteering()
   for (const message of messages) {
     agent.session.append('steering/message', { turn, content: message.content, source: message.source }, { surfaceOp: 'append' })
-    ctx.emit('agent/steering', agent, turn, message.content, message.source)
   }
   return messages.length > 0
 }

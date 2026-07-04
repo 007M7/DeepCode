@@ -98,6 +98,7 @@ pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
 pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events-and-services.md from source
 pnpm run verify-cordis-catalog  # fail if the cordis events/services catalog is stale
+pnpm run gen-rfc-index          # regenerate the docs/rfc/README.md index tables from the RFC tree
 pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
 pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
 pnpm run verify-doc-budgets  # fail if a budgeted standing doc exceeds its word ceiling

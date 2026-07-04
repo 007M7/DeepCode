@@ -30,12 +30,15 @@ declare module 'cordis' {
   interface Events {
     /**
      * A session was created in the store.
+     * @param session - the session just entered and announced.
      * @mode emit
      */
     'session/created'(session: Session): void
     /**
      * An event was appended to a session log (sync, fire-and-forget). This is
      * the per-append feed a UI or invariant plugin tails.
+     * @param session - the session whose log grew.
+     * @param event - the appended event, exactly as recorded.
      * @mode emit
      */
     'session/event'(session: Session, event: SessionEvent): void
@@ -45,6 +48,7 @@ declare module 'cordis' {
      * plugins (JSONL, SQLite) drain their write-behind buffers here and on
      * fiber dispose. Awaited (parallel), not a waterfall: every listener runs
      * and the loop waits for all of them, but none can veto.
+     * @param session - the session whose buffered events must reach durable storage.
      * @mode parallel
      */
     'session/flush'(session: Session): Promise<void> | void
@@ -342,6 +346,9 @@ export class SessionStore extends Service {
    * {@link prepare} + {@link enter} + {@link announce} (see `dsh-agent-loop`'s
    * `startOwned`).
    *
+   * @param id - the session id; omitted, the store mints `session-<n>`.
+   * @param options - seed events and/or creation metadata for the header.
+   * @returns the live session, already entered and announced.
    * @throws if a session with `id` already exists, or if `meta.cwd` is a
    *   non-absolute path (storage backends key directories off it).
    */
@@ -367,6 +374,9 @@ export class SessionStore extends Service {
    * chain rather than as racing sibling effects — which would detach `onAppend`
    * before the loop's closing `session/flush`, dropping the closing events.
    *
+   * @param id - the session id; omitted, the store mints `session-<n>`.
+   * @param options - seed events and/or creation metadata for the header.
+   * @returns the constructed session, NOT yet in the store.
    * @throws if a session with `id` already exists, or if `meta.cwd` is a
    *   non-absolute path.
    */
@@ -404,6 +414,8 @@ export class SessionStore extends Service {
    * the two back-to-back so they never trip this, but the public seam cannot
    * assume that.
    *
+   * @param session - a {@link prepare}d session not yet in the store.
+   * @returns the detach disposer (`onAppend = undefined` + store removal).
    * @throws if a session with this id is already in the store.
    */
   enter(session: Session): () => void {
@@ -418,15 +430,25 @@ export class SessionStore extends Service {
 
   /** Emit `session/created` for an {@link enter}ed session. Separate from
    * {@link enter} so the caller can yield the detach disposer first (rollback
-   * safety — see {@link enter}). */
+   * safety — see {@link enter}).
+   * @param session - the entered session to announce to listeners. */
   announce(session: Session): void {
     this.ctx.emit('session/created', session)
   }
 
+  /**
+   * Look up a live session.
+   * @param id - the session id to look up.
+   * @returns the session, or undefined when no live session has that id.
+   */
   get(id: SessionId): Session | undefined {
     return this.store.get(id)
   }
 
+  /**
+   * All live sessions, in creation order.
+   * @returns a fresh array; mutating it does not affect the store.
+   */
   list(): Session[] {
     return [...this.store.values()]
   }

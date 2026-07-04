@@ -27,7 +27,7 @@ function hooks(d: string, h: unknown): string {
   writeFileSync(join(d, 'hooks.json'), JSON.stringify({ hooks: h })); return join(d, 'hooks.json')
 }
 
-type HarnessOpts = { pluginRoot?: string; projectDir?: string }
+type HarnessOpts = { pluginRoot?: string; projectDir?: string; stderrSummaryMaxChars?: number }
 async function harness(configPath: string, adapter: MockAdapter, opts: HarnessOpts = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LlmService)
@@ -139,6 +139,31 @@ describe('hooks-claude coverage — empty/no-op outcomes and no-agent paths', ()
     await waitForIdle(ctx, agent)
     const res = events(agent).find(e => e.type === 'hook/result')
     expect(res?.type === 'hook/result' && res.data.stderrSummary?.endsWith('…')).toBe(true)
+    expect(res?.type === 'hook/result' && res.data.stderrSummary?.length).toBe(501) // default 500-char cap + ellipsis
+  })
+
+  it('rejects a non-positive or fractional stderrSummaryMaxChars at load', async () => {
+    const d = dir()
+    const path = hooks(d, {})
+    for (const bad of [0, -5, 1.5, Number.NaN]) {
+      const adapter = new MockAdapter([])
+      await expect(harness(path, adapter, { stderrSummaryMaxChars: bad }))
+        .rejects.toThrow(/hooks-claude: stderrSummaryMaxChars must be a positive integer/)
+    }
+  })
+
+  it('the stderr summary cap is plugin config (stderrSummaryMaxChars)', async () => {
+    const d = dir()
+    const s = sh(d, 'long.sh', '#!/usr/bin/env bash\nprintf "x%.0s" {1..600} >&2\nexit 2\n')
+    const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: s }] }] })
+    const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
+    const ctx = await harness(path, adapter, { stderrSummaryMaxChars: 40 })
+    ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }])
+    await waitForIdle(ctx, agent)
+    const res = events(agent).find(e => e.type === 'hook/result')
+    expect(res?.type === 'hook/result' && res.data.stderrSummary).toBe('x'.repeat(40) + '…')
   })
 })
 
@@ -297,8 +322,8 @@ describe('hooks-claude coverage — more default/sparse arms', () => {
   })
 })
 
-describe('hooks-claude coverage — schema-bypass default + unspawnable hook', () => {
-  it('a direct apply() (schema bypass) defaults the timeout and runs', async () => {
+describe('hooks-claude coverage — schema-bypass apply + unspawnable hook', () => {
+  it('a direct apply() (schema bypass) with only configPath runs', async () => {
     const d = dir()
     const marker = join(d, 'ran')
     const s = sh(d, 'h.sh', `#!/usr/bin/env bash\ntouch "${marker}"\n`)
@@ -312,8 +337,9 @@ describe('hooks-claude coverage — schema-bypass default + unspawnable hook', (
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-    // Direct apply with only configPath — bypasses schemastery's defaults, so the
-    // runtime `defaultTimeoutMs ?? 600_000` fallback is exercised.
+    // Direct apply with only configPath — bypasses schemastery's defaults, so
+    // the bridge must run on the raw minimal config (the per-hook timeout is
+    // the protocol lib's reference default, not a config knob).
     HooksClaude.apply(ctx, { configPath: join(d, 'hooks.json') })
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })

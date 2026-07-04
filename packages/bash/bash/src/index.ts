@@ -77,16 +77,32 @@ export abstract class BashExecutor extends Service {
    * call this, then pass the result to {@link run}/{@link start} — keeping
    * defaulting in the implementation that owns the config while the seam type
    * stays explicit (no hidden `?? default` inside run/start).
+   * @param request - the caller's request; omitted fields get this
+   *   implementation's defaults, capped fields are clamped.
+   * @returns the fully-specified spec to hand to {@link run}/{@link start}.
    */
   abstract resolve(request: BashExecRequest): BashExecSpec
 
-  /** Run a command in the foreground; resolves when it finishes. */
+  /**
+   * Run a command in the foreground; resolves when it finishes.
+   * @param spec - a resolved spec from {@link resolve}, never a raw request.
+   * @returns the outcome; nonzero exits, timeout kills, and abort kills
+   *   resolve with a descriptive result rather than reject.
+   */
   abstract run(spec: BashExecSpec): Promise<BashRunResult>
 
-  /** Start a background task and return its handle immediately. */
+  /**
+   * Start a background task and return its handle immediately.
+   * @param spec - a resolved spec from {@link resolve}, never a raw request.
+   * @returns the live task handle; completion fires {@link onTaskDone}.
+   */
   abstract start(spec: BashExecSpec): BashTask
 
-  /** Look up a background task by id. */
+  /**
+   * Look up a background task by id.
+   * @param id - the task id to look up.
+   * @returns the tracked task, or undefined for an id this executor never issued.
+   */
   abstract get(id: BashTaskId): BashTask | undefined
 
   /**
@@ -101,24 +117,38 @@ export abstract class BashExecutor extends Service {
    * loudly at the subsequent {@link readOutput}/{@link kill} ("unknown task").
    * Storing ownership in the executor (disposed with ITS fiber) — not in the
    * tool plugin — is what makes ownership survive a `tool-bash` HMR reload.
+   * @param id - the background task id to look up ownership for.
+   * @returns the token recorded at start, verbatim; undefined for an unknown
+   *   id or a known-but-ownerless task.
    */
   abstract ownerOf(id: BashTaskId): OwnerToken | undefined
 
-  /** All tracked background tasks (insertion order). */
+  /**
+   * All tracked background tasks (insertion order).
+   * @returns every task this executor started, running or finished.
+   */
   abstract list(): BashTask[]
 
-  /** Read output produced since the previous read. Throws for unknown ids. */
+  /**
+   * Read output produced since the previous read. Throws for unknown ids.
+   * @param id - the task to read from.
+   * @returns the incremental read; consecutive reads never re-deliver output.
+   */
   abstract readOutput(id: BashTaskId): BashTaskRead
 
   /**
    * Kill a running background task. Returns false when it had already
    * finished (no-op). Throws for unknown ids.
+   * @param id - the task to kill.
+   * @returns true when this call killed it, false when it had already finished.
    */
   abstract kill(id: BashTaskId): boolean
 
   /**
    * Register a background-task completion listener (disposed with the
    * calling fiber). Listeners never fire after this service is disposed.
+   * @param listener - called exactly once per task completion.
+   * @returns the disposer that unregisters the listener.
    */
   onTaskDone(listener: BashTaskListener): () => void {
     const dispose = this.ctx.effect(() => {
