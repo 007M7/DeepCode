@@ -3,8 +3,6 @@
 
 # Coding Agent App Composition
 
-Maintenance mode: hybrid: the leaf plugin list is parsed from its `cordis.yml`; app package expansion is curated from package source.
-
 The coding REPL demo adds the real DeepSeek adapter, filesystem tools, todo_write, compaction, and both subagent transports on top of the stdio app package.
 
 ```mermaid
@@ -64,4 +62,6 @@ flowchart LR
 | `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
 | `tool-fs` | `@deepseek-ai/dsh-tool-fs` |
 
-Source config: [`examples/coding-agent/cordis.yml`](../examples/coding-agent/cordis.yml).
+Source config: [`examples/coding-agent/cordis.yml`](cordis.yml).
+
+Maintenance mode: hybrid: the leaf plugin list is parsed from its `cordis.yml`; app package expansion is curated from package source.

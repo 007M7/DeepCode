@@ -3,8 +3,6 @@
 
 # Agent Turn And Step Lifecycle
 
-Maintenance mode: curated Mermaid sequence; exact event signatures live in the generated Cordis catalog.
-
 This sequence is the visual companion to [architecture.md](architecture.md#loop-lifecycle-session--turn--step). It keeps durable replay facts on `session/event` and live control/status on `agent/*`.
 
 ```mermaid
@@ -47,3 +45,5 @@ sequenceDiagram
 ```
 
 SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request shaping, steering, continuation, and errors.
+
+Maintenance mode: curated Mermaid sequence; exact event signatures live in the generated Cordis catalog.

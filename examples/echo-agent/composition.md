@@ -3,8 +3,6 @@
 
 # Echo Agent App Composition
 
-Maintenance mode: hybrid: the leaf plugin list is parsed from its `cordis.yml`; app package expansion is curated from package source.
-
 The echo demo swaps in a local mock LLM and teaching echo tool, then loads the stdio app package for the shared spine and terminal front door.
 
 ```mermaid
@@ -37,4 +35,6 @@ flowchart LR
 | `bash` | `@deepseek-ai/dsh-bash-local` |
 | `stdio-agent` | `@deepseek-ai/dsh-stdio-agent` |
 
-Source config: [`examples/echo-agent/cordis.yml`](../examples/echo-agent/cordis.yml).
+Source config: [`examples/echo-agent/cordis.yml`](cordis.yml).
+
+Maintenance mode: hybrid: the leaf plugin list is parsed from its `cordis.yml`; app package expansion is curated from package source.

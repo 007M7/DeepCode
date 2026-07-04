@@ -3,8 +3,6 @@
 
 # Documentation Graph Index
 
-Maintenance mode: mixed: each linked page declares generated, hybrid, or curated mode.
-
 These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, [tool-catalog/](tool-catalog/tools.md), and [core-data-structures/](core-data-structures/core.md).
 
 The process decision behind this index is recorded in [the documentation graph RFC](rfc/implemented/process/2026-07-03-documentation-graph-atlas.md).
@@ -14,12 +12,14 @@ The process decision behind this index is recorded in [the documentation graph R
 | [module dependency graph](module-graph.md) | `generated` |
 | [tool schema catalog and package map](tool-catalog/tools.md) | `generated` |
 | [capability seams and core services](capability-seams.md) | `hybrid generated` |
-| [echo-agent app composition](echo-agent-composition.md) | `hybrid generated` |
-| [coding-agent app composition](coding-agent-composition.md) | `hybrid generated` |
-| [acp-agent app composition](acp-agent-composition.md) | `hybrid generated` |
+| [echo-agent app composition](../examples/echo-agent/composition.md) | `hybrid generated` |
+| [coding-agent app composition](../examples/coding-agent/composition.md) | `hybrid generated` |
+| [acp-agent app composition](../examples/acp-agent/composition.md) | `hybrid generated` |
 | [event producer/consumer matrix](event-producer-consumer.md) | `hybrid generated` |
 | [agent turn and step lifecycle](agent-lifecycle.md) | `curated` |
 | [tool execution pipeline](tool-execution-pipeline.md) | `curated` |
 | [ACP snapshot replay](acp/snapshot-replay.md) | `curated` |
 
 Regenerate with `pnpm run gen-doc-graphs`; verify freshness with `pnpm run verify-doc-graphs`.
+
+Maintenance mode: mixed: each linked page declares generated, hybrid, or curated mode.

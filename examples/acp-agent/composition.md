@@ -3,8 +3,6 @@
 
 # ACP Agent App Composition
 
-Maintenance mode: hybrid: the leaf plugin list is parsed from its `cordis.yml`; app package expansion is curated from package source.
-
 The ACP demo exposes the same agent spine over JSON-RPC stdio, with no stdout logger and no pre-created agent; clients create sessions through the ACP bridge.
 
 ```mermaid
@@ -64,4 +62,6 @@ flowchart LR
 | `hooks-claude` | `@deepseek-ai/dsh-hooks-claude` |
 | `hooks-codex` | `@deepseek-ai/dsh-hooks-codex` |
 
-Source config: [`examples/acp-agent/cordis.yml`](../examples/acp-agent/cordis.yml).
+Source config: [`examples/acp-agent/cordis.yml`](cordis.yml).
+
+Maintenance mode: hybrid: the leaf plugin list is parsed from its `cordis.yml`; app package expansion is curated from package source.

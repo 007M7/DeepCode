@@ -3,8 +3,6 @@
 
 # Event Producer And Consumer Matrix
 
-Maintenance mode: hybrid generated: Cordis event declarations and most producer/listener edges are AST-scanned; dynamic dispatch sites are classified in `scripts/gen-doc-graphs.ts`.
-
 This matrix shows which packages dispatch each harness-owned event and which packages listen to it. It is intentionally a table rather than one large graph: events are many-to-many, and dense relation data is easier to review in rows. Dynamic dispatch overrides cover sites that deliberately bypass `ctx.emit`, such as subagent lifecycle containment.
 
 | Event | Mode | Declared in | Dispatchers | Listeners |
@@ -34,3 +32,5 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `tools/change` | `emit` | [`packages/core/tools/src/index.ts:87`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`emit`) | - |
 | `tools/post-execute` | `waterfall` | [`packages/core/tools/src/index.ts:82`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
 | `tools/pre-execute` | `waterfall` | [`packages/core/tools/src/index.ts:66`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
+
+Maintenance mode: hybrid generated: Cordis event declarations and most producer/listener edges are AST-scanned; dynamic dispatch sites are classified in `scripts/gen-doc-graphs.ts`.
