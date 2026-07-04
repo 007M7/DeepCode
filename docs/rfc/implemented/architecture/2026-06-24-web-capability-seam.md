@@ -37,7 +37,7 @@ The seam deliberately exposes no observation surface — no registry-change even
 
 ## Package topology
 
-The three-package interface/implementation/consumer split follows bash and filesystem, but the *interface* package is closer to the LLM seam. `LlmService` (`packages/llm/llm/src/index.ts`) is a name-keyed provider registry: `registerAdapter(models, adapter)` stores adapters in a `Map`, returns a disposer, throws `DUPLICATE_ADAPTER` on duplicate keys, and throws `NO_ADAPTER` at resolution time. `ctx.web` follows that registry shape, but has two capability kinds and one small selection-status layer so diagnostics and execution can explain why a search or fetch capability can or cannot run.
+The three-package interface/implementation/consumer split follows bash and filesystem, but the *interface* package is closer to the LLM seam. `LlmService` (`packages/llm/llm/src/index.ts`) is a name-keyed provider registry: `registerAdapter(models, adapter)` stores adapters in a `Map`, returns a disposer, throws `DUPLICATE_ADAPTER` on duplicate keys, and throws `NO_ADAPTER` at resolution time. `ctx.web` follows that registry shape, but has two capability kinds and a richer selection policy (a configured provider id, or auto-select when exactly one usable provider is registered), so the `WebError` an execution throws can explain why a search or fetch capability cannot run.
 
 The dependency direction mirrors bash and filesystem:
 
