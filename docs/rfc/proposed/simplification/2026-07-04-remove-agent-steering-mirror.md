@@ -8,7 +8,7 @@ Status: proposed
 
 Both mirror-removal RFCs retained it while explicitly deferring the decision this RFC now makes. The [boundary-mirror removal](../../implemented/simplification/2026-06-20-remove-agent-boundary-mirror-events.md) kept it as "a live control signal, not a boundary"; the [stream-chunk removal](../../implemented/simplification/2026-07-02-remove-stream-chunk-mirror.md) kept it as "a live control signal with no durable twin, retained (its fate is a separate future decision)". The second rationale does not survive the code: the durable twin is `steering/message`, appended immediately before the emit with the same payload. The mirrored-vs-live-only line the taxonomy actually draws puts it on the mirror side: `agent/queued` is genuinely live-only (it fires at enqueue time, before any durable event exists, and already carries a `steering: boolean` flag — cancelled queued work never enters the log), while `agent/steering` fires at the exact moment its durable twin lands, carrying nothing the log does not.
 
-Steering itself is busier than ever — the hook bridges' turn-continuation decisions inject their reasons through `inbox.steer()`, landing as durable `steering/message` events that the hook-matrix goldens pin — and every one of those consumers observes the durable event. Nothing observes the mirror.
+Steering carries real production traffic — the hook bridges' turn-continuation decisions inject their reasons through `inbox.steer()`, landing as durable `steering/message` events that the hook-matrix goldens pin — and every one of those consumers observes the durable event. Nothing observes the mirror.
 
 ## Proposal
 

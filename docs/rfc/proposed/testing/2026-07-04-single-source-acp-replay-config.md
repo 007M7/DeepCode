@@ -14,7 +14,7 @@ Make the replay tree derive from the live tree instead of mirroring it. Preferre
 
 ## Why not keep the twin?
 
-An explicit replay file is transparently readable and teaches replay semantics — the strongest counterargument, and the reason the fallback keeps the file and adds only the gate. YAML surgery inside the published bin is real complexity in a shipping artifact, and an include-overlay depends on loader capability that may not exist. But the status quo — a 125-line hand-maintained near-copy of a 141-line file whose one meaningful difference is two lines, defended by nothing — is the one option with a silent failure mode, and it grows with every plugin the app gains (the hooks stack just added twin stanzas to both).
+An explicit replay file is transparently readable and teaches replay semantics — the strongest counterargument, and the reason the fallback keeps the file and adds only the gate. YAML surgery inside the published bin is real complexity in a shipping artifact, and an include-overlay depends on loader capability that may not exist. But the status quo — a 125-line hand-maintained near-copy of a 141-line file whose one meaningful difference is two lines, defended by nothing — is the one option with a silent failure mode, and it grows with every plugin the app gains (the hook-bridge stanzas are twins in both files).
 
 ## Acceptance criteria
 

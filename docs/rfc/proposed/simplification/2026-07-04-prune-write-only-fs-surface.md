@@ -21,7 +21,7 @@ A future permission/containment layer might want the pre-resolution path for err
 
 ## Acceptance criteria
 
-- The removed spellings appear only in this RFC; doc pastes and the manifest in sync; the suite is green with the shrunk fakes.
+- The removed surfaces are gone — `STREAM_MIN_SIZE`/`streamMinSize` in `dsh-fs-local`, `FsTarget.inputPath`, `FsEditOutcome.replacements`/`.replaceAll`, and `FileReadOutcome.limit`/`.version` — while the request-side `replaceAll` (`FsEditSpec`) and the version fields on the other outcome types are untouched; doc pastes and the manifest in sync; the suite is green with the shrunk fakes.
 - `formatEditOutput`'s emitted text is unchanged for both `replace_all` branches, so no snapshot golden churns.
 
 ## Risks
