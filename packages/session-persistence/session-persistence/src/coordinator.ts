@@ -14,7 +14,7 @@
  * {@link PersistenceBackend} hook object.
  *
  * The abstract {@link SessionPersistence} service's public API is independent of
- * this: a backend IS a `SessionPersistence` (its six public methods delegate to
+ * this: a backend IS a `SessionPersistence` (its four public methods delegate to
  * a coordinator it composes), so a third-party backend MAY implement the service
  * directly without using the coordinator at all.
  *
@@ -25,7 +25,7 @@
  */
 
 import { Context } from 'cordis'
-import { interruptedTurnClosers } from '@deepseek-ai/dsh-session'
+import { interruptedTurnClosers, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import { assertSerializable, seedCoversPrefix } from './index.ts'
 
@@ -95,9 +95,6 @@ export interface PersistenceBackend<TornMarker = unknown> {
    */
   commitRepair(meta: SessionHeader, tornMarker: TornMarker | undefined, closers: readonly SessionEvent[]): Promise<void>
 
-  /** Remove the stored artifact for `id` (the coordinator clears in-memory state). */
-  deleteStored(id: SessionId): Promise<void>
-
   /** List all stored (materialized) sessions' metadata. */
   list(): Promise<SessionHeader[]>
 
@@ -119,13 +116,12 @@ interface SessionState {
    * SQLite row exists). `create()` registers state LAZILY — cursor 0,
    * materialized false, nothing on disk — so an empty session leaves no
    * artifact and the FIRST `appendBatch` writes the header + its events in ONE
-   * transaction (the "a row exists ⇔ it has events" invariant `has`/`list`
-   * rely on; a separate up-front materialize could crash leaving a row with
+   * transaction (the "a row exists ⇔ it has events" invariant `list`
+   * relies on; a separate up-front materialize could crash leaving a row with
    * zero events). The flag is the only signal that distinguishes a session
-   * registered-but-never-written from one durably present, which two callers
-   * need: `has()` (lazy-but-unwritten is not yet durable) and the reclaim path
-   * (an abandoned id with no artifact AND no buffered events is free to reuse;
-   * a materialized one is a real collision).
+   * registered-but-never-written from one durably present, which the reclaim
+   * path needs (an abandoned id with no artifact AND no buffered events is free
+   * to reuse; a materialized one is a real collision).
    */
   materialized: boolean
   /**
@@ -150,7 +146,7 @@ async function settledErrors(promises: Iterable<Promise<unknown>>): Promise<unkn
 /**
  * Owns the backend-agnostic session write-path orchestration. A backend
  * constructs one (`new PersistenceCoordinator(ctx, this)`), implements
- * {@link PersistenceBackend}, and delegates its six public service methods to
+ * {@link PersistenceBackend}, and delegates its four public service methods to
  * the matching coordinator methods.
  *
  * All per-id operations are serialized (a per-id promise chain) so concurrent
@@ -161,14 +157,14 @@ async function settledErrors(promises: Iterable<Promise<unknown>>): Promise<unkn
  */
 export class PersistenceCoordinator<TornMarker = unknown> {
   /** Backend bookkeeping keyed by session id (NOT the live Session object). */
-  private states = new Map<string, SessionState>()
+  private states = new Map<SessionId, SessionState>()
   /** Write-behind buffers keyed by the live Session (write path). */
   private buffers = new Map<Session, SessionEvent[]>()
   /**
    * Per-session serialization: every operation chains onto the prior one for the
    * same id, so writes for one session never interleave. Keyed by session id.
    */
-  private chains = new Map<string, Promise<unknown>>()
+  private chains = new Map<SessionId, Promise<unknown>>()
   /**
    * Per-session init promise (onCreated). Keyed by the LIVE Session OBJECT, not
    * its id: a disposed fiber's session can be replaced by a different live
@@ -206,7 +202,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       throw new Error(`session "${meta.id}" already exists in this backend`)
     }
     // A persisted artifact under this id (in ANY scope) blocks creation: load/
-    // has/resume identify a session by id alone, so a second artifact would make
+    // resume identify a session by id alone, so a second artifact would make
     // resume nondeterministic.
     if (await this.backend.loadStored(meta.id) !== undefined) {
       throw new Error(`session "${meta.id}" already has a persisted log on disk; load/resume it instead of creating`)
@@ -294,31 +290,6 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   // through the coordinator would only forward to that same hook, so the
   // coordinator stays out of the listing path entirely.
 
-  /** Whether a session is durably present (materialized). */
-  async has(id: SessionId): Promise<boolean> {
-    const state = this.states.get(id)
-    if (state?.materialized) return true
-    // A TRACKED lazy session has a known cwd: probe that exact bucket via
-    // loadLive(id, cwd) — including the no-cwd bucket when its cwd is undefined.
-    // An UNTRACKED id has a genuinely UNKNOWN cwd, so it must scan ANY scope via
-    // loadStored — loadLive(id, undefined) would (correctly) look ONLY in the
-    // no-cwd bucket and miss a materialized session that lives in a real cwd.
-    const probe = state !== undefined
-      ? await this.backend.loadLive(id, state.meta.cwd)
-      : await this.backend.loadStored(id)
-    return probe !== undefined
-  }
-
-  /** Remove a session and all its persisted artifacts. */
-  delete(id: SessionId): Promise<void> {
-    return this.serialize(id, () => this.deleteCore(id))
-  }
-
-  private async deleteCore(id: SessionId): Promise<void> {
-    await this.backend.deleteStored(id)
-    this.states.delete(id)
-  }
-
   // --- per-id serialization + adoption helpers ---
 
   /**
@@ -348,8 +319,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   }
 
   private assertVersion(meta: SessionHeader): void {
-    if (meta.version !== 1) {
-      throw new Error(`unsupported session format version ${meta.version} for "${meta.id}" (only v1 is supported)`)
+    if (meta.version !== SESSION_FORMAT_VERSION) {
+      throw new Error(`unsupported session format version ${meta.version} for "${meta.id}" (only v${SESSION_FORMAT_VERSION} is supported)`)
     }
   }
 

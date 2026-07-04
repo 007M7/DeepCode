@@ -6,8 +6,8 @@
  */
 
 import { Context, Service } from 'cordis'
-import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { Agent, AgentOptions } from './types.ts'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { Agent, AgentId, AgentOptions } from './types.ts'
 
 export * from './types.ts'
 
@@ -26,17 +26,29 @@ declare module 'cordis' {
  */
 export interface CreateAgentOptions {
   /** The agent's id (the registry handle). */
-  agentId: string
+  agentId: AgentId
   /** The live session's id (NOT derived from agentId). */
-  sessionId: string
+  sessionId: SessionId
   /**
-   * Session creation metadata: validated absolute `cwd` and `parentSession`
-   * fork lineage. Mirrors the `cwd`/`parentSession` fields of
+   * Session creation metadata: validated absolute `cwd`, `parentSession`
+   * fork lineage, and the `seedLength` seed boundary. Mirrors the
+   * `cwd`/`parentSession`/`seedLength` fields of
    * {@link CreateSessionOptions.meta} in dsh-session (the internal-only
    * `createdAt`, used when reconstructing a persisted session, is deliberately
    * excluded — a factory caller never sets it).
    */
-  meta?: { cwd?: string; parentSession?: SessionId }
+  meta?: { cwd?: string; parentSession?: SessionId; seedLength?: number }
+  /**
+   * Seed events to reconstruct the child session's log from (the fork lineage
+   * primitive). When present, the factory creates the session with this event
+   * prefix so `deriveMessages()`/`lastTurnNumber` continue from it — used by the
+   * in-process FORK subagent backend to seed a child with a balanced
+   * completed-turn prefix of the parent's log. The prefix MUST be contiguous
+   * from seq 0 and balanced (no open turn/step, no dangling tool-call), or the
+   * session constructor (and the dev-mode invariants replay) reject it. Absent
+   * for a fresh (spawn) child.
+   */
+  seed?: SessionEvent[]
   /** Per-agent options (model, system prompt). */
   agentOptions?: AgentOptions
 }
@@ -47,9 +59,9 @@ export interface CreateAgentOptions {
  */
 export interface ResumeAgentOptions {
   /** The agent's id (the registry handle). */
-  agentId: string
+  agentId: AgentId
   /** The persisted session id to load and resume on. */
-  resumeSessionId: string
+  resumeSessionId: SessionId
   /** Per-agent options (model, system prompt). */
   agentOptions?: AgentOptions
 }
@@ -103,7 +115,7 @@ const NO_FACTORY_MESSAGE = 'no agent factory registered (load an agent-loop plug
  * {@link setFactory}.
  */
 export class AgentRegistry extends Service {
-  private store = new Map<string, Agent>()
+  private store = new Map<AgentId, Agent>()
   private factory: AgentFactory | undefined
 
   constructor(ctx: Context) {
@@ -188,7 +200,7 @@ export class AgentRegistry extends Service {
     return () => void dispose()
   }
 
-  get(id: string): Agent | undefined {
+  get(id: AgentId): Agent | undefined {
     return this.store.get(id)
   }
 

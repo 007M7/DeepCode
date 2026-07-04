@@ -31,7 +31,7 @@
  * pre-existing reload-gap drop — but the ownership fence itself is HMR-proof.)
  *
  * TODO(permissions): commands run with the executor's full authority. The
- * permission/sandbox seam is the `tools/execute` waterfall (veto/ask) plus
+ * permission/sandbox seam is the `tools/pre-execute` waterfall (deny/ask) plus
  * sandboxing `BashExecutor` implementations — see docs/architecture.md
  * § plugin checklist.
  *
@@ -41,8 +41,9 @@
 import type { Context } from 'cordis'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ToolCallPresentation, ToolResult, ToolResultPresentation } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, TerminalCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { BashTaskId, OwnerToken } from '@deepseek-ai/dsh-bash'
 import type { BashRunResult, BashTask, CollectedOutput } from '@deepseek-ai/dsh-bash'
 
 export const name = 'tool-bash'
@@ -79,11 +80,11 @@ function validateBashArgs(args: {
  * SchemaSpec validation (the arg-validation RFC); only the non-empty constraint, which the
  * DSL can't express, is left to check here.
  */
-function validateTaskId(value: string): string {
+function validateTaskId(value: string): BashTaskId {
   if (value.length === 0) {
     throw new Error(`invalid task_id: expected a string, got ${JSON.stringify(value)}`)
   }
-  return value
+  return BashTaskId(value)
 }
 
 /** Append the truncation notice (with the full-output spill path) to a stream's text. */
@@ -157,16 +158,26 @@ export function renderResult(result: BashRunResult): string {
  */
 type BashCallArgs = { command: string; description: string; workdir?: string; run_in_background?: boolean }
 
-function presentBashCall(args: BashCallArgs): ToolCallPresentation {
-  const base = {
-    title: args.command,
-    kind: 'execute' as const,
-    rawInput: args.command,
-    content: [{ type: 'text' as const, text: args.description }],
+function presentBashCall(args: BashCallArgs): GenericCallView | TerminalCallView {
+  // A background start is not an interactive terminal — a generic execute card
+  // with the command as rawInput and the description as a content block.
+  if (args.run_in_background === true) {
+    return {
+      card: 'generic',
+      title: args.command,
+      kind: 'execute',
+      rawInput: args.command,
+      content: [{ type: 'text', text: args.description }],
+    }
   }
-  // A background start is not an interactive terminal — no terminal card.
-  if (args.run_in_background === true) return base
-  return { ...base, terminal: args.workdir !== undefined ? { cwd: args.workdir } : {} }
+  // A foreground run IS a terminal: the command titles the card, the description
+  // renders above it, and the cwd (when the model gave a workdir) heads it.
+  return {
+    card: 'terminal',
+    title: args.command,
+    description: args.description,
+    ...args.workdir !== undefined ? { cwd: args.workdir } : {},
+  }
 }
 
 /**
@@ -185,21 +196,25 @@ function presentBashCall(args: BashCallArgs): ToolCallPresentation {
  * task-id ack, not a streamed run) and an `isError` result (a spawn failure or
  * abort — there is no real process exit to pill, and the body is an error
  * message, not `renderResult` output, so parsing it would be meaningless). Those
- * fall back to the fenced `content` block with no terminal metadata. The bridge's
- * orphan guard also drops a result terminal when the call wasn't terminal, so a
- * background call (not marked terminal in `presentBashCall`) is doubly safe.
- * A non-text result (unexpected for bash) falls through to `undefined`.
+ * return a `generic` result whose content is the fenced ```console block. A
+ * finished foreground run returns a `terminal` result carrying the RAW output
+ * and the parsed exit status; the BRIDGE derives the fenced fallback from
+ * `output` for a UI without terminal support, so the tool does not double-encode
+ * it. A non-text result (unexpected for bash) falls through to `undefined`.
  */
-function presentBashResult(args: unknown, result: ToolResult): ToolResultPresentation | undefined {
+function presentBashResult(args: unknown, result: ToolResult): ToolResultView | undefined {
   const block = result.content.length === 1 ? result.content[0] : undefined
   if (block === undefined || block.type !== 'text') return undefined
   const raw = block.text
-  const fenced = raw.replace(/\n+$/, '')
-  const content = [{ type: 'text' as const, text: `\`\`\`console\n${fenced}\n\`\`\`` }]
   const isBackground = typeof args === 'object' && args !== null && (args as { run_in_background?: unknown }).run_in_background === true
-  // No exit pill / terminal output for a background ack or an errored run.
-  if (isBackground || result.isError) return { content }
-  return { content, terminal: { output: raw, ...parseExitStatus(raw) } }
+  // A background ack or an errored run is not a real terminal exit: render the
+  // fenced ```console fallback as generic content (no exit pill).
+  if (isBackground || result.isError) {
+    return { card: 'generic', content: [{ type: 'text', text: `\`\`\`console\n${raw.replace(/\n+$/, '')}\n\`\`\`` }] }
+  }
+  // A finished foreground run: RAW output + parsed exit for the terminal card.
+  // The bridge derives the no-capability fenced fallback from `output`.
+  return { card: 'terminal', output: raw, ...parseExitStatus(raw) }
 }
 
 /**
@@ -236,8 +251,8 @@ function parseExitStatus(text: string): { exitCode: number } | { signal: string 
 }
 
 /** Pending-state presentation for `bash_output`/`bash_kill` (background-task tools). */
-function presentTaskCall(verb: string, args: { task_id: string }): ToolCallPresentation {
-  return { title: `${verb} background task ${args.task_id}`, kind: 'execute', rawInput: args.task_id }
+function presentTaskCall(verb: string, args: { task_id: string }): GenericCallView {
+  return { card: 'generic', title: `${verb} background task ${args.task_id}`, kind: 'execute', rawInput: args.task_id }
 }
 
 /**
@@ -279,7 +294,8 @@ export function apply(ctx: Context): void {
    * the conventions flag. The two are equal in production, but the header is the
    * canonical identity.
    */
-  const callerToken = (exec: { agent?: Agent }): string | undefined => exec.agent?.session.header.id
+  const callerToken = (exec: { agent?: Agent }): OwnerToken | undefined =>
+    exec.agent ? OwnerToken(exec.agent.session.header.id) : undefined
 
   /**
    * Authorize a `bash_output`/`bash_kill` call against the task's stored owner
@@ -291,7 +307,7 @@ export function apply(ctx: Context): void {
    * `readOutput`/`kill` ("unknown bash task"). The conservative no-agent caller
    * (`callerToken` undefined) cannot match an owned task and is rejected.
    */
-  const assertTaskAccess = (taskId: string, exec: { agent?: Agent }): void => {
+  const assertTaskAccess = (taskId: BashTaskId, exec: { agent?: Agent }): void => {
     const owner = ctx.bash.ownerOf(taskId)
     if (owner !== undefined && owner !== callerToken(exec)) {
       throw new Error(`task ${taskId} belongs to another session`)
@@ -310,7 +326,7 @@ export function apply(ctx: Context): void {
   ctx.bash.onTaskDone((task) => {
     const ownerToken = ctx.bash.ownerOf(task.id)
     if (ownerToken === undefined) return
-    const agent = ctx.get('agents')?.list().find(a => a.session.header.id === ownerToken)
+    const agent = ctx.get('agents')?.list().find(a => OwnerToken(a.session.header.id) === ownerToken)
     if (!agent) return
     try {
       agent.inject(

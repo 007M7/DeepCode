@@ -1,5 +1,7 @@
 # Development guide
 
+English | [中文](development.zh.md)
+
 This guide covers the local setup needed to work on DeepSeek Harness and understand the local hooks, daily checks, and CI gates.
 
 ## Prerequisites
@@ -7,7 +9,7 @@ This guide covers the local setup needed to work on DeepSeek Harness and underst
 - Node.js 24 or newer. The repo declares `node >=24`; CI runs the matrix on Node 24 and 26.
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
 - Git.
-- Optional: a DeepSeek API key for the coding-agent demo and real-API e2e tests.
+- Optional: a DeepSeek API key for the REPL/ACP agent demos and real-API e2e tests.
 
 ## First-time setup
 
@@ -31,7 +33,7 @@ Run typecheck once after a fresh clone:
 pnpm run typecheck
 ```
 
-That first typecheck builds declaration output used by type-aware linting for vendored packages. Without it, `pnpm run lint` can report unresolved-type `no-unsafe-*` errors even when source code is fine.
+That first typecheck runs the package/vendor build graph and the root no-emit `tsconfig.json` graph for examples, tests, and scripts. The root graph uses the same source `paths` map but relies on project references so vendored code is checked under its own tsconfig settings.
 
 If you are preparing to push from a fresh clone or worktree, also build once:
 
@@ -39,11 +41,11 @@ If you are preparing to push from a fresh clone or worktree, also build once:
 pnpm run build
 ```
 
-`pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files. A fresh worktree has no bundled JS until `pnpm run build` runs.
+`pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files, and `verify-node-next-types`, which validates built declarations against a temporary NodeNext consumer. A fresh worktree has no bundled JS or declarations until `pnpm run build` runs.
 
 ## Environment variables
 
-The real DeepSeek adapter and coding-agent demo read credentials from the environment or from a gitignored `.env` at the repo root:
+The real DeepSeek adapter and key-backed agent demos read credentials from the environment or from a gitignored `.env` at the repo root:
 
 ```sh
 DEEPSEEK_API_KEY=sk-...
@@ -61,7 +63,7 @@ lefthook is configured in `lefthook.yml` as an early local checkpoint before rev
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 
-These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests without coverage, while CI runs `pnpm run test:coverage`; CI also runs an echo-agent smoke test and exercises the matrix on Node 24 and 26.
+These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests without coverage, while CI runs `pnpm run test:coverage`; CI also runs echo-agent and built-bin smoke tests and exercises the matrix on Node 24 and 26.
 
 ## CI gates
 
@@ -76,10 +78,11 @@ The GitHub workflow runs these gates on each pull request:
 - `pnpm run test:coverage`
 - `pnpm run test:snapshot`
 - `pnpm run build`
-- `pnpm run knip && pnpm run publint`
+- `pnpm run hygiene`
 - an echo-agent smoke test that checks the demo's tool call, tool result, and JSONL output
+- built-bin smoke tests that run the published `lib/bin.js` entrypoints under plain `node`
 
-`pnpm run hygiene` is the local shorthand for `pnpm run knip && pnpm run publint && pnpm run constraints`; CI splits `pnpm run constraints` into its own earlier step, then runs `pnpm run knip && pnpm run publint` after `pnpm run build`.
+`pnpm run hygiene` is the local shorthand for `pnpm run knip && pnpm run publint && pnpm run constraints && pnpm run verify-node-next-types`; CI also runs `pnpm run constraints` as an earlier fail-fast step, then runs the full hygiene script after `pnpm run build`.
 
 ## Daily commands
 
@@ -89,7 +92,7 @@ Use these from the repo root:
 pnpm run test           # unit tests
 pnpm run test:coverage  # unit tests with per-file coverage gates
 pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
-pnpm run typecheck      # build declarations, then typecheck source, tests, and examples
+pnpm run typecheck      # build package/vendor outputs, then typecheck examples, tests, and scripts
 pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
@@ -100,8 +103,9 @@ pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from i
 pnpm run doc-sync       # doc-typecheck, cordis-catalog freshness, markdown wrap/link, and type-equiv verification
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
-pnpm run build          # build declarations and JS bundles
-pnpm run hygiene        # knip, publint, and workspace constraints
+pnpm run build          # emit lib/types intermediates, then bundle lib/index.* runtime files
+pnpm run verify-node-next-types  # fail if built declarations are not NodeNext-consumable
+pnpm run hygiene        # knip, publint, workspace constraints, and NodeNext declaration check
 ```
 
 When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets, cordis events/services catalog drift, and hard-wrapped markdown prose, but broader prose/API sync still needs review.
@@ -114,10 +118,16 @@ The echo demo does not need API credentials:
 pnpm run demo:echo
 ```
 
-The coding-agent demo uses the real DeepSeek adapter and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
+The REPL agent demo uses the real DeepSeek adapter and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
 
 ```sh
-pnpm run demo:coding
+pnpm run demo:repl
+```
+
+The ACP server agent demo exposes the agent over JSON-RPC stdio and also needs `DEEPSEEK_API_KEY`:
+
+```sh
+pnpm run demo:acp
 ```
 
 ## TODO markers

@@ -6,12 +6,12 @@
  * backend-agnostic: the same append-only / contiguous-seq / lazy-materialization
  * / interrupted-turn-close-on-load semantics the JSONL backend expresses over
  * file bytes, expressed here over `node:sqlite` rows. Each `SessionEvent` maps
- * 1:1 onto a row `(session_id, seq, type, time, data)`.
+ * 1:1 onto a row `(session_id, seq, type, time, data, source_event_seqs, surface_op)`.
  *
  * Like the JSONL backend it supplies ONLY the storage primitives (the
  * {@link PersistenceBackend} hooks below — INSERT/DELETE/SELECT inside
  * transactions); all the write-path orchestration lives in the backend-agnostic
- * {@link PersistenceCoordinator} this class composes. The six public
+ * {@link PersistenceCoordinator} this class composes. The four public
  * {@link SessionPersistence} methods delegate to the coordinator.
  *
  * @module @deepseek-ai/dsh-session-persistence-sqlite
@@ -26,12 +26,25 @@ import {
   SessionPersistence, PersistenceCoordinator,
   type PersistenceBackend, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
-import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SurfaceEventType, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
   openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
 } from './schema.ts'
 
 export { SCHEMA_VERSION } from './schema.ts'
+
+/**
+ * Serialize an event's surface-metadata fields for SQL binding. Both fields are
+ * nullable TEXT columns — null when the event has no surface metadata (non-surface
+ * events, events written before surface support).
+ */
+function surfaceBindings(event: SessionEvent): [string | null, string | null] {
+  const se = event as SessionEvent<SurfaceEventType>
+  return [
+    se.sourceEventSeqs ? JSON.stringify(se.sourceEventSeqs) : null,
+    se.surfaceOp !== undefined ? JSON.stringify(se.surfaceOp) : null,
+  ]
+}
 
 /** Plugin configuration. */
 export interface Config {
@@ -99,14 +112,6 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     return this.coordinator.load(id)
   }
 
-  has(id: SessionId): Promise<boolean> {
-    return this.coordinator.has(id)
-  }
-
-  delete(id: SessionId): Promise<void> {
-    return this.coordinator.delete(id)
-  }
-
   // `list` is BOTH the public service method and the PersistenceBackend hook —
   // one method (the SELECT below). The coordinator adds no orchestration for
   // listing, so routing it through the coordinator would just recurse. Defined
@@ -143,7 +148,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     if (row === undefined) return undefined
     const meta = rowToMeta(row)
     const eventRows = this.db
-      .prepare('SELECT seq, type, time, data FROM events WHERE session_id = ? ORDER BY seq')
+      .prepare('SELECT seq, type, time, data, source_event_seqs, surface_op FROM events WHERE session_id = ? ORDER BY seq')
       .all(id) as unknown as EventRow[]
     const { preserved, tornFrom } = scanRows(eventRows)
     return { meta, events: preserved, ...tornFrom !== undefined ? { tornMarker: tornFrom } : {} }
@@ -158,13 +163,14 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   async appendBatch(meta: SessionHeader, events: readonly SessionEvent[], isMaterialized: boolean): Promise<void> {
     await this.ready
     const insertEvent = this.db.prepare(
-      'INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO events (session_id, seq, type, time, data, source_event_seqs, surface_op) VALUES (?, ?, ?, ?, ?, ?, ?)',
     )
     this.db.exec('BEGIN')
     try {
       if (!isMaterialized) this.writeRow(meta)
       for (const event of events) {
-        insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data))
+        const [surfaceSeqs, surfaceOp] = surfaceBindings(event)
+        insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data), surfaceSeqs, surfaceOp)
       }
       this.db.exec('COMMIT')
     } catch (error) {
@@ -186,9 +192,12 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
         this.db.prepare('DELETE FROM events WHERE session_id = ? AND seq >= ?').run(meta.id, tornMarker)
       }
       if (closers.length > 0) {
-        const insertEvent = this.db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
+        const insertEvent = this.db.prepare(
+          'INSERT INTO events (session_id, seq, type, time, data, source_event_seqs, surface_op) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        )
         for (const event of closers) {
-          insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data))
+          const [surfaceSeqs, surfaceOp] = surfaceBindings(event)
+          insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data), surfaceSeqs, surfaceOp)
         }
       }
       this.db.exec('COMMIT')
@@ -201,12 +210,6 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
       throw error
       /* v8 ignore stop */
     }
-  }
-
-  /** Remove a session's row (ON DELETE CASCADE drops its events). */
-  async deleteStored(id: SessionId): Promise<void> {
-    await this.ready
-    this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
   }
 
   /** List all materialized sessions' metadata (every row is a materialized session). */
@@ -234,23 +237,25 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   /**
    * Insert-or-replace a session's metadata row. The only caller is the first
    * materializing `appendBatch`, so writing the row IS the materialization (its
-   * existence is the signal `has`/`list` read).
+   * existence is the signal `list` reads).
    */
   private writeRow(meta: SessionHeader): void {
     this.db.prepare(`
-      INSERT INTO sessions (id, version, created_at, cwd, parent_session)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         version = excluded.version,
         created_at = excluded.created_at,
         cwd = excluded.cwd,
-        parent_session = excluded.parent_session
+        parent_session = excluded.parent_session,
+        seed_length = excluded.seed_length
     `).run(
       meta.id,
       meta.version,
       meta.createdAt,
       meta.cwd ?? null,
       meta.parentSession ?? null,
+      meta.seedLength ?? null,
     )
   }
 }

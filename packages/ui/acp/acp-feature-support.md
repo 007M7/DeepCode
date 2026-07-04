@@ -87,7 +87,7 @@ These are capabilities the bridge would *drive* on the editor. The harness runs 
 | `available_commands_update` | S | ❌ | ✅ | ✅ | No slash commands advertised. |
 | `current_mode_update` | S | ❌ | ✅ | ✅ | No session modes. |
 | `config_option_update` | S | ❌ | ✅ | ✅ | No config options. |
-| `usage_update` | S | ❌ | ✅ | ✅ | Token/cost reporting not surfaced (the harness HAS usage events internally). |
+| `usage_update` | S | ❌ | ✅ | ✅ | Token/cost reporting not surfaced (the harness records token usage internally on `assistant/message`). |
 | `session_info_update` | S | ❌ | ⚠️ | ⚠️ | Session title/metadata not pushed. |
 
 ## 5. Tool-call rendering
@@ -99,9 +99,9 @@ Tool-call presentation is **owned by each tool** (`presentCall` / `presentResult
 | `ToolCallKind` mapping | S | ✅ | ✅ | ✅ | `execute`/`read`/`edit`/`other` inferred from the tool; richer mapping possible. |
 | `ToolCallStatus` | S | ✅ | ✅ | ✅ | `in_progress` → `completed`/`failed`. |
 | `content` blocks | S | ✅ | ✅ | ✅ | Text content; the description renders above the card. |
-| `diff` content | S | ❌ | ✅ | ✅ | No structured diff rendering for edits (would need a diffing edit tool + presenter). |
+| `diff` content | S | ✅ | ✅ | ✅ | The `write`/`edit` tools declare a `diff` render intent: `presentCall` → a call-time `{ card: 'diff' }` snippet, and `presentResult` → a result-time `{ card: 'diff' }`. For an edit or an overwrite it carries the applied hunk(s) with surrounding context (one per `replace_all` site), computed from the before/after text and persisted on the `tool/result` event as `meta`; for a create (no before-image) it is an args-derived whole-file diff. The bridge emits `{ type: 'diff', path, oldText, newText }` content blocks; a successful mutation ALWAYS returns the result diff (an ACP `tool_call_update.content` replaces the call's content, so the result diff — not the model-facing text — is what survives). |
 | `terminal` content | S | ✅ | ✅ | ✅ | Via the Zed `_meta` terminal convention (see below), not the spec `terminal/*` sub-protocol. |
-| `locations` (follow-along) | S | ❌ | ✅ | ✅ | No file-location hints emitted. |
+| `locations` (follow-along) | S | ✅ | ✅ | ✅ | The `read`/`write`/`edit` tools emit `{ path, line? }` file-location hints via `presentCall`. |
 | `rawInput` | S | ✅ | ⚠️ | ✅ | Parsed tool args surfaced as `rawInput`. |
 | `rawOutput` | S | ❌ | ⚠️ | ✅ | Not emitted. |
 
@@ -147,8 +147,7 @@ Ranked by how commonly the reference adapters ship them and how much UX they unl
 5. **Slash commands** (`available_commands_update`).
 6. **MCP passthrough** (`mcpServers` on `session/new` + `mcpCapabilities`).
 7. **Richer prompt content** — image / embedded `resource` blocks (needs a multimodal model path).
-8. **Diff + location tool rendering** — `diff` content and `locations` for edit tools.
-9. **Usage reporting** (`usage_update`) — the harness already has the internal usage events.
+9. **Usage reporting** (`usage_update`) — the harness already records token usage internally (on `assistant/message`).
 10. **Editor filesystem delegation** (`fs/read_text_file` / `fs/write_text_file`) — lets the agent see unsaved buffers; lower priority since the harness has direct disk access.
 
 ## Out of scope

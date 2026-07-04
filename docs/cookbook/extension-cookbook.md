@@ -8,24 +8,20 @@ A tool registers on `ctx.tools`. The annotated `defineTool` example (typed `exec
 
 ## A hook plugin (permission gate)
 
-A hook wraps the `tools/execute` waterfall to veto or rewrite a call — the seam where sandbox, permission, and plan-mode plugins live.
+A hook returns a typed decision from the `tools/pre-execute` gate to allow or deny a call — the seam where sandbox, permission, and plan-mode plugins live. (A "native hook" is just this: an ordinary cordis plugin on the interception seams, returning typed decisions — no external protocol needed.)
 
 ```ts
 import type { Context } from 'cordis'
-import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 
 declare function isAllowed(exec: ToolExecution): Promise<boolean>
 
 export const name = 'permission-gate'
 
 export function apply(ctx: Context) {
-  ctx.on('tools/execute', async (exec, next) => {
+  ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
     if (!(await isAllowed(exec))) {
-      return {
-        callId: exec.callId,
-        content: [{ type: 'text', text: 'Denied by policy.' }],
-        isError: true,
-      }
+      return { kind: 'deny', reason: 'Denied by policy.' }
     }
     return next()
   })
@@ -34,10 +30,11 @@ export function apply(ctx: Context) {
 
 ## A UI plugin
 
-A UI plugin consumes `agent/stream-chunk` and session events for rendering, and drives input back in via `agent.send()` / `agent.steer()`.
+A UI plugin renders from the `session/event` feed (the assistant token stream as `assistant/chunk`, plus turn/step boundaries and tool activity), and drives input back in via `agent.send()` / `agent.steer()`.
 
 ```ts
 import type { Context } from 'cordis'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 
 declare function render(text: string): void
 declare function onUserInput(handler: (text: string) => void): void
@@ -46,16 +43,18 @@ export const name = 'my-ui'
 export const inject = ['agents']
 
 export function apply(ctx: Context) {
-  ctx.on('agent/stream-chunk', (agent, turn, step, chunk) => {
-    if (chunk.type === 'text-delta') render(chunk.text)
+  ctx.on('session/event', (_session, event) => {
+    if (event.type === 'assistant/chunk' && event.data.chunk.type === 'text-delta') {
+      render(event.data.chunk.text)
+    }
   })
-  onUserInput(text => ctx.agents.get('main')?.send([{ type: 'text', text }]))
+  onUserInput(text => ctx.agents.get(AgentId('main'))?.send([{ type: 'text', text }]))
 }
 ```
 
 ## A client-driver plugin (external protocol bridge)
 
-A *client driver* is a UI plugin whose "user" is another program speaking a wire protocol rather than a human at a terminal. It owns the process's stdio (so it must run with **no stdout logger** — every non-protocol byte corrupts the stream), creates/resumes agents on demand through the `dsh-agent` factory seam, translates harness events (`session/event`, `agent/*`) into outbound protocol messages, and translates inbound requests back into `agent.send()` / `agent.abort()`. Two harness-specific contracts make it correct: resolve each request exactly once off a settle signal (the turn can end without its `agent/turn-end` event firing — fall back through the logged `turn/end` record), and on disposal reach quiescence (`await agent.whenIdle()` after `abort()`), not just request it.
+A *client driver* is a UI plugin whose "user" is another program speaking a wire protocol rather than a human at a terminal. It owns the process's stdio (so it must run with **no stdout logger** — every non-protocol byte corrupts the stream), creates/resumes agents on demand through the `dsh-agent` factory seam, translates harness events (`session/event`, `agent/*`) into outbound protocol messages, and translates inbound requests back into `agent.send()` / `agent.cancel()`. Two harness-specific contracts make it correct: resolve each request exactly once off a settle signal (settle from the durable `turn/end` session event — the boundary is a session event, not an `agent/*` mirror — with `agent/status` as the fallback if a peer listener starved yours), and tear each agent down through its `AgentHandle.dispose()` (which stops the loop, `await`s its exit, and unregisters), not just `cancel()` — disposal must *reach* quiescence, not merely request it.
 
 `packages/ui/acp` is the worked example: it bridges the agent to the Agent Client Protocol (JSON-RPC over stdio) so Zed and other ACP editors can drive it. See its README for the full method surface and the deferred-permission-gate note.
 
@@ -76,10 +75,10 @@ export function apply(ctx: Context) {
     }
   })
   // Inbound "prompt": create/resume an agent and feed it; settle on turn end.
-  // Disposal awaits quiescence: agent.abort() then await agent.whenIdle().
+  // Teardown reaches quiescence via AgentHandle.dispose() (stop + await exit).
 }
 ```
 
 ## Runnable wirings
 
-Three complete examples load their plugin trees from `cordis.yml` with HMR: [`examples/echo-agent`](../../examples/echo-agent) (mock model + echo tool — the all-mock skeleton check, `pnpm run demo:echo`), [`examples/coding-agent`](../../examples/coding-agent) (DeepSeek V4 + the bash tool suite — the real thing, `pnpm run demo:coding`), and [`examples/acp-agent`](../../examples/acp-agent) (the same coding agent exposed as an ACP server over JSON-RPC stdio — the client-driver shape, `pnpm run demo:acp`). The two real demos share their provider/tool core via [`examples/base.yml`](../../examples/base.yml).
+Three complete examples load their plugin trees from `cordis.yml`: [`examples/echo-agent`](../../examples/echo-agent) (mock model + echo tool — the all-mock skeleton check, `pnpm run demo:echo`), [`examples/coding-agent`](../../examples/coding-agent) (DeepSeek V4 + the bash tool suite behind a terminal REPL UI, `pnpm run demo:repl`), and [`examples/acp-agent`](../../examples/acp-agent) (an agent exposed as an ACP server over JSON-RPC stdio — the client-driver shape, `pnpm run demo:acp`). Each leaf is now just its swappable backends plus an app-package entry: the stdio demos load [`@deepseek-ai/dsh-stdio-agent`](../../packages/ui/stdio-agent), the ACP demo loads [`@deepseek-ai/dsh-acp-agent`](../../packages/ui/acp-agent), and both app packages share the spine via the [`@deepseek-ai/dsh-agent-core`](../../packages/core/agent-core) bundle.

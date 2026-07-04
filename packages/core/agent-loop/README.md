@@ -12,10 +12,10 @@ This is the only package in the harness that contains concrete loop logic. Every
 
 `AgentLoop` also implements the `AgentFactory` seam and registers itself via `ctx.agents.setFactory(this)`, so plugins create/resume agents through `ctx.agents` (the interface):
 
-- `ctx.agents.create({ agentId, sessionId, meta?, agentOptions? }): AgentHandle` — programmatic create on a caller-supplied `sessionId` (e.g. an ACP-generated id), NOT `${id}-session`. Returns an [`AgentHandle`](../agent/README.md) — the owner disposes it to tear down exactly this agent (stop loop + await quiescence + unregister + remove session).
+- `ctx.agents.create({ agentId, sessionId, meta?, seed?, agentOptions? }): AgentHandle` — programmatic create on a caller-supplied `sessionId` (e.g. an ACP-generated id), NOT `${id}-session`; `meta` carries cwd/lineage/seed-boundary metadata and `seed` reconstructs a forked child prefix. Returns an [`AgentHandle`](../agent/README.md) — the owner disposes it to tear down exactly this agent (stop loop + await quiescence + unregister + remove session).
 - `ctx.agents.resume({ agentId, resumeSessionId, agentOptions? }): Promise<AgentHandle>` — load a persisted session via `ctx.sessionPersistence` ([session persistence](../../../docs/rfc/implemented/architecture/2026-06-14-session-persistence.md)) and resume an agent on it. The live session id is the resumed id; turn numbering and derived history continue from the loaded log. Requires a session-persistence backend (NOT hard-injected — non-persistent demos still work; `resume` rejects with a clear error when persistence is absent). Returns an `AgentHandle`.
 
-The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loop fiber (it discards the handle) — only the programmatic factory callers (the ACP bridge) hold a handle and own per-agent teardown.
+The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loop fiber (it discards the handle) — only the programmatic factory callers (the ACP bridge and in-process subagent backends) hold a handle and own per-agent teardown.
 
 ### Injected services
 
@@ -45,21 +45,31 @@ Agents listed in config are auto-created at startup.
 One invocation of `runLoop()` drives one agent for its whole lifetime:
 
 ```
+create agent → emit agent/session-start(source)   ⟵ once, before turn 1
 forever:
   wait for queued messages (idle)
   TURN (error-contained):
-    drain queued → 'turn/start' → session('user/message')
+    'turn/start'
+    each queued: waterfall agent/prompt-submit → allow (→ session('user/message'),
+      inject additionalContext) | block (→ session('prompt/blocked'), drop)
+    if every prompt blocked: 'turn/end'(rejected), no step  ⟵ zero-step turn
     STEP loop:
       drain steering
       assembly = systemPrompt.assemble()
+      await serial agent/pre-step        ⟵ surface mutation (compaction) outside the step
+      session('step/start')
       request = waterfall agent/request
       stream llm.stream(request) → session('assistant/chunk')
       message = waterfall agent/step-result
       session('assistant/message')
-      each tool-call: session('tool/call') → tools.execute() → session('tool/result')
+      each tool-call: session('tool/call')
+        → tools.execute() [waterfall tools/pre-execute → dispatch → tools/post-execute]
+        → session('tool/result')
+      append buffered post-execute additionalContext as session('context/message')(s)
       drain steering → session('steering/message')
-      cont = waterfall agent/turn-continuation
-      if !cont: break
+      cont = waterfall agent/turn-continuation → ContinuationDecision
+        ({action:'continue', reason?} records reason as next-step steering)
+      if action==stop (and no pending steering): break
     session('turn/end')
     await session/flush
     re-enqueue leftover steering as queued
@@ -68,14 +78,14 @@ forever:
 
 Error containment: a throwing plugin ends the **turn**, never the loop. Dispose mid-turn emits `agent/status('disposed')` and ends with reason `disposed`. A step that hits the model's output-token ceiling makes the turn end `max-tokens` (the rule: any `max-tokens` step in the turn surfaces as `max-tokens`; `disposed`/`aborted`/`error` still take precedence) — distinct from a clean `completed` stop.
 
-Cancellation: `agent.abort()` aborts only the in-flight step; `agent.cancel()` is the broad verb — it clears the queued + steering FIFOs, aborts the in-flight step, and drives a turn-scoped marker the driver checks at every point a turn could start or continue (right after the idle wait, after the `running` flip, before each step, and at the continuation gate) so a turn about to start is dropped. A cancelled turn ends `aborted`; a queued-but-not-started prompt never runs and cannot be batched into the cancelled turn. The marker is reset once per loop iteration, so a cancel governs exactly one turn and never leaks onto a later prompt.
+Cancellation: `agent.cancel()` is the single public stop primitive — it clears the queued + steering FIFOs, aborts the in-flight step, and drives a turn-scoped marker the driver checks at every point a turn could start or continue (right after the idle wait, after the `running` flip, before each step, and at the continuation gate) so a turn about to start is dropped. A cancelled turn ends `aborted`; a queued-but-not-started prompt never runs and cannot be batched into the cancelled turn. The marker is reset once per loop iteration, so a cancel governs exactly one turn and never leaks onto a later prompt. (The loop still aborts its own per-step `AbortController` directly on disposal and from `cancel()`; that controller is loop-internal, not a public verb.)
 
 ### What is NOT here
 
 Everything that goes beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy:
-- Hooks: `agent/request`, `agent/step-result`, `tools/execute`, `agent/turn-continuation`
-- Compaction: `agent/request`
-- Sandbox, permission, plan mode: `tools/execute`
-- Sub-agents: TODO seam on `AgentLoop.create()`
+- Hooks: `agent/session-start`, `agent/prompt-submit`, `agent/pre-step`, `agent/request`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation`
+- Compaction: `agent/pre-step`
+- Sandbox, permission, plan mode: `tools/pre-execute` (deny/ask gate), `tools/post-execute`
+- Sub-agents: implemented outside the loop as `ctx.subagents` providers; in-process providers use `ctx.agents.create()` and owned `AgentHandle` teardown, while child streaming/progress and background/poll collection remain deferred.
 - Persistence: `session/event` + `session/flush`
-- UI: `agent/stream-chunk` + `agent/*` events
+- UI: `session/event` (assistant token stream, boundaries, tool activity) + `agent/*` control events (`agent/status`, `agent/created`/`agent/disposed`)

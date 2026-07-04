@@ -60,7 +60,7 @@ describe('normalizeStdout', () => {
 })
 
 describe('normalizeSessionLog', () => {
-  const header = (over: object) => JSON.stringify({ type: 'session', version: 1, id: 's', createdAt: 123, ...over })
+  const header = (over: object) => JSON.stringify({ type: 'session', version: 0, id: 's', createdAt: 123, ...over })
   const event = (over: object) => JSON.stringify({ type: 'turn/start', seq: 1, time: 999, data: { turn: 1 }, ...over })
 
   it('zeroes the header createdAt', () => {
@@ -89,5 +89,22 @@ describe('normalizeSessionLog', () => {
   it('scrubs the session id in the header', () => {
     const out = normalizeSessionLog(`${header({ id: ctx.sessionIds[0] })}\n`, ctx)
     expect(out).toContain('{{sessionId}}')
+  })
+
+  it('zeroes a hook/result durationMs (run-to-run noise) but keeps its decision', () => {
+    const ev = JSON.stringify({
+      type: 'hook/result', seq: 2, time: 5,
+      data: { turn: 1, point: 'UserPromptSubmit', handlerId: 'h', decision: 'block', exitCode: 2, durationMs: 37 },
+    })
+    const out = normalizeSessionLog(`${header({})}\n${ev}\n`, ctx)
+    expect(out).toContain('"durationMs":0')
+    expect(out).not.toContain('37')
+    expect(out).toContain('"decision":"block"') // the decision is the behavior — kept
+  })
+
+  it('leaves a non-hook event durationMs untouched (only hook/result is scrubbed)', () => {
+    const ev = JSON.stringify({ type: 'tool/result', seq: 2, time: 5, data: { durationMs: 88 } })
+    const out = normalizeSessionLog(`${header({})}\n${ev}\n`, ctx)
+    expect(out).toContain('"durationMs":88')
   })
 })

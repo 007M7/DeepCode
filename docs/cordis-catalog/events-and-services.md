@@ -11,7 +11,7 @@ The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary
 
 ## Events
 
-Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out, no veto). The harness declares 24 events across 5 scopes.
+Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../architecture.md#cordis-waterfall-semantics-important)), **parallel** (awaited fan-out; all listeners run), **serial** (awaited in registration order until one returns a bail value — anything other than `null`, `false`, or `undefined`).
 
 ### `agent/*`
 
@@ -25,7 +25,7 @@ An agent was registered in the AgentRegistry and is ready to receive messages.
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:140`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:233`](../../packages/core/agent/src/types.ts)
 
 #### `agent/disposed` — emit
 
@@ -37,7 +37,7 @@ An agent was disposed and removed from the registry; its fiber and any in-flight
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:146`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:239`](../../packages/core/agent/src/types.ts)
 
 #### `agent/error` — emit
 
@@ -49,7 +49,33 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:223`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:353`](../../packages/core/agent/src/types.ts)
+
+#### `agent/pre-step` — serial
+
+Awaited pre-step surface-mutation checkpoint, fired once per step AFTER `turn/start` (and after the prior step closed) but BEFORE this step's `step/start` — so anything a listener appends lands OUTSIDE the step, between `turn/start`/`step/end` and the upcoming `step/start`. `step` is the number of the step about to start. The loop awaits `ctx.serial('agent/pre-step', …)` after assembling the system prompt, then opens the step and derives the request history ONCE from whatever the surface now holds. This is where compaction belongs: it mutates the session surface in place (shadowing an older range with a summary node) with its log-only `compact/*` records cleanly outside any step, and the single subsequent derive reflects the mutation — so there is no double-derive and no listener can see (or be expected to act on) an assembled `messages` array that does not exist yet.
+
+Serial (awaited in registration order), not a waterfall: a listener mutates the surface as a side effect; there is nothing to transform, but the loop must wait for the mutation to complete before opening the step and deriving. Cordis `serial` bails early if a listener returns a bail value; this event is typed and documented as `void`, so listeners must not return a semantic veto value. `fullSystemPrompt` is the assembled prompt a listener needs to measure pressure (the system prompt counts toward the budget). `signal` cancels any in-flight work a listener starts (e.g. a summarization model call).
+
+```ts cordis-catalog
+'agent/pre-step'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal): Promise<void> | void
+```
+
+Types: [Agent](../core-data-structures/core.md)
+
+Source: [`packages/core/agent/src/types.ts:305`](../../packages/core/agent/src/types.ts)
+
+#### `agent/prompt-submit` — waterfall
+
+Waterfall: decide what happens to ONE drained queued message before it becomes a `user/message` — allow (optionally rewriting the prompt bytes or attaching `additionalContext`) or block it. Fires inside the already-open turn, per drained message. Maps onto Claude Code's `UserPromptSubmit` hook. Call `next()` to delegate to the default (allow unchanged), or return a PromptDecision without calling `next()` to short-circuit.
+
+```ts cordis-catalog
+'agent/prompt-submit'(agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>
+```
+
+Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
+
+Source: [`packages/core/agent/src/types.ts:315`](../../packages/core/agent/src/types.ts)
 
 #### `agent/queued` — emit
 
@@ -61,11 +87,11 @@ A message entered the agent's inbox (queued or steering). `source` is the resolv
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:159`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:252`](../../packages/core/agent/src/types.ts)
 
 #### `agent/request` — waterfall
 
-Waterfall: mutate the fully-assembled GenerateOptions before the model call (hooks, compaction, model switching, tool filtering, …). Call `next()` to delegate, or return without it to short-circuit.
+Waterfall: mutate the fully-assembled GenerateOptions before the model call (hooks, model switching, tool filtering, …). Call `next()` to delegate, or return without it to short-circuit. For surface mutation that must precede history derivation (compaction), use agent/pre-step instead — by the time this fires, `options.messages` is already derived.
 
 ```ts cordis-catalog
 'agent/request'(agent: Agent, turn: number, step: number, options: GenerateOptions, next: () => Promise<GenerateOptions>): Promise<GenerateOptions>
@@ -73,7 +99,19 @@ Waterfall: mutate the fully-assembled GenerateOptions before the model call (hoo
 
 Types: [Agent](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:192`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:324`](../../packages/core/agent/src/types.ts)
+
+#### `agent/session-start` — emit
+
+The agent's session lifecycle began, fired once before its first turn. `source` says why (SessionStartSource: fresh startup, a resumed persisted session, …). A pure NOTIFICATION (emit, not waterfall): it carries no veto — a session-start listener that wants to seed context does so via `agent.inject()` (a `context/message` the first request sees), not by returning a decision. Cannot block the session from starting; that gap is deliberate (a bridge logs/injects, it does not gate startup).
+
+```ts cordis-catalog
+'agent/session-start'(agent: Agent, source: SessionStartSource): void
+```
+
+Types: [Agent](../core-data-structures/core.md)
+
+Source: [`packages/core/agent/src/types.ts:265`](../../packages/core/agent/src/types.ts)
 
 #### `agent/status` — emit
 
@@ -85,7 +123,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive lifecycle 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:153`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:246`](../../packages/core/agent/src/types.ts)
 
 #### `agent/steering` — emit
 
@@ -97,19 +135,7 @@ Steering content was injected into a running turn.
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:217`](../../packages/core/agent/src/types.ts)
-
-#### `agent/step-end` — emit
-
-A step ended.
-
-```ts cordis-catalog
-'agent/step-end'(agent: Agent, turn: number, step: number): void
-```
-
-Types: [Agent](../core-data-structures/core.md)
-
-Source: [`packages/core/agent/src/types.ts:183`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:347`](../../packages/core/agent/src/types.ts)
 
 #### `agent/step-result` — waterfall
 
@@ -121,91 +147,59 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:198`](../../packages/core/agent/src/types.ts)
-
-#### `agent/step-start` — emit
-
-A step (one model call plus its tool dispatch) began. `step` is 1-based within the turn; a turn runs one or more steps.
-
-```ts cordis-catalog
-'agent/step-start'(agent: Agent, turn: number, step: number): void
-```
-
-Types: [Agent](../core-data-structures/core.md)
-
-Source: [`packages/core/agent/src/types.ts:178`](../../packages/core/agent/src/types.ts)
-
-#### `agent/stream-chunk` — emit
-
-A raw StreamChunk arrived from the model (token-level UI/log feed).
-
-```ts cordis-catalog
-'agent/stream-chunk'(agent: Agent, turn: number, step: number, chunk: StreamChunk): void
-```
-
-Types: [Agent](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
-
-Source: [`packages/core/agent/src/types.ts:212`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:330`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-continuation` — waterfall
 
-Waterfall: override the turn-continuation decision. The default (computed by the loop) is `hadToolCalls || steeringInjected`. Listeners can force-continue (/goal, /loop) or force-stop (budget guards).
+Waterfall: override the turn-continuation decision via a typed ContinuationDecision. The loop's `defaultDecision` is `continue` when the step had tool calls or steering was injected, else `stop`. Listeners force-continue (`/goal`, `/loop` — optionally attaching a `reason` recorded as next-step steering) or force-stop (budget guards). Call `next()` to delegate to the default, or return a decision to override.
 
 ```ts cordis-catalog
-'agent/turn-continuation'(agent: Agent, turn: number, defaultDecision: boolean, next: () => Promise<boolean>): Promise<boolean>
+'agent/turn-continuation'(agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>
 ```
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:205`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:340`](../../packages/core/agent/src/types.ts)
 
-#### `agent/turn-end` — emit
+### `fs/*`
 
-A turn ended. `reason` distinguishes a clean stop from a truncated or aborted one (`completed` | `aborted` | `error` | `disposed` | `max-tokens`).
+#### `fs/edit-intent` — waterfall
 
-```ts cordis-catalog
-'agent/turn-end'(agent: Agent, turn: number, reason: TurnEndReason): void
-```
-
-Types: [Agent](../core-data-structures/core.md) · [TurnEndReason](../core-data-structures/session.md)
-
-Source: [`packages/core/agent/src/types.ts:172`](../../packages/core/agent/src/types.ts)
-
-#### `agent/turn-start` — emit
-
-A turn began. `turn` is the 1-based turn number within the session.
+Single-slot decision: produce the optional version guard for the next FileSystem.editText. The tool dispatches this as an unbound waterfall and supplies a default thunk returning `undefined` (unconditional edit of the current content — the bare provider; no `stat`). The `@deepseek-ai/dsh-fs-policy` policy listener returns `{ version: vObserved }`, or throws `FS_NOT_OBSERVED` if the actor is unset or has not observed the target. Does NOT call `next()`: one decision, first-wins (see Events.'fs/write-intent').
 
 ```ts cordis-catalog
-'agent/turn-start'(agent: Agent, turn: number): void
+'fs/edit-intent'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
 ```
 
-Types: [Agent](../core-data-structures/core.md)
+Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
 
-Source: [`packages/core/agent/src/types.ts:166`](../../packages/core/agent/src/types.ts)
+Source: [`packages/fs/fs/src/index.ts:119`](../../packages/fs/fs/src/index.ts)
+
+#### `fs/observed` — emit
+
+Record that an actor observed a target at a version, after a successful read/write/edit. Fire-and-forget (plain `emit`). A listener MUST be a synchronous, side-effect-only recorder (`@deepseek-ai/dsh-fs-policy`'s is a `WeakMap.set`): the tool does not guard the emit, so a listener that throws surfaces as the tool's `isError` result, and cordis `emit` does not await listener promises — async or fallible audit/telemetry does not belong here. No listener ⇒ nothing recorded. `actor` is the opaque tool-execution context.
+
+```ts cordis-catalog
+'fs/observed'(target: FsTarget, version: FsVersion, actor: object | undefined): void
+```
+
+Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
+
+Source: [`packages/fs/fs/src/index.ts:131`](../../packages/fs/fs/src/index.ts)
+
+#### `fs/write-intent` — waterfall
+
+Single-slot decision: produce the write intent for the next FileSystem.writeText. The tool dispatches this as an unbound waterfall (no `this`) and supplies a default thunk returning `undefined` (unconditional create-or-overwrite — the bare provider). The `@deepseek-ai/dsh-fs-policy` policy listener returns `createIfAbsent` (unobserved actor) or `{ kind: 'replaceIfVersion', version: vObserved }` (observed) and does NOT call `next()` — one decision, not a composable chain. The slot is first-wins: the first non-`next()` decider (registration order, or `prepend`) occupies it; a second decider is a misconfiguration, not layering. `actor` is the opaque tool-execution context, never read here.
+
+```ts cordis-catalog
+'fs/write-intent'(target: FsTarget, actor: object | undefined, next: () => FsWriteIntent | undefined | Promise<FsWriteIntent | undefined>): Promise<FsWriteIntent | undefined>
+```
+
+Types: [FsTarget](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md)
+
+Source: [`packages/fs/fs/src/index.ts:107`](../../packages/fs/fs/src/index.ts)
 
 ### `llm/*`
-
-#### `llm/adapter-change` — emit
-
-An adapter was registered or unregistered (the model→adapter map changed).
-
-```ts cordis-catalog
-'llm/adapter-change'(): void
-```
-
-Source: [`packages/llm/llm/src/index.ts:43`](../../packages/llm/llm/src/index.ts)
-
-#### `llm/generate` — waterfall
-
-Waterfall around every non-streaming model call. Bound to the LlmService; call `next()` to delegate to the adapter.
-
-```ts cordis-catalog
-'llm/generate'(this: LlmService, options: GenerateOptions, next: () => Promise<GenerateResult>): Promise<GenerateResult>
-```
-
-Types: [GenerateOptions](../core-data-structures/core.md) · [GenerateResult](../core-data-structures/core.md)
-
-Source: [`packages/llm/llm/src/index.ts:38`](../../packages/llm/llm/src/index.ts)
 
 #### `llm/stream` — waterfall
 
@@ -217,7 +211,7 @@ Waterfall around every streaming model call (retry, caching, routing). Bound to 
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:32`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:31`](../../packages/llm/llm/src/index.ts)
 
 ### `session/*`
 
@@ -229,7 +223,7 @@ A session was created in the store.
 'session/created'(session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:30`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:35`](../../packages/core/session/src/index.ts)
 
 #### `session/event` — emit
 
@@ -241,7 +235,7 @@ An event was appended to a session log (sync, fire-and-forget). This is the per-
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:36`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:41`](../../packages/core/session/src/index.ts)
 
 #### `session/flush` — parallel
 
@@ -251,7 +245,29 @@ Awaited durability checkpoint. The agent loop awaits `ctx.parallel('session/flus
 'session/flush'(session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:45`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:50`](../../packages/core/session/src/index.ts)
+
+### `subagent/*`
+
+#### `subagent/end` — emit
+
+A subagent run settled — emitted when SubagentRun.result resolves (any stop reason). Paired with Events['subagent/start'].
+
+```ts cordis-catalog
+'subagent/end'(info: SubagentRunEndInfo): void
+```
+
+Source: [`packages/subagent/subagent/src/index.ts:75`](../../packages/subagent/subagent/src/index.ts)
+
+#### `subagent/start` — emit
+
+A subagent run started — emitted after the provider is resolved and its capabilities validated, as the child run begins. Paired with Events['subagent/end'].
+
+```ts cordis-catalog
+'subagent/start'(info: SubagentRunInfo): void
+```
+
+Source: [`packages/subagent/subagent/src/index.ts:69`](../../packages/subagent/subagent/src/index.ts)
 
 ### `system-prompt/*`
 
@@ -285,23 +301,47 @@ A tool was registered or unregistered (the available tool set changed).
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:48`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:84`](../../packages/core/tools/src/index.ts)
 
-#### `tools/execute` — waterfall
+#### `tools/post-execute` — waterfall
 
-Waterfall around every tool execution — the single seam where sandbox, permission, hook, and plan-mode plugins wrap or veto a call. Listeners receive `(exec, next)`: call `next()` to proceed (possibly around your own logic), or return a ToolExecutionResult without calling `next()` to short-circuit (veto).
+Waterfall AFTER a tool runs — where hook plugins inspect the result and accept it (optionally REPLACING the model-facing content, and/or attaching `additionalContext` for the next request) or block it with corrective `feedback` (Claude Code's `PostToolUse`). Listeners receive `(exec, result, next)`: call `next()` to delegate to the default (accept unchanged), or return a PostToolDecision to override. The core tool dispatch sits between the two waterfalls as plain code, all inside `execute`'s outer try/catch (and the tool body keeps its own inner try/catch, so a thrown tool still reaches `post-execute` as an `isError` result).
 
 ```ts cordis-catalog
-'tools/execute'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
+'tools/post-execute'(this: ToolRegistry, exec: ToolExecution, result: ToolExecutionResult, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
 ```
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:43`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:79`](../../packages/core/tools/src/index.ts)
+
+#### `tools/pre-execute` — waterfall
+
+Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook plugins allow or deny a call (Claude Code's `PreToolUse`). Listeners receive `(exec, next)`: call `next()` to delegate to the default (allow), or return a PreToolDecision without calling `next()` to short-circuit. A `deny` skips dispatch and yields an `isError` result; the tool body never runs. Input rewrite is deliberately NOT offered here (see PreToolDecision); `ask` degrades to deny until the permission system lands (`FIXME(permissions)`).
+
+```ts cordis-catalog
+'tools/pre-execute'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
+```
+
+Types: [ToolExecution](../core-data-structures/tools.md)
+
+Source: [`packages/core/tools/src/index.ts:65`](../../packages/core/tools/src/index.ts)
+
+### `web/*`
+
+#### `web/providers-change` — emit
+
+Fired after the provider registry changes — a search or fetch provider was registered or disposed. Carries no payload and no capability graph: it means only "the provider registry changed; observers may recompute status from `ctx.web`". `searchStatus()` / `fetchStatus()` stay derived, not stored.
+
+```ts cordis-catalog
+'web/providers-change'(this: WebService): void
+```
+
+Source: [`packages/web/web/src/index.ts:65`](../../packages/web/web/src/index.ts)
 
 ## Services
 
-The 8 `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
+The `ctx.<key>` services the harness provides. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.
 
 ### `ctx.agentLoop` — `AgentLoop`
 
@@ -310,12 +350,12 @@ The agent-loop plugin (`ctx.agentLoop`): creates ReactLoopAgents, runs their loo
 The loop itself is deliberately thin — every behavior beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy declared in @deepseek-ai/dsh-agent.
 
 ```ts cordis-catalog
-create(id: string, options: AgentOptions = {}): ReactLoopAgent
+create(id: AgentId, options: AgentOptions = {}): ReactLoopAgent
 createAgent(options: CreateAgentOptions): AgentHandle
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:60`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:63`](../../packages/core/agent-loop/src/index.ts)
 
 ### `ctx.agents` — `AgentRegistry`
 
@@ -326,13 +366,13 @@ setFactory(factory: AgentFactory): () => void
 create(options: CreateAgentOptions): AgentHandle
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 register(agent: Agent): () => void
-get(id: string): Agent | undefined
+get(id: AgentId): Agent | undefined
 list(): Agent[]
 ```
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:105`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:117`](../../packages/core/agent/src/index.ts)
 
 ### `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -349,33 +389,76 @@ Semantics every implementation must honor:
 abstract resolve(request: BashExecRequest): BashExecSpec
 abstract run(spec: BashExecSpec): Promise<BashRunResult>
 abstract start(spec: BashExecSpec): BashTask
-abstract get(id: string): BashTask | undefined
-abstract ownerOf(id: string): string | undefined
+abstract get(id: BashTaskId): BashTask | undefined
+abstract ownerOf(id: BashTaskId): OwnerToken | undefined
 abstract list(): BashTask[]
-abstract readOutput(id: string): BashTaskRead
-abstract kill(id: string): boolean
+abstract readOutput(id: BashTaskId): BashTaskRead
+abstract kill(id: BashTaskId): boolean
 onTaskDone(listener: BashTaskListener): () => void
 ```
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [BashTask](../core-data-structures/bash.md) · [BashTaskRead](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:58`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:59`](../../packages/bash/bash/src/index.ts)
+
+### `ctx.compact` — `CompactService` (abstract seam)
+
+Abstract compaction service. Subclass implement the two abstract methods, and load the subclass as a plugin — it registers as `ctx.compact` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
+
+Both core methods are abstract: the contract states WHAT compaction does, while the entire strategy — token estimation, retention policy, event sequencing, summarization — is a HOW decision owned by the implementation.
+
+Implementations MUST honor:
+
+- **Surface contract**: a successful compaction shadows the compacted surface nodes with a SINGLE replacement node carrying the summary. Because `SurfaceEventType` is a closed union, that node is a `user/message` with `surfaceOp: { op:'replace', start, end }`; the `compact/*` events are log-only (lock + provenance).
+- **Blocking**: no compaction begins while another is in progress for the same session. The recommended mechanism is the log-recorded lock — append `compact/start` before the slow work and `compact/end` after (even on failure) — so the lock is visible to replay and crash recovery.
+
+```ts cordis-catalog
+abstract compactIfNeeded( agent: CompactAgentContext, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal, ): Promise<CompactionResult | null>
+abstract compactRegion( session: Session, start: number, end: number, agent: CompactAgentContext, turn: number, step: number, signal?: AbortSignal, ): Promise<CompactionResult>
+```
+
+Source: [`packages/compact/compact/src/index.ts:63`](../../packages/compact/compact/src/index.ts)
+
+### `ctx.fs` — `FileSystem` (abstract seam)
+
+Abstract filesystem provider service. Subclass, implement the seven storage primitives, and load the subclass as a plugin — it registers as `ctx.fs` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+
+Semantics every backend must honor:
+
+- resolve returns a stable FsTarget; the same underlying file reached by different input paths must yield the same `targetKey` so stale guards and target lookup agree across paths (e.g. through symlinks).
+- stat returns FsInfo metadata (never content) or `undefined` when the target is absent.
+- readText/streamText read the whole regular text file (the stream for large files); both own regular-file checks, UTF-8 decoding, binary/NUL rejection, and `FS_NOT_TEXT`.
+- listDir returns direct children of a directory in stable name order with resolved child targets and cheap metadata only. It never reads file contents. Missing targets throw `FS_NOT_FOUND`, non-directories throw `FS_NOT_DIRECTORY`, permission failures throw `FS_PERMISSION_DENIED`, and other backend I/O failures throw `FS_IO_ERROR`.
+- writeText is atomic temp-file + rename. `expected` is OPTIONAL: omit it for an unconditional create-or-overwrite (the bare-provider default), or supply a FsWriteIntent to guard the write.
+- editText verifies `expected.version` BEFORE literal matching (so a stale edit reports `FS_STALE_VERSION`, not `FS_EDIT_NOT_FOUND`/ `FS_AMBIGUOUS_EDIT` against newer content), then applies literal replacement and writes atomically — all inside one mutation critical section. `expected` is OPTIONAL: omit it for an unconditional edit of the current content (a missing target still reports `FS_STALE_VERSION`).
+
+```ts cordis-catalog
+abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>
+abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>
+abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
+abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
+abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>
+abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>
+abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
+```
+
+Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
+
+Source: [`packages/fs/fs/src/index.ts:165`](../../packages/fs/fs/src/index.ts)
 
 ### `ctx.llm` — `LlmService`
 
-The abstract `llm` service: an adapter registry plus streaming / non-streaming call surfaces, both interceptable via waterfall events.
+The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.
 
 ```ts cordis-catalog
 registerAdapter(models: string[], adapter: LlmAdapter): () => void
 models(): string[]
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
-async * streamBlocks(options: GenerateOptions): AsyncIterable<ContentBlock>
-generate(options: GenerateOptions): Promise<GenerateResult>
 ```
 
-Types: [ContentBlock](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [GenerateResult](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:81`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:69`](../../packages/llm/llm/src/index.ts)
 
 ### `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 
@@ -393,8 +476,6 @@ abstract create(meta: SessionHeader): Promise<void>
 abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
 abstract list(): Promise<SessionHeader[]>
-abstract has(id: SessionId): Promise<boolean>
-abstract delete(id: SessionId): Promise<void>
 ```
 
 Types: [SessionEvent](../core-data-structures/core.md)
@@ -408,15 +489,28 @@ In-memory session store (`ctx.sessions`).
 Persistence is intentionally not implemented here — persistence plugins subscribe to `session/event` and flush on `session/flush` / dispose.
 
 ```ts cordis-catalog
-create(id?: string, options?: CreateSessionOptions): Session
-prepare(id?: string, options?: CreateSessionOptions): Session
+create(id?: SessionId, options?: CreateSessionOptions): Session
+prepare(id?: SessionId, options?: CreateSessionOptions): Session
 enter(session: Session): () => void
 announce(session: Session): void
-get(id: string): Session | undefined
+get(id: SessionId): Session | undefined
 list(): Session[]
 ```
 
-Source: [`packages/core/session/src/index.ts:222`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:323`](../../packages/core/session/src/index.ts)
+
+### `ctx.subagents` — `SubagentService`
+
+The `subagents` service: a registry of named SubagentProviders and a capability-checked start surface.
+
+```ts cordis-catalog
+registerProvider(provider: SubagentProvider): () => void
+getProvider(name: string): SubagentProvider | undefined
+list(): string[]
+start(name: string, request: SubagentStartRequest): SubagentRun
+```
+
+Source: [`packages/subagent/subagent/src/index.ts:121`](../../packages/subagent/subagent/src/index.ts)
 
 ### `ctx.systemPrompt` — `SystemPrompt`
 
@@ -432,7 +526,7 @@ Source: [`packages/core/system-prompt/src/index.ts:71`](../../packages/core/syst
 
 ### `ctx.tools` — `ToolRegistry`
 
-Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/execute` waterfall. The registry contributes its schemas into the system-prompt assembly.
+Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → dispatch → `tools/post-execute` pipeline. The registry contributes its schemas into the system-prompt assembly.
 
 ```ts cordis-catalog
 register(definition: ToolDefinition): () => void
@@ -443,7 +537,31 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:277`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:265`](../../packages/core/tools/src/index.ts)
+
+### `ctx.web` — `WebService`
+
+The web access service. Registered as `ctx.web` (one instance per context).
+
+Selection semantics (identical for status and execution, never order- dependent):
+
+- A configured id that is registered and `status().available` → that provider.
+- A configured id not registered → `configured-missing` / `WEB_PROVIDER_CONFIGURED_MISSING`.
+- A configured id registered but unavailable → `configured-unavailable` / `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`.
+- No id configured, exactly one registered usable provider → that provider.
+- No id configured, multiple usable providers → `ambiguous` / `WEB_PROVIDER_AMBIGUOUS`.
+- No id configured, no usable provider → `none` / `WEB_PROVIDER_UNAVAILABLE`.
+
+```ts cordis-catalog
+registerSearchProvider(provider: WebSearchProvider): () => void
+registerFetchProvider(provider: WebFetchProvider): () => void
+searchStatus(): WebCapabilityStatus
+fetchStatus(): WebCapabilityStatus
+async search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult>
+async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>
+```
+
+Source: [`packages/web/web/src/index.ts:105`](../../packages/web/web/src/index.ts)
 
 ## Inherited tier (cordis core + loader/hmr/timer)
 
@@ -470,7 +588,7 @@ The framework surface every plugin inherits, beyond the harness vocabulary above
 ### Inherited `ctx` members
 
 - `ctx.on / ctx.once` — Register an event listener (disposable). ([`vendor/cordis/src/events.ts:29`](../../vendor/cordis/src/events.ts))
-- `ctx.emit / ctx.parallel / ctx.serial / ctx.bail / ctx.waterfall` — Dispatch an event (sync / awaited / first-non-nullish / veto-chain). ([`vendor/cordis/src/events.ts:29`](../../vendor/cordis/src/events.ts))
+- `ctx.emit / ctx.parallel / ctx.serial / ctx.bail / ctx.waterfall` — Dispatch an event (sync / awaited / first-bail / veto-chain). ([`vendor/cordis/src/events.ts:29`](../../vendor/cordis/src/events.ts))
 - `ctx.plugin / ctx.inject` — Load a plugin / declare required services. ([`vendor/cordis/src/registry.ts:144`](../../vendor/cordis/src/registry.ts))
 - `ctx.effect` — Register a disposable side effect tied to the fiber. ([`vendor/cordis/src/fiber.ts:9`](../../vendor/cordis/src/fiber.ts))
 - `ctx.get / ctx.set / ctx.provide / ctx.accessor / ctx.mixin` — Low-level service-store access and binding. ([`vendor/cordis/src/reflect.ts:7`](../../vendor/cordis/src/reflect.ts))

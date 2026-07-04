@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.ts'
 
 /**
@@ -20,7 +21,7 @@ afterEach(async () => {
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('full loop: real model + real bash tool', () => {
   it('runs a bash command on request and reports its output', async () => {
     ctx = await codingHarness(process.cwd())
-    const agent = ctx.agentLoop.create('e2e-loop', {
+    const agent = ctx.agentLoop.create(AgentId('e2e-loop'), {
       model: 'deepseek-v4-flash',
       systemPrompt: SYSTEM_PROMPT,
     })

@@ -17,7 +17,7 @@
 import { describe, expect, it } from 'vitest'
 import fc from 'fast-check'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionNotification } from '@agentclientprotocol/sdk'
 import { streamSessionEventUpdate } from '../src/index.ts'
 
@@ -85,7 +85,7 @@ function actionsToEvents(actions: Action[]): SessionEvent[] {
 
 function runStream(events: SessionEvent[]): SessionNotification['update'][] {
   const out: SessionNotification['update'][] = []
-  for (const event of events) streamSessionEventUpdate('s1', event, n => out.push(n.update))
+  for (const event of events) streamSessionEventUpdate(SessionId('s1'), event, n => out.push(n.update))
   return out
 }
 

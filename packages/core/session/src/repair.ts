@@ -62,7 +62,12 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
   // call is "pending" until its matching tool/result arrives. Reset at every
   // turn boundary so a committed earlier turn (already balanced) never leaks a
   // phantom pending call into the interrupted-turn repair.
-  const pendingCalls = new Map<CallId, { step: number }>()
+  // Track pending tool calls with their callSeq (the seq of the `tool/call`
+  // event, captured for surface sourceEventSeqs provenance on the synthetic
+  // result). CallSeq is set from `tool/call` events; the assistant/message
+  // block scan may register a call first (it appears earlier in the log), and
+  // the later `tool/call` event fills in the seq.
+  const pendingCalls = new Map<CallId, { step: number; callSeq?: number }>()
   for (const event of events) {
     switch (event.type) {
       case 'turn/start':
@@ -87,6 +92,18 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
         // until a tool/result event with the same callId is logged.
         for (const block of event.data.content) {
           if (block.type === 'tool-call') pendingCalls.set(block.id, { step: event.data.step })
+        }
+        break
+      case 'tool/call':
+        // Capture the tool/call event seq for surface provenance on the
+        // synthesized tool/result. The entry may already exist (registered by
+        // the assistant/message above) or may be new (if the assistant/message
+        // came from a prior step that was already closed).
+        {
+          const entry = pendingCalls.get(event.data.callId)
+          if (entry) {
+            entry.callSeq = event.seq
+          }
         }
         break
       case 'tool/result':
@@ -114,7 +131,7 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
   // crash, so deriveMessages() yields a valid provider transcript on resume (a
   // dangling assistant tool-call is rejected by every provider). Insertion
   // order follows the Map (insertion = log order of the assistant messages).
-  for (const [callId, { step }] of pendingCalls) {
+  for (const [callId, { step, callSeq }] of pendingCalls) {
     closers.push({
       type: 'tool/result',
       seq: seq++,
@@ -127,6 +144,8 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
         isError: true,
         error: { name: 'InterruptedError', code: 'interrupted' },
       },
+      surfaceOp: 'append',
+      ...callSeq !== undefined ? { sourceEventSeqs: [callSeq] } : {},
     })
   }
 

@@ -126,7 +126,7 @@ export class ReactLoopAgent implements Agent {
       // A turn is open in the LOG (decided from the log, not agent status —
       // status can be `running` with no turn open): the context/message is
       // turn-enclosed by that turn, so append it directly.
-      this.session.append('context/message', { content, source })
+      this.session.append('context/message', { content, source }, { surfaceOp: 'append' })
       return
     }
     // No turn open: wrap the injection in a one-shot turn so every event stays
@@ -143,7 +143,7 @@ export class ReactLoopAgent implements Agent {
     // can't happen for our fixed trigger — no turn was opened and none is owed.)
     try {
       this.session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-      this.session.append('context/message', { content, source })
+      this.session.append('context/message', { content, source }, { surfaceOp: 'append' })
     } finally {
       // Close the turn if turn/start made it into the log. Contain a throwing
       // turn/end listener: Session.append pushes before notifying, so a throw
@@ -191,10 +191,6 @@ export class ReactLoopAgent implements Agent {
     }
   }
 
-  abort(reason?: string): void {
-    this.currentAbort?.abort(reason ?? 'aborted')
-  }
-
   cancel(reason?: string): void {
     // Arm-gate: only mark a cancellation when there is actually work to cancel —
     // a running turn, an in-flight step, or queued/steering work. An idle cancel
@@ -232,8 +228,10 @@ export class ReactLoopAgent implements Agent {
    * internal waiter (see {@link idleWaiters}) released on the next
    * running→idle/disposed transition, resolving on `idle` directly (the turn
    * fully ended) or chaining {@link done} on `disposed` (wait for the loop to
-   * actually exit). Implements the {@link Agent.whenIdle} contract used by
-   * teardown (`abort()` then `await whenIdle()`).
+   * actually exit). Implements the {@link Agent.whenIdle} contract: a non-owner
+   * quiescence-observation hook, distinct from teardown (a lifecycle owner stops
+   * and unregisters via `AgentHandle.dispose()`, which awaits {@link done}
+   * directly, not through this).
    */
   whenIdle(): Promise<void> {
     if (this._status === 'disposed') return this.done

@@ -1,8 +1,10 @@
 /**
  * Minimal stdio UI plugin: reads lines from stdin → `agent.send()`/`steer()`,
- * and renders the agent's stream chunks and tool activity to stdout. A UI is
- * "just a plugin" — it only consumes the `agent/*` event taxonomy and the
- * `agents` service, so the same plugin drives any example or product surface.
+ * and renders the durable transcript to stdout. A UI is "just a plugin" — it
+ * consumes the `session/event` feed (the assistant token stream, turn/step
+ * boundaries, tool activity, todos) plus a few `agent/*` control events
+ * (`agent/status`, `agent/created`/`agent/disposed`) and the `agents` service,
+ * so the same plugin drives any example or product surface.
  *
  * Consolidates what were two near-identical copies under `examples/echo-agent`
  * and `examples/coding-agent` (the latter a superset). This package IS that
@@ -22,7 +24,7 @@ import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type {} from '@deepseek-ai/dsh-agent'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 
 export const name = 'ui-stdio'
 export const inject = ['agents']
@@ -56,6 +58,10 @@ export interface StdioRuntime {
   exit: (code: number) => void
 }
 
+function isTTYPair(input: Readable, output: Writable): boolean {
+  return Boolean((input as { isTTY?: boolean }).isTTY && (output as { isTTY?: boolean }).isTTY)
+}
+
 /**
  * The plugin body, parameterized over its I/O runtime. `apply` is the thin
  * production wrapper that binds the real `process` streams; tests call this
@@ -69,35 +75,51 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   // Loader validation, so it must be self-contained rather than trusting the
   // cast — `config.welcome as string` would otherwise be `undefined` on `{}`.
   const welcome = config.welcome ?? 'ready.'
-  const agentId = config.agent ?? 'main'
+  const agentId = AgentId(config.agent ?? 'main')
   const { input, output, exit } = runtime
 
+  // Render label lookup: the `turn/start` session event carries only the turn
+  // number, so to print the short agent id (`[main turn 1]`) we map the
+  // session's id to its agent's id. The session id is not reliably the agent id
+  // (a session can be created with an explicit/client-supplied id), so build the
+  // map from `agent/created` rather than parsing the id string. Seed from the
+  // registry's current agents first: an agent registered before this plugin
+  // installed (e.g. the pre-created `main` agent, or any agent surviving an HMR
+  // reload of just this fiber) already fired its `agent/created`, so the live
+  // listener alone would miss it and its turns would fall back to the raw
+  // session id.
+  const labelBySession = new Map<string, string>()
+  for (const agent of ctx.agents.list()) labelBySession.set(agent.session.header.id, agent.id)
+  ctx.on('agent/created', (agent) => { labelBySession.set(agent.session.header.id, agent.id) })
+  ctx.on('agent/disposed', (agent) => { labelBySession.delete(agent.session.header.id) })
+
+  // Transcript rendering off the durable `session/event` feed — the assistant
+  // token stream, turn/step boundaries, tool activity, and todos all come from
+  // the one canonical stream (no agent/* mirrors). A single listener over the
+  // append order keeps `inReasoning` transitions deterministic across chunk and
+  // boundary events.
   let inReasoning = false
-  ctx.on('agent/stream-chunk', (_agent, _turn, _step, chunk) => {
-    if (chunk.type === 'reasoning-delta') {
-      // Dim the chain-of-thought so the final answer stands out.
-      if (!inReasoning) output.write('\x1B[2m')
-      inReasoning = true
-      output.write(chunk.text)
-    } else if (chunk.type === 'text-delta') {
-      if (inReasoning) output.write('\x1B[0m\n')
+  ctx.on('session/event', (session, event) => {
+    if (event.type === 'assistant/chunk') {
+      const { chunk } = event.data
+      if (chunk.type === 'reasoning-delta') {
+        // Dim the chain-of-thought so the final answer stands out.
+        if (!inReasoning) output.write('\x1B[2m')
+        inReasoning = true
+        output.write(chunk.text)
+      } else if (chunk.type === 'text-delta') {
+        if (inReasoning) output.write('\x1B[0m\n')
+        inReasoning = false
+        output.write(chunk.text)
+      }
+    } else if (event.type === 'turn/start') {
+      const label = labelBySession.get(session.header.id) ?? session.header.id
+      output.write(`\n[${label} turn ${event.data.turn}] `)
+    } else if (event.type === 'turn/end') {
+      if (inReasoning) output.write('\x1B[0m')
       inReasoning = false
-      output.write(chunk.text)
-    }
-  })
-
-  ctx.on('agent/turn-start', (agent, turn) => {
-    output.write(`\n[${agent.id} turn ${turn}] `)
-  })
-
-  ctx.on('agent/turn-end', () => {
-    if (inReasoning) output.write('\x1B[0m')
-    inReasoning = false
-    output.write('\n> ')
-  })
-
-  ctx.on('session/event', (_session, event) => {
-    if (event.type === 'tool/call') {
+      output.write('\n> ')
+    } else if (event.type === 'tool/call') {
       const { name: toolName, arguments: args } = event.data
       if (inReasoning) output.write('\x1B[0m')
       inReasoning = false
@@ -106,11 +128,18 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       const { content } = event.data
       const text = content.filter(block => block.type === 'text').map(block => block.text).join('')
       output.write(`\n  [tool result] ${text}\n  `)
+    } else if (event.type === 'todo/write') {
+      if (inReasoning) output.write('\x1B[0m')
+      inReasoning = false
+      const glyph = (status: string): string =>
+        status === 'completed' ? '[x]' : status === 'in_progress' ? '[~]' : '[ ]'
+      const lines = event.data.todos.map(todo => `    ${glyph(todo.status)} ${todo.content}`).join('\n')
+      output.write(`\n  [todos]\n${lines}\n  `)
     }
   })
 
   ctx.effect(() => {
-    const reader = createInterface({ input })
+    const reader = createInterface({ input, output, terminal: isTTYPair(input, output) })
     // Piped-input exit, once stdin reaches EOF:
     //  - If no line ever submitted work (empty stdin, blank-only lines), exit
     //    immediately — no turn will ever start, so there is nothing to wait

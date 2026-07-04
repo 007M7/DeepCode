@@ -57,7 +57,7 @@ function parseArguments(raw: string): Record<string, unknown> {
  * same id.
  */
 export function toPiContext(options: GenerateOptions): PiContext {
-  const toolNames = new Map<string, string>()
+  const toolNames = new Map<CallId, string>()
   const messages: PiMessage[] = []
 
   for (const message of options.messages) {

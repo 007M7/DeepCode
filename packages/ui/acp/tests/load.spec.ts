@@ -3,7 +3,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import { makeBridgeHarness, textResponse, toolCallResponse, type BridgeHarness, type CapturedUpdate } from './harness.ts'
 
 /** Concatenate the text of all agent_message_chunk updates. */
@@ -93,6 +94,44 @@ describe('acp bridge — session/load replay', () => {
     expect(content[0]?.content.text).toBe('```console\nhello\n```')
   })
 
+  it('replays a persisted todo/write as a plan sessionUpdate on load', async () => {
+    // A turn whose model called todo_write persists a todo/write event. A fresh
+    // bridge loading the session must re-emit the ACP `plan` update from the log
+    // (the load replay runs every event through streamSessionEventUpdate), so an
+    // editor reopening the session sees the current plan.
+    live = await makeBridgeHarness({
+      storageDir,
+      withTodo: true,
+      script: [
+        toolCallResponse('c1', 'todo_write', {
+          todos: [
+            { content: 'first step', status: 'in_progress' },
+            { content: 'second step', status: 'pending' },
+          ],
+        }),
+        textResponse('planned'),
+      ],
+    })
+    await live.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await live.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await live.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'plan it' }] })
+    await live.dispose()
+    live = undefined
+
+    loader = await makeBridgeHarness({ storageDir, withTodo: true, script: [] })
+    await loader.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    await loader.client.loadSession({ sessionId, cwd: process.cwd(), mcpServers: [] })
+
+    const plan = loader.updates.find(u => u.sessionUpdate === 'plan')
+    expect(plan).toEqual({
+      sessionUpdate: 'plan',
+      entries: [
+        { content: 'first step', priority: 'medium', status: 'in_progress' },
+        { content: 'second step', priority: 'medium', status: 'pending' },
+      ],
+    })
+  })
+
   it('replays a persisted bash call as a TERMINAL card when the loader advertises the capability', async () => {
     // The presentation is resolved at replay time, so a loader that advertised
     // _meta.terminal_output must reconstruct the terminal card (content + _meta)
@@ -155,7 +194,7 @@ describe('acp bridge — session/load replay', () => {
     release()                            // resume() finishes AFTER teardown
     expect(await loadResult).toBe('rejected')
     // No live agent was installed for the closed connection.
-    expect(loader.ctx.agents.get(sessionId)).toBeUndefined()
+    expect(loader.ctx.agents.get(AgentId(sessionId))).toBeUndefined()
   })
 
   it('rejects load when the requested cwd does not match the persisted session cwd', async () => {
@@ -166,7 +205,7 @@ describe('acp bridge — session/load replay', () => {
     loader = await makeBridgeHarness({ storageDir, script: [] })
     const otherCwd = '/some/other/workspace'
     await loader.ctx.sessionPersistence.create({
-      version: 1, id: SessionId('elsewhere'), createdAt: 1, cwd: otherCwd,
+      version: SESSION_FORMAT_VERSION, id: SessionId('elsewhere'), createdAt: 1, cwd: otherCwd,
     })
     await loader.ctx.sessionPersistence.append(SessionId('elsewhere'), [
       { type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
@@ -176,11 +215,11 @@ describe('acp bridge — session/load replay', () => {
     await loader.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     await expect(loader.client.loadSession({ sessionId: 'elsewhere', cwd: process.cwd(), mcpServers: [] }))
       .rejects.toThrow(/cwd mismatch/)
-    expect(loader.ctx.agents.get('elsewhere')).toBeUndefined()
+    expect(loader.ctx.agents.get(AgentId('elsewhere'))).toBeUndefined()
 
     const res = await loader.client.loadSession({ sessionId: 'elsewhere', cwd: `${otherCwd}/.`, mcpServers: [] })
     expect(res).toBeDefined()
-    expect(loader.ctx.agents.get('elsewhere')!.session.header.cwd).toBe(otherCwd)
+    expect(loader.ctx.agents.get(AgentId('elsewhere'))!.session.header.cwd).toBe(otherCwd)
   })
 
   it('rejects load for a non-absolute cwd (still required to be absolute)', async () => {
@@ -203,7 +242,7 @@ describe('acp bridge — session/load replay', () => {
     // to the server's launch dir (the request cwd does not override the header).
     loader = await makeBridgeHarness({ storageDir, script: [] })
     await loader.ctx.sessionPersistence.create({
-      version: 1, id: SessionId('legacy'), createdAt: 1, // no cwd
+      version: SESSION_FORMAT_VERSION, id: SessionId('legacy'), createdAt: 1, // no cwd
     })
     await loader.ctx.sessionPersistence.append(SessionId('legacy'), [
       { type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
@@ -215,7 +254,7 @@ describe('acp bridge — session/load replay', () => {
     // Rejected BEFORE resume (metadata-only check) — no agent was registered, so
     // the id is not wedged: a later attempt hits the same clean rejection, not a
     // duplicate-registration error.
-    expect(loader.ctx.agents.get('legacy')).toBeUndefined()
+    expect(loader.ctx.agents.get(AgentId('legacy'))).toBeUndefined()
     await expect(loader.client.loadSession({ sessionId: 'legacy', cwd: process.cwd(), mcpServers: [] }))
       .rejects.toThrow(/no absolute persisted cwd/)
   })

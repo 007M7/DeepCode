@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import { makeBridgeHarness, textResponse, type BridgeHarness } from './harness.ts'
 
 /**
@@ -61,8 +62,8 @@ describe('acp bridge', () => {
     expect(b.sessionId).toBeTruthy()
     expect(a.sessionId).not.toBe(b.sessionId)
     // Both agents are live and independently registered.
-    expect(harness.ctx.agents.get(a.sessionId)).toBeDefined()
-    expect(harness.ctx.agents.get(b.sessionId)).toBeDefined()
+    expect(harness.ctx.agents.get(AgentId(a.sessionId))).toBeDefined()
+    expect(harness.ctx.agents.get(AgentId(b.sessionId))).toBeDefined()
   })
 
   it('rejects a non-absolute cwd but accepts any absolute cwd (per-session workspace)', async () => {
@@ -77,7 +78,7 @@ describe('acp bridge', () => {
     const res = await harness.client.newSession({ cwd: '/tmp', mcpServers: [] })
     expect(res.sessionId).toBeTruthy()
     // The session header records that cwd, so its bash tools run there.
-    expect(harness.ctx.agents.get(res.sessionId)!.session.header.cwd).toBe('/tmp')
+    expect(harness.ctx.agents.get(AgentId(res.sessionId))!.session.header.cwd).toBe('/tmp')
   })
 
   it('rejects non-empty additionalDirectories', async () => {
@@ -117,7 +118,7 @@ describe('acp bridge', () => {
       ],
     })
     expect(result.stopReason).toBe('end_turn')
-    const user = harness.ctx.agents.get(sessionId)!.session.events.find(event => event.type === 'user/message')
+    const user = harness.ctx.agents.get(AgentId(sessionId))!.session.events.find(event => event.type === 'user/message')
     expect(JSON.stringify(user)).toContain('resource_link')
   })
 

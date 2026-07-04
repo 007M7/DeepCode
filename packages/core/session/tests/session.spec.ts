@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEventType, TodoItem } from '@deepseek-ai/dsh-session'
 
 describe('Session', () => {
   it('derives message history from the event log', () => {
     const session = new Session(SessionId('s1'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('user/message', { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
+    session.append('user/message', { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'hi' } })
     session.append('assistant/message', {
       turn: 1, step: 1,
@@ -15,8 +16,8 @@ describe('Session', () => {
         { type: 'text', text: 'let me check' },
         { type: 'tool-call', id: CallId('c1'), name: 'echo', arguments: '{}' },
       ],
-    })
-    session.append('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false })
+    }, { surfaceOp: 'append' })
+    session.append('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false }, { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 
     const messages = session.deriveMessages()
@@ -44,12 +45,12 @@ describe('Session', () => {
     session.append('context/message', {
       content: [{ type: 'text', text: 'file changed: a.ts' }],
       source: { kind: 'plugin', plugin: 'watcher' },
-    })
+    }, { surfaceOp: 'append' })
     session.append('steering/message', {
       turn: 1,
       content: [{ type: 'text', text: 'focus on tests' }],
       source: { kind: 'user' },
-    })
+    }, { surfaceOp: 'append' })
 
     const [contextMessage, steeringMessage] = session.deriveMessages()
     expect(contextMessage!.role).toBe('user')
@@ -60,8 +61,8 @@ describe('Session', () => {
 
   it('replays identically from a seeded event log', () => {
     const original = new Session(SessionId('s3'))
-    original.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
-    original.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'a' }] })
+    original.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    original.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'a' }] }, { surfaceOp: 'append' })
 
     const replayed = new Session(SessionId('s3-replay'), [...original.events])
     expect(replayed.deriveMessages()).toEqual(original.deriveMessages())
@@ -70,11 +71,11 @@ describe('Session', () => {
 
   it('isolates the log from mutation through a derived message (append-only contract)', () => {
     const session = new Session(SessionId('s4'))
-    session.append('user/message', { content: [{ type: 'text', text: 'original' }], source: { kind: 'user' } })
+    session.append('user/message', { content: [{ type: 'text', text: 'original' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     session.append('tool/result', {
       turn: 1, step: 1, callId: CallId('c1'),
       content: [{ type: 'text', text: 'tool out' }], isError: false,
-    })
+    }, { surfaceOp: 'append' })
     const before = structuredClone(session.events)
 
     // A request middleware / adapter mutates the messages it was handed.
@@ -95,7 +96,7 @@ describe('Session', () => {
 
   it('rejects non-JSON-serializable event data at the source (incl. sparse arrays)', () => {
     const session = new Session(SessionId('s5'))
-    const bad = (extra: unknown) => () => session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra } as never)
+    const bad = (extra: unknown) => () => session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra } as never, { surfaceOp: 'append' })
     expect(bad(1n)).toThrow(/non-JSON-serializable/)
     expect(bad(() => 0)).toThrow(/non-JSON-serializable/)
     expect(bad(Symbol('s'))).toThrow(/non-JSON-serializable/)
@@ -120,9 +121,24 @@ describe('Session', () => {
     expect(session.events).toHaveLength(0)
   })
 
+  it('rejects a surface-eligible append with no surfaceOp marker (runtime guard for the union-widening loophole)', () => {
+    const session = new Session(SessionId('s5b'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    // The typed overload makes surfaceOp mandatory only when the type argument is
+    // a SPECIFIC SurfaceEventType literal. A caller iterating raw events widens it
+    // to the SessionEventType union, where the conditional rest collapses to
+    // optional — the exact shape `for (const e of log) append(e.type, e.data)`
+    // produces. Reproduce that here and assert the runtime guard rejects it.
+    const widenedType = 'user/message' as SessionEventType
+    expect(() => session.append(widenedType, { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
+      .toThrow(/surface-eligible and requires a surfaceOp marker/)
+    // The rejected append never entered the log (only turn/start is present).
+    expect(session.events).toHaveLength(1)
+  })
+
   it('accepts dense arrays and nested plain objects', () => {
     const session = new Session(SessionId('s6'))
-    expect(() => session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra: [1, 2, [3, { a: null, b: true }]] } as never)).not.toThrow()
+    expect(() => session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra: [1, 2, [3, { a: null, b: true }]] } as never, { surfaceOp: 'append' })).not.toThrow()
     expect(session.events).toHaveLength(1)
   })
 
@@ -143,10 +159,23 @@ describe('Session', () => {
     expect(() => new Session(SessionId('seed-gap'), gapSeed)).toThrow(/contiguous|seq/)
   })
 
+  it('validates seed events: rejects a surface-eligible event missing its surfaceOp marker', () => {
+    // A surface-eligible event (user/message) with no surfaceOp would load fine
+    // but vanish from deriveMessages() (the surface is the sole derivation path),
+    // so a resume/fork would silently lose history. append() forbids this at
+    // compile time; a raw seed must be rejected at runtime to match.
+    const markerlessSeed = [
+      { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
+      { type: 'user/message' as const, seq: 1, time: 2, data: { content: [{ type: 'text' as const, text: 'hi' }], source: { kind: 'user' as const } } },
+      { type: 'turn/end' as const, seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' as const } } },
+    ] as SessionEvent[]
+    expect(() => new Session(SessionId('seed-no-marker'), markerlessSeed)).toThrow(/surface-eligible but carries no surfaceOp/)
+  })
+
   it('accepts a well-formed contiguous serializable seed', () => {
     const goodSeed = [
       { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
-      { type: 'user/message' as const, seq: 1, time: 2, data: { content: [{ type: 'text' as const, text: 'hi' }], source: { kind: 'user' as const } } },
+      { type: 'user/message' as const, seq: 1, time: 2, data: { content: [{ type: 'text' as const, text: 'hi' }], source: { kind: 'user' as const } }, surfaceOp: 'append' as const },
       { type: 'turn/end' as const, seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' as const } } },
     ] as SessionEvent[]
     const session = new Session(SessionId('seed-ok'), goodSeed)
@@ -156,7 +185,7 @@ describe('Session', () => {
   it('snapshots the seed: mutating the original after construction does not affect session.events', () => {
     const seed = [
       { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
-      { type: 'user/message' as const, seq: 1, time: 2, data: { content: [{ type: 'text' as const, text: 'original' }], source: { kind: 'user' as const } } },
+      { type: 'user/message' as const, seq: 1, time: 2, data: { content: [{ type: 'text' as const, text: 'original' }], source: { kind: 'user' as const } }, surfaceOp: 'append' as const },
       { type: 'turn/end' as const, seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' as const } } },
     ] as SessionEvent[]
     const session = new Session(SessionId('seed-snapshot'), seed)
@@ -174,7 +203,7 @@ describe('Session', () => {
   it('snapshots append data: mutating the passed object after append does not affect session.events', () => {
     const session = new Session(SessionId('append-snapshot'))
     const data = { content: [{ type: 'text' as const, text: 'original' }], source: { kind: 'user' as const } }
-    const event = session.append('user/message', data)
+    const event = session.append('user/message', data, { surfaceOp: 'append' })
     // Mutate the caller's object after append returns. A shared reference would
     // make session.events diverge from the value that passed validation.
     data.content[0]!.text = 'HACKED'
@@ -201,7 +230,7 @@ describe('SessionStore', () => {
     const session = ctx.sessions.create()
     expect(created).toEqual([session])
 
-    session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } })
+    session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     expect(events).toHaveLength(1)
     expect(events[0]![0]).toBe(session)
     expect(events[0]![1].type).toBe('user/message')
@@ -213,11 +242,11 @@ describe('SessionStore', () => {
   it('rejects duplicate ids and supports seeding', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const a = ctx.sessions.create('fixed')
-    expect(() => ctx.sessions.create('fixed')).toThrow('already exists')
+    const a = ctx.sessions.create(SessionId('fixed'))
+    expect(() => ctx.sessions.create(SessionId('fixed'))).toThrow('already exists')
 
-    a.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
-    const forked = ctx.sessions.create('fork', { seed: [...a.events] })
+    a.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    const forked = ctx.sessions.create(SessionId('fork'), { seed: [...a.events] })
     expect(forked.deriveMessages()).toEqual(a.deriveMessages())
   })
 
@@ -228,11 +257,11 @@ describe('SessionStore', () => {
     // the REAL session, breaking the store-uniqueness invariant.
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const stale = ctx.sessions.prepare('racy')
-    const live = ctx.sessions.create('racy')
+    const stale = ctx.sessions.prepare(SessionId('racy'))
+    const live = ctx.sessions.create(SessionId('racy'))
     expect(() => ctx.sessions.enter(stale)).toThrow(/already exists/)
     // The live session is intact and still the store entry.
-    expect(ctx.sessions.get('racy')).toBe(live)
+    expect(ctx.sessions.get(SessionId('racy'))).toBe(live)
   })
 
   it('prepare() + enter() + announce() register a session and emit session/created', async () => {
@@ -241,25 +270,25 @@ describe('SessionStore', () => {
     const created: Session[] = []
     ctx.on('session/created', session => void created.push(session))
 
-    const session = ctx.sessions.prepare('lifecycle')
+    const session = ctx.sessions.prepare(SessionId('lifecycle'))
     // prepare alone does NOT enter the store.
-    expect(ctx.sessions.get('lifecycle')).toBeUndefined()
+    expect(ctx.sessions.get(SessionId('lifecycle'))).toBeUndefined()
     const detach = ctx.sessions.enter(session)
-    expect(ctx.sessions.get('lifecycle')).toBe(session)
+    expect(ctx.sessions.get(SessionId('lifecycle'))).toBe(session)
     // enter does NOT announce.
     expect(created).toEqual([])
     ctx.sessions.announce(session)
     expect(created).toEqual([session])
     // The detach disposer removes the entry + stops notification.
     detach()
-    expect(ctx.sessions.get('lifecycle')).toBeUndefined()
+    expect(ctx.sessions.get(SessionId('lifecycle'))).toBeUndefined()
   })
 
-  it('synthesizes a minimal v1 header for a bare-created session', async () => {
+  it('synthesizes a minimal current-version header for a bare-created session', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const session = ctx.sessions.create('plain')
-    expect(session.header).toMatchObject({ version: 1, id: 'plain' })
+    const session = ctx.sessions.create(SessionId('plain'))
+    expect(session.header).toMatchObject({ version: SESSION_FORMAT_VERSION, id: 'plain' })
     expect(typeof session.header.createdAt).toBe('number')
     expect(session.header.cwd).toBeUndefined()
     expect(session.header.parentSession).toBeUndefined()
@@ -268,11 +297,11 @@ describe('SessionStore', () => {
   it('attaches cwd and parentSession from meta to the header', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const session = ctx.sessions.create('child', {
+    const session = ctx.sessions.create(SessionId('child'), {
       meta: { cwd: '/work/project', parentSession: SessionId('parent') },
     })
     expect(session.header).toMatchObject({
-      version: 1,
+      version: SESSION_FORMAT_VERSION,
       id: 'child',
       cwd: '/work/project',
       parentSession: 'parent',
@@ -282,15 +311,15 @@ describe('SessionStore', () => {
   it('rejects a non-absolute meta.cwd', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    expect(() => ctx.sessions.create('rel', { meta: { cwd: 'relative/path' } }))
+    expect(() => ctx.sessions.create(SessionId('rel'), { meta: { cwd: 'relative/path' } }))
       .toThrow(/cwd must be an absolute path/)
     // the rejected session was not registered
-    expect(ctx.sessions.get('rel')).toBeUndefined()
+    expect(ctx.sessions.get(SessionId('rel'))).toBeUndefined()
   })
 
-  it('a bare Session() constructed without the store still exposes a v1 header', () => {
+  it('a bare Session() constructed without the store still exposes a current-version header', () => {
     const session = new Session(SessionId('bare'))
-    expect(session.header).toMatchObject({ version: 1, id: 'bare' })
+    expect(session.header).toMatchObject({ version: SESSION_FORMAT_VERSION, id: 'bare' })
     expect(typeof session.header.createdAt).toBe('number')
   })
 
@@ -300,16 +329,16 @@ describe('SessionStore', () => {
 
     let session!: Session
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      session = inner.sessions.create('scoped')
+      session = inner.sessions.create(SessionId('scoped'))
     }, { inject: ['sessions'] }))
-    expect(ctx.sessions.get('scoped')).toBe(session)
+    expect(ctx.sessions.get(SessionId('scoped'))).toBe(session)
 
     let observed = 0
     ctx.on('session/event', () => void observed++)
 
     await fiber.dispose()
-    expect(ctx.sessions.get('scoped')).toBeUndefined()
-    session.append('user/message', { content: [{ type: 'text', text: 'late' }], source: { kind: 'user' } })
+    expect(ctx.sessions.get(SessionId('scoped'))).toBeUndefined()
+    session.append('user/message', { content: [{ type: 'text', text: 'late' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     expect(observed).toBe(0)
   })
 
@@ -323,16 +352,76 @@ describe('SessionStore', () => {
     })
 
     // The throwing emit must roll the store entry back, not leak it.
-    expect(() => ctx.sessions.create('fixed')).toThrow('boom created listener')
-    expect(ctx.sessions.get('fixed')).toBeUndefined() // rolled back, not leaked
+    expect(() => ctx.sessions.create(SessionId('fixed'))).toThrow('boom created listener')
+    expect(ctx.sessions.get(SessionId('fixed'))).toBeUndefined() // rolled back, not leaked
 
     // A subsequent create of the SAME id succeeds (the already-exists check is
     // not wedged) and its onAppend is correctly wired (events observable).
     const events: SessionEvent[] = []
     ctx.on('session/event', (_session, event) => void events.push(event))
-    const session = ctx.sessions.create('fixed')
-    expect(ctx.sessions.get('fixed')).toBe(session)
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+    const session = ctx.sessions.create(SessionId('fixed'))
+    expect(ctx.sessions.get(SessionId('fixed'))).toBe(session)
+    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     expect(events).toHaveLength(1)
+  })
+})
+
+describe('todo/write event', () => {
+  it('appends the whole-list snapshot and isolates the log from later mutation', () => {
+    const session = new Session(SessionId('t1'))
+    const todos: TodoItem[] = [
+      { content: 'plan the work', status: 'in_progress' },
+      { content: 'write the code', status: 'pending' },
+    ]
+    session.append('todo/write', { todos })
+
+    const event = session.events.findLast(e => e.type === 'todo/write')!
+    expect(event.type).toBe('todo/write')
+    expect(event.data.todos).toEqual(todos)
+
+    // The append snapshots its input: mutating the caller's array afterward must
+    // not change what the log holds (the durable-source-of-truth contract).
+    todos.push({ content: 'sneak in', status: 'pending' })
+    todos[0]!.status = 'completed'
+    expect(event.data.todos).toEqual([
+      { content: 'plan the work', status: 'in_progress' },
+      { content: 'write the code', status: 'pending' },
+    ])
+  })
+
+  it('is last-write-wins: the current list is the most recent todo/write', () => {
+    const session = new Session(SessionId('t2'))
+    session.append('todo/write', { todos: [{ content: 'first', status: 'pending' }] })
+    session.append('todo/write', { todos: [
+      { content: 'first', status: 'completed' },
+      { content: 'second', status: 'in_progress' },
+    ] })
+
+    const current = session.events.findLast(e => e.type === 'todo/write')!.data.todos
+    expect(current).toEqual([
+      { content: 'first', status: 'completed' },
+      { content: 'second', status: 'in_progress' },
+    ])
+  })
+
+  it('is NOT a surface event: it produces no derived message and joins no surface node', () => {
+    const session = new Session(SessionId('t3'))
+    session.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    const before = session.deriveMessages().length
+    session.append('todo/write', { todos: [{ content: 'a task', status: 'pending' }] })
+    // The todo event must not add a message to the derived history…
+    expect(session.deriveMessages()).toHaveLength(before)
+    // …and must not appear on the surface linked list.
+    expect(session.surface.nodes.some(node => node.seq === session.seq - 1)).toBe(false)
+  })
+
+  it('round-trips through a seeded replay identically (durable, no surfaceOp needed)', () => {
+    const original = new Session(SessionId('t4'))
+    original.append('todo/write', { todos: [{ content: 'only', status: 'completed' }] })
+    // Seeding a non-surface event with no surfaceOp must not throw.
+    const replayed = new Session(SessionId('t4-replay'), [...original.events])
+    expect(replayed.events.findLast(e => e.type === 'todo/write')!.data.todos)
+      .toEqual([{ content: 'only', status: 'completed' }])
+    expect(replayed.seq).toBe(original.seq)
   })
 })

@@ -16,7 +16,7 @@ The [event-sourced model](2026-06-11-event-sourced-sessions.md) makes the append
 
 Persistence is an abstract **capability seam** ([capability seams](2026-06-13-capability-seams.md), the `dsh-bash` template), not loop or core logic:
 
-1. **Interface** (`dsh-session-persistence`, `ctx.sessionPersistence`) — an abstract `SessionPersistence` service: `create`/`append`/`load`/`list`/`has`/`delete`. Its persisted unit IS the existing `SessionEvent` (`{ type, seq, time, data }`), reused verbatim — no conversion type.
+1. **Interface** (`dsh-session-persistence`, `ctx.sessionPersistence`) — an abstract `SessionPersistence` service: `create`/`append`/`load`/`list`. Its persisted unit IS the existing `SessionEvent` (`{ type, seq, time, data }`), reused verbatim — no conversion type.
 2. **Implementation** (`dsh-session-persistence-jsonl`) — an append-only JSONL log per session (a `SessionHeader` line then one `SessionEvent` per line, verbatim **including `assistant/chunk`**).
 
 Key choices recorded here because they are durable, contested, and surprising:
@@ -27,7 +27,7 @@ Key choices recorded here because they are durable, contested, and surprising:
 - **Metadata is out-of-log.** Format version, cwd, and lineage are storage concerns, not replayable conversation state, so they live in a `SessionHeader` owned by `dsh-session` and attached to a `Session` via a new readonly `session.header` — never in `SessionEventMap`, never reaching `deriveMessages()`. The alternative (a merge-extensible `session/meta` event as log line 0) was rejected: an in-log event would ride along with a seeded/forked session for free, but metadata is not replayable state, so the explicit out-of-log header seam is the cleaner cost. (The header was originally split into an immutable `SessionHeader` plus a mutable `SessionSummary` whose union was `SessionMeta`; the mutable summary was later removed as dead state — see [Drop the mutable session summary](../simplification/2026-06-19-drop-mutable-session-summary.md).)
 - **Resume is an async factory, not a change to synchronous create.** `ctx.agents.resume({ resumeSessionId })` awaits `ctx.sessionPersistence.load`, recreates the live session with the loaded events (so `lastTurnNumber`/`deriveMessages` continue), and starts a fresh agent on the resumed id (NOT `${agentId}-session`). The agent-loop does NOT hard-inject `sessionPersistence` (that would pend non-persistent demos forever); `resume` rejects with a clear error when it is absent.
 
-Format versioning: the header carries a `version`; `load` rejects an unknown version (no v1 migration). Stated honestly: append-only + flush is robust to partial trailing writes (tolerated on load) but not to fsync-less power loss mid-line; a DB/WAL backend is the stronger option later.
+Format versioning: the header carries a `version`; `load` rejects any non-current version (no migration — the pre-release session format is pinned at `SESSION_FORMAT_VERSION = 0` and absorbs shape churn, per the AGENTS.md pre-release stance). Stated honestly: append-only + flush is robust to partial trailing writes (tolerated on load) but not to fsync-less power loss mid-line; a DB/WAL backend is the stronger option later.
 
 ## Consequences
 

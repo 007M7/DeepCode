@@ -4,8 +4,8 @@
  * own process group (see `./run.ts` for the plumbing and the agent-tool
  * survey notes), tracks background tasks, and kills everything on dispose.
  *
- * TODO(permissions/sandbox): execution policy does NOT belong here — wrap
- * the `tools/execute` waterfall (see docs/architecture.md § plugin
+ * TODO(permissions/sandbox): execution policy does NOT belong here — use
+ * the `tools/pre-execute` deny/ask gate (see docs/architecture.md § plugin
  * checklist) or implement a sandboxing `BashExecutor`. Reference points:
  * Claude Code wraps commands in sandbox-exec/bubblewrap; Codex applies
  * seatbelt/landlock plus an execpolicy prefix-rule engine.
@@ -15,8 +15,8 @@
 
 import { Context } from 'cordis'
 import z from 'schemastery'
-import { BashExecutor } from '@deepseek-ai/dsh-bash'
-import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRead } from '@deepseek-ai/dsh-bash'
+import { BashExecutor, BashTaskId } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRead, OwnerToken } from '@deepseek-ai/dsh-bash'
 import { runBash } from './run.ts'
 import type { RunInternals, RunningBash } from './run.ts'
 
@@ -50,7 +50,7 @@ interface TrackedTask extends BashTask {
   stdoutOffset: number
   stderrOffset: number
   /** Opaque owner token from the {@link BashExecSpec} (the consumer's isolation key). */
-  owner: string | undefined
+  owner: OwnerToken | undefined
 }
 
 /**
@@ -67,7 +67,7 @@ export class LocalBashExecutor extends BashExecutor {
     maxOutputBytes: z.number().default(64_000),
   })
 
-  private tasks = new Map<string, TrackedTask>()
+  private tasks = new Map<BashTaskId, TrackedTask>()
   private nextTaskId = 1
   /** Test seam: timer/spill knobs forwarded to runBash. */
   internals: RunInternals = {}
@@ -116,6 +116,10 @@ export class LocalBashExecutor extends BashExecutor {
       workdir: request.workdir ?? this.config.cwd ?? process.cwd(),
       timeoutMs,
       ...request.signal ? { signal: request.signal } : {},
+      // Carry stdin/env through verbatim — optional, no config default (absent
+      // means none). env merges AFTER the scrub in run.ts.
+      ...request.stdin !== undefined ? { stdin: request.stdin } : {},
+      ...request.env !== undefined ? { env: request.env } : {},
       // Carry the owner through verbatim (required-but-nullable on the spec):
       // the executor never interprets it — the consumer's access policy does.
       owner: request.owner,
@@ -129,6 +133,8 @@ export class LocalBashExecutor extends BashExecutor {
       timeoutMs: spec.timeoutMs,
       maxOutputBytes: this.config.maxOutputBytes,
       signal: spec.signal,
+      stdin: spec.stdin,
+      env: spec.env,
     }, this.internals).done
     return { ...outcome, timeoutMs: spec.timeoutMs }
   }
@@ -145,9 +151,11 @@ export class LocalBashExecutor extends BashExecutor {
       timeoutMs: 0,
       maxOutputBytes: this.config.maxOutputBytes,
       signal: spec.signal,
+      stdin: spec.stdin,
+      env: spec.env,
     }, this.internals)
 
-    const id = `bash-${this.nextTaskId++}`
+    const id = BashTaskId(`bash-${this.nextTaskId++}`)
     const task: TrackedTask = {
       id,
       command: spec.command,
@@ -176,11 +184,11 @@ export class LocalBashExecutor extends BashExecutor {
     return task
   }
 
-  get(id: string): BashTask | undefined {
+  get(id: BashTaskId): BashTask | undefined {
     return this.tasks.get(id)
   }
 
-  ownerOf(id: string): string | undefined {
+  ownerOf(id: BashTaskId): OwnerToken | undefined {
     // Unknown id and known-but-ownerless both read as undefined — the consumer
     // treats undefined as "open" and a truly unknown id fails at readOutput/kill.
     return this.tasks.get(id)?.owner
@@ -190,7 +198,7 @@ export class LocalBashExecutor extends BashExecutor {
     return [...this.tasks.values()]
   }
 
-  readOutput(id: string): BashTaskRead {
+  readOutput(id: BashTaskId): BashTaskRead {
     const task = this.tasks.get(id)
     if (!task) throw new Error(`unknown bash task "${id}"`)
 
@@ -213,7 +221,7 @@ export class LocalBashExecutor extends BashExecutor {
     }
   }
 
-  kill(id: string): boolean {
+  kill(id: BashTaskId): boolean {
     const task = this.tasks.get(id)
     if (!task) throw new Error(`unknown bash task "${id}"`)
     if (task.status !== 'running') return false
