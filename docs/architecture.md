@@ -150,12 +150,12 @@ forever:
   wait for queued messages (idle)
   emit agent/status(running)
   TURN (error-contained — a throwing plugin ends the turn, never the loop):
-    drain queued → 'turn/start' → session('user/message'…) → emit agent/turn-start
+    drain queued → 'turn/start' → session('user/message'…)   ⟵ durable turn boundary (no agent/* mirror)
     STEP loop:
       drain steering (late steering from previous step's listeners)
       assembly = ctx.systemPrompt.assemble()          ⟵ waterfall system-prompt/assemble
       await ctx.serial('agent/pre-step')              ⟵ surface mutation (compaction) OUTSIDE the step
-      session('step/start'); emit agent/step-start
+      session('step/start')                           ⟵ durable step boundary (no agent/* mirror)
       req = {model, system, tools, messages: session.deriveMessages(), signal}
       req = waterfall agent/request                   ⟵ hooks, model switch
       stream ctx.llm.stream(req)                      ⟵ waterfall llm/stream (raw chunks)
@@ -170,11 +170,12 @@ forever:
           tool execution may append tool-owned session events, e.g. `todo/write`
         session('tool/result')
       drain steering → session('steering/message'); emit agent/steering
-      emit agent/step-end
+      session('step/end')                             ⟵ durable step boundary (no agent/* mirror)
       cont = waterfall agent/turn-continuation(default = hadToolCalls || steered)
-      steering pending from step-end/continuation listeners forces cont = true
+      steering pending forces cont = true (from continuation listeners OR from
+        step/end session-event listeners — the /goal pattern; hasSteering override)
       if !cont: break
-  session('turn/end'); emit agent/turn-end
+  session('turn/end')                                 ⟵ durable turn boundary (no agent/* mirror)
   await ctx.parallel('session/flush', session)        ⟵ durability checkpoint (failure
                                                          reported via agent/error, not fatal)
   leftover steering re-enqueued as queued messages    ⟵ steering is never stranded
@@ -185,7 +186,7 @@ Error containment: a throwing `agent/turn-continuation` listener or a broken ste
 
 Turn-end reasons: a turn ends with one `TurnEndReason` — `completed`, `aborted`, `error`, `disposed`, or `max-tokens`. `max-tokens` mirrors the model-call `FinishReason` of the same name (DeepSeek's `length`): a step that hit the output-token ceiling makes the turn end `max-tokens` rather than `completed`, by the rule *any `max-tokens` step in the turn surfaces as `max-tokens`* (a continuation plugin may run further steps after one, but the cut-short fact wins; the `disposed`/`aborted`/`error` outcomes still take precedence). This lets a consumer distinguish a clean stop from a truncated one (the ACP bridge maps it to the `max_tokens` stop reason). `TurnEndReason` is merge-extensible; `refusal` and `max_turn_requests` are the next variants to add when an adapter/loop first emits them.
 
-A failure that happens once the turn is already closed has no in-turn position for a turn-end error reason (the turn already ended). So a rejecting `session/flush` (the post-`turn/end` durability checkpoint) and a throwing `agent/turn-end` listener are reported via `agent/error` + the logger only, NOT as a session event; the turn stays balanced and the persistence backend keeps its buffered events for the next flush.
+A failure that happens once the turn is already closed has no in-turn position for a turn-end error reason (the turn already ended). So a rejecting `session/flush` (the post-`turn/end` durability checkpoint) is reported via `agent/error` + the logger only, NOT as a session event; the turn stays balanced and the persistence backend keeps its buffered events for the next flush.
 
 **Turn-enclosure invariant**: every session event lives inside a turn (between a `turn/start` and its `turn/end`). The loop appends queued `user/message` events *after* `turn/start`, and an idle `agent.inject()` wraps its `context/message` in a one-shot `injection` turn. This makes the turn the single durability/replay boundary: a persistence backend can treat anything after the last `turn/end` as an interrupted-crash tail without risking the loss of legitimately-recorded between-turn context. The `dsh-invariants` plugin enforces it in dev (a message event outside an open turn throws). See [the turn-enclosure invariant](rfc/implemented/architecture/2026-06-15-turn-enclosure-invariant.md).
 
@@ -211,8 +212,8 @@ Every MVP feature (including the TODO-marked ones), with the mechanism that impl
 |---|---|
 | Hook system (user + project level) | listeners on `agent/request`, `agent/step-result`, `tools/execute`, `agent/turn-continuation`; a hooks plugin bridges config files to shell commands |
 | `/goal` | force-continue via `agent/turn-continuation` + `steer()` reminders |
-| `/loop` | on `agent/turn-end`, `send()` the next iteration; or force-continue |
-| Dynamic workflow | orchestrator plugin on `agent/turn-end` / `agent/step-end` driving `send`/`steer` (+ sub-agents later) |
+| `/loop` | on the `turn/end` session event, `send()` the next iteration; or force-continue |
+| Dynamic workflow | orchestrator plugin on the `turn/end` (or `step/end`) session event driving `send`/`steer` (+ sub-agents later) |
 | Queued + steering messages | core `Agent.send()` / `Agent.steer()` |
 | Context compaction (auto + manual) | the `dsh-compact` seam (`ctx.compact`) + a backend (`dsh-compact-basic`) on the serial `agent/pre-step` seam: a backend summarizes an older surface range into a single `user/message` `replace` op, bracketed by log-only `compact/*` events; auto = check token pressure before each step — runaway-turn survival, manual = a (deferred) `/compact` tool invoking the same `ctx.compact` routine. See the [compaction capability-seam RFC](rfc/implemented/feature/2026-06-18-compaction-capability-seam.md) |
 | System prompt configurability | `ctx.systemPrompt.section()` with ordering |

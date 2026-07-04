@@ -145,12 +145,12 @@ export interface LoopHandle {
  * forever:
  *   wait for queued messages (idle)
  *   TURN (error-contained — a throwing plugin ends the turn, never the loop):
- *     drain queued → 'turn/start' → session('user/message'…) → emit agent/turn-start
+ *     drain queued → 'turn/start' → session('user/message'…)   ⟵ durable turn boundary (no agent/* mirror)
  *     STEP loop:
  *       drain steering → session('steering/message')  ⟵ catches late steering
  *       assembly = ctx.systemPrompt.assemble()        ⟵ waterfall system-prompt/assemble
  *       await ctx.serial('agent/pre-step')            ⟵ surface mutation (compaction) OUTSIDE the step
- *       session('step/start'); emit agent/step-start    ⟵ append before emit (the event-sourcing RFC)
+ *       session('step/start')                         ⟵ durable step boundary (no agent/* mirror)
  *       req = {model, system, tools, messages: session.deriveMessages(), signal}
  *       req = waterfall agent/request                 ⟵ hooks/model-switch
  *       stream ctx.llm.stream(req)                    ⟵ waterfall llm/stream (raw chunks)
@@ -161,11 +161,11 @@ export interface LoopHandle {
  *         session('tool/call'); ctx.tools.execute()   ⟵ waterfall tools/execute
  *         session('tool/result')
  *       drain steering → session('steering/message'); emit agent/steering
- *       emit agent/step-end
+ *       session('step/end')                           ⟵ durable step boundary (no agent/* mirror)
  *       cont = waterfall agent/turn-continuation(default = hadToolCalls || steered)
- *       if !cont && steering arrived from step-end/continuation listeners: cont = true
+ *       if !cont && steering arrived from step/end session-event/continuation listeners: cont = true
  *       if !cont: break
- *     session('turn/end'); emit agent/turn-end
+ *     session('turn/end')                             ⟵ durable turn boundary (no agent/* mirror)
  *     await ctx.parallel('session/flush', session)    ⟵ durability checkpoint
  *     re-enqueue leftover steering as queued          ⟵ steering is never stranded
  *   idle (emit agent/status) unless more queued
@@ -277,37 +277,32 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
 
   let reason: TurnEndReason = { kind: 'completed' }
   let step = 0
-  let turnEnded = false
   let stepOpen = false
   let errorReported = false
 
-  // Close the open step exactly once (idempotent via stepOpen). The
-  // agent/step-end emit is contained: a throwing step-end listener must not
-  // abort finalization and strand the turn open (turn/end balance > notifying
-  // one bad listener). Appended before the emit (the event-sourcing RFC append-before-emit).
+  // Close the open step exactly once (idempotent via stepOpen). Step boundaries
+  // are durable session events only — there is no agent/* step emit to mirror
+  // them (see the agent event-domain rule). A throwing step/end session-event
+  // listener must not abort finalization and strand the turn open (turn/end
+  // balance > notifying one bad listener); it is contained and surfaced as a
+  // turn error below.
   const closeStep = (): boolean => {
     if (!stepOpen) return false
     stepOpen = false
     // Session.append pushes step/end BEFORE notifying session/event listeners,
     // so a throwing listener leaves step/end in the log (balance holds) but
     // would otherwise abort finalization. Contain it and surface it as a turn
-    // error below — the same outcome as a throwing agent/step-end listener.
+    // error below.
     let failure: unknown
     try {
       session.append('step/end', { turn, step })
     } catch (error: unknown) {
       failure = error
     }
-    try {
-      ctx.emit('agent/step-end', agent, turn, step)
-    } catch (error: unknown) {
-      failure ??= error
-    }
-    // A throwing step/end session-event listener OR a throwing agent/step-end
-    // listener surfaces as a turn error via failTurn (idempotent). This prevents
-    // a throwing listener from producing a silent "completed" turn when the step
-    // itself succeeded, AND keeps finalization going when closeStep runs from
-    // the outer catch.
+    // A throwing step/end session-event listener surfaces as a turn error via
+    // failTurn (idempotent). This prevents a throwing listener from producing a
+    // silent "completed" turn when the step itself succeeded, AND keeps
+    // finalization going when closeStep runs from the outer catch.
     if (failure !== undefined) {
       failTurn(toError(failure))
       return true
@@ -324,47 +319,38 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
   const failTurn = (err: CodedError): void => {
     if (errorReported) return
     errorReported = true
-    // Set the error reason ONLY while the turn is still open — closeTurn appends
-    // turn/end with it. If the turn has already ended (the only way here: a
-    // throwing agent/turn-end listener after closeTurn(true) already appended
-    // turn/end), the reason can no longer affect the durable log, so log the late
-    // throw directly instead — otherwise the listener exception would vanish.
-    if (!turnEnded) {
-      reason = { kind: 'error', step, ...errorData(err) }
-    } else {
-      ctx.logger.warn(`agent "${agent.id}": agent/turn-end listener threw after turn ${turn} closed: ${err.message}`)
-    }
+    // The turn is always still open here: the only failure that can reach
+    // failTurn once turn/end is appended would be a throwing turn-boundary
+    // listener, and turn boundaries are durable session events with no agent/*
+    // mirror to throw. A throwing `turn/end` session-event listener is already
+    // contained inside closeTurn (append pushes before notifying, so the
+    // boundary is durable). So set the error reason for closeTurn to append.
+    reason = { kind: 'error', step, ...errorData(err) }
     try {
       ctx.emit('agent/error', agent, turn, step, err)
     } catch {
-      // contained: the error is already captured (on `reason`, or via the logger
-      // above); a throwing agent/error listener must not prevent the turn from
-      // closing.
+      // contained: the error is already captured on `reason`; a throwing
+      // agent/error listener must not prevent the turn from closing.
     }
   }
 
-  // Close the turn exactly once (idempotent via turnEnded). `emit` is false on
-  // the error path (the failure was already surfaced via agent/error) and true
-  // on the normal/inline-error path. A throwing agent/turn-end listener on the
-  // normal path escapes to the outer catch, which surfaces it via failTurn —
-  // turn/end is already appended, so balance holds either way.
-  const closeTurn = (emit: boolean): void => {
-    if (turnEnded) return
-    turnEnded = true
+  // Close the turn. Called exactly once per turn — the normal loop exit and the
+  // outer catch are mutually exclusive paths, and this never throws (the append
+  // is contained below), so there is no re-entry to guard against (unlike
+  // closeStep, which the cancel branches and the outer catch can both reach).
+  // Turn boundaries are durable session events only — there is no agent/* turn
+  // emit to mirror them (see the agent event-domain rule).
+  const closeTurn = (): void => {
     // Session.append pushes turn/end BEFORE notifying session/event listeners,
     // so a throwing listener leaves turn/end in the log (the turn is balanced)
-    // but would otherwise escape — from the outer catch's closeTurn(false) it
-    // would propagate to the runLoop backstop, and from the normal-path
-    // closeTurn(true) it would skip the agent/turn-end emit. Contain it: the
-    // boundary is durable either way, and finalization must not abort on a bad
-    // listener. (On the normal path the outer catch also re-runs closeTurn,
-    // which is an idempotent no-op once turnEnded is set.)
+    // but would otherwise escape — from the outer catch it would propagate to
+    // the runLoop backstop. Contain it: the boundary is durable either way, and
+    // finalization must not abort on a bad listener.
     try {
       session.append('turn/end', { turn, reason })
     } catch (error: unknown) {
       ctx.logger.warn(`agent "${agent.id}": session/event listener threw on turn/end at turn ${turn}: ${toError(error).message}`)
     }
-    if (emit) ctx.emit('agent/turn-end', agent, turn, reason)
   }
 
   try {
@@ -379,13 +365,12 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
     for (const message of queued) {
       session.append('user/message', { content: message.content, source: message.source }, { surfaceOp: 'append' })
     }
-    ctx.emit('agent/turn-start', agent, turn)
 
     while (true) {
       step += 1
 
-      // Steering from the previous round's step-end/continuation listeners
-      // (or turn-start listeners on the first step) joins before the request.
+      // Steering from the previous round's continuation listeners joins before
+      // the request.
       drainSteering(ctx, agent, turn)
 
       // The step's AbortController exists BEFORE any async pre-step work so a
@@ -432,24 +417,25 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
       // pre-step plugin ends the turn, not the loop.
       await ctx.serial('agent/pre-step', agent, turn, step, fullSystemPrompt, abort.signal)
 
-      // Interruption landing during the pre-step seam: do not open an empty
-      // step. `agent/step-start` listeners get their own check below because
-      // they necessarily run after step/start is appended/emitted.
+      // Interruption landing during the pre-step seam: do not open an empty step.
       if (handle.isCancelled() || handle.isDisposed()) {
         handle.setAbort(undefined)
         reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
         break
       }
 
-      session.append('step/start', { turn, step })
+      // Mark the step open BEFORE the append: Session.append pushes the event
+      // to the log before notifying session/event listeners, so a THROWING
+      // step/start listener leaves step/start in the log. Setting stepOpen first
+      // means the outer catch's closeStep() then appends the balancing step/end
+      // (turn stays enclosed) instead of stranding an open step under turn/end.
       stepOpen = true
-      ctx.emit('agent/step-start', agent, turn, step)
+      session.append('step/start', { turn, step })
 
-      // Cancel landing in the step-start window: a synchronous
-      // `agent/step-start` listener can cancel after the step is already open.
-      // Check AFTER step/start append + emit and before `runStep`: drop the
-      // step, end the turn accordingly. closeStep balances the already-appended
-      // step/start.
+      // Cancel landing in the step-start window: a synchronous `session/event`
+      // step/start listener can cancel after the step is already open. Check
+      // AFTER the step/start append and before `runStep`: drop the step, end the
+      // turn accordingly. closeStep balances the already-appended step/start.
       if (handle.isCancelled() || handle.isDisposed()) {
         handle.setAbort(undefined)
         reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
@@ -511,9 +497,9 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
         break
       }
 
-      // Steering from step-end/continuation listeners (the /goal pattern)
-      // demands the model see it — it overrides a negative decision; the
-      // next iteration's drain records it.
+      // Steering from step/end session-event or continuation listeners (the
+      // /goal pattern) demands the model see it — it overrides a negative
+      // decision; the next iteration's drain records it.
       if (!shouldContinue && agent.inbox.hasSteering) shouldContinue = true
 
       // A cancel that landed during the continuation window — after the step's
@@ -533,8 +519,8 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
       }
     }
 
-    // Normal / inline-error loop exit: close the turn and notify.
-    closeTurn(true)
+    // Normal / inline-error loop exit: close the turn.
+    closeTurn()
   } catch (error: unknown) {
     // Decide whether this turn was ever opened from the LOG, not a flag.
     // Session.append pushes the event BEFORE notifying session/event listeners,
@@ -543,28 +529,29 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
     // Gating on a "turn started" boolean would skip turn/end and leave a
     // permanently OPEN turn that poisons the next turn/replay (the turn-enclosure RFC). We
     // check the log for THIS turn's turn/start: present means a turn/end is owed
-    // (or was already appended — closeTurn/failTurn are idempotent, so running
-    // them again is a safe no-op that still preserves the disposed/error reason
-    // chosen below). Absent means the turn/start append threw BEFORE its push (a
-    // non-serializable trigger — impossible for our fixed trigger); nothing was
-    // opened, so rethrow to the runLoop backstop.
+    // and the normal-exit `closeTurn()` did NOT run (we are here because a throw
+    // preceded it — the two `closeTurn()` sites are on mutually exclusive paths),
+    // so this catch appends turn/end with the disposed/error reason chosen below.
+    // `closeStep()` IS idempotent (guarded by `stepOpen`) — it may have run
+    // already in a step branch, so running it again is a safe no-op. Absent
+    // turn/start means the append threw BEFORE its push (a non-serializable
+    // trigger — impossible for our fixed trigger); nothing was opened, so rethrow
+    // to the runLoop backstop.
     const turnStartLogged = session.events.some(e => e.type === 'turn/start' && e.data.turn === turn)
     if (!turnStartLogged) throw error
     closeStep()
     // Choose the close reason. Disposal wins only if no error was already
     // reported: a turn disposed mid-step sets reason=disposed in the step-error
-    // branch (without reporting an error), and if closeTurn(true)'s turn-end
-    // emit then throws, we land here and must PRESERVE disposed rather than
-    // overwrite it with the listener's throw. Otherwise a boundary-emit throw
-    // on a live agent is a real failure → failTurn. (errorReported is mutated
-    // only inside the failTurn closure, which the analyzer can't follow, hence
-    // the inline lint-disable.)
+    // branch (without reporting an error), so preserve disposed rather than
+    // overwrite it. Otherwise a mid-step throw on a live agent is a real
+    // failure → failTurn. (errorReported is mutated only inside the failTurn
+    // closure, which the analyzer can't follow, hence the inline lint-disable.)
     if (handle.isDisposed() && !errorReported) { // eslint-disable-line @typescript-eslint/no-unnecessary-condition
       reason = { kind: 'disposed' }
     } else {
       failTurn(toError(error))
     }
-    closeTurn(false)
+    closeTurn()
   }
 
   // Durability checkpoint: persistence plugins drain write-behind buffers.

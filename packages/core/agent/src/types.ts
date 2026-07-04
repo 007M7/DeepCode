@@ -6,6 +6,34 @@
  * Merge-extensible: `AgentOptions` supports declaration merging for
  * plugin-specific creation options.
  *
+ * ## Event-domain semantics (the boundary rule)
+ *
+ * The harness has three event domains, each with one job:
+ *
+ * - **`session/*`** (`@deepseek-ai/dsh-session`) — the DURABLE, replayable FACT
+ *   log. Owns `SessionEventMap`; every entry is JSON-only (no live objects).
+ *   One `session/event` emit per append, plus the `session/flush` parallel
+ *   durability checkpoint. Answers "what happened, durably/replayably." A
+ *   consumer that wants the live transcript subscribes here.
+ * - **`agent/*`** (this module) — the LIVE runtime surface. Always carries the
+ *   live `Agent`. Two shapes: INTERCEPTION waterfalls (`agent/request`,
+ *   `agent/step-result`, `agent/turn-continuation`) that mutate/veto, and
+ *   TRANSIENT emits (`agent/status`, `agent/stream-chunk`, `agent/error`,
+ *   `agent/created`/`agent/disposed`, `agent/queued`, `agent/steering`) that
+ *   notify with the `Agent` in hand. Turn/step boundaries are NOT here — they
+ *   are durable `session/event` records (see the rule below). Answers "right
+ *   now, with the agent object — intercept or observe."
+ * - **`tools/*`** (`@deepseek-ai/dsh-tools`) — the tool registry + execution.
+ *
+ * **The rule:** a durable, replayable fact is a SessionEvent; a live
+ * interception or a transient/live-object signal is an `agent`/`tools` Cordis
+ * event. A turn/step boundary is a durable fact: it lives in the session log
+ * and is read off the `session/event` feed — it is NOT mirrored as an `agent/*`
+ * emit. A consumer that needs the `Agent` handle (or its short id) at a boundary
+ * keeps a session-id→agent map from `agent/created`/`agent/disposed`.
+ * See `docs/rfc/implemented/architecture/2026-06-11-microkernel-event-taxonomy.md`
+ * and `docs/rfc/implemented/simplification/2026-06-20-remove-agent-boundary-mirror-events.md`.
+ *
  * @module @deepseek-ai/dsh-agent/types
  */
 
@@ -19,7 +47,7 @@ export type AgentId = Branded<'AgentId'>
 export function AgentId(id: string): AgentId {
   return id as AgentId
 }
-import type { Session, TurnEndReason } from '@deepseek-ai/dsh-session'
+import type { Session } from '@deepseek-ai/dsh-session'
 
 /**
  * Options an agent is created with.
@@ -155,29 +183,11 @@ declare module 'cordis' {
      */
     'agent/queued'(agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void
 
-    // ---- turn/step boundaries (emit) ----
-    /**
-     * A turn began. `turn` is the 1-based turn number within the session.
-     * @mode emit
-     */
-    'agent/turn-start'(agent: Agent, turn: number): void
-    /**
-     * A turn ended. `reason` distinguishes a clean stop from a truncated or
-     * aborted one (`completed` | `aborted` | `error` | `disposed` | `max-tokens`).
-     * @mode emit
-     */
-    'agent/turn-end'(agent: Agent, turn: number, reason: TurnEndReason): void
-    /**
-     * A step (one model call plus its tool dispatch) began. `step` is 1-based
-     * within the turn; a turn runs one or more steps.
-     * @mode emit
-     */
-    'agent/step-start'(agent: Agent, turn: number, step: number): void
-    /**
-     * A step ended.
-     * @mode emit
-     */
-    'agent/step-end'(agent: Agent, turn: number, step: number): void
+    // Turn and step boundaries are NOT mirrored as agent/* emits: a consumer
+    // that needs them reads the durable `turn/start`/`turn/end`/`step/start`/
+    // `step/end` session events off the `session/event` feed (the session log is
+    // the live transcript feed). See the module doc's three-domain rule and the
+    // "remove agent boundary mirror events" RFC.
 
     // ---- step/request extension seams (serial + waterfall) ----
     /**
