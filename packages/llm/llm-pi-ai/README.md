@@ -9,7 +9,7 @@ DeepSeek adapter for the harness LLM seam backed by [`@earendil-works/pi-ai`](ht
 - pi-ai hands tool-call `arguments` around as **parsed objects**; the harness keeps raw JSON strings. The adapter patches replay payloads back to the original raw strings before sending them, and re-stringifies parsed output tool calls at `block-end`.
 - pi-ai reports failures as **in-stream error events** (it never throws mid-stream); these map to `finish {kind:'error'|'aborted'}` chunks — the protocol's other sanctioned error path besides throwing (which llm-deepseek uses).
 - pi-ai folds reasoning tokens into `usage.output`; there is no separate reasoning count to map.
-- pi-ai's options omit some DeepSeek/OpenAI-compatible details; the adapter uses its `onPayload` hook to preserve the harness contract (`stop`, per-tool `strict`, omitted reasoning effort, raw replayed tool arguments).
+- pi-ai's options omit some DeepSeek/OpenAI-compatible details; the adapter uses its `onPayload` hook to preserve the harness contract (`stop`, scrubbing pi-ai's own per-tool `strict` default — the hand-rolled twin sends no such field — omitted reasoning effort, raw replayed tool arguments).
 
 ## Config
 
@@ -31,7 +31,7 @@ pi-ai declares the openai/anthropic/google/mistral/AWS SDKs as install-time depe
 
 ## Limitations
 
-Same MVP contract as llm-deepseek: `prefill` throws `UNSUPPORTED`, `tool_choice` is not mapped.
+Same MVP contract as llm-deepseek: `tool_choice` is not mapped.
 
 ## Testing
 

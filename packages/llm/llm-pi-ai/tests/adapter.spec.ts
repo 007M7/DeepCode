@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, LlmError } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { buildModel, PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { assemble } from './assemble.ts'
@@ -149,26 +149,26 @@ describe('PiAiAdapter against a mock server', () => {
     expect(server.requests[0]).toMatchObject({ stop: ['END'] })
   })
 
-  it('preserves per-tool strict exactly through onPayload', async () => {
+  it('scrubs pi-ai\'s own per-tool strict default through onPayload', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url)
     await assemble(ctx,{
       model: 'deepseek-v4-flash',
       messages: [],
       tools: [
-        { name: 'strict_true', description: 'true', parameters: {}, strict: true },
-        { name: 'strict_false', description: 'false', parameters: {}, strict: false },
-        { name: 'strict_omitted', description: 'omitted', parameters: {} },
+        { name: 'alpha', description: 'a', parameters: {} },
+        { name: 'beta', description: 'b', parameters: {} },
       ],
     })
 
+    // pi-ai stamps `strict` on every serialized tool function; the harness
+    // contract has none and the hand-rolled twin sends no such field, so the
+    // payload fixup must have deleted it from every tool.
     const request = server.requests[0] as { tools: { function: { name: string; strict?: boolean } }[] }
-    expect(request.tools.map(tool => [tool.function.name, tool.function.strict])).toEqual([
-      ['strict_true', true],
-      ['strict_false', false],
-      ['strict_omitted', undefined],
-    ])
-    expect('strict' in request.tools[2]!.function).toBe(false)
+    expect(request.tools.map(tool => tool.function.name)).toEqual(['alpha', 'beta'])
+    for (const tool of request.tools) {
+      expect('strict' in tool.function).toBe(false)
+    }
   })
 
   it('preserves raw replayed tool-call arguments in the provider payload', async () => {
@@ -207,15 +207,6 @@ describe('PiAiAdapter against a mock server', () => {
     const ctx = await harness(server.url)
     const result = await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
     expect(result.finish).toMatchObject({ kind: 'error', code })
-  })
-
-  it('rejects prefill with UNSUPPORTED', async () => {
-    const ctx = await harness('http://127.0.0.1:1')
-    await expect(assemble(ctx,{
-      model: 'deepseek-v4-flash',
-      messages: [],
-      prefill: [{ type: 'text', text: 'Sure' }],
-    })).rejects.toThrow(LlmError)
   })
 
   it('registers/unregisters models on the llm service (HMR safety)', async () => {

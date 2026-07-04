@@ -220,7 +220,6 @@ export async function collectToolCatalog(packages: ToolPackage[] = TOOL_PACKAGES
 function renderTool(schema: ToolSchema, source: string): string[] {
   const out = [`### \`${schema.name}\``, '']
   if (schema.description) out.push(schema.description, '')
-  if (schema.strict !== undefined) out.push(`Strict: \`${String(schema.strict)}\``, '')
   out.push('```json', JSON.stringify(schema.parameters, null, 2), '```', '')
   out.push(`Source: [\`${source}\`](../../${source})`, '')
   return out
