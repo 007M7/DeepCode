@@ -118,7 +118,7 @@ forever:
         session('tool/result')
       append buffered post-execute additionalContext → session('context/message')(s)
                                                          ⟵ after ALL tool/results (adjacency)
-      drain steering → session('steering/message'); emit agent/steering
+      drain steering → session('steering/message')
       session('step/end')                             ⟵ durable step boundary (no agent/* mirror)
       cont = waterfall agent/turn-continuation(default = {action: hadToolCalls||steered
         ? 'continue' : 'stop'}) → ContinuationDecision

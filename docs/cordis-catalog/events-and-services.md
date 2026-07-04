@@ -49,7 +49,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:389`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:380`](../../packages/core/agent/src/types.ts)
 
 #### `agent/pre-step` — serial
 
@@ -124,18 +124,6 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive lifecycle 
 Types: [Agent](../core-data-structures/core.md)
 
 Source: [`packages/core/agent/src/types.ts:250`](../../packages/core/agent/src/types.ts)
-
-#### `agent/steering` — emit
-
-Steering content was injected into a running turn.
-
-```ts cordis-catalog
-'agent/steering'(agent: Agent, turn: number, content: ContentBlock[], source: MessageSource): void
-```
-
-Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
-
-Source: [`packages/core/agent/src/types.ts:379`](../../packages/core/agent/src/types.ts)
 
 #### `agent/step-result` — waterfall
 
