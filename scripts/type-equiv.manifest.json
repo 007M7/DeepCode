@@ -18,6 +18,7 @@
     { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "StreamChunk", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "TokenUsage", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "ContentBlockMap", "source": "packages/llm/llm/src/types.ts" },
+    { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "AppIdentity", "source": "packages/llm/llm/src/attribution.ts" },
 
     { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEventMap", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "TodoItem", "source": "packages/core/session/src/types.ts" },

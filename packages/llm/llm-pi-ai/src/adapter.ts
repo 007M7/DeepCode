@@ -13,9 +13,9 @@
 
 import { stream as piStream } from '@earendil-works/pi-ai'
 import type { Model } from '@earendil-works/pi-ai'
-import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, StreamChunk, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { AttributionTarget, GenerateOptions, StreamChunk, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { toPiContext, toStreamChunks } from './convert.ts'
 
 /** Reasoning levels surfaced by this adapter (DeepSeek wire: high|max). */
@@ -26,6 +26,12 @@ export interface PiAiAdapterOptions {
   baseURL: string
   /** Thinking level applied to every request ('off' disables thinking). */
   reasoning?: PiAiReasoning | undefined
+  /**
+   * Provider-specific attribution set on top of the mandatory `User-Agent`
+   * baseline (dsh-llm's `attributionHeaders`). Set to `'openrouter'` when
+   * `baseURL` points at OpenRouter; never inferred from the URL.
+   */
+  attributionTarget?: AttributionTarget | undefined
 }
 
 /** Build the inline pi-ai model descriptor for one DeepSeek model name. */
@@ -171,6 +177,9 @@ export class PiAiAdapter extends LlmAdapter {
     try {
       const events = piStream(model, toPiContext(options), {
         apiKey: this.options.apiKey,
+        // pi-ai merges caller headers last over its provider defaults, so the
+        // harness attribution always reaches the wire.
+        headers: attributionHeaders(this.options.attributionTarget),
         ...options.temperature !== undefined ? { temperature: options.temperature } : {},
         ...options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {},
         signal: controller.signal,

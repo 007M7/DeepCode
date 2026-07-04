@@ -15,6 +15,7 @@ A second, independent implementation of the same seam exists in `@deepseek-ai/ds
     models: [deepseek-v4-flash, deepseek-v4-pro] # one adapter, registered for each name
     thinking: enabled        # optional; provider default is enabled
     reasoningEffort: high    # optional; high | max — omitted ⇒ not sent
+    attributionTarget: openrouter  # optional; generic | openrouter — omitted ⇒ generic
 ```
 
 `models` lists every model name this one adapter instance serves: the adapter registers itself for each (the harness model name IS the wire `model` string), so a `generate`/`stream` call routes to it whenever `options.model` is any of them. Registering a second adapter for a name already taken throws `LlmError('DUPLICATE_ADAPTER')` (the LLM service enforces one adapter per model, all-or-nothing).
@@ -22,6 +23,10 @@ A second, independent implementation of the same seam exists in `@deepseek-ai/ds
 `reasoningEffort` is **omitted by default** — when unset, the `reasoning_effort` wire field is not sent and the server applies its own default for the model. The only accepted values are `high` and `max` (DeepSeek's official effort levels). It is meaningful only with thinking enabled (the provider default).
 
 `thinking`/`reasoningEffort` are adapter-level request defaults serialized as the official top-level `thinking: {type}` / `reasoning_effort` wire fields. They live in adapter config (not `GenerateOptions`) to keep the core vocabulary provider-neutral.
+
+## App attribution
+
+Every request carries the shared attribution headers from dsh-llm's `attributionHeaders()` — the mandatory `User-Agent` baseline identifying the harness (see [dsh-llm § App attribution](../llm/README.md#app-attribution-attributionts)). Direct DeepSeek requests get no provider-specific headers. Set `attributionTarget: openrouter` **only** when `baseURL` points at OpenRouter: it adds OpenRouter's documented app-attribution set (`HTTP-Referer`, `X-OpenRouter-Title`, `X-OpenRouter-Categories`). The target is explicit config by design — the adapter never infers it from the URL.
 
 ## Wire-format notes (verified live + against the official docs)
 

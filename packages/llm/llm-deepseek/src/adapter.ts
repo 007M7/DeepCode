@@ -5,8 +5,8 @@
  * @module dsh-llm-deepseek/adapter
  */
 
-import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
+import type { AttributionTarget, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { serializeRequest } from './serialize.ts'
 import type { RequestDefaults } from './serialize.ts'
 import { parseSse } from './sse.ts'
@@ -19,14 +19,14 @@ export interface DeepSeekAdapterOptions {
   baseURL: string
   /** Request defaults applied to every call (thinking mode, effort). */
   defaults?: RequestDefaults
+  /**
+   * Provider-specific attribution mapping on top of the mandatory
+   * `User-Agent` baseline (dsh-llm's `attributionHeaders`). Set to
+   * `'openrouter'` when `baseURL` points at OpenRouter; never inferred
+   * from the URL.
+   */
+  attributionTarget?: AttributionTarget | undefined
 }
-
-/**
- * Attribution header sent on every request so the provider can identify the
- * client. Bump in lockstep with this package's version (no build-time version
- * injection is wired in this repo yet).
- */
-const USER_AGENT = 'deepseek-harness/0.0.1'
 
 /** Map an HTTP status to a stable LlmError code. */
 export function httpErrorCode(status: number): string {
@@ -67,7 +67,7 @@ export class DeepSeekAdapter extends LlmAdapter {
         'authorization': `Bearer ${this.options.apiKey}`,
         'content-type': 'application/json',
         'accept': 'text/event-stream',
-        'user-agent': USER_AGENT,
+        ...attributionHeaders(this.options.attributionTarget),
       },
       body: JSON.stringify(body),
       ...options.signal ? { signal: options.signal } : {},

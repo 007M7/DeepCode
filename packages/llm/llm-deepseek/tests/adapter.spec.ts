@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { LlmError } from '@deepseek-ai/dsh-llm'
+import LlmService, { APP_IDENTITY, LlmError, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekAdapter, httpErrorCode } from '@deepseek-ai/dsh-llm-deepseek'
 import { assemble } from './assemble.ts'
@@ -109,8 +109,28 @@ describe('DeepSeekAdapter against a mock server', () => {
       stream: true,
       stream_options: { include_usage: true },
     })
-    // Attribution header identifies the harness to the provider.
-    expect(server.headers[0]?.['user-agent']).toMatch(/^deepseek-harness\//)
+    // Attribution reaches the wire: the exact shared User-Agent, and no
+    // provider-specific headers without an explicitly configured target.
+    expect(server.headers[0]?.['user-agent']).toBe(userAgent())
+    expect(server.headers[0]).not.toHaveProperty('http-referer')
+    expect(server.headers[0]).not.toHaveProperty('x-openrouter-title')
+    expect(server.headers[0]).not.toHaveProperty('x-openrouter-categories')
+  })
+
+  it('sends the OpenRouter attribution set when the target is configured', async () => {
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const ctx = await harness(server.url, { attributionTarget: 'openrouter' })
+
+    await assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+    })
+    expect(server.headers[0]).toMatchObject({
+      'user-agent': userAgent(),
+      'http-referer': APP_IDENTITY.url,
+      'x-openrouter-title': APP_IDENTITY.title,
+      'x-openrouter-categories': APP_IDENTITY.categories.join(','),
+    })
   })
 
   it('streams raw chunks through ctx.llm.stream', async () => {

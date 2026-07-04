@@ -45,6 +45,12 @@ export interface Config {
   thinking?: 'enabled' | 'disabled'
   /** Thinking effort (only meaningful with thinking enabled). */
   reasoningEffort?: 'high' | 'max'
+  /**
+   * Provider-specific attribution set to send alongside the mandatory
+   * `User-Agent`: `'openrouter'` when `baseURL` points at OpenRouter.
+   * Omitted = the provider-neutral baseline.
+   */
+  attributionTarget?: 'generic' | 'openrouter'
 }
 
 export const Config: z<Config> = z.object({
@@ -53,6 +59,7 @@ export const Config: z<Config> = z.object({
   models: z.array(z.string()).default(['deepseek-v4-flash', 'deepseek-v4-pro']),
   thinking: z.union(['enabled', 'disabled']),
   reasoningEffort: z.union(['high', 'max']),
+  attributionTarget: z.union(['generic', 'openrouter']),
 })
 
 /** Public API default; the internal endpoint comes from $DEEPSEEK_BASE_URL. */
@@ -74,5 +81,6 @@ export function apply(ctx: Context, config: Config): void {
       thinking: config.thinking,
       reasoningEffort: config.reasoningEffort,
     },
+    attributionTarget: config.attributionTarget,
   }))
 }

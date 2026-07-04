@@ -26,8 +26,23 @@ Every adapter MUST obey these, and every consumer may rely on them:
 - **`usage` before `finish`, nothing after `finish`.** Defer both to the provider's end-of-stream marker so a trailing usage-only chunk can't violate the ordering.
 - **Tool-call `arguments` stay raw JSON strings end-to-end.** Partial fragments stream via `argumentsDelta`; a provider that hands back parsed objects re-stringifies at `block-end`.
 - **Two sanctioned error paths.** A failure may either THROW from `stream()` (transport/protocol errors) **or** end the stream with `finish {kind:'error'|'aborted'}` (provider in-band errors, for adapters that can't throw mid-stream). Consumers must handle *both*. The agent loop translates a finish-error/aborted into a turn error — it never logs a normal completed assistant message for a failed step.
+- **Every provider HTTP request carries the app-attribution headers.** Adapters send `attributionHeaders()` (below) — the `User-Agent` baseline always, a provider-specific set only for an explicitly configured target — and prove it with a wire-level test (mock server asserting received headers, or the library's header hook for a library-backed adapter).
 
 This contract is why two adapters exist as a deliberate pair: `dsh-llm-deepseek` (hand-rolled fetch/SSE) and `dsh-llm-pi-ai` (the same endpoint through `@earendil-works/pi-ai`). Two independent internals over one contract is what pinned the protocol down — the library-backed adapter can't throw mid-stream, so it exercises the finish-chunk error path the hand-rolled one might not.
+
+## `AppIdentity` — app attribution
+
+The static public application identity every adapter sends to providers ([`packages/llm/llm/src/attribution.ts`](../../packages/llm/llm/src/attribution.ts)). `attributionHeaders(target?, identity?)` maps it to wire headers per `AttributionTarget` — a **closed** union (`'generic'` = the `User-Agent` baseline only; `'openrouter'` adds OpenRouter's documented `HTTP-Referer` / `X-OpenRouter-Title` / `X-OpenRouter-Categories`), selected by explicit adapter config and never inferred from a base URL. The default `APP_IDENTITY` sources its version from the package manifest; every field is a public product fact — no secrets, paths, session ids, or per-user identifiers, and nothing per-request may influence the values. Rationale: [Mandatory app-attribution headers](../rfc/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md).
+
+```ts type-equiv
+interface AppIdentity {
+  product: string
+  version: string
+  title: string
+  url: string
+  categories: readonly string[]
+}
+```
 
 ## `TokenUsage`
 

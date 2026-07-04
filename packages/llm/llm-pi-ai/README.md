@@ -23,7 +23,12 @@ Same shape as llm-deepseek (one-line swap in cordis.yml), with pi-ai's thinking-
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
     models: [deepseek-v4-flash, deepseek-v4-pro]
     reasoning: high   # off | high | xhigh (xhigh → wire 'max')
+    attributionTarget: openrouter  # optional; generic | openrouter — omitted ⇒ generic
 ```
+
+## App attribution
+
+Every request carries the shared attribution headers from dsh-llm's `attributionHeaders()`, passed through pi-ai's `headers` stream option (pi-ai merges caller headers last, so they always reach the wire — the unit suite asserts arrival on the mock server, same as llm-deepseek). `attributionTarget: openrouter` adds OpenRouter's documented set (`HTTP-Referer`, `X-OpenRouter-Title`, `X-OpenRouter-Categories`) and is explicit config only — never inferred from `baseURL`. See [dsh-llm § App attribution](../llm/README.md#app-attribution-attributionts).
 
 ## Dependency weight
 

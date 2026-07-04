@@ -42,6 +42,12 @@ export interface Config {
    * (thinking enabled), matching llm-deepseek's omission semantics.
    */
   reasoning?: PiAiReasoning
+  /**
+   * Provider-specific attribution set to send alongside the mandatory
+   * `User-Agent`: `'openrouter'` when `baseURL` points at OpenRouter.
+   * Omitted = the provider-neutral baseline.
+   */
+  attributionTarget?: 'generic' | 'openrouter'
 }
 
 export const Config: z<Config> = z.object({
@@ -49,6 +55,7 @@ export const Config: z<Config> = z.object({
   baseURL: z.string(),
   models: z.array(z.string()).default(['deepseek-v4-flash', 'deepseek-v4-pro']),
   reasoning: z.union(['off', 'high', 'xhigh']),
+  attributionTarget: z.union(['generic', 'openrouter']),
 })
 
 /** Public API default; the internal endpoint comes from $DEEPSEEK_BASE_URL. */
@@ -67,5 +74,6 @@ export function apply(ctx: Context, config: Config): void {
     apiKey,
     baseURL,
     reasoning: config.reasoning,
+    attributionTarget: config.attributionTarget,
   }))
 }

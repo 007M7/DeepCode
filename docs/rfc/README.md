@@ -69,7 +69,6 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 |---|---|
 | [Runtime schemas for the event vocabulary (Zod vs the merge-extensible-map pattern)](proposed/architecture/2026-06-16-typed-event-schemas.md) | 2026-06-16 |
 | [Extract a generic long-running tool runtime](proposed/architecture/2026-06-20-generic-long-running-tool-runtime.md) | 2026-06-20 |
-| [Mandatory app-attribution headers for provider requests](proposed/architecture/2026-06-21-mandatory-app-attribution-headers.md) | 2026-06-21 |
 
 ### Process
 
@@ -143,6 +142,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Reorganize packages into a modular hierarchy](implemented/architecture/2026-06-20-package-hierarchy.md) | 2026-06-20 |
 | [Branded IDs everywhere they belong](implemented/architecture/2026-06-20-branded-ids.md) | 2026-06-20 |
 | [Extract example apps into packages](implemented/architecture/2026-06-20-extract-example-app-packages.md) | 2026-06-20 |
+| [Mandatory app-attribution headers for provider requests](implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md) | 2026-06-21 |
 | [Web capability seam — provider registry and model-facing web tools](implemented/architecture/2026-06-24-web-capability-seam.md) | 2026-06-24 |
 | [Make `dsh-fs-policy` an event-gate plugin, not a method interface](implemented/architecture/2026-06-26-file-context-as-event-gate.md) | 2026-06-26 |
 | [Event-domain semantics — session is the fact log, agent is the live surface](implemented/architecture/2026-06-30-event-domain-semantics.md) | 2026-06-30 |

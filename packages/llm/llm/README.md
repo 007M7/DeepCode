@@ -29,6 +29,10 @@ Messages are arrays of typed content blocks: `text`, `reasoning`, `tool-call`, `
 
 Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta`, `tool-call-delta`, `block-end`, `usage`, `finish`). `BlockAssembler` is the single shared implementation that assembles chunks into blocks/messages.
 
+### App attribution (`attribution.ts`)
+
+Every product adapter must identify the application on every provider HTTP request — attribution is part of the adapter contract, not an adapter-local nicety. `attributionHeaders(target?, identity?)` builds the headers to send: the standard `User-Agent` baseline (`product/version (+url)`, from `userAgent()`) for every request, plus a provider-specific set only for an explicitly configured `AttributionTarget` (`'openrouter'` adds OpenRouter's documented `HTTP-Referer` / `X-OpenRouter-Title` / `X-OpenRouter-Categories`; the target is adapter config, never inferred from a base URL). The default `APP_IDENTITY` carries only static public product facts (its version is read from this package's manifest); a white-label deployment passes its own `AppIdentity`, and omission falls back to the default — nothing can suppress attribution. An adapter proves compliance with a wire-level test: a mock server asserting the received headers (or, for a library-backed adapter, that the library's header hook delivers the same values). Policy and rationale: [Mandatory app-attribution headers](../../../docs/rfc/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md).
+
 ### Classes
 
 - `LlmAdapter` — abstract base class for provider adapters. The only required method is `stream()`.
