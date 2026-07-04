@@ -56,7 +56,6 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Drop the unconsumed web observation surface — the `providers-change` event and the status methods](proposed/simplification/2026-07-04-drop-unconsumed-web-observation-surface.md) | 2026-07-04 |
 | [Drop the `image` content block until a path can honor it](proposed/simplification/2026-07-04-drop-image-content-block.md) | 2026-07-04 |
 | [Prune write-only fields and a dead routing knob from the fs seam](proposed/simplification/2026-07-04-prune-write-only-fs-surface.md) | 2026-07-04 |
-| [Prune the unimplemented subagent seam vocabulary](proposed/simplification/2026-07-04-prune-unimplemented-subagent-vocabulary.md) | 2026-07-04 |
 | [Trim unreachable ACP bridge surface — the branding knobs and the kind-sniffing fallback](proposed/simplification/2026-07-04-trim-acp-bridge-unreachable-surface.md) | 2026-07-04 |
 | [Prune dead core-spine surface — `SurfaceManager.invalidate()`, the loop-internal exports, `ToolExecutionResult.callId`](proposed/simplification/2026-07-04-prune-dead-core-spine-surface.md) | 2026-07-04 |
 | [Share the app bins' boot glue instead of maintaining twin copies](proposed/simplification/2026-07-04-share-app-bin-boot-glue.md) | 2026-07-04 |
@@ -199,6 +198,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Retire mid-turn steering](rejected/simplification/2026-06-20-retire-mid-turn-steering.md) | 2026-06-20 |
 | [Return the ACP bridge to one live session per connection](rejected/simplification/2026-06-20-single-session-acp-bridge.md) | 2026-06-20 |
 | [Truncate interrupted final turns on load](rejected/simplification/2026-06-20-truncate-interrupted-turns.md) | 2026-06-20 |
+| [Prune the unimplemented subagent seam vocabulary](rejected/simplification/2026-07-04-prune-unimplemented-subagent-vocabulary.md) | 2026-07-04 |
 
 ### Architecture
 
