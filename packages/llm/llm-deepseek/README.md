@@ -34,7 +34,6 @@ A second, independent implementation of the same seam exists in `@deepseek-ai/ds
 ## Limitations (MVP, documented deliberately)
 
 - `prefill` throws `LlmError('UNSUPPORTED')` — DeepSeek's chat-prefix completion is a Beta feature on the `/beta` base URL; future work.
-- `image` blocks are skipped (no vision support on these models).
 - `tool_choice` is not mapped (not part of the core vocabulary).
 
 ## Errors

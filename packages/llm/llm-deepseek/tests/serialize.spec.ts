@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CallId, LlmError } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { serializeMessages, serializeRequest } from '@deepseek-ai/dsh-llm-deepseek'
 
 function request(overrides: Partial<GenerateOptions> = {}): GenerateOptions {
@@ -110,11 +110,17 @@ describe('serializeMessages', () => {
     ])
   })
 
-  it('skips image blocks (documented MVP limitation)', () => {
+  it('skips plugin-added block types (merge-extensible ContentBlockMap)', () => {
     const wire = serializeMessages([
-      { role: 'user', content: [{ type: 'image', url: 'data:image/png;base64,x' }, { type: 'text', text: 'see image' }] },
+      {
+        role: 'user',
+        content: [
+          { type: 'chart', data: 'x' } as unknown as ContentBlock,
+          { type: 'text', text: 'see chart' },
+        ],
+      },
     ])
-    expect(wire).toEqual([{ role: 'user', content: 'see image' }])
+    expect(wire).toEqual([{ role: 'user', content: 'see chart' }])
   })
 
   it('emits an empty user message rather than dropping block-less messages', () => {

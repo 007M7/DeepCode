@@ -52,7 +52,6 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | Title | First proposed |
 |---|---|
 | [Unify the agent id and the session id](proposed/simplification/2026-06-20-unify-agent-and-session-id.md) | 2026-06-20 |
-| [Drop the `image` content block until a path can honor it](proposed/simplification/2026-07-04-drop-image-content-block.md) | 2026-07-04 |
 | [Drop `GenerateOptions.prefill` and `ToolSchema.strict` — request knobs with no working end-to-end path](proposed/simplification/2026-07-04-drop-inert-request-knobs.md) | 2026-07-04 |
 | [Prune dead core-spine surface — `SurfaceManager.invalidate()`, the loop-internal exports, `ToolExecutionResult.callId`](proposed/simplification/2026-07-04-prune-dead-core-spine-surface.md) | 2026-07-04 |
 | [Prune producer-less vocabulary variants (block cache hints, the `agent` message source, the `continuation` turn trigger)](proposed/simplification/2026-07-04-prune-producerless-vocabulary-variants.md) | 2026-07-04 |
@@ -118,6 +117,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Stop mirroring durable boundaries as agent events](implemented/simplification/2026-06-20-remove-agent-boundary-mirror-events.md) | 2026-06-20 |
 | [Split the filesystem seam — provider text mutations plus the `dsh-fs-policy` plugin](implemented/simplification/2026-06-26-fsspec-style-fs-seam.md) | 2026-06-26 |
 | [Stop mirroring the token stream as an agent event](implemented/simplification/2026-07-02-remove-stream-chunk-mirror.md) | 2026-07-02 |
+| [Drop the `image` content block until a path can honor it](implemented/simplification/2026-07-04-drop-image-content-block.md) | 2026-07-04 |
 | [Drop the unconsumed web observation surface — the `providers-change` event and the status methods](implemented/simplification/2026-07-04-drop-unconsumed-web-observation-surface.md) | 2026-07-04 |
 | [Fold the stdio UI helper into the stdio app](implemented/simplification/2026-07-04-fold-stdio-ui-helper.md) | 2026-07-04 |
 
