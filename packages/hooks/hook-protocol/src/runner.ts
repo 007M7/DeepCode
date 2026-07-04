@@ -20,8 +20,9 @@ import type { CommandHook, HookOutput } from './types.ts'
 /**
  * The reference default per-hook timeout, in ms (10 minutes) — the value both
  * Claude Code and Codex apply to a hook whose config sets no `timeout`. It
- * lives here, once, as the protocol's default; a per-hook {@link CommandHook.timeoutSec}
- * is the override surface.
+ * lives here, once, as the protocol's default; the bridges' `defaultTimeoutMs`
+ * config defaults to it, and a per-hook {@link CommandHook.timeoutSec} is the
+ * override surface.
  */
 export const DEFAULT_HOOK_TIMEOUT_MS = 600_000
 
@@ -38,6 +39,12 @@ export interface RunHookOptions {
   /** Whether to append a trailing newline to the stdin payload (CC yes, Codex no). */
   trailingNewline: boolean
   /**
+   * Timeout applied when the hook's config sets no `timeout` of its own. The
+   * bridge owns the default (its `defaultTimeoutMs` config, reference default
+   * {@link DEFAULT_HOOK_TIMEOUT_MS}) and passes it in explicitly.
+   */
+  defaultTimeoutMs: number
+  /**
    * The event this hook is firing for (e.g. `'PreToolUse'`). When set, a
    * structured `hookSpecificOutput` block whose `hookEventName` names a DIFFERENT
    * event is treated as malformed and its event-scoped fields are discarded (see
@@ -49,7 +56,7 @@ export interface RunHookOptions {
 /**
  * Run `hook` via `bash` with `options.payload` serialized to its stdin, then
  * decode the result into a {@link HookOutput}. The hook's configured
- * `timeoutSec` (wire unit: seconds) overrides {@link DEFAULT_HOOK_TIMEOUT_MS}.
+ * `timeoutSec` (wire unit: seconds) overrides `options.defaultTimeoutMs`.
  * The command runs with the dialect's `env` merged after the executor's
  * credential scrub (the trusted-plugin path). NEVER throws: an infrastructure
  * failure (the executor rejecting) is surfaced as a {@link HookOutput} with
@@ -61,7 +68,7 @@ export async function runHook(
   hook: CommandHook,
   options: RunHookOptions,
 ): Promise<HookOutput> {
-  const timeoutMs = hook.timeoutSec !== undefined ? hook.timeoutSec * 1000 : DEFAULT_HOOK_TIMEOUT_MS
+  const timeoutMs = hook.timeoutSec !== undefined ? hook.timeoutSec * 1000 : options.defaultTimeoutMs
   const stdin = JSON.stringify(options.payload) + (options.trailingNewline ? '\n' : '')
 
   const request = {

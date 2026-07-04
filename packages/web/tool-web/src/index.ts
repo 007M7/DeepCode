@@ -20,7 +20,7 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-web'
-import { applyWebSearchTool } from './search.ts'
+import { applyWebSearchTool, WEB_SEARCH_MAX_RESULTS } from './search.ts'
 import { applyWebFetchTool } from './fetch.ts'
 
 export { WEB_SEARCH_MAX_RESULTS, applyWebSearchTool, formatSearchOutput, parseSearchArgs, presentSearchCall } from './search.ts'
@@ -38,12 +38,25 @@ export interface Config {
   search?: boolean
   /** Register `web_fetch`. Defaults to true. */
   fetch?: boolean
+  /** Upper bound on sources returned by one `web_search` call. */
+  searchMaxResults?: number
 }
 
 export const Config: z<Config> = z.object({
   search: z.boolean().default(true),
   fetch: z.boolean().default(true),
+  searchMaxResults: z.number().default(WEB_SEARCH_MAX_RESULTS),
 })
+
+/** The shape after schemastery applies its defaults to every field. */
+type ResolvedConfig = Required<Config>
+
+/** The result cap must be a positive integer (it bounds a provider's source list). */
+function assertPositiveInteger(name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`tool-web: ${name} must be a positive integer`)
+  }
+}
 
 /**
  * Register the enabled web tools. `search`/`fetch` default to true; a product
@@ -52,6 +65,9 @@ export const Config: z<Config> = z.object({
  * teardown is needed.
  */
 export function apply(ctx: Context, config: Config): void {
-  if (config.search !== false) applyWebSearchTool(ctx)
-  if (config.fetch !== false) applyWebFetchTool(ctx)
+  // schemastery (Config) has already filled every defaulted field.
+  const resolved = config as ResolvedConfig
+  assertPositiveInteger('searchMaxResults', resolved.searchMaxResults)
+  if (resolved.search) applyWebSearchTool(ctx, resolved.searchMaxResults)
+  if (resolved.fetch) applyWebFetchTool(ctx)
 }

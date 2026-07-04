@@ -12,6 +12,8 @@ const config: Config = {
   configPath: '/path/to/hooks.json', // required: a hooks.json or a settings file with a `hooks` key
   pluginRoot: '/path/to/plugin',     // optional: replaces ${CLAUDE_PLUGIN_ROOT} in command strings
   projectDir: '/path/to/project',    // optional: replaces ${CLAUDE_PROJECT_DIR} AND sets the hook env var; defaults to the session cwd when omitted
+  defaultTimeoutMs: 600_000,         // optional: per-hook timeout when a hook sets none (CC default)
+  stderrSummaryMaxChars: 500,        // optional: char cap on the hook/result event's persisted stderr summary
 }
 ```
 

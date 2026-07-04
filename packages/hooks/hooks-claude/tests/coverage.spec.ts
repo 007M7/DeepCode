@@ -27,7 +27,7 @@ function hooks(d: string, h: unknown): string {
   writeFileSync(join(d, 'hooks.json'), JSON.stringify({ hooks: h })); return join(d, 'hooks.json')
 }
 
-type HarnessOpts = { pluginRoot?: string; projectDir?: string }
+type HarnessOpts = { pluginRoot?: string; projectDir?: string; stderrSummaryMaxChars?: number }
 async function harness(configPath: string, adapter: MockAdapter, opts: HarnessOpts = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LlmService)
@@ -139,6 +139,31 @@ describe('hooks-claude coverage — empty/no-op outcomes and no-agent paths', ()
     await waitForIdle(ctx, agent)
     const res = events(agent).find(e => e.type === 'hook/result')
     expect(res?.type === 'hook/result' && res.data.stderrSummary?.endsWith('…')).toBe(true)
+    expect(res?.type === 'hook/result' && res.data.stderrSummary?.length).toBe(501) // default 500-char cap + ellipsis
+  })
+
+  it('rejects a non-positive or fractional stderrSummaryMaxChars at load', async () => {
+    const d = dir()
+    const path = hooks(d, {})
+    for (const bad of [0, -5, 1.5, Number.NaN]) {
+      const adapter = new MockAdapter([])
+      await expect(harness(path, adapter, { stderrSummaryMaxChars: bad }))
+        .rejects.toThrow(/hooks-claude: stderrSummaryMaxChars must be a positive integer/)
+    }
+  })
+
+  it('the stderr summary cap is plugin config (stderrSummaryMaxChars)', async () => {
+    const d = dir()
+    const s = sh(d, 'long.sh', '#!/usr/bin/env bash\nprintf "x%.0s" {1..600} >&2\nexit 2\n')
+    const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: s }] }] })
+    const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
+    const ctx = await harness(path, adapter, { stderrSummaryMaxChars: 40 })
+    ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }])
+    await waitForIdle(ctx, agent)
+    const res = events(agent).find(e => e.type === 'hook/result')
+    expect(res?.type === 'hook/result' && res.data.stderrSummary).toBe('x'.repeat(40) + '…')
   })
 })
 

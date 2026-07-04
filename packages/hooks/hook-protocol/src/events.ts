@@ -43,16 +43,32 @@ export interface HookResultRecord {
    * event's semantics live here, in the lib that declares it, not per-bridge.
    */
   output: HookOutput
+  /**
+   * Character cap for the derived `stderrSummary`. The bound is the bridge's
+   * to own (its `stderrSummaryMaxChars` config) and is passed in explicitly —
+   * {@link DEFAULT_STDERR_SUMMARY_MAX_CHARS} is the reference default.
+   */
+  stderrSummaryMaxChars: number
 }
 
-/** How many characters of stderr the `hook/result.stderrSummary` field keeps. */
-const STDERR_SUMMARY_MAX = 500
+/**
+ * The reference default for {@link HookResultRecord.stderrSummaryMaxChars}
+ * (both bridges' config default). It lives here, once, next to the truncation
+ * rule it bounds, so the bridges cannot drift apart on the shared event's
+ * default cap.
+ */
+export const DEFAULT_STDERR_SUMMARY_MAX_CHARS = 500
 
-/** Truncate a stderr blob for the `hook/result.stderrSummary` field (`undefined` when empty). */
-function summarizeStderr(stderr: string): string | undefined {
+/**
+ * Truncate a hook's stderr for {@link HookResultRecord.stderrSummary}: trimmed,
+ * `undefined` when empty, cut at `maxChars` with an ellipsis when over. The
+ * bound is a parameter — like `runHook`'s `defaultTimeoutMs`, each bridge owns
+ * the config default and passes it in.
+ */
+export function summarizeStderr(stderr: string, maxChars: number): string | undefined {
   const t = stderr.trim()
   if (t.length === 0) return undefined
-  return t.length > STDERR_SUMMARY_MAX ? t.slice(0, STDERR_SUMMARY_MAX) + '…' : t
+  return t.length > maxChars ? t.slice(0, maxChars) + '…' : t
 }
 
 /** Append a `hook/invoked` provenance event to `session`. */
@@ -70,12 +86,13 @@ export function appendHookInvoked(session: Session, invocation: HookInvocation):
  * Append a `hook/result` outcome event to `session` (pairs with a prior
  * `hook/invoked`). Owns the durable event's semantics: `decision` is the hook's
  * parsed decision, else `'stop'` when it asked to halt (`continue: false`),
- * else `'pass'`; `stderrSummary` is the trimmed stderr truncated to 500
- * characters (omitted when empty); `exitCode` is omitted when the hook never ran.
+ * else `'pass'`; `stderrSummary` is the trimmed stderr truncated to
+ * `record.stderrSummaryMaxChars` characters (omitted when empty); `exitCode`
+ * is omitted when the hook never ran.
  */
 export function appendHookResult(session: Session, record: HookResultRecord): void {
   const { output } = record
-  const stderrSummary = summarizeStderr(output.stderr)
+  const stderrSummary = summarizeStderr(output.stderr, record.stderrSummaryMaxChars)
   session.append('hook/result', {
     turn: record.turn,
     point: record.point,
