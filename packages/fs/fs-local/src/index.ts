@@ -104,7 +104,7 @@ export class LocalFileSystem extends FileSystem {
 
   override async resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget> {
     const local = await resolveLocalTarget(opts?.cwd ?? this.config.cwd, path)
-    return { inputPath: path, targetKey: local.targetKey, displayPath: local.displayPath }
+    return { targetKey: local.targetKey, displayPath: local.displayPath }
   }
 
   override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
@@ -127,7 +127,7 @@ export class LocalFileSystem extends FileSystem {
     return entries.map(entry => ({
       name: entry.name,
       type: entry.type,
-      target: { inputPath: entry.name, targetKey: entry.target.targetKey, displayPath: entry.target.displayPath },
+      target: { targetKey: entry.target.targetKey, displayPath: entry.target.displayPath },
       ...(entry.version !== undefined ? { version: entry.version } : {}),
       ...(entry.size !== undefined ? { size: entry.size } : {}),
     }))
@@ -210,8 +210,6 @@ export class LocalFileSystem extends FileSystem {
 
       const after = await probe(target.targetKey)
       return {
-        replacements: edited.replacements,
-        replaceAll: edit.replaceAll,
         version: this.versionAfterWrite(after, target),
         // The LF-normalized before/after text (the applied-hunk diff basis);
         // line-ending restoration is a storage detail the diff ignores.
