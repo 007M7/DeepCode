@@ -93,7 +93,7 @@ The web capability uses the same three-package split but folds two capabilities 
 
 ## The vocabulary (dsh-llm)
 
-Messages are arrays of typed **content blocks** (`text`, `reasoning`, `tool-call`, `tool-result`, `image`); the union is derived from the merge-extensible `ContentBlockMap`, so plugins can add block types via declaration merging. The same merge-extensible-map pattern is used for `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason` — typed sum types instead of strings.
+Messages are arrays of typed **content blocks** (`text`, `reasoning`, `tool-call`, `tool-result`); the union is derived from the merge-extensible `ContentBlockMap`, so plugins can add block types via declaration merging. The core set is limited to blocks every shipping path honors — multimodal content (images, audio, …) has no core block type; a feature that needs one adds it via the map in the same coordinated change that maps it in the adapters, surfaces it in the UI bridges, and prices it in compaction ([the drop-image RFC](rfc/implemented/simplification/2026-07-04-drop-image-content-block.md)). The same merge-extensible-map pattern is used for `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason` — typed sum types instead of strings.
 
 Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta`, `tool-call-delta`, `block-end`, `usage`, `finish`). `BlockAssembler` is the single shared implementation that assembles chunks into blocks/messages; the loop logs raw chunks (replay fidelity) while feeding the same chunks through an assembler.
 

@@ -93,7 +93,7 @@ export function toPiContext(options: GenerateOptions): PiContext {
             })
             break
           default:
-            // image / plugin-added block types: not representable here.
+            // plugin-added block types: not representable here.
             break
         }
       }
