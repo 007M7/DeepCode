@@ -13,10 +13,10 @@ import type { WebSearchResult } from '@deepseek-ai/dsh-web'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
 /**
- * Default upper bound on returned sources. Owned by the consumer (not the
- * provider or model), mirroring `dsh-tool-fs`'s `READ_LIMIT`/`GREP_LIMIT`. The
- * model just asks a question; the product controls how much context returns.
- * The default `8` aligns with OpenCode's Exa default.
+ * Default upper bound on returned sources (the `searchMaxResults` config).
+ * Owned by the consumer (not the provider or model), mirroring `dsh-tool-fs`'s
+ * `READ_LIMIT`. The model just asks a question; the product controls how much
+ * context returns. The default `8` aligns with OpenCode's Exa default.
  */
 export const WEB_SEARCH_MAX_RESULTS = 8
 
@@ -67,8 +67,8 @@ export function presentSearchCall(args: { query: string }): GenericCallView {
   return { card: 'generic', title: args.query, kind: 'search', rawInput: args.query }
 }
 
-/** Register the `web_search` tool and its system-prompt guidance. */
-export function applyWebSearchTool(ctx: Context): void {
+/** Register the `web_search` tool and its system-prompt guidance. `maxResults` is the deployment's source cap. */
+export function applyWebSearchTool(ctx: Context, maxResults: number): void {
   ctx.systemPrompt.section({
     name: 'tool:web_search',
     order: 110,
@@ -84,7 +84,7 @@ export function applyWebSearchTool(ctx: Context): void {
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseSearchArgs(args)
       const result = await ctx.web.search(
-        { query: input.query, maxResults: WEB_SEARCH_MAX_RESULTS },
+        { query: input.query, maxResults },
         exec.signal ? { signal: exec.signal } : undefined,
       )
       return [{ type: 'text', text: formatSearchOutput(result) }]

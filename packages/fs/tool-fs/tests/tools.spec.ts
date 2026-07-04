@@ -495,3 +495,71 @@ describe('result-time contextual diff (meta + presentResult)', () => {
     expect(view).toEqual({ card: 'diff', title: 'Write a.txt', diffs: [{ path: 'a.txt', oldText: null, newText: 'y' }] })
   })
 })
+
+describe('read caps are plugin config', () => {
+  async function setupWith(config: ToolFs.Config) {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(FakeFs)
+    await ctx.plugin(FsPolicy)
+    await ctx.plugin(ToolFs, config)
+    return { ctx, fs: ctx.fs as FakeFs }
+  }
+
+  it('a configured readLimit is both the default and the cap, and the schema names it', async () => {
+    const { ctx, fs } = await setupWith({ readLimit: 2 })
+    fs.files.set('key:a.txt', 'one\ntwo\nthree\nfour')
+    const result = await call(ctx, 'read', { file_path: 'a.txt' })
+    expect(text(result)).toContain('(Showing lines 1-2 of 4. Use offset=3 to continue.)')
+    const overCap = await call(ctx, 'read', { file_path: 'a.txt', limit: 3 })
+    expect(overCap.isError).toBe(true)
+    expect(text(overCap)).toContain('less than or equal to 2')
+    const readSchema = ctx.tools.schemas().find(s => s.name === 'read')
+    expect(JSON.stringify(readSchema)).toContain('Defaults to 2.')
+  })
+
+  it('a configured readMaxLineLength truncates lines at the configured length', async () => {
+    const { ctx, fs } = await setupWith({ readMaxLineLength: 4 })
+    fs.files.set('key:a.txt', 'abcdefgh')
+    const result = await call(ctx, 'read', { file_path: 'a.txt' })
+    expect(text(result)).toContain('1: abcd... (line truncated to 4 chars)')
+  })
+
+  it('a configured readMaxBytes caps the window at the configured bytes', async () => {
+    const { ctx, fs } = await setupWith({ readMaxBytes: 9 })
+    fs.files.set('key:a.txt', 'aaaa\nbbbb\ncccc')
+    const result = await call(ctx, 'read', { file_path: 'a.txt' })
+    expect(text(result)).toContain('Output capped.')
+    expect(text(result)).not.toContain('cccc')
+  })
+
+  it('a configured readStreamMinSize routes smaller files to the streaming path', async () => {
+    const { ctx, fs } = await setupWith({ readStreamMinSize: 5 })
+    fs.files.set('key:a.txt', 'alpha\nbeta')
+    const readSpy = vi.spyOn(fs, 'readText')
+    const streamSpy = vi.spyOn(fs, 'streamText')
+    const result = await call(ctx, 'read', { file_path: 'a.txt' })
+    expect(result.isError).toBe(false)
+    expect(streamSpy).toHaveBeenCalled()
+    expect(readSpy).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['readLimit', { readLimit: 0 }],
+    ['readLimit', { readLimit: 2.5 }],
+    ['readMaxLineLength', { readMaxLineLength: -1 }],
+    ['readMaxBytes', { readMaxBytes: Number.NaN }],
+    ['readStreamMinSize', { readStreamMinSize: 0 }],
+  ] as const)('rejects a non-positive or fractional %s at load', async (name, config) => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(FakeFs)
+    await expect(ctx.plugin(ToolFs, config)).rejects.toThrow(new RegExp(`tool-fs: ${name} must be a positive integer`))
+  })
+
+  it('has no default export (namespace plugin export shape)', () => {
+    expect('default' in ToolFs).toBe(false)
+  })
+})

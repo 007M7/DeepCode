@@ -20,7 +20,7 @@ The event vocabulary lives in interface packages (dsh-agent declares the agent/*
 
 ## Consequences
 
-- Every MVP feature maps to a listener (the "plugin sanity checklist" in docs/architecture.md is the proof obligation, kept current).
+- Every MVP feature maps to a listener (the [feature → mechanism map](../../../cookbook/extension-cookbook.md#the-feature--mechanism-map) is the proof obligation, kept current).
 - HMR and disposal come free: listeners and registrations are Cordis effects.
 - Waterfall semantics (call `next()` or short-circuit) are non-obvious and must be taught — documented in AGENTS.md and covered by composition tests.
 - The loop must be defensive: plugin exceptions are contained at turn level, steering from any seam is never stranded (regression-tested).

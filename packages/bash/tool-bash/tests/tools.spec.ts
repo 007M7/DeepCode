@@ -21,8 +21,8 @@ async function setup() {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-  ;(ctx.bash as LocalBashExecutor).internals = { spillDir, graceMs: 200 }
+  await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, graceMs: 200 })
+  ;(ctx.bash as LocalBashExecutor).internals = { spillDir }
   await ctx.plugin(ToolBash)
   return ctx
 }
@@ -184,8 +184,8 @@ describe('bash tool', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(LocalBashExecutor, { maxOutputBytes: 100 })
-    ;(ctx.bash as LocalBashExecutor).internals = { spillDir, graceMs: 200 }
+    await ctx.plugin(LocalBashExecutor, { maxOutputBytes: 100, graceMs: 200 })
+    ;(ctx.bash as LocalBashExecutor).internals = { spillDir }
     await ctx.plugin(ToolBash)
     const result = await call(ctx, 'bash', { command: 'for i in $(seq 1 100); do printf "line-%04d\\n" $i; done', description: 'test command' })
     expect(text(result)).toContain('[output truncated; full output: ')
@@ -316,8 +316,8 @@ describe('background tools', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(LocalBashExecutor, { maxOutputBytes: 100 })
-    ;(ctx.bash as LocalBashExecutor).internals = { spillDir, graceMs: 200 }
+    await ctx.plugin(LocalBashExecutor, { maxOutputBytes: 100, graceMs: 200 })
+    ;(ctx.bash as LocalBashExecutor).internals = { spillDir }
     await ctx.plugin(ToolBash)
 
     const started = await call(ctx, 'bash', { command: 'for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', description: 'test command', run_in_background: true })
@@ -568,8 +568,8 @@ describe('background task ownership (cross-session isolation)', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-    ;(ctx.bash as LocalBashExecutor).internals = { spillDir, graceMs: 200 }
+    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, graceMs: 200 })
+    ;(ctx.bash as LocalBashExecutor).internals = { spillDir }
     const fiber = await ctx.plugin(ToolBash)
 
     const a = fakeAgent('sess-a')

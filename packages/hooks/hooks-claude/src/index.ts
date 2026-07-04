@@ -34,6 +34,7 @@ import {
   matchesMatcher,
   mergeHookOutputs,
   runHook,
+  summarizeStderr,
   type HookOutput,
   type MatcherGroup,
   type MergedHookOutcome,
@@ -73,6 +74,8 @@ export interface Config {
   projectDir?: string
   /** Default per-hook timeout in ms when a hook sets none (CC default: 600000). */
   defaultTimeoutMs?: number
+  /** Character cap for the `hook/result` event's persisted stderr summary. */
+  stderrSummaryMaxChars?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -80,6 +83,7 @@ export const Config: z<Config> = z.object({
   pluginRoot: z.string(),
   projectDir: z.string(),
   defaultTimeoutMs: z.number().default(600_000),
+  stderrSummaryMaxChars: z.number().default(500),
 })
 
 /** A stable per-handler id so an invoked/result pair correlates in the log. */
@@ -91,14 +95,18 @@ function nextHandlerId(point: string): string {
 /** The `{kind:'plugin'}` source stamped on every context this bridge injects. */
 const PLUGIN_SOURCE: MessageSource = { kind: 'plugin', plugin: 'hooks-claude' }
 
-/** Truncate a stderr blob for the `hook/result` summary field. */
-function summarize(stderr: string): string | undefined {
-  const t = stderr.trim()
-  if (t.length === 0) return undefined
-  return t.length > 500 ? t.slice(0, 500) + '…' : t
+/** The summary cap bounds a persisted event field — a positive integer or the slice misbehaves silently. */
+function assertPositiveInteger(name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`hooks-claude: ${name} must be a positive integer`)
+  }
 }
 
 export function apply(ctx: Context, config: Config): void {
+  // Validate the cap BEFORE the config-file parse: a bad value must fail the
+  // load loudly, not be skipped by the parse-failure early return.
+  const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? 500
+  assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
   // --- Parse the config ONCE at load. A read/parse failure is contained: the
   // bridge logs and registers nothing rather than crashing boot (a typo'd path
   // must not take the agent down). ---
@@ -182,7 +190,7 @@ export function apply(ctx: Context, config: Config): void {
           ctx.logger.warn(`hooks-claude: ${point} hook emitted a systemMessage, which is not yet surfaced (ignored)`)
         }
         if (session && opts.turn !== undefined) {
-          const stderrSummary = summarize(output.stderr)
+          const stderrSummary = summarizeStderr(output.stderr, stderrSummaryMaxChars)
           appendHookResult(session, {
             turn: opts.turn, point, handlerId,
             decision: output.decision ?? (output.continue === false ? 'stop' : 'pass'),

@@ -6,10 +6,11 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { buildWindow, READ_MAX_LINE_LENGTH } from '@deepseek-ai/dsh-tool-fs'
+import { buildWindow, READ_MAX_BYTES, READ_MAX_LINE_LENGTH } from '@deepseek-ai/dsh-tool-fs'
 import type { ReadWindow } from '@deepseek-ai/dsh-tool-fs'
 
-const READ_ALL: ReadWindow = { offset: 1, limit: 2000 }
+const DEFAULT_CAPS = { maxLineLength: READ_MAX_LINE_LENGTH, maxBytes: READ_MAX_BYTES }
+const READ_ALL: ReadWindow = { offset: 1, limit: 2000, ...DEFAULT_CAPS }
 
 /** Yield `text` as one chunk (whole-file read shape). */
 async function* whole(text: string): AsyncIterable<string> {
@@ -34,7 +35,7 @@ describe('buildWindow', () => {
   })
 
   it('applies offset/limit', async () => {
-    const result = await buildWindow(whole('one\ntwo\nthree\nfour'), { offset: 2, limit: 2 }, 'f')
+    const result = await buildWindow(whole('one\ntwo\nthree\nfour'), { offset: 2, limit: 2, ...DEFAULT_CAPS }, 'f')
     expect(result.lines.map(l => l.number)).toEqual([2, 3])
     expect(result.totalLines).toBe(4)
   })
@@ -62,7 +63,7 @@ describe('buildWindow', () => {
   })
 
   it('rejects an offset past EOF', async () => {
-    await expect(buildWindow(whole('one\ntwo'), { offset: 9, limit: 1 }, 'f')).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
+    await expect(buildWindow(whole('one\ntwo'), { offset: 9, limit: 1, ...DEFAULT_CAPS }, 'f')).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
   })
 
   it('flushes a final line with no trailing newline', async () => {
@@ -76,9 +77,22 @@ describe('buildWindow', () => {
     expect(result.totalLines).toBe(2)
   })
 
+  describe('caps are per-request (the plugin config reaches the window)', () => {
+    it('truncates lines at a custom maxLineLength and names it in the suffix', async () => {
+      const result = await buildWindow(whole('abcdefghij'), { offset: 1, limit: 10, maxLineLength: 5, maxBytes: READ_MAX_BYTES }, 'f')
+      expect(result.lines[0]?.text).toBe('abcde... (line truncated to 5 chars)')
+    })
+
+    it('caps output at a custom maxBytes', async () => {
+      const result = await buildWindow(whole('aaaa\nbbbb\ncccc'), { offset: 1, limit: 10, maxLineLength: 2000, maxBytes: 9 }, 'f')
+      expect(result.lines.map(l => l.text)).toEqual(['aaaa', 'bbbb'])
+      expect(result.truncatedByBytes).toBe(true)
+    })
+  })
+
   describe('chunked input (streamed read shape)', () => {
     it('windows identically when text arrives in small chunks', async () => {
-      const result = await buildWindow(chunked('one\ntwo\nthree', 2), { offset: 2, limit: 1 }, 'f')
+      const result = await buildWindow(chunked('one\ntwo\nthree', 2), { offset: 2, limit: 1, ...DEFAULT_CAPS }, 'f')
       expect(result.lines).toEqual([{ number: 2, text: 'two' }])
       expect(result.totalLines).toBe(3)
     })

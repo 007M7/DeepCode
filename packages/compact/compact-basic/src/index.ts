@@ -2,7 +2,8 @@
  * `BasicCompactService`: the first implementation of the
  * `@deepseek-ai/dsh-compact` seam. It owns the entire compaction strategy:
  *
- * - **Token estimation** — char/4 heuristic with per-block structural overhead.
+ * - **Token estimation** — chars/`charsPerToken` heuristic (config, default 4)
+ *   with per-block structural overhead.
  * - **Retention policy** — walk surface nodes tail→head, keep recent nodes up
  *   to a token budget, compact everything older. The cutoff is snapped forward
  *   to the next balanced tool-pairing boundary so a compacted region never
@@ -148,9 +149,11 @@ function finishError(finish: FinishReason): Error | undefined {
 }
 
 /**
- * Basic, dependency-light compaction backend. Defaults target a 128K context
- * window, compacting at 80% utilization and retaining ~20K tokens of recent
- * context.
+ * Basic, dependency-light compaction backend: estimates the surface's token
+ * footprint, summarizes the stale prefix through the model, and shadows it
+ * behind a durable checkpoint. Every threshold/budget knob is required config
+ * ({@link BasicCompactConfig}); the estimator's text density is the
+ * `charsPerToken` knob.
  */
 export class BasicCompactService extends CompactService {
   static inject = ['llm']
@@ -207,24 +210,27 @@ export class BasicCompactService extends CompactService {
 
   // ---- Token estimation (overridable hooks) ----
 
-  // TODO: char/4 is a coarse heuristic. Replace with an exact count — a real
-  // tokenizer, or the provider's post-response `usage` (input tokens) fed back
-  // as a correction — so threshold decisions match the model's actual budget.
+  // TODO: chars/charsPerToken is a coarse heuristic. Replace with an exact
+  // count — a real tokenizer, or the provider's post-response `usage` (input
+  // tokens) fed back as a correction — so threshold decisions match the
+  // model's actual budget.
   /**
-   * Estimate the token count of content blocks — char/4 with per-block
-   * overhead. Override in a subclass to plug in a real tokenizer.
+   * Estimate the token count of content blocks — chars divided by the
+   * `charsPerToken` config, with per-block overhead. Override in a subclass to
+   * plug in a real tokenizer.
    */
   estimateContentTokens(blocks: readonly ContentBlock[]): number {
+    const { charsPerToken } = this.config
     let tokens = 0
     for (const block of blocks) {
       switch (block.type) {
         case 'text':
         case 'reasoning':
-          tokens += Math.ceil(block.text.length / 4) + BLOCK_OVERHEAD
+          tokens += Math.ceil(block.text.length / charsPerToken) + BLOCK_OVERHEAD
           break
         case 'tool-call':
-          tokens += Math.ceil(block.name.length / 4)
-            + Math.ceil(block.arguments.length / 4)
+          tokens += Math.ceil(block.name.length / charsPerToken)
+            + Math.ceil(block.arguments.length / charsPerToken)
             + BLOCK_OVERHEAD
           break
         case 'tool-result':
@@ -236,7 +242,7 @@ export class BasicCompactService extends CompactService {
         default:
           // Unknown block types (merge-extensible ContentBlockMap):
           // estimate conservatively via JSON stringify.
-          tokens += BLOCK_OVERHEAD + Math.ceil(JSON.stringify(block).length / 4)
+          tokens += BLOCK_OVERHEAD + Math.ceil(JSON.stringify(block).length / charsPerToken)
       }
     }
     return tokens
@@ -266,7 +272,7 @@ export class BasicCompactService extends CompactService {
       total += this.estimateContentTokens(msg.content)
       total += ROLE_OVERHEAD
     }
-    if (systemPrompt) total += Math.ceil(systemPrompt.length / 4)
+    if (systemPrompt) total += Math.ceil(systemPrompt.length / this.config.charsPerToken)
     return total
   }
 
