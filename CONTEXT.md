@@ -1,6 +1,6 @@
 # DeepSeek Harness
 
-Ubiquitous language for the harness. Started during the 2026-07-05 system-prompt redesign session; grows as terms crystallize. Decisions live in `docs/rfc/` (this repo's ADR equivalent), not here.
+Ubiquitous language for the harness; grows as terms crystallize. Decisions live in `docs/rfc/` (this repo's decision log), not here.
 
 ## Language — prompt assembly
 

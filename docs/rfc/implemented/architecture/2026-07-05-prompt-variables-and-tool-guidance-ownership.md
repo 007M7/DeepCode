@@ -62,9 +62,9 @@ Per-tool semantics and when-to-use live in tool DESCRIPTIONS, which already ship
 - Further variables (`date`, platform, git state) — the registry makes each a one-line contribution by whichever plugin owns the fact; none is claimed here.
 - A config `cwd` for pre-created stdio agents (would let the stdio persona use `{{cwd}}` and partition persistence by real path) — deferred until the session-cwd story is revisited.
 
-## Acceptance criteria
+## Shipped invariants
 
-- `renderPrompt(assemble({agent}))` for the coding-agent example contains the persona FIRST (with the agent's model name interpolated), then fs/bash/web guidance sections; the loop contains no other prompt-composition path.
+- `renderPrompt(assemble({ agent }))` for the coding-agent example renders the persona FIRST (with the agent's model name interpolated), then the fs/bash/web guidance sections; the loop has no other prompt-composition path.
 - The `subagent_fork` schema description says the child inherits the conversation; the `subagent` one says it does not. The tool follows its provider: absent before the backend activates, present after, gone when the backend unloads, re-worded from the fresh provider on reload.
 - Unknown/valueless/malformed/unbalanced `{{…}}` references throw with the section name in the message; duplicate section, variable, and tool-name registrations all throw.
-- The gating runs (`test:coverage`, `test:snapshot`, `doc-sync`, `build`, `hygiene`) are green; no golden re-record is needed (replay never re-verifies the outgoing request).
+- Snapshot goldens are prompt-independent by construction: llm-replay keys replay on (turn, step) chunk streams and never re-verifies the outgoing request.

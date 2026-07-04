@@ -231,6 +231,29 @@ describe('dsh-tool-subagent', () => {
     expect(ctx.tools.schemas().find(s => s.name === 'subagent')!.description).toContain('INHERITS this conversation')
   })
 
+  it('the tool PLUGIN fiber owns its lifecycle listeners: disposal unmounts, and a disposed fiber never zombie-mounts', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+
+    // Arm 1: a mounted tool dies with its plugin fiber; the provider survives.
+    await ctx.plugin(mock, { name: 'mock' })
+    const mounted = await ctx.plugin(tool, { provider: 'mock' })
+    expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(true)
+    await mounted.dispose()
+    expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(false)
+    expect(ctx.subagents.getProvider('mock')).toBeDefined()
+
+    // Arm 2: a fiber disposed while WAITING must not react to the provider
+    // arriving later — a surviving listener would re-register a tool that no
+    // live plugin owns (the zombie mount).
+    const waiting = await ctx.plugin(tool, { provider: 'later', toolName: 'subagent_later' })
+    await waiting.dispose()
+    await ctx.plugin(mock, { name: 'later' })
+    expect(ctx.tools.schemas().some(s => s.name === 'subagent_later')).toBe(false)
+  })
+
   it('ignores lifecycle events for OTHER providers', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)

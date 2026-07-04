@@ -213,6 +213,13 @@ export function apply(ctx: Context, config: Config): void {
   // Listeners first, then the presence check: both run synchronously, so no
   // registration can slip between them; the `disposeTool === undefined` guard
   // makes a same-tick added-event after a successful mount a no-op.
+  // TODO(subagent-dup-toolname): two WAITING fibers configured with the same
+  // toolName collide only when their provider finally arrives — the duplicate
+  // tool-name throw then propagates through `subagent/provider-added` and
+  // rolls back the PROVIDER registration, so an invalid config blasts the
+  // backend's fiber instead of the misconfigured tool's. Config-time detection
+  // would need a cross-fiber registry of intended tool names; revisit if a
+  // real deployment ever hits it.
   ctx.on('subagent/provider-added', (provider) => {
     if (provider.name === config.provider && disposeTool === undefined) mount(provider)
   })
