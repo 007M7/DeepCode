@@ -134,6 +134,12 @@ describe('gen-cordis-catalog collectEvents', () => {
     expect(events).toHaveLength(1)
   })
 
+  it('hard-errors on a binding-pattern parameter @param cannot name', () => {
+    expect(() => collectEvents(make(
+      '    /**\n     * A thing happened.\n     * @mode emit\n     */\n    \'fix/destructured\'({ id }: { id: string }): void',
+    ))).toThrow(/is a binding pattern/)
+  })
+
   it('aggregates every violation into one error instead of failing fast', () => {
     expect(() => collectEvents(make(
       '    /** First. */\n    \'fix/one\'(): void\n    /** Second. */\n    \'fix/two\'(): void',
@@ -199,6 +205,30 @@ export class FixService {
     expect(() => collectServices(makeService(
       '/** Fixture service. */\nexport class FixService {\n  /**\n   * Fire and forget.\n   * @param ghost - not a parameter.\n   */\n  poke(): void {}\n}',
     ))).toThrow(/@param ghost does not match any parameter/)
+  })
+
+  it('hard-errors on a method whose JSDoc is tags with no description prose', () => {
+    expect(() => collectServices(makeService(
+      '/** Fixture service. */\nexport class FixService {\n  /**\n   * @param id - which thing.\n   * @returns the outcome.\n   */\n  run(id: string): string { return id }\n}',
+    ))).toThrow(/no description prose above its block tags/)
+  })
+
+  it('hard-errors on a method @param with an empty description', () => {
+    expect(() => collectServices(makeService(
+      '/** Fixture service. */\nexport class FixService {\n  /**\n   * Fire and forget.\n   * @param id\n   */\n  poke(id: string): void {}\n}',
+    ))).toThrow(/@param id has an empty description/)
+  })
+
+  it('hard-errors on an @returns with an empty description', () => {
+    expect(() => collectServices(makeService(
+      '/** Fixture service. */\nexport class FixService {\n  /**\n   * Do the thing.\n   * @param id - which thing.\n   * @returns\n   */\n  run(id: string): string { return id }\n}',
+    ))).toThrow(/@returns has an empty description/)
+  })
+
+  it('hard-errors on a binding-pattern method parameter @param cannot name', () => {
+    expect(() => collectServices(makeService(
+      '/** Fixture service. */\nexport class FixService {\n  /**\n   * Do the thing.\n   */\n  run({ id }: { id: string }): void {}\n}',
+    ))).toThrow(/is a binding pattern/)
   })
 
   it('ignores private/protected/static members (not the ctx.<key> surface)', () => {
