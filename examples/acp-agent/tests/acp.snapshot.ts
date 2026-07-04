@@ -106,6 +106,9 @@ const SCENARIOS: Scenario[] = [
   { name: 'hook-cc-promptsubmit-context', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-pretool-deny', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-pretool-ask', hasModelTurn: true, recorded: true },
+  // TODO(hook-snapshot-noise): re-record the PostToolUse block fixtures with a
+  // self-limiting prompt or hook so one rejected result proves the seam without
+  // repeated block/retry cycles in the committed JSONL.
   { name: 'hook-cc-posttool-block', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-posttool-context', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-stop-continue', hasModelTurn: true, recorded: true },

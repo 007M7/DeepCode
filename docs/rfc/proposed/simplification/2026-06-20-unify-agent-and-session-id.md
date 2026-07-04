@@ -9,12 +9,13 @@ The agent factory carries TWO ids for what is, in every live consumer, one thing
 - `agentId` — the `AgentRegistry` handle (the actor identity; the registry rejects a duplicate).
 - `sessionId` — the event-sourced session / persisted-log identity (`session.header.id`).
 
-`CreateAgentOptions` takes both separately; `ResumeAgentOptions` takes an `agentId` plus a `resumeSessionId`. They diverge in exactly two places:
+`CreateAgentOptions` takes both separately; `ResumeAgentOptions` takes an `agentId` plus a `resumeSessionId`. They diverge in exactly three places:
 
 - **Config-driven create** (`AgentLoop.create`): a stable `agentId` (e.g. `"echo"`) with a fresh per-run `sessionId` (`${id}-session-<uuid>`).
 - **Resume**: a caller-supplied `agentId` (e.g. `"main"`) on a persisted `resumeSessionId`.
+- **In-process subagent children**: the backend mints the child's `agentId` and `sessionId` as two independent UUIDs (`packages/subagent/subagent-inprocess/src/index.ts`) that nothing distinguishes — `parentSession` records lineage independently.
 
-Everywhere a live consumer actually looks an agent up — the **ACP bridge, the only production path** — the two are already unified: `agentId === sessionId === <uuid>`.
+Where a live consumer looks an agent up, no lookup needs an id translation: the ACP bridge — the primary production path — already unifies the two (`agentId === sessionId === <uuid>`; both factory call sites brand `AgentId(sessionId)` directly, and its reverse lookup keys on the `Agent` object itself), and the CC hooks bridge resolves subagent children directly by the `agentId` its lifecycle event carries. The one production population whose two ids actually DIVERGE is the in-process subagent children — the same cosmetic separation as the config path, and the same one-field simplification under unification. One consumer already pays the two-id tax: ui-stdio keeps a `labelBySession` map (seeded from the registry, maintained by `agent/created`/`agent/disposed` listeners) solely to translate `session.header.id` back to an agent id for its turn labels — machinery that deletes outright when the ids unify. And the CC hooks bridge stamps `session_id: agent.session.header.id` into every hook payload, so under unification a subagent hook's `session_id` and `agent_id` become the same string — one less identity for a hook author to reconcile.
 
 The separation is **latent generality no consumer exercises**: nothing reads a *stable* `agentId` back across runs (each process starts fresh, and persistence keys off the session id, never the agent id). The config path's "stable agentId, fresh sessionId" buys nothing concrete — it is cosmetic. And the `agentId !== sessionId` case is precisely what opens the bash owner-token alias hole: the bash completion-notice routes by `session.header.id`, but the registry enforces uniqueness only on `agentId`, so a programmatic caller registering two agents with different agent ids but the SAME session id can mis-route a notice (see [agent lifecycle and ownership seams](../../implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md) § Seam precondition). The current code documents this as a precondition rather than guaranteeing it.
 
@@ -40,7 +41,7 @@ That was the review's first suggestion. It would couple the generic registry to 
 
 ## Risks
 
-This touches public factory interfaces (`CreateAgentOptions`, `ResumeAgentOptions`, `AgentFactory`) and the config-agent id scheme, so it is a deliberate cross-package change, not a local patch — it ships as its own PR (converged with Codex), stacked on the bash owner-token work that surfaced the precondition.
+This touches public factory interfaces (`CreateAgentOptions`, `ResumeAgentOptions`, `AgentFactory`) and the config-agent id scheme, so it is a deliberate cross-package change, not a local patch — it ships as its own PR (converged with Codex); the bash owner-token precondition it closes is documented in [agent lifecycle and ownership seams](../../implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md).
 
 The genuine risks of collapsing the two ids into one (the case AGAINST this proposal — to be weighed honestly before implementing):
 

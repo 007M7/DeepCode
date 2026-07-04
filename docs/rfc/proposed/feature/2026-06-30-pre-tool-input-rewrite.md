@@ -16,7 +16,7 @@ In the loop, a tool call's arguments are committed to the log and read by live c
 2. **`tool/call`** is the durable AUDIT record, appended before `ctx.tools.execute()`.
 3. **Live presentation reads `tool/call.arguments`**: the ACP bridge remembers them and passes them to `presentResult`; `dsh-tool-bash` derives the card title, the rawInput, the cwd, and the terminal-vs-background treatment from them.
 
-So an "input rewrite" that changes ONLY what executes would make the UI show one command while another RAN, and render result state against the wrong arguments — a real inconsistency, not a documentable gap. (The existing low-level capability to mutate `exec.arguments` in a listener has exactly this latent inconsistency; it is unadvertised precisely because of this.)
+So an "input rewrite" that changes ONLY what executes would make the UI show one command while another RAN, and render result state against the wrong arguments — a real inconsistency, not a documentable gap. (The existing low-level capability to mutate `exec.arguments` in a listener has exactly this latent inconsistency; it is unadvertised precisely because of this — yet not unused: a tool-bash integration test rewrites a scripted call's arguments through it (`packages/bash/tool-bash/tests/integration.spec.ts`), so this design must either sanction that path with the consistency unit below or seal it — `readonly` arguments at the seam, with the test shim moved onto a behavior-level helper.)
 
 ## Proposed design (sketch — to validate against the code when built)
 
