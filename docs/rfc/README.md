@@ -53,7 +53,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Unify the agent id and the session id](proposed/simplification/2026-06-20-unify-agent-and-session-id.md) | 2026-06-20 |
 | [Prune producer-less vocabulary variants (block cache hints, the `agent` message source, the `continuation` turn trigger)](proposed/simplification/2026-07-04-prune-producerless-vocabulary-variants.md) | 2026-07-04 |
 | [Drop `GenerateOptions.prefill` and `ToolSchema.strict` — request knobs with no working end-to-end path](proposed/simplification/2026-07-04-drop-inert-request-knobs.md) | 2026-07-04 |
-| [Drop the unconsumed `web/providers-change` event](proposed/simplification/2026-07-04-drop-web-providers-change-event.md) | 2026-07-04 |
+| [Drop the unconsumed web observation surface — the `providers-change` event and the status methods](proposed/simplification/2026-07-04-drop-unconsumed-web-observation-surface.md) | 2026-07-04 |
 | [Drop the `image` content block until a path can honor it](proposed/simplification/2026-07-04-drop-image-content-block.md) | 2026-07-04 |
 | [Prune write-only fields and a dead routing knob from the fs seam](proposed/simplification/2026-07-04-prune-write-only-fs-surface.md) | 2026-07-04 |
 | [Prune the unimplemented subagent seam vocabulary](proposed/simplification/2026-07-04-prune-unimplemented-subagent-vocabulary.md) | 2026-07-04 |
@@ -61,12 +61,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Prune dead core-spine surface — `SurfaceManager.invalidate()`, the loop-internal exports, `ToolExecutionResult.callId`](proposed/simplification/2026-07-04-prune-dead-core-spine-surface.md) | 2026-07-04 |
 | [Share the app bins' boot glue instead of maintaining twin copies](proposed/simplification/2026-07-04-share-app-bin-boot-glue.md) | 2026-07-04 |
 | [Remove the `agent/steering` mirror emit](proposed/simplification/2026-07-04-remove-agent-steering-mirror.md) | 2026-07-04 |
-| [Tighten the hook-protocol contract — the `native` dialect, `suppressOutput`, and lib-owned `hook/result` semantics](proposed/simplification/2026-07-04-tighten-hook-protocol-contract.md) | 2026-07-04 |
-| [Narrow the subagent seam to synchronous collect](proposed/simplification/2026-07-04-narrow-subagent-synchronous-collect.md) | 2026-07-04 |
-| [Drop idle registry and status observation surfaces](proposed/simplification/2026-07-04-drop-idle-registry-observation-surfaces.md) | 2026-07-04 |
-| [Remove defaults from the tool-schema DSL](proposed/simplification/2026-07-04-remove-tool-schema-defaults.md) | 2026-07-04 |
-| [Trim unused hook protocol and bridge surface](proposed/simplification/2026-07-04-trim-hook-protocol-surface.md) | 2026-07-04 |
-| [Narrow the pre-tool gate to shipped behavior](proposed/simplification/2026-07-04-narrow-pre-tool-gate.md) | 2026-07-04 |
+| [Tighten the hook-protocol contract — dialect, discarded fields, double defaults, and lib-owned `hook/result` semantics](proposed/simplification/2026-07-04-tighten-hook-protocol-contract.md) | 2026-07-04 |
 | [Fold the stdio UI helper into the stdio app](proposed/simplification/2026-07-04-fold-stdio-ui-helper.md) | 2026-07-04 |
 
 ### Architecture

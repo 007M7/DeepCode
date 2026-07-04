@@ -4,40 +4,24 @@ Status: proposed
 
 ## Problem
 
-`docs/rfc/README.md` is hand-maintained even though the repo already has a machine-readable RFC layout: every RFC lives at `docs/rfc/{lifecycle}/{class}/yyyy-mm-dd-topic.md`, and `scripts/verify-rfc-classification.ts` walks that tree to verify structure and index completeness. The current gate prevents drift, but every new RFC still edits the same README tables by hand.
+`docs/rfc/README.md`'s per-lifecycle/per-class tables are hand-maintained even though every fact in them is derivable: an RFC's path encodes lifecycle and class, its filename encodes the first-proposed date, and its H1 carries the title. `scripts/verify-rfc-classification.ts` already walks the tree and cross-checks the index — the expensive parsing exists; it reports instead of writing.
 
-The stacked hook work made the cost visible. PR #138 added implemented feature/testing/process rows while this simplification sweep added proposed simplification rows, and the only merge conflict when retargeting the sweep onto #138 was the RFC index table. That is predictable: high-churn proposal waves all touch the same few lines even though the truth is already in filenames and H1 titles.
-
-[The classification RFC](../../implemented/process/2026-06-20-rfc-classification.md) explicitly rejected auto-generating the README index so the file could stay curated. That was a reasonable first cut, but the repo now has enough RFC volume and stacked-PR churn that the hand-written table is the unstable part, not the curated prose. The verifier already does the expensive parsing; it just reports instead of writing.
+The tables are also the repo's highest-contention docs hotspot: every proposal wave appends rows to the same few lines, so concurrent RFC branches conflict precisely there while agreeing everywhere else, and each conflict is resolved by hand-merging rows whose content the filesystem already knows. [The classification RFC](../../implemented/process/2026-06-20-rfc-classification.md) records rejecting auto-generation to keep the file curated — but the curated part of the README is the prose, and the prose never conflicts; only the mechanical tables do.
 
 ## Proposal
 
-Keep the curated prose in `docs/rfc/README.md`, but generate the per-lifecycle/per-class tables from the filesystem.
+Keep the curated prose; generate the tables. Add a `gen-rfc-index` mode (a `--write` flag on `verify-rfc-classification.ts`, or a sibling script sharing its walker) that scans the RFC tree, reads each H1, derives the date from the filename, and rewrites the table rows under stable generated markers per `## {Lifecycle}` / `### {Class}` section; `verify-rfc-classification` asserts freshness — the `gen-cordis-catalog`/`verify-cordis-catalog` pattern. The class and lifecycle sets stay closed in the script. The implementing PR amends the classification RFC's rejected-alternatives record per [implemented/AGENTS.md](../../implemented/AGENTS.md), since this supersedes that recorded choice.
 
-- Add a `gen-rfc-index` script (or extend `verify-rfc-classification.ts` with `--write`) that scans RFC files, reads each H1, derives the first-proposed date from the filename, and writes the table rows under stable generated markers for each `## {Lifecycle}` / `### {Class}` section.
-- Keep the class set and lifecycle set closed in one script-owned source of truth.
-- Make `verify-rfc-classification` check that the generated sections are fresh, analogous to `verify-cordis-catalog`.
-- Preserve manually curated prose, classification descriptions, and "when to write one" guidance outside the generated table blocks.
-- Update [the classification RFC](../../implemented/process/2026-06-20-rfc-classification.md) to say the earlier "verify, do not generate" choice was superseded after stacked-PR conflicts made the tradeoff worse.
+## Why not keep the verifier-only model?
 
-The generated output should stay boring Markdown: the same tables reviewers read today, just mechanically produced from the path + title source of truth.
-
-## Why not keep the current verifier-only model?
-
-The current model catches mistakes but still forces every proposal to edit a shared hotspot. A failed verifier is also more annoying than a generator for a purely mechanical row: the author has already named and placed the file correctly, then has to copy the same facts into the index. That is exactly the kind of hand-maintained inventory the repo already proposes removing elsewhere.
-
-This does not turn the whole README into a build artifact. The prose remains curated. Only the parts whose content is derivable from RFC files become generated.
+It catches mistakes but still makes every proposal edit a shared hotspot, and a failed verifier is strictly more annoying than a generator for a purely mechanical row: the author has already named and placed the file; the index copy adds no information. This is the same hand-list-versus-derivation judgment the [package-inventory proposal](2026-06-20-discover-package-inventory.md) applies to tsconfig references and knip stanzas — applied to the one list that demonstrably conflicts.
 
 ## Acceptance criteria
 
-- `pnpm run gen-rfc-index` (or the chosen command) rewrites only the generated RFC table regions.
-- `pnpm run verify-rfc-classification` fails when those generated regions are stale and passes after regeneration.
-- Adding, moving, or deleting an RFC requires editing the RFC file itself; the README rows are produced mechanically.
-- The generated rows use each RFC's H1 title and filename date, and preserve the existing lifecycle/class grouping.
-- `pnpm run doc-sync` passes after implementation.
+- `pnpm run gen-rfc-index` (or the chosen spelling) rewrites only the generated table regions; `verify-rfc-classification` fails when they are stale and passes after regeneration.
+- Adding, moving, or deleting an RFC requires editing only the RFC file itself; the rows are produced from path + H1 + filename date.
+- The prose outside the generated markers is untouched by the generator; `pnpm run doc-sync` passes.
 
 ## Risks
 
-- Generated regions inside a curated README can be jarring. Use explicit markers and keep the table output minimal so reviewers know what is owned by the script.
-- Reading H1 titles makes malformed RFC headers a generator concern. That is useful pressure: a missing or nonstandard H1 should fail clearly.
-- This supersedes an implemented process decision. The implementing PR must amend the old classification RFC so the historical record explains why the tradeoff changed.
+Generated regions inside a curated file need explicit markers so ownership is obvious to reviewers. Reading H1s makes a malformed header a generator error — useful pressure, and it should fail clearly. This supersedes an implemented process decision; amending that RFC's record is part of the change, not optional.
