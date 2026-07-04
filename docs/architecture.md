@@ -2,7 +2,7 @@
 
 This document describes the architecture of the DeepSeek Harness — the foundation of **DeepSeek Code**. The governing principle, from the [microkernel design discussion][microkernel-doc]: **everything is a plugin**. The core is deliberately tiny — a handful of abstract services plus one concrete loop plugin (`dsh-agent-loop`) — and every product feature is a plugin against the extension surface described here, without modifying the loop.
 
-This document covers **behavior**; type shapes live in [core-data-structures/](core-data-structures/core.md), the per-event/service reference in the [generated catalog](cordis-catalog/events-and-services.md), per-package contracts in the package READMEs ([map](../packages/README.md)). Requirement context: [Coding Harness MVP 需求分析][mvp-doc].
+This document covers **behavior**; type shapes live in [core-data-structures/](core-data-structures/core.md), the per-event/service reference in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, per-package contracts in the package READMEs ([map](../packages/README.md)). Requirement context: [Coding Harness MVP 需求分析][mvp-doc].
 
 [microkernel-doc]: https://trtgsjkv6r.feishu.cn/wiki/VS9Lw1kQki6mDJk2UHocyuphnsc
 [mvp-doc]: https://trtgsjkv6r.feishu.cn/wiki/ZwK6wfBE9i91V6kzMGYcgRGanxg
@@ -44,7 +44,7 @@ Dependency rule: extension plugins depend on interfaces, never on `dsh-agent-loo
 | `ctx.web` | dsh-web | search/fetch provider registries + `WebError` taxonomy |
 | `ctx.subagents` | dsh-subagent | named provider registry for delegating to child agents |
 
-All registrations go through `ctx.effect()` and return disposers, so hot-reload and fiber disposal clean up automatically (full service interfaces: the [generated catalog](cordis-catalog/events-and-services.md) `## Services` section).
+All registrations go through `ctx.effect()` and return disposers, so hot-reload and fiber disposal clean up automatically (full service interfaces: the generated [services catalog](cordis-catalog/services.md)).
 
 ## Capability seams: interface / implementation / consumer
 
@@ -140,7 +140,7 @@ A turn ends with one `TurnEndReason` — `completed`, `aborted`, `error`, `dispo
 
 ### Event taxonomy
 
-The `agent/*` events are declared in `dsh-agent` (so nothing depends on the loop package); each other service declares its own (`tools/*`, `llm/*`, `system-prompt/*`, `session/*`). The full catalog — signatures, dispatch modes, prose — is generated from source and freshness-gated: [cordis-catalog/events-and-services.md](cordis-catalog/events-and-services.md). Domain semantics (session = the fact log, agent = the live surface): [the event-domain RFC](rfc/implemented/architecture/2026-06-30-event-domain-semantics.md).
+The `agent/*` events are declared in `dsh-agent` (so nothing depends on the loop package); each other service declares its own (`tools/*`, `llm/*`, `system-prompt/*`, `session/*`). The full catalog — signatures, dispatch modes, prose — is generated from source and freshness-gated: [cordis-catalog/events.md](cordis-catalog/events.md). Domain semantics (session = the fact log, agent = the live surface): [the event-domain RFC](rfc/implemented/architecture/2026-06-30-event-domain-semantics.md).
 
 ### Cordis waterfall semantics (important)
 
