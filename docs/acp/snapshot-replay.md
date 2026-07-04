@@ -18,7 +18,7 @@ sequenceDiagram
   Recorder->>Fixture: session.jsonl + workspace inputs
   Fixture->>Workspace: seed files and hook configs
   Fixture->>Replay: recorded StreamChunk script
-  Replay->>ACP: deterministic llm/stream chunks
+  Replay->>ACP: deterministic <code>llm/stream</code> chunks
   ACP->>Workspace: bash, fs, and hook side effects
   ACP->>Golden: normalized sessionUpdate stream
   Golden-->>ACP: diff must be empty

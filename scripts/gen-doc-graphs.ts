@@ -1,20 +1,20 @@
 /**
- * Generate (and verify) the documentation graph atlas in docs/graphs/.
+ * Generate (and verify) the relationship-diagram docs.
  *
  * This is the relationship layer above the existing catalogs:
  * - module-graph.md answers "which packages depend on which packages?"
  * - cordis-catalog/ answers "which events and services exist?"
  * - tool-catalog/ answers "which tools does the model see?"
- * - docs/graphs/ answers "how do those pieces fit together?"
+ * - docs/*.md relationship diagrams answer "how do those pieces fit together?"
  *
  * Generated pages discover the enumerable facts from source. Hybrid pages use
  * discovered inventory plus small manifests for policy that source cannot infer
  * (for example, whether a package is an implementation or consumer in a seam).
- * Curated pages are still emitted here so the atlas is one regenerated unit,
+ * Curated pages are still emitted here so the graph docs are one regenerated unit,
  * but their diagrams intentionally explain flow and ownership rather than
  * pretending to enumerate every source edge.
  *
- *   `tsx scripts/gen-doc-graphs.ts`          -> write docs/graphs/*.md
+ *   `tsx scripts/gen-doc-graphs.ts`          -> write generated diagram docs
  *   `tsx scripts/gen-doc-graphs.ts --check`  -> exit 1 if any file is stale
  */
 
@@ -22,10 +22,8 @@ import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from 'no
 import { dirname, resolve } from 'node:path'
 import ts from 'typescript'
 import { collectEvents, collectServices } from './gen-cordis-catalog.ts'
-import { collectToolCatalog } from './gen-tool-catalog.ts'
 
 const root = resolve(import.meta.dirname, '..')
-const OUT_DIR = 'docs/graphs'
 const SCOPE = '@deepseek-ai/dsh-'
 
 interface PkgJson {
@@ -65,13 +63,6 @@ interface ExamplePlugin {
 interface EventRelation {
   dispatchers: Map<string, Set<string>>
   listeners: Set<string>
-}
-
-interface ToolPackageMeta {
-  requires: string[]
-  writes: string[]
-  shippedNames?: string[]
-  note: string
 }
 
 const GROUP_ORDER = [
@@ -197,35 +188,6 @@ const SERVICE_ROLES: ServiceRole[] = [
   },
 ]
 
-const TOOL_PACKAGE_META: Record<string, ToolPackageMeta> = {
-  '@deepseek-ai/dsh-tool-bash': {
-    requires: ['ctx.tools', 'ctx.bash'],
-    writes: ['tool/call', 'tool/result', 'context/message via agent.inject() for background completion notices'],
-    note: 'The bash/bash_output/bash_kill tools are model-facing consumers of the bash executor seam.',
-  },
-  '@deepseek-ai/dsh-tool-fs': {
-    requires: ['ctx.tools', 'ctx.fs', 'ctx.systemPrompt'],
-    writes: ['tool/call', 'fs/write-intent or fs/edit-intent for mutations', 'fs/observed after successful file operations', 'tool/result'],
-    note: 'read/write/edit are the model-facing filesystem tools; read windowing lives here, while read-before-edit policy is supplied by fs-policy through fs/* events.',
-  },
-  '@deepseek-ai/dsh-tool-subagent': {
-    requires: ['ctx.tools', 'ctx.subagents'],
-    writes: ['tool/call', 'tool/result', 'child session events through the chosen provider'],
-    shippedNames: ['subagent', 'subagent_fork'],
-    note: 'The default package schema registers subagent; shipped coding/acp configs load it twice to expose spawn and fork backends.',
-  },
-  '@deepseek-ai/dsh-tool-todo': {
-    requires: ['ctx.tools', 'owning Agent session'],
-    writes: ['tool/call', 'todo/write', 'tool/result'],
-    note: 'todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan.',
-  },
-  '@deepseek-ai/dsh-tool-web': {
-    requires: ['ctx.tools', 'ctx.web', 'ctx.systemPrompt'],
-    writes: ['tool/call', 'tool/result'],
-    note: 'web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps.',
-  },
-}
-
 const DYNAMIC_EVENT_DISPATCHERS: Array<{ event: string; pkg: string; method: string }> = [
   // Subagent lifecycle events intentionally bypass ctx.emit and call
   // ctx.events.dispatch directly so one throwing listener cannot starve later
@@ -302,8 +264,20 @@ function escLabel(value: string): string {
   return value.replace(/"/g, '\\"')
 }
 
-function pkgLink(pkg: Pkg | undefined, fallback: string): string {
-  return pkg ? `[\`${pkg.short}\`](../../${pkg.rel})` : `\`${fallback}\``
+function mermaidCode(value: string): string {
+  return `<code>${value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code>`
+}
+
+function repoLink(path: string, label: string, up = '..'): string {
+  return `[${label}](${up}/${path})`
+}
+
+function sourceLink(source: string, up = '..'): string {
+  return repoLink(source.split(':')[0] ?? source, `\`${source}\``, up)
+}
+
+function pkgLink(pkg: Pkg | undefined, fallback: string, up = '..'): string {
+  return pkg ? repoLink(pkg.rel, `\`${pkg.short}\``, up) : `\`${fallback}\``
 }
 
 function pkgList(names: string[] | undefined, pkgsByShort: Map<string, Pkg>): string {
@@ -311,50 +285,8 @@ function pkgList(names: string[] | undefined, pkgsByShort: Map<string, Pkg>): st
   return names.map(name => pkgLink(pkgsByShort.get(name), name)).join(', ')
 }
 
-function codeList(values: string[]): string {
-  return values.length ? values.map(v => `\`${v}\``).join(', ') : '-'
-}
-
 function tableCell(value: string): string {
   return value.replace(/\|/g, '\\|').replace(/\n/g, '<br>')
-}
-
-function renderMermaidPackageNode(pkg: Pkg): string {
-  return `    ${nodeId('pkg', pkg.short)}["${escLabel(pkg.short)}"]`
-}
-
-function renderPackageTopology(pkgs: Pkg[]): string {
-  const lines = generatedHeader('Package Topology By Group', 'generated from `packages/*/*/package.json` peer dependencies plus package group paths')
-  lines.push(
-    'This graph complements [module-graph.md](../module-graph.md): it keeps the same canonical peer-dependency edge source, but clusters packages by the `packages/<group>/<pkg>` hierarchy so layering and capability families are easier to scan.',
-    '',
-    '```mermaid',
-    'flowchart TD',
-  )
-  const groups = [...new Set(pkgs.map(pkg => pkg.group))].sort((a, b) => {
-    const ia = GROUP_ORDER.indexOf(a)
-    const ib = GROUP_ORDER.indexOf(b)
-    const na = ia === -1 ? Number.MAX_SAFE_INTEGER : ia
-    const nb = ib === -1 ? Number.MAX_SAFE_INTEGER : ib
-    return na - nb || a.localeCompare(b)
-  })
-  for (const group of groups) {
-    lines.push(`  subgraph ${nodeId('group', group)}["packages/${escLabel(group)}"]`)
-    for (const pkg of pkgs.filter(p => p.group === group).sort((a, b) => a.short.localeCompare(b.short))) {
-      lines.push(renderMermaidPackageNode(pkg))
-    }
-    lines.push('  end')
-  }
-  for (const pkg of pkgs) {
-    for (const dep of pkg.deps) lines.push(`  ${nodeId('pkg', pkg.short)} --> ${nodeId('pkg', dep)}`)
-  }
-  lines.push('```', '', '| Package | Group | Depends on |', '| --- | --- | --- |')
-  const byShort = new Map(pkgs.map(pkg => [pkg.short, pkg]))
-  for (const pkg of pkgs) {
-    lines.push(`| ${pkgLink(pkg, pkg.short)} | \`${pkg.group}\` | ${pkg.deps.length ? pkg.deps.map(dep => pkgLink(byShort.get(dep), dep)).join(', ') : '-'} |`)
-  }
-  lines.push('')
-  return lines.join('\n')
 }
 
 function assertServiceRolesComplete(): void {
@@ -440,56 +372,81 @@ function stripYamlScalar(value: string): string {
   return value.trim().replace(/^['"]|['"]$/g, '')
 }
 
-function renderAppComposition(): string {
-  const examples = [
-    { id: 'echo', label: 'examples/echo-agent', config: 'examples/echo-agent/cordis.yml' },
-    { id: 'coding', label: 'examples/coding-agent', config: 'examples/coding-agent/cordis.yml' },
-    { id: 'acp', label: 'examples/acp-agent', config: 'examples/acp-agent/cordis.yml' },
-  ]
-  const lines = generatedHeader('App Composition', 'hybrid: leaf plugin lists are parsed from `examples/*/cordis.yml`; bundle expansions are curated from app package source')
+const APP_EXAMPLES = [
+  {
+    id: 'echo',
+    rel: 'docs/echo-agent-composition.md',
+    title: 'Echo Agent App Composition',
+    label: 'examples/echo-agent',
+    config: 'examples/echo-agent/cordis.yml',
+    summary: 'The echo demo swaps in a local mock LLM and teaching echo tool, then loads the stdio app package for the shared spine and terminal front door.',
+  },
+  {
+    id: 'coding',
+    rel: 'docs/coding-agent-composition.md',
+    title: 'Coding Agent App Composition',
+    label: 'examples/coding-agent',
+    config: 'examples/coding-agent/cordis.yml',
+    summary: 'The coding REPL demo adds the real DeepSeek adapter, filesystem tools, todo_write, compaction, and both subagent transports on top of the stdio app package.',
+  },
+  {
+    id: 'acp',
+    rel: 'docs/acp-agent-composition.md',
+    title: 'ACP Agent App Composition',
+    label: 'examples/acp-agent',
+    config: 'examples/acp-agent/cordis.yml',
+    summary: 'The ACP demo exposes the same agent spine over JSON-RPC stdio, with no stdout logger and no pre-created agent; clients create sessions through the ACP bridge.',
+  },
+]
+
+type AppExample = typeof APP_EXAMPLES[number]
+
+function renderAppExpansion(lines: string[], appNode: string, pluginName: string): void {
+  const agentCore = nodeId('bundle', 'agent_core')
+  const jsonl = nodeId('bundle', 'jsonl')
+  lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-core"]`)
+  lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
+  if (pluginName === '@deepseek-ai/dsh-stdio-agent') {
+    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'stdio')}["readline UI<br/>console logger<br/>pre-created main agent"]`)
+  } else if (pluginName === '@deepseek-ai/dsh-acp-agent') {
+    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>JSON-RPC stdio bridge<br/>sessions created by client"]`)
+  }
   lines.push(
-    'This graph is for SDK users asking which pieces a runnable agent loads. Leaf configs choose adapters and optional product tools; app packages provide the front door; `dsh-agent-core` bundles the providerless spine.',
+    `  ${agentCore} --> ${nodeId('spine', 'llm')}["ctx.llm"]`,
+    `  ${agentCore} --> ${nodeId('spine', 'sessions')}["ctx.sessions"]`,
+    `  ${agentCore} --> ${nodeId('spine', 'tools')}["ctx.tools + tool-bash"]`,
+    `  ${agentCore} --> ${nodeId('spine', 'loop')}["ctx.agents + ctx.agentLoop"]`,
+  )
+}
+
+function renderAppComposition(example: AppExample): string {
+  const plugins = parseExampleCordis(example.config)
+  const lines = generatedHeader(example.title, 'hybrid: the leaf plugin list is parsed from its `cordis.yml`; app package expansion is curated from package source')
+  lines.push(
+    example.summary,
     '',
     '```mermaid',
     'flowchart LR',
+    `  cfg["${escLabel(example.label)}<br/>cordis.yml"]`,
   )
-  const bundleTargets: Record<string, string> = {
-    '@deepseek-ai/dsh-stdio-agent': nodeId('bundle', 'stdio'),
-    '@deepseek-ai/dsh-acp-agent': nodeId('bundle', 'acp_agent'),
-  }
-  for (const example of examples) {
-    lines.push(`  subgraph ${nodeId('example', example.id)}["${escLabel(example.label)}"]`)
-    lines.push(`    ${nodeId('cfg', example.id)}["cordis.yml"]`)
-    for (const plugin of parseExampleCordis(example.config)) {
-      const pluginNode = nodeId(`plugin_${example.id}`, plugin.id)
-      lines.push(`    ${pluginNode}["${escLabel(plugin.id)}<br/>${escLabel(plugin.name)}"]`)
-      lines.push(`    ${nodeId('cfg', example.id)} --> ${pluginNode}`)
-      const bundle = bundleTargets[plugin.name]
-      if (bundle !== undefined) lines.push(`    ${pluginNode} --> ${bundle}`)
+  for (const plugin of plugins) {
+    const pluginNode = nodeId(`plugin_${example.id}`, plugin.id)
+    lines.push(`  ${pluginNode}["${escLabel(plugin.id)}<br/>${escLabel(plugin.name)}"]`)
+    lines.push(`  cfg --> ${pluginNode}`)
+    if (plugin.name === '@deepseek-ai/dsh-stdio-agent' || plugin.name === '@deepseek-ai/dsh-acp-agent') {
+      renderAppExpansion(lines, pluginNode, plugin.name)
     }
-    lines.push('  end')
   }
   lines.push(
-    `  ${nodeId('bundle', 'stdio')}["@deepseek-ai/dsh-stdio-agent"] --> ${nodeId('bundle', 'agent_core')}["@deepseek-ai/dsh-agent-core"]`,
-    `  ${nodeId('bundle', 'stdio')} --> ${nodeId('bundle', 'jsonl')}["@deepseek-ai/dsh-session-persistence-jsonl"]`,
-    `  ${nodeId('bundle', 'stdio')} --> ${nodeId('bundle', 'ui_stdio')}["@deepseek-ai/dsh-ui-stdio"]`,
-    `  ${nodeId('bundle', 'acp_agent')}["@deepseek-ai/dsh-acp-agent"] --> ${nodeId('bundle', 'agent_core')}`,
-    `  ${nodeId('bundle', 'acp_agent')} --> ${nodeId('bundle', 'jsonl')}`,
-    `  ${nodeId('bundle', 'acp_agent')} --> ${nodeId('bundle', 'acp')}["@deepseek-ai/dsh-acp"]`,
-    `  ${nodeId('bundle', 'agent_core')} --> ${nodeId('spine', 'llm')}["ctx.llm"]`,
-    `  ${nodeId('bundle', 'agent_core')} --> ${nodeId('spine', 'sessions')}["ctx.sessions"]`,
-    `  ${nodeId('bundle', 'agent_core')} --> ${nodeId('spine', 'tools')}["ctx.tools + tool-bash"]`,
-    `  ${nodeId('bundle', 'agent_core')} --> ${nodeId('spine', 'loop')}["ctx.agents + ctx.agentLoop"]`,
     '```',
     '',
-    '| Example | Parsed plugin ids | Config |',
-    '| --- | --- | --- |',
+    '| Plugin id | Package / module |',
+    '| --- | --- |',
+    ...plugins.map(plugin => `| \`${plugin.id}\` | \`${plugin.name}\` |`),
+    '',
+    `Source config: ${repoLink(example.config, `\`${example.config}\``, '..')}.`,
+    '',
   )
-  for (const example of examples) {
-    const plugins = parseExampleCordis(example.config)
-    lines.push(`| \`${example.label}\` | ${plugins.map(plugin => `\`${plugin.id}\``).join(', ')} | [\`${example.config}\`](../../${example.config}) |`)
-  }
-  lines.push('')
   return lines.join('\n')
 }
 
@@ -580,7 +537,7 @@ function renderEventRelations(pkgs: Pkg[]): string {
   )
   for (const event of [...events].sort((a, b) => a.name.localeCompare(b.name))) {
     const relation = relations.get(event.name) ?? { dispatchers: new Map<string, Set<string>>(), listeners: new Set<string>() }
-    lines.push(`| \`${event.name}\` | \`${event.mode}\` | [\`${event.source}\`](../../${event.source.split(':')[0]}) | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
+    lines.push(`| \`${event.name}\` | \`${event.mode}\` | ${sourceLink(event.source)} | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
   }
   const declared = new Set(events.map(event => event.name))
   const extra = [...relations.keys()].filter(event => !declared.has(event)).sort()
@@ -596,52 +553,10 @@ function renderEventRelations(pkgs: Pkg[]): string {
   return lines.join('\n')
 }
 
-async function renderToolAffordance(): Promise<string> {
-  const catalog = await collectToolCatalog()
-  const lines = generatedHeader('Tool Affordance Map', 'hybrid: tool names/schemas are boot-harvested from shipped tool plugins; required services and shipped aliases are classified in `scripts/gen-doc-graphs.ts` with a completeness guard')
-  for (const entry of catalog) {
-    if (!TOOL_PACKAGE_META[entry.pkg]) {
-      throw new Error(`gen-doc-graphs: tool package ${entry.pkg} is missing TOOL_PACKAGE_META classification`)
-    }
-  }
-  lines.push(
-    'This page connects the model-visible tools to the plugin packages and service seams behind them. For exact JSON Schemas, see [tool-catalog/tools.md](../tool-catalog/tools.md).',
-    '',
-    '```mermaid',
-    'flowchart LR',
-    '  model["Model request tools[]"]',
-  )
-  const requirementNodes = new Set<string>()
-  for (const entry of catalog) {
-    const meta = TOOL_PACKAGE_META[entry.pkg]
-    if (!meta) continue
-    const packageNode = nodeId('toolpkg', entry.pkg)
-    const names = entry.schemas.map(schema => schema.name).join(', ')
-    lines.push(`  ${packageNode}["${escLabel(entry.pkg.replace(SCOPE, ''))}<br/>${escLabel(names)}"]`)
-    lines.push(`  model --> ${packageNode}`)
-    for (const req of meta.requires) {
-      const reqNode = nodeId('requires', req)
-      if (!requirementNodes.has(reqNode)) {
-        lines.push(`  ${reqNode}["${escLabel(req)}"]`)
-        requirementNodes.add(reqNode)
-      }
-      lines.push(`  ${packageNode} --> ${reqNode}`)
-    }
-  }
-  lines.push('```', '', '| Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Note |', '| --- | --- | --- | --- | --- | --- |')
-  for (const entry of catalog) {
-    const meta = TOOL_PACKAGE_META[entry.pkg]
-    if (!meta) continue
-    lines.push(`| \`${entry.pkg}\` | ${codeList(entry.schemas.map(schema => schema.name))} | ${codeList(meta.requires)} | ${codeList(meta.writes)} | ${codeList(meta.shippedNames ?? [])} | ${tableCell(meta.note)} |`)
-  }
-  lines.push('')
-  return lines.join('\n')
-}
-
 function renderLifecycle(): string {
   return [
     ...generatedHeader('Agent Turn And Step Lifecycle', 'curated Mermaid sequence; exact event signatures live in the generated Cordis catalog'),
-    'This sequence is the visual companion to [architecture.md](../architecture.md#loop-lifecycle-session--turn--step). It keeps durable replay facts on `session/event` and live control/status on `agent/*`.',
+    'This sequence is the visual companion to [architecture.md](architecture.md#loop-lifecycle-session--turn--step). It keeps durable replay facts on `session/event` and live control/status on `agent/*`.',
     '',
     '```mermaid',
     'sequenceDiagram',
@@ -656,30 +571,30 @@ function renderLifecycle(): string {
     '  participant Persistence',
     '  participant SDK as UI or SDK listener',
     '  User->>Agent: send(content)',
-    '  Agent-->>SDK: agent/queued',
+    `  Agent-->>SDK: ${mermaidCode('agent/queued')}`,
     '  Agent->>Driver: queued work wakes driver',
-    '  Driver-->>SDK: agent/status running',
-    '  Driver->>Session: turn/start',
-    '  Driver->>Hooks: agent/prompt-submit waterfall',
+    `  Driver-->>SDK: ${mermaidCode('agent/status')} running`,
+    `  Driver->>Session: ${mermaidCode('turn/start')}`,
+    `  Driver->>Hooks: ${mermaidCode('agent/prompt-submit')} waterfall`,
     '  Hooks-->>Driver: allow, block, or add context',
-    '  Driver->>Session: user/message or rejected turn/end',
-    '  Driver->>Prompt: system-prompt/assemble waterfall',
-    '  Driver-->>Driver: agent/pre-step serial checkpoint',
-    '  Driver->>Session: step/start',
-    '  Driver->>LLM: agent/request waterfall, then llm/stream waterfall',
+    `  Driver->>Session: ${mermaidCode('user/message')} or rejected ${mermaidCode('turn/end')}`,
+    `  Driver->>Prompt: ${mermaidCode('system-prompt/assemble')} waterfall`,
+    `  Driver-->>Driver: ${mermaidCode('agent/pre-step')} serial checkpoint`,
+    `  Driver->>Session: ${mermaidCode('step/start')}`,
+    `  Driver->>LLM: ${mermaidCode('agent/request')} waterfall, then ${mermaidCode('llm/stream')} waterfall`,
     '  LLM-->>Driver: StreamChunk*',
-    '  Driver->>Session: assistant/chunk*',
-    '  Session-->>SDK: session/event assistant/chunk*',
-    '  Driver->>Hooks: agent/step-result waterfall',
-    '  Driver->>Session: assistant/message',
-    '  Driver->>Session: tool/call',
+    `  Driver->>Session: ${mermaidCode('assistant/chunk')}*`,
+    `  Session-->>SDK: ${mermaidCode('session/event')} ${mermaidCode('assistant/chunk')}*`,
+    `  Driver->>Hooks: ${mermaidCode('agent/step-result')} waterfall`,
+    `  Driver->>Session: ${mermaidCode('assistant/message')}`,
+    `  Driver->>Session: ${mermaidCode('tool/call')}`,
     '  Driver->>Tools: execute through pre and post waterfalls',
     '  Tools-->>Session: tool-owned events when applicable',
-    '  Driver->>Session: tool/result and step/end',
-    '  Driver->>Hooks: agent/turn-continuation waterfall',
-    '  Driver->>Session: turn/end',
-    '  Driver->>Persistence: session/flush parallel checkpoint',
-    '  Driver-->>SDK: agent/status idle',
+    `  Driver->>Session: ${mermaidCode('tool/result')} and ${mermaidCode('step/end')}`,
+    `  Driver->>Hooks: ${mermaidCode('agent/turn-continuation')} waterfall`,
+    `  Driver->>Session: ${mermaidCode('turn/end')}`,
+    `  Driver->>Persistence: ${mermaidCode('session/flush')} parallel checkpoint`,
+    `  Driver-->>SDK: ${mermaidCode('agent/status')} idle`,
     '```',
     '',
     'SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request shaping, steering, continuation, and errors.',
@@ -695,16 +610,16 @@ function renderToolPipeline(): string {
     '```mermaid',
     'flowchart TD',
     '  model["Assistant message contains tool-call block"]',
-    '  toolCall["Session event: tool/call<br/>logged before execution"]',
+    `  toolCall["Session event: ${mermaidCode('tool/call')}<br/>logged before execution"]`,
     '  presentCall["UI pending card<br/>presentCall(args)"]',
-    '  pre["tools/pre-execute waterfall<br/>hooks, permission, sandbox"]',
+    `  pre["${mermaidCode('tools/pre-execute')} waterfall<br/>hooks, permission, sandbox"]`,
     '  denied["deny or ask<br/>tool body skipped"]',
     '  toolBody["Registered tool execute() body"]',
-    '  fsGate["fs/write-intent or fs/edit-intent<br/>tool-fs mutations only"]',
-    '  owned["Tool-owned session events<br/>todo/write, fs/observed, hook/invoked, hook/result"]',
-    '  post["tools/post-execute waterfall<br/>accept, block, replace, add context"]',
+    `  fsGate["${mermaidCode('fs/write-intent')} or ${mermaidCode('fs/edit-intent')}<br/>tool-fs mutations only"]`,
+    `  owned["Tool-owned session events<br/>${mermaidCode('todo/write')}, ${mermaidCode('fs/observed')}, ${mermaidCode('hook/invoked')}, ${mermaidCode('hook/result')}"]`,
+    `  post["${mermaidCode('tools/post-execute')} waterfall<br/>accept, block, replace, add context"]`,
     '  context["Buffered additionalContext<br/>context/message after all tool results"]',
-    '  toolResult["Session event: tool/result<br/>single model-facing outcome"]',
+    `  toolResult["Session event: ${mermaidCode('tool/result')}<br/>single model-facing outcome"]`,
     '  presentResult["UI completed card<br/>presentResult(args, result)"]',
     '  model --> toolCall',
     '  toolCall --> presentCall',
@@ -726,82 +641,6 @@ function renderToolPipeline(): string {
   ].join('\n')
 }
 
-function renderSessionSurface(): string {
-  return [
-    ...generatedHeader('Session Surface And Message Projection', 'curated Mermaid dataflow; exact event/type shapes live in core-data-structures'),
-    'This graph separates the append-only log from the derived message surface the next model request sees.',
-    '',
-    '```mermaid',
-    'flowchart LR',
-    '  append["Session.append(type, data)"]',
-    '  log["Append-only SessionEvent log"]',
-    '  surface["SurfaceManager linked list<br/>surfaceOp + sourceEventSeqs"]',
-    '  derive["deriveMessages()"]',
-    '  model["GenerateOptions.messages"]',
-    '  persist["JSONL / SQLite persistence"]',
-    '  replay["load / replay / fork seed"]',
-    '  append --> log',
-    '  log --> surface',
-    '  surface --> derive --> model',
-    '  log --> persist --> replay --> log',
-    '```',
-    '',
-    'See [core-data-structures/session.md](../core-data-structures/session.md) for the full `SessionEventMap`, surface operations, and turn-enclosure invariant.',
-    '',
-  ].join('\n')
-}
-
-function renderSubagentLineage(): string {
-  return [
-    ...generatedHeader('Subagent And Session Lineage', 'curated Mermaid flow; provider inventory is visible in the generated capability seam graph'),
-    'This graph keeps delegation semantics separate from hook observation. A subagent backend creates an ordinary child agent/session through the shared provider registry.',
-    '',
-    '```mermaid',
-    'flowchart TD',
-    '  parent["Parent Agent + Session"]',
-    '  tool["tool-subagent<br/>model-facing name"]',
-    '  registry["ctx.subagents provider registry"]',
-    '  spawn["spawn provider<br/>fresh child session"]',
-    '  fork["fork provider<br/>seeded from completed-turn prefix"]',
-    '  acp["ACP provider<br/>out-of-process child"]',
-    '  child["Child AgentHandle<br/>ordinary Agent lifecycle"]',
-    '  result["SubagentResult returned to tool"]',
-    '  parent --> tool --> registry',
-    '  registry --> spawn --> child',
-    '  registry --> fork --> child',
-    '  registry --> acp --> child',
-    '  child --> result --> parent',
-    '```',
-    '',
-    'The hooks stack adds richer lifecycle observation around child runs; the core ownership rule stays the same: the provider owns the child handle and must dispose it.',
-    '',
-  ].join('\n')
-}
-
-function renderHotReload(): string {
-  return [
-    ...generatedHeader('Plugin Disposal And Hot Reload Ownership', 'curated Mermaid flow based on Cordis fiber/effect conventions'),
-    'This graph is a maintainer checklist for plugin authors: registrations are effects, service injection gates activation, and owned handles must be disposed by their owner.',
-    '',
-    '```mermaid',
-    'flowchart TD',
-    '  plugin["ctx.plugin(plugin) creates fiber"]',
-    '  inject["static inject gates activation"]',
-    '  service["ctx.provide / Service constructor"]',
-    '  effects["ctx.effect registrations<br/>events, tools, adapters, timers"]',
-    '  reload["HMR / fiber.dispose()"]',
-    '  disposers["Run disposers in owner fiber"]',
-    '  quiescence["Owned AgentHandle.dispose()<br/>or service teardown awaits quiescence"]',
-    '  plugin --> inject --> service',
-    '  inject --> effects',
-    '  reload --> disposers --> quiescence',
-    '```',
-    '',
-    'Hook bridges and SDK plugins increase the number of long-lived listeners, so this ownership graph should stay small and visible.',
-    '',
-  ].join('\n')
-}
-
 function renderSnapshotReplay(): string {
   return [
     ...generatedHeader('ACP Snapshot Replay', 'curated Mermaid sequence based on the snapshot test harness'),
@@ -818,7 +657,7 @@ function renderSnapshotReplay(): string {
     '  Recorder->>Fixture: session.jsonl + workspace inputs',
     '  Fixture->>Workspace: seed files and hook configs',
     '  Fixture->>Replay: recorded StreamChunk script',
-    '  Replay->>ACP: deterministic llm/stream chunks',
+    `  Replay->>ACP: deterministic ${mermaidCode('llm/stream')} chunks`,
     '  ACP->>Workspace: bash, fs, and hook side effects',
     '  ACP->>Golden: normalized sessionUpdate stream',
     '  Golden-->>ACP: diff must be empty',
@@ -829,72 +668,66 @@ function renderSnapshotReplay(): string {
   ].join('\n')
 }
 
-async function renderDocs(): Promise<GraphDoc[]> {
+function renderDocs(): GraphDoc[] {
   const pkgs = collectPackages()
   const docs: GraphDoc[] = [
-    { rel: `${OUT_DIR}/package-topology.md`, content: renderPackageTopology(pkgs) },
-    { rel: `${OUT_DIR}/capability-seams.md`, content: renderCapabilitySeams(pkgs) },
-    { rel: `${OUT_DIR}/app-composition.md`, content: renderAppComposition() },
-    { rel: `${OUT_DIR}/event-producer-consumer.md`, content: renderEventRelations(pkgs) },
-    { rel: `${OUT_DIR}/tool-affordance-map.md`, content: await renderToolAffordance() },
-    { rel: `${OUT_DIR}/agent-lifecycle.md`, content: renderLifecycle() },
-    { rel: `${OUT_DIR}/tool-execution-pipeline.md`, content: renderToolPipeline() },
-    { rel: `${OUT_DIR}/session-surface.md`, content: renderSessionSurface() },
-    { rel: `${OUT_DIR}/subagent-lineage.md`, content: renderSubagentLineage() },
-    { rel: `${OUT_DIR}/hot-reload-disposal.md`, content: renderHotReload() },
-    { rel: `${OUT_DIR}/snapshot-replay.md`, content: renderSnapshotReplay() },
+    { rel: 'docs/capability-seams.md', content: renderCapabilitySeams(pkgs) },
+    ...APP_EXAMPLES.map(example => ({ rel: example.rel, content: renderAppComposition(example) })),
+    { rel: 'docs/event-producer-consumer.md', content: renderEventRelations(pkgs) },
+    { rel: 'docs/agent-lifecycle.md', content: renderLifecycle() },
+    { rel: 'docs/tool-execution-pipeline.md', content: renderToolPipeline() },
+    { rel: 'docs/acp/snapshot-replay.md', content: renderSnapshotReplay() },
   ]
-  docs.unshift({ rel: `${OUT_DIR}/README.md`, content: renderIndex(docs) })
+  docs.unshift({ rel: 'docs/graph-atlas.md', content: renderIndex(docs) })
   return docs
 }
 
 function renderIndex(docs: GraphDoc[]): string {
   const labels: Record<string, string> = {
-    'package-topology.md': 'package topology by group',
-    'capability-seams.md': 'capability seams and core services',
-    'app-composition.md': 'app composition',
-    'event-producer-consumer.md': 'event producer/consumer matrix',
-    'tool-affordance-map.md': 'tool affordance map',
-    'agent-lifecycle.md': 'agent turn and step lifecycle',
-    'tool-execution-pipeline.md': 'tool execution pipeline',
-    'session-surface.md': 'session surface and message projection',
-    'subagent-lineage.md': 'subagent and session lineage',
-    'hot-reload-disposal.md': 'plugin disposal and hot reload ownership',
-    'snapshot-replay.md': 'ACP snapshot replay',
+    'docs/capability-seams.md': 'capability seams and core services',
+    'docs/echo-agent-composition.md': 'echo-agent app composition',
+    'docs/coding-agent-composition.md': 'coding-agent app composition',
+    'docs/acp-agent-composition.md': 'acp-agent app composition',
+    'docs/event-producer-consumer.md': 'event producer/consumer matrix',
+    'docs/agent-lifecycle.md': 'agent turn and step lifecycle',
+    'docs/tool-execution-pipeline.md': 'tool execution pipeline',
+    'docs/acp/snapshot-replay.md': 'ACP snapshot replay',
   }
   const modes: Record<string, string> = {
-    'package-topology.md': 'generated',
-    'capability-seams.md': 'hybrid generated',
-    'app-composition.md': 'hybrid generated',
-    'event-producer-consumer.md': 'hybrid generated',
-    'tool-affordance-map.md': 'hybrid generated',
-    'agent-lifecycle.md': 'curated',
-    'tool-execution-pipeline.md': 'curated',
-    'session-surface.md': 'curated',
-    'subagent-lineage.md': 'curated',
-    'hot-reload-disposal.md': 'curated',
-    'snapshot-replay.md': 'curated',
+    'docs/capability-seams.md': 'hybrid generated',
+    'docs/echo-agent-composition.md': 'hybrid generated',
+    'docs/coding-agent-composition.md': 'hybrid generated',
+    'docs/acp-agent-composition.md': 'hybrid generated',
+    'docs/event-producer-consumer.md': 'hybrid generated',
+    'docs/agent-lifecycle.md': 'curated',
+    'docs/tool-execution-pipeline.md': 'curated',
+    'docs/acp/snapshot-replay.md': 'curated',
   }
+  const rows = [
+    '| [module dependency graph](module-graph.md) | `generated` |',
+    '| [tool schema catalog and package map](tool-catalog/tools.md) | `generated` |',
+    ...docs.map((doc) => {
+      const link = doc.rel.replace(/^docs\//, '')
+      return `| [${labels[doc.rel] ?? link}](${link}) | \`${modes[doc.rel] ?? 'generated'}\` |`
+    }),
+  ]
   return [
-    ...generatedHeader('Documentation Graph Atlas', 'mixed: each linked page declares generated, hybrid, or curated mode'),
-    'The graph atlas is the relationship layer above the generated catalogs. Use it to navigate package topology, capability seams, event flow, model-facing tools, and runtime lifecycle paths. Exact signatures and type shapes still live in [cordis-catalog/](../cordis-catalog/events-and-services.md), [tool-catalog/](../tool-catalog/tools.md), and [core-data-structures/](../core-data-structures/core.md).',
+    ...generatedHeader('Documentation Graph Index', 'mixed: each linked page declares generated, hybrid, or curated mode'),
+    'These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in [cordis-catalog/](cordis-catalog/events-and-services.md), [tool-catalog/](tool-catalog/tools.md), and [core-data-structures/](core-data-structures/core.md).',
     '',
-    'The process decision behind this atlas is recorded in [the documentation graph atlas RFC](../rfc/implemented/process/2026-07-03-documentation-graph-atlas.md).',
+    'The process decision behind this index is recorded in [the documentation graph RFC](rfc/implemented/process/2026-07-03-documentation-graph-atlas.md).',
     '',
     '| Graph | Mode |',
     '| --- | --- |',
-    ...docs.map((doc) => {
-      const file = doc.rel.split('/').at(-1) ?? doc.rel
-      return `| [${labels[file] ?? file}](${file}) | \`${modes[file] ?? 'generated'}\` |`
-    }),
+    ...rows,
     '',
     'Regenerate with `pnpm run gen-doc-graphs`; verify freshness with `pnpm run verify-doc-graphs`.',
     '',
   ].join('\n')
 }
 
-async function main(): Promise<void> {
-  const docs = await renderDocs()
+function main(): void {
+  const docs = renderDocs()
   if (process.argv.includes('--check')) {
     const stale: string[] = []
     for (const doc of docs) {
@@ -910,11 +743,13 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  mkdirSync(resolve(root, OUT_DIR), { recursive: true })
-  for (const doc of docs) writeFileSync(resolve(root, doc.rel), doc.content)
+  for (const doc of docs) {
+    mkdirSync(dirname(resolve(root, doc.rel)), { recursive: true })
+    writeFileSync(resolve(root, doc.rel), doc.content)
+  }
   console.log(`gen-doc-graphs: wrote ${docs.length} graph doc(s).`)
 }
 
 if (process.argv[1] && import.meta.filename === resolve(process.argv[1])) {
-  await main()
+  main()
 }

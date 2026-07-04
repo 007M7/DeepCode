@@ -2,7 +2,7 @@
 
 This document describes the architecture of the DeepSeek Harness — the foundation of **DeepSeek Code**. The governing principle, from the [microkernel design discussion][microkernel-doc]: **everything is a plugin**. The core is deliberately tiny — a handful of abstract services plus one concrete loop plugin (`dsh-agent-loop`) — and every product feature is a plugin against the extension surface described here, without modifying the loop.
 
-This document covers **behavior**; type shapes live in [core-data-structures/](core-data-structures/core.md), the per-event/service reference in the [generated catalog](cordis-catalog/events-and-services.md), visual relationship maps in the [documentation graph atlas](graphs/README.md), and per-package contracts in the package READMEs ([map](../packages/README.md)). Requirement context: [Coding Harness MVP 需求分析][mvp-doc].
+This document covers **behavior**; type shapes live in [core-data-structures/](core-data-structures/core.md), the per-event/service reference in the [generated catalog](cordis-catalog/events-and-services.md), visual relationship maps in the [documentation graph index](graph-atlas.md), and per-package contracts in the package READMEs ([map](../packages/README.md)). Requirement context: [Coding Harness MVP 需求分析][mvp-doc].
 
 [microkernel-doc]: https://trtgsjkv6r.feishu.cn/wiki/VS9Lw1kQki6mDJk2UHocyuphnsc
 [mvp-doc]: https://trtgsjkv6r.feishu.cn/wiki/ZwK6wfBE9i91V6kzMGYcgRGanxg

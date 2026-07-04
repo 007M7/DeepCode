@@ -10,16 +10,16 @@ This graph shows where policy, hooks, sandboxing, filesystem guards, result rewr
 ```mermaid
 flowchart TD
   model["Assistant message contains tool-call block"]
-  toolCall["Session event: tool/call<br/>logged before execution"]
+  toolCall["Session event: <code>tool/call</code><br/>logged before execution"]
   presentCall["UI pending card<br/>presentCall(args)"]
-  pre["tools/pre-execute waterfall<br/>hooks, permission, sandbox"]
+  pre["<code>tools/pre-execute</code> waterfall<br/>hooks, permission, sandbox"]
   denied["deny or ask<br/>tool body skipped"]
   toolBody["Registered tool execute() body"]
-  fsGate["fs/write-intent or fs/edit-intent<br/>tool-fs mutations only"]
-  owned["Tool-owned session events<br/>todo/write, fs/observed, hook/invoked, hook/result"]
-  post["tools/post-execute waterfall<br/>accept, block, replace, add context"]
+  fsGate["<code>fs/write-intent</code> or <code>fs/edit-intent</code><br/>tool-fs mutations only"]
+  owned["Tool-owned session events<br/><code>todo/write</code>, <code>fs/observed</code>, <code>hook/invoked</code>, <code>hook/result</code>"]
+  post["<code>tools/post-execute</code> waterfall<br/>accept, block, replace, add context"]
   context["Buffered additionalContext<br/>context/message after all tool results"]
-  toolResult["Session event: tool/result<br/>single model-facing outcome"]
+  toolResult["Session event: <code>tool/result</code><br/>single model-facing outcome"]
   presentResult["UI completed card<br/>presentResult(args, result)"]
   model --> toolCall
   toolCall --> presentCall

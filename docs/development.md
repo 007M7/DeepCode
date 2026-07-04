@@ -98,8 +98,8 @@ pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
 pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events-and-services.md from source
 pnpm run verify-cordis-catalog  # fail if the cordis events/services catalog is stale
-pnpm run gen-doc-graphs     # regenerate docs/graphs/*.md from source and curated graph definitions
-pnpm run verify-doc-graphs  # fail if docs/graphs/*.md is stale
+pnpm run gen-doc-graphs     # regenerate generated relationship docs from source and curated graph definitions
+pnpm run verify-doc-graphs  # fail if generated relationship docs are stale
 pnpm run gen-rfc-index          # regenerate the docs/rfc/README.md index tables from the RFC tree
 pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
 pnpm run verify-mermaid  # fail if a ```mermaid diagram has invalid Mermaid syntax

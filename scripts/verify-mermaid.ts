@@ -5,9 +5,9 @@
  * render.
  *
  * Scope matches the Markdown link gate so any Mermaid diagram in repo-authored
- * docs is checked: README.md, docs/** /*.md, packages/* /*.md,
- * packages/* /* /*.md, examples/** /*.md, AGENTS.md, packages/AGENTS.md, and
- * .agents/skills/** /*.md.
+ * docs is checked: README.md, README.zh.md, docs/** /*.md,
+ * packages/* /*.md, packages/* /* /*.md, examples/** /*.md, AGENTS.md,
+ * packages/AGENTS.md, and .agents/skills/** /*.md.
  *
  * Run: `tsx scripts/verify-mermaid.ts`.
  */
@@ -25,6 +25,7 @@ const root = resolve(import.meta.dirname, '..')
 
 const PATTERNS = [
   'README.md',
+  'README.zh.md',
   'docs/**/*.md',
   'packages/*/*.md',
   'packages/*/*/*.md',
