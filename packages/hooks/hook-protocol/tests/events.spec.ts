@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import { appendHookInvoked, appendHookResult } from '@deepseek-ai/dsh-hook-protocol'
+import { appendHookInvoked, appendHookResult, summarizeStderr } from '@deepseek-ai/dsh-hook-protocol'
 
 describe('hook/* session events', () => {
   it('appendHookInvoked records a log-only hook/invoked (with matcher when present)', () => {
@@ -57,5 +57,22 @@ describe('hook/* session events', () => {
     const result = [...session.events].find(e => e.type === 'hook/result')
     expect(invoked?.type === 'hook/invoked' && invoked.data.handlerId).toBe('pair-1')
     expect(result?.type === 'hook/result' && result.data.handlerId).toBe('pair-1')
+  })
+})
+
+describe('summarizeStderr', () => {
+  it('returns undefined for empty/whitespace stderr', () => {
+    expect(summarizeStderr('', 500)).toBeUndefined()
+    expect(summarizeStderr('  \n\t ', 500)).toBeUndefined()
+  })
+
+  it('passes through a summary at or under the cap, trimmed', () => {
+    expect(summarizeStderr('  blocked: bad tool  ', 500)).toBe('blocked: bad tool')
+    expect(summarizeStderr('abc', 3)).toBe('abc')
+  })
+
+  it('truncates past the cap with an ellipsis', () => {
+    expect(summarizeStderr('abcdef', 4)).toBe('abcd…')
+    expect(summarizeStderr('x'.repeat(600), 500)).toBe('x'.repeat(500) + '…')
   })
 })

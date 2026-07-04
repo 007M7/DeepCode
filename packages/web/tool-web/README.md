@@ -17,6 +17,7 @@ Each tool is registered independently; a product that wants only one disables th
 |---|---|---|
 | `search` | `true` | Register `web_search`. |
 | `fetch` | `true` | Register `web_fetch`. |
+| `searchMaxResults` | `8` | Upper bound on sources returned by one `web_search` call (the seam truncates a longer provider list and flags it). |
 
 ```yaml
 - id: tool-web

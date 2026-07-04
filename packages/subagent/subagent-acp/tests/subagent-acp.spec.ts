@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as acp from '../src/index.ts'
-import { acpStopReason, acpContentText, buildChildEnv, SENSITIVE_ENV_PATTERN, startAcpRun, toAcpPrompt, type AcpRunSpec } from '../src/run.ts'
+import { acpStopReason, acpContentText, buildChildEnv, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, SENSITIVE_ENV_PATTERN, startAcpRun, toAcpPrompt, type AcpRunSpec } from '../src/run.ts'
 
 /**
  * Keyless integration tests for the ACP subagent backend. Each spawns a REAL
@@ -171,7 +171,7 @@ describe('dsh-subagent-acp', () => {
       const run = startAcpRun(
         { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent, signal: controller.signal },
         // `touch <sentinel>` — runs only if the process is actually spawned.
-        { command: 'touch', args: [sentinel], cwd: tmp, permission: 'reject', env: {} },
+        { command: 'touch', args: [sentinel], cwd: tmp, permission: 'reject', env: {}, disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS, disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS },
       )
       const result = await run.result
       expect(result.stopReason).toBe('aborted')
@@ -390,12 +390,22 @@ describe('dsh-subagent-acp', () => {
     // absent-sink branch).
     const run = startAcpRun(
       { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent },
-      { command: '/nonexistent/acp-agent-binary', args: [], cwd: process.cwd(), permission: 'reject', env: {} },
+      { command: '/nonexistent/acp-agent-binary', args: [], cwd: process.cwd(), permission: 'reject', env: {}, disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS, disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS },
     )
     const result = await run.result
     // The seam contract: a child-level failure resolves error, never rejects.
     expect(result.stopReason).toBe('error')
     await run.dispose()
+  })
+
+  it('rejects a non-positive dispose grace at load', async () => {
+    for (const bad of [{ disposeEofGraceMs: 0 }, { disposeGraceMs: -1 }, { disposeEofGraceMs: Number.NaN }]) {
+      const ctx = new Context()
+      await ctx.plugin(SubagentService)
+      await expect(ctx.plugin(acp, { providerName: 'acp', command: 'true', args: [], permission: 'reject', env: {}, ...bad }))
+        .rejects.toThrow(/subagent-acp: dispose(?:Eof)?GraceMs must be a positive finite number/)
+      await ctx.fiber.dispose()
+    }
   })
 
   it('resolves error via the provider (real load path) when the command does not exist', async () => {
@@ -428,6 +438,8 @@ describe('dsh-subagent-acp', () => {
         cwd: process.cwd(),
         permission: 'reject',
         env: {},
+        disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS,
+        disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
         onError: (error, stopReason) => { errors.push({ message: error.message, stopReason }) },
       },
     )

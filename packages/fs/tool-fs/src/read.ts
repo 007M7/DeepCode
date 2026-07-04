@@ -23,11 +23,26 @@ import { buildWindow, formatReadOutput } from './read-render.ts'
 import type { FileReadOutcome } from './read-render.ts'
 import { sessionCwd } from './session-cwd.ts'
 
-/** Default and maximum number of lines returned by one `read` call. */
+/** Default and maximum number of lines returned by one `read` call (the `readLimit` config). */
 export const READ_LIMIT = 2000
 
-/** Files at or above this size stream; smaller files read whole into memory. */
+/**
+ * Default streaming threshold (the `readStreamMinSize` config): files at or
+ * above this size stream; smaller files read whole into memory.
+ */
 export const STREAM_MIN_SIZE = 10 * 1024 * 1024
+
+/** Resolved read-tool caps — plugin config after defaulting (see `Config` in index.ts). */
+export interface ReadToolCaps {
+  /** Default and maximum number of lines returned by one call. */
+  limit: number
+  /** Maximum characters returned for a single line. */
+  maxLineLength: number
+  /** Maximum bytes returned for selected file lines. */
+  maxBytes: number
+  /** Files at or above this size stream; smaller files read whole into memory. */
+  streamMinSize: number
+}
 
 /** Validated `read` arguments after defaulting. */
 interface ReadInput {
@@ -43,17 +58,17 @@ function parsePositiveInteger(value: number, name: string): number {
   return value
 }
 
-/** Validate value constraints the schema DSL can't express. */
-export function parseReadArgs(args: { file_path: string; offset?: number; limit?: number }): ReadInput {
+/** Validate value constraints the schema DSL can't express. `maxLimit` is the deployment's line cap. */
+export function parseReadArgs(args: { file_path: string; offset?: number; limit?: number }, maxLimit: number): ReadInput {
   if (args.file_path.trim().length === 0) throw new Error('file_path must be a non-empty string')
   const offset = args.offset === undefined ? 1 : parsePositiveInteger(args.offset, 'offset')
-  const limit = args.limit === undefined ? READ_LIMIT : parsePositiveInteger(args.limit, 'limit')
-  if (limit > READ_LIMIT) throw new Error(`limit must be less than or equal to ${READ_LIMIT}`)
+  const limit = args.limit === undefined ? maxLimit : parsePositiveInteger(args.limit, 'limit')
+  if (limit > maxLimit) throw new Error(`limit must be less than or equal to ${maxLimit}`)
   return { filePath: args.file_path, offset, limit }
 }
 
 /** Register the `read` tool and its system-prompt guidance. */
-export function applyReadTool(ctx: Context): void {
+export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
   ctx.systemPrompt.section({
     name: 'tool:read',
     order: 100,
@@ -66,10 +81,10 @@ export function applyReadTool(ctx: Context): void {
     parameters: {
       file_path: { type: 'string', required: true, description: 'Path to read, resolved by the filesystem backend.' },
       offset: { type: 'number', description: '1-based first line to return. Defaults to 1.' },
-      limit: { type: 'number', description: `Maximum number of lines to return. Defaults to ${READ_LIMIT}.` },
+      limit: { type: 'number', description: `Maximum number of lines to return. Defaults to ${caps.limit}.` },
     },
     async execute(args, exec): Promise<ContentBlock[]> {
-      const input = parseReadArgs(args)
+      const input = parseReadArgs(args, caps.limit)
       const cwd = sessionCwd(exec)
       const target = await ctx.fs.resolve(input.filePath, cwd !== undefined ? { cwd } : undefined)
 
@@ -83,10 +98,14 @@ export function applyReadTool(ctx: Context): void {
 
       // Stream when the file is large OR size is unknown, so a size-less backend
       // never buffers an arbitrarily large file.
-      const chunks = info.size === undefined || info.size >= STREAM_MIN_SIZE
+      const chunks = info.size === undefined || info.size >= caps.streamMinSize
         ? await ctx.fs.streamText(target, exec.signal)
         : [await ctx.fs.readText(target, exec.signal)]
-      const window = await buildWindow(chunks, { offset: input.offset, limit: input.limit }, target.displayPath)
+      const window = await buildWindow(
+        chunks,
+        { offset: input.offset, limit: input.limit, maxLineLength: caps.maxLineLength, maxBytes: caps.maxBytes },
+        target.displayPath,
+      )
 
       const outcome: FileReadOutcome = {
         offset: input.offset,
@@ -106,7 +125,8 @@ export function applyReadTool(ctx: Context): void {
     // appended (`Read foo.txt (5 - 8)`), `read` kind (icon), and a follow-along
     // location whose line is the read's offset (defaulting to 1). The window is
     // derived from the RAW args (offset/limit as the model passed them), NOT the
-    // tool's defaulted 1/READ_LIMIT, so an unbounded read shows a bare title.
+    // tool's defaulted 1/configured limit, so an unbounded read shows a bare
+    // title (and the presenter stays a pure function of args, config-free).
     presentCall(args): GenericCallView {
       const { offset, limit } = args
       const window = limit !== undefined && limit > 0

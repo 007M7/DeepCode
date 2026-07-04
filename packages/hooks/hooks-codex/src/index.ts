@@ -27,6 +27,7 @@ import {
   matchesMatcher,
   mergeHookOutputs,
   runHook,
+  summarizeStderr,
   type HookOutput,
   type MatcherGroup,
   type MergedHookOutcome,
@@ -49,12 +50,15 @@ export interface Config {
   model?: string
   /** Default per-hook timeout in ms when a hook sets none (Codex default: 600000). */
   defaultTimeoutMs?: number
+  /** Character cap for the `hook/result` event's persisted stderr summary. */
+  stderrSummaryMaxChars?: number
 }
 
 export const Config: z<Config> = z.object({
   configPath: z.string().required(),
   model: z.string().default(''),
   defaultTimeoutMs: z.number().default(600_000),
+  stderrSummaryMaxChars: z.number().default(500),
 })
 
 let handlerCounter = 0
@@ -63,12 +67,6 @@ function nextHandlerId(point: string): string {
 }
 
 const PLUGIN_SOURCE: MessageSource = { kind: 'plugin', plugin: 'hooks-codex' }
-
-function summarize(stderr: string): string | undefined {
-  const t = stderr.trim()
-  if (t.length === 0) return undefined
-  return t.length > 500 ? t.slice(0, 500) + '…' : t
-}
 
 export function apply(ctx: Context, config: Config): void {
   let parsed: CodexHookConfig = {}
@@ -85,6 +83,7 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   const defaultTimeoutMs = config.defaultTimeoutMs ?? 600_000
+  const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? 500
   const model = config.model ?? ''
 
   async function runPoint(
@@ -140,7 +139,7 @@ export function apply(ctx: Context, config: Config): void {
           ctx.logger.warn(`hooks-codex: ${point} hook emitted a systemMessage, which is not yet surfaced (ignored)`)
         }
         if (session && opts.turn !== undefined) {
-          const stderrSummary = summarize(output.stderr)
+          const stderrSummary = summarizeStderr(output.stderr, stderrSummaryMaxChars)
           appendHookResult(session, {
             turn: opts.turn, point, handlerId,
             decision: output.decision ?? (output.continue === false ? 'stop' : 'pass'),

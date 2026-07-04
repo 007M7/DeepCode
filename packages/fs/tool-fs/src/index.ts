@@ -23,11 +23,14 @@
  */
 
 import type { Context } from 'cordis'
-import { applyReadTool } from './read.ts'
+import z from 'schemastery'
+import { applyReadTool, READ_LIMIT, STREAM_MIN_SIZE } from './read.ts'
 import { applyWriteTool } from './write.ts'
 import { applyEditTool } from './edit.ts'
+import { READ_MAX_BYTES, READ_MAX_LINE_LENGTH } from './read-render.ts'
 
 export { READ_LIMIT, STREAM_MIN_SIZE, applyReadTool, parseReadArgs } from './read.ts'
+export type { ReadToolCaps } from './read.ts'
 export { applyWriteTool, formatWriteOutput, parseWriteArgs } from './write.ts'
 export { applyEditTool, formatEditOutput, parseEditArgs } from './edit.ts'
 export { READ_MAX_BYTES, READ_MAX_LINE_LENGTH, buildWindow, formatReadOutput } from './read-render.ts'
@@ -41,9 +44,49 @@ export const name = 'tool-fs'
 /** Services required by the filesystem tool suite. */
 export const inject = ['tools', 'fs', 'systemPrompt']
 
+/** Plugin config (all optional — `Config` supplies the defaults). */
+export interface Config {
+  /** Default and maximum number of lines returned by one `read` call. */
+  readLimit?: number
+  /** Maximum characters returned for a single line before truncation. */
+  readMaxLineLength?: number
+  /** Maximum bytes returned for the selected lines of one `read` call. */
+  readMaxBytes?: number
+  /** Files at or above this size stream instead of loading whole into memory. */
+  readStreamMinSize?: number
+}
+
+export const Config: z<Config> = z.object({
+  readLimit: z.number().default(READ_LIMIT),
+  readMaxLineLength: z.number().default(READ_MAX_LINE_LENGTH),
+  readMaxBytes: z.number().default(READ_MAX_BYTES),
+  readStreamMinSize: z.number().default(STREAM_MIN_SIZE),
+})
+
+/** The shape after schemastery applied the defaults. */
+type ResolvedConfig = Required<Config>
+
+/** A read cap must be a positive finite number to bound output and memory. */
+function assertPositiveFinite(name: string, value: number): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`tool-fs: ${name} must be a positive finite number`)
+  }
+}
+
 /** Register the full `read`/`write`/`edit` filesystem tool suite. */
-export function apply(ctx: Context): void {
-  applyReadTool(ctx)
+export function apply(ctx: Context, config: Config): void {
+  // schemastery (Config) has already filled every defaulted field.
+  const resolved = config as ResolvedConfig
+  assertPositiveFinite('readLimit', resolved.readLimit)
+  assertPositiveFinite('readMaxLineLength', resolved.readMaxLineLength)
+  assertPositiveFinite('readMaxBytes', resolved.readMaxBytes)
+  assertPositiveFinite('readStreamMinSize', resolved.readStreamMinSize)
+  applyReadTool(ctx, {
+    limit: resolved.readLimit,
+    maxLineLength: resolved.readMaxLineLength,
+    maxBytes: resolved.readMaxBytes,
+    streamMinSize: resolved.readStreamMinSize,
+  })
   applyWriteTool(ctx)
   applyEditTool(ctx)
 }

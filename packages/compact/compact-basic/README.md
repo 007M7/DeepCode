@@ -32,6 +32,7 @@ Every knob is **required** except `auto` — there is no concrete data yet to ju
 | `maxTokens` | yes | Provider generation cap for the summarization call; may include reasoning tokens. |
 | `compactionRetries` | yes | Extra compaction attempts after the first if the compacted surface remains over threshold. |
 | `auto` | no (default `true`) | Register the `agent/pre-step` auto-compaction listener. Set `false` for manual-only. |
+| `charsPerToken` | no (default `4`) | Token-estimator text density (estimated tokens = chars / `charsPerToken`; may be fractional). The default suits English text; CJK-heavy deployments should set ~1-2 or the estimate undershoots several-fold and compaction fires too late. |
 
 ## Usage
 
