@@ -197,9 +197,22 @@ export interface TodoItem {
  * the invariants plugin checks, is a breaking change to the on-disk format.
  */
 export interface SessionEventMap {
+  /**
+   * Opens turn `turn`. `trigger` records what started it — a drained message
+   * batch or an idle-time injection. The turn is the durability/replay
+   * boundary: every event sits between a `turn/start` and its matching
+   * `turn/end` (the turn-enclosure invariant).
+   */
   'turn/start': { turn: number; trigger: TurnTrigger }
+  /**
+   * Closes turn `turn` with the {@link TurnEndReason} that ended it. The loop
+   * fires the awaited `session/flush` checkpoint at every turn end, so the turn
+   * boundary is also the durable-commit boundary.
+   */
   'turn/end': { turn: number; reason: TurnEndReason }
+  /** Opens step `step` of turn `turn` — one model call plus the tool executions it requested. */
   'step/start': { turn: number; step: number }
+  /** Closes step `step` of turn `turn`. */
   'step/end': { turn: number; step: number }
   /** A user-visible prompt (queued message drained at turn start). */
   'user/message': { content: ContentBlock[]; source: MessageSource }
@@ -229,6 +242,11 @@ export interface SessionEventMap {
    * usage record). `usage` is absent when the adapter reported none.
    */
   'assistant/message': { turn: number; step: number; content: ContentBlock[]; usage?: TokenUsage }
+  /**
+   * The model requested one tool invocation: `name` with the raw `arguments`
+   * JSON string exactly as the model produced it (unparsed). `callId` pairs the
+   * call with its `tool/result`.
+   */
   'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
   /**
    * A completed tool call's model-facing result, plus an optional tool-private

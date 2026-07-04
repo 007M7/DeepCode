@@ -23,7 +23,6 @@ declare module '@deepseek-ai/dsh-session' {
      * pattern that selected it (absent for match-all), `handlerId` a stable id
      * for the command (so an invoked/result pair correlates). `turn` is the open
      * turn the invocation lives inside.
-     * @mode emit
      */
     'hook/invoked': {
       turn: number
@@ -42,7 +41,6 @@ declare module '@deepseek-ai/dsh-session' {
      * the bridge's configured cap (the block reason source on exit 2),
      * `durationMs` the wall-clock runtime (audit timing; snapshot replay
      * normalizes it). `turn` matches the `hook/invoked`.
-     * @mode emit
      */
     'hook/result': {
       turn: number

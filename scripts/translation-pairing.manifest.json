@@ -11,6 +11,7 @@
     "docs/module-graph.md",
     "docs/cordis-catalog/",
     "docs/tool-catalog/",
+    "docs/persistence-catalog/",
     "docs/i18n/terminology.md"
   ]
 }

@@ -43,13 +43,7 @@ Compaction is serialized via a log-recorded lock: `compactRegion` refuses to sta
 
 ## Events
 
-The `compact/*` events extend `SessionEventMap` (merge-extensible) via declaration merging — they are session events, not cordis `Events`:
-
-| Event | Payload | On surface? |
-|---|---|---|
-| `compact/start` | `{ turn }` | no (log-only) |
-| `compact/summary` | `{ summary, shadowedRange, shadowedSeqs, shadowedTokenCount }` | no (log-only) |
-| `compact/end` | `{ turn, error? }` | no (log-only) |
+The `compact/*` events extend `SessionEventMap` (merge-extensible) via declaration merging — they are session events, not cordis `Events`, and all three are log-only (no `surfaceOp`). Per-event payloads and semantics are in the generated [persistence log event catalog](../../../docs/persistence-catalog/log-events.md).
 
 ## Implementing a backend
 
