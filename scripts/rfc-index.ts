@@ -23,20 +23,20 @@ import { globSync } from 'node:fs'
 export const rfcRoot = resolve(import.meta.dirname, '../docs/rfc')
 
 /** The closed set of RFC lifecycles (top-level folders under docs/rfc/). */
-export const LIFECYCLES = ['proposed', 'implemented', 'rejected'] as const
+const LIFECYCLES = ['proposed', 'implemented', 'rejected'] as const
 
 /**
  * The closed set of RFC classes (nested folder under each lifecycle). Adding a
  * class is a deliberate act: extend this list AND the README's Classification
  * section. The gate rejects any folder not listed here.
  */
-export const CLASSES = ['feature', 'bug-fix', 'simplification', 'architecture', 'process', 'testing'] as const
+const CLASSES = ['feature', 'bug-fix', 'simplification', 'architecture', 'process', 'testing'] as const
 
 /** Non-RFC Markdown allowed to sit directly at a lifecycle root. */
 const ROOT_ALLOWLIST = new Set(['AGENTS.md', 'CLAUDE.md'])
 
 /** Title-case a class/lifecycle folder name for a README heading. */
-export const heading = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1)
+const heading = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1)
 
 /** One RFC file, as discovered by the walker. */
 export interface Rfc {
@@ -95,7 +95,7 @@ export function walkRfcTree(): { rfcs: Rfc[]; errors: string[] } {
 }
 
 /** The begin/end marker lines that delimit one lifecycle's generated region. */
-export const markers = (lifecycle: string): { begin: string; end: string } => ({
+const markers = (lifecycle: string): { begin: string; end: string } => ({
   begin: `<!-- gen-rfc-index:begin ${lifecycle} -->`,
   end: `<!-- gen-rfc-index:end ${lifecycle} -->`,
 })
@@ -105,7 +105,7 @@ export const markers = (lifecycle: string): { begin: string; end: string } => ({
  * `| Title | First proposed |` table for every non-empty class, in CLASSES
  * order, rows sorted by date then filename.
  */
-export function renderLifecycle(rfcs: Rfc[], lifecycle: string): string {
+function renderLifecycle(rfcs: Rfc[], lifecycle: string): string {
   const sections: string[] = []
   for (const cls of CLASSES) {
     const rows = rfcs
