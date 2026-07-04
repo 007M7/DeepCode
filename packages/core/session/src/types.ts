@@ -199,9 +199,9 @@ export interface TodoItem {
 export interface SessionEventMap {
   /**
    * Opens turn `turn`. `trigger` records what started it — a drained message
-   * batch, a continuation, or an idle-time injection. The turn is the
-   * durability/replay boundary: every event sits between a `turn/start` and its
-   * matching `turn/end` (the turn-enclosure invariant).
+   * batch or an idle-time injection. The turn is the durability/replay
+   * boundary: every event sits between a `turn/start` and its matching
+   * `turn/end` (the turn-enclosure invariant).
    */
   'turn/start': { turn: number; trigger: TurnTrigger }
   /**
