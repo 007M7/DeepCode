@@ -261,6 +261,14 @@ describe('bash tool', () => {
     })
   })
 
+  it('contributes the exit-code habit as its prompt section (guidance the descriptions cannot carry)', async () => {
+    const ctx = await setup()
+    const assembly = await ctx.systemPrompt.assemble()
+    const section = assembly.sections.find(s => s.name === 'tool:bash')
+    expect(section?.order).toBe(105)
+    expect(section?.text).toContain('[exit code: N]')
+  })
+
   it('unregisters everything when the plugin fiber is disposed (HMR safety)', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -268,8 +276,10 @@ describe('bash tool', () => {
     await ctx.plugin(LocalBashExecutor, {})
     const fiber = await ctx.plugin(ToolBash)
     expect(ctx.tools.schemas()).toHaveLength(3)
+    expect((await ctx.systemPrompt.assemble()).sections.map(s => s.name)).toEqual(['tool:bash'])
     await fiber.dispose()
     expect(ctx.tools.schemas()).toHaveLength(0)
+    expect((await ctx.systemPrompt.assemble()).sections).toHaveLength(0)
   })
 
   it('tools depend on the executor: no registration without ctx.bash', async () => {

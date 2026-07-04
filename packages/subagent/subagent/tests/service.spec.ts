@@ -22,6 +22,7 @@ const NO_CAPS: SubagentCapabilities = { outputSchema: false, depthLimit: false, 
 /** A scripted provider whose run settles immediately with a fixed result. */
 class StubProvider implements SubagentProvider {
   startCount = 0
+  readonly inheritsParentContext = false
   constructor(
     readonly name: string,
     readonly capabilities: SubagentCapabilities = ALL_CAPS,
@@ -234,6 +235,7 @@ describe('SubagentService', () => {
     ctx.subagents.registerProvider({
       name: 'rej',
       capabilities: NO_CAPS,
+      inheritsParentContext: false,
       start: () => ({
         id: AgentId('rej-child'),
         result: Promise.reject(new Error('infra fault')),
@@ -267,6 +269,7 @@ describe('SubagentService', () => {
     ctx.subagents.registerProvider({
       name: 'unclone',
       capabilities: NO_CAPS,
+      inheritsParentContext: false,
       start: () => ({
         id: AgentId('unclone-child'),
         result: Promise.resolve({ output: uncloneable, stopReason: 'completed' } as SubagentResult),
@@ -296,6 +299,7 @@ describe('SubagentService', () => {
     ctx.subagents.registerProvider({
       name: 'rejecter',
       capabilities: NO_CAPS,
+      inheritsParentContext: false,
       start: () => ({
         id: AgentId('rej-child'),
         result: Promise.reject(new Error('infra fault')),

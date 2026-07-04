@@ -15,7 +15,7 @@ It is a **client-driver / UI plugin**, the structured analogue of the readline `
 | Key | Default | Meaning |
 |---|---|---|
 | `model` | — | Model name for created agents (must have a registered adapter). |
-| `systemPrompt` | — | Per-agent system prompt. |
+| `systemPrompt` | — | Per-agent persona template (may reference `{{model}}`/`{{cwd}}`). |
 
 The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 'deepseek-harness-acp', version: '0.0.1' }`) — branding is a literal at the `initialize` site, not config.
 

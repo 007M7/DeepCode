@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import SystemPrompt, { PromptAssembly, PromptSection, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt, { AssembleContext, PromptAssembly, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 
 describe('SystemPrompt', () => {
-  it('assembles sections in order with dynamic text and collected tools', async () => {
+  it('assembles sections in order with context-resolved text and collected tools', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
 
@@ -14,8 +14,26 @@ describe('SystemPrompt', () => {
 
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.map(s => s.name)).toEqual(['persona', 'rules', 'cwd'])
+    expect(assembly.sections.map(s => s.text)).toEqual(['You are DeepSeek Code.', 'Be precise.', 'cwd: /tmp'])
     expect(assembly.tools).toEqual([{ name: 'echo', description: 'echo back', parameters: {} }])
+    expect(assembly.variables).toEqual({})
     expect(renderPrompt(assembly)).toBe('You are DeepSeek Code.\n\nBe precise.\n\ncwd: /tmp')
+  })
+
+  it('resolves section text providers against the assemble context, at each assemble call', async () => {
+    // The context is HOW per-agent sections work (the loop passes { agent });
+    // this spec stays agent-agnostic and smuggles a marker through a plain field.
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    let calls = 0
+    ctx.systemPrompt.section({
+      name: 'dynamic',
+      order: 0,
+      text: (context: AssembleContext) => `call ${++calls} for ${(context as { who?: string }).who ?? 'nobody'}`,
+    })
+
+    expect((await ctx.systemPrompt.assemble({ who: 'alice' } as AssembleContext)).sections[0]!.text).toBe('call 1 for alice')
+    expect((await ctx.systemPrompt.assemble()).sections[0]!.text).toBe('call 2 for nobody')
   })
 
   it('removes contributions when the contributing fiber is disposed (HMR safety)', async () => {
@@ -25,13 +43,28 @@ describe('SystemPrompt', () => {
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       inner.systemPrompt.section({ name: 'scoped', order: 0, text: 'scoped section' })
       inner.systemPrompt.tools(() => [{ name: 'scoped-tool', description: '', parameters: {} }])
+      inner.systemPrompt.variable('scoped_var', () => 'v')
     }, { inject: ['systemPrompt'] }))
 
-    expect((await ctx.systemPrompt.assemble()).sections).toHaveLength(1)
+    const before = await ctx.systemPrompt.assemble()
+    expect(before.sections).toHaveLength(1)
+    expect(before.variables).toEqual({ scoped_var: 'v' })
     await fiber.dispose()
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections).toHaveLength(0)
     expect(assembly.tools).toHaveLength(0)
+    expect(assembly.variables).toEqual({})
+  })
+
+  it('rejects a duplicate section name (a double-loaded plugin must fail, not double its text)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    ctx.systemPrompt.section({ name: 'dup', order: 0, text: 'first' })
+    expect(() => ctx.systemPrompt.section({ name: 'dup', order: 1, text: 'second' }))
+      .toThrow('prompt section "dup" is already registered')
+    // The failed registration leaked nothing; the original stays intact.
+    const assembly = await ctx.systemPrompt.assemble()
+    expect(assembly.sections.map(s => s.text)).toEqual(['first'])
   })
 
   it('rolls back a section when a system-prompt/change listener throws (P1-1)', async () => {
@@ -72,26 +105,47 @@ describe('SystemPrompt', () => {
     expect((await ctx.systemPrompt.assemble()).tools.map(t => t.name)).toEqual(['t'])
   })
 
-  it('composes multiple system-prompt/assemble waterfall listeners in order', async () => {
+  it('rolls back a variable when a system-prompt/change listener throws (P1-1)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+
+    let threw = false
+    const off = ctx.on('system-prompt/change', () => {
+      if (!threw) { threw = true; throw new Error('boom change listener') }
+    })
+
+    expect(() => ctx.systemPrompt.variable('v', () => 'x')).toThrow('boom change listener')
+    expect((await ctx.systemPrompt.assemble()).variables).toEqual({}) // nothing leaked
+
+    off()
+    ctx.systemPrompt.variable('v', () => 'x')
+    expect((await ctx.systemPrompt.assemble()).variables).toEqual({ v: 'x' })
+  })
+
+  it('composes multiple system-prompt/assemble waterfall listeners in order, with the context', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     ctx.systemPrompt.section({ name: 'base', order: 0, text: 'base' })
 
     // Listener A appends a section, then delegates.
-    ctx.on('system-prompt/assemble', async (assembly: PromptAssembly, next) => {
+    const contexts: AssembleContext[] = []
+    ctx.on('system-prompt/assemble', async (assembly: PromptAssembly, context, next) => {
+      contexts.push(context)
       assembly.sections.push({ name: 'from-a', order: 100, text: 'a' })
       return next()
     })
     // Listener B (registered later, runs after A) sees A's contribution.
     const seen: string[][] = []
-    ctx.on('system-prompt/assemble', async (assembly: PromptAssembly, next) => {
+    ctx.on('system-prompt/assemble', async (assembly: PromptAssembly, _context, next) => {
       seen.push(assembly.sections.map(s => s.name))
       return next()
     })
 
-    const assembly = await ctx.systemPrompt.assemble()
+    const passed: AssembleContext = {}
+    const assembly = await ctx.systemPrompt.assemble(passed)
     expect(seen).toEqual([['base', 'from-a']])
     expect(assembly.sections.map(s => s.name)).toEqual(['base', 'from-a'])
+    expect(contexts[0]).toBe(passed) // the caller's context reaches listeners
   })
 
   it('lets a waterfall listener short-circuit by not calling next()', async () => {
@@ -100,7 +154,7 @@ describe('SystemPrompt', () => {
     ctx.systemPrompt.section({ name: 'real', order: 0, text: 'real' })
 
     ctx.on('system-prompt/assemble', async () => {
-      return { sections: [], tools: [] } satisfies PromptAssembly
+      return { sections: [], tools: [], variables: {} } satisfies PromptAssembly
     })
 
     const assembly = await ctx.systemPrompt.assemble()
@@ -115,40 +169,33 @@ describe('SystemPrompt', () => {
 
     const first = await ctx.systemPrompt.assemble()
     first.sections[0]!.name = 'mutated'
+    first.sections[0]!.text = 'mutated'
     first.tools[0]!.description = 'mutated'
     const firstParameters = first.tools[0]!.parameters as { properties: Record<string, unknown> }
     firstParameters.properties['leak'] = { type: 'string' }
 
     const second = await ctx.systemPrompt.assemble()
     expect(second.sections.map(section => section.name)).toEqual(['base'])
+    expect(second.sections.map(section => section.text)).toEqual(['base'])
     expect(second.tools).toEqual([{ name: 't', description: 'tool', parameters: { type: 'object', properties: {} } }])
   })
 
   it('filters out empty section text from renderPrompt', () => {
-    // Direct test of renderPrompt: function returning empty string, and empty static text
     const result = renderPrompt({
       sections: [
-        { name: 'empty-fn', order: 0, text: () => '' },
+        { name: 'empty', order: 0, text: '' },
         { name: 'real', order: 1, text: 'content' },
-        { name: 'empty-static', order: 2, text: '' },
       ],
       tools: [],
+      variables: {},
     })
     expect(result).toBe('content')
-  })
-
-  it('evaluates dynamic function-text sections at each renderPrompt call', () => {
-    let counter = 0
-    const section: PromptSection = { name: 'dynamic', order: 0, text: () => `call ${++counter}` }
-    expect(renderPrompt({ sections: [section], tools: [] })).toBe('call 1')
-    expect(renderPrompt({ sections: [section], tools: [] })).toBe('call 2')
   })
 
   it('emits system-prompt/change when a tool provider is registered and disposed', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
 
-    const changes: number = 0
     let changeCount = 0
     ctx.on('system-prompt/change', () => void changeCount++)
 
@@ -159,7 +206,6 @@ describe('SystemPrompt', () => {
     dispose()
     // disposal emits change again
     expect(changeCount).toBe(2)
-    void changes // silence unused
   })
 
   it('cleans up tool providers on fiber dispose', async () => {
@@ -195,5 +241,97 @@ describe('SystemPrompt', () => {
 
     dispose()
     expect((await ctx.systemPrompt.assemble()).tools).toHaveLength(0)
+  })
+
+  describe('prompt variables', () => {
+    it('resolves each variable against the assemble context and emits change on register/unregister', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      let changeCount = 0
+      ctx.on('system-prompt/change', () => void changeCount++)
+
+      const dispose = ctx.systemPrompt.variable('who', context => (context as { who?: string }).who)
+      expect(changeCount).toBe(1)
+
+      expect((await ctx.systemPrompt.assemble({ who: 'alice' } as AssembleContext)).variables).toEqual({ who: 'alice' })
+      // A provider returning undefined records "registered but no value here".
+      expect((await ctx.systemPrompt.assemble()).variables).toEqual({ who: undefined })
+
+      dispose()
+      expect(changeCount).toBe(2)
+      expect((await ctx.systemPrompt.assemble()).variables).toEqual({})
+    })
+
+    it('rejects a duplicate variable name and an unreferenceable name', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      ctx.systemPrompt.variable('model', () => 'm1')
+      expect(() => ctx.systemPrompt.variable('model', () => 'm2'))
+        .toThrow('prompt variable "model" is already registered')
+      expect(() => ctx.systemPrompt.variable('Not Valid', () => 'x'))
+        .toThrow('invalid prompt variable name "Not Valid"')
+      // Neither failed registration leaked.
+      expect((await ctx.systemPrompt.assemble()).variables).toEqual({ model: 'm1' })
+    })
+
+    it('interpolates {{name}} references in section text at render', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      ctx.systemPrompt.section({ name: 'persona', order: 0, text: 'You run on {{model}} in {{cwd}}.' })
+      ctx.systemPrompt.variable('model', () => 'deepseek-v4')
+      ctx.systemPrompt.variable('cwd', () => '/work')
+
+      expect(renderPrompt(await ctx.systemPrompt.assemble())).toBe('You run on deepseek-v4 in /work.')
+    })
+
+    it('lets a waterfall listener add or override variables before render', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      ctx.systemPrompt.section({ name: 's', order: 0, text: '{{extra}}' })
+      ctx.on('system-prompt/assemble', async (assembly: PromptAssembly, _context, next) => {
+        assembly.variables['extra'] = 'from-waterfall'
+        return next()
+      })
+      expect(renderPrompt(await ctx.systemPrompt.assemble())).toBe('from-waterfall')
+    })
+
+    it('throws on a reference to an unregistered variable, listing what exists', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      ctx.systemPrompt.section({ name: 'persona', order: 0, text: 'on {{modle}}' })
+      ctx.systemPrompt.variable('model', () => 'm')
+      await expect(async () => renderPrompt(await ctx.systemPrompt.assemble()))
+        .rejects.toThrow('unknown prompt variable "{{modle}}" in section "persona"; registered variables: model')
+    })
+
+    it('names "(none)" when no variables are registered at all', () => {
+      expect(() => renderPrompt({ sections: [{ name: 's', order: 0, text: '{{x}}' }], tools: [], variables: {} }))
+        .toThrow('unknown prompt variable "{{x}}" in section "s"; registered variables: (none)')
+    })
+
+    it('throws when a referenced variable has no value for this assembly', () => {
+      expect(() => renderPrompt({
+        sections: [{ name: 'persona', order: 0, text: 'in {{cwd}}' }],
+        tools: [],
+        variables: { cwd: undefined },
+      })).toThrow('prompt variable "{{cwd}}" has no value for this assembly (section "persona")')
+    })
+
+    it('throws on a malformed complete reference, e.g. inner spaces', () => {
+      expect(() => renderPrompt({
+        sections: [{ name: 's', order: 0, text: 'on {{ model }}' }],
+        tools: [],
+        variables: { model: 'm' },
+      })).toThrow('malformed prompt variable reference "{{ model }}" in section "s"')
+    })
+
+    it('leaves a lone {{ without a closing }} verbatim (only complete groups are interpreted)', () => {
+      const text = renderPrompt({
+        sections: [{ name: 's', order: 0, text: 'shell ${X:-{{fallback} stays' }],
+        tools: [],
+        variables: {},
+      })
+      expect(text).toBe('shell ${X:-{{fallback} stays')
+    })
   })
 })

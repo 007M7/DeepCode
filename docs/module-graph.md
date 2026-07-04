@@ -21,6 +21,7 @@ graph TD
   agent --> brand
   agent --> llm
   agent --> session
+  agent --> system-prompt
   compact --> llm
   compact --> session
   fs-local --> fs
@@ -70,6 +71,7 @@ graph TD
   tool-bash --> agent
   tool-bash --> bash
   tool-bash --> llm
+  tool-bash --> system-prompt
   tool-bash --> tools
   tool-fs --> fs
   tool-fs --> llm
@@ -142,7 +144,7 @@ graph TD
 | `session` | `brand`, `llm` |
 | `system-prompt` | `llm` |
 | `web` | `llm` |
-| `agent` | `brand`, `llm`, `session` |
+| `agent` | `brand`, `llm`, `session`, `system-prompt` |
 | `compact` | `llm`, `session` |
 | `fs-local` | `fs` |
 | `fs-policy` | `fs` |
@@ -162,7 +164,7 @@ graph TD
 | `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
 | `hooks-codex` | `agent`, `hook-protocol`, `llm`, `session`, `tools` |
 | `subagent` | `agent`, `llm`, `tools` |
-| `tool-bash` | `agent`, `bash`, `llm`, `tools` |
+| `tool-bash` | `agent`, `bash`, `llm`, `system-prompt`, `tools` |
 | `tool-fs` | `fs`, `llm`, `session`, `system-prompt`, `tools` |
 | `tool-todo` | `agent`, `session`, `tools` |
 | `tool-web` | `llm`, `system-prompt`, `tools`, `web` |

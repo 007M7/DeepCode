@@ -69,7 +69,7 @@ A `Session` is an append-only log of typed `SessionEvent`s — the single source
 
 ## Prompt assembly (dsh-system-prompt)
 
-Plugins contribute `PromptSection`s (named, ordered, static or computed) and tool-schema providers; `assemble()` returns `PromptAssembly { sections, tools }` through the `system-prompt/assemble` waterfall. Tool schemas are deliberately part of the assembly — "what the model is told it can do" is one coherent thing — though adapters transmit them as the wire-level `tools` field ([RFC](rfc/implemented/architecture/2026-06-11-tool-schemas-in-prompt-assembly.md)).
+Plugins contribute `PromptSection`s (named, ordered, static or computed from the per-call `AssembleContext`), tool-schema providers, and named **prompt variables** interpolated as `{{name}}` at render (strict: an unknown or valueless reference throws). `renderPrompt(assemble({ agent }))` IS the full prompt: the loop's `agent:persona` section (order 0) and its `model`/`cwd` variables carry the per-agent facts — no second composition path. Tool schemas are deliberately part of the assembly ([RFC](rfc/implemented/architecture/2026-06-11-tool-schemas-in-prompt-assembly.md)); prompt-fact ownership (persona vs description vs section vs variable) is pinned by [the prompt-variables RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
 
 ## Tool pipeline (dsh-tools)
 
@@ -99,7 +99,8 @@ forever:
     every prompt blocked → 'turn/end'(rejected), 0 steps ⟵ zero-step turn, model never called
     STEP loop:
       drain steering (late steering from previous step's listeners)
-      assembly = ctx.systemPrompt.assemble()          ⟵ waterfall system-prompt/assemble
+      assembly = ctx.systemPrompt.assemble({agent})   ⟵ waterfall system-prompt/assemble; renderPrompt
+                                                         (persona section + {{variables}}) IS the prompt
       await ctx.serial('agent/pre-step')              ⟵ surface mutation (compaction) OUTSIDE the step
       session('step/start')                           ⟵ durable step boundary (no agent/* mirror)
       req = {model, system, tools, messages: session.deriveMessages(), signal}

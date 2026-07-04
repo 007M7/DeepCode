@@ -6,6 +6,10 @@ The model-facing `subagent` tool: delegate a self-contained task to a child agen
 
 This plugin binds to **exactly one** provider (`Config.provider`). The model sees only `{ description, prompt }` — there is no provider/type parameter in the schema. To expose more than one transport, load the plugin more than once, each bound to a different provider **and a distinct `toolName`** (the tool registry rejects a duplicate name, so a second load that kept the default `subagent` name would throw). Keeping selection in config (not the schema) is the deliberate split: the *service* holds a multi-provider registry; the *tool* picks one.
 
+## The description states the provider's context contract
+
+The tool description and the `prompt` parameter description are DERIVED from the bound provider's `inheritsParentContext` (`providerWording`): a fresh-context provider (spawn, ACP) gets the standalone-prompt wording ("it does not see this conversation"), an inheriting provider (fork) tells the model the child already sees the conversation's completed turns and its prompt should state only what is new. Because the description is fixed at tool registration, `apply` resolves the provider at LOAD time and **throws if it is not registered yet — list the backend plugin before this one in `cordis.yml`**; a wiring mistake fails loudly at boot instead of shipping a lying description.
+
 | Config key | Meaning |
 |---|---|
 | `provider` (required) | The `ctx.subagents` provider name to start runs on (`spawn`, `fork`, `acp`, …). |

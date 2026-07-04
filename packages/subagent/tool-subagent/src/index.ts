@@ -11,6 +11,13 @@
  * — there is no provider/type parameter in the model-facing schema. The model
  * sees only `{ description, prompt }`.
  *
+ * The tool DESCRIPTION is derived from the bound provider's context contract
+ * ({@link providerWording}): a fresh-context provider (spawn, ACP) gets the
+ * standalone-prompt wording, an inheriting provider (fork) tells the model the
+ * child already sees the conversation's completed turns. `apply` therefore
+ * resolves the provider at load time and throws if it is not registered yet —
+ * list the backend plugin before this one in `cordis.yml`.
+ *
  * Collection is SYNCHRONOUS this cut: `execute` starts a run and awaits
  * `run.result` inside a `try/finally` that always disposes the run, so the
  * owned child agent/session is torn down on every path (success, error, abort)
@@ -92,15 +99,56 @@ function stopReasonError(result: SubagentResult): string | undefined {
   }
 }
 
-export function apply(ctx: Context, config: Config): void {
-  ctx.tools.register(defineTool({
-    name: config.toolName ?? 'subagent',
+/**
+ * Model-facing wording per context contract ({@link SubagentProvider.inheritsParentContext}).
+ * A fresh child needs a standalone prompt; a forked child already sees the
+ * conversation's completed turns — telling the model to restate everything
+ * (or, worse, that the child "does not see this conversation") would be false
+ * for a fork. Exported for tests.
+ * @param inherits - the bound provider's context contract.
+ * @returns the tool `description` and the `prompt` parameter description.
+ */
+export function providerWording(inherits: boolean): { description: string; promptDescription: string } {
+  if (inherits) {
+    return {
+      description:
+        'Delegate a task to a subagent that INHERITS this conversation: a child agent seeded with all '
+        + 'completed turns so far (it does not see the current in-flight turn), returning only its final '
+        + 'result. Use this when the subtask builds on this conversation\'s context — a follow-up analysis, '
+        + 'a review, a continuation — without consuming this conversation\'s context for the work itself. '
+        + 'You receive only its final answer, not its intermediate steps.',
+      promptDescription:
+        'The task for the subagent. It already sees this conversation\'s completed turns, so build on them '
+        + 'freely and state only what is new.',
+    }
+  }
+  return {
     description:
       'Delegate a self-contained task to a subagent (a separate agent that works in its own context) '
       + 'and return its final result. Use this to offload focused, independent work — research, a scoped '
       + 'implementation, an analysis — so it does not consume this conversation\'s context. The subagent '
       + 'runs to completion and you receive only its final answer, not its intermediate steps. Give it a '
       + 'complete, standalone prompt: it does not see this conversation.',
+    promptDescription:
+      'The complete, self-contained task for the subagent. It does not share this '
+      + 'conversation\'s context, so include everything it needs.',
+  }
+}
+
+export function apply(ctx: Context, config: Config): void {
+  // Resolve the bound provider NOW: the tool description must state the
+  // provider's context contract, so the backend plugin must be loaded before
+  // this one (list it earlier in cordis.yml). Fail loud at load, not with a
+  // lying description at model time.
+  const provider = ctx.subagents.getProvider(config.provider)
+  if (provider === undefined) {
+    throw new Error(
+      `subagent provider "${config.provider}" is not registered; load its backend plugin before tool-subagent`)
+  }
+  const wording = providerWording(provider.inheritsParentContext)
+  ctx.tools.register(defineTool({
+    name: config.toolName ?? 'subagent',
+    description: wording.description,
     parameters: {
       description: {
         type: 'string',
@@ -110,8 +158,7 @@ export function apply(ctx: Context, config: Config): void {
       prompt: {
         type: 'string',
         required: true,
-        description: 'The complete, self-contained task for the subagent. It does not share this '
-          + 'conversation\'s context, so include everything it needs.',
+        description: wording.promptDescription,
       },
     },
     async execute(args, exec): Promise<ContentBlock[]> {

@@ -25,7 +25,7 @@ An agent was registered in the AgentRegistry and is ready to receive messages.
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:234`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:255`](../../packages/core/agent/src/types.ts)
 
 #### `agent/disposed` — emit
 
@@ -37,7 +37,7 @@ An agent was disposed and removed from the registry; its fiber and any in-flight
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:241`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:262`](../../packages/core/agent/src/types.ts)
 
 #### `agent/error` — emit
 
@@ -49,7 +49,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:380`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:401`](../../packages/core/agent/src/types.ts)
 
 #### `agent/pre-step` — serial
 
@@ -63,7 +63,7 @@ Serial (awaited in registration order), not a waterfall: a listener mutates the 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:319`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:340`](../../packages/core/agent/src/types.ts)
 
 #### `agent/prompt-submit` — waterfall
 
@@ -75,7 +75,7 @@ Waterfall: decide what happens to ONE drained queued message before it becomes a
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:332`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:353`](../../packages/core/agent/src/types.ts)
 
 #### `agent/queued` — emit
 
@@ -87,7 +87,7 @@ A message entered the agent's inbox (queued or steering). `source` is the resolv
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:259`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:280`](../../packages/core/agent/src/types.ts)
 
 #### `agent/request` — waterfall
 
@@ -99,7 +99,7 @@ Waterfall: mutate the fully-assembled GenerateOptions before the model call (hoo
 
 Types: [Agent](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:345`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:366`](../../packages/core/agent/src/types.ts)
 
 #### `agent/session-start` — emit
 
@@ -111,7 +111,7 @@ The agent's session lifecycle began, fired once before its first turn. `source` 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:274`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:295`](../../packages/core/agent/src/types.ts)
 
 #### `agent/status` — emit
 
@@ -123,7 +123,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive lifecycle 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:250`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:271`](../../packages/core/agent/src/types.ts)
 
 #### `agent/step-result` — waterfall
 
@@ -135,7 +135,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:355`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:376`](../../packages/core/agent/src/types.ts)
 
 #### `agent/turn-continuation` — waterfall
 
@@ -147,7 +147,7 @@ Waterfall: override the turn-continuation decision via a typed ContinuationDecis
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:368`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:389`](../../packages/core/agent/src/types.ts)
 
 ### `fs/*`
 
@@ -261,23 +261,23 @@ Source: [`packages/subagent/subagent/src/index.ts:70`](../../packages/subagent/s
 
 #### `system-prompt/assemble` — waterfall
 
-Waterfall around prompt assembly — mutate or extend the PromptAssembly (sections + tool schemas) before it is rendered. Bound to the SystemPrompt service; call `next()` to delegate.
+Waterfall around prompt assembly — mutate or extend the PromptAssembly (sections + tools + variables) before it is rendered. Bound to the SystemPrompt service; call `next()` to delegate.
 
 ```ts cordis-catalog
-'system-prompt/assemble'(this: SystemPrompt, assembly: PromptAssembly, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>
+'system-prompt/assemble'(this: SystemPrompt, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:26`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:32`](../../packages/core/system-prompt/src/index.ts)
 
 #### `system-prompt/change` — emit
 
-A section or tool provider was registered or unregistered (the assembly inputs changed).
+A section, tool provider, or variable provider was registered or unregistered (the assembly inputs changed).
 
 ```ts cordis-catalog
 'system-prompt/change'(): void
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:32`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:38`](../../packages/core/system-prompt/src/index.ts)
 
 ### `tools/*`
 
@@ -490,15 +490,16 @@ Source: [`packages/subagent/subagent/src/index.ts:123`](../../packages/subagent/
 
 ### `ctx.systemPrompt` — `SystemPrompt`
 
-Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections and tool-schema providers; the agent loop calls `assemble()` once per step.
+Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, and named prompt variables; the agent loop calls `assemble(context)` once per step.
 
 ```ts cordis-catalog
 section(section: PromptSection): () => void
 tools(provider: () => ToolSchema[]): () => void
-assemble(): Promise<PromptAssembly>
+variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void
+assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:73`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:149`](../../packages/core/system-prompt/src/index.ts)
 
 ### `ctx.tools` — `ToolRegistry`
 

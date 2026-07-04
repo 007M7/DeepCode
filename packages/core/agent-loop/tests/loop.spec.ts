@@ -141,10 +141,10 @@ describe('agent loop', () => {
       .toEqual({ diffs: [{ path: 'a.txt', oldText: null, newText: 'x' }] })
   })
 
-  it('passes assembled system prompt and tool schemas into the request', async () => {
+  it('renders the persona as the order-0 section — before tool guidance — with {{variables}} resolved', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    ctx.systemPrompt.section({ name: 'persona', order: 0, text: 'You are a test agent.' })
+    ctx.systemPrompt.section({ name: 'tool:noop', order: 100, text: 'Use the noop tool wisely.' })
     ctx.tools.register(defineTool({
       name: 'noop',
       description: 'does nothing',
@@ -153,14 +153,53 @@ describe('agent loop', () => {
         return []
       },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock', systemPrompt: 'Agent-specific suffix.' })
+    // The persona is a TEMPLATE: {{model}} is the loop-registered variable
+    // projecting this agent's configured model, so the model knows its own name.
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock', systemPrompt: 'You are a test agent on {{model}}.' })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
 
     const request = adapter.requests[0]
-    expect(request!.system).toBe('You are a test agent.\n\nAgent-specific suffix.')
+    expect(request!.system).toBe('You are a test agent on mock.\n\nUse the noop tool wisely.')
     expect(request!.tools?.map(t => t.name)).toEqual(['noop'])
+  })
+
+  it('resolves {{cwd}} from the agent session workspace (factory create with meta.cwd)', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const handle = ctx.agents.create({
+      agentId: AgentId('a-cwd'),
+      sessionId: SessionId('s-cwd'),
+      meta: { cwd: '/work/space' },
+      agentOptions: { model: 'mock', systemPrompt: 'Working in {{cwd}}.' },
+    })
+
+    const agent = handle.agent as ReactLoopAgent
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests[0]!.system).toBe('Working in /work/space.')
+  })
+
+  it('contains a strict-variable render failure: the turn errors, the loop survives', async () => {
+    // A persona claiming {{cwd}} on a session with NO cwd is a deployment
+    // authoring error — renderPrompt throws, the turn ends with an error, and
+    // the agent (and loop) stay alive for the next prompt.
+    const adapter = new MockAdapter([textResponse('never reached'), textResponse('ok')])
+    const ctx = await harness(adapter)
+    const errors: Error[] = []
+    ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock', systemPrompt: 'In {{cwd}}.' })
+
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(0) // the request was never sent
+    expect(errors.some(e => e.message.includes('no value for this assembly'))).toBe(true)
+    const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('error')
+    expect(agent.status).toBe('idle') // contained: the loop is still serving
   })
 
   it('records raw chunks for replay as assistant/chunk session events', async () => {

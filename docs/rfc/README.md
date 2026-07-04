@@ -152,6 +152,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Result-time applied-hunk diffs for file mutations](implemented/architecture/2026-07-02-result-time-applied-hunk-diffs.md) | 2026-07-02 |
 | [Tagged render-intent union for tool-call presentation](implemented/architecture/2026-07-02-tool-render-intent-union.md) | 2026-07-02 |
 | [Add direct directory listing to the filesystem seam](implemented/architecture/2026-07-03-filesystem-directory-listing-seam.md) | 2026-07-03 |
+| [Prompt variables and tool-guidance ownership](implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md) | 2026-07-05 |
 
 ### Process
 

@@ -28,12 +28,12 @@ interface Config {
   agents: Array<{
     id: string                 // required
     model?: string
-    systemPrompt?: string
+    systemPrompt?: string      // the agent's persona TEMPLATE (may reference {{model}}/{{cwd}})
   }>
 }
 ```
 
-Agents listed in config are auto-created at startup.
+Agents listed in config are auto-created at startup. The plugin also registers the per-agent prompt pieces on `ctx.systemPrompt`: the `agent:persona` section (order 0 — `AgentOptions.systemPrompt` renders before all tool guidance) and the built-in `model`/`cwd` prompt variables, each resolved per step from the `assemble({ agent })` context.
 
 ### Classes
 
@@ -55,7 +55,7 @@ forever:
     if every prompt blocked: 'turn/end'(rejected), no step  ⟵ zero-step turn
     STEP loop:
       drain steering
-      assembly = systemPrompt.assemble()
+      assembly = systemPrompt.assemble({agent})  ⟵ renderPrompt(assembly) IS the full prompt
       await serial agent/pre-step        ⟵ surface mutation (compaction) outside the step
       session('step/start')
       request = waterfall agent/request

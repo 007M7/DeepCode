@@ -24,7 +24,7 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 | Key | Default | Routed to |
 |---|---|---|
 | `model` | (required) | the pre-created `main` agent's model |
-| `systemPrompt` | (required) | the `main` agent's system prompt |
+| `systemPrompt` | (required) | the `main` agent's persona template (may reference `{{model}}`) |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
 | `welcome` | `ready.` | the stdin-chat banner |
 | `resumeSessionId` | — | resume a persisted session id instead of starting fresh (sourced from an env var in the leaf) |
@@ -54,7 +54,7 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
   name: '@deepseek-ai/dsh-stdio-agent'
   config:
     model: deepseek-v4-flash
-    systemPrompt: 'You are a CLI coding assistant. Your only tools are bash…'
+    systemPrompt: 'You are a CLI coding assistant powered by the {{model}} model.'
 ```
 
 Swap `llm-deepseek` for a `mock-llm` leaf plugin and you have the echo demo — "swap the backend, keep the app".

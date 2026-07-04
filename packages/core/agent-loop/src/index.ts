@@ -82,6 +82,20 @@ export class AgentLoop extends Service implements AgentFactory {
     // Provide the agent-creation factory to the registry (effect-scoped: the
     // slot is cleared on dispose).
     ctx.effect(() => this.ctx.agents.setFactory(this), 'agentLoop.setFactory()')
+    // The per-agent prompt pieces, registered once and resolved per assembly
+    // from the AssembleContext the loop passes (loop.ts assembles with
+    // `{ agent }` each step). The persona is the order-0 section — identity
+    // renders before all tool guidance; `{{model}}`/`{{cwd}}` are the built-in
+    // prompt variables projecting the agent's configured model and its
+    // session workspace. A provider returns undefined when the fact is absent
+    // (renderPrompt then rejects a persona that claims it — fail loud).
+    ctx.systemPrompt.section({
+      name: 'agent:persona',
+      order: 0,
+      text: context => context.agent?.options.systemPrompt ?? '',
+    })
+    ctx.systemPrompt.variable('model', context => context.agent?.options.model)
+    ctx.systemPrompt.variable('cwd', context => context.agent?.session.header.cwd)
     for (const { id, resumeSessionId, ...options } of config.agents) {
       if (resumeSessionId !== undefined && resumeSessionId !== '') {
         // Resume a prior session instead of starting fresh. resume() needs
