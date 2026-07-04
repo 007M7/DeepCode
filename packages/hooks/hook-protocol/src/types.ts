@@ -23,7 +23,6 @@ declare module '@deepseek-ai/dsh-session' {
      * pattern that selected it (absent for match-all), `handlerId` a stable id
      * for the command (so an invoked/result pair correlates). `turn` is the open
      * turn the invocation lives inside.
-     * @mode emit
      */
     'hook/invoked': {
       turn: number
@@ -39,7 +38,6 @@ declare module '@deepseek-ai/dsh-session' {
      * `exitCode` the process exit (absent if it never ran), `stderrSummary` a
      * truncated stderr (the block reason source on exit 2), `durationMs` the wall
      * time. `turn` matches the `hook/invoked`.
-     * @mode emit
      */
     'hook/result': {
       turn: number

@@ -49,9 +49,9 @@ Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 
 ### Session event vocabulary (`types.ts`)
 
-The append-only log: `turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `prompt/blocked`, `assistant/message`, `assistant/chunk`, `tool/call`, `tool/result`, `steering/message`, `context/message`, `todo/write`. Token usage rides on `assistant/message.usage`; an operational error's step is on `turn/end.reason` for `kind: 'error'`.
+The append-only log's event types, enumerated member by member — payloads, surface badges, provenance — in the generated [persistence log event catalog](../../../docs/persistence-catalog/log-events.md). Token usage rides on `assistant/message.usage`; an operational error's step is on `turn/end.reason` for `kind: 'error'`.
 
-Merge-extensible via `SessionEventMap` — the compaction seam adds `compact/start`, `compact/summary`, and `compact/end`.
+Merge-extensible via `SessionEventMap` — a plugin declaration-merges its own types (the compaction seam's `compact/*`, the hook bridges' `hook/*`); merged members appear in the same catalog.
 
 Also defines `TurnTriggerMap` and `TurnEndReasonMap` (merge-extensible sum types for typed turn boundaries — `kind`-tagged instead of strings).
 
