@@ -118,6 +118,7 @@ graph TD
   stdio-agent --> agent
   stdio-agent --> agent-core
   stdio-agent --> app-boot
+  stdio-agent --> llm
   stdio-agent --> session
   stdio-agent --> session-persistence-jsonl
   subagent-fork --> agent
@@ -172,6 +173,6 @@ graph TD
 | `subagent-mock` | `agent`, `llm`, `subagent` |
 | `tool-subagent` | `agent`, `llm`, `subagent`, `tools` |
 | `acp-agent` | `acp`, `agent-core`, `app-boot`, `session-persistence-jsonl` |
-| `stdio-agent` | `agent`, `agent-core`, `app-boot`, `session`, `session-persistence-jsonl` |
+| `stdio-agent` | `agent`, `agent-core`, `app-boot`, `llm`, `session`, `session-persistence-jsonl` |
 | `subagent-fork` | `agent`, `session`, `subagent`, `subagent-inprocess` |
 | `subagent-spawn` | `subagent`, `subagent-inprocess` |
