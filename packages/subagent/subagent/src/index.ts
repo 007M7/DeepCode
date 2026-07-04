@@ -64,12 +64,14 @@ declare module 'cordis' {
      * A subagent run started — emitted after the provider is resolved and its
      * capabilities validated, as the child run begins. Paired with
      * {@link Events['subagent/end']}.
+     * @param info - which provider started which child agent.
      * @mode emit
      */
     'subagent/start'(info: SubagentRunInfo): void
     /**
      * A subagent run settled — emitted when {@link SubagentRun.result}
      * resolves (any stop reason). Paired with {@link Events['subagent/start']}.
+     * @param info - the run identity plus stop reason and final output.
      * @mode emit
      */
     'subagent/end'(info: SubagentRunEndInfo): void
@@ -129,6 +131,8 @@ export class SubagentService extends Service {
    * Register a provider under its `provider.name`. Throws {@link SubagentError}
    * (`DUPLICATE_PROVIDER`) if the name is already taken. Effect-scoped: disposed
    * with the calling fiber (HMR-safe).
+   * @param provider - the provider; its `name` is the registry key.
+   * @returns the disposer that unregisters the provider.
    */
   registerProvider(provider: SubagentProvider): () => void {
     const dispose = this.ctx.effect(function* (this: SubagentService) {
@@ -145,12 +149,19 @@ export class SubagentService extends Service {
     return () => void dispose()
   }
 
-  /** Look up a registered provider by name (`undefined` if absent). */
+  /**
+   * Look up a registered provider by name (`undefined` if absent).
+   * @param name - the provider name as registered.
+   * @returns the provider, or undefined when the name is unknown.
+   */
   getProvider(name: string): SubagentProvider | undefined {
     return this.providers.get(name)
   }
 
-  /** The names of all registered providers (insertion order). */
+  /**
+   * The names of all registered providers (insertion order).
+   * @returns the registered provider names.
+   */
   list(): string[] {
     return [...this.providers.keys()]
   }
@@ -162,6 +173,9 @@ export class SubagentService extends Service {
    * for the first unmet one — fail loud, before any child is created), then
    * delegates to {@link SubagentProvider.start} and emits `subagent/start` /
    * `subagent/end` around the run.
+   * @param name - the provider to run on.
+   * @param request - the child's prompt, capabilities, and options.
+   * @returns the live run (its `result` resolves when the child settles).
    */
   start(name: string, request: SubagentStartRequest): SubagentRun {
     const provider = this.providers.get(name)

@@ -79,7 +79,7 @@ export class ReactLoopAgent implements Agent {
     // Release quiescence waiters on a transition OUT of running BEFORE emitting
     // (the disposer handles the disposed transition separately). Settling first
     // means a throwing `agent/status` subscriber cannot starve a `whenIdle()`
-    // waiter (AGENTS.md "contain callback exceptions" — a lifecycle await must
+    // waiter (docs/defensive-patterns.md "contain callback exceptions" — a lifecycle await must
     // not hang on one bad listener).
     if (status !== 'running') this.settleIdleWaiters()
     try {

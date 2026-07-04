@@ -41,7 +41,6 @@ import {
 import type { FsIoInternals } from './fsio.ts'
 
 export {
-  STREAM_MIN_SIZE,
   applyLiteralEdit,
   listDirectory,
   probe,

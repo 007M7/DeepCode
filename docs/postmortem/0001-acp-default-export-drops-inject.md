@@ -4,7 +4,7 @@ Status: resolved (fix in PR #41 `feat/acp-2-bridge`)
 
 ## Executive summary
 
-One stray line — `export default apply` at the bottom of the ACP plugin — made the ACP server crash the moment any editor connected, because the cordis Loader unwraps a default export and threw away the plugin's `inject` declaration along with it. A second, independent bug (an optional service read that fails through Cordis's traceable-shadow proxy) crashed `session/load` for a different reason. Both shipped green: 178 unit tests at 100% line coverage never caught either, because every test mounted the plugin by hand instead of through the real loader, and the only test that drove the failing requests was skipped in CI. The fixes are one-line each; the durable lesson is that **line coverage proved the code ran, not that the feature worked the way it ships** — so we added a no-key end-to-end test that boots the real example through the real loader, plus AGENTS.md rules on plugin export shape and optional-service access.
+One stray line — `export default apply` at the bottom of the ACP plugin — made the ACP server crash the moment any editor connected, because the cordis Loader unwraps a default export and threw away the plugin's `inject` declaration along with it. A second, independent bug (an optional service read that fails through Cordis's traceable-shadow proxy) crashed `session/load` for a different reason. Both shipped green: 178 unit tests at 100% line coverage never caught either, because every test mounted the plugin by hand instead of through the real loader, and the only test that drove the failing requests was skipped in CI. The fixes are one-line each; the durable lesson is that **line coverage proved the code ran, not that the feature worked the way it ships** — so we added a no-key end-to-end test that boots the real example through the real loader, plus packages/AGENTS.md rules on plugin export shape and optional-service access.
 
 ## Summary
 
@@ -101,7 +101,7 @@ Both bugs share one root process gap: **no test exercised the plugin through its
 - **`AgentLoop.resume` reads `this.ctx.get('sessionPersistence')`** (`packages/core/agent-loop/src/index.ts`) — the Bug #2 fix, with a comment explaining the shadow-walk trap.
 - **No-key `session/new` e2e over real stdio** (`examples/acp-agent/tests/acp.e2e.ts`): boots the example as a subprocess through the real Loader and asserts `session/new` resolves. This fails loudly on Bug #1 with no API key. Verified it fails when `export default apply` is restored.
 - **`TSX_TSCONFIG_PATH` in the e2e spawn**: the subprocess runs from a temp cwd, where tsx cannot find the repo-root tsconfig `paths` map by searching upward — so dsh-* imports silently fell back to built `lib/`. Pointing tsx at the repo tsconfig makes resolution cwd-independent and ensures the test runs *source*, not a possibly-stale build.
-- **AGENTS.md defensive pattern**: "Line coverage is not behavior coverage; test the REAL entry path, not a synthetic stand-in" — codifies the lesson for every future plugin.
+- **[docs/testing.md](../testing.md) rule**: "test the real entry path", line coverage is not behavior coverage — codifies the lesson for every future plugin.
 
 ## Lessons
 

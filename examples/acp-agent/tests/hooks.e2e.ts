@@ -29,7 +29,7 @@ import {
  * Key-gated; owns and disposes its subprocess.
  *
  * A keyless companion lives in acp.e2e.ts (stdout purity + session/new); the
- * full hook-fires-end-to-end transcript is the keyless `hook-prompt-block`
+ * full hook-fires-end-to-end transcript is the keyless `hook-cc-promptsubmit-block`
  * snapshot scenario. This one closes the "green plumbing, broken product" gap:
  * only a real model deciding to call bash exercises the PreToolUse seam live.
  */

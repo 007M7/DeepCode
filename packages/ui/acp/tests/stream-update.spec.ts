@@ -287,7 +287,7 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
 
   it('a THROWING presentCall/presentResult is contained: generic fallback + onError, never propagates', () => {
     // A buggy tool whose display callbacks throw must NOT fail a live turn or a
-    // session/load replay (AGENTS.md "contain callback exceptions at the
+    // session/load replay (docs/defensive-patterns.md "contain callback exceptions at the
     // boundary"). The presenter swallows the throw, reports via onError, and
     // falls back to the generic presentation.
     const boom: ToolDefinition = {
@@ -379,7 +379,7 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
   it('forwards fs-tool render intents onto the wire (REAL read → generic locations, edit → diff content)', async () => {
     // Use the SHIPPING fs tools (not a stand-in), booted through their real
     // plugins, so the wire tool_call carries the actual presentCall output —
-    // read's follow-along `locations` and edit's `diff` content block. (AGENTS.md
+    // read's follow-along `locations` and edit's `diff` content block. (docs/testing.md
     // "prefer the real implementation over a mock".)
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
