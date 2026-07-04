@@ -26,9 +26,10 @@
  * error — dispatch modes belong to cordis bus events, and a log event has none
  * (see docs/rfc/implemented/process/2026-07-04-persistence-log-catalog.md).
  * Structural holes are hard errors for the same reason: a member that is not a
- * property signature with an explicit payload type, a top-level
- * `interface SessionEventMap` outside the owning package, and a duplicate
- * declaration of one event would each let something join (or impersonate)
+ * property signature with an explicit payload type, an `extends` clause on a
+ * declaration, a top-level `interface SessionEventMap` that is not the single
+ * exported declaration in the owning package, and a duplicate declaration of
+ * one event would each let something join (or impersonate)
  * `keyof SessionEventMap` without a truthful catalog row. Violations aggregate
  * into ONE error listing every offender.
  *
@@ -245,29 +246,48 @@ function packageNameFor(rel: string, scanRoot: string): string | null {
  * on any completeness violation: a member without description prose, an
  * `@mode` tag (a category error — log events have no dispatch mode), a member
  * that is not a property signature with an explicit payload type, a
- * non-literal member name, a top-level declaration outside the owning package,
- * or the same event declared twice.
+ * non-literal member name, an `extends` clause (inherited keys would join
+ * `keyof SessionEventMap` without a catalog row), a top-level declaration that
+ * is not the single exported one in the owning package, or the same event
+ * declared twice.
  * `scanRoot` defaults to the repo root; tests pass a fixture dir.
  */
 export function collectLogEvents(scanRoot: string = root): LogEventEntry[] {
   const entries: LogEventEntry[] = []
   const violations: string[] = []
   const seen = new Map<string, string>()
+  let owningDecl: string | null = null
   for (const rel of globSync('packages/*/*/src/**/*.ts', { cwd: scanRoot }).sort()) {
     const abs = resolve(scanRoot, rel)
     const text = readFileSync(abs, 'utf8')
     if (!text.includes('SessionEventMap')) continue
     const sf = ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, true)
     for (const { decl, topLevel } of sessionEventMapDecls(sf)) {
+      const declSrc = pointer(rel, sf, decl)
       if (topLevel) {
-        // The top-level form is the OWNING vocabulary; anywhere else, a
-        // same-named local interface is a different type entirely and must not
-        // be catalogued as on-disk events.
+        // The top-level form is the OWNING vocabulary, and it has exactly one
+        // home: the single EXPORTED declaration in the owning package. A
+        // same-named interface anywhere else — another package, a non-exported
+        // local, a second exported copy — is a different type that must not be
+        // catalogued as on-disk events.
         const pkg = packageNameFor(rel, scanRoot)
         if (pkg !== SESSION_MODULE) {
-          violations.push(`top-level interface SessionEventMap (${pointer(rel, sf, decl)}) is outside ${SESSION_MODULE} (package ${pkg ?? 'unknown'}). Rename the interface, or contribute events via declare module '${SESSION_MODULE}'.`)
+          violations.push(`top-level interface SessionEventMap (${declSrc}) is outside ${SESSION_MODULE} (package ${pkg ?? 'unknown'}). Rename the interface, or contribute events via declare module '${SESSION_MODULE}'.`)
           continue
         }
+        const exported = decl.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword) ?? false
+        if (!exported) {
+          violations.push(`top-level interface SessionEventMap (${declSrc}) is not exported; the owning vocabulary is the single exported declaration — rename a local helper interface.`)
+          continue
+        }
+        if (owningDecl) {
+          violations.push(`top-level interface SessionEventMap (${declSrc}) is already declared at ${owningDecl}; the owning vocabulary has exactly one home.`)
+          continue
+        }
+        owningDecl = declSrc
+      }
+      if (decl.heritageClauses?.length) {
+        violations.push(`SessionEventMap declaration (${declSrc}) uses extends; inherited keys would join keyof SessionEventMap without a catalog row — declare event members directly.`)
       }
       for (const member of decl.members) {
         const src = pointer(rel, sf, member)

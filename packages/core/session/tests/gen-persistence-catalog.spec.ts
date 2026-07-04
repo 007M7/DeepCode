@@ -78,6 +78,29 @@ describe('gen-persistence-catalog collectLogEvents', () => {
     }))).toThrow(/top-level interface SessionEventMap .* is outside @deepseek-ai\/dsh-session \(package @deepseek-ai\/dsh-alien\)/)
   })
 
+  it('hard-errors on a non-exported top-level interface even in the owning package', () => {
+    expect(() => collectLogEvents(make({
+      'packages/core/fix/package.json': OWNER_MANIFEST,
+      'packages/core/fix/src/helper.ts':
+        'interface SessionEventMap {\n  /** A local helper, not the vocabulary. */\n  \'fix/local\': { turn: number }\n}\nexport const use: SessionEventMap | null = null\n',
+    }))).toThrow(/is not exported; the owning vocabulary is the single exported declaration/)
+  })
+
+  it('hard-errors when the owning interface is exported from two files', () => {
+    expect(() => collectLogEvents(make({
+      'packages/core/fix/package.json': OWNER_MANIFEST,
+      'packages/core/fix/src/a.ts': 'export interface SessionEventMap {\n  /** First home. */\n  \'fix/a\': { turn: number }\n}\n',
+      'packages/core/fix/src/b.ts': 'export interface SessionEventMap {\n  /** Second home. */\n  \'fix/b\': { turn: number }\n}\n',
+    }))).toThrow(/is already declared at packages\/core\/fix\/src\/a\.ts:1; the owning vocabulary has exactly one home/)
+  })
+
+  it('hard-errors on an extends clause (inherited keys would escape the catalog)', () => {
+    expect(() => collectLogEvents(make({
+      'packages/group/fix/src/types.ts':
+        'interface Extra { \'fix/hidden\': { turn: number } }\ndeclare module \'@deepseek-ai/dsh-session\' {\n  interface SessionEventMap extends Extra {\n    /** Declared directly. */\n    \'fix/direct\': { turn: number }\n  }\n}\n',
+    }))).toThrow(/uses extends; inherited keys would join keyof SessionEventMap without a catalog row/)
+  })
+
   it('extracts a member declaration-merged via the session module', () => {
     const events = collectLogEvents(make({
       'packages/group/fix/src/types.ts': merge('    /** Merged provenance. */\n    \'fix/merged\': { id: string }'),
