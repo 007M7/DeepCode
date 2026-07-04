@@ -30,8 +30,10 @@
  * Plugin export shape: named `name`/`Config`/`apply`, NO default export — the
  * cordis Loader's `unwrapExports` does `exports.default ?? exports`, so a stray
  * default would collapse the module to the bare `apply` and drop the `Config`
- * namespace (see docs/postmortem/0001). The keyless Loader-path smoke in the
- * echo example guards this end-to-end.
+ * namespace (see docs/postmortem/0001). This app carries no `inject`, so a
+ * collapsed shape would BOOT rather than crash a smoke — the shape is pinned by
+ * the explicit `unwrapExports` assertion in this package's unit suite, and the
+ * keyless echo smoke proves the composed tree runs through the real Loader.
  *
  * @module @deepseek-ai/dsh-stdio-agent
  */
