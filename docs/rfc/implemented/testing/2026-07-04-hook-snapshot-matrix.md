@@ -18,7 +18,7 @@ Two coupled changes, in one PR:
 
 It is safe because a bridge whose config file is absent is a **silent no-op**: `apply()` catches the read failure, logs through `ctx.logger`, and registers nothing — zero listeners, zero session events. The `acp-agent` app ships no stdout logger, so the warning cannot reach the ACP JSON-RPC channel. A scenario (or a real project) that wants only Claude hooks ships only `hooks.json`; the Codex bridge sees no `codex-hooks.json` and vanishes. This was verified empirically: with both bridges loaded, all pre-existing snapshots (none of which ship a `codex-hooks.json`) are byte-identical.
 
-Loading both is the minimum that lets the snapshot tier exercise each dialect against the same real app the product ships. Recording (which boots `cordis.yml`) must load both too, so a recorded Codex scenario captures the transcript with its hook genuinely active — hence the symmetric edit to both configs.
+Loading both is the minimum that lets the snapshot tier exercise each dialect against the same real app the product ships. Recording (which boots `cordis.yml`) loads both by construction, and replay inherits them the same way: `cordis.snapshot.yml` is an include-overlay of `cordis.yml` that swaps only the llm entry (see [single-source the acp-agent replay config](2026-07-04-single-source-acp-replay-config.md)), so a bridge added to the live tree is in the replay tree with no second edit.
 
 ### 2. A snapshot scenario per hook point × its headline outcome, both dialects
 

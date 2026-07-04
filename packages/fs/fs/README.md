@@ -19,7 +19,7 @@ A backend subclasses `FileSystem` and implements seven primitives.
 
 | Member | Semantics |
 |---|---|
-| `resolve(path, opts?)` | Resolve a path into a stable `FsTarget` (`inputPath`, opaque `targetKey`, `displayPath`). `opts.cwd` is the base a relative `path` resolves against (a caller supplies its session workspace; absolute paths ignore it; omitted ⇒ the backend default). Async — a remote backend may need I/O. The same file via different paths must yield the same `targetKey`. |
+| `resolve(path, opts?)` | Resolve a path into a stable `FsTarget` (opaque `targetKey`, `displayPath`). `opts.cwd` is the base a relative `path` resolves against (a caller supplies its session workspace; absolute paths ignore it; omitted ⇒ the backend default). Async — a remote backend may need I/O. The same file via different paths must yield the same `targetKey`. |
 | `stat(target, signal?)` | Return `FsInfo` metadata (`version`, `type`, optional `size`), or `undefined` when the target is absent. Never content. |
 | `readText(target, signal?)` | Read the whole regular text file as one decoded string. Owns regular-file checks, UTF-8 decoding, binary/NUL rejection (`FS_NOT_TEXT`). |
 | `streamText(target, signal?)` | Stream the same text as decoded chunks for large files (cross-chunk UTF-8 decoding stays here). |

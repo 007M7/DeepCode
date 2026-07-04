@@ -17,7 +17,6 @@
  */
 
 import { FsError } from '@deepseek-ai/dsh-fs'
-import type { FsVersion } from '@deepseek-ai/dsh-fs'
 
 /** Default maximum characters returned for a single line (the `readMaxLineLength` config). */
 export const READ_MAX_LINE_LENGTH = 2000
@@ -59,16 +58,12 @@ export interface WindowResult {
 export interface FileReadOutcome {
   /** 1-based first line requested. */
   offset: number
-  /** Maximum number of lines requested. */
-  limit: number
   /** Returned lines, already numbered. */
   lines: FileTextLine[]
   /** Total line count in the file, unless `truncatedByBytes` stopped scanning early. */
   totalLines: number
   /** Whether selected output hit the byte cap before EOF or the requested limit. */
   truncatedByBytes?: true
-  /** Opaque version of the file at read time. */
-  version: FsVersion
 }
 
 interface WindowAccumulator {

@@ -205,12 +205,14 @@ describe('ExaSearchProvider error handling', () => {
 
 describe('web-search-exa plugin registration', () => {
   it('registers the provider into ctx.web (HMR-safe)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ results: [] })))
     const ctx = new Context()
     await ctx.plugin(WebService, { searchProvider: EXA_PROVIDER_ID })
     const fiber = await ctx.plugin(exaPlugin, { apiKey: 'exa-key' })
-    expect(ctx.web.searchStatus()).toEqual({ available: true, providerId: EXA_PROVIDER_ID })
+    await expect(ctx.web.search({ query: 'q' })).resolves.toMatchObject({ providerId: EXA_PROVIDER_ID })
     await fiber.dispose()
-    expect(ctx.web.searchStatus()).toEqual({ available: false, reason: 'configured-missing' })
+    await expect(ctx.web.search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_CONFIGURED_MISSING' }))
   })
 
   it('has no default export (namespace plugin export shape)', () => {
@@ -238,7 +240,6 @@ describe('web-search-exa plugin registration', () => {
       const ctx = new Context()
       await ctx.plugin(WebService, { searchProvider: EXA_PROVIDER_ID })
       const fiber = await ctx.plugin(exaPlugin, {})
-      expect(ctx.web.searchStatus()).toEqual({ available: true, providerId: EXA_PROVIDER_ID })
       await ctx.web.search({ query: 'q' })
       const [url] = fetchMock.mock.calls[0] as unknown as [string]
       expect(url).toBe('https://api.exa.ai/search')
@@ -256,7 +257,8 @@ describe('web-search-exa plugin registration', () => {
       const ctx = new Context()
       await ctx.plugin(WebService, { searchProvider: EXA_PROVIDER_ID })
       await ctx.plugin(exaPlugin, {})
-      expect(ctx.web.searchStatus()).toEqual({ available: false, reason: 'configured-unavailable' })
+      await expect(ctx.web.search({ query: 'q' }))
+        .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_CONFIGURED_UNAVAILABLE' }))
     } finally {
       if (prev !== undefined) process.env.EXA_API_KEY = prev
     }

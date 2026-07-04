@@ -52,8 +52,6 @@ export function FsVersion(v: string): FsVersion {
  * this; every other operation takes it.
  */
 export interface FsTarget {
-  /** The original model/plugin-supplied path, for diagnostics only. */
-  inputPath: string
   /** Opaque key for stale guards and target lookup. */
   targetKey: FsTargetKey
   /**
@@ -142,10 +140,6 @@ export interface FsEditRequest {
 
 /** Outcome of a literal edit. */
 export interface FsEditOutcome {
-  /** Number of literal replacements applied. */
-  replacements: number
-  /** Whether every match was replaced. */
-  replaceAll: boolean
   /** Opaque version of the file after the edit. */
   version: FsVersion
   /**

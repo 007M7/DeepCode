@@ -1,125 +1,33 @@
-# Snapshot-test REPLAY config: the acp-agent plugin tree with the model backend
-# swapped to llm-replay (serves a recorded session JSONL — no API key, no
-# network). The dsh-acp-agent bin selects this file for DSH_SNAPSHOT=replay.
+# Snapshot-test REPLAY overlay: the SAME app tree as cordis.yml, derived from
+# it by an include — the one difference is the model backend. A keyless replay
+# run cannot boot the real adapter (llm-deepseek's apply() throws without
+# DEEPSEEK_API_KEY), so the include patches the live tree at load time: the
+# llm-deepseek entry is disabled by id, and the llm-replay entry (which serves
+# a recorded session JSONL — no API key, no network) is inserted. Every other
+# entry — the app, the bash executor, the fs/subagent/todo tools, both hook
+# bridges, the system prompt — IS the live tree, so replay exercises exactly
+# what ships and an app-shape change lands once, in cordis.yml.
 #
-# Same app as cordis.yml (@deepseek-ai/dsh-acp-agent: the agent-core spine +
-# JSONL persistence + the ACP bridge) — only the LLM backend differs: llm-replay
-# here, llm-deepseek there. It can't reuse the real adapter because llm-deepseek's
-# apply() throws without DEEPSEEK_API_KEY, killing a keyless replay run at boot.
-#
-# stdout is reserved for the ACP JSON-RPC protocol — no stdout logger (the app
-# package omits it). The replay fixture path comes from $DSH_SNAPSHOT_FILE (and
-# an optional $DSH_SNAPSHOT_OVERRIDE sidecar), set by the snapshot harness.
-
-# The replay adapter: short-circuits llm/stream with the recorded log's chunks,
-# in place of llm-deepseek.
-- id: llm-replay
-  name: '@deepseek-ai/dsh-llm-replay'
-
-# Local bash executor for agent-core's tool-bash schema.
-# FIXME(config-comments): keep this executor note from implying bash is the
-# whole tool set; filesystem, subagent, and todo_write are loaded below.
-- id: bash
-  name: '@deepseek-ai/dsh-bash-local'
+# The dsh-acp-agent bin selects this file for DSH_SNAPSHOT=replay. The replay
+# fixture path comes from $DSH_SNAPSHOT_FILE (and an optional
+# $DSH_SNAPSHOT_OVERRIDE sidecar), set by the snapshot harness. stdout stays
+# reserved for the ACP JSON-RPC protocol (the app package loads no stdout
+# logger). Patches apply when the include loads the file — a one-shot replay
+# boot, so the load-time-only patch semantics are exactly enough.
+- id: base
+  name: '@cordisjs/plugin-include'
   config:
-    timeoutMs: 60000
-
-# The ACP server app — identical to cordis.yml's entry.
-- id: acp-agent
-  name: '@deepseek-ai/dsh-acp-agent'
-  config:
-    model: deepseek-v4-flash
-    persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
-    systemPrompt: |
-      You are a coding assistant driven over the Agent Client Protocol.
-
-      Your tools are read/write/edit for file operations, bash (plus
-      bash_output/bash_kill for background tasks), and subagent. Use read to
-      inspect UTF-8 text files, write to create or replace files, and edit for
-      targeted literal replacements. Use bash for shell commands, tests,
-      searches, and operations that are not ordinary file reads or edits. Each
-      bash call runs in a fresh shell — pass workdir instead of cd. Check the
-      [exit code: N] marker; verify your work. Keep answers brief and factual.
-
-      Use the subagent tool to delegate a focused, self-contained subtask to
-      a fresh child agent (it works in its own context and returns only its
-      final result) — give it a complete, standalone instruction. Use
-      subagent_fork instead when the subtask needs THIS conversation's
-      context: the child inherits the log so far.
-
-      For multi-step work, use the todo_write tool to track a task list:
-      send the WHOLE list each call (it replaces the previous one), keep at
-      most one task in_progress (exactly one while work remains), and mark a
-      task completed as soon as it is done. Skip it for trivial single-step
-      tasks.
-
-# The subagent seam + both in-process backends + two model-facing tools —
-# identical to cordis.yml's wiring (only the LLM backend differs above): spawn
-# and fork are each reachable via a dsh-tool-subagent bound to it with a distinct
-# toolName (subagent → spawn, subagent_fork → fork).
-- id: subagent
-  name: '@deepseek-ai/dsh-subagent'
-
-- id: subagent-spawn
-  name: '@deepseek-ai/dsh-subagent-spawn'
-  config:
-    providerName: spawn
-
-- id: subagent-fork
-  name: '@deepseek-ai/dsh-subagent-fork'
-  config:
-    providerName: fork
-
-- id: tool-subagent
-  name: '@deepseek-ai/dsh-tool-subagent'
-  config:
-    provider: spawn
-    toolName: subagent
-
-- id: tool-subagent-fork
-  name: '@deepseek-ai/dsh-tool-subagent'
-  config:
-    provider: fork
-    toolName: subagent_fork
-
-# The model-facing todo_write tool — identical to cordis.yml's wiring, so a
-# replayed todo_write tool call resolves to a real tool during snapshot replay.
-- id: tool-todo
-  name: '@deepseek-ai/dsh-tool-todo'
-
-# Filesystem capability stack — identical to cordis.yml's wiring, so replayed
-# read/write/edit tool calls resolve to the real tools during snapshot replay.
-- id: fs-local
-  name: '@deepseek-ai/dsh-fs-local'
-  config:
-    cwd: !!js process.cwd()
-
-- id: fs-policy
-  name: '@deepseek-ai/dsh-fs-policy'
-
-- id: tool-fs
-  name: '@deepseek-ai/dsh-tool-fs'
-
-# The Claude Code hook bridge. `configPath` is read ONCE at load and resolves
-# `./hooks.json` against the PROCESS cwd (not per-session) — in these snapshot
-# runs the harness launches the subprocess with process cwd = the scenario's temp
-# workspace, so a scenario that ships `workspace/hooks.json` (copied into that cwd
-# before the run) exercises the hooks path end-to-end; every other scenario has no
-# such file, so the parse fails-soft and the bridge registers nothing (a silent
-# no-op — the ACP app loads no logger exporter, so the warning never reaches
-# stdout). Hooks themselves run in the session cwd (the bridge passes it as workdir).
-- id: hooks-claude
-  name: '@deepseek-ai/dsh-hooks-claude'
-  config:
-    configPath: ./hooks.json
-
-# The Codex hook bridge, loaded alongside the Claude one (symmetric with
-# cordis.yml so a recorded Codex scenario fires the hook during recording too). It
-# reads its OWN file `./codex-hooks.json` (Codex's dialect) — the two bridges
-# cannot share one config. Same fails-soft-when-absent contract: a scenario that
-# ships `workspace/codex-hooks.json` exercises the Codex path end-to-end; a
-# scenario without one registers nothing (a silent no-op, never reaching stdout).
-- id: hooks-codex
-  name: '@deepseek-ai/dsh-hooks-codex'
-  config:
-    configPath: ./codex-hooks.json
+    path: ./cordis.yml
+    patches:
+      # The name is an assertion, not an override: the include skips the patch
+      # (warning if a logger exists) when the id points at a different plugin,
+      # so this can never disable the wrong entry. If cordis.yml ever RENAMES
+      # the id, the patch degrades to a skip — replay output stays correct
+      # (llm-replay still short-circuits the stream) but the stale patch and a
+      # futile keyless adapter entry linger until review catches them.
+      - id: llm-deepseek
+        name: '@deepseek-ai/dsh-llm-deepseek'
+        disabled: true
+      - insert:
+          - id: llm-replay
+            name: '@deepseek-ai/dsh-llm-replay'

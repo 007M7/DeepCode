@@ -824,7 +824,7 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
     const ctx = await setup()
     const present = ctx.tools.get('bash')!.presentResult!(
       { command: 'x', description: 'x' },
-      { content: [{ type: 'image', url: 'https://x/y.png' }], isError: false },
+      { content: [{ type: 'reasoning', text: 'unexpected' }], isError: false },
     )
     expect(present).toBeUndefined()
   })

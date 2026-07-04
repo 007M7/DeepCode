@@ -188,9 +188,12 @@ describe('tool-web registration', () => {
   })
 
   it('registers web_search even when no provider is available (schema follows enablement, not availability)', async () => {
-    const { fiber, ctx } = await mountTools()
+    const { fiber, ctx, call } = await mountTools()
     expect(ctx.tools.schemas().map(s => s.name)).toContain('web_search')
-    expect(ctx.web.searchStatus()).toEqual({ available: false, reason: 'none' })
+    // No provider is registered: the schema stays visible and execution reports
+    // the structured unavailability instead.
+    const out = await call('web_search', { query: 'q' })
+    expect(out.error?.code).toBe('WEB_PROVIDER_UNAVAILABLE')
     await fiber.dispose()
   })
 

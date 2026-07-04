@@ -23,7 +23,7 @@ class FakeFileSystem extends FileSystem {
   files = new Map<string, string>()
 
   override async resolve(path: string): Promise<FsTarget> {
-    return { inputPath: path, targetKey: FsTargetKey(path), displayPath: path }
+    return { targetKey: FsTargetKey(path), displayPath: path }
   }
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
     const content = this.files.get(target.targetKey)
@@ -45,7 +45,7 @@ class FakeFileSystem extends FileSystem {
       {
         name: 'alpha.md',
         type: 'file',
-        target: { inputPath: 'skills/alpha.md', targetKey: FsTargetKey('skills/alpha.md'), displayPath: 'skills/alpha.md' },
+        target: { targetKey: FsTargetKey('skills/alpha.md'), displayPath: 'skills/alpha.md' },
         size: 2,
         version: FsVersion('v1'),
       },
@@ -60,7 +60,7 @@ class FakeFileSystem extends FileSystem {
     const content = this.files.get(target.targetKey) ?? ''
     const after = content.split(edit.oldString).join(edit.newString)
     this.files.set(target.targetKey, after)
-    return { replacements: 1, replaceAll: edit.replaceAll, version: FsVersion('v3'), before: content, after }
+    return { version: FsVersion('v3'), before: content, after }
   }
 }
 
@@ -108,7 +108,7 @@ describe('FileSystem provider seam', () => {
     expect(entries).toEqual([{
       name: 'alpha.md',
       type: 'file',
-      target: { inputPath: 'skills/alpha.md', targetKey: 'skills/alpha.md', displayPath: 'skills/alpha.md' },
+      target: { targetKey: 'skills/alpha.md', displayPath: 'skills/alpha.md' },
       size: 2,
       version: 'v1',
     }])

@@ -87,11 +87,10 @@ interface ContentBlockMap {
   'reasoning': ReasoningBlock
   'tool-call': ToolCallBlock
   'tool-result': ToolResultBlock
-  'image': ImageBlock
 }
 ```
 
-The block interfaces (full fields in source): `TextBlock` (`text`), `ReasoningBlock` (thinking, distinct from visible text), `ToolCallBlock` (`id: CallId`, `name`, raw-JSON `arguments`), `ToolResultBlock` (`toolCallId`, nested `content: ContentBlock[]`, `isError?`), `ImageBlock` (`url`, `mimeType?`). `ContentBlock = ContentBlockMap[ContentBlockType]`.
+The block interfaces (full fields in source): `TextBlock` (`text`), `ReasoningBlock` (thinking, distinct from visible text), `ToolCallBlock` (`id: CallId`, `name`, raw-JSON `arguments`), `ToolResultBlock` (`toolCallId`, nested `content: ContentBlock[]`, `isError?`). `ContentBlock = ContentBlockMap[ContentBlockType]`. The core set is limited to blocks every shipping path honors — multimodal content (images, audio, …) has no core block type; a feature that needs one adds it via the merge-extensible map together with the adapter/UI/compaction support that honors it.
 
 A `Message` is a role plus blocks:
 
@@ -108,7 +107,6 @@ Where a message came from is itself a merge-extensible sum type:
 interface MessageSourceMap {
   user: { kind: 'user' }
   plugin: { kind: 'plugin'; plugin: string }
-  agent: { kind: 'agent'; agentId: string }
 }
 ```
 
@@ -132,8 +130,6 @@ interface GenerateOptions {
   system?: string
   /** Tool schemas (adapters map to the provider's `tools` field). */
   tools?: ToolSchema[]
-  /** Assistant prefix continuation (prefill). */
-  prefill?: ContentBlock[]
   temperature?: number
   maxTokens?: number
   /**
@@ -182,7 +178,6 @@ interface ToolSchema {
   description: string
   /** JSON Schema object for the arguments. */
   parameters: Record<string, unknown>
-  strict?: boolean
 }
 ```
 
