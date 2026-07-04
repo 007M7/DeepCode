@@ -3,22 +3,24 @@
  * the gitignored `.env`, install the fail-loud Loader guards, resolve the
  * config path (snapshot-aware), and drive the cordis Loader against a leaf
  * `cordis.yml` until the whole tree has settled. Each bin stays a thin
- * self-executing `main()` over these helpers, parameterized by its diagnostic
- * prefix; the loader-failure lore lives here, once, under the per-file
- * coverage gate.
+ * self-executing composition over these helpers, parameterized by its
+ * diagnostic prefix; the loader-failure lore lives here, once, under the
+ * per-file coverage gate.
  *
- * Two failure classes the guards close, both of which would otherwise exit 0
- * with a usable config typo reported only as a log line:
+ * Two failure classes the guards handle:
  *
  * - `loader.await()` does NOT rethrow a load error (`EntryTree.await()` uses
  *   `Promise.allSettled`, which swallows rejections). A plugin whose
  *   `[Service.init]` throws surfaces as an unhandled rejection AFTER `boot()`
- *   resolves — {@link installFailLoud} turns that into one labelled stderr
- *   line and a guaranteed non-zero exit.
+ *   resolves — Node's default handler already exits non-zero, and
+ *   {@link installFailLoud} replaces the noisy dump with one labelled stderr
+ *   line and a guaranteed `exit(1)`.
  * - A plugin module that fails to IMPORT is caught and only LOGGED by the
  *   cordis Loader (`entry._init`), leaving the entry with no `fiber` and
- *   producing no rejection — {@link assertEntriesLoaded} makes `boot()` reject
- *   on any such entry instead of returning a half-empty context.
+ *   producing no rejection — the process would otherwise exit 0 with a usable
+ *   config typo reported only as a log line; {@link assertEntriesLoaded} makes
+ *   `boot()` reject on any such entry instead of returning a half-empty
+ *   context.
  *
  * @module @deepseek-ai/dsh-app-boot
  */

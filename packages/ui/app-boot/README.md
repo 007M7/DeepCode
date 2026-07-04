@@ -10,6 +10,6 @@ Shared boot glue for the app bins ([`dsh-stdio-agent`](../stdio-agent/README.md)
 | `assertEntriesLoaded(ctx, binName)` | Throw when a settled tree holds an enabled entry with no fiber (a plugin module that failed to import) |
 | `boot(binName, absoluteConfigPath)` | Mount the Loader, include the config by absolute `file://` URL, await the whole tree, assert entries loaded, return the root context |
 
-Two failure classes the guards close — both would otherwise exit 0 with a usable config typo reported only as a log line: `loader.await()` swallows init rejections (`Promise.allSettled`), surfaced instead by `installFailLoud`; a failed plugin IMPORT is only logged by the Loader, leaving a fiber-less entry that `assertEntriesLoaded` turns into a `boot()` rejection.
+Two failure classes the guards handle: `loader.await()` swallows init rejections (`Promise.allSettled`) — Node still exits non-zero on the resulting unhandled rejection, and `installFailLoud` replaces the noisy dump with one labelled line and a guaranteed `exit(1)`; a failed plugin IMPORT is only logged by the Loader (the process would otherwise exit 0 on a usable config typo), leaving a fiber-less entry that `assertEntriesLoaded` turns into a `boot()` rejection.
 
 Bare plugin specifiers in a config (`@deepseek-ai/dsh-*`) resolve through the cordis Loader's internal module loader, active only under `node --expose-internals`; the bins' subprocess smokes exercise that path, while this package's unit suite drives `boot()` in-process against configs with relative specifiers.

@@ -63,7 +63,7 @@ dsh-subagent-acp  ← dsh-subagent, dsh-agent, dsh-llm, @agentclientprotocol/sdk
 dsh-tool-subagent ← dsh-subagent, dsh-tools, dsh-agent, dsh-llm (model-facing delegation tool)
 dsh-tool-todo     ← dsh-tools, dsh-agent, dsh-session  (model-facing todo_write tool; whole list on the session log)
 dsh-agent-core    ← timer, dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent, dsh-invariants, dsh-tool-bash, dsh-agent-loop  (the providerless spine, as one bundle plugin)
-dsh-app-boot      ← (cordis + loader only)  (shared bin boot glue: .env, fail-loud guards, boot sequence)
+dsh-app-boot      ← (cordis + loader/include only)  (shared bin boot glue: .env, fail-loud guards, boot sequence)
 dsh-stdio-agent   ← dsh-agent-core, dsh-session-persistence-jsonl, dsh-agent, dsh-session, dsh-app-boot  (stdio chat APP + readline UI + bin)
 dsh-acp-agent     ← dsh-agent-core, dsh-acp, dsh-session-persistence-jsonl, dsh-app-boot     (ACP server APP + bin)
 ```
