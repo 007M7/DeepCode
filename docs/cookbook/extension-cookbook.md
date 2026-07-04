@@ -81,4 +81,34 @@ export function apply(ctx: Context) {
 
 ## Runnable wirings
 
-Three complete examples load their plugin trees from `cordis.yml`: [`examples/echo-agent`](../../examples/echo-agent) (mock model + echo tool — the all-mock skeleton check, `pnpm run demo:echo`), [`examples/coding-agent`](../../examples/coding-agent) (DeepSeek V4 + the bash tool suite behind a terminal REPL UI, `pnpm run demo:repl`), and [`examples/acp-agent`](../../examples/acp-agent) (an agent exposed as an ACP server over JSON-RPC stdio — the client-driver shape, `pnpm run demo:acp`). Each leaf is now just its swappable backends plus an app-package entry: the stdio demos load [`@deepseek-ai/dsh-stdio-agent`](../../packages/ui/stdio-agent), the ACP demo loads [`@deepseek-ai/dsh-acp-agent`](../../packages/ui/acp-agent), and both app packages share the spine via the [`@deepseek-ai/dsh-agent-core`](../../packages/core/agent-core) bundle.
+Three complete examples load their plugin trees from `cordis.yml`: [`examples/echo-agent`](../../examples/echo-agent) (mock model + echo tool — the all-mock skeleton check, `pnpm run demo:echo`), [`examples/coding-agent`](../../examples/coding-agent) (DeepSeek V4 + the bash tool suite behind a terminal REPL UI, `pnpm run demo:repl`), and [`examples/acp-agent`](../../examples/acp-agent) (an agent exposed as an ACP server over JSON-RPC stdio — the client-driver shape, `pnpm run demo:acp`). Each leaf is just its swappable backends plus an app-package entry: the stdio demos load [`@deepseek-ai/dsh-stdio-agent`](../../packages/ui/stdio-agent), the ACP demo loads [`@deepseek-ai/dsh-acp-agent`](../../packages/ui/acp-agent), and both app packages share the spine via the [`@deepseek-ai/dsh-agent-core`](../../packages/core/agent-core) bundle.
+
+## The feature → mechanism map
+
+Every product feature maps to a listener on a documented extension seam — the microkernel claim made checkable ([microkernel RFC](../rfc/implemented/architecture/2026-06-11-microkernel-event-taxonomy.md)). No row modifies the loop.
+
+| Product feature | Plugin mechanism |
+|---|---|
+| Hook system (user + project level) | listeners on `agent/session-start`, `agent/prompt-submit`, `agent/request`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation` — each interception waterfall returns a typed Decision; the `dsh-hooks-claude` / `dsh-hooks-codex` bridges map hook config files onto these seams |
+| `/goal` | force-continue via `agent/turn-continuation` + `steer()` reminders |
+| `/loop` | on the `turn/end` session event, `send()` the next iteration; or force-continue |
+| Dynamic workflow | orchestrator plugin on `turn/end` (or `step/end`) driving `send`/`steer` + subagents |
+| Queued + steering messages | core `Agent.send()` / `Agent.steer()` |
+| Context compaction (auto + manual) | the `ctx.compact` seam + a backend (`dsh-compact-basic`) on the serial `agent/pre-step` seam; auto = token-pressure check before each step; a manual trigger invokes the same `ctx.compact` routine ([compaction RFC](../rfc/implemented/feature/2026-06-18-compaction-capability-seam.md) — the model-facing `/compact` consumer tool is deferred) |
+| System prompt configurability | `ctx.systemPrompt.section()` with ordering |
+| AGENTS.md (root) | a section provider reading the file |
+| AGENTS.md (subdir, on-touch) + file-change notices | `agent.inject()` from a watcher / tool-result listener |
+| Built-in tools | `ctx.tools.register()`; schemas flow into the assembly automatically — the `dsh-tool-*` families (bash, fs, web, subagent, todo) are the shipped examples |
+| ToolSearch / progressive disclosure | wrap `agent/request`, filter `req.tools` |
+| Tool sandbox (landlock / sandbox-exec) | `tools/pre-execute` (deny), or a sandboxing `BashExecutor` on the `dsh-bash` seam |
+| Permission system / AskUserQuestion | `tools/pre-execute` (deny/ask); register an ask tool |
+| Plan mode | `tools/pre-execute` (deny writes) + `agent/request` (inject mode prompt) |
+| Sub-agent delegation | the `ctx.subagents` provider registry (`dsh-subagent-spawn`/`-fork`/`-acp`) + `dsh-tool-subagent` exposing one configured provider to the model |
+| MCP | one plugin per server: discover tools → `ctx.tools.register()` |
+| Skills | section + tool registration; `inject()` skill content on invocation |
+| Memory | section provider + tool |
+| Scheduled tasks (cron) | a plugin registers model-callable scheduling tools; timer fires → `send(…, {source: {kind: 'cron', …}})` when idle / `inject()` notification when busy |
+| UI (GUI; CLI emits JSONL) | listen `session/event` (assistant chunks, boundaries, tool activity); input → `send()` |
+| Telemetry / replayable trace | `session/event` → JSONL; replay = `sessions.create(id, { seed })` |
+| Model adapters | `LlmAdapter` subclass via `registerAdapter` (`dsh-llm-deepseek`, `dsh-llm-pi-ai`) |
+| Plugin hot-reload | every registration is a `ctx.effect` → vendored HMR just works |

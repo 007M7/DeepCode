@@ -27,7 +27,6 @@ The repo's standing docs accrete. Root `AGENTS.md` reached 8,130 words through 5
 
 The first audit cycle under the standard, in rough priority order (evidence gathered in the survey that motivated this RFC):
 
-- `architecture.md` rewrite to the ≤ 1,800-word target: seam narration compressed to pointers, the MVP feature-to-mechanism checklist moved de-statused into [the extension cookbook](../../../cookbook/extension-cookbook.md), the stale layering-diagram row fixed.
 - Package README trims where generated catalogs or JSDoc are restated or history is narrated: `packages/ui/acp`, `packages/core/tools`, `packages/bash/tool-bash`, `packages/core/session`, `packages/compact/compact-basic`, `packages/session-persistence/session-persistence`.
 - [The web capability seam RFC](../architecture/2026-06-24-web-capability-seam.md) converted from spec-speak to shipped reality (drop the migration plan and test enumeration, "should" → "is").
 - `docs/core-data-structures/core.md`: drop the JSDoc walls from the `Agent`/`GenerateOptions` type-equiv pastes per that page's own stated rule.
