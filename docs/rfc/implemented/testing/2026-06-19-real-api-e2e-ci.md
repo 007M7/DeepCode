@@ -22,7 +22,7 @@ ci.yml's value is that it is keyless, forkable, and always-green: any contributo
 
 ### Cost is not the constraint; reliability is
 
-The usual reason to ration real-API CI — token cost — does not apply here: we are DeepSeek and internal inference is effectively free. So the design optimizes for *coverage and signal*, not for minimizing calls. The suite runs in full (all six `*.e2e.ts` files), on multiple triggers, on every trusted PR. This is the CI embodiment of the AGENTS.md "lean on with-key e2e tests" policy.
+The usual reason to ration real-API CI — token cost — does not apply here: we are DeepSeek and internal inference is effectively free. So the design optimizes for *coverage and signal*, not for minimizing calls. The suite runs in full (all six `*.e2e.ts` files), on multiple triggers, on every trusted PR. This is the CI embodiment of the [docs/testing.md](../../../testing.md) with-key policy.
 
 ### Triggers: trusted events only
 
