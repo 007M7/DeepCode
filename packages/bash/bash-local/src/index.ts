@@ -116,6 +116,10 @@ export class LocalBashExecutor extends BashExecutor {
       workdir: request.workdir ?? this.config.cwd ?? process.cwd(),
       timeoutMs,
       ...request.signal ? { signal: request.signal } : {},
+      // Carry stdin/env through verbatim — optional, no config default (absent
+      // means none). env merges AFTER the scrub in run.ts.
+      ...request.stdin !== undefined ? { stdin: request.stdin } : {},
+      ...request.env !== undefined ? { env: request.env } : {},
       // Carry the owner through verbatim (required-but-nullable on the spec):
       // the executor never interprets it — the consumer's access policy does.
       owner: request.owner,
@@ -129,6 +133,8 @@ export class LocalBashExecutor extends BashExecutor {
       timeoutMs: spec.timeoutMs,
       maxOutputBytes: this.config.maxOutputBytes,
       signal: spec.signal,
+      stdin: spec.stdin,
+      env: spec.env,
     }, this.internals).done
     return { ...outcome, timeoutMs: spec.timeoutMs }
   }
@@ -145,6 +151,8 @@ export class LocalBashExecutor extends BashExecutor {
       timeoutMs: 0,
       maxOutputBytes: this.config.maxOutputBytes,
       signal: spec.signal,
+      stdin: spec.stdin,
+      env: spec.env,
     }, this.internals)
 
     const id = BashTaskId(`bash-${this.nextTaskId++}`)
