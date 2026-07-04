@@ -1,8 +1,8 @@
 /**
  * Vocabulary for the web capability seam (`ctx.web`): the search/fetch
  * request/result shapes providers produce and consumers format, the provider
- * and capability status discriminants selection reports, the execution-control
- * context, and the typed error taxonomy.
+ * status discriminant selection reads, the execution-control context, and the
+ * typed error taxonomy.
  *
  * These types are shared by every provider backend
  * (`@deepseek-ai/dsh-web-search-exa`, `@deepseek-ai/dsh-web-search-perplexity`,
@@ -128,24 +128,14 @@ export type WebFetchBody =
 /**
  * Whether one concrete provider implementation is usable, by cheap local checks
  * only (credential presence, parseable endpoint config). A provider `status()`
- * must NOT make network calls. It is an input to selection, not a health system.
+ * must NOT make network calls. It is an input to execution-time selection, not
+ * a health system: `WebService.search()`/`fetch()` read it to pick a usable
+ * provider, and selection failure surfaces as the structured {@link WebError}
+ * codes callers route on.
  */
 export type WebProviderStatus =
   | { readonly available: true }
   | { readonly available: false; readonly reason: 'missing-credential' | 'misconfigured' }
-
-/**
- * Whether a capability (search or fetch) has a selected usable provider, or the
- * broad category in which selection fails. Intentionally small: it carries the
- * winning `providerId` on the available branch (so diagnostics can report which
- * provider won) but NOT the per-reason payload (the missing id, the ambiguous
- * candidate set). That branchable detail lives in the {@link WebError} thrown at
- * execution time — the surface callers route on — so the same fact does not get
- * two homes that can disagree.
- */
-export type WebCapabilityStatus =
-  | { readonly available: true; readonly providerId: string }
-  | { readonly available: false; readonly reason: 'none' | 'configured-missing' | 'configured-unavailable' | 'ambiguous' }
 
 /**
  * A search-capable backend. Registered with `ctx.web.registerSearchProvider`.
