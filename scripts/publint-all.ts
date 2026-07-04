@@ -6,11 +6,17 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 const CONCURRENCY_ENV = 'DSH_PUBLINT_CONCURRENCY'
+const isWindows = process.platform === 'win32'
 
 // Discover harness packages at packages/<group>/<pkg>; group containers,
 // examples, and private vendored sources are not package targets.
 const root = resolve(import.meta.dirname, '..')
 const packagesRoot = resolve(root, 'packages')
+
+// On Windows recent Node (CVE-2024-27980) refuses to launch .cmd/.bat bin
+// shims without shell:true. Use the absolute path to the .cmd shim so the
+// subprocess (not a pnpm child — PATH lacks node_modules/.bin) still finds it.
+const publintBin = resolve(root, `node_modules/.bin/publint${isWindows ? '.cmd' : ''}`)
 
 type PublintResult =
   | { path: string; status: 'passed'; stdout: string; stderr: string }
@@ -50,10 +56,11 @@ function outputText(value: unknown): string {
 
 async function runPublint(path: string): Promise<PublintResult> {
   try {
-    const { stdout, stderr } = await execFileAsync('node_modules/.bin/publint', [path], {
+    const { stdout, stderr } = await execFileAsync(publintBin, [path], {
       cwd: root,
       encoding: 'utf8',
       maxBuffer: 10 * 1024 * 1024,
+      shell: isWindows,
     })
     return { path, status: 'passed', stdout, stderr }
   } catch (error: unknown) {

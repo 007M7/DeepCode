@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, globSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 
+const isWindows = process.platform === 'win32'
 const root = resolve(import.meta.dirname, '..')
 
 interface ExportTarget {
@@ -143,9 +144,13 @@ try {
     .join('\n')
   writeFileSync(resolve(tmp, 'index.ts'), `${imports}\n`)
 
-  execFileSync(resolve(root, 'node_modules/.bin/tsc'), ['-p', resolve(tmp, 'tsconfig.json'), '--pretty', 'false'], {
+  // On Windows the bin shim is a .cmd file; recent Node (CVE-2024-27980)
+  // refuses to launch .cmd/.bat via execFileSync without shell:true.
+  const tscBin = isWindows ? resolve(root, 'node_modules/.bin/tsc.cmd') : resolve(root, 'node_modules/.bin/tsc')
+  execFileSync(tscBin, ['-p', resolve(tmp, 'tsconfig.json'), '--pretty', 'false'], {
     cwd: root,
     stdio: 'pipe',
+    shell: isWindows,
   })
   console.log(`verify-node-next-types: ${packages.length} workspace package declaration surface(s) compile under NodeNext.`)
 } catch (error: unknown) {
