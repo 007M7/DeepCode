@@ -17,6 +17,14 @@ import type { BashExecutor } from '@deepseek-ai/dsh-bash'
 import { parseHookOutput } from './codec.ts'
 import type { CommandHook, HookOutput } from './types.ts'
 
+/**
+ * The reference default per-hook timeout, in ms (10 minutes) — the value both
+ * Claude Code and Codex apply to a hook whose config sets no `timeout`. It
+ * lives here, once, as the protocol's default; a per-hook {@link CommandHook.timeoutSec}
+ * is the override surface.
+ */
+export const DEFAULT_HOOK_TIMEOUT_MS = 600_000
+
 /** Everything a single hook invocation needs beyond its command line. */
 export interface RunHookOptions {
   /** The JSON payload object written to the hook's stdin (the bridge builds it). */
@@ -27,8 +35,6 @@ export interface RunHookOptions {
   cwd?: string
   /** Abort signal — cancels the hook run when fired (the parent step aborts). */
   signal?: AbortSignal
-  /** Default timeout (ms) when the hook config sets none. */
-  defaultTimeoutMs: number
   /** Whether to append a trailing newline to the stdin payload (CC yes, Codex no). */
   trailingNewline: boolean
   /**
@@ -40,30 +46,22 @@ export interface RunHookOptions {
   expectedEventName?: string
 }
 
-/** The {@link HookOutput} plus the wall-clock duration of the run (for `hook/result`). */
-export interface RunHookResult {
-  output: HookOutput
-  durationMs: number
-}
-
 /**
  * Run `hook` via `bash` with `options.payload` serialized to its stdin, then
- * decode the result. `now` is injected (a monotonic-ms source) so the duration
- * is testable without a real clock. The hook's configured `timeoutSec` (wire
- * unit: seconds) overrides `defaultTimeoutMs`. The command runs with the
- * dialect's `env` merged after the executor's credential scrub (the trusted-
- * plugin path). NEVER throws: an infrastructure failure (the executor rejecting)
- * is surfaced as a {@link HookOutput} with `exitCode: undefined`, so the caller's
- * merge logic treats it as a non-blocking error rather than crashing the turn.
+ * decode the result into a {@link HookOutput}. The hook's configured
+ * `timeoutSec` (wire unit: seconds) overrides {@link DEFAULT_HOOK_TIMEOUT_MS}.
+ * The command runs with the dialect's `env` merged after the executor's
+ * credential scrub (the trusted-plugin path). NEVER throws: an infrastructure
+ * failure (the executor rejecting) is surfaced as a {@link HookOutput} with
+ * `exitCode: undefined`, so the caller's merge logic treats it as a
+ * non-blocking error rather than crashing the turn.
  */
 export async function runHook(
   bash: BashExecutor,
   hook: CommandHook,
   options: RunHookOptions,
-  now: () => number,
-): Promise<RunHookResult> {
-  const started = now()
-  const timeoutMs = hook.timeoutSec !== undefined ? hook.timeoutSec * 1000 : options.defaultTimeoutMs
+): Promise<HookOutput> {
+  const timeoutMs = hook.timeoutSec !== undefined ? hook.timeoutSec * 1000 : DEFAULT_HOOK_TIMEOUT_MS
   const stdin = JSON.stringify(options.payload) + (options.trailingNewline ? '\n' : '')
 
   const request = {
@@ -81,18 +79,12 @@ export async function runHook(
     // protocol's exit-code contract is numeric, so a signal death maps to
     // `undefined` (a non-blocking error — no clean exit code to act on).
     const exitCode = result.exitCode ?? undefined
-    return {
-      output: parseHookOutput(exitCode, result.stdout.text, result.stderr.text, options.expectedEventName),
-      durationMs: now() - started,
-    }
+    return parseHookOutput(exitCode, result.stdout.text, result.stderr.text, options.expectedEventName)
   } catch (error: unknown) {
     // The executor rejects only on infrastructure faults (unusable workdir,
     // missing shell). A hook that cannot run is a non-blocking error: no exit
     // code, the failure on stderr for the record. The turn proceeds.
     const message = error instanceof Error ? error.message : String(error)
-    return {
-      output: parseHookOutput(undefined, '', message),
-      durationMs: now() - started,
-    }
+    return parseHookOutput(undefined, '', message)
   }
 }

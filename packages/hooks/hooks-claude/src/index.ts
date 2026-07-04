@@ -71,15 +71,12 @@ export interface Config {
    * unmodified hooks reference `$CLAUDE_PROJECT_DIR` for project-relative paths.
    */
   projectDir?: string
-  /** Default per-hook timeout in ms when a hook sets none (CC default: 600000). */
-  defaultTimeoutMs?: number
 }
 
 export const Config: z<Config> = z.object({
   configPath: z.string().required(),
   pluginRoot: z.string(),
   projectDir: z.string(),
-  defaultTimeoutMs: z.number().default(600_000),
 })
 
 /** A stable per-handler id so an invoked/result pair correlates in the log. */
@@ -90,13 +87,6 @@ function nextHandlerId(point: string): string {
 
 /** The `{kind:'plugin'}` source stamped on every context this bridge injects. */
 const PLUGIN_SOURCE: MessageSource = { kind: 'plugin', plugin: 'hooks-claude' }
-
-/** Truncate a stderr blob for the `hook/result` summary field. */
-function summarize(stderr: string): string | undefined {
-  const t = stderr.trim()
-  if (t.length === 0) return undefined
-  return t.length > 500 ? t.slice(0, 500) + '…' : t
-}
 
 export function apply(ctx: Context, config: Config): void {
   // --- Parse the config ONCE at load. A read/parse failure is contained: the
@@ -117,8 +107,6 @@ export function apply(ctx: Context, config: Config): void {
     ctx.logger.warn(`hooks-claude: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
     return
   }
-
-  const defaultTimeoutMs = config.defaultTimeoutMs ?? 600_000
 
   /**
    * Run every command hook configured for `point` whose matcher selects
@@ -163,17 +151,16 @@ export function apply(ctx: Context, config: Config): void {
             ...group.matcher !== undefined ? { matcher: group.matcher } : {},
           })
         }
-        const { output, durationMs } = await runHook(ctx.bash, hook, {
+        const output = await runHook(ctx.bash, hook, {
           payload,
           ...hookEnv ? { env: hookEnv } : {},
           ...workdir !== undefined ? { cwd: workdir } : {},
           ...opts.signal ? { signal: opts.signal } : {},
-          defaultTimeoutMs,
           trailingNewline: true,
           // Discard a `hookSpecificOutput` block whose `hookEventName` names a
           // different event than the one firing (the schemas key it by event).
           expectedEventName: point,
-        }, () => performance.now())
+        })
         outputs.push(output)
         if (output.updatedInput !== undefined) {
           ctx.logger.warn(`hooks-claude: ${point} hook requested updatedInput, which is not yet honored (ignored)`)
@@ -182,14 +169,7 @@ export function apply(ctx: Context, config: Config): void {
           ctx.logger.warn(`hooks-claude: ${point} hook emitted a systemMessage, which is not yet surfaced (ignored)`)
         }
         if (session && opts.turn !== undefined) {
-          const stderrSummary = summarize(output.stderr)
-          appendHookResult(session, {
-            turn: opts.turn, point, handlerId,
-            decision: output.decision ?? (output.continue === false ? 'stop' : 'pass'),
-            ...output.exitCode !== undefined ? { exitCode: output.exitCode } : {},
-            ...stderrSummary !== undefined ? { stderrSummary } : {},
-            durationMs,
-          })
+          appendHookResult(session, { turn: opts.turn, point, handlerId, output })
         }
       }
     }

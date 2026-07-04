@@ -47,14 +47,11 @@ export interface Config {
   configPath: string
   /** The model name stamped on every payload (Codex includes `model` on each event). */
   model?: string
-  /** Default per-hook timeout in ms when a hook sets none (Codex default: 600000). */
-  defaultTimeoutMs?: number
 }
 
 export const Config: z<Config> = z.object({
   configPath: z.string().required(),
   model: z.string().default(''),
-  defaultTimeoutMs: z.number().default(600_000),
 })
 
 let handlerCounter = 0
@@ -63,12 +60,6 @@ function nextHandlerId(point: string): string {
 }
 
 const PLUGIN_SOURCE: MessageSource = { kind: 'plugin', plugin: 'hooks-codex' }
-
-function summarize(stderr: string): string | undefined {
-  const t = stderr.trim()
-  if (t.length === 0) return undefined
-  return t.length > 500 ? t.slice(0, 500) + '…' : t
-}
 
 export function apply(ctx: Context, config: Config): void {
   let parsed: CodexHookConfig = {}
@@ -84,7 +75,6 @@ export function apply(ctx: Context, config: Config): void {
     return
   }
 
-  const defaultTimeoutMs = config.defaultTimeoutMs ?? 600_000
   const model = config.model ?? ''
 
   async function runPoint(
@@ -111,15 +101,14 @@ export function apply(ctx: Context, config: Config): void {
             ...group.matcher !== undefined ? { matcher: group.matcher } : {},
           })
         }
-        const { output, durationMs } = await runHook(ctx.bash, hook, {
+        const output = await runHook(ctx.bash, hook, {
           payload,
           ...workdir !== undefined ? { cwd: workdir } : {},
           ...opts.signal ? { signal: opts.signal } : {},
-          defaultTimeoutMs,
           trailingNewline: false, // Codex writes stdin WITHOUT a trailing newline.
           // Discard a `hookSpecificOutput` block naming a different event.
           expectedEventName: point,
-        }, () => performance.now())
+        })
         // Codex's SessionStart/UserPromptSubmit treat a CLEAN hook's PLAIN
         // (non-JSON) stdout as additionalContext. The codec keeps that raw text on
         // `output.stdout` but only sets `additionalContext` from a JSON
@@ -140,14 +129,7 @@ export function apply(ctx: Context, config: Config): void {
           ctx.logger.warn(`hooks-codex: ${point} hook emitted a systemMessage, which is not yet surfaced (ignored)`)
         }
         if (session && opts.turn !== undefined) {
-          const stderrSummary = summarize(output.stderr)
-          appendHookResult(session, {
-            turn: opts.turn, point, handlerId,
-            decision: output.decision ?? (output.continue === false ? 'stop' : 'pass'),
-            ...output.exitCode !== undefined ? { exitCode: output.exitCode } : {},
-            ...stderrSummary !== undefined ? { stderrSummary } : {},
-            durationMs,
-          })
+          appendHookResult(session, { turn: opts.turn, point, handlerId, output })
         }
       }
     }

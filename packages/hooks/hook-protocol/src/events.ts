@@ -16,7 +16,7 @@
  */
 
 import type { Session } from '@deepseek-ai/dsh-session'
-import type { HookDialect } from './types.ts'
+import type { HookDialect, HookOutput } from './types.ts'
 
 /** What identifies a hook invocation across its invoked/result pair. */
 export interface HookInvocation {
@@ -37,14 +37,22 @@ export interface HookResultRecord {
   turn: number
   point: string
   handlerId: string
-  /** The dialect-neutral decision the bridge resolved (`deny`/`allow`/`block`/…). */
-  decision: string
-  /** The process exit code (absent when the hook could not run). */
-  exitCode?: number
-  /** A truncated stderr summary (the block-reason source on exit 2). */
-  stderrSummary?: string
-  /** Wall-clock duration of the run. */
-  durationMs: number
+  /**
+   * The decoded outcome the run produced. {@link appendHookResult} derives the
+   * durable `decision`/`exitCode`/`stderrSummary` fields from it, so the shared
+   * event's semantics live here, in the lib that declares it, not per-bridge.
+   */
+  output: HookOutput
+}
+
+/** How many characters of stderr the `hook/result.stderrSummary` field keeps. */
+const STDERR_SUMMARY_MAX = 500
+
+/** Truncate a stderr blob for the `hook/result.stderrSummary` field (`undefined` when empty). */
+function summarizeStderr(stderr: string): string | undefined {
+  const t = stderr.trim()
+  if (t.length === 0) return undefined
+  return t.length > STDERR_SUMMARY_MAX ? t.slice(0, STDERR_SUMMARY_MAX) + '…' : t
 }
 
 /** Append a `hook/invoked` provenance event to `session`. */
@@ -58,15 +66,22 @@ export function appendHookInvoked(session: Session, invocation: HookInvocation):
   })
 }
 
-/** Append a `hook/result` outcome event to `session` (pairs with a prior `hook/invoked`). */
+/**
+ * Append a `hook/result` outcome event to `session` (pairs with a prior
+ * `hook/invoked`). Owns the durable event's semantics: `decision` is the hook's
+ * parsed decision, else `'stop'` when it asked to halt (`continue: false`),
+ * else `'pass'`; `stderrSummary` is the trimmed stderr truncated to 500
+ * characters (omitted when empty); `exitCode` is omitted when the hook never ran.
+ */
 export function appendHookResult(session: Session, record: HookResultRecord): void {
+  const { output } = record
+  const stderrSummary = summarizeStderr(output.stderr)
   session.append('hook/result', {
     turn: record.turn,
     point: record.point,
     handlerId: record.handlerId,
-    decision: record.decision,
-    ...record.exitCode !== undefined ? { exitCode: record.exitCode } : {},
-    ...record.stderrSummary !== undefined ? { stderrSummary: record.stderrSummary } : {},
-    durationMs: record.durationMs,
+    decision: output.decision ?? (output.continue === false ? 'stop' : 'pass'),
+    ...output.exitCode !== undefined ? { exitCode: output.exitCode } : {},
+    ...stderrSummary !== undefined ? { stderrSummary } : {},
   })
 }

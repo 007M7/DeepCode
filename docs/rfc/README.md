@@ -61,7 +61,6 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Prune write-only fields and a dead routing knob from the fs seam](proposed/simplification/2026-07-04-prune-write-only-fs-surface.md) | 2026-07-04 |
 | [Remove the `agent/steering` mirror emit](proposed/simplification/2026-07-04-remove-agent-steering-mirror.md) | 2026-07-04 |
 | [Share the app bins' boot glue instead of maintaining twin copies](proposed/simplification/2026-07-04-share-app-bin-boot-glue.md) | 2026-07-04 |
-| [Tighten the hook-protocol contract — dialect, discarded fields, double defaults, and lib-owned `hook/result` semantics](proposed/simplification/2026-07-04-tighten-hook-protocol-contract.md) | 2026-07-04 |
 | [Trim unreachable ACP bridge surface — the branding knobs and the kind-sniffing fallback](proposed/simplification/2026-07-04-trim-acp-bridge-unreachable-surface.md) | 2026-07-04 |
 
 ### Architecture
@@ -120,6 +119,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Stop mirroring durable boundaries as agent events](implemented/simplification/2026-06-20-remove-agent-boundary-mirror-events.md) | 2026-06-20 |
 | [Split the filesystem seam — provider text mutations plus the `dsh-fs-policy` plugin](implemented/simplification/2026-06-26-fsspec-style-fs-seam.md) | 2026-06-26 |
 | [Stop mirroring the token stream as an agent event](implemented/simplification/2026-07-02-remove-stream-chunk-mirror.md) | 2026-07-02 |
+| [Tighten the hook-protocol contract — dialect, discarded fields, double defaults, and lib-owned `hook/result` semantics](implemented/simplification/2026-07-04-tighten-hook-protocol-contract.md) | 2026-07-04 |
 
 ### Architecture
 
