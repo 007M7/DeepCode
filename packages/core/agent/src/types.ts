@@ -228,12 +228,14 @@ declare module 'cordis' {
     /**
      * An agent was registered in the {@link AgentRegistry} and is ready to
      * receive messages.
+     * @param agent - the newly registered agent, already resolvable in the registry.
      * @mode emit
      */
     'agent/created'(agent: Agent): void
     /**
      * An agent was disposed and removed from the registry; its fiber and any
      * in-flight turn have been torn down.
+     * @param agent - the agent that was torn down; its handle is now inert.
      * @mode emit
      */
     'agent/disposed'(agent: Agent): void
@@ -241,12 +243,17 @@ declare module 'cordis' {
      * Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive
      * lifecycle off this transition, never off a status you just requested —
      * `send()` does not flip status to `running` before it returns.
+     * @param agent - the agent whose status flipped.
+     * @param status - the status just entered (the transition's destination).
      * @mode emit
      */
     'agent/status'(agent: Agent, status: AgentStatus): void
     /**
      * A message entered the agent's inbox (queued or steering). `source` is
      * the resolved source (defaults applied), not the caller's raw options.
+     * @param agent - the agent whose inbox received the message.
+     * @param content - the enqueued content blocks, verbatim.
+     * @param info - the resolved source plus whether it entered as steering.
      * @mode emit
      */
     'agent/queued'(agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void
@@ -260,6 +267,8 @@ declare module 'cordis' {
      * so via `agent.inject()` (a `context/message` the first request sees), not
      * by returning a decision. Cannot block the session from starting; that gap
      * is deliberate (a bridge logs/injects, it does not gate startup).
+     * @param agent - the agent whose session lifecycle began.
+     * @param source - why the session started (fresh startup, resume, …).
      * @mode emit
      */
     'agent/session-start'(agent: Agent, source: SessionStartSource): void
@@ -295,6 +304,11 @@ declare module 'cordis' {
      * listener needs to measure pressure (the system prompt counts toward the
      * budget). `signal` cancels any in-flight work a listener starts (e.g. a
      * summarization model call).
+     * @param agent - the agent about to open the step.
+     * @param turn - the already-open turn this step belongs to.
+     * @param step - the number of the step about to start.
+     * @param fullSystemPrompt - the assembled prompt, for measuring token pressure.
+     * @param signal - aborts in-flight listener work when the turn is torn down.
      * @mode serial
      */
     // TODO: `fullSystemPrompt` is a smell on a generic per-step seam — compaction
@@ -310,6 +324,9 @@ declare module 'cordis' {
      * turn, per drained message. Maps onto Claude Code's `UserPromptSubmit` hook.
      * Call `next()` to delegate to the default (allow unchanged), or return a
      * {@link PromptDecision} without calling `next()` to short-circuit.
+     * @param agent - the agent draining its inbox.
+     * @param content - the drained message's blocks, as queued.
+     * @param source - the message's resolved source.
      * @mode waterfall
      */
     'agent/prompt-submit'(agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>
@@ -319,12 +336,20 @@ declare module 'cordis' {
      * delegate, or return without it to short-circuit. For surface mutation that
      * must precede history derivation (compaction), use {@link agent/pre-step}
      * instead — by the time this fires, `options.messages` is already derived.
+     * @param agent - the agent making the model call.
+     * @param turn - the open turn number.
+     * @param step - the step whose request this is.
+     * @param options - the assembled request; listeners return a transformed copy.
      * @mode waterfall
      */
     'agent/request'(agent: Agent, turn: number, step: number, options: GenerateOptions, next: () => Promise<GenerateOptions>): Promise<GenerateOptions>
     /**
      * Waterfall: post-process the assembled assistant {@link Message} before
      * tool dispatch (validation, content rewriting, …).
+     * @param agent - the agent that received the step's response.
+     * @param turn - the open turn number.
+     * @param step - the step that produced the message.
+     * @param message - the assistant message as assembled from the stream.
      * @mode waterfall
      */
     'agent/step-result'(agent: Agent, turn: number, step: number, message: Message, next: () => Promise<Message>): Promise<Message>
@@ -335,6 +360,9 @@ declare module 'cordis' {
      * Listeners force-continue (`/goal`, `/loop` — optionally attaching a
      * `reason` recorded as next-step steering) or force-stop (budget guards).
      * Call `next()` to delegate to the default, or return a decision to override.
+     * @param agent - the agent deciding whether to run another step.
+     * @param turn - the turn being continued or stopped.
+     * @param defaultDecision - what the loop would do absent an override.
      * @mode waterfall
      */
     'agent/turn-continuation'(agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>
@@ -342,12 +370,20 @@ declare module 'cordis' {
     // ---- streaming + tool notifications (emit) ----
     /**
      * Steering content was injected into a running turn.
+     * @param agent - the agent that absorbed the steering.
+     * @param turn - the running turn that received it.
+     * @param content - the injected blocks.
+     * @param source - the steering message's resolved source.
      * @mode emit
      */
     'agent/steering'(agent: Agent, turn: number, content: ContentBlock[], source: MessageSource): void
     /**
      * A step or turn errored. The loop reports a failure here (plus the logger)
      * even when the error has no in-turn position for a session `error` event.
+     * @param agent - the agent whose turn errored.
+     * @param turn - the turn in which the failure surfaced.
+     * @param step - the step at which the failure surfaced.
+     * @param error - the failure, verbatim.
      * @mode emit
      */
     'agent/error'(agent: Agent, turn: number, step: number, error: Error): void

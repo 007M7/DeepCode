@@ -129,6 +129,8 @@ export class WebService extends Service {
    * if its id is already registered for search. Returns a disposer; emits
    * `web/providers-change` after a successful register and again on dispose.
    * Disposed with the calling fiber.
+   * @param provider - the provider; its `id` is the registry key.
+   * @returns the disposer that unregisters the provider.
    */
   registerSearchProvider(provider: WebSearchProvider): () => void {
     return this.registerProvider(this.searchProviders, provider)
@@ -139,6 +141,8 @@ export class WebService extends Service {
    * if its id is already registered for fetch. Returns a disposer; emits
    * `web/providers-change` after a successful register and again on dispose.
    * Disposed with the calling fiber.
+   * @param provider - the provider; its `id` is the registry key.
+   * @returns the disposer that unregisters the provider.
    */
   registerFetchProvider(provider: WebFetchProvider): () => void {
     return this.registerProvider(this.fetchProviders, provider)
@@ -165,7 +169,10 @@ export class WebService extends Service {
     return () => void dispose()
   }
 
-  /** Search-capability selection status, derived live (never stored). */
+  /**
+   * Search-capability selection status, derived live (never stored).
+   * @returns which provider would serve a search right now, or why none would.
+   */
   searchStatus(): WebCapabilityStatus {
     return resolveStatus({
       providers: this.searchProviders,
@@ -173,7 +180,10 @@ export class WebService extends Service {
     })
   }
 
-  /** Fetch-capability selection status, derived live (never stored). */
+  /**
+   * Fetch-capability selection status, derived live (never stored).
+   * @returns which provider would serve a fetch right now, or why none would.
+   */
   fetchStatus(): WebCapabilityStatus {
     return resolveStatus({
       providers: this.fetchProviders,
@@ -186,6 +196,9 @@ export class WebService extends Service {
    * time with the selection rules above; throws {@link WebError} when the
    * capability cannot run. The seam enforces `request.maxResults` on the result:
    * if the provider over-returns, `sources[]` is truncated and `truncated` set.
+   * @param request - the query plus result-shaping options.
+   * @param exec - the tool-execution context, forwarded to the provider.
+   * @returns the provider's results, capped to `request.maxResults`.
    */
   async search(request: WebSearchRequest, exec?: WebExecContext): Promise<WebSearchResult> {
     const provider = resolveProvider({
@@ -200,6 +213,9 @@ export class WebService extends Service {
    * Retrieve one URL through the selected provider. Resolves the provider at
    * call time with the selection rules above; throws {@link WebError} when the
    * capability cannot run. A non-2xx response is a result, not a throw.
+   * @param request - the URL plus retrieval options.
+   * @param exec - the tool-execution context, forwarded to the provider.
+   * @returns the retrieval outcome; non-2xx responses resolve descriptively.
    */
   async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult> {
     const provider = resolveProvider({
