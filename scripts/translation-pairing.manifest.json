@@ -1,0 +1,16 @@
+{
+  "required": [
+    "README.md",
+    "docs/development.md",
+    "docs/i18n/README.md",
+    "docs/i18n/translation-rules.md",
+    "docs/rfc/implemented/process/2026-07-02-bilingual-docs-and-pairing-gate.md"
+  ],
+  "excluded": [
+    "docs/AGENTS.md",
+    "docs/module-graph.md",
+    "docs/cordis-catalog/",
+    "docs/tool-catalog/",
+    "docs/i18n/terminology.md"
+  ]
+}

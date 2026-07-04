@@ -17,7 +17,8 @@ import type { ContentBlock as AcpContentBlock, StopReason } from '@agentclientpr
  * Map a harness {@link TurnEndReason} to the ACP `StopReason` wire enum.
  *
  * The mapping is total over the kinds the loop actually produces today
- * (`completed`/`aborted`/`error`/`disposed`/`max-tokens`). `TurnEndReason` is
+ * (`completed`/`aborted`/`error`/`disposed`/`max-tokens`/`rejected`).
+ * `TurnEndReason` is
  * merge-extensible, so an unknown future kind falls through to `end_turn` —
  * the safest default (the turn DID end; we just lack a more specific wire
  * reason) — rather than throwing into the SDK, which would reject an unknown
@@ -34,6 +35,10 @@ import type { ContentBlock as AcpContentBlock, StopReason } from '@agentclientpr
  *                 for any non-bridge caller / property test.)
  * - `disposed`  → `cancelled` (the agent was torn down mid-turn — closest to a
  *                 cancellation from the client's perspective)
+ * - `rejected`  → `cancelled` (the prompt was blocked by an `agent/prompt-submit`
+ *                 hook before any step ran — ACP has no "rejected" reason, and a
+ *                 blocked prompt is, from the client's view, the prompt not being
+ *                 carried out; `cancelled` is the closest legal wire reason)
  */
 export function turnEndToStopReason(reason: TurnEndReason): StopReason {
   switch (reason.kind) {
@@ -44,6 +49,8 @@ export function turnEndToStopReason(reason: TurnEndReason): StopReason {
     case 'aborted':
       return 'cancelled'
     case 'disposed':
+      return 'cancelled'
+    case 'rejected':
       return 'cancelled'
     case 'error':
       return 'end_turn'

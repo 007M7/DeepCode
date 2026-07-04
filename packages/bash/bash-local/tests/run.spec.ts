@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { killGroup, OutputCollector, runBash } from '@deepseek-ai/dsh-bash-local'
+import type { RunningBash } from '@deepseek-ai/dsh-bash-local'
 
 const { failNextClose } = vi.hoisted(() => ({ failNextClose: { value: false } }))
 vi.mock('node:fs', async (importOriginal) => {
@@ -43,6 +44,15 @@ async function waitGone(pid: number, timeoutMs = 5_000): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   throw new Error(`pid ${pid} still alive after ${timeoutMs}ms`)
+}
+
+async function waitForStdout(running: RunningBash, expected: string, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (running.stdout.snapshot().text.includes(expected)) return
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  throw new Error(`stdout did not include ${JSON.stringify(expected)} after ${timeoutMs}ms`)
 }
 
 describe('runBash', () => {
@@ -96,11 +106,10 @@ describe('runBash', () => {
   })
 
   it('escalates to SIGKILL when SIGTERM is trapped', async () => {
-    const result = await runBash(
-      spec('trap \'\' TERM; sleep 60', { timeoutMs: 100 }),
-      { graceMs: 200 },
-    ).done
-    expect(result.timedOut).toBe(true)
+    const running = runBash(spec('trap \'\' TERM; echo ready; sleep 60'), { graceMs: 200 })
+    await waitForStdout(running, 'ready\n')
+    running.kill()
+    const result = await running.done
     expect(result.signal).toBe('SIGKILL')
   })
 
@@ -146,6 +155,62 @@ describe('runBash', () => {
     running.kill()
     const result = await running.done
     expect(result.signal).toBe('SIGTERM')
+  })
+})
+
+describe('stdin and extra env (set by in-process plugins)', () => {
+  it('writes stdin to the command and closes it', async () => {
+    const result = await runBash(spec('cat', { stdin: 'hello from stdin\n' })).done
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.text).toBe('hello from stdin\n')
+  })
+
+  it('a command that reads stdin sees EOF when none is supplied', async () => {
+    // No stdin → fd 0 is /dev/null, so `cat` reads EOF and exits 0 with no
+    // output (it does NOT block).
+    const result = await runBash(spec('cat')).done
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.text).toBe('')
+  })
+
+  it('gives fd 0 the exact pre-seam type: /dev/null when no stdin, a pipe when supplied', async () => {
+    // The no-stdin path must stay observationally identical to the pre-seam
+    // `ignore` default: a command that probes stdin's file type sees a char
+    // device (/dev/null). Regressing to an always-open pipe would make fd 0 a
+    // socket (node's spawn pipe is an AF_UNIX socket, not a FIFO), flipping
+    // `test -c /dev/stdin` for every model-driven call. When bytes ARE supplied,
+    // fd 0 is that pipe (a socket), as it must be to carry them.
+    const none = await runBash(spec('test -c /dev/stdin && echo char || echo other')).done
+    expect(none.stdout.text).toBe('char\n')
+    const piped = await runBash(spec('test -S /dev/stdin && echo socket || echo other', { stdin: 'x' })).done
+    expect(piped.stdout.text).toBe('socket\n')
+  })
+
+  it('merges extra env entries onto the scrubbed environment', async () => {
+    const result = await runBash(spec('echo "$DSH_EXTRA_ONE/$DSH_EXTRA_TWO"', {
+      env: { DSH_EXTRA_ONE: 'alpha', DSH_EXTRA_TWO: 'beta' },
+    })).done
+    expect(result.stdout.text).toBe('alpha/beta\n')
+  })
+
+  it('an explicit extra env entry overrides the model-friendly override and the scrub', async () => {
+    // TERM is a model-friendly OVERRIDE (dumb); an explicit extra entry wins.
+    // DSH_OVERRIDE_KEY matches the credential scrub pattern, yet an explicit
+    // entry is still honored — the scrub only drops AMBIENT process.env creds.
+    const result = await runBash(spec('echo "$TERM/$DSH_OVERRIDE_KEY"', {
+      env: { TERM: 'xterm-256color', DSH_OVERRIDE_KEY: 'explicit-wins' },
+    })).done
+    expect(result.stdout.text).toBe('xterm-256color/explicit-wins\n')
+  })
+
+  it('does not crash or reject when the child ignores a large stdin (EPIPE)', async () => {
+    // The child exits immediately without reading; closing our end of a stdin
+    // pipe still holding ~1MiB triggers EPIPE on the write. The handler must
+    // swallow it: `done` resolves normally with the child's real exit.
+    const big = 'x'.repeat(1024 * 1024)
+    const result = await runBash(spec('exit 7', { stdin: big })).done
+    expect(result.exitCode).toBe(7)
+    expect(result.aborted).toBe(false)
   })
 })
 

@@ -1,0 +1,71 @@
+/**
+ * App-attribution vocabulary for provider requests.
+ *
+ * Every product LLM adapter must identify the application on every provider
+ * HTTP request (see the adapter contract on {@link ../index.ts LlmAdapter}):
+ * a static, non-secret product identity, sent as the standard `User-Agent`.
+ * Adapters obtain the headers from {@link attributionHeaders} instead of
+ * hand-copying constants, so the identity cannot drift between
+ * implementations. The policy and its rationale are pinned in
+ * docs/rfc/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md.
+ *
+ * @module @deepseek-ai/dsh-llm/attribution
+ */
+
+import { createRequire } from 'node:module'
+
+// The package's own manifest is the single source of the version so the
+// User-Agent cannot drift from what is published (`./package.json` is an
+// export of this package; the relative path resolves from both `src/` and
+// the bundled `lib/`).
+const { version } = createRequire(import.meta.url)('../package.json') as { version: string }
+
+/**
+ * Static public application identity sent to LLM providers.
+ *
+ * Every field is a public product fact, safe on every request: no secrets,
+ * local paths, session ids, prompt text, or per-user identifiers belong here,
+ * and nothing per-request may influence the values.
+ */
+export interface AppIdentity {
+  /** `User-Agent` product token (lowercase, hyphenated). */
+  product: string
+  /** Product version; sourced from package metadata, never hand-copied. */
+  version: string
+  /** Public home URL of the app, used as the `User-Agent` comment. */
+  url: string
+}
+
+/**
+ * The harness's own identity: the default every adapter sends. Deployments
+ * that need a white-label identity pass their own {@link AppIdentity} to
+ * {@link attributionHeaders} — omission falls back to this default; nothing
+ * can suppress attribution entirely.
+ */
+export const APP_IDENTITY: AppIdentity = {
+  product: 'deepseek-harness',
+  version,
+  // FIXME: create the public deepseek-ai/deepseek-harness-sdk repository this
+  // URL promises before the first release ships attribution pointing at it.
+  url: 'https://github.com/deepseek-ai/deepseek-harness-sdk',
+}
+
+/**
+ * The standard `User-Agent` value: `product/version (+url)`. The
+ * parenthesized `+url` comment is the conventional self-identification form
+ * (RFC 9110 §10.1.5 product + comment syntax).
+ */
+export function userAgent(identity: AppIdentity = APP_IDENTITY): string {
+  return `${identity.product}/${identity.version} (+${identity.url})`
+}
+
+/**
+ * Build the attribution headers an adapter must send on every provider
+ * request. Header names are lowercase (HTTP field names are case-insensitive
+ * on the wire).
+ */
+export function attributionHeaders(
+  identity: AppIdentity = APP_IDENTITY,
+): Record<string, string> {
+  return { 'user-agent': userAgent(identity) }
+}

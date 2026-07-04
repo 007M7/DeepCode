@@ -10,7 +10,7 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
     <encoded-id>.jsonl           # header line + one SessionEvent per line (verbatim)
 ```
 
-- The first `.jsonl` line is the immutable `SessionHeader` tagged `{ type: 'session', version, id, cwd?, createdAt, parentSession? }`; every subsequent line is one `SessionEvent` JSON, **verbatim including `assistant/chunk`** so `seq` stays contiguous (`events[i].seq === i`).
+- The first `.jsonl` line is the immutable `SessionHeader` tagged `{ type: 'session', version, id, cwd?, createdAt, parentSession?, seedLength? }`; every subsequent line is one `SessionEvent` JSON, **verbatim including `assistant/chunk`** so `seq` stays contiguous (`events[i].seq === i`).
 - Session ids are unvalidated branded strings, so they are percent-encoded to a single safe path segment before use (no traversal, no collision).
 
 ## Config
@@ -21,11 +21,11 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
 
 ## Durability and crash semantics
 
-- **Lazy materialization.** `create(meta)` writes nothing; the `.jsonl` (header + first batch) is written atomically (temp-write + `fsync` + rename) on the first `append`. A created-but-never-appended session leaves nothing on disk and is absent from `has`/`list`.
+- **Lazy materialization.** `create(meta)` writes nothing; the `.jsonl` (header + first batch) is written atomically (temp-write + `fsync` + rename) on the first `append`. A created-but-never-appended session leaves nothing on disk and is absent from `list`.
 - **Append-only.** Committed events (at or below a flushed `turn/end`) are never rewritten. Subsequent appends are line appends at EOF + `fsync`.
 - **Crash recovery — close, don't truncate.** A crash can leave a log whose final turn never closed (real events after the last `turn/end`). `load` PRESERVES those events (a turn can be huge — they are real work) and closes the orphaned turn by durably appending synthetic boundary events: an error `tool/result` for every `tool-call` the crash left unanswered (the loop logs the assistant message before running the tools, so a mid-tool crash leaves dangling calls — and `deriveMessages()` would replay an assistant tool-call with no result, which providers reject), then a `step/end` if a step was open, then `turn/end {kind:'interrupted'}`, returning a balanced log. Only a never-fully-written **torn tail fragment** (a final line with no newline / unparseable) is `ftruncate`d away before the closers are written. See [session persistence](../../../docs/rfc/implemented/architecture/2026-06-14-session-persistence.md).
 - **Contiguous-seq.** `load` rejects a mid-log parse error or `seq` gap (unloadable); `append` rejects a batch whose first `seq` does not continue the stored log, and rejects non-JSON-serializable `event.data` naming the offending event type.
-- **Format version.** Only v1 is supported; `load` rejects an unknown version. While the harness is unreleased a format change bumps the version and rejects non-current logs — there is no migration (no persisted user data to preserve).
+- **Format version.** Only the current `SESSION_FORMAT_VERSION` (v0) is supported; `load` rejects any other version. While the harness is unreleased the on-disk format is pre-release/unstable: a breaking format change is absorbed at v0 (no bump until the first tagged release) and non-current logs are rejected — there is no migration (no persisted user data to preserve).
 
 ## Write path
 

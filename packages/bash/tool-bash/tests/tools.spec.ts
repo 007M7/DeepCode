@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { BashExecutor } from '@deepseek-ai/dsh-bash'
-import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRead } from '@deepseek-ai/dsh-bash'
+import { BashExecutor, BashTaskId } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRead, OwnerToken } from '@deepseek-ai/dsh-bash'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -43,7 +43,7 @@ function registerFakeAgent(ctx: Context, sessionId: string, inject: (...args: un
   // `session.header.id`, NOT the registry key. Using distinct values here makes
   // the test fail if a regression matched on the wrong field (a same-value fake
   // would pass either way — the "hits the line but not the scenario" trap).
-  const agent = { id: `agent-${sessionId}`, inject, session: { header: { version: 1, id: sessionId, createdAt: 0 } } } as unknown as Agent
+  const agent = { id: `agent-${sessionId}`, inject, session: { header: { version: 0, id: sessionId, createdAt: 0 } } } as unknown as Agent
   const dispose = ctx.agents.register(agent)
   const list = fakeAgentDisposers.get(ctx) ?? []
   list.push(dispose)
@@ -66,9 +66,26 @@ function text(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(block => block.type === 'text').map(block => block.text).join('')
 }
 
+async function callUntilText(
+  ctx: Context,
+  name: string,
+  args: unknown,
+  expected: string,
+  timeoutMs = 5_000,
+): Promise<Awaited<ReturnType<typeof call>>> {
+  const deadline = Date.now() + timeoutMs
+  let last: Awaited<ReturnType<typeof call>> | undefined
+  while (Date.now() < deadline) {
+    last = await call(ctx, name, args)
+    if (text(last).includes(expected)) return last
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  throw new Error(`${name} output did not include ${JSON.stringify(expected)}; last text was ${JSON.stringify(last !== undefined ? text(last) : '')}`)
+}
+
 class LossyReadBashExecutor extends BashExecutor {
   private readonly task: BashTask = {
-    id: 'bash-lossy',
+    id: BashTaskId('bash-lossy'),
     command: 'fake',
     status: 'running',
     exitCode: null,
@@ -94,11 +111,11 @@ class LossyReadBashExecutor extends BashExecutor {
     return this.task
   }
 
-  get(id: string): BashTask | undefined {
+  get(id: BashTaskId): BashTask | undefined {
     return id === this.task.id ? this.task : undefined
   }
 
-  ownerOf(): string | undefined {
+  ownerOf(): OwnerToken | undefined {
     return undefined
   }
 
@@ -106,7 +123,7 @@ class LossyReadBashExecutor extends BashExecutor {
     return [this.task]
   }
 
-  readOutput(id: string): BashTaskRead {
+  readOutput(id: BashTaskId): BashTaskRead {
     if (id !== this.task.id) throw new Error(`unknown bash task "${id}"`)
     return { task: this.task, delta: 'tail', lossy: true }
   }
@@ -278,11 +295,10 @@ describe('background tools', () => {
 
   it('bash_output polls incrementally and reports status', async () => {
     const ctx = await setup()
-    const started = await call(ctx, 'bash', { command: 'echo first; sleep 0.3; echo second', description: 'test command', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const started = await call(ctx, 'bash', { command: 'echo first; sleep 1; echo second', description: 'test command', run_in_background: true })
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
 
-    await new Promise(resolve => setTimeout(resolve, 150))
-    const first = await call(ctx, 'bash_output', { task_id: id })
+    const first = await callUntilText(ctx, 'bash_output', { task_id: id }, 'first')
     expect(text(first)).toContain('first')
     expect(text(first)).toContain('[status: running]')
 
@@ -305,7 +321,7 @@ describe('background tools', () => {
     await ctx.plugin(ToolBash)
 
     const started = await call(ctx, 'bash', { command: 'for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', description: 'test command', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     await ctx.bash.get(id)!.done
     const read = await call(ctx, 'bash_output', { task_id: id })
     expect(text(read)).toContain('[some output was dropped from memory; full output: ')
@@ -325,7 +341,7 @@ describe('background tools', () => {
   it('bash_kill stops a running task; repeat reports already-finished', async () => {
     const ctx = await setup()
     const started = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
 
     const killed = await call(ctx, 'bash_kill', { task_id: id })
     expect(text(killed)).toBe(`killed background task ${id}`)
@@ -372,7 +388,7 @@ describe('background tools', () => {
       arguments: { command: 'true', description: 'test command', run_in_background: true },
       agent,
     })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     await ctx.bash.get(id)!.done
 
     expect(inject).toHaveBeenCalledTimes(1)
@@ -395,7 +411,7 @@ describe('background tools', () => {
       arguments: { command: 'true', description: 'test command', run_in_background: true },
       agent,
     })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     await expect(ctx.bash.get(id)!.done).resolves.toBeUndefined()
   })
 
@@ -414,7 +430,7 @@ describe('background tools', () => {
         arguments: { command: 'true', description: 'test command', run_in_background: true },
         agent,
       })
-      const id = /task (bash-\d+)/.exec(text(started))![1]!
+      const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
       await ctx.bash.get(id)!.done
       // notifyTaskDone caught and logged the rethrown error.
       expect(errorSpy).toHaveBeenCalled()
@@ -440,7 +456,7 @@ describe('background tools', () => {
       arguments: { command: 'true', description: 'test command', run_in_background: true },
       agent,
     })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     // Unregister the agent BEFORE the task completes (simulate disconnect).
     unregisterFakeAgents(ctx)
     await expect(ctx.bash.get(id)!.done).resolves.toBeUndefined()
@@ -450,7 +466,7 @@ describe('background tools', () => {
   it('does not notify when no agent owned the task', async () => {
     const ctx = await setup()
     const started = await call(ctx, 'bash', { command: 'true', description: 'test command', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     await expect(ctx.bash.get(id)!.done).resolves.toBeUndefined()
   })
 })
@@ -466,7 +482,7 @@ describe('background task ownership (cross-session isolation)', () => {
   // the same token). The impl reads `session.header.id`, so the fakes MUST carry
   // it.
   const fakeAgent = (sessionId: string) =>
-    ({ inject: () => undefined, session: { header: { version: 1, id: sessionId, createdAt: 0 } } }) as unknown as import('@deepseek-ai/dsh-agent').Agent
+    ({ inject: () => undefined, session: { header: { version: 0, id: sessionId, createdAt: 0 } } }) as unknown as import('@deepseek-ai/dsh-agent').Agent
 
   it('rejects bash_output/bash_kill for a task owned by a DIFFERENT session token', async () => {
     const ctx = await setup()
@@ -474,7 +490,7 @@ describe('background task ownership (cross-session isolation)', () => {
     const b = fakeAgent('sess-b')
     // Agent A starts a long-running background task.
     const started = await callAs(ctx, a, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
 
     // Agent B (a different session token) cannot read or kill A's task.
     const readByB = await callAs(ctx, b, 'bash_output', { task_id: id })
@@ -498,7 +514,7 @@ describe('background task ownership (cross-session isolation)', () => {
     const a1 = fakeAgent('sess-shared')
     const a2 = fakeAgent('sess-shared') // distinct object, same token
     const started = await callAs(ctx, a1, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     const readByA2 = await callAs(ctx, a2, 'bash_output', { task_id: id })
     expect(readByA2.isError).toBe(false)
     await callAs(ctx, a1, 'bash_kill', { task_id: id }) // cleanup
@@ -508,7 +524,7 @@ describe('background task ownership (cross-session isolation)', () => {
     const ctx = await setup()
     const a = fakeAgent('sess-a')
     const started = await callAs(ctx, a, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     // A call with no exec.agent has no token → cannot prove ownership of an owned task.
     const read = await callAs(ctx, undefined, 'bash_output', { task_id: id })
     expect(read.isError).toBe(true)
@@ -520,7 +536,7 @@ describe('background task ownership (cross-session isolation)', () => {
     const ctx = await setup()
     // Started by a non-loop caller (no exec.agent) → no owner token recorded.
     const started = await callAs(ctx, undefined, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     // Any agent (and the no-agent caller) may read/kill it.
     const read = await callAs(ctx, fakeAgent('sess-x'), 'bash_output', { task_id: id })
     expect(read.isError).toBe(false)
@@ -533,7 +549,7 @@ describe('background task ownership (cross-session isolation)', () => {
     const a = fakeAgent('sess-a')
     const b = fakeAgent('sess-b')
     const started = await callAs(ctx, a, 'bash', { command: 'echo done', description: 'bg', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     await ctx.bash.get(id)!.done
     // Completion does NOT clear ownership: B is still rejected, A still allowed.
     const readByB = await callAs(ctx, b, 'bash_output', { task_id: id })
@@ -559,7 +575,7 @@ describe('background task ownership (cross-session isolation)', () => {
     const a = fakeAgent('sess-a')
     const b = fakeAgent('sess-b')
     const started = await callAs(ctx, a, 'bash', { command: 'sleep 60', description: 'bg', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     // Before reload: B is rejected (A owns it).
     expect((await callAs(ctx, b, 'bash_output', { task_id: id })).isError).toBe(true)
 
@@ -582,7 +598,7 @@ describe('session-cwd routing (per-session workdir)', () => {
   }
   // An agent whose session header carries a cwd (what session/new records).
   const agentInCwd = (cwd: string) =>
-    ({ inject: () => undefined, session: { header: { version: 1, id: 'c', createdAt: 0, cwd } } }) as unknown as import('@deepseek-ai/dsh-agent').Agent
+    ({ inject: () => undefined, session: { header: { version: 0, id: 'c', createdAt: 0, cwd } } }) as unknown as import('@deepseek-ai/dsh-agent').Agent
 
   it('defaults bash to the agent\'s session cwd (not the server launch dir)', async () => {
     const ctx = await setup()
@@ -674,7 +690,7 @@ describe('status lines', () => {
   it('reports kills without a recorded signal (executor raced process exit)', async () => {
     const ctx = await setup()
     const started = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     const task = ctx.bash.get(id)!
 
     await call(ctx, 'bash_kill', { task_id: id })
@@ -688,7 +704,7 @@ describe('status lines', () => {
   it('reports completed tasks with a null exit code as exit 0', async () => {
     const ctx = await setup()
     const started = await call(ctx, 'bash', { command: 'true', description: 'test command', run_in_background: true })
-    const id = /task (bash-\d+)/.exec(text(started))![1]!
+    const id = BashTaskId(/task (bash-\d+)/.exec(text(started))![1]!)
     const task = ctx.bash.get(id)!
     await task.done
     // Defensive: completed tasks always carry an exit code in practice; the
@@ -700,45 +716,40 @@ describe('status lines', () => {
 })
 
 describe('tool-owned UI presentation (presentCall / presentResult)', () => {
-  it('bash presentCall: title is the command, description as a content block, marks a terminal; workdir → cwd (absolute or relative, bridge resolves)', async () => {
+  it('bash presentCall: a foreground run is a terminal card (command title, description, workdir → cwd absolute or relative)', async () => {
     const ctx = await setup()
-    // No explicit workdir → the call still flags a terminal, but with no cwd (the
-    // UI bridge fills the session cwd it owns; the pure presenter can't see it).
-    // The command is the title (an execute card hides rawInput); the description
-    // rides as a content text block (shown above the terminal card).
+    // No explicit workdir → a terminal card with no cwd (the UI bridge fills the
+    // session cwd it owns; the pure presenter can't see it).
     expect(ctx.tools.get('bash')?.presentCall?.({ command: 'ls -la src', description: 'List files in src' }))
-      .toEqual({ title: 'ls -la src', kind: 'execute', rawInput: 'ls -la src', content: [{ type: 'text', text: 'List files in src' }], terminal: {} })
+      .toEqual({ card: 'terminal', title: 'ls -la src', description: 'List files in src' })
     // An ABSOLUTE workdir is surfaced verbatim as the terminal cwd header.
     expect(ctx.tools.get('bash')?.presentCall?.({ command: 'pwd', description: 'Print dir', workdir: '/tmp/x' }))
-      .toEqual({ title: 'pwd', kind: 'execute', rawInput: 'pwd', content: [{ type: 'text', text: 'Print dir' }], terminal: { cwd: '/tmp/x' } })
+      .toEqual({ card: 'terminal', title: 'pwd', description: 'Print dir', cwd: '/tmp/x' })
     // A RELATIVE workdir is passed through AS-IS (the bridge resolves it against
     // the session cwd, matching where execution runs) — not dropped.
     expect(ctx.tools.get('bash')?.presentCall?.({ command: 'pwd', description: 'Print dir', workdir: 'sub' }))
-      .toEqual({ title: 'pwd', kind: 'execute', rawInput: 'pwd', content: [{ type: 'text', text: 'Print dir' }], terminal: { cwd: 'sub' } })
+      .toEqual({ card: 'terminal', title: 'pwd', description: 'Print dir', cwd: 'sub' })
   })
 
-  it('bash presentResult: console-block content AND terminal.output (RAW newlines) + parsed exit code', async () => {
+  it('bash presentResult: a terminal result carries RAW output (newlines intact) + parsed exit code', async () => {
     const ctx = await setup()
     const present = ctx.tools.get('bash')!.presentResult!(
       { command: 'echo hi', description: 'echo' },
       { content: [{ type: 'text', text: 'hi\n[exit code: 0]\n\n' }], isError: false },
     )
-    // The fenced ```console content trims trailing blank lines for a tidy block;
-    // terminal.output keeps the RAW bytes (newlines intact) a terminal renderer
-    // needs; exitCode is parsed back from the [exit code: N] marker.
-    expect(present).toEqual({
-      content: [{ type: 'text', text: '```console\nhi\n[exit code: 0]\n```' }],
-      terminal: { output: 'hi\n[exit code: 0]\n\n', exitCode: 0 },
-    })
+    // A terminal result keeps the RAW bytes (newlines intact) a terminal renderer
+    // needs; the bridge derives the fenced fallback. exitCode is parsed back from
+    // the [exit code: N] marker.
+    expect(present).toEqual({ card: 'terminal', output: 'hi\n[exit code: 0]\n\n', exitCode: 0 })
   })
 
   it('bash presentResult: a non-zero exit and a signal kill parse into exitCode / signal', async () => {
     const ctx = await setup()
     const args = { command: 'x', description: 'x' }
     const nonzero = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: 'oops\n[exit code: 3]' }], isError: false })
-    expect(nonzero?.terminal).toEqual({ output: 'oops\n[exit code: 3]', exitCode: 3 })
+    expect(nonzero).toEqual({ card: 'terminal', output: 'oops\n[exit code: 3]', exitCode: 3 })
     const killed = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: 'gone\n[killed by signal: SIGKILL]' }], isError: false })
-    expect(killed?.terminal).toEqual({ output: 'gone\n[killed by signal: SIGKILL]', signal: 'SIGKILL' })
+    expect(killed).toEqual({ card: 'terminal', output: 'gone\n[killed by signal: SIGKILL]', signal: 'SIGKILL' })
   })
 
   it('bash presentResult exit parse is the inverse of renderResult markers (round-trip)', async () => {
@@ -763,7 +774,8 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
     for (const c of cases) {
       const rendered = renderResult(c.result)
       const out = present.presentResult!({ command: 'x', description: 'x' }, { content: [{ type: 'text', text: rendered }], isError: false })
-      const { output: _o, ...exit } = out?.terminal ?? {}
+      // Drop card + output; the remaining fields are the parsed exit.
+      const { card: _c, output: _o, ...exit } = out as { card: string; output?: string; exitCode?: number; signal?: string }
       expect(exit).toEqual(c.expect)
     }
   })
@@ -777,37 +789,35 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
     // the marker (renderResult always inserts one before a REAL marker), so this
     // no-trailing-newline body is NOT mistaken for a failure → exitCode 0.
     const out = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: '[exit code: 5]' }], isError: false })
-    expect(out?.terminal).toEqual({ output: '[exit code: 5]', exitCode: 0 })
+    expect(out).toEqual({ card: 'terminal', output: '[exit code: 5]', exitCode: 0 })
     // Same for a fake signal marker with no leading newline.
     const sig = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: '[killed by signal: SIGKILL]' }], isError: false })
-    expect(sig?.terminal).toEqual({ output: '[killed by signal: SIGKILL]', exitCode: 0 })
+    expect(sig).toEqual({ card: 'terminal', output: '[killed by signal: SIGKILL]', exitCode: 0 })
   })
 
-  it('bash presentCall/presentResult: a run_in_background call is NOT a terminal and its ack carries no exit pill', async () => {
+  it('bash presentCall/presentResult: a run_in_background call is a generic card and its ack carries no exit pill', async () => {
     const ctx = await setup()
-    // The background start returns a task-id ack, not a streamed run — no terminal.
+    // The background start returns a task-id ack, not a streamed run — a generic
+    // execute card with the command as rawInput and the description as content.
     const call = ctx.tools.get('bash')!.presentCall!({ command: 'sleep 100', description: 'wait', run_in_background: true })
-    expect(call).toEqual({ title: 'sleep 100', kind: 'execute', rawInput: 'sleep 100', content: [{ type: 'text', text: 'wait' }] })
-    expect((call as { terminal?: unknown }).terminal).toBeUndefined()
-    // The ack result is fenced text only — no terminal output / exit pill.
+    expect(call).toEqual({ card: 'generic', title: 'sleep 100', kind: 'execute', rawInput: 'sleep 100', content: [{ type: 'text', text: 'wait' }] })
+    // The ack result is a generic fenced-text card — no terminal output / exit pill.
     const result = ctx.tools.get('bash')!.presentResult!(
       { command: 'sleep 100', description: 'wait', run_in_background: true },
       { content: [{ type: 'text', text: 'started background task bash-1' }], isError: false },
     )
-    expect(result?.terminal).toBeUndefined()
-    expect(result?.content).toEqual([{ type: 'text', text: '```console\nstarted background task bash-1\n```' }])
+    expect(result).toEqual({ card: 'generic', content: [{ type: 'text', text: '```console\nstarted background task bash-1\n```' }] })
   })
 
-  it('bash presentResult: an isError result carries no exit pill (no real process exit to report)', async () => {
+  it('bash presentResult: an isError result is a generic card (no real process exit to report)', async () => {
     const ctx = await setup()
     // A spawn failure / abort has no process exit — the body is an error message,
-    // not renderResult output, so no terminal output/exit is emitted.
+    // not renderResult output, so a generic fenced card, no terminal output/exit.
     const out = ctx.tools.get('bash')!.presentResult!(
       { command: 'x', description: 'x' },
       { content: [{ type: 'text', text: 'command aborted' }], isError: true },
     )
-    expect(out?.terminal).toBeUndefined()
-    expect(out?.content).toEqual([{ type: 'text', text: '```console\ncommand aborted\n```' }])
+    expect(out).toEqual({ card: 'generic', content: [{ type: 'text', text: '```console\ncommand aborted\n```' }] })
   })
 
   it('bash presentResult: leaves a non-text (unexpected) result untouched → undefined (UI keeps raw content)', async () => {
@@ -833,9 +843,9 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
   it('bash_output / bash_kill presentCall: a readable task-scoped title, task id as rawInput', async () => {
     const ctx = await setup()
     expect(ctx.tools.get('bash_output')!.presentCall!({ task_id: 'bash-3' }))
-      .toEqual({ title: 'Read output from background task bash-3', kind: 'execute', rawInput: 'bash-3' })
+      .toEqual({ card: 'generic', title: 'Read output from background task bash-3', kind: 'execute', rawInput: 'bash-3' })
     expect(ctx.tools.get('bash_kill')!.presentCall!({ task_id: 'bash-3' }))
-      .toEqual({ title: 'Kill background task bash-3', kind: 'execute', rawInput: 'bash-3' })
+      .toEqual({ card: 'generic', title: 'Kill background task bash-3', kind: 'execute', rawInput: 'bash-3' })
   })
 
   it('presentCall validates softly: malformed args (missing required description) return undefined, never throw', async () => {
@@ -845,5 +855,107 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
     // display path — it may run on replay of arbitrary logged args. The
     // ToolDefinition.presentCall takes `unknown`, so a malformed shape needs no cast.
     expect(ctx.tools.get('bash')?.presentCall?.({ command: 'ls' })).toBeUndefined()
+  })
+})
+
+describe('the model-facing bash tool builds its request from named args only (no {...args} forward)', () => {
+  /**
+   * Records every {@link BashExecRequest} the consumer hands to `resolve()`, so a
+   * test can assert what the model-facing tool DID and DID NOT forward. The `bash`
+   * tool does not expose `stdin`/`env` as parameters (bash syntax already gives a
+   * model that power), so it must build its request from named args only and
+   * never spread unknown tool-call keys into it. This guard's job is to catch a
+   * future refactor that blindly forwards `...args` — which would silently thread
+   * model input into the post-scrub `env` merge — NOT to defend a trust boundary
+   * (the credential scrub in dsh-bash-local is the security control; see the
+   * bash-stdin-env RFC). Foreground `run()` returns a canned result; `start()` is
+   * unused here.
+   */
+  class RecordingBashExecutor extends BashExecutor {
+    readonly requests: BashExecRequest[] = []
+    resolve(request: BashExecRequest): BashExecSpec {
+      this.requests.push(request)
+      return {
+        command: request.command,
+        workdir: request.workdir ?? process.cwd(),
+        timeoutMs: request.timeoutMs ?? 0,
+        ...request.signal ? { signal: request.signal } : {},
+        ...request.stdin !== undefined ? { stdin: request.stdin } : {},
+        ...request.env !== undefined ? { env: request.env } : {},
+        owner: request.owner,
+      }
+    }
+    run(): Promise<BashRunResult> {
+      return Promise.resolve({
+        exitCode: 0, signal: null, timedOut: false, aborted: false, timeoutMs: 0,
+        stdout: { text: 'ok', truncated: false }, stderr: { text: '', truncated: false },
+      })
+    }
+    start(): BashTask { throw new Error('unused') }
+    get(): BashTask | undefined { return undefined }
+    ownerOf(): OwnerToken | undefined { return undefined }
+    list(): BashTask[] { return [] }
+    readOutput(): BashTaskRead { throw new Error('unused') }
+    kill(): boolean { return false }
+  }
+
+  async function setupRecording() {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(RecordingBashExecutor)
+    await ctx.plugin(ToolBash)
+    return { ctx, bash: ctx.bash as RecordingBashExecutor }
+  }
+
+  it('does not forward env/stdin even when the model includes them as extra arguments', async () => {
+    const { ctx, bash } = await setupRecording()
+    // Extra args: the model includes `env` and `stdin` keys hoping they reach the
+    // executor. The bash tool's schema ignores unknown keys, and execute() builds
+    // the request from only command/workdir/timeoutMs/signal — so the recorded
+    // request carries NEITHER. (Not a security wall — the model could set an env
+    // var or feed stdin via shell syntax anyway; this just keeps the request
+    // shape honest so a future `...args` spread can't silently forward input.)
+    await ctx.tools.execute({
+      callId: CallId('no-forward-1'),
+      name: 'bash',
+      arguments: {
+        command: 'echo hi',
+        description: 'echo',
+        env: { SNEAKY_API_KEY: 'leak' },
+        stdin: 'malicious payload',
+      },
+    })
+    expect(bash.requests).toHaveLength(1)
+    const request = bash.requests[0]!
+    expect(request.command).toBe('echo hi')
+    expect('env' in request).toBe(false)
+    expect('stdin' in request).toBe(false)
+  })
+
+  it('a background bash call likewise carries no env/stdin', async () => {
+    const { ctx, bash } = await setupRecording()
+    // start() throws in this recorder, but resolve() runs first and records the
+    // request — which is all this no-forward assertion needs.
+    await ctx.tools.execute({
+      callId: CallId('no-forward-2'),
+      name: 'bash',
+      arguments: {
+        command: 'sleep 1',
+        description: 'sleep',
+        run_in_background: true,
+        env: { TOKEN: 'leak' },
+        stdin: 'x',
+      },
+    })
+    expect(bash.requests).toHaveLength(1)
+    const request = bash.requests[0]!
+    expect('env' in request).toBe(false)
+    expect('stdin' in request).toBe(false)
+    // The owner token IS set on a background call (the isolation fence) — proving
+    // the recorder sees the real request the consumer built, so the absent
+    // env/stdin above is a real negative, not a recorder that drops everything.
+    expect('owner' in request).toBe(true)
   })
 })

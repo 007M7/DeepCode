@@ -15,7 +15,8 @@
  * @module dsh-bash-local/run
  */
 
-import { spawn } from 'node:child_process'
+import { type ChildProcessByStdio, spawn } from 'node:child_process'
+import type { Readable, Writable } from 'node:stream'
 import { randomBytes } from 'node:crypto'
 import { closeSync, mkdtempSync, openSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -42,13 +43,26 @@ export const ENV_OVERRIDES = {
  */
 export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
 
-/** process.env minus credential-shaped vars, plus the model-friendly overrides. */
-export function childEnv(): NodeJS.ProcessEnv {
+/**
+ * `process.env` minus credential-shaped vars, plus the model-friendly
+ * overrides, plus any caller-supplied `extra` entries.
+ *
+ * Layering matters: the scrub drops `process.env` credentials, then
+ * `ENV_OVERRIDES` forces the model-friendly terminal vars, then `extra` is
+ * merged LAST so an explicit caller entry wins even when its name matches the
+ * scrub pattern (the scrub is the control that stops the HARNESS's ambient
+ * credentials leaking into a spawned command; a caller that explicitly sets a
+ * var named a value it already holds, not that ambient secret). `extra` is set
+ * by in-process plugins (the hooks bridges), not the model — `dsh-tool-bash`
+ * builds its request from named fields only and does not forward model input
+ * here (see its README, § "The tool builds its request from named args only").
+ */
+export function childEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
   for (const [key, value] of Object.entries(process.env)) {
     if (!SENSITIVE_ENV_PATTERN.test(key)) env[key] = value
   }
-  return { ...env, ...ENV_OVERRIDES }
+  return { ...env, ...ENV_OVERRIDES, ...extra }
 }
 
 /** What to run and under which limits (resolved — no defaults in here). */
@@ -61,6 +75,19 @@ export interface SpawnSpec {
   maxOutputBytes: number
   /** Abort signal — kills the process group when fired. */
   signal?: AbortSignal | undefined
+  /**
+   * Bytes to write to the child's stdin, then close it. Absent (or empty)
+   * leaves stdin closed/empty. Set by in-process plugins (the hooks bridges);
+   * the model-facing `dsh-tool-bash` tool does not thread model input here.
+   */
+  stdin?: string | undefined
+  /**
+   * Extra environment entries, merged onto the scrubbed env AFTER the
+   * credential scrub and the model-friendly overrides (so an explicit entry
+   * wins). Set by in-process plugins; the model-facing tool does not forward
+   * model input here.
+   */
+  env?: Record<string, string> | undefined
 }
 
 /** Raw outcome of one closed process (before result shaping). */
@@ -272,12 +299,20 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
     throw new Error(`aborted before spawn: ${String(spec.signal.reason ?? 'aborted')}`)
   }
 
-  const child = spawn('bash', ['-c', spec.command], {
-    cwd: spec.cwd,
-    env: childEnv(),
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true,
-  })
+  // stdin is a pipe ONLY when the caller supplied bytes; with none it is `ignore`
+  // (fd 0 → /dev/null) — the exact pre-seam default. This matters: a spawn pipe
+  // and /dev/null are NOT observationally identical (node's pipe is an AF_UNIX
+  // socket, so a command that probes stdin's type — `test -c /dev/stdin`, `stat
+  // /proc/self/fd/0` — sees a char device vs a socket), so the no-stdin path
+  // (every model-driven call) must keep /dev/null rather than regress to a socket.
+  // Two LITERAL `stdio` tuples (not one variable tuple): only a literal lets the
+  // typed `spawn` overload infer non-null stdout/stderr, which the
+  // `ChildProcessByStdio` annotation captures (stdin `Writable | null`; stdout/
+  // stderr the non-null `Readable` the collectors attach to without a cast).
+  const env = childEnv(spec.env)
+  const child: ChildProcessByStdio<Writable | null, Readable, Readable> = spec.stdin !== undefined
+    ? spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true })
+    : spawn('bash', ['-c', spec.command], { cwd: spec.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
 
   const stdout = new OutputCollector(spec.maxOutputBytes, 'stdout', spillDir)
   const stderr = new OutputCollector(spec.maxOutputBytes, 'stderr', spillDir)
@@ -311,6 +346,24 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
     kill()
   }
   spec.signal?.addEventListener('abort', onAbort, { once: true })
+
+  // Write stdin and close it, but ONLY when the caller supplied bytes — with no
+  // stdin, fd 0 is `ignore` (/dev/null) and `child.stdin` is null. The error
+  // handler must exist whenever we write: an unhandled 'error' on the stream
+  // would throw and crash the host. We swallow the error rather than reject
+  // `done`, and that is correct for ANY stdin-write error, not just the common
+  // one — the stdin write is BEST-EFFORT, while the command's authoritative
+  // outcome is its exit code + captured output, which the `close` handler reports
+  // regardless of whether the write landed. The expected case is EPIPE (the child
+  // exited without reading, so closing our end of a still-full pipe fails); a rare
+  // non-EPIPE pipe fault means the command ran with incomplete stdin, and it
+  // surfaces that itself through its own exit/output (e.g. a hook that gets
+  // truncated JSON errors out) — rejecting here would instead discard that real
+  // output and turn it into an opaque infrastructure error, which is worse.
+  if (child.stdin !== null) {
+    child.stdin.on('error', () => { /* stdin write is best-effort; outcome rides on exit/output. */ })
+    child.stdin.end(spec.stdin)
+  }
 
   const done = new Promise<SpawnOutcome>((resolve, reject) => {
     child.on('error', (error) => {

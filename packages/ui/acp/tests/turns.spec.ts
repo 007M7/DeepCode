@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { AgentId } from '@deepseek-ai/dsh-agent'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import {
   errorResponse,
@@ -78,7 +79,7 @@ describe('acp bridge — turn outcomes', () => {
   it('the REAL bash tool drives the tool-call UI end-to-end: command title + description block + console output', async () => {
     // Use the SHIPPING tool (dsh-tool-bash + dsh-bash-local), not an inline
     // stand-in, so this verifies the actual presentCall/presentResult the editor
-    // sees (AGENTS.md "prefer the real implementation over a mock in tests").
+    // sees (docs/testing.md "prefer the real implementation over a mock").
     // The mock MODEL still scripts the tool call (no real LLM needed), but the
     // tool and executor are real: a real `echo` runs and its real output flows
     // back through the bridge.
@@ -283,7 +284,7 @@ describe('acp bridge — turn outcomes', () => {
     // OWN turn with the real model answer.
     harness = await makeBridgeHarness({ storageDir, script: [textResponse('real answer')] })
     const sessionId = await newSession(harness)
-    const agent = harness.ctx.agents.get(sessionId)!
+    const agent = harness.ctx.agents.get(AgentId(sessionId))!
     // On the queued prompt, synchronously inject a one-shot context turn (idle
     // inject writes turn/start{injection} → context/message → turn/end). Fire
     // once so it lands between install and the prompt turn.
@@ -339,7 +340,7 @@ describe('acp bridge — turn outcomes', () => {
     await harness.client.cancel({ sessionId })
     const res = await promptDone
     expect(res.stopReason).toBe('cancelled')
-    const agent = harness.ctx.agents.get(sessionId)!
+    const agent = harness.ctx.agents.get(AgentId(sessionId))!
     await agent.whenIdle()
     // At most ONE turn ran (the cancelled one) — the cancel cleared the queue, so
     // no second turn was batched or leaked. (A best-effort abort that left queued

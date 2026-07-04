@@ -15,8 +15,9 @@
  */
 
 import { Context, Service } from 'cordis'
-import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskListener, BashTaskRead } from './types.ts'
+import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskId, BashTaskListener, BashTaskRead, OwnerToken } from './types.ts'
 
+export { BashTaskId, OwnerToken } from './types.ts'
 export type {
   BashExecRequest,
   BashExecSpec,
@@ -86,7 +87,7 @@ export abstract class BashExecutor extends Service {
   abstract start(spec: BashExecSpec): BashTask
 
   /** Look up a background task by id. */
-  abstract get(id: string): BashTask | undefined
+  abstract get(id: BashTaskId): BashTask | undefined
 
   /**
    * The opaque OWNER token recorded for a background task at {@link start}
@@ -101,19 +102,19 @@ export abstract class BashExecutor extends Service {
    * Storing ownership in the executor (disposed with ITS fiber) — not in the
    * tool plugin — is what makes ownership survive a `tool-bash` HMR reload.
    */
-  abstract ownerOf(id: string): string | undefined
+  abstract ownerOf(id: BashTaskId): OwnerToken | undefined
 
   /** All tracked background tasks (insertion order). */
   abstract list(): BashTask[]
 
   /** Read output produced since the previous read. Throws for unknown ids. */
-  abstract readOutput(id: string): BashTaskRead
+  abstract readOutput(id: BashTaskId): BashTaskRead
 
   /**
    * Kill a running background task. Returns false when it had already
    * finished (no-op). Throws for unknown ids.
    */
-  abstract kill(id: string): boolean
+  abstract kill(id: BashTaskId): boolean
 
   /**
    * Register a background-task completion listener (disposed with the

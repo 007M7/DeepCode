@@ -10,8 +10,7 @@
 import { Context, Service } from 'cordis'
 import { randomUUID } from 'node:crypto'
 import z from 'schemastery'
-import { AgentId } from '@deepseek-ai/dsh-agent'
-import type { AgentFactory, AgentHandle, AgentOptions, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
+import type { AgentFactory, AgentHandle, AgentId, AgentOptions, CreateAgentOptions, ResumeAgentOptions, SessionStartSource } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -33,7 +32,7 @@ declare module 'cordis' {
 export interface Config {
   /** Agents created from configuration at startup. */
   agents: (AgentOptions & {
-    id: string
+    id: AgentId
     /**
      * If set, the config agent RESUMES this persisted session id instead of
      * starting a fresh `${id}-session-<uuid>`. Sourced from an env var in
@@ -42,8 +41,12 @@ export interface Config {
      * `dsh-session-persistence` backend; the resume is deferred until that
      * service is available (via `ctx.inject`) and the loaded session's events
      * seed the live session so history continues.
+     *
+     * The schema accepts a plain string at runtime (cordis.yml values are
+     * untyped); the brand is compile-time only — the config format is the
+     * boundary where an id enters, so the TYPE declares the brand here.
      */
-    resumeSessionId?: string
+    resumeSessionId?: SessionId
   })[]
 }
 
@@ -60,14 +63,19 @@ export interface Config {
 export class AgentLoop extends Service implements AgentFactory {
   static inject = ['agents', 'sessions', 'llm', 'tools', 'systemPrompt']
 
-  static Config: z<Config> = z.object({
+  // The schema validates plain strings (cordis.yml config values are untyped at
+  // runtime); the {@link Config} TYPE declares the branded `id`/`resumeSessionId`
+  // because the config format is the boundary where an id enters. The brand is a
+  // zero-cost compile-time cast, so the runtime schema stays string-based and we
+  // assert the branded view once here — the single schema boundary.
+  static Config = z.object({
     agents: z.array(z.object({
       id: z.string().required(),
       model: z.string(),
       systemPrompt: z.string(),
       resumeSessionId: z.string(),
     })).default([]),
-  })
+  }) as unknown as z<Config>
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'agentLoop')
@@ -113,36 +121,40 @@ export class AgentLoop extends Service implements AgentFactory {
    * deliberate resume-or-create policy (resume the prior session if one exists,
    * else start fresh) or an explicit caller-chosen session id — revisit when the
    * UI/ACP path owns session selection.
-   *
-   * TODO(sub-agents): spawn/fork land here — accept a parent agent reference;
-   * fork seeds the new Session with the parent's event log, spawn starts
-   * fresh; the child is returned as a regular Agent handle.
    */
-  create(id: string, options: AgentOptions = {}): ReactLoopAgent {
+  create(id: AgentId, options: AgentOptions = {}): ReactLoopAgent {
     this.assertAgentIdFree(id)
     // Config/programmatic path: prepare the session and let start() fold its
     // lifecycle into the agent's composite effect (so a fiber unload tears the
     // session + agent down as one ordered chain, capturing the loop's closing
     // flush). The whole effect is owned by THIS fiber; no AgentHandle is needed.
-    const session = this.ctx.sessions.prepare(`${id}-session-${randomUUID()}`, { meta: {} })
-    const { agent } = this.start(AgentId(id), options, session)
+    const session = this.ctx.sessions.prepare(SessionId(`${id}-session-${randomUUID()}`), { meta: {} })
+    const { agent } = this.start(id, options, session, 'startup')
     return agent
   }
 
   /**
    * Programmatic factory create ({@link AgentFactory}): an agent on a
    * caller-supplied `sessionId` (NOT `${id}-session`), with optional session
-   * metadata (validated `cwd`, lineage). The ACP bridge uses this so the
-   * client-generated session id becomes the live/persisted session id. Returns
-   * an {@link AgentHandle} the owner disposes to tear down exactly this agent.
+   * metadata (validated `cwd`, lineage) and an optional `seed` event prefix. The
+   * ACP bridge uses this so the client-generated session id becomes the
+   * live/persisted session id; the in-process FORK subagent backend passes a
+   * `seed` (a balanced completed-turn prefix of the parent's log) so the child
+   * starts with the parent's context. Returns an {@link AgentHandle} the owner
+   * disposes to tear down exactly this agent.
    */
   createAgent(options: CreateAgentOptions): AgentHandle {
     // Check the agent id BEFORE preparing the session: register() would reject a
     // duplicate id only AFTER the session enters the store, leaving an orphaned
     // live session (and lazy persistence state) that blocks reuse of that id.
     this.assertAgentIdFree(options.agentId)
-    const session = this.ctx.sessions.prepare(options.sessionId, { meta: options.meta ?? {} })
-    return this.startOwned(AgentId(options.agentId), options.agentOptions ?? {}, session)
+    const session = this.ctx.sessions.prepare(options.sessionId, {
+      ...options.seed !== undefined ? { seed: options.seed } : {},
+      meta: options.meta ?? {},
+    })
+    // A seeded (forked) create is still a fresh start, NOT a resume — `resume`
+    // is reserved for reloading a PERSISTED session via resume()/resumeWith().
+    return this.startOwned(options.agentId, options.agentOptions ?? {}, session, 'startup')
   }
 
   /**
@@ -191,7 +203,7 @@ export class AgentLoop extends Service implements AgentFactory {
    */
   private async resumeWith(persistence: SessionPersistence, options: ResumeAgentOptions): Promise<AgentHandle> {
     this.assertAgentIdFree(options.agentId)
-    const { meta, events } = await persistence.load(SessionId(options.resumeSessionId))
+    const { meta, events } = await persistence.load(options.resumeSessionId)
     // Re-check the agent id AFTER the await: the pre-load check above can go
     // stale while load() is pending (a concurrent resume/create may register the
     // same id). Re-checking immediately before prepare()/start keeps the
@@ -209,9 +221,12 @@ export class AgentLoop extends Service implements AgentFactory {
         createdAt: meta.createdAt,
         ...meta.cwd !== undefined ? { cwd: meta.cwd } : {},
         ...meta.parentSession !== undefined ? { parentSession: meta.parentSession } : {},
+        // Reconstruct the seed boundary from the persisted header, NOT from
+        // `events.length` (the resume seeds the WHOLE stored log).
+        ...meta.seedLength !== undefined ? { seedLength: meta.seedLength } : {},
       },
     })
-    return this.startOwned(AgentId(options.agentId), options.agentOptions ?? {}, session)
+    return this.startOwned(options.agentId, options.agentOptions ?? {}, session, 'resume')
   }
 
   /**
@@ -220,7 +235,7 @@ export class AgentLoop extends Service implements AgentFactory {
    * persistence state) behind. `register()` enforces the same uniqueness, but
    * only after the session has already entered the store.
    */
-  private assertAgentIdFree(id: string): void {
+  private assertAgentIdFree(id: AgentId): void {
     if (this.ctx.agents.get(id) !== undefined) {
       throw new Error(`agent "${id}" is already registered`)
     }
@@ -248,14 +263,33 @@ export class AgentLoop extends Service implements AgentFactory {
    * so a throwing `session/created`/`agent/created` listener unwinds the
    * already-yielded disposers instead of leaking.
    *
+   * `source` says why the session began ({@link SessionStartSource}); it is
+   * emitted as `agent/session-start` once, AFTER the agent is registered (so a
+   * listener can resolve the agent via `ctx.agents.get(id)` and `inject()` into
+   * it) and BEFORE the loop starts its first turn. The emit is contained: a
+   * throwing session-start listener must not abort agent construction — it is
+   * logged, and the agent still starts. (Unlike a turn-boundary throw, there is
+   * no open turn here to balance; the durable evidence of a session-start hook
+   * is whatever it `inject()`ed.)
+   *
    * Returns the agent plus the composite effect's disposer (`disposeAgent`).
    */
-  private start(id: AgentId, options: AgentOptions, session: Session): { agent: ReactLoopAgent; disposeAgent: () => Promise<void> } {
+  private start(
+    id: AgentId, options: AgentOptions, session: Session, source: SessionStartSource,
+  ): { agent: ReactLoopAgent; disposeAgent: () => Promise<void> } {
     const agent = new ReactLoopAgent(this.ctx, id, options, session)
     const dispose = this.ctx.effect(function* (this: AgentLoop) {
       yield this.ctx.sessions.enter(session)
       this.ctx.sessions.announce(session)
       yield this.ctx.agents.register(agent)
+      // Fire AFTER register (a listener can ctx.agents.get(id) + inject()) and
+      // BEFORE the loop's first turn. Contained: a throwing listener is logged,
+      // never aborts construction (no open turn to balance here).
+      try {
+        this.ctx.emit('agent/session-start', agent, source)
+      } catch (error: unknown) {
+        this.ctx.logger.warn(`agent "${id}": agent/session-start listener threw: ${String(error)}`)
+      }
       const stop = agent.start()
       // Disposed FIRST (LIFO): request loop stop (sync), then AWAIT the loop's
       // actual exit so its closing flush lands while onAppend (yielded above,
@@ -282,8 +316,8 @@ export class AgentLoop extends Service implements AgentFactory {
    * `AgentHandle.dispose(): Promise<void>` contract (mirrors the ACP `quiesce()`
    * helper).
    */
-  private startOwned(id: AgentId, options: AgentOptions, session: Session): AgentHandle {
-    const { agent, disposeAgent } = this.start(id, options, session)
+  private startOwned(id: AgentId, options: AgentOptions, session: Session, source: SessionStartSource): AgentHandle {
+    const { agent, disposeAgent } = this.start(id, options, session, source)
     let disposing: Promise<void> | undefined
     return { agent, dispose: () => (disposing ??= disposeAgent()) }
   }

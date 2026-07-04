@@ -11,5 +11,10 @@ examples/*/.sessions/
 coverage/
 .doc-typecheck-*/
 .humanize/
+tmp/
+.claude/commands/
+.claude/settings.json
 .vscode/
 .DS_Store
+.idea
+mise.toml

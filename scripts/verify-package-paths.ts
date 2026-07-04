@@ -28,6 +28,13 @@
  * Scope mirrors the other doc gates plus repo-authored TypeScript: Markdown
  * across README/docs/packages/AGENTS, and `.ts` under packages/** and
  * examples/** (excluding built `lib/`, `*.d.ts`, and vendored upstream source).
+ * A reference to a package's build OUTPUT (`packages/<group>/<pkg>/lib/…`,
+ * e.g. `packages/ui/acp-agent/lib/bin.js` cited by a built-bin smoke) is also
+ * skipped — it is emitted only by `pnpm run build`, which CI runs AFTER this
+ * gate, so flagging it would be a false positive on a path that is correct but
+ * not yet on disk. That skip is scoped to a REAL package root: a stale
+ * group-less `packages/acp-agent/lib/bin.js` is still flagged (its root does not
+ * exist — exactly the moved-package drift this gate catches).
  *
  * Run: `tsx scripts/verify-package-paths.ts`.
  */
@@ -111,6 +118,17 @@ function findViolations(absPath: string): Violation[] {
       // class may have swallowed (`packages/core/tools.` / `…/tools/`).
       const ref = m[0].replace(/[./]+$/, '')
       if (existsSync(resolve(root, ref))) continue
+      // A reference INTO a package's built `lib/` is a build OUTPUT, not an
+      // authored-source location: it does not exist until `pnpm run build` emits
+      // it, and CI runs this gate BEFORE the build step. Skip it — but ONLY when
+      // the `packages/<group>/<pkg>` ROOT it sits under is real and on disk, so
+      // `packages/ui/acp-agent/lib/bin.js` (correct, just not yet built) is
+      // exempt while a stale `packages/acp-agent/lib/bin.js` (group-less, the
+      // exact moved-package drift this gate exists to catch) still flags. A bare
+      // `lib` segment is not a blanket escape hatch.
+      const parts = ref.split('/')
+      const libAt = parts.indexOf('lib')
+      if (libAt === 3 && existsSync(resolve(root, parts.slice(0, 3).join('/')))) continue
       // Only a stale path to a REAL (moved) package is a violation; a segment
       // matching a live package name is the drift signal.
       const segments = ref.split('/').slice(1)

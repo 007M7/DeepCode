@@ -4,6 +4,8 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
 import type { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import { AgentId } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.ts'
 
 /**
@@ -15,7 +17,7 @@ import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.
  */
 
 const SECRET = 'plum-galaxy-1791'
-const SESSION_ID = 'resume-e2e-session'
+const SESSION_ID = SessionId('resume-e2e-session')
 
 let ctx: Context | undefined
 let root: string | undefined
@@ -36,9 +38,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('resume: continue a persisted ses
     // Run 1: a fresh agent on a KNOWN session id learns a secret, then we
     // dispose the whole context (simulating process exit) so only the JSONL
     // log on disk survives.
-    ctx = await codingHarness(process.cwd(), root)
+    ctx = await codingHarness(process.cwd(), { persistenceRoot: root })
     const first = ctx.agents.create({
-      agentId: 'resume-1',
+      agentId: AgentId('resume-1'),
       sessionId: SESSION_ID,
       agentOptions: { model: 'deepseek-v4-flash', systemPrompt: SYSTEM_PROMPT },
     }).agent as ReactLoopAgent
@@ -50,9 +52,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('resume: continue a persisted ses
     // Run 2: a brand-new context over the SAME root resumes the persisted
     // session. The loaded event log seeds the live session, so the model sees
     // run 1's exchange as conversation history.
-    ctx = await codingHarness(process.cwd(), root)
+    ctx = await codingHarness(process.cwd(), { persistenceRoot: root })
     const resumed = (await ctx.agents.resume({
-      agentId: 'resume-2',
+      agentId: AgentId('resume-2'),
       resumeSessionId: SESSION_ID,
       agentOptions: { model: 'deepseek-v4-flash', systemPrompt: SYSTEM_PROMPT },
     })).agent as ReactLoopAgent

@@ -11,7 +11,7 @@
  * (the `session/event` → buffer → `session/flush` drain, per-session
  * serialization, write cursors, fork-seed persistence, HMR live-adoption,
  * crash-repair sequencing, dispose quiescence) lives in the backend-agnostic
- * {@link PersistenceCoordinator} this class composes. The six public
+ * {@link PersistenceCoordinator} this class composes. The four public
  * {@link SessionPersistence} methods delegate to the coordinator.
  *
  * @module @deepseek-ai/dsh-session-persistence-jsonl
@@ -101,14 +101,6 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     return this.coordinator.load(id)
   }
 
-  has(id: SessionId): Promise<boolean> {
-    return this.coordinator.has(id)
-  }
-
-  delete(id: SessionId): Promise<void> {
-    return this.coordinator.delete(id)
-  }
-
   // `list` is BOTH the public service method and the PersistenceBackend hook —
   // one method, the bucket walk below. The coordinator adds no orchestration for
   // listing (no per-id serialization, no cursor), so it would just call back into
@@ -178,12 +170,6 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   async commitRepair(meta: SessionHeader, tornMarker: number | undefined, closers: readonly SessionEvent[]): Promise<void> {
     if (tornMarker !== undefined) await this.repair(meta, tornMarker)
     if (closers.length > 0) await this.appendLines(meta, closers)
-  }
-
-  /** Remove a session's log file (the coordinator clears its in-memory state). */
-  async deleteStored(id: SessionId): Promise<void> {
-    const file = await this.findLog(id)
-    if (file) await rm(file.path, { force: true })
   }
 
   /** List all stored sessions' metadata (header line only — no full-log parse). */
@@ -341,9 +327,9 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   /**
    * Find a session's log file by id across ALL cwd buckets — the any-cwd scan
-   * for `loadStored`/`deleteStored` (resume and removal identify a session by id
-   * alone). The cwd-scoped lookup (`loadLive`) does NOT use this; it goes
-   * straight to `logPath(cwd)` so a no-cwd session can't match a real-cwd bucket.
+   * for `loadStored` (resume identifies a session by id alone). The cwd-scoped
+   * lookup (`loadLive`) does NOT use this; it goes straight to `logPath(cwd)` so
+   * a no-cwd session can't match a real-cwd bucket.
    */
   private async findLog(id: SessionId): Promise<{ path: string; cwd: string | undefined } | undefined> {
     const target = encodeSegment(id) + '.jsonl'

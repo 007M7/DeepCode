@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
-import type {} from '@deepseek-ai/dsh-bash'
+import { BashTaskId } from '@deepseek-ai/dsh-bash'
+import type { BashTaskRead } from '@deepseek-ai/dsh-bash'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-bash-exec-spec-'))
 
@@ -28,6 +29,22 @@ async function waitGone(pid: number, timeoutMs = 5_000): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   throw new Error(`pid ${pid} still alive after ${timeoutMs}ms`)
+}
+
+async function readUntil(
+  bash: LocalBashExecutor,
+  id: BashTaskId,
+  expected: string,
+  timeoutMs = 5_000,
+): Promise<BashTaskRead> {
+  const deadline = Date.now() + timeoutMs
+  let last: BashTaskRead | undefined
+  while (Date.now() < deadline) {
+    last = bash.readOutput(id)
+    if (last.delta.includes(expected)) return last
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  throw new Error(`task ${id} output did not include ${JSON.stringify(expected)}; last delta was ${JSON.stringify(last?.delta ?? '')}`)
 }
 
 describe('LocalBashExecutor.run', () => {
@@ -89,6 +106,23 @@ describe('LocalBashExecutor.run', () => {
     const { bash } = await setup()
     await expect(bash.run(bash.resolve({ command: 'true', workdir: '/nonexistent-dsh' }))).rejects.toThrow(/ENOENT/)
   })
+
+  it('resolve() carries stdin/env onto the spec, and run() threads them to the command', async () => {
+    const { bash } = await setup()
+    const spec = bash.resolve({ command: 'cat; echo "[$DSH_SEAM_VAR]"', stdin: 'piped\n', env: { DSH_SEAM_VAR: 'env-ok' } })
+    // resolve() keeps the stdin/env fields verbatim (optional, no default).
+    expect(spec.stdin).toBe('piped\n')
+    expect(spec.env).toEqual({ DSH_SEAM_VAR: 'env-ok' })
+    const result = await bash.run(spec)
+    expect(result.stdout.text).toBe('piped\n[env-ok]\n')
+  })
+
+  it('resolve() omits stdin/env when the request supplies neither', async () => {
+    const { bash } = await setup()
+    const spec = bash.resolve({ command: 'true' })
+    expect('stdin' in spec).toBe(false)
+    expect('env' in spec).toBe(false)
+  })
 })
 
 describe('LocalBashExecutor background tasks', () => {
@@ -114,11 +148,23 @@ describe('LocalBashExecutor background tasks', () => {
     await Promise.all([first.done, second.done])
   })
 
+  it('threads stdin and extra env into a background task', async () => {
+    const { bash } = await setup()
+    const task = bash.start(bash.resolve({
+      command: 'cat; echo "[$DSH_BG_VAR]"',
+      stdin: 'bg-stdin\n',
+      env: { DSH_BG_VAR: 'bg-env' },
+    }))
+    const read = await readUntil(bash, task.id, '[bg-env]')
+    expect(read.delta).toContain('bg-stdin')
+    await task.done
+    expect(task.exitCode).toBe(0)
+  })
+
   it('readOutput returns increments without re-delivery', async () => {
     const { bash } = await setup()
-    const task = bash.start(bash.resolve({ command: 'echo first; sleep 0.3; echo second' }))
-    await new Promise(resolve => setTimeout(resolve, 150))
-    const first = bash.readOutput(task.id)
+    const task = bash.start(bash.resolve({ command: 'echo first; sleep 1; echo second' }))
+    const first = await readUntil(bash, task.id, 'first\n')
     expect(first.delta).toBe('first\n')
     expect(first.lossy).toBe(false)
     await task.done
@@ -155,7 +201,7 @@ describe('LocalBashExecutor background tasks', () => {
 
   it('readOutput throws for unknown ids', async () => {
     const { bash } = await setup()
-    expect(() => bash.readOutput('nope')).toThrow(/unknown bash task "nope"/)
+    expect(() => bash.readOutput(BashTaskId('nope'))).toThrow(/unknown bash task "nope"/)
   })
 
   it('kill terminates the process group and reports status killed', async () => {
@@ -172,7 +218,7 @@ describe('LocalBashExecutor background tasks', () => {
     const task = bash.start(bash.resolve({ command: 'true' }))
     await task.done
     expect(bash.kill(task.id)).toBe(false)
-    expect(() => bash.kill('nope')).toThrow(/unknown bash task "nope"/)
+    expect(() => bash.kill(BashTaskId('nope'))).toThrow(/unknown bash task "nope"/)
   })
 
   it('notifies onTaskDone listeners on completion', async () => {

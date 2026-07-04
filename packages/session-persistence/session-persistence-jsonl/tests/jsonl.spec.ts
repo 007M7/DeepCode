@@ -7,7 +7,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { encodeSegment, logPath, scanLog, sessionDir } from '../src/format.ts'
-import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
+import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
 let root: string
@@ -105,12 +105,12 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     // nothing on disk yet
     const dir = sessionDir(root, '/work')
     await expect(stat(logPath(root, '/work', m.id))).rejects.toThrow()
-    expect(await ctx.sessionPersistence.has(m.id)).toBe(false)
+    expect((await ctx.sessionPersistence.list()).map(h => h.id)).not.toContain(m.id)
 
     await ctx.sessionPersistence.append(m.id, oneTurnLog())
     // now materialized
     expect((await stat(logPath(root, '/work', m.id))).isFile()).toBe(true)
-    expect(await ctx.sessionPersistence.has(m.id)).toBe(true)
+    expect((await ctx.sessionPersistence.list()).map(h => h.id)).toContain(m.id)
     void dir
   })
 
@@ -121,7 +121,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
       { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
       { type: 'assistant/chunk', seq: 2, time: 3, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'he' } } },
       { type: 'assistant/chunk', seq: 3, time: 4, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'llo' } } },
-      { type: 'assistant/message', seq: 4, time: 5, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }] } },
+      { type: 'assistant/message', seq: 4, time: 5, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }] }, surfaceOp: 'append', sourceEventSeqs: [2, 3] },
       { type: 'step/end', seq: 5, time: 6, data: { turn: 1, step: 1 } },
       { type: 'turn/end', seq: 6, time: 7, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
@@ -249,7 +249,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
 
   it('path-traversal session ids are neutralized (no escape from root)', async () => {
     const evil = SessionId('../../etc/pwn')
-    const m = { version: 1, id: evil, createdAt: 1 }
+    const m = { version: 0, id: evil, createdAt: 1 }
     await ctx.sessionPersistence.create(m)
     await ctx.sessionPersistence.append(evil, oneTurnLog())
     // The file lives UNDER root, not at ../../etc.
@@ -274,10 +274,10 @@ describe('SessionPersistenceJsonl: write path (session/event → flush)', () => 
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionPersistenceJsonl, { root })
 
-    const a = ctx.sessions.create('sa')
-    const b = ctx.sessions.create('sb')
-    a.append('user/message', { content: [{ type: 'text', text: 'A' }], source: { kind: 'user' } })
-    b.append('user/message', { content: [{ type: 'text', text: 'B' }], source: { kind: 'user' } })
+    const a = ctx.sessions.create(SessionId('sa'))
+    const b = ctx.sessions.create(SessionId('sb'))
+    a.append('user/message', { content: [{ type: 'text', text: 'A' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    b.append('user/message', { content: [{ type: 'text', text: 'B' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     a.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     b.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await ctx.parallel('session/flush', a)
@@ -310,7 +310,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
 
   it('a seq gap after the last turn/end bounds the preserved tail (torn fragment tolerated)', () => {
     const log = [
-      JSON.stringify({ type: 'session', version: 1, id: 'g', createdAt: 1 }),
+      JSON.stringify({ type: 'session', version: 0, id: 'g', createdAt: 1 }),
       JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
       JSON.stringify({ type: 'step/start', seq: 2, time: 2, data: { turn: 1, step: 1 } }), // gap: missing seq 1
     ].join('\n') + '\n'
@@ -323,7 +323,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
 
   it('rejects a seq gap BEFORE a later committed turn/end (committed data damaged)', () => {
     const log = [
-      JSON.stringify({ type: 'session', version: 1, id: 'g2', createdAt: 1 }),
+      JSON.stringify({ type: 'session', version: 0, id: 'g2', createdAt: 1 }),
       JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
       JSON.stringify({ type: 'step/start', seq: 2, time: 2, data: { turn: 1, step: 1 } }), // gap: missing seq 1
       JSON.stringify({ type: 'turn/end', seq: 3, time: 3, data: { turn: 1, reason: { kind: 'completed' } } }),
@@ -335,7 +335,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
 
   it('rejects a corrupt line BEFORE a later committed turn/end (committed data damaged)', () => {
     const log = [
-      JSON.stringify({ type: 'session', version: 1, id: 'c', createdAt: 1 }),
+      JSON.stringify({ type: 'session', version: 0, id: 'c', createdAt: 1 }),
       '{not json', // corrupt, sits in the committed region (a turn/end follows)
       JSON.stringify({ type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } }),
     ].join('\n') + '\n'
@@ -343,7 +343,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
   })
 
   it('a header-only log (no event lines at all) preserves nothing — committedBytes is the header', () => {
-    const log = JSON.stringify({ type: 'session', version: 1, id: 'h0', createdAt: 1 }) + '\n'
+    const log = JSON.stringify({ type: 'session', version: 0, id: 'h0', createdAt: 1 }) + '\n'
     const scanned = scanLog(Buffer.from(log))
     expect(scanned.events).toEqual([])
     // committedBytes falls back to the header line's end (no preserved events).
@@ -352,7 +352,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
 
   it('a corrupt line after the last turn/end bounds the preserved tail', () => {
     const log = [
-      JSON.stringify({ type: 'session', version: 1, id: 'c2', createdAt: 1 }),
+      JSON.stringify({ type: 'session', version: 0, id: 'c2', createdAt: 1 }),
       JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
       '{not json', // corrupt crash fragment, no turn/end committed
     ].join('\n') + '\n'
@@ -363,7 +363,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
 
   it('tolerates a seq gap AFTER a turn/end (uncommitted tail)', () => {
     const log = [
-      JSON.stringify({ type: 'session', version: 1, id: 't', createdAt: 1 }),
+      JSON.stringify({ type: 'session', version: 0, id: 't', createdAt: 1 }),
       JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
       JSON.stringify({ type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } }),
       JSON.stringify({ type: 'step/start', seq: 9, time: 3, data: { turn: 2, step: 1 } }), // gap in uncommitted tail
@@ -442,30 +442,17 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     // field is tolerated by the header type guard) and confirm list() reads it.
     const bucket = join(root, '_no-cwd')
     await mkdir(bucket, { recursive: true })
-    const bigHeader = JSON.stringify({ type: 'session', version: 1, id: 'big', createdAt: 1, pad: 'x'.repeat(9000) })
+    const bigHeader = JSON.stringify({ type: 'session', version: 0, id: 'big', createdAt: 1, pad: 'x'.repeat(9000) })
     await writeFile(join(bucket, 'big.jsonl'), bigHeader + '\n')
     const ids = (await ctx.sessionPersistence.list()).map(x => x.id)
     expect(ids).toContain('big')
   })
 
-  it('has() finds a session on disk under an unknown cwd (cross-bucket scan)', async () => {
-    const m = meta('scan-me', '/somewhere')
-    await ctx.sessionPersistence.create(m)
-    await ctx.sessionPersistence.append(m.id, oneTurnLog())
-    // A fresh backend with no in-memory state → has() must scan disk buckets.
-    const ctx2 = new Context()
-    await ctx2.plugin(SessionStore)
-    await ctx2.plugin(SessionPersistenceJsonl, { root })
-    expect(await ctx2.sessionPersistence.has(m.id)).toBe(true)
-    expect(await ctx2.sessionPersistence.has(SessionId('absent'))).toBe(false)
-    await ctx2.fiber.dispose()
-  })
-
   it('a DIFFERENT live session object reusing a disposed id gets its own init (no stale cache)', async () => {
     // Session A materializes a log under id "reuse".
     const sessFiberA = await ctx.plugin(Object.assign((inner: Context) => {
-      const a = inner.sessions.create('reuse', { meta: { cwd: '/a' } })
-      for (const e of oneTurnLog()) a.append(e.type, e.data)
+      const a = inner.sessions.create(SessionId('reuse'), { meta: { cwd: '/a' } })
+      appendLog(a, oneTurnLog())
     }, { inject: ['sessions'] }))
     // Drain A, then dispose ITS fiber (the live session A is gone) while the
     // backend stays loaded.
@@ -479,7 +466,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     let b!: Session
     await ctx.plugin(Object.assign((inner: Context) => {
-      b = inner.sessions.create('reuse', { meta: { cwd: '/a' } })
+      b = inner.sessions.create(SessionId('reuse'), { meta: { cwd: '/a' } })
     }, { inject: ['sessions'] }))
     await expect(backend.inits.get(b)).rejects.toThrow(/already bound to a different live session|already has a persisted log on disk/)
   })
@@ -506,7 +493,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const backend = ctx2.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     let b!: Session
     await ctx2.plugin(Object.assign((inner: Context) => {
-      b = inner.sessions.create('x') // no cwd
+      b = inner.sessions.create(SessionId('x')) // no cwd
     }, { inject: ['sessions'] }))
     await expect(backend.inits.get(b)).rejects.toThrow(/already has a persisted log on disk/)
 
@@ -534,7 +521,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     if (userMsg?.type === 'user/message') userMsg.data.content = [{ type: 'text', text: 'DIFFERENT' }]
     let bad!: Session
     await ctx.plugin(Object.assign((inner: Context) => {
-      bad = inner.sessions.create('divergent', { seed: tampered, meta: { cwd: '/a' } })
+      bad = inner.sessions.create(SessionId('divergent'), { seed: tampered, meta: { cwd: '/a' } })
     }, { inject: ['sessions'] }))
     await expect(backend.inits.get(bad)).rejects.toThrow(/do not match this live session|already has a persisted log/)
   })
@@ -542,7 +529,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
   it('a second live session reusing a bound id is rejected', async () => {
     // A live session materializes and owns the id.
     const firstFiber = await ctx.plugin(Object.assign((inner: Context) => {
-      const a = inner.sessions.create('bound', { meta: { cwd: '/a' } })
+      const a = inner.sessions.create(SessionId('bound'), { meta: { cwd: '/a' } })
       a.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
       a.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     }, { inject: ['sessions'] }))
@@ -552,7 +539,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const backend = ctx.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
     let second!: Session
     await ctx.plugin(Object.assign((inner: Context) => {
-      second = inner.sessions.create('bound', { meta: { cwd: '/a' } })
+      second = inner.sessions.create(SessionId('bound'), { meta: { cwd: '/a' } })
     }, { inject: ['sessions'] }))
     await expect(backend.inits.get(second))
       .rejects.toThrow(/already bound to a different live session|already has a persisted log|do not match/)
@@ -579,20 +566,23 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.fiber.dispose()
   })
 
-  it('exists() surfaces a non-ENOENT lookup error (ENOTDIR) instead of reporting absent', async () => {
-    // Same contract on the existence path: a non-ENOENT error from the per-id
-    // open() must surface, not be collapsed to "not found" (which would let a
-    // collision check proceed under a false absence assumption). A LAZY session
-    // (created, never appended) keeps its cwd in state, so has() reaches
-    // loadLive(id, cwd) → exists(logPath). Make that cwd's bucket DIRECTORY a
-    // regular file: open()ing `bucket/<id>.jsonl` under it then fails ENOTDIR.
+  it('loadLive surfaces a non-ENOENT lookup error (ENOTDIR) instead of reporting absent', async () => {
+    // A non-ENOENT error from the per-id open() must surface, not be collapsed to
+    // "not found" (which would let live-adoption proceed under a false absence
+    // assumption). A live session's onCreated reaches loadLive(id, cwd) →
+    // exists(logPath). Make that cwd's bucket DIRECTORY a regular file: open()ing
+    // `bucket/<id>.jsonl` under it then fails ENOTDIR.
     const cwd = '/x'
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionPersistenceJsonl, { root })
-    await ctx2.sessionPersistence.create(meta('exists-fault', cwd)) // lazy: no bucket yet
     await writeFile(sessionDir(root, cwd), 'x') // bucket path is now a FILE
-    await expect(ctx2.sessionPersistence.has(SessionId('exists-fault'))).rejects.toThrow(/ENOTDIR/)
+    const backend = ctx2.sessionPersistence as unknown as { inits: Map<Session, Promise<void>> }
+    let s!: Session
+    await ctx2.plugin(Object.assign((inner: Context) => {
+      s = inner.sessions.create(SessionId('exists-fault'), { meta: { cwd } })
+    }, { inject: ['sessions'] }))
+    await expect(backend.inits.get(s)).rejects.toThrow(/ENOTDIR/)
     await ctx2.fiber.dispose()
   })
 
@@ -639,8 +629,8 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const a = meta('dup-id', '/projA')
     await ctx.sessionPersistence.create(a)
     await ctx.sessionPersistence.append(a.id, oneTurnLog())
-    // A fresh backend creating the SAME id under cwd B must still refuse: load/
-    // has identify by id across all buckets, so a second log would make resume
+    // A fresh backend creating the SAME id under cwd B must still refuse: load
+    // identifies by id across all buckets, so a second log would make resume
     // nondeterministic. create scans every bucket, not just meta.cwd's.
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
@@ -655,9 +645,9 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionPersistenceJsonl, { root })
-    const session = ctx2.sessions.create('flush-fail')
+    const session = ctx2.sessions.create(SessionId('flush-fail'))
     // A full turn lands in the write-behind buffer.
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     // Make the durable materialize fail on the next flush.
     const backend = ctx2.sessionPersistence as unknown as { materialize: (...args: unknown[]) => Promise<void> }
@@ -687,7 +677,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     circ.self = circ
     await expect(ctx.sessionPersistence.append(m.id, bad(circ))).rejects.toThrow(/non-JSON-serializable/)
     // The session was never materialized by any of the rejected appends.
-    expect(await ctx.sessionPersistence.has(m.id)).toBe(false)
+    expect((await ctx.sessionPersistence.list()).map(h => h.id)).not.toContain(m.id)
   })
 
   it('accepts well-formed JSON values (null, booleans, nested arrays/objects)', async () => {
@@ -695,17 +685,17 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx.sessionPersistence.create(m)
     const ev = [{ type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' }, extra: { a: null, b: true, c: [1, 2, { d: 'nested' }] } } }] as unknown as SessionEvent[]
     await ctx.sessionPersistence.append(m.id, ev)
-    expect(await ctx.sessionPersistence.has(m.id)).toBe(true)
+    expect((await ctx.sessionPersistence.list()).map(h => h.id)).toContain(m.id)
   })
 
   it('Session.append rejects a non-serializable event at the source (never enters the log)', () => {
-    const session = ctx.sessions.create('reject-bad')
+    const session = ctx.sessions.create(SessionId('reject-bad'))
     // Serializability is enforced at the source: Session.append throws on a
     // BigInt-bearing event BEFORE it enters session.events, so the durable log
     // can never diverge from the live log. The throw surfaces at the caller's
     // append site, not asynchronously in a backend flush.
     expect(() => {
-      session.append('user/message', { content: [{ type: 'text', text: 'bad' }], source: { kind: 'user' }, bad: 1n } as never)
+      session.append('user/message', { content: [{ type: 'text', text: 'bad' }], source: { kind: 'user' }, bad: 1n } as never, { surfaceOp: 'append' })
     }).toThrow(/non-JSON-serializable/)
     // The bad event was rejected, so the log stayed empty.
     expect(session.events.length).toBe(0)

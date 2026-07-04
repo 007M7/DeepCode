@@ -7,12 +7,15 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import LlmService, { GenerateOptions, LlmAdapter, StreamChunk } from '@deepseek-ai/dsh-llm'
 import {
   type ReplayEntry,
+  type SessionScript,
   apply,
   deriveReplayScript,
   inject,
   installLlmReplay,
   loadReplayScript,
+  loadSessionScripts,
   name,
+  parseSessionHeader,
   parseSessionLog,
 } from '../src/index.ts'
 
@@ -32,9 +35,15 @@ const TEXT_CHUNKS: StreamChunk[] = [
 ]
 
 /** Build a minimal session-JSONL string: a header line + the given events. */
-function sessionJsonl(events: SessionEvent[]): string {
-  const header = JSON.stringify({ type: 'session', version: 1, id: 's1', createdAt: 0 })
-  return [header, ...events.map(e => JSON.stringify(e))].join('\n') + '\n'
+function sessionJsonl(events: SessionEvent[], header?: { id?: string; createdAt?: number; seedLength?: number }): string {
+  const headerLine = JSON.stringify({
+    type: 'session',
+    version: 0,
+    id: header?.id ?? 's1',
+    createdAt: header?.createdAt ?? 0,
+    ...header?.seedLength !== undefined ? { seedLength: header.seedLength } : {},
+  })
+  return [headerLine, ...events.map(e => JSON.stringify(e))].join('\n') + '\n'
 }
 
 /** A SessionEvent of type assistant/chunk for (turn, step). */
@@ -67,7 +76,7 @@ describe('parseSessionLog', () => {
   })
 
   it('ignores blank lines', () => {
-    const header = JSON.stringify({ type: 'session', version: 1, id: 's1', createdAt: 0 })
+    const header = JSON.stringify({ type: 'session', version: 0, id: 's1', createdAt: 0 })
     const ev = chunkEvent(1, 1, 1, TEXT_CHUNKS[0] as StreamChunk)
     expect(parseSessionLog(`${header}\n\n${JSON.stringify(ev)}\n\n`)).toEqual([ev])
   })
@@ -130,11 +139,11 @@ describe('deriveReplayScript', () => {
   })
 
   it('throws on a group that lacks a terminal finish chunk (a thrown stream)', () => {
-    // A thrown stream(): prefix chunks logged, then error/turn/end, NO finish.
+    // A thrown stream(): prefix chunks logged, then turn/end (error reason), NO finish.
     const events: SessionEvent[] = [
       chunkEvent(1, 1, 1, { type: 'block-start', index: 0, blockType: 'text' }),
       chunkEvent(2, 1, 1, { type: 'text-delta', index: 0, text: 'par' }),
-      { type: 'turn/end', seq: 3, time: 0, data: { turn: 1, reason: { kind: 'error', message: 'x' } } },
+      { type: 'turn/end', seq: 3, time: 0, data: { turn: 1, reason: { kind: 'error', step: 1, message: 'x' } } },
     ]
     expect(() => deriveReplayScript(events)).toThrow(/without a finish chunk.*replay\.override\.json/s)
   })
@@ -361,13 +370,219 @@ describe('installLlmReplay (through the real waterfall)', () => {
   })
 })
 
+describe('parseSessionHeader', () => {
+  it('reads id, createdAt, and seedLength off the header line', () => {
+    expect(parseSessionHeader(sessionJsonl([], { id: 'abc', createdAt: 42 })))
+      .toEqual({ id: 'abc', createdAt: 42, seedLength: 0 })
+  })
+
+  it('reads a non-zero seedLength (a fork child header)', () => {
+    expect(parseSessionHeader('{"type":"session","version":0,"id":"child","createdAt":7,"seedLength":4}\n'))
+      .toEqual({ id: 'child', createdAt: 7, seedLength: 4 })
+  })
+
+  it('falls back to id="" / createdAt=0 / seedLength=0 when the header lacks them', () => {
+    expect(parseSessionHeader('{"type":"session","version":0}\n')).toEqual({ id: '', createdAt: 0, seedLength: 0 })
+  })
+
+  it('falls back on an empty buffer (no header line)', () => {
+    expect(parseSessionHeader('')).toEqual({ id: '', createdAt: 0, seedLength: 0 })
+  })
+})
+
+describe('loadSessionScripts', () => {
+  /** Write a session log file and return its path. */
+  function writeSession(filename: string, header: { id: string; createdAt: number }, calls: StreamChunk[][]): string {
+    let seq = 1
+    const events: SessionEvent[] = []
+    calls.forEach((chunks, step) => { for (const c of chunks) events.push(chunkEvent(seq++, 1, step + 1, c)) })
+    const path = join(dir, filename)
+    writeFileSync(path, sessionJsonl(events, header), 'utf8')
+    return path
+  }
+
+  it('returns one primary script for a single-session scenario', () => {
+    const f = writeSession('session.jsonl', { id: 'p', createdAt: 100 }, [TEXT_CHUNKS])
+    const scripts: SessionScript[] = loadSessionScripts({ file: f })
+    expect(scripts).toHaveLength(1)
+    expect(scripts[0]).toMatchObject({ recordedId: 'p', createdAt: 100, primary: true })
+    expect(scripts[0]?.entries).toEqual([{ kind: 'chunks', chunks: TEXT_CHUNKS }])
+  })
+
+  it('orders parent + children by createdAt with the primary first on a tie', () => {
+    const f = writeSession('session.jsonl', { id: 'parent', createdAt: 100 }, [TEXT_CHUNKS])
+    // One child created LATER, one child sharing the parent's createdAt (tie).
+    const later = writeSession('session.1.jsonl', { id: 'late', createdAt: 200 }, [TEXT_CHUNKS])
+    const tie = writeSession('session.2.jsonl', { id: 'tie', createdAt: 100 }, [TEXT_CHUNKS])
+    const scripts = loadSessionScripts({ file: f, childFiles: [later, tie] })
+    // parent (100, primary) → tie (100, non-primary) → late (200).
+    expect(scripts.map(s => s.recordedId)).toEqual(['parent', 'tie', 'late'])
+    expect(scripts[0]?.primary).toBe(true)
+  })
+
+  it('throws when a declared child fixture is missing', () => {
+    const f = writeSession('session.jsonl', { id: 'p', createdAt: 1 }, [TEXT_CHUNKS])
+    expect(() => loadSessionScripts({ file: f, childFiles: [join(dir, 'absent.jsonl')] }))
+      .toThrow(/child fixture not found/)
+  })
+
+  it('derives a FORK child script from its OWN events only (skips the seeded parent prefix)', () => {
+    // A fork child's log begins with the seeded parent prefix — the parent's
+    // events, INCLUDING its assistant/chunk events. Deriving the child script
+    // from the whole log would replay the PARENT's recorded responses as the
+    // child's model calls. With seedLength recorded, the child script must
+    // contain only the child's OWN chunks (those after the boundary).
+    const parentChunk: StreamChunk = { type: 'text-delta', index: 0, text: 'PARENT-RESPONSE' }
+    const childChunks: StreamChunk[] = [{ type: 'text-delta', index: 0, text: 'CHILD-RESPONSE' }, { type: 'finish', reason: { kind: 'stop' } }]
+    const f = writeSession('session.jsonl', { id: 'parent', createdAt: 100 }, [TEXT_CHUNKS])
+    // The child fixture: 2 seeded parent events (a chunk + its finish) then the
+    // child's own turn. seedLength = 2 marks where the inherited prefix ends.
+    const childEvents: SessionEvent[] = [
+      chunkEvent(0, 1, 1, parentChunk),
+      chunkEvent(1, 1, 1, { type: 'finish', reason: { kind: 'stop' } }),
+      chunkEvent(2, 2, 1, childChunks[0]!),
+      chunkEvent(3, 2, 1, childChunks[1]!),
+    ]
+    const childPath = join(dir, 'session.1.jsonl')
+    writeFileSync(childPath, sessionJsonl(childEvents, { id: 'child', createdAt: 200, seedLength: 2 }), 'utf8')
+
+    const scripts = loadSessionScripts({ file: f, childFiles: [childPath] })
+    // The child script is ONLY the child's own model call — the parent's seeded
+    // chunk is gone.
+    expect(scripts[1]?.entries).toEqual([{ kind: 'chunks', chunks: childChunks }])
+  })
+
+  it('uses the override for the primary and still derives children', () => {
+    writeFileSync(file, sessionJsonl([], { id: 'p', createdAt: 1 }), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    const override: ReplayEntry[] = [{ kind: 'hang' }]
+    writeFileSync(overrideFile, JSON.stringify(override), 'utf8')
+    const child = writeSession('session.1.jsonl', { id: 'c', createdAt: 2 }, [TEXT_CHUNKS])
+    const scripts = loadSessionScripts({ file, overrideFile, childFiles: [child] })
+    expect(scripts[0]?.entries).toEqual(override)
+    expect(scripts[1]?.entries).toEqual([{ kind: 'chunks', chunks: TEXT_CHUNKS }])
+  })
+
+  it('defaults the primary header to id="" / createdAt=0 when only an override (no JSONL) exists', () => {
+    // An override-only fixture: config.file does NOT exist, the override drives
+    // the primary script, so the header default branch applies.
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify([{ kind: 'hang' }]), 'utf8')
+    const scripts = loadSessionScripts({ file: join(dir, 'absent.jsonl'), overrideFile })
+    expect(scripts).toHaveLength(1)
+    expect(scripts[0]).toMatchObject({ recordedId: '', createdAt: 0, primary: true })
+  })
+
+  it('orders two same-createdAt children deterministically after the primary', () => {
+    // Two children sharing a createdAt (both non-primary): exercises the sort
+    // tie-break\'s "both same primary-ness" arm and a non-primary-vs-primary arm.
+    const f = writeSession('session.jsonl', { id: 'parent', createdAt: 100 }, [TEXT_CHUNKS])
+    const c1 = writeSession('session.1.jsonl', { id: 'c1', createdAt: 100 }, [TEXT_CHUNKS])
+    const c2 = writeSession('session.2.jsonl', { id: 'c2', createdAt: 100 }, [TEXT_CHUNKS])
+    const scripts = loadSessionScripts({ file: f, childFiles: [c1, c2] })
+    // Primary first (its createdAt ties the children but primary wins); the two
+    // children keep a stable relative order.
+    expect(scripts[0]?.recordedId).toBe('parent')
+    expect(scripts.every(s => s.createdAt === 100)).toBe(true)
+    expect(scripts.map(s => s.primary)).toEqual([true, false, false])
+  })
+
+  it('keeps the primary first even when a child sorts BEFORE it in input order', () => {
+    // The primary is appended first internally but the child has an EARLIER
+    // createdAt — the primary must still win on the tie-break against a
+    // later-but-equal child, and lose only to a genuinely earlier child via
+    // createdAt (here the child is earlier, so order is child-then-primary only
+    // if createdAt strictly less; equal createdAt keeps primary first).
+    const f = writeSession('session.jsonl', { id: 'parent', createdAt: 100 }, [TEXT_CHUNKS])
+    const earlier = writeSession('session.1.jsonl', { id: 'early', createdAt: 100 }, [TEXT_CHUNKS])
+    const scripts = loadSessionScripts({ file: f, childFiles: [earlier] })
+    // Equal createdAt → primary first.
+    expect(scripts.map(s => s.recordedId)).toEqual(['parent', 'early'])
+  })
+})
+
+describe('installLlmReplay (per-session keying)', () => {
+  const second: StreamChunk[] = [
+    { type: 'block-start', index: 0, blockType: 'text' },
+    { type: 'text-delta', index: 0, text: 'child' },
+    { type: 'finish', reason: { kind: 'stop' } },
+  ]
+
+  /** Write a session log file and return its path. */
+  function writeSession(filename: string, header: { id: string; createdAt: number }, calls: StreamChunk[][]): string {
+    let seq = 1
+    const events: SessionEvent[] = []
+    calls.forEach((chunks, step) => { for (const c of chunks) events.push(chunkEvent(seq++, 1, step + 1, c)) })
+    const path = join(dir, filename)
+    writeFileSync(path, sessionJsonl(events, header), 'utf8')
+    return path
+  }
+
+  const live = (id: string): GenerateOptions =>
+    ({ model: 'm', messages: [], sessionId: id as NonNullable<GenerateOptions['sessionId']> })
+
+  it('routes each live session to its own script by FIRST-CALL order', async () => {
+    const parentFile = writeSession('session.jsonl', { id: 'rec-parent', createdAt: 100 }, [TEXT_CHUNKS])
+    const childFile = writeSession('session.1.jsonl', { id: 'rec-child', createdAt: 200 }, [second])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    installLlmReplay(ctx, { file: parentFile, childFiles: [childFile] })
+    // The first live session to call binds to the parent script; a different
+    // live session id binds to the child script — regardless of recorded ids.
+    expect(await drain(ctx.llm.stream(live('live-A')))).toEqual(TEXT_CHUNKS)
+    expect(await drain(ctx.llm.stream(live('live-B')))).toEqual(second)
+    // The first session's SECOND call would exhaust its 1-entry script.
+    await expect(drain(ctx.llm.stream(live('live-A')))).rejects.toThrow(/exhausted/)
+  })
+
+  it('keeps each session\'s cursor independent (interleaved calls)', async () => {
+    const a2: StreamChunk[] = [{ type: 'text-delta', index: 0, text: 'a2' }, { type: 'finish', reason: { kind: 'stop' } }]
+    const b2: StreamChunk[] = [{ type: 'text-delta', index: 0, text: 'b2' }, { type: 'finish', reason: { kind: 'stop' } }]
+    const parentFile = writeSession('session.jsonl', { id: 'p', createdAt: 1 }, [TEXT_CHUNKS, a2])
+    const childFile = writeSession('session.1.jsonl', { id: 'c', createdAt: 2 }, [second, b2])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    installLlmReplay(ctx, { file: parentFile, childFiles: [childFile] })
+    // Interleave: A#1, B#1, A#2, B#2 — each cursor advances per-session.
+    expect(await drain(ctx.llm.stream(live('A')))).toEqual(TEXT_CHUNKS)
+    expect(await drain(ctx.llm.stream(live('B')))).toEqual(second)
+    expect(await drain(ctx.llm.stream(live('A')))).toEqual(a2)
+    expect(await drain(ctx.llm.stream(live('B')))).toEqual(b2)
+  })
+
+  it('treats a call with no sessionId as the single anonymous (primary) session', async () => {
+    const parentFile = writeSession('session.jsonl', { id: 'p', createdAt: 1 }, [TEXT_CHUNKS])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    installLlmReplay(ctx, { file: parentFile })
+    // No sessionId at all — the legacy single-session path.
+    expect(await drain(ctx.llm.stream({ model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+  })
+
+  it('fails loud when more distinct live sessions call than were recorded', async () => {
+    const parentFile = writeSession('session.jsonl', { id: 'p', createdAt: 1 }, [TEXT_CHUNKS])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    installLlmReplay(ctx, { file: parentFile }) // only ONE recorded session
+    expect(await drain(ctx.llm.stream(live('first')))).toEqual(TEXT_CHUNKS)
+    // A SECOND distinct live session has no script to bind to.
+    await expect(drain(ctx.llm.stream(live('second')))).rejects.toThrow(/unrecorded session/)
+  })
+})
+
 describe('apply (the plugin entry)', () => {
-  const ORIG = { file: process.env.DSH_SNAPSHOT_FILE, override: process.env.DSH_SNAPSHOT_OVERRIDE }
+  const ORIG = {
+    file: process.env.DSH_SNAPSHOT_FILE,
+    override: process.env.DSH_SNAPSHOT_OVERRIDE,
+    children: process.env.DSH_SNAPSHOT_CHILD_FILES,
+  }
   afterEach(() => {
     if (ORIG.file === undefined) delete process.env.DSH_SNAPSHOT_FILE
     else process.env.DSH_SNAPSHOT_FILE = ORIG.file
     if (ORIG.override === undefined) delete process.env.DSH_SNAPSHOT_OVERRIDE
     else process.env.DSH_SNAPSHOT_OVERRIDE = ORIG.override
+    if (ORIG.children === undefined) delete process.env.DSH_SNAPSHOT_CHILD_FILES
+    else process.env.DSH_SNAPSHOT_CHILD_FILES = ORIG.children
   })
 
   it('exposes the namespace plugin shape (name/inject, no default export)', () => {
@@ -417,5 +632,53 @@ describe('apply (the plugin entry)', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     expect(() => { apply(ctx, { file: '' }) }).toThrow(/a fixture path is required/)
+  })
+
+  it('loads child fixtures from config.childFiles (per-session routing)', async () => {
+    const childSecond: StreamChunk[] = [
+      { type: 'block-start', index: 0, blockType: 'text' },
+      { type: 'text-delta', index: 0, text: 'kid' },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]
+    writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c)), { id: 'p', createdAt: 1 }), 'utf8')
+    const childFile = join(dir, 'session.1.jsonl')
+    writeFileSync(childFile, sessionJsonl(childSecond.map((c, i) => chunkEvent(i + 1, 1, 1, c)), { id: 'c', createdAt: 2 }), 'utf8')
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    apply(ctx, { file, childFiles: [childFile] })
+    const live = (id: string): GenerateOptions =>
+      ({ model: 'm', messages: [], sessionId: id as NonNullable<GenerateOptions['sessionId']> })
+    expect(await drain(ctx.llm.stream(live('A')))).toEqual(TEXT_CHUNKS)
+    expect(await drain(ctx.llm.stream(live('B')))).toEqual(childSecond)
+  })
+
+  it('falls back to $DSH_SNAPSHOT_CHILD_FILES (path-delimited) when config omits childFiles', async () => {
+    const childChunks: StreamChunk[] = [
+      { type: 'block-start', index: 0, blockType: 'text' },
+      { type: 'text-delta', index: 0, text: 'env-kid' },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]
+    writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c)), { id: 'p', createdAt: 1 }), 'utf8')
+    const childFile = join(dir, 'session.1.jsonl')
+    writeFileSync(childFile, sessionJsonl(childChunks.map((c, i) => chunkEvent(i + 1, 1, 1, c)), { id: 'c', createdAt: 2 }), 'utf8')
+    process.env.DSH_SNAPSHOT_FILE = file
+    process.env.DSH_SNAPSHOT_CHILD_FILES = childFile // single entry, no delimiter needed
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    apply(ctx)
+    const live = (id: string): GenerateOptions =>
+      ({ model: 'm', messages: [], sessionId: id as NonNullable<GenerateOptions['sessionId']> })
+    expect(await drain(ctx.llm.stream(live('A')))).toEqual(TEXT_CHUNKS)
+    expect(await drain(ctx.llm.stream(live('B')))).toEqual(childChunks)
+  })
+
+  it('ignores an empty $DSH_SNAPSHOT_CHILD_FILES (single-session)', async () => {
+    writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c)), { id: 'p', createdAt: 1 }), 'utf8')
+    process.env.DSH_SNAPSHOT_FILE = file
+    process.env.DSH_SNAPSHOT_CHILD_FILES = ''
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    apply(ctx)
+    expect(await drain(ctx.llm.stream({ model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
   })
 })

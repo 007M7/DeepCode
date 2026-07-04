@@ -81,36 +81,6 @@ describe('BlockAssembler', () => {
     expect(() => assembler.blocks()).toThrow('BlockAssembler invariant violated')
   })
 
-  it('assembles open blocks at end of stream via flushRemaining', () => {
-    const assembler = new BlockAssembler()
-    assembler.push({ type: 'text-delta', index: 0, text: 'open' })
-    assembler.push({ type: 'reasoning-delta', index: 1, text: 'thinking' })
-
-    // flushReady returns nothing because index 0 is incomplete and blocking
-    const ready = assembler.flushReady()
-    expect(ready).toEqual([])
-
-    // flushRemaining assembles everything still open
-    const remaining = assembler.flushRemaining()
-    expect(remaining).toEqual([
-      { type: 'text', text: 'open' },
-      { type: 'reasoning', text: 'thinking' },
-    ])
-
-    // blocks() now matches the flushed view
-    expect(assembler.blocks()).toEqual(remaining)
-  })
-
-  it('result() omits usage key when no usage was received', () => {
-    const assembler = new BlockAssembler()
-    assembler.push({ type: 'text-delta', index: 0, text: 'msg' })
-    const result = assembler.result()
-    expect(result.message).toBeDefined()
-    expect(result.finish).toEqual({ kind: 'stop' })
-    // usage should NOT be present on the object at all
-    expect('usage' in result).toBe(false)
-  })
-
   it('ignores duplicate block-start for the same index', () => {
     const assembler = new BlockAssembler()
     assembler.push({ type: 'block-start', index: 0, blockType: 'text' })
@@ -142,13 +112,11 @@ describe('BlockAssembler', () => {
     ])
   })
 
-  it('includes usage in result() when usage was received', () => {
+  it('exposes usage via the getter when a usage chunk was received', () => {
     const assembler = new BlockAssembler()
     assembler.push({ type: 'text-delta', index: 0, text: 'msg' })
     assembler.push({ type: 'usage', usage: { inputTokens: 5, outputTokens: 3 } })
-    const result = assembler.result()
-    expect(result.usage).toEqual({ inputTokens: 5, outputTokens: 3 })
-    expect('usage' in result).toBe(true)
+    expect(assembler.usage).toEqual({ inputTokens: 5, outputTokens: 3 })
   })
 })
 
@@ -172,25 +140,25 @@ describe('BlockAssembler regressions (property-test findings)', () => {
     // Found by fast-check (the property-testing RFC): two block-ends at the same index made the
     // streamed prefix (first block) disagree with final blocks() (second
     // block). The first close must win — same straggler rule as post-close
-    // deltas — so streaming and one-shot assembly stay identical.
+    // deltas — so the prefix returned incrementally by push() and the final
+    // blocks() stay identical.
     const chunks: StreamChunk[] = [
       { type: 'block-end', index: 0, block: { type: 'reasoning', text: 'first' } },
       { type: 'block-end', index: 0, block: { type: 'text', text: 'second' } },
     ]
     const streaming = new BlockAssembler()
-    const flushed = []
+    const closed = []
     for (const chunk of chunks) {
-      streaming.push(chunk)
-      flushed.push(...streaming.flushReady())
+      const block = streaming.push(chunk)
+      if (block) closed.push(block)
     }
-    flushed.push(...streaming.flushRemaining())
 
     const oneShot = new BlockAssembler()
     for (const chunk of chunks) oneShot.push(chunk)
 
-    expect(flushed).toEqual([{ type: 'reasoning', text: 'first' }])
+    expect(closed).toEqual([{ type: 'reasoning', text: 'first' }])
     expect(oneShot.blocks()).toEqual([{ type: 'reasoning', text: 'first' }])
-    expect(flushed).toEqual(oneShot.blocks())
+    expect(closed).toEqual(oneShot.blocks())
   })
 
   it('push returns undefined for a duplicate block-end (it closed nothing)', () => {

@@ -1,215 +1,120 @@
 # AGENTS.md
 
-This is the monorepo for the DeepSeek Harness group. It currently hosts the code for **DeepSeek Code**, DeepSeek's coding agent product.
+This is the monorepo of the DeepSeek Harness group; it hosts **DeepSeek Code**, DeepSeek's coding agent product. The codebase is built on the vendored Cordis framework, microkernel-style: **everything is a plugin**. Read [docs/architecture.md](docs/architecture.md) before changing anything under `packages/` — the service map, event taxonomy, loop lifecycle, and extension seams. The documentation standard is [docs/AGENTS.md](docs/AGENTS.md). Design context: [Coding Harness MVP 需求分析](https://trtgsjkv6r.feishu.cn/wiki/ZwK6wfBE9i91V6kzMGYcgRGanxg), [微内核Harness实现思路](https://trtgsjkv6r.feishu.cn/wiki/VS9Lw1kQki6mDJk2UHocyuphnsc).
 
 ## Pre-release stance: foundation over blast radius
 
-**This applies only while the harness is unreleased — remove this section at the first tagged/published release.** There are no external consumers yet, so optimize for the *correct foundation*, not for a small diff. When the right structure means moving a file across package boundaries, renaming a public symbol, or repackaging a plugin, do it — and update every reference in the same change. Do **not** add backward-compat shims, deprecation aliases, re-export stubs, or "keep it where it is to avoid churn" hedges; those are debts you take on to protect callers you do not have. Churn now is cheap; a wrong foundation set in stone is not. (Once released, this inverts — backward compatibility becomes a real constraint and this section comes out.)
+**This applies only while the harness is unreleased — remove this section at the first tagged release.** There are no external consumers, so optimize for the correct foundation, not a small diff: move files, rename public symbols, repackage plugins, and update every reference in the same change. No backward-compat shims, deprecation aliases, or re-export stubs. On-disk formats need no migrations — a backend REJECTS anything not at the current version. Two sanctioned version stances: monotonic bump-and-reject (the SQLite backend's `SCHEMA_VERSION`), and a pinned `0` that absorbs all shape churn (`SESSION_FORMAT_VERSION` in `dsh-session`, documented "no compatibility implied"). Real version policy begins at the first release.
 
-This extends to **on-disk formats, schemas, and stored data**: while unreleased there is no persisted user data to preserve, so a format/schema/contract change needs **no migration path**. Bump the version and reject (don't migrate) anything not at the current version — e.g. the SQLite backend's `SCHEMA_VERSION` bump that drops columns simply rejects any non-current `user_version` on open, with no v1→v2 migration. A migration written now is a shim for data that does not exist.
-
-## Tests document behavior, not golden truth
-
-A passing test pins the behavior the code **currently** has — not necessarily the behavior it **should** have. Existing tests faithfully document existing behavior, but existing behavior is not automatically golden: it can be the residue of a past compromise, a half-built feature, or a limitation that no longer applies. So when a refactor or review makes you ask "can I change this?", a green test is **not** the answer — the question is whether the behavior the test pins is actually correct.
-
-Before you preserve a behavior solely to keep a test green, ask: is this behavior load-bearing (a real consumer depends on it, a contract promises it, a user observes it), or is it an artifact? If it's an artifact, **change the behavior AND its test together, in the same change, and say why in the PR** — do not contort new code to keep an obsolete assertion passing, and do not treat "but the test expects X" as a reason X must stay. Conversely, do not delete a test just because it is inconvenient: the discipline cuts both ways — you must show the *behavior* is dead, not merely that the test is in your way.
-
-The worked example is [Drop the mutable session summary](docs/rfc/implemented/simplification/2026-06-19-drop-mutable-session-summary.md): an entire `SessionSummary` type, a `SessionPersistence.update()` method, a JSONL sidecar, and SQLite columns existed and were exercised by their own contract test — yet **nothing in production CONSUMED any of it, and `update()` had no production caller**. (The backends did *write* summary state — JSONL touched the sidecar after a durable append, SQLite bumped `updated_at` in the append transaction — but those writes fed only reads that nothing performed.) The tests documented the behavior perfectly; the behavior was dead. Deleting the behavior and its tests together removed ~400 lines and erased a durability divergence the next refactor would have had to model. (This is the test-tier echo of "verify the world, not a synthetic stand-in" in § Defensive patterns: a test agrees with whatever it was written to assert; only a real consumer proves the behavior matters.)
-
-## Architecture
-
-This codebase is based on the **Cordis** framework, built microkernel-style: **everything is a plugin**. All necessary Cordis dependencies are copied into this monorepo as vendored source (under `vendor/`) instead of being depended on via npm.
-
-Read [docs/architecture.md](docs/architecture.md) before changing anything under `packages/` — it defines the service map, the event taxonomy, the session/turn/step lifecycle, and the plugin cookbook.
-
-## Design Documents
-
-- [Coding Harness MVP 需求分析](https://trtgsjkv6r.feishu.cn/wiki/ZwK6wfBE9i91V6kzMGYcgRGanxg) — requirement analysis for the initial MVP.
-- [微内核Harness实现思路](https://trtgsjkv6r.feishu.cn/wiki/VS9Lw1kQki6mDJk2UHocyuphnsc) — discussion of the microkernel plugin-style architecture ("everything is a plugin").
-
-## Repository Layout
+## Repository layout
 
 ```
-vendor/      Vendored Cordis framework source (original npm names, private).
-             See vendor/README.md for the manifest, local-modification log,
-             and the upstream sync procedure. Do NOT edit casually — every
-             divergence must be logged there.
-packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
-             Every package is named @deepseek-ai/dsh-<pkg>; the group dir is a
-             pure container (no package.json). See packages/README.md and each
-             group's README.md for the product-vs-support split.
-  core/           product API spine
-    session/        event-sourced session log + in-memory store
-    system-prompt/  prompt-section + tool-schema assembly registry
-    tools/          tool registry + tools/execute waterfall
-    agent/          Agent interface, registry, agent/* event vocabulary
-    agent-loop/     THE concrete plugin: ReactLoopAgent + the loop driver
-  llm/            LLM capability family
-    llm/            abstract LLM service + content-block vocabulary
-    llm-deepseek/   DeepSeek API adapter (hand-rolled fetch/SSE)
-    llm-pi-ai/      DeepSeek adapter via @earendil-works/pi-ai (design twin)
-  bash/           bash capability family
-    bash/           abstract bash executor seam (ctx.bash) — interface only
-    bash-local/     local-subprocess BashExecutor implementation
-    tool-bash/      model-facing bash/bash_output/bash_kill tool schemas
-  session-persistence/   persistence capability family
-    session-persistence/         durable persistence seam + write coordinator
-    session-persistence-jsonl/    JSONL-sidecar backend
-    session-persistence-sqlite/   SQLite backend
-  ui/             product integration surfaces
-    acp/            Agent Client Protocol bridge: drive the agent from an ACP
-                    editor (Zed) over JSON-RPC stdio
-  support/        dev/test/example infrastructure (lower compat expectations)
-    invariants/     dev-mode event-contract invariants + session-log freeze
-    ui-stdio/       minimal stdio (readline) UI plugin: renders agent/* events,
-                    feeds stdin lines to the agent (shared by the demos)
-    llm-replay/     record/replay adapter: short-circuits llm/stream from a
-                    recorded session JSONL (keyless snapshot tests)
-examples/    Runnable demos (not workspaces; see examples/AGENTS.md). echo-agent
-             = mock model + echo tool + stdio UI + JSONL persistence, wired via
-             cordis.yml. coding-agent = the real thing: DeepSeek V4 + bash tools
-             (pnpm run demo:coding, needs DEEPSEEK_API_KEY).
-             acp-agent = the coding agent exposed as an ACP server over
-             JSON-RPC stdio (pnpm run demo:acp, needs DEEPSEEK_API_KEY).
-             base.yml = shared provider/tool core both real demos include
-             (= base-core.yml, the providerless core, + the llm-deepseek adapter;
-             base-core.yml is reused by the acp-agent snapshot-replay config).
-docs/        architecture.md — the design doc. module-graph.md — generated
-             inter-package dependency graph (Mermaid; `pnpm run gen-module-graph`).
-             rfc/ — design decisions and proposals, one kind of doc grouped by
-             lifecycle (proposed/ implemented/ rejected/) then by class
-             (feature/ bug-fix/ simplification/ architecture/ process/ testing/);
-             the why behind vendoring, event-sourcing, the schema DSL, …. See
-             rfc/README.md.
-             postmortem/ — incident write-ups: a bug that escaped to a
-             user/merge/release, why the safety nets missed it, the guardrails added.
-             cookbook/ — step-by-step guides: adding a package, a tool,
-             an LLM adapter.
-scripts/     repo maintenance scripts (vendor-manifest guard, publint runner).
-             JS bundling is tsdown (root tsdown.config.ts + two per-package
-             overrides in vendor/).
+vendor/      Vendored Cordis source — manifest + sync procedure in vendor/README.md
+packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai/dsh-<pkg>
+  core/        product API spine: session, system-prompt, tools, agent, agent-loop, agent-core (the bundle)
+  llm/         LLM seam + the DeepSeek adapters (hand-rolled + pi-ai design twin)
+  bash/        bash executor seam + local impl + model-facing bash tools
+  fs/          filesystem seam + local impl + policy gate + read/write/edit tools
+  web/         web seam + search/fetch providers + model-facing web tools
+  compact/     compaction seam + basic backend
+  subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
+  todo/        the todo_write tool
+  hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
+  session-persistence/  persistence seam + JSONL/SQLite backends
+  ui/          ACP bridge + the stdio/ACP app packages (each with a bin)
+  support/     dev/test infrastructure: invariants, ui-stdio, llm-replay, subagent-mock
+  util/        zero-dependency utilities (Branded<B>)
+examples/    Runnable demos: thin cordis.yml leaves over the app packages (see examples/AGENTS.md)
+docs/        architecture, generated catalogs, RFCs, postmortems, cookbook (see docs/AGENTS.md)
+scripts/     repo gates and generators
 ```
+
+Per-package map: the group READMEs, indexed from [packages/README.md](packages/README.md).
 
 ## Commands
 
 ```sh
-pnpm install        # pnpm workspaces, node >= 24
-pnpm run test           # vitest run (packages|examples/*/tests/**/*.spec.ts)
-pnpm run test:coverage  # vitest run --coverage (per-file 100% gate on packages/*/*/src)
-pnpm run test:e2e       # real-API tests (packages|examples/*/tests/**/*.e2e.ts);
-                    # self-skips without DEEPSEEK_API_KEY — see Secrets below
-pnpm run test:snapshot  # ACP snapshot tests (examples/*/tests/**/*.snapshot.ts):
-                    # boot the real acp-agent subprocess, replay a recorded
-                    # session JSONL, diff the normalized stdout + re-persisted
-                    # log against committed goldens. KEYLESS — runs in the
-                    # default gate. Filter one by scenario name (no `--`, which
-                    # vitest treats as a positional file filter): `pnpm run
-                    # test:snapshot -t <name>`.
-pnpm run test:snapshot:record  # re-record fixtures + goldens against the real
-                    # API (needs DEEPSEEK_API_KEY); accept-the-diff = re-record
-                    # (or `pnpm run test:snapshot -u` to refresh goldens only)
-pnpm run typecheck      # tsc -b tsconfig.build.json (declarations) + tsc -p
-                    # tsconfig.typecheck.json (tests/examples typecheck too)
-pnpm run lint           # eslint .
-pnpm run lint:fix       # eslint . --fix
-pnpm run build          # tsc -b tsconfig.build.json && tsdown (JS bundles into lib/)
-pnpm run knip           # dead-code / unused-dependency check
-pnpm run publint        # package.json publish-correctness check (every packages/*/* package)
-pnpm run hygiene        # knip + publint + workspace constraints
-pnpm run doc-typecheck  # typecheck every ```ts block in README.md, docs/**/*.md,
-                    # packages/*/*.md + packages/*/*/*.md (doc/code drift gate)
-pnpm run gen-cordis-catalog  # regenerate docs/cordis-catalog/events-and-services.md
-                    # (events + services) from the interface Events / Context source
-pnpm run verify-cordis-catalog  # assert that generated catalog is not stale
-pnpm run verify-md-wrap  # assert no hard-wrapped prose paragraphs in README.md,
-                    # docs/**/*.md, packages/*/*.md, AGENTS.md (one line per paragraph)
-pnpm run verify-doc-refs  # assert every docs/*.md path cited in a packages|examples
-                    # TypeScript comment resolves (catches a moved/renamed doc)
-pnpm run verify-package-paths  # assert every packages/<path> cited in Markdown or a
-                    # TypeScript comment resolves when it names a real (moved) package
-pnpm run verify-rfc-classification  # assert every RFC lives in a valid
-                    # {lifecycle}/{class}/ folder and docs/rfc/README.md lists it
-                    # under the matching heading (closed class set + index completeness)
-pnpm run doc-sync       # doc-typecheck + verify-cordis-catalog + verify-md-wrap + verify-md-links + verify-doc-refs + verify-package-paths + verify-rfc-classification + verify-type-equiv (CI runs this)
-pnpm run demo:echo      # run examples/echo-agent (no API key; type "echo hi" to
-                    # see a tool call) — the mock skeleton
-pnpm run demo:coding    # run examples/coding-agent — the real agent (needs
-                    # DEEPSEEK_API_KEY; give it a coding task)
-pnpm run demo:acp   # run examples/acp-agent — the coding agent as an ACP
-                    # server over JSON-RPC stdio (needs DEEPSEEK_API_KEY;
-                    # drive it from Zed or another ACP client)
+pnpm install            # pnpm workspaces, node >= 24
+pnpm run test           # vitest unit tests
+pnpm run test:coverage  # THE gating test run: per-file 100% coverage on packages/*/*/src
+pnpm run test:e2e       # real-API tests; self-skip without DEEPSEEK_API_KEY
+pnpm run test:snapshot  # keyless ACP replay vs goldens; filter: -t <name>
+pnpm run test:snapshot:record  # re-record goldens (needs key)
+pnpm run typecheck
+pnpm run lint
+pnpm run build          # tsc emits lib/types, tsdown bundles runtime
+pnpm run hygiene        # knip + publint + workspace constraints + NodeNext consumer check
+pnpm run doc-sync       # all documentation gates; see the doc-sync script in package.json
+pnpm run demo:echo      # mock-model REPL, no key needed
+pnpm run demo:repl      # real REPL coding agent (needs DEEPSEEK_API_KEY)
+pnpm run demo:acp       # ACP server agent (needs DEEPSEEK_API_KEY)
 ```
+
+### Run the CI gates locally before marking a PR ready
+
+CI is the backstop, not the first run. From a fresh clone or worktree, `pnpm run build` first — publint and the NodeNext check validate built `lib/`. The CI-equivalent run:
+
+```sh
+set -euo pipefail
+pnpm run typecheck
+pnpm run lint
+pnpm run test:coverage
+pnpm run test:snapshot
+pnpm run doc-sync
+pnpm run verify-module-graph
+pnpm run build
+pnpm run hygiene
+out=$(printf 'echo ci smoke\n' | pnpm run demo:echo 2>&1)
+printf '%s\n' "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
+printf '%s\n' "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
+ls .sessions/_no-cwd/main-session-*.jsonl >/dev/null
+rm -rf .sessions
+pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts
+```
+
+`test:coverage`, not `test`, is the gating run ([why](docs/testing.md)); a review sign-off counts only for the commands it actually ran.
 
 ## Secrets / .env
 
-Real-API e2e tests (`pnpm run test:e2e`) read `DEEPSEEK_API_KEY` (and optionally `DEEPSEEK_BASE_URL`) from the environment, or from a gitignored `.env` at the repo root loaded via Node's native `process.loadEnvFile()`:
-
-```
-DEEPSEEK_API_KEY=sk-…
-DEEPSEEK_BASE_URL=https://…   # optional; defaults to the public API
-```
-
-cordis.yml configs reference env vars with the `!!js` tag: `apiKey: !!js process.env.DEEPSEEK_API_KEY`. Never commit real credentials; CI has no secrets and e2e suites must self-skip without them.
-
-**Lean on with-key e2e tests — we are DeepSeek and model inference is cheap.** A no-key test (mock adapter, or an operation that never reaches the model) is great for determinism and CI, but it can only prove the plumbing, not that the agent actually *works* against a real model. Do not ration real-API tests to save tokens: write many of them, cover the real flows (a real prompt that writes a file, a multi-turn conversation, tool use, cancellation mid-stream), and run them frequently while developing — locally and whenever you have a key in the environment. **Especially smoke tests**: a cheap with-key smoke test that boots the real example, sends one real prompt, and checks the world (a file on disk, a non-empty assistant turn) catches whole classes of "green unit tests, broken product" failures that mocks structurally cannot — the very gap that let the ACP inject bug ship (see [docs/postmortem/0001](docs/postmortem/0001-acp-default-export-drops-inject.md)). The self-skip rule is ONLY so CI (which has no secrets) stays green and so a contributor without a key isn't blocked — it is not a signal that real-API tests are expensive or second-class. When in doubt, add the with-key test AND run it.
-
-Dev/test/demo run **unbuilt** via tsx + the `paths` map in the root `tsconfig.json` (`vitest` resolves through `tsconfig.test.json`). Building is only needed for publishing/consumption outside the repo — with one exception: `pnpm run lint`'s type-aware rules resolve vendor packages through their built declarations (`tsconfig.typecheck.json` → `vendor/*/lib`), so run `pnpm run typecheck` once after a fresh clone (CI does the same) or lint reports unresolved-type `no-unsafe-*` errors.
+Real-API tests and demos read `DEEPSEEK_API_KEY` (and optional `DEEPSEEK_BASE_URL`) from the environment or a gitignored root `.env` loaded via `process.loadEnvFile()`. cordis.yml references env vars with the `!!js` tag (never `!js`). Never commit credentials. CI has no secrets, so e2e suites self-skip without a key — a CI accommodation, not a cost signal; the with-key policy is in [docs/testing.md](docs/testing.md).
 
 ## Conventions
 
-- **Package naming**: every npm package in this repo is `@deepseek-ai/dsh-<name>` (vendored packages keep their upstream names and are `private: true`).
-- **ESM everywhere** (`"type": "module"`); imports between workspace packages use package names, never relative paths across package boundaries. In-package imports use explicit `.ts` extensions (allowImportingTsExtensions).
-- **`cordis` is a peerDependency** (+ devDependency) of every harness package, mirroring upstream convention.
-- **Registrations are effects**: anything a plugin contributes (adapter, tool, section, agent, event listener) goes through `ctx.effect()` / `ctx.on()` so disposal and HMR work. If you write a registry, `register()` must return the disposer.
-- **Typed events via declaration merging**: services declare their events in `declare module 'cordis' { interface Events { … } }`, and their ctx key in `interface Context`. Extensible unions use the merge-extensible-map pattern (see `ContentBlockMap`, `MessageSourceMap`).
-- **Waterfall semantics**: `ctx.waterfall` listeners receive `(...args, next)` and MUST call `next()` to delegate; returning without it short-circuits. This is the veto mechanism — use deliberately.
-- **Discriminated unions: match, don't chain**: branch on a tagged union (`StreamChunk`, `FinishReason`, `SessionEvent`, …) with a `switch` on the tag, not a chain of `if (x.kind === '…')`. The switch narrows each arm so member-only fields (`finish.message`, `finish.code`) are reachable in the right case and a typo'd tag fails to compile. Prefer extracting a small typed helper (`finishError(finish: FinishReason)`) over inlining the branches at the call site.
-- **Switch exhaustiveness**: switches over CLOSED unions (e.g. `StreamChunk`) end with `default: assertNever(value, 'context')` (from dsh-llm) so adding a variant breaks compilation at every switch that must handle it. Switches over MERGE-EXTENSIBLE unions (`SessionEventMap`, `ContentBlockMap`, `FinishReason`, …) must NOT use assertNever — plugin-added variants are valid unknown values; handle known cases and fall through `default` with a comment (the lint rule `switch-exhaustiveness-check` makes the choice explicit either way; a redundant disable directive is itself a lint error).
-- **Plugins, not loop changes**: new behavior goes into a plugin on the documented extension seams (see the plugin sanity checklist in docs/architecture.md). Changing `agent-loop` requires updating that doc.
-- **Capability seams are three packages**: when adding a swappable capability (an execution backend, a provider integration, …), split it into *interface* (abstract service + vocabulary types, e.g. `bash/`), *implementation* (a concrete subclass, e.g. `bash-local/`), and *consumer* (what the model/plugins see, e.g. `tool-bash/`). Implementations and consumers then evolve independently — a sandboxed executor replaces `bash-local` without touching tool schemas. The LLM seam follows the same shape (`llm/` is interface + consumer surface; adapters are implementations). See docs/architecture.md § "Capability seams" for when NOT to split.
-- **Explicit > implicit at package seams**: interface/vocabulary types spell out every field a consumer must supply — no optional field that the implementation silently fills with a hidden `?? default`. Put defaulting in the owning implementation as an explicit step (a `resolve(request): Spec` method that turns the optional-field request into the required-field spec), not smuggled inside `run()`/`start()`. Example: `dsh-bash` splits `BashExecRequest` (optional `workdir`/`timeoutMs`, model-facing) from `BashExecSpec` (required, what `run`/`start` act on); the tool layer calls `ctx.bash.resolve()` between them. The reader of a `BashExecSpec` never has to wonder where the working directory came from.
-- **An empty `catch` must name what it swallows and why nothing else can hit it**: a bare `catch {}` hides bugs. When you deliberately ignore a throw, the comment must (a) name the single expected failure, (b) say why ignoring it is correct — usually because the useful state was already captured *before* the `try` — and (c) make clear nothing else of consequence can reach the catch (ideally the `try` wraps a single statement). Example: the error-body `response.json()` parse in `dsh-llm-deepseek`'s adapter sets `code` + HTTP `status` from the status line before the `try`, so a malformed provider body can only cost a richer message, never the real error.
-- **Symmetry is usually more correct**: when two related values play parallel roles (a test fixture and its expected output, a request shape and its response shape, a buggy input and the test that checks the fix), give them parallel form — both named consts, or both inline, not one each way. Asymmetry is a smell that usually points at a missed extraction.
-- **Merging PRs**: always merge with a **merge commit** (`gh pr merge --merge`), never squash or rebase. The per-PR commit history is intentional — review-fix commits, regression-test commits, and the reasoning in each message are part of the record — and squashing flattens it away.
-- **TODO markers**: use `FIXME`/`TODO`/`XXX` to flag known issues by urgency — see [docs/development.md](docs/development.md) for the semantics of each.
-- **Tests**: vitest, colocated under `packages/<group>/<pkg>/tests/*.spec.ts`. Every registry needs an HMR-safety test (dispose the contributing fiber, assert cleanup). **Excessive tests are welcome** — when in doubt, write the test; err on the side of covering edge cases, error paths, event ordering, and concurrency races even if they seem unlikely. Review findings get regression tests (see `packages/core/agent-loop/tests/review-fixes.spec.ts`). The same generosity applies to **real-API (with-key) e2e tests — inference is cheap here (we are DeepSeek), so do not ration them**: cover the agent's real flows (a real prompt that writes a file, multi-turn, tool use, cancellation) and run them frequently while developing, especially cheap **smoke tests** that boot the real example and check the world. A green mock/no-key suite proves the plumbing, not the product — the with-key smoke test is what catches "green units, broken product". See § Secrets / .env for the with-key policy and why self-skip is a CI accommodation, not a verdict that real-API tests are expensive.
-- **Prefer the REAL implementation over a mock/stand-in in tests.** When the genuine collaborator is available in the repo, wire it up instead of hand-rolling a fake — a test that registers an inline `defineTool({ name: 'bash', … })` to stand in for `dsh-tool-bash` proves the *bridge* moves bytes but not that the *shipping tool* renders the way the test asserts; the two drift and the test passes while the product is wrong. Mock only the genuinely expensive/non-deterministic boundary (the LLM adapter, the network, the clock) and keep everything downstream real: a bridge tool-call test runs the scripted mock MODEL but the REAL tool + REAL executor (e.g. `makeBridgeHarness({ withBash: true })` plugs `dsh-bash-local` + `dsh-tool-bash` and runs an actual `echo`), so it verifies the actual `presentCall`/`presentResult` an editor sees. This is the unit-test echo of "verify the world, not a synthetic stand-in" (see § Defensive patterns) — a fake you wrote will agree with whatever you assumed; the real thing won't.
-- **A change that affects the editor-facing transcript or end-to-end agent UX needs a snapshot test (or an explicit note in the PR why none applies).** The snapshot tier (`examples/*/tests/**/*.snapshot.ts`, `pnpm run test:snapshot`) boots the real example subprocess, replays a recorded session JSONL deterministically (keyless), and diffs the normalized stdout transcript + re-persisted session log against committed goldens — the full-transcript regression net that mock-level unit tests structurally cannot be (it is what catches a bridge-translation or loop-structure regression that leaves every unit green). When you change the ACP bridge, the agent loop's observable output, tool presentation, or anything an editor renders, add or update a scenario under `examples/acp-agent/tests/snapshots/` and re-record with `pnpm run test:snapshot:record`. Reviewing the golden diff is part of the review. The rule is scoped to transcript/UX-affecting changes — a pure internal refactor with no observable-output change does not need one, but say so. See [docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md](docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md).
+- Every npm package is `@deepseek-ai/dsh-<name>`; vendored packages keep upstream names and are `private: true`. `cordis` is a peerDependency (+ dev) of every harness package.
+- ESM everywhere (`"type": "module"`). Cross-package imports use package names, never relative paths; in-package relative imports use explicit `.ts` extensions. Dev/test/demo run unbuilt via tsx + the root tsconfig `paths` map; building is only for consumers outside the repo.
+- **Registrations are effects**: every contribution goes through `ctx.effect()` / `ctx.on()`; a registry's `register()` returns the disposer.
+- **Typed events via declaration merging**; extensible unions use the merge-extensible-map pattern (`ContentBlockMap`, `SessionEventMap`, …). Every new event's JSDoc carries an `@mode` tag — the catalog generator hard-errors without it; mode semantics are in the [generated catalog](docs/cordis-catalog/events-and-services.md) header and [the catalog RFC](docs/rfc/implemented/process/2026-06-20-generated-cordis-catalog.md).
+- **Discriminated unions: `switch` on the tag**, not if-chains. Closed unions end with `default: assertNever(...)`; merge-extensible unions must NOT — handle known cases and fall through `default` with a comment.
+- **Waterfall listeners MUST call `next()`** to delegate; returning without it is the veto ([semantics](docs/architecture.md#cordis-waterfall-semantics-important)).
+- **Plugins, not loop changes**: new behavior goes on the documented extension seams; changing `agent-loop` requires updating docs/architecture.md.
+- **Capability seams are three packages** — interface / implementation / consumer ([capability seams](docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)); don't split preemptively.
+- **Explicit > implicit at package seams**: no optional field silently filled by a hidden `?? default` inside `run()`; defaulting is an explicit `resolve(request): Spec` step in the owning implementation (the `dsh-bash` request/spec split is the template).
+- **Opaque cross-boundary ids are branded** (`Branded<B>` from `dsh-brand`), never bare `string` ([branded IDs](docs/rfc/implemented/architecture/2026-06-20-branded-ids.md)).
+- **An empty `catch` names what it swallows** and why nothing else can reach it; keep the `try` to one statement.
+- **Symmetry is usually more correct**: parallel values get parallel form; asymmetry is a smell for a missed extraction.
+- **Tests document behavior, not golden truth**: a green test pins what the code DOES, not what it SHOULD do. Before preserving a behavior solely for its test, ask whether it is load-bearing; an artifact changes together with its test, with the why in the PR ([worked example](docs/rfc/implemented/simplification/2026-06-19-drop-mutable-session-summary.md)).
+- **RFCs are proposals, not golden truth**: validate its premise against current code before implementing; friction is evidence of over-reach — amend on the way to `implemented/` ([worked example](docs/rfc/implemented/simplification/2026-06-20-public-agent-stop-surface.md)).
+- **Testing policy** — tiers, with-key generosity, real-over-mock, world-verification, real-load-path and published-bin guards: [docs/testing.md](docs/testing.md). A transcript/UX-affecting change needs a snapshot test, or a PR note why none applies.
+- **A tool's ACP render intent is part of its design**, decided up front (`generic`/`terminal`/`diff`, `locations`); presentation methods are pure functions of `args` ([render-intent RFC](docs/rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md), [cookbook](docs/cookbook/adding-a-tool.md)).
+- **A new capability seam, lifecycle shape, or transcript surface names its coverage at every tier (unit, e2e, snapshot) at plan time** and verifies the harness can express it — a gap is scheduled work, not a mid-build surprise.
+- **Merge PRs with merge commits** (`gh pr merge --merge`), never squash/rebase. **Never rewrite a pushed branch**; update a child by merging its parent down. **A review fix lands on the PR that introduced the issue, as a separate commit**, then merges down ([stacked-review guide](docs/cookbook/responding-to-pr-review-on-a-stack.md)).
+- TODO markers: `FIXME`/`TODO`/`XXX` by urgency ([semantics](docs/development.md)).
+- Files end with exactly one trailing newline; `git diff --check` (pre-push) gates it.
 
-## Defensive patterns (hard-won)
+## Defensive patterns
 
-Each bullet is a bug class that bit us; the rule prevents the reoccurrence.
+[docs/defensive-patterns.md](docs/defensive-patterns.md) carries the hard-won bug-class rules: report orthogonal outcomes independently; honor cross-seam contracts on both sides; async state is not synchronous state; dispose must reach quiescence; contain callback exceptions; never hand untrusted output the ambient environment or predictable paths. Read it before lifecycle, concurrency, subprocess, or teardown work.
 
-- **Report orthogonal outcomes independently.** A result can be several things at once (a process can both time out AND exit 0 because it trapped the signal). Don't nest the report of one flag inside the branch of another. Surface each independent fact (`timedOut`, `signal`, `exitCode`) on its own so a caller never reads a cut-short run as a clean success.
-- **Honor cross-seam contracts on BOTH sides.** When an interface documents two valid ways to signal something (e.g. an adapter may report a model failure by THROWING from `stream()` *or* by ending the stream with a `finish {kind:'error'|'aborted'}` chunk), the consumer must handle both — not just the one the first implementation happened to use. A library-backed adapter that can't throw mid-stream relies on the finish-chunk path; if the loop only catches throws, a provider 401 becomes a normal completed turn. Document the contract where the type is defined and exercise every branch through the real consumer in tests.
-- **Async state is not synchronous state.** `agent.send()` does not flip status to `running` before it returns; a background task's completion races turn boundaries; `reader.close()` fires for both EOF and disposal. Never gate control flow on a status you only *just* requested. Drive lifecycle off the events/promises that actually fire (`agent/status`, `task.done`), and when "done" needs a settle signal, observe the transition (saw `running` THEN `idle`) rather than counting actions you assume map 1:1 to turns — the loop batches queued messages into one turn. But a settle-signal guard cuts both ways: if the awaited transition can *never* occur (EOF with no work submitted → no turn ever starts → never `running`), it hangs forever. Always handle the "nothing to wait for" branch explicitly alongside the "wait for the work" branch.
-- **Dispose must reach quiescence, not just request it.** A teardown that issues kills/aborts but returns before the work stops leaves orphans. Make cleanup `async` and `await` the children's exit (kill → await `done`), and close listener/notification registries *before* killing so late completions stay silent. Tests must prove disposal *waited* (pid already gone right after `await fiber.dispose()`), not merely that the process eventually dies.
-- **Contain callback exceptions at the boundary.** A user-supplied listener (`onTaskDone`, event handlers) that throws must not reject the promise it runs inside or starve the listeners after it. Wrap the dispatch loop in try/catch and log; never let one bad subscriber break core lifecycle.
-- **Never hand untrusted/model output the ambient environment or predictable paths.** Spawned commands get a scrubbed env (drop `*KEY*`/`*SECRET*`/ `*TOKEN*`) so the harness's own credentials can't leak into output, `env`, or spill files. Temp/spill files use a private (0700) dir, random names, and exclusive owner-only (`'wx'`, `0o600`) opens — predictable world-readable paths invite symlink races and disclosure.
-- **e2e tests own their resources.** Real-API/integration tests must create the harness in the test and dispose it in `afterEach` (even on failure/retry/timeout), so a flaky run doesn't leak processes or contexts. Shared fixtures live in a plain `tests/harness.ts` module, NOT another `*.e2e.ts` file — importing a spec file re-registers its `describe` and duplicates real API calls. Verify the WORLD, not the agent's self-report: re-run the command/check externally and assert files are byte-identical where they should be unchanged (a keyword probe lets a cheating agent pass).
-- **Line coverage is not behavior coverage; test the REAL entry path, not a synthetic stand-in.** 100% per-file coverage and a green suite are necessary, not sufficient — they prove lines ran, not that the feature works the way it ships. A plugin shipped via `cordis.yml` is loaded by the cordis Loader, which calls `Loader.unwrapExports` (`exports.default ?? exports`) and then constructs a fiber from the module's `inject`/`name`/`Config` namespace exports. A test that mounts the plugin by hand-building `ctx.plugin({ name, inject, apply })` (or even `ctx.plugin(NamespaceImport)`) BYPASSES `unwrapExports` entirely, so it cannot catch a broken export shape. This bit us hard: a stray `export default apply` made `unwrapExports` collapse the module to the bare function, dropping `inject` — so every service read threw `cannot get property … without inject` the instant a real editor connected, while 178 hand-mounted tests stayed green. The guard is at least one test that drives the plugin through its REAL load path (a subprocess booting the example via the Loader, or the Loader API directly), exercising the headline operations end-to-end. It runs WITHOUT a key when the operation doesn't call the model (`session/new`/`session/load` reach the factory but never the LLM), so there is no excuse to skip it. Corollary: when an `*.e2e.ts` spawns the example from a temp cwd, set `TSX_TSCONFIG_PATH` to the repo-root tsconfig — the unbuilt `paths` map is found by searching UP from cwd, so a temp cwd outside the repo silently falls back to built `lib/`, which both hides source changes and only "works" when a stale build happens to exist.
-- **Tag spelling and EOF hygiene.** cordis.yml interpolates env via the `!!js` tag (js-yaml resolves custom tags under `tag:yaml.org,2002:js`), not `!js` — keep code, comments, and docs consistent. Files end with exactly one trailing newline; `git diff --check` (a pre-push gate) rejects new blank lines at EOF.
+## Type safety and documentation
 
-## Type Safety and Documentation
+Everything compiles under `strict: true` with `noImplicitAny`; every remaining `any` carries a comment saying why a narrower type is infeasible. Every module has a module-level doc comment; every export (and non-obvious method) has a JSDoc explaining semantics — contracts, disposal, errors — not the name restated; internal helpers only where non-obvious; one-liners when one line suffices. Lean toward the stricter lint rule and the extra mechanical gate: encode invariants in checks (`verify-*` scripts), preferring a narrow justified escape hatch over a rule left off globally. Type gymnastics are acceptable inside core packages when they buy plugin-author DX (the `defineTool` schema DSL is the canonical example).
 
-This codebase aims to be **very type-safe and well documented** for maintainability. Code that fails to compile under `strict: true` (with `noImplicitAny` enabled for all `packages/*/*` source) is not acceptable. Every `any` that remains must have a specific justification (a comment explaining why a narrower type is infeasible).
+Docs are part of every change: code changes update their README and JSDoc in the SAME change; a bilingual-pair edit updates the counterpart and re-records ([i18n contract](docs/i18n/README.md)). The writing rules — document the current state never the history, one physical line per paragraph, one home per fact — and the word-budget gate live in [docs/AGENTS.md](docs/AGENTS.md).
 
-**Almost always lean toward the stricter lint rule.** In the agentic-coding era the cost/benefit of strictness has inverted: a machine writes and reads most of the code, so the one-time cost of satisfying a stricter rule is cheap and paid by a tool, while the benefit — a whole class of error caught mechanically, a consistent foundation every agent can rely on, less reviewer attention spent on what a linter could have caught — compounds across every future change. When choosing whether to enable a rule, tighten an existing one, or add a new gate (a `verify-*` script, a constraint check), default to YES unless it has a concrete, recurring false-positive problem. Prefer a narrowly-scoped escape hatch (a justified inline disable with a reason, a per-path override) over leaving the rule off globally. The same reasoning motivates this repo's many bespoke gates (`doc-sync`, `verify-package-paths`, the workspace-shape constraint): encode the invariant in a check so no human or agent has to remember it.
+## Editing these instructions
 
-In the **core** packages (`packages/llm/llm`, `packages/core/tools`, `packages/core/agent`, `packages/core/agent-loop`, `packages/core/session`, `packages/core/system-prompt`), **type gymnastics are acceptable when they improve the DX of plugin authors** for common plugin types. The `defineTool` typed schema DSL in `dsh-tools` is the canonical example: the `SchemaSpec` to `InferArgs<S>` type-level mapping gives tool authors zero-cast typed `execute` args, and the cost of the conditional types stays inside the core package.
+`AGENTS.md` is the real file; `CLAUDE.md` is a symlink to it (root, `packages/`, `examples/`). Edit `AGENTS.md`, never the symlink. This file is budget-gated (`verify-doc-budgets`): additions displace something or justify a ceiling raise in the PR.
 
-Verbose documentation is fine **as long as docs and code stay strictly in sync**. Out-of-sync docs are worse than no docs. **When you change code, update its docs in the SAME change** — grep the package README and the module/JSDoc comments for the old behavior (config keys, defaults, error codes, wire field names, event names) and fix every hit. CI runs `pnpm run doc-sync` (`doc-typecheck` + `verify-cordis-catalog` + `verify-md-wrap` + `verify-md-links` + `verify-doc-refs` + `verify-package-paths` + `verify-rfc-classification` + `verify-type-equiv`), which typechecks every fenced `ts` block in `README.md`, `docs/**/*.md`, and `packages/*/*.md`, regenerates the cordis events/services catalog from source and fails if the committed copy is stale, asserts no hard-wrapped prose paragraphs, checks that every relative Markdown cross-link resolves, checks that every `docs/*.md` path cited in a source comment resolves, checks that every `packages/<path>` reference naming a real package resolves, checks that every RFC is filed under a valid class folder and listed in its index, and checks that every ` ```ts type-equiv ` doc block still matches its source type — across those files plus `AGENTS.md` / `packages/AGENTS.md` — but that scope does NOT catch prose drift in `AGENTS.md` / `packages/AGENTS.md` / `packages/README.md` (config keys, defaults, error codes), so keeping those in sync remains on the author. Every module has a module-level doc comment explaining its role. Every exported class, interface, type, function, and non-obvious method has a JSDoc that explains semantics (not just the name) — contracts (what events fire when), disposal behavior, error behavior, and extension intent. Internal helpers get docs only where non-obvious. Prefer one-liners when one line suffices.
+## Vendoring policy
 
-**Tag every new event with `@mode`.** The cordis events/services catalog ([docs/cordis-catalog/events-and-services.md](docs/cordis-catalog/events-and-services.md)) is GENERATED from source by `scripts/gen-cordis-catalog.ts` — never hand-edit it; run `pnpm run gen-cordis-catalog` and commit the result. When you add an event to an `interface Events` block, its JSDoc MUST carry a `@mode emit|waterfall|parallel` tag (the generator hard-errors without it): use `waterfall` when the signature ends with a `next: () => …` parameter (the listener transforms or vetoes via `next()`), `parallel` when the loop awaits a fan-out with no veto (e.g. an awaited `Promise<void> | void` checkpoint like `session/flush`), and `emit` for plain fire-and-forget notifications. The generator also cross-checks the tag against the signature where the shape is conclusive (a trailing `next` ⇒ waterfall) and hard-errors on a contradiction. Write the rest of the event's JSDoc to stand alone — it is the catalog entry's prose.
-
-**The core-data-structures catalog is a maintained surface, not a write-once artifact.** [docs/core-data-structures/](docs/core-data-structures/core.md) catalogs the spine vocabulary (core.md) and the per-seam types (sub-pages). When a change adds, removes, or reshapes a type the catalog documents — a new `…Map` variant, a new content-block or session-event type, a field on `GenerateOptions`/`Agent`/`ToolDefinition`/a bash type, or a whole new core/seam type — update the catalog in the SAME change: edit the prose, and for a pasted ` ```ts type-equiv ` block, re-copy it verbatim and keep `scripts/type-equiv.manifest.json` 1:1 with the blocks. The `verify-type-equiv` gate catches a *drifted paste* of an already-documented type, but it canNOT tell you a brand-new core type was never documented — that judgment is on the author and the reviewer. The definition of "core" (the spine-vs-seam line) is in [core.md § What counts as "core"](docs/core-data-structures/core.md#what-counts-as-core); a genuinely spine-level new type belongs in core.md, a new capability's vocabulary on a sub-page. See [development.md](docs/development.md#documenting-types-verbatim-ts-type-equiv) for the `ts type-equiv` mechanics.
-
-**Document the CURRENT state — the "what" and "why" — never the PROCESS or HISTORY of how it got there.** A comment, JSDoc, or doc paragraph describes what the code *is* and why it is that way, as if it had always been so. Do NOT narrate the change that produced it: no "previously X, now Y", "changed from", "used to", "this replaces", "the old map", "renamed", "moved here", "as of this PR", or "(was …)". **In particular, NEVER name the change unit a reader cannot see — the PR, commit, or stack position that introduced the code — in a comment, JSDoc, OR a test name/description.** A `// (PR D's per-agent teardown)` aside, a `* Tests for the cancel primitive (PR C).` module doc, or an `it('… identity no longer matters')` title that only makes sense relative to a prior design are all the same violation: the reader of the current tree has no "PR D" or "old design" to anchor against, and the reference rots the moment the stack merges. Name the *mechanism* (`the session's AgentHandle teardown`), not the PR. Such phrasing rots the instant the next change lands, and a reader of the current code does not need the diff narrated in prose — that belongs in the commit message, the PR description, or an RFC (the durable home for "why we moved away from X"). Write "the owner token lives on the task in the executor" — not "ownership *now* lives on the executor instead of a plugin-local map". When a contrast genuinely aids understanding (a non-obvious choice between live alternatives), frame it against the alternative as a standing fact ("stored on the executor, NOT the tool plugin, so it survives an HMR reload"), not against the codebase's past. The same rule governs review-fix commits: the *commit message* records what the review caught; the *code comment* it touches states only the resulting truth. RFCs (`docs/rfc/`, grouped into `proposed/` / `implemented/` / `rejected/`) record the *why* behind choices a future reader would otherwise re-litigate (the vendoring policy, event-sourcing, the schema DSL are the existing examples). A PR that introduces such a decision — a new third-party runtime dependency over the vendoring default, a cross-package contract, a security/isolation model, a deviation from a documented architecture rule — writes the RFC in `implemented/` **in the same PR**, and links it from the relevant code. A proposal for future work not yet built goes in `proposed/`. A PR whose changes are mechanical, self-evident, or already covered by an existing RFC needs none — do not manufacture an RFC for a routine change. When unsure, the test is: would a competent maintainer six months from now ask "why was it done this way?" and be unable to answer from the code alone? If yes, write it. See [docs/rfc/README.md](docs/rfc/README.md) for the naming scheme and [docs/AGENTS.md](docs/AGENTS.md) for the cross-link convention.
-
-**Markdown is not hard-wrapped**: write one line per paragraph and let the editor soft-wrap. Hard line breaks mid-paragraph make docs harder to edit and diff — a one-word change reflows and re-diffs the whole paragraph. This applies to prose only: leave fenced code blocks, tables, and list structure intact (a wrapped list item folds to one line per bullet). Code comments / JSDoc are exempt — they stay under the linter's column limit. `pnpm run verify-md-wrap` (part of `doc-sync`) enforces this across `README.md`, `docs/**/*.md`, `packages/*/*.md`, and `AGENTS.md` / `packages/AGENTS.md`; `pnpm run verify-md-links` (also part of `doc-sync`) checks that every relative cross-link in those files resolves.
-
-**Editing these instructions**: `AGENTS.md` is the real file; `CLAUDE.md` is a symlink to it (at the repo root and in `packages/`). Always edit `AGENTS.md` — never write through the `CLAUDE.md` symlink or replace it with a regular file.
-
-## Vendoring Policy
-
-`vendor/` packages are pinned source copies (manifest with upstream commit SHAs in [vendor/README.md](vendor/README.md)). To update one, follow the sync procedure there; re-apply (or retire) the logged local modifications and rerun `pnpm run test && pnpm run build`.
+`vendor/` packages are pinned source copies (manifest with upstream SHAs in [vendor/README.md](vendor/README.md)). Update via the sync procedure there; re-apply or retire the logged local modifications; rerun `pnpm run test && pnpm run build`.

@@ -9,8 +9,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionHeader, SurfaceEventType, SurfaceIntent } from '@deepseek-ai/dsh-session'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { SessionPersistence } from '../src/index.ts'
 
@@ -23,7 +23,7 @@ export interface ContractBackend {
 /** Build a minimal {@link SessionHeader} for a session id. */
 export function meta(id: string, cwd?: string): SessionHeader {
   return {
-    version: 1,
+    version: SESSION_FORMAT_VERSION,
     id: SessionId(id),
     createdAt: 1000,
     ...cwd !== undefined ? { cwd } : {},
@@ -34,12 +34,38 @@ export function meta(id: string, cwd?: string): SessionHeader {
 export function oneTurnLog(): SessionEvent[] {
   return [
     { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
-    { type: 'user/message', seq: 1, time: 2, data: { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } } },
+    { type: 'user/message', seq: 1, time: 2, data: { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, surfaceOp: 'append' },
     { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } },
-    { type: 'assistant/message', seq: 3, time: 4, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }] } },
+    { type: 'assistant/message', seq: 3, time: 4, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'hello' }] }, surfaceOp: 'append' },
     { type: 'step/end', seq: 4, time: 5, data: { turn: 1, step: 1 } },
     { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, reason: { kind: 'completed' } } },
   ]
+}
+
+/**
+ * Append a whole event log to a LIVE session, event by event, forwarding the
+ * surface metadata each event already carries. A bare `append(e.type, e.data)`
+ * over a `SessionEvent[]` widens the type argument to the union, where the
+ * typed overload's mandatory-marker rule collapses to optional — and `append`'s
+ * runtime guard then rejects a surface-eligible event with no marker. This
+ * helper forwards the `surfaceOp`/`sourceEventSeqs` VERBATIM from the source
+ * event (it does not synthesize a default), so a well-formed recorded log
+ * round-trips through a live session intact and a fixture that forgot a marker
+ * still trips the guard.
+ */
+export function appendLog(session: Session, events: readonly SessionEvent[]): void {
+  for (const e of events) {
+    const se = e as SessionEvent<SurfaceEventType>
+    if (se.surfaceOp !== undefined) {
+      const intent: SurfaceIntent = {
+        surfaceOp: se.surfaceOp,
+        ...se.sourceEventSeqs !== undefined ? { sourceEventSeqs: se.sourceEventSeqs } : {},
+      }
+      session.append(e.type, e.data, intent)
+    } else {
+      session.append(e.type, e.data)
+    }
+  }
 }
 
 /**
@@ -57,7 +83,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         await persistence.append(m.id, log)
 
         const loaded = await persistence.load(m.id)
-        expect(loaded.meta).toMatchObject({ version: 1, id: m.id, cwd: '/work' })
+        expect(loaded.meta).toMatchObject({ version: SESSION_FORMAT_VERSION, id: m.id, cwd: '/work' })
         expect(loaded.events).toEqual(log)
       } finally {
         await dispose()
@@ -142,24 +168,22 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
       }
     })
 
-    it('has()/list() exclude a created-but-never-appended (zero-event) session', async () => {
+    it('list() excludes a created-but-never-appended (zero-event) session', async () => {
       const { persistence, dispose } = await make()
       try {
         await persistence.create(meta('empty'))
-        expect(await persistence.has(SessionId('empty'))).toBe(false)
         expect((await persistence.list()).map(m => m.id)).not.toContain(SessionId('empty'))
       } finally {
         await dispose()
       }
     })
 
-    it('has()/list() include a session once it has events', async () => {
+    it('list() includes a session once it has events', async () => {
       const { persistence, dispose } = await make()
       try {
         const m = meta('s2')
         await persistence.create(m)
         await persistence.append(m.id, oneTurnLog())
-        expect(await persistence.has(m.id)).toBe(true)
         expect((await persistence.list()).map(x => x.id)).toContain(m.id)
       } finally {
         await dispose()
@@ -223,20 +247,6 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
           ] as unknown as SessionEvent[]
           await expect(persistence.append(mi.id, events)).rejects.toThrow(/user\/message/)
         }
-      } finally {
-        await dispose()
-      }
-    })
-
-    it('delete removes a session', async () => {
-      const { persistence, dispose } = await make()
-      try {
-        const m = meta('s6')
-        await persistence.create(m)
-        await persistence.append(m.id, oneTurnLog())
-        expect(await persistence.has(m.id)).toBe(true)
-        await persistence.delete(m.id)
-        expect(await persistence.has(m.id)).toBe(false)
       } finally {
         await dispose()
       }

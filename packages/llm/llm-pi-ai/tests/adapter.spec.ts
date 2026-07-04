@@ -2,14 +2,17 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, LlmError } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, LlmError, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { buildModel, PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
+import { assemble } from './assemble.ts'
 
 /** Scripted SSE responses, one per request (OpenAI chat-completions shape). */
 interface MockServer {
   url: string
   requests: unknown[]
+  /** Header bags of received requests, in order (parallel to `requests`). */
+  headers: IncomingMessage['headers'][]
   close(): Promise<void>
 }
 
@@ -21,11 +24,13 @@ afterEach(async () => {
 
 async function mockServer(script: { status?: number; events?: string[]; body?: string }[]): Promise<MockServer> {
   const requests: unknown[] = []
+  const headers: IncomingMessage['headers'][] = []
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     let body = ''
     request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
     request.on('end', () => {
       requests.push(JSON.parse(body))
+      headers.push(request.headers)
       const behavior = script.shift() ?? { status: 500, body: 'script exhausted' }
       if (behavior.status !== undefined && behavior.status !== 200) {
         response.writeHead(behavior.status, { 'content-type': 'application/json' })
@@ -44,6 +49,7 @@ async function mockServer(script: { status?: number; events?: string[]; body?: s
   return {
     url: `http://127.0.0.1:${address.port}`,
     requests,
+    headers,
     close: () => new Promise(resolve => server.close(() => { resolve() })),
   }
 }
@@ -79,24 +85,32 @@ async function harness(baseURL: string, config: object = {}) {
 }
 
 describe('PiAiAdapter against a mock server', () => {
-  it('streams a text generation through ctx.llm.generate', async () => {
+  it('streams a text generation through the assembler', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url)
 
-    const result = await ctx.llm.generate({
+    const result = await assemble(ctx, {
       model: 'deepseek-v4-flash',
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
     })
     expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
     expect(result.finish).toEqual({ kind: 'stop' })
     expect(result.usage).toMatchObject({ inputTokens: 3, outputTokens: 1 })
+
+    // Attribution reaches the wire through pi-ai's headers hook: the exact
+    // shared User-Agent, and no provider-specific headers without an
+    // explicitly configured target.
+    expect(server.headers[0]?.['user-agent']).toBe(userAgent())
+    expect(server.headers[0]).not.toHaveProperty('http-referer')
+    expect(server.headers[0]).not.toHaveProperty('x-openrouter-title')
+    expect(server.headers[0]).not.toHaveProperty('x-openrouter-categories')
   })
 
   it('streams tool calls with re-stringified arguments', async () => {
     const server = await mockServer([{ events: toolEvents }])
     const ctx = await harness(server.url)
 
-    const result = await ctx.llm.generate({
+    const result = await assemble(ctx,{
       model: 'deepseek-v4-flash',
       messages: [{ role: 'user', content: [{ type: 'text', text: 'weather?' }] }],
       tools: [{
@@ -114,7 +128,7 @@ describe('PiAiAdapter against a mock server', () => {
     const server = await mockServer([{ events: thinkingEvents }])
     const ctx = await harness(server.url, { reasoning: 'high' })
 
-    const result = await ctx.llm.generate({
+    const result = await assemble(ctx,{
       model: 'deepseek-v4-flash',
       messages: [{ role: 'user', content: [{ type: 'text', text: 'think' }] }],
     })
@@ -127,7 +141,7 @@ describe('PiAiAdapter against a mock server', () => {
   it('sends DeepSeek thinking fields when reasoning is configured', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, { reasoning: 'xhigh' })
-    await ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [] })
+    await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
     expect(server.requests[0]).toMatchObject({
       thinking: { type: 'enabled' },
       reasoning_effort: 'max', // xhigh maps to max via thinkingLevelMap
@@ -137,21 +151,21 @@ describe('PiAiAdapter against a mock server', () => {
   it('disables thinking for reasoning: off', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, { reasoning: 'off' })
-    await ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [] })
+    await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
     expect(server.requests[0]).toMatchObject({ thinking: { type: 'disabled' } })
   })
 
   it('injects stop sequences through onPayload', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url)
-    await ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [], stop: ['END'] })
+    await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [], stop: ['END'] })
     expect(server.requests[0]).toMatchObject({ stop: ['END'] })
   })
 
   it('preserves per-tool strict exactly through onPayload', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url)
-    await ctx.llm.generate({
+    await assemble(ctx,{
       model: 'deepseek-v4-flash',
       messages: [],
       tools: [
@@ -173,7 +187,7 @@ describe('PiAiAdapter against a mock server', () => {
   it('preserves raw replayed tool-call arguments in the provider payload', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url)
-    await ctx.llm.generate({
+    await assemble(ctx,{
       model: 'deepseek-v4-flash',
       messages: [{
         role: 'assistant',
@@ -192,7 +206,7 @@ describe('PiAiAdapter against a mock server', () => {
       body: JSON.stringify({ error: { message: 'bad key' } }),
     }])
     const ctx = await harness(server.url)
-    const result = await ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [] })
+    const result = await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
     expect(result.finish).toMatchObject({ kind: 'error', code: 'AUTH' })
     expect((result.finish as { message: string }).message).toMatch(/bad key|401/)
   })
@@ -204,13 +218,13 @@ describe('PiAiAdapter against a mock server', () => {
   ] as const)('maps HTTP %s to stable error code %s', async (status, code) => {
     const server = await mockServer([{ status, body: JSON.stringify({ error: { message: `provider ${status}` } }) }])
     const ctx = await harness(server.url)
-    const result = await ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [] })
+    const result = await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
     expect(result.finish).toMatchObject({ kind: 'error', code })
   })
 
   it('rejects prefill with UNSUPPORTED', async () => {
     const ctx = await harness('http://127.0.0.1:1')
-    await expect(ctx.llm.generate({
+    await expect(assemble(ctx,{
       model: 'deepseek-v4-flash',
       messages: [],
       prefill: [{ type: 'text', text: 'Sure' }],
@@ -244,7 +258,7 @@ describe('option spreads and env fallbacks', () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url)
     const controller = new AbortController()
-    await ctx.llm.generate({
+    await assemble(ctx,{
       model: 'deepseek-v4-flash',
       messages: [],
       temperature: 0.5,
@@ -262,7 +276,7 @@ describe('option spreads and env fallbacks', () => {
       const ctx = new Context()
       await ctx.plugin(LlmService)
       await ctx.plugin(LlmPiAi, { models: ['deepseek-v4-flash'] })
-      await ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [] })
+      await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
       expect(server.requests).toHaveLength(1)
     } finally {
       vi.unstubAllEnvs()
@@ -311,7 +325,7 @@ describe('review fixes', () => {
   it('defaults omitted reasoning config to thinking ENABLED (provider default)', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url) // no reasoning key at all
-    await ctx.llm.generate({ model: 'deepseek-v4-flash', messages: [] })
+    await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
     const request = server.requests[0] as Record<string, unknown>
     expect(request.thinking).toEqual({ type: 'enabled' })
     expect('reasoning_effort' in request).toBe(false)
@@ -320,7 +334,7 @@ describe('review fixes', () => {
   it('replays reasoning_content on assistant tool-call turns (passback rule)', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url)
-    await ctx.llm.generate({
+    await assemble(ctx,{
       model: 'deepseek-v4-flash',
       messages: [
         { role: 'user', content: [{ type: 'text', text: 'weather?' }] },
@@ -376,7 +390,7 @@ describe('review fixes: abort wiring', () => {
     const controller = new AbortController()
     controller.abort('already cancelled')
     // pi-ai surfaces the abort as an in-stream error event → aborted finish.
-    const result = await ctx.llm.generate({
+    const result = await assemble(ctx,{
       model: 'deepseek-v4-flash',
       messages: [],
       signal: controller.signal,
@@ -388,7 +402,7 @@ describe('review fixes: abort wiring', () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url)
     const controller = new AbortController()
-    const pending = ctx.llm.generate({
+    const pending = assemble(ctx,{
       model: 'deepseek-v4-flash',
       messages: [],
       signal: controller.signal,

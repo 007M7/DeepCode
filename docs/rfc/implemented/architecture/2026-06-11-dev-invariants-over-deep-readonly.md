@@ -17,7 +17,7 @@ Reject the pervasive `DeepReadonly<T>` type flip. Instead:
 1. **Always-on:** `deriveMessages()` deep-clones the content it emits (one `structuredClone` per derived message). In-flight mutation of a request can no longer reach the log — this is the real fix, and it costs nothing meaningful next to a model call.
 2. **Dev-mode:** a new `dsh-invariants` plugin (pure listeners, off in production, on in tests and demos) asserts the event contract and `Object.freeze`s logged event data so any *other* code that mutates a logged event throws instead of corrupting silently. Seeded sessions are frozen and checked on `session/created` (the constructor copies the seed without emitting `session/event`).
 
-The invariants encode the *real* contract, not an idealized one: a `tool/call` may have no `tool/result` (a thrown `tools/execute` waterfall ends the step), and both `idle→disposed` and `running→disposed` are legal.
+The invariants encode the *real* contract, not an idealized one: a `tool/call` may have no `tool/result` (a thrown tool-execution pipeline step ends the turn), and both `idle→disposed` and `running→disposed` are legal.
 
 `DeepReadonly` was rejected because it is compile-time only (a plugin casts straight through it), high type-noise across every log/message consumer and adapter, and would force readonly types through code where mutation is the sanctioned API. The clone draws the mutable/immutable boundary exactly at "logged vs in-flight" without any of that noise.
 

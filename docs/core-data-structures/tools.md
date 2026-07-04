@@ -2,7 +2,7 @@
 
 The tool pipeline of [dsh-tools](../../packages/core/tools). [core.md](core.md) introduces `ToolDefinition` as the one pipeline-authoring type promoted to the spine and `ToolSchema` as the model-facing wire shape. This page owns the full `ToolDefinition`, the typed schema DSL that builds it, the waterfall execution shapes, and the UI-presentation vocabulary.
 
-Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index.ts) · [`packages/core/tools/src/schema.ts`](../../packages/core/tools/src/schema.ts)
+Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index.ts) · [`packages/core/tools/src/schema.ts`](../../packages/core/tools/src/schema.ts) · [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts)
 
 ## `ToolDefinition` — a registered tool
 
@@ -10,23 +10,25 @@ A `ToolSchema` (the model-facing fields) plus the `execute` function and optiona
 
 ```ts type-equiv
 interface ToolDefinition extends ToolSchema {
-  execute(args: unknown, exec: ToolExecution): Promise<ContentBlock[]>
+  execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn>
   /**
-   * Optional: how to present the PENDING state of one call in a UI, derived
-   * from the call's `args` (parsed arguments, `unknown` — the tool validates/
-   * narrows its own input). Returning `undefined` (or omitting the method) tells
-   * a UI to fall back to a generic presentation (title = tool name, raw args as
-   * input). Pure and side-effect-free: a UI may call it during live streaming
-   * AND a session-log replay, so it must depend only on `args`.
+   * Optional: how to present the PENDING state of one call in a UI, derived from
+   * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
+   * its own input). Returns a {@link ToolCallView} (a `card`-tagged render intent),
+   * or `undefined` (or omit the method) to fall back to a generic presentation
+   * (title = tool name, raw args as input). Pure and side-effect-free: a UI may
+   * call it during live streaming AND a session-log replay, so it must depend
+   * only on `args`.
    */
-  presentCall?(args: unknown): ToolCallPresentation | undefined
+  presentCall?(args: unknown): ToolCallView | undefined
   /**
    * Optional: how to present the COMPLETED state, given the same `args` and the
-   * `result` (`execute`'s content + whether it errored). Returning `undefined`
-   * (or omitting the method) tells a UI to keep the pending title and render the
-   * raw result content. Pure and side-effect-free for the same replay reason.
+   * `result` (`execute`'s content + whether it errored). Returns a
+   * {@link ToolResultView}, or `undefined` (or omit the method) to keep the
+   * pending title and render the raw result content. Pure and side-effect-free
+   * for the same replay reason.
    */
-  presentResult?(args: unknown, result: ToolResult): ToolResultPresentation | undefined
+  presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined
 }
 ```
 
@@ -71,9 +73,9 @@ type InferArgs<S extends SchemaSpec> = Simplify<
 
 `defineTool({ name, description, parameters, execute, … })` ties it together: `parameters` is a `SchemaSpec`, `execute(args, exec)` gets `args: InferArgs<typeof parameters>`, and the helper converts the spec to JSON Schema (`schemaSpecToJsonSchema`) for the wire and validates model-generated args (`validateArgs`) before the typed body runs. A mismatch throws `ToolArgsError` (`code: 'INVALID_ARGS'`), which the registry turns into an `isError` result so the model can self-correct. Why a custom DSL and not schemastery: tool parameters need JSON Schema (the LLM wire format), not validation/transformation — the lightweight DSL gives the best authoring DX with the smallest surface.
 
-## Execution: the `tools/execute` waterfall shapes
+## Execution: the `tools/pre-execute` / `tools/post-execute` pipeline shapes
 
-`ctx.tools.execute()` runs each call through the `tools/execute` waterfall — the single seam where sandbox, permission, hook, and plan-mode plugins wrap or veto. The pending call is a `ToolExecution`; the outcome is a `ToolExecutionResult`.
+`ctx.tools.execute()` runs each call through a two-waterfall pipeline — `tools/pre-execute` (the allow/deny/ask gate) → core dispatch → `tools/post-execute` (inspect/replace the result, attach context) — the seams where sandbox, permission, hook, and plan-mode plugins gate or transform a call. The pending call is a `ToolExecution`; the outcome is a `ToolExecutionResult`.
 
 ```ts type-equiv
 interface ToolExecution {
@@ -98,15 +100,51 @@ interface ToolExecutionResult {
    * text in `content` is always present; this is extra structure for code.
    */
   error?: ToolErrorInfo
+  /**
+   * Extra model-facing context a `tools/post-execute` listener attached for the
+   * NEXT request (Claude Code's PostToolUse `additionalContext`). It is NOT part
+   * of this call's `content` — `content`/`feedback` shape the tool RESULT, but
+   * `additionalContext` is a SEPARATE `context/message`. A step can carry
+   * multiple tool calls, so the loop BUFFERS every call's `additionalContext`
+   * and appends them only AFTER all `tool/result`s for the step, keeping
+   * tool-call/result adjacency intact. Carried on the result purely to ferry it
+   * from `execute()` up to the loop's per-step buffer.
+   */
+  additionalContext?: HookContext
+  /**
+   * The tool-private presentation payload from a successful `execute` (the object
+   * return form). Threaded onto the `tool/result` session event and back into
+   * {@link ToolResult} for `presentResult`. Opaque (`unknown`); absent when the
+   * tool attached none or the call failed.
+   */
+  meta?: unknown
 }
 ```
 
-A waterfall listener receives `(exec, next)`: call `next()` to proceed (possibly around your own logic), or return a `ToolExecutionResult` without calling `next()` to veto. An unregistered tool routes through the same catch as a tool-thrown error, so both failure classes get a structured `{ name, code }` (`ToolNotFoundError` → `UNKNOWN_TOOL`) — the loop records a failed tool call instead of failing the whole turn.
+Each interception waterfall returns a typed **Decision** (the idiom shared with the `agent/*` seams). `tools/pre-execute` listeners receive `(exec, next)` and return a `PreToolDecision`; `tools/post-execute` listeners receive `(exec, result, next)` and return a `PostToolDecision`:
+
+```ts type-equiv
+type PreToolDecision =
+  | { kind: 'allow' }
+  | { kind: 'deny'; reason: string }
+  | { kind: 'ask'; reason?: string }
+```
+
+```ts type-equiv
+type PostToolDecision =
+  | { kind: 'accept'; content?: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'block'; feedback: ContentBlock[]; additionalContext?: HookContext }
+```
+
+Call `next()` to delegate to the default (allow / accept-unchanged), or return a decision to short-circuit. A `pre-execute` `deny` (or `ask`, which degrades to deny until the permission system lands) skips dispatch and yields an `isError` result; input rewrite is deliberately NOT offered on `PreToolDecision` (it would desync the pre-execution audit/history/UI from what ran — its own proposed RFC). A `post-execute` `accept` may replace the model-facing `content` (clean, because `tool/result` is logged after `execute()` returns); a `block` turns the call into an `isError` whose content is the corrective `feedback`. Core dispatch sits between the waterfalls as plain code; the tool body keeps its own try/catch so a thrown tool still reaches `post-execute` as an `isError`. An unregistered tool routes through the same catch as a tool-thrown error, so both failure classes get a structured `{ name, code }` (`ToolNotFoundError` → `UNKNOWN_TOOL`) — the loop records a failed tool call instead of failing the whole turn.
 
 ## Tool-presentation UI vocabulary
 
-How a tool wants its call shown in a UI (an editor tool-call card, a CLI log line), provider-neutral so a tool describes itself without depending on any client protocol. `presentCall` returns a `ToolCallPresentation` (pending state: `title`, `kind`, `rawInput`, `content`, optional `terminal`); `presentResult` returns a `ToolResultPresentation` (completed state: replacement `title`, reformatted `content`, terminal `output`/exit). `ToolCallKind` (`'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'`) picks an icon. A `ToolTerminal` asks a capable UI to render the call as a terminal card (cwd header, output, exit-status pill).
+How a tool wants its call shown in a UI (an editor tool-call card, a CLI log line), provider-neutral so a tool describes itself without depending on any client protocol. `presentCall`/`presentResult` return a **`card`-tagged render intent** — a discriminated union a UI bridge switches on:
 
-> These shapes carry a `FIXME(tool-presentation)` in source: they grew incrementally and the call-vs-result terminal split is muddy. Before more tools/UIs depend on them, they will be redesigned (a tagged union over card kinds) and pinned in an RFC, migrating `dsh-tool-bash` and the ACP bridge together. Treat the field-level shapes here as provisional; the source is authoritative.
+- `ToolCallView` (pending): `{ card: 'generic', title, kind?, rawInput?, content?, locations? }` (the default card; `locations` is `{ path, line? }[]` files the call reads/modifies, for editor follow-along), `{ card: 'terminal', title, description?, cwd? }` (a shell command → a terminal card), or `{ card: 'diff', title, diffs, locations? }` (a file create/modify → an inline diff card; `diffs` is `{ path, oldText, newText }[]`, `oldText: null` for a new file).
+- `ToolResultView` (completed): `{ card: 'generic', title?, content? }`, `{ card: 'terminal', title?, output?, exitCode?, signal? }` (the captured run output + exit; a capable UI shows an exit-status pill, an incapable one gets a fenced ` ```console ` fallback the bridge derives from `output`), or `{ card: 'diff', title?, diffs }` (a completed file mutation → the change to show, typically the applied hunks with context lines computed from the before/after content, or a whole-file diff when there is no before-image — e.g. a file create. A `tool_call_update`'s content REPLACES the call's content, so a mutation tool returns this even when it duplicates the call-time snippet, to keep the result from clobbering the diff with result text).
 
-The full presentation field docs live in [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index.ts). The bash tool's own schemas (`bash`/`bash_output`/`bash_kill`) and the executor they drive are on [bash.md](bash.md).
+`ToolCallKind` (`'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'`) picks an icon on a generic card. `FileLocation` (`{ path, line? }`) and `FileDiff` (`{ path, oldText, newText }`) are the shared file-card vocabulary. The design is pinned in [the render-intent-union RFC](../rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md); the ACP bridge maps a `diff` card to a `{ type: 'diff' }` content block, a `terminal` card to the `_meta` terminal convention, and relativizes a file card's title against the session cwd.
+
+The full presentation field docs live in [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts). The bash tool's own schemas (`bash`/`bash_output`/`bash_kill`) and the executor they drive are on [bash.md](bash.md).

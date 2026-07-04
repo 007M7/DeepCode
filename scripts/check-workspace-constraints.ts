@@ -27,12 +27,26 @@ const vendoredPackages = new Set([
   '@cordisjs/plugin-logger-console',
 ])
 
+const localArtifactDirs = new Set(['node_modules'])
+
 /** The subset of package.json fields this constraint check cares about. */
 interface PackageManifest {
   name?: string
   version?: string
   private?: boolean
   type?: string
+  main?: string
+  types?: string
+  bin?: string | Record<string, string>
+  exports?: Record<
+    string,
+    | {
+      types?: string
+      default?: string
+    }
+    | undefined
+  >
+  files?: string[]
   peerDependencies?: Record<string, string>
   devDependencies?: Record<string, string>
 }
@@ -52,10 +66,13 @@ function packageDirs(base: string, depth: number): string[] {
   if (depth === 1) {
     return readdirSync(join(root, base), { withFileTypes: true })
       .filter(entry => entry.isDirectory())
+      .filter(entry => !localArtifactDirs.has(entry.name))
+      .filter(entry => existsSync(join(root, base, entry.name, 'package.json')))
       .map(entry => join(base, entry.name))
   }
   return readdirSync(join(root, base), { withFileTypes: true })
     .filter(entry => entry.isDirectory())
+    .filter(entry => !localArtifactDirs.has(entry.name))
     .flatMap(group => packageDirs(join(base, group.name), depth - 1))
 }
 
@@ -71,6 +88,29 @@ function workspaceManifests(): WorkspaceManifest[] {
   }
 
   return manifests
+}
+
+const dshPackageFiles = [
+  'lib/index.js',
+  'lib/types/**/*.d.ts',
+  'lib/types/**/*.d.ts.map',
+  'src',
+] as const
+
+const dshBinPackageFiles = [
+  'lib/index.js',
+  'lib/bin.js',
+  'lib/types/**/*.d.ts',
+  'lib/types/**/*.d.ts.map',
+  'src',
+] as const
+
+function sameStringList(actual: readonly string[] | undefined, expected: readonly string[]): boolean {
+  return !!actual && actual.length === expected.length && actual.every((value, index) => value === expected[index])
+}
+
+function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
+  return manifest.bin ? dshBinPackageFiles : dshPackageFiles
 }
 
 function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
@@ -100,6 +140,22 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     if (manifest.type !== 'module') {
       errors.push(`${label}: package.json must set "type": "module"`)
     }
+    if (manifest.main !== 'lib/index.js') {
+      errors.push(`${label}: package.json must set "main": "lib/index.js"`)
+    }
+    if (manifest.types !== 'lib/types/index.d.ts') {
+      errors.push(`${label}: package.json must set "types": "lib/types/index.d.ts"`)
+    }
+    if (manifest.exports?.['.']?.types !== './lib/types/index.d.ts') {
+      errors.push(`${label}: package.json exports["."].types must be "./lib/types/index.d.ts"`)
+    }
+    if (manifest.exports?.['.']?.default !== './lib/index.js') {
+      errors.push(`${label}: package.json exports["."].default must be "./lib/index.js"`)
+    }
+    const expectedFiles = expectedDshPackageFiles(manifest)
+    if (!sameStringList(manifest.files, expectedFiles)) {
+      errors.push(`${label}: package.json files must be ${JSON.stringify(expectedFiles)}`)
+    }
   }
 
   return errors.map(error => `${relative(root, join(root, dir, 'package.json'))}: ${error}`)
@@ -126,6 +182,7 @@ function checkHierarchyShape(): string[] {
     }
     for (const pkg of readdirSync(join(packagesRoot, group.name), { withFileTypes: true })) {
       if (!pkg.isDirectory()) continue
+      if (localArtifactDirs.has(pkg.name)) continue
       const pkgRel = join(groupRel, pkg.name)
       if (!existsSync(join(packagesRoot, group.name, pkg.name, 'package.json'))) {
         errors.push(`${pkgRel}: expected a package here (no package.json found) — the hierarchy is exactly packages/<group>/<pkg>, no deeper nesting`)
