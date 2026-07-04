@@ -207,6 +207,16 @@ describe('hooks-codex coverage — decision mapping paths', () => {
     expect(res?.type === 'hook/result' && res.data.stderrSummary?.length).toBe(501) // default 500-char cap + ellipsis
   })
 
+  it('rejects a non-positive or fractional stderrSummaryMaxChars at load', async () => {
+    const d = dir()
+    hooks(d, {})
+    for (const bad of [0, -5, 1.5, Number.NaN]) {
+      const adapter = new MockAdapter([])
+      await expect(harness(join(d, 'hooks.json'), adapter, { stderrSummaryMaxChars: bad }))
+        .rejects.toThrow(/hooks-codex: stderrSummaryMaxChars must be a positive integer/)
+    }
+  })
+
   it('the stderr summary cap is plugin config (stderrSummaryMaxChars)', async () => {
     const d = dir()
     hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: sh(d, 'l.sh', '#!/usr/bin/env bash\nprintf "x%.0s" {1..600} >&2\nexit 2\n') }] }] })

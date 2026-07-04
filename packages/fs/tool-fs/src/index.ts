@@ -66,10 +66,10 @@ export const Config: z<Config> = z.object({
 /** The shape after schemastery applied the defaults. */
 type ResolvedConfig = Required<Config>
 
-/** A read cap must be a positive finite number to bound output and memory. */
-function assertPositiveFinite(name: string, value: number): void {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new Error(`tool-fs: ${name} must be a positive finite number`)
+/** Every read cap counts lines/chars/bytes — a positive integer, or windowing arithmetic misbehaves silently. */
+function assertPositiveInteger(name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`tool-fs: ${name} must be a positive integer`)
   }
 }
 
@@ -77,10 +77,10 @@ function assertPositiveFinite(name: string, value: number): void {
 export function apply(ctx: Context, config: Config): void {
   // schemastery (Config) has already filled every defaulted field.
   const resolved = config as ResolvedConfig
-  assertPositiveFinite('readLimit', resolved.readLimit)
-  assertPositiveFinite('readMaxLineLength', resolved.readMaxLineLength)
-  assertPositiveFinite('readMaxBytes', resolved.readMaxBytes)
-  assertPositiveFinite('readStreamMinSize', resolved.readStreamMinSize)
+  assertPositiveInteger('readLimit', resolved.readLimit)
+  assertPositiveInteger('readMaxLineLength', resolved.readMaxLineLength)
+  assertPositiveInteger('readMaxBytes', resolved.readMaxBytes)
+  assertPositiveInteger('readStreamMinSize', resolved.readStreamMinSize)
   applyReadTool(ctx, {
     limit: resolved.readLimit,
     maxLineLength: resolved.readMaxLineLength,

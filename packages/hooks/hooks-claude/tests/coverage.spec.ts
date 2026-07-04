@@ -142,6 +142,16 @@ describe('hooks-claude coverage — empty/no-op outcomes and no-agent paths', ()
     expect(res?.type === 'hook/result' && res.data.stderrSummary?.length).toBe(501) // default 500-char cap + ellipsis
   })
 
+  it('rejects a non-positive or fractional stderrSummaryMaxChars at load', async () => {
+    const d = dir()
+    const path = hooks(d, {})
+    for (const bad of [0, -5, 1.5, Number.NaN]) {
+      const adapter = new MockAdapter([])
+      await expect(harness(path, adapter, { stderrSummaryMaxChars: bad }))
+        .rejects.toThrow(/hooks-claude: stderrSummaryMaxChars must be a positive integer/)
+    }
+  })
+
   it('the stderr summary cap is plugin config (stderrSummaryMaxChars)', async () => {
     const d = dir()
     const s = sh(d, 'long.sh', '#!/usr/bin/env bash\nprintf "x%.0s" {1..600} >&2\nexit 2\n')

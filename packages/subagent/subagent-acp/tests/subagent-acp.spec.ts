@@ -398,6 +398,37 @@ describe('dsh-subagent-acp', () => {
     await run.dispose()
   })
 
+  it('plugin-config dispose graces reach the run (SIGKILL escalation through the provider)', async () => {
+    // Same trap scenario as the direct startAcpRun escalation test, but the
+    // graces arrive via the PLUGIN CONFIG through the registered provider — so a
+    // regression that stops threading config into AcpRunSpec (falling back to
+    // the 6s/3s defaults) blows past the 4000ms bound and fails loud.
+    const tmp = mkdtempSync(join(tmpdir(), 'acp-cfg-trap-'))
+    const ready = join(tmp, 'trap-armed')
+    try {
+      const ctx = new Context()
+      await ctx.plugin(SubagentService)
+      await ctx.plugin(acp, {
+        providerName: 'acp',
+        command: process.execPath,
+        args: ['--import', tsxLoader, mockServer],
+        permission: 'reject',
+        env: { MOCK_TRAP_SIGTERM: '1', MOCK_TEXT: 'x', MOCK_READY_FILE: ready, TSX_TSCONFIG_PATH: repoTsconfig },
+        disposeEofGraceMs: 150,
+        disposeGraceMs: 150,
+      })
+      const run = ctx.subagents.start('acp', { prompt: [{ type: 'text', text: 'p' }], parent: fakeParent })
+      await waitForFile(ready)
+      await expect(Promise.race([
+        run.dispose(),
+        new Promise((_r, reject) => { setTimeout(() => { reject(new Error('dispose did not return — config graces not threaded to the run')) }, 4000) }),
+      ])).resolves.toBeUndefined()
+      await ctx.fiber.dispose()
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
   it('rejects a non-positive dispose grace at load', async () => {
     for (const bad of [{ disposeEofGraceMs: 0 }, { disposeGraceMs: -1 }, { disposeEofGraceMs: Number.NaN }]) {
       const ctx = new Context()

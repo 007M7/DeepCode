@@ -547,15 +547,16 @@ describe('read caps are plugin config', () => {
 
   it.each([
     ['readLimit', { readLimit: 0 }],
+    ['readLimit', { readLimit: 2.5 }],
     ['readMaxLineLength', { readMaxLineLength: -1 }],
     ['readMaxBytes', { readMaxBytes: Number.NaN }],
     ['readStreamMinSize', { readStreamMinSize: 0 }],
-  ] as const)('rejects a non-positive %s at load', async (name, config) => {
+  ] as const)('rejects a non-positive or fractional %s at load', async (name, config) => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(FakeFs)
-    await expect(ctx.plugin(ToolFs, config)).rejects.toThrow(new RegExp(`tool-fs: ${name} must be a positive finite number`))
+    await expect(ctx.plugin(ToolFs, config)).rejects.toThrow(new RegExp(`tool-fs: ${name} must be a positive integer`))
   })
 
   it('has no default export (namespace plugin export shape)', () => {

@@ -2,7 +2,8 @@
  * `BasicCompactService`: the first implementation of the
  * `@deepseek-ai/dsh-compact` seam. It owns the entire compaction strategy:
  *
- * - **Token estimation** — char/4 heuristic with per-block structural overhead.
+ * - **Token estimation** — chars/`charsPerToken` heuristic (config, default 4)
+ *   with per-block structural overhead.
  * - **Retention policy** — walk surface nodes tail→head, keep recent nodes up
  *   to a token budget, compact everything older. The cutoff is snapped forward
  *   to the next balanced tool-pairing boundary so a compacted region never

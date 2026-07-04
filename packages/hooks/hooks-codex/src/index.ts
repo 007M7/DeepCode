@@ -68,7 +68,18 @@ function nextHandlerId(point: string): string {
 
 const PLUGIN_SOURCE: MessageSource = { kind: 'plugin', plugin: 'hooks-codex' }
 
+/** The summary cap bounds a persisted event field — a positive integer or the slice misbehaves silently. */
+function assertPositiveInteger(name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`hooks-codex: ${name} must be a positive integer`)
+  }
+}
+
 export function apply(ctx: Context, config: Config): void {
+  // Validate the cap BEFORE the config-file parse: a bad value must fail the
+  // load loudly, not be skipped by the parse-failure early return.
+  const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? 500
+  assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
   let parsed: CodexHookConfig = {}
   try {
     const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
@@ -83,7 +94,6 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   const defaultTimeoutMs = config.defaultTimeoutMs ?? 600_000
-  const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? 500
   const model = config.model ?? ''
 
   async function runPoint(
