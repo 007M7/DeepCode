@@ -15,6 +15,7 @@ import {
   presentFetchCall,
   renderBody,
   htmlToMarkdown,
+  WEB_SEARCH_MAX_RESULTS,
 } from '@deepseek-ai/dsh-tool-web'
 
 const available: WebProviderStatus = { available: true }
@@ -277,5 +278,50 @@ describe('tool-web execution through the real registry', () => {
     await ctx.tools.execute({ callId: CallId('search-1'), name: 'web_search', arguments: { query: 'q' }, signal: controller.signal })
     expect(seen.signal).toBe(controller.signal)
     await fiber.dispose()
+  })
+})
+
+describe('searchMaxResults is plugin config', () => {
+  it('forwards the default cap to the seam when unconfigured', async () => {
+    const seen: { maxResults?: number | undefined } = {}
+    const provider: WebSearchProvider = {
+      id: 'stub-search',
+      status: () => available,
+      search: (request) => { seen.maxResults = request.maxResults; return Promise.resolve({ providerId: 'stub-search', query: 'q', sources: [], truncated: false }) },
+    }
+    const { fiber, call } = await mountTools({ webConfig: { searchProvider: 'stub-search' }, search: provider })
+    await call('web_search', { query: 'q' })
+    expect(seen.maxResults).toBe(WEB_SEARCH_MAX_RESULTS)
+    await fiber.dispose()
+  })
+
+  it('forwards a configured cap to the seam, which enforces it', async () => {
+    const sources = Array.from({ length: 5 }, (_, i) => ({ url: `https://s${i}.test` }))
+    const provider: WebSearchProvider = {
+      id: 'stub-search',
+      status: () => available,
+      search: request => Promise.resolve({ providerId: 'stub-search', query: request.query, sources, truncated: false }),
+    }
+    const { fiber, call } = await mountTools({ config: { searchMaxResults: 2 }, webConfig: { searchProvider: 'stub-search' }, search: provider })
+    const out = await call('web_search', { query: 'q' })
+    expect(out.isError).toBe(false)
+    const body = out.content.map(b => b.text).join('')
+    expect(body).toContain('https://s1.test')
+    expect(body).not.toContain('https://s2.test')
+    expect(body).toContain('Showing the first 2 sources.')
+    await fiber.dispose()
+  })
+
+  it.each([
+    ['zero', 0],
+    ['negative', -3],
+    ['fractional', 1.5],
+  ])('rejects a %s searchMaxResults at load', async (_label, value) => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(WebService, {})
+    await expect(ctx.plugin(ToolWeb, { searchMaxResults: value }))
+      .rejects.toThrow(/tool-web: searchMaxResults must be a positive integer/)
   })
 })

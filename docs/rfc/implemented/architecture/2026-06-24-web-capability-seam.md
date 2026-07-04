@@ -175,7 +175,7 @@ The first `web_search` model-facing tool should be small. The only model-facing 
 
 - `query`: required string.
 
-`max_results` is NOT exposed to the model in the first version. It is a `dsh-tool-web`-layer decision: the tool sets the result bound — a default of `8` (aligning with OpenCode's Exa default), as an exported constant mirroring `dsh-tool-fs`'s `READ_LIMIT` / `GREP_LIMIT` — and passes it to the seam as `maxResults` on the `WebSearchRequest`. Keeping it off the model schema means the model just asks a question and the product controls how much context comes back; the field can be promoted to a model-facing argument later without breaking the seam.
+`max_results` is NOT exposed to the model in the first version. It is a `dsh-tool-web`-layer decision: the tool sets the result bound — the `searchMaxResults` plugin config, default `8` (aligning with OpenCode's Exa default), mirroring `dsh-tool-fs`'s `readLimit` — and passes it to the seam as `maxResults` on the `WebSearchRequest`. Keeping it off the model schema means the model just asks a question and the product controls how much context comes back; the field can be promoted to a model-facing argument later without breaking the seam.
 
 `maxResults` flows tool → seam → provider, and the bound is enforced on the way back:
 
