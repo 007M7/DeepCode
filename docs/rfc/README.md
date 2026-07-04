@@ -171,6 +171,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [JSDoc completeness gate for the cordis surface](implemented/process/2026-07-04-cordis-jsdoc-completeness-gate.md) | 2026-07-04 |
 | [Documentation tiers, budgets, and the ceiling gate](implemented/process/2026-07-04-doc-tiers-and-budgets.md) | 2026-07-04 |
 | [Generate the RFC index tables](implemented/process/2026-07-04-generate-rfc-index-tables.md) | 2026-07-04 |
+| [Generated persistence log event catalog](implemented/process/2026-07-04-persistence-log-catalog.md) | 2026-07-04 |
 
 ### Testing
 
