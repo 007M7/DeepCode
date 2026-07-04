@@ -90,6 +90,12 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
     hook-protocol/  shared Claude Code / Codex hook wire-protocol core (library,
                     not a plugin): matcher primitive, exit-code/stdout codec,
                     runHook (via ctx.bash), most-restrictive merge, hook/* events
+    hooks-claude/   bridge plugin: runs a Claude Code hooks.json / settings on the
+                    interception seams (CC dialect — env + ${CLAUDE_PLUGIN_ROOT}
+                    substitution, per-event stdin payloads, outcome→Decision map)
+    hooks-codex/    bridge plugin: runs a Codex hooks.json on the seams (Codex
+                    dialect — a 5-event, regex-only, block-only, no-substitution
+                    subset of the CC protocol)
   session-persistence/   persistence capability family
     session-persistence/         durable persistence seam + write coordinator
     session-persistence-jsonl/    JSONL-sidecar backend

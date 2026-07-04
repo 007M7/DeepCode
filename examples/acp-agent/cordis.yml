@@ -112,3 +112,18 @@
 
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
+
+# The Claude Code hook bridge. `configPath` is PROCESS-LEVEL: it is read ONCE at
+# load and the relative `./hooks.json` resolves against the ACP server's launch
+# cwd, NOT each `session/new.cwd`. So a single `hooks.json` next to where the
+# server starts applies to every session; a project-local, per-session hooks.json
+# is NOT discovered (per-session config resolution is a TODO — see the bridge
+# README). With no file present the parse fails-soft and the bridge registers
+# nothing (a silent no-op). Hooks THEMSELVES run in the session cwd (the bridge
+# passes it as the workdir); only WHERE the config is read from is process-level.
+# stdout is the ACP JSON-RPC channel — the bridge's warnings go through ctx.logger
+# (no exporter here), never to stdout.
+- id: hooks-claude
+  name: '@deepseek-ai/dsh-hooks-claude'
+  config:
+    configPath: ./hooks.json

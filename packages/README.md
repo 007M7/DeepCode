@@ -116,6 +116,8 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `tool-subagent/` | `subagent` | Model-facing `subagent` delegation tool over `ctx.subagents` | (registers on `ctx.tools`) |
 | `tool-todo/` | `todo` | Model-facing `todo_write` tool; writes the whole task list to the session log (`todo/write`) | (registers on `ctx.tools`) |
 | `hook-protocol/` | `hooks` | Shared Claude Code / Codex hook wire-protocol library: matcher, codec, `runHook`, merge, `hook/*` events | (none — library, no service) |
+| `hooks-claude/` | `hooks` | Bridge: runs a Claude Code `hooks.json` / settings on the interception seams | (registers event listeners) |
+| `hooks-codex/` | `hooks` | Bridge: runs a Codex `hooks.json` (a subset of the CC protocol) on the seams | (registers event listeners) |
 | `brand/` | `util` | Type-only `Branded<B>` nominal-typing primitive (no runtime code, no harness deps) | (none — type-only) |
 
 Each package has its own `README.md` with purpose, service API, events, extension points, and deliberate non-goals (TODOs).

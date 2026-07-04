@@ -30,11 +30,21 @@ interface Scenario {
   /** Whether the scenario drives at least one model turn (so a JSONL golden applies). */
   hasModelTurn: boolean
   /**
+   * Whether the run persists a comparable session log to diff against the
+   * `session.jsonl` fixture. Defaults to {@link hasModelTurn} (a model turn
+   * always produces a log worth comparing). Set it independently for a scenario
+   * that produces a non-trivial log WITHOUT a model turn — e.g. a prompt blocked
+   * by a `UserPromptSubmit` hook, which opens a `rejected` turn carrying `hook/*`
+   * events but never calls the model.
+   */
+  comparesLog?: boolean
+  /**
    * Whether `test:snapshot:record` regenerates this scenario's `session.jsonl`
    * from the LIVE API. `recorded` scenarios are model-driven and reproducible;
    * `authored` scenarios (a hand-written `replay.override.json` sidecar drives
    * replay — e.g. a provider error or a cancel, which the live API can't be
-   * coaxed into deterministically) are NEVER re-recorded.
+   * coaxed into deterministically — or a deterministic hook scenario whose
+   * derived empty script needs no sidecar) are NEVER re-recorded.
    */
   recorded: boolean
   /**
@@ -68,6 +78,11 @@ const SCENARIOS: Scenario[] = [
   { name: 'subagent-multi', hasModelTurn: true, recorded: true, childSessions: 2 },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true, childSessions: 1 },
   { name: 'subagent-mixed', hasModelTurn: true, recorded: true, childSessions: 2 },
+  // A UserPromptSubmit hook blocks the prompt before any step runs: no model
+  // call (keyless, authored — its derived script is empty so it needs no
+  // sidecar), but it persists a `rejected` turn carrying `hook/*` events, so its
+  // log IS compared. The hooks.json riding in workspace/ drives the bridge.
+  { name: 'hook-prompt-block', hasModelTurn: false, comparesLog: true, recorded: false },
 ]
 
 /** The sibling child-fixture paths for a scenario (`session.1.jsonl` …). */
@@ -146,12 +161,15 @@ for (const scenario of SCENARIOS) {
       await expect(normalizeStdout(result.rawStdout, ctx))
         .toMatchFileSnapshot(join(dir, 'stdout.golden.jsonl'))
 
-      if (scenario.hasModelTurn) {
+      // A model turn always produces a log worth comparing; a hook scenario can
+      // produce one without a model turn (a `rejected` turn carrying `hook/*`).
+      const comparesLog = scenario.comparesLog ?? scenario.hasModelTurn
+      if (comparesLog) {
         // The harvested logs (primary-first) must match their committed fixtures
         // 1:1. Each side passes through normalizeSessionLog, scrubbed against ITS
         // OWN volatile values — the live run's via `ctx`, the committed fixture's
         // via its own header (a committed file cannot share the live run's ids).
-        expect(result.sessionLogs.length, 'a model scenario must persist a session log').toBe(childSessions + 1)
+        expect(result.sessionLogs.length, 'this scenario must persist a session log').toBe(childSessions + 1)
         const fixtureFiles = ['session.jsonl', ...Array.from({ length: childSessions }, (_, i) => `session.${i + 1}.jsonl`)]
         for (let i = 0; i < fixtureFiles.length; i++) {
           const harvested = (result.sessionLogs[i] as HarvestedLog).content

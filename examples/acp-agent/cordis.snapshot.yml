@@ -99,3 +99,16 @@
 
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
+
+# The Claude Code hook bridge. `configPath` is read ONCE at load and resolves
+# `./hooks.json` against the PROCESS cwd (not per-session) — in these snapshot
+# runs the harness launches the subprocess with process cwd = the scenario's temp
+# workspace, so a scenario that ships `workspace/hooks.json` (copied into that cwd
+# before the run) exercises the hooks path end-to-end; every other scenario has no
+# such file, so the parse fails-soft and the bridge registers nothing (a silent
+# no-op — the ACP app loads no logger exporter, so the warning never reaches
+# stdout). Hooks themselves run in the session cwd (the bridge passes it as workdir).
+- id: hooks-claude
+  name: '@deepseek-ai/dsh-hooks-claude'
+  config:
+    configPath: ./hooks.json

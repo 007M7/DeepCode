@@ -90,6 +90,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Interception seams — the typed-Decision surface a hook programs against](implemented/feature/2026-06-30-interception-seams.md) | 2026-06-30 |
 | [Subagent lifecycle enrichment — lastAssistantMessage (observe-only)](implemented/feature/2026-06-30-subagent-observe-enrich.md) | 2026-06-30 |
 | [dsh-hook-protocol — the shared Claude Code / Codex hook wire-protocol core](implemented/feature/2026-06-30-hook-protocol-lib.md) | 2026-06-30 |
+| [dsh-hooks-claude + dsh-hooks-codex — the Claude Code / Codex hook bridges](implemented/feature/2026-06-30-hook-bridges.md) | 2026-06-30 |
 
 ### Simplification
 
