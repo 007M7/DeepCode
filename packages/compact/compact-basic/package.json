@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-compact-basic",
-  "description": "Basic compaction backend (char/4 token estimation + token-budget retention + llm.generate() summarization) for the DeepSeek Harness",
+  "description": "Basic compaction backend (chars-per-token estimation + token-budget retention + llm.generate() summarization) for the DeepSeek Harness",
   "version": "0.0.1",
   "private": true,
   "type": "module",

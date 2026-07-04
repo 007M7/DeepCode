@@ -34,7 +34,7 @@ dsh-session       ← dsh-llm, dsh-brand
 dsh-system-prompt ← dsh-llm
 dsh-agent         ← dsh-llm, dsh-session, dsh-brand
 dsh-compact       ← dsh-session, dsh-llm                (abstract compaction seam; tool deferred)
-dsh-compact-basic ← dsh-compact, dsh-session, dsh-llm, dsh-agent  (char/4 + token-budget retention backend)
+dsh-compact-basic ← dsh-compact, dsh-session, dsh-llm, dsh-agent  (chars-per-token + token-budget retention backend)
 dsh-tools         ← dsh-llm, dsh-system-prompt, dsh-agent
 dsh-bash-local    ← dsh-bash                       (BashExecutor impl)
 dsh-tool-bash     ← dsh-bash, dsh-tools            (bash tool schemas)
@@ -89,7 +89,7 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `fs-policy/` | `fs` | Policy gate plugin: observed-state + read-before-edit + version-guarded write/edit via the `fs/*` event gate | (no service — `fs/*` listeners) |
 | `tool-fs/` | `fs` | Model-facing `read`/`write`/`edit` tools + executor (reads via `ctx.fs`, owns read windowing, dispatches `fs/*`) | (registers on `ctx.tools`) |
 | `compact/` | `compact` | Abstract compaction seam + `compact/*` events + `CompactionResult` | `ctx.compact` |
-| `compact-basic/` | `compact` | A backend: char/4 estimation + token-budget retention + `llm.stream()` summarization | (registers `ctx.compact`) |
+| `compact-basic/` | `compact` | A backend: chars-per-token estimation (`charsPerToken`, default 4) + token-budget retention + `llm.stream()` summarization | (registers `ctx.compact`) |
 | `web/` | `web` | Abstract web seam (search/fetch provider registries + selection + vocabulary + `WebError`) | `ctx.web` |
 | `web-search-exa/` | `web` | Exa-backed `WebSearchProvider` | (registers on `ctx.web`) |
 | `web-search-perplexity/` | `web` | Perplexity-backed `WebSearchProvider` | (registers on `ctx.web`) |
