@@ -73,6 +73,8 @@ export interface SpawnSpec {
   timeoutMs: number
   /** Per-stream in-memory cap; overflow spills to disk (tail kept in memory). */
   maxOutputBytes: number
+  /** Grace period between the SIGTERM and the SIGKILL escalation on a kill. */
+  graceMs: number
   /** Abort signal — kills the process group when fired. */
   signal?: AbortSignal | undefined
   /**
@@ -100,15 +102,13 @@ export interface SpawnOutcome {
   stderr: CollectedOutput
 }
 
-/** Injectable knobs so tests can exercise escalation/spill without long waits. */
+/** Injectable knobs so tests can exercise spill behavior without the OS tmpdir. */
 export interface RunInternals {
-  /** Grace period between SIGTERM and SIGKILL on the process group. */
-  graceMs?: number
   /** Directory for spill files (defaults to the OS temp dir). */
   spillDir?: string
 }
 
-/** Default SIGTERM→SIGKILL grace period (matches OpenCode's 3s). */
+/** Default SIGTERM→SIGKILL grace period (the `graceMs` config; matches OpenCode's 3s). */
 export const DEFAULT_GRACE_MS = 3_000
 
 let spillCounter = 0
@@ -292,7 +292,6 @@ export interface RunningBash {
  * no inherited shell state); revisit when real workflows demand it.
  */
 export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningBash {
-  const graceMs = internals.graceMs ?? DEFAULT_GRACE_MS
   const spillDir = internals.spillDir ?? privateSpillDir()
 
   if (spec.signal?.aborted) {
@@ -331,7 +330,7 @@ export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningB
   const kill = (): void => {
     if (graceTimer !== undefined) return // escalation already in flight
     killGroup(pid, 'SIGTERM')
-    graceTimer = setTimeout(() => { killGroup(pid, 'SIGKILL') }, graceMs)
+    graceTimer = setTimeout(() => { killGroup(pid, 'SIGKILL') }, spec.graceMs)
   }
 
   if (spec.timeoutMs > 0) {

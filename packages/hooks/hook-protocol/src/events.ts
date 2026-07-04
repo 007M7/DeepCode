@@ -58,6 +58,18 @@ export function appendHookInvoked(session: Session, invocation: HookInvocation):
   })
 }
 
+/**
+ * Truncate a hook's stderr for {@link HookResultRecord.stderrSummary}: trimmed,
+ * `undefined` when empty, cut at `maxChars` with an ellipsis when over. The
+ * bound is a parameter — like `runHook`'s `defaultTimeoutMs`, each bridge owns
+ * the config default and passes it in.
+ */
+export function summarizeStderr(stderr: string, maxChars: number): string | undefined {
+  const t = stderr.trim()
+  if (t.length === 0) return undefined
+  return t.length > maxChars ? t.slice(0, maxChars) + '…' : t
+}
+
 /** Append a `hook/result` outcome event to `session` (pairs with a prior `hook/invoked`). */
 export function appendHookResult(session: Session, record: HookResultRecord): void {
   session.append('hook/result', {
