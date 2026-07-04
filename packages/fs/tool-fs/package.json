@@ -22,7 +22,8 @@
   ],
   "license": "BSD-3-Clause",
   "dependencies": {
-    "diff": "^9.0.0"
+    "diff": "^9.0.0",
+    "schemastery": "^3.18.0"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-fs": "^0.0.1",

@@ -26,7 +26,18 @@
  * Every harness event MUST carry an `@mode emit|waterfall|parallel|serial` tag
  * — the generator hard-errors on a missing tag, and where the signature shape is
  * conclusive (a trailing `next: () => …` parameter is structurally a waterfall)
- * it asserts the tag agrees and hard-errors on a contradiction. The INHERITED
+ * it asserts the tag agrees and hard-errors on a contradiction. Beyond the tag,
+ * the walk enforces JSDoc COMPLETENESS on the whole harness surface (the
+ * jsdoc-completeness-gate RFC): every event and public service method carries
+ * description prose; every payload parameter has a non-empty `@param` (`this`
+ * receivers and the trailing waterfall `next` are exempt — next's semantics are
+ * documented once by the mode); a service method with a non-`void`/
+ * `Promise<void>` return carries a non-empty `@returns` and needs an EXPLICIT
+ * return type annotation (a pure-AST walk cannot classify an inferred return);
+ * a stale `@param` naming no real parameter errors. Violations aggregate into
+ * ONE error listing every offender. The tags are enforcement-only: parseJsDoc
+ * stops prose at the first block tag, so they never change the rendered
+ * catalog. The INHERITED
  * tier (cordis core + loader/hmr/timer) is pinned vendor source a plugin author
  * also sees; it is rendered tersely (name + one-line + source pointer) from a
  * curated table in this script, NOT elevated to the harness tier's prominence.
@@ -147,8 +158,10 @@ function rawJsDoc(text: string, node: ts.Node): string {
  * present). Output obeys the repo's markdown conventions so the generated file
  * passes verify-md-wrap: each prose paragraph collapses to ONE physical line,
  * and a `-` bullet list is preserved with each item on its own single line
- * (continuation lines folded in). `{@link Foo}` unwraps to `Foo`; `@`-tag lines
- * other than `@mode` end the current prose run.
+ * (continuation lines folded in). `{@link Foo}` unwraps to `Foo`. Description
+ * prose ends at the FIRST block tag (standard JSDoc semantics): tag lines and
+ * their continuation lines are never prose, so `@param`/`@returns` blocks are
+ * invisible to the rendered catalog.
  */
 function parseJsDoc(raw: string): { doc: string; mode: Mode | null } {
   const inner = raw
@@ -157,6 +170,7 @@ function parseJsDoc(raw: string): { doc: string; mode: Mode | null } {
     .split('\n')
     .map(l => l.replace(/^\s*\*?\s?/, '').replace(/\s+$/, ''))
   let mode: Mode | null = null
+  let inTags = false
   const blocks: string[] = []
   let para: string[] = []
   let list: string[] = []
@@ -178,8 +192,9 @@ function parseJsDoc(raw: string): { doc: string; mode: Mode | null } {
   }
   for (const line of inner) {
     const m = /^@mode\s+(emit|waterfall|parallel|serial)\s*$/.exec(line)
-    if (m) { mode = m[1] as Mode; continue }
-    if (line.startsWith('@')) { flushPara(); continue } // other tags end the prose
+    if (m) { mode = m[1] as Mode; flushPara(); inTags = true; continue }
+    if (line.startsWith('@')) { flushPara(); inTags = true; continue }
+    if (inTags) continue // block-tag territory: continuations are never prose
     if (line.trim() === '') { flushPara(); continue }
     if (/^-\s+/.test(line)) {
       // A list item starts: a pending paragraph (e.g. an intro line directly
@@ -195,6 +210,60 @@ function parseJsDoc(raw: string): { doc: string; mode: Mode | null } {
   flushPara()
   const doc = blocks.join('\n\n').replace(/\{@link\s+([^}]+)\}/g, '$1').trim()
   return { doc, mode }
+}
+
+/**
+ * Parse the block tags of a raw JSDoc comment for the completeness checks:
+ * every `@param name — description` entry plus the `@returns` description.
+ * Standard JSDoc block-tag semantics — a tag's description runs across
+ * continuation lines until the next tag or a blank line, and the `-`/`—`
+ * separator after a param name is optional. `[name]` optional-brackets unwrap
+ * to `name`. Rendering never sees these: parseJsDoc stops prose at the first
+ * block tag.
+ */
+function parseTags(raw: string): { params: Map<string, string>; returns: string | null } {
+  const inner = raw
+    .replace(/^\/\*\*/, '')
+    .replace(/\*\/$/, '')
+    .split('\n')
+    .map(l => l.replace(/^\s*\*?\s?/, '').replace(/\s+$/, ''))
+  const params = new Map<string, string>()
+  let returns: string | null = null
+  let sink: ((text: string) => void) | null = null
+  for (const line of inner) {
+    const param = /^@param\s+(\[?[\w$]+\]?)\s*(?:[-—–]\s*)?(.*)$/.exec(line)
+    if (param) {
+      const name = (param[1] ?? '').replace(/^\[|\]$/g, '')
+      let acc = param[2] ?? ''
+      params.set(name, acc)
+      sink = (t) => { acc = acc ? `${acc} ${t}` : t; params.set(name, acc) }
+      continue
+    }
+    const ret = /^@returns?(?:\s+[-—–]?\s*(.*))?$/.exec(line)
+    if (ret) {
+      let acc = ret[1] ?? ''
+      returns = acc
+      sink = (t) => { acc = acc ? `${acc} ${t}` : t; returns = acc }
+      continue
+    }
+    if (line.startsWith('@') || line.trim() === '') { sink = null; continue }
+    sink?.(line.trim())
+  }
+  return { params, returns }
+}
+
+/**
+ * Throw one aggregate error for every completeness violation a walk collected.
+ * Aggregation (vs the fail-fast the @mode check used to do) is deliberate: a
+ * remediation pass sees the whole list at once instead of replaying the gate
+ * once per offender.
+ */
+function reportViolations(violations: string[]): void {
+  if (violations.length === 0) return
+  throw new Error(
+    `gen-cordis-catalog: ${violations.length} JSDoc completeness violation(s) (see AGENTS.md):\n`
+    + violations.map(v => `  ${v}`).join('\n'),
+  )
 }
 
 /** Find the `declare module 'cordis'` body in a source file, or null. */
@@ -215,10 +284,13 @@ function memberSignature(member: ts.TypeElement | ts.ClassElement, sf: ts.Source
   return sig.replace(/\s*;?\s*$/, '').replace(/\s+/g, ' ').trim()
 }
 
-/** Walk every harness `interface Events` block and extract its events.
- * `scanRoot` defaults to the repo root; tests pass a fixture dir. */
+/** Walk every harness `interface Events` block and extract its events, hard-
+ * erroring (aggregated) on any JSDoc-completeness violation: a missing/
+ * contradicted `@mode`, missing description prose, or an undocumented payload
+ * parameter. `scanRoot` defaults to the repo root; tests pass a fixture dir. */
 export function collectEvents(scanRoot: string = root): EventEntry[] {
   const entries: EventEntry[] = []
+  const violations: string[] = []
   for (const rel of globSync('packages/*/*/src/*.ts', { cwd: scanRoot }).sort()) {
     const abs = resolve(scanRoot, rel)
     const text = readFileSync(abs, 'utf8')
@@ -232,33 +304,63 @@ export function collectEvents(scanRoot: string = root): EventEntry[] {
         if (!ts.isMethodSignature(member)) continue
         const name = ts.isStringLiteral(member.name) ? member.name.text : member.name.getText(sf)
         const signature = memberSignature(member, sf)
-        const { doc, mode } = parseJsDoc(rawJsDoc(text, member))
+        const raw = rawJsDoc(text, member)
+        const { doc, mode } = parseJsDoc(raw)
         const src = pointer(rel, sf, member)
+        const where = `event '${name}' (${src})`
         if (!mode) {
-          throw new Error(`gen-cordis-catalog: event '${name}' (${src}) is missing an @mode tag. Add '@mode emit|waterfall|parallel|serial' to its JSDoc (see AGENTS.md).`)
+          violations.push(`${where} is missing an @mode tag. Add '@mode emit|waterfall|parallel|serial' to its JSDoc (see AGENTS.md).`)
         }
         // Conclusive structural check: a trailing `next: () => …` parameter is a
         // waterfall. (emit vs parallel vs serial is not structurally
         // distinguishable, so it is trusted from the tag.)
         const last = member.parameters.at(-1)
         const hasNext = !!last && last.name.getText(sf) === 'next'
-        if (hasNext && mode !== 'waterfall') {
-          throw new Error(`gen-cordis-catalog: event '${name}' (${src}) has a trailing 'next' parameter (structurally a waterfall) but is tagged '@mode ${mode}'. Fix the tag or the signature.`)
+        if (mode && hasNext && mode !== 'waterfall') {
+          violations.push(`${where} has a trailing 'next' parameter (structurally a waterfall) but is tagged '@mode ${mode}'. Fix the tag or the signature.`)
         }
-        if (!hasNext && mode === 'waterfall') {
-          throw new Error(`gen-cordis-catalog: event '${name}' (${src}) is tagged '@mode waterfall' but has no trailing 'next' parameter. A waterfall delegates via next().`)
+        if (mode && !hasNext && mode === 'waterfall') {
+          violations.push(`${where} is tagged '@mode waterfall' but has no trailing 'next' parameter. A waterfall delegates via next().`)
         }
-        entries.push({ name, scope: name.split('/')[0] ?? name, signature, mode, doc, source: src })
+        if (!doc) violations.push(`${where} has no description prose. Say what happened / what a listener may do, above the block tags.`)
+        // Payload parameters need a non-empty @param each. Exempt the `this`
+        // receiver annotation (not payload) and the trailing waterfall `next`
+        // (mode machinery, documented once by @mode semantics). Documenting an
+        // exempt parameter anyway is allowed — only absence is checked.
+        const { params } = parseTags(raw)
+        for (const p of member.parameters) {
+          if (!ts.isIdentifier(p.name)) {
+            violations.push(`${where}: parameter '${p.name.getText(sf)}' is a binding pattern; the event surface needs simple identifier parameters so @param can name them.`)
+            continue
+          }
+          const pname = p.name.text
+          if (pname === 'this' || (hasNext && p === last)) continue
+          const desc = params.get(pname)
+          if (desc === undefined) violations.push(`${where} is missing @param ${pname}.`)
+          else if (!desc.trim()) violations.push(`${where}: @param ${pname} has an empty description.`)
+        }
+        for (const tag of params.keys()) {
+          if (!member.parameters.some(p => ts.isIdentifier(p.name) && p.name.text === tag)) {
+            violations.push(`${where}: @param ${tag} does not match any parameter (stale tag?).`)
+          }
+        }
+        if (mode) entries.push({ name, scope: name.split('/')[0] ?? name, signature, mode, doc, source: src })
       }
     }
   }
+  reportViolations(violations)
   return entries
 }
 
-/** Walk every harness `interface Context` block + its service class.
+/** Walk every harness `interface Context` block + its service class, hard-
+ * erroring (aggregated) on any JSDoc-completeness violation: a class or public
+ * method without JSDoc prose, an undocumented parameter, a stale `@param`, a
+ * missing `@returns` on a non-void method, or an inferred (unannotated) return
+ * type the pure-AST walk cannot classify.
  * `scanRoot` defaults to the repo root; tests pass a fixture dir. */
 export function collectServices(scanRoot: string = root): ServiceEntry[] {
   const entries: ServiceEntry[] = []
+  const violations: string[] = []
   for (const rel of globSync('packages/*/*/src/index.ts', { cwd: scanRoot }).sort()) {
     const abs = resolve(scanRoot, rel)
     const text = readFileSync(abs, 'utf8')
@@ -284,6 +386,8 @@ export function collectServices(scanRoot: string = root): ServiceEntry[] {
       )
       if (!cls) continue // a Pick-mixin member (e.g. timer helpers), not a class here
       const abstract = cls.modifiers?.some(m => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false
+      const clsDoc = parseJsDoc(rawJsDoc(text, cls)).doc
+      if (!clsDoc) violations.push(`service ctx.${key} (${pointer(rel, sf, cls)}): class ${type} has no JSDoc.`)
       const methods: string[] = []
       for (const member of cls.members) {
         if (!ts.isMethodDeclaration(member)) continue
@@ -300,17 +404,52 @@ export function collectServices(scanRoot: string = root): ServiceEntry[] {
         const memberName = member.name.getText(sf)
         if (memberName.startsWith('[')) continue // computed/symbol members
         methods.push(memberSignature(member, sf))
+        const where = `service method ctx.${key}.${memberName} (${pointer(rel, sf, member)})`
+        const raw = rawJsDoc(text, member)
+        if (!raw) { violations.push(`${where} has no JSDoc.`); continue }
+        if (!parseJsDoc(raw).doc) violations.push(`${where} has no description prose above its block tags.`)
+        const { params, returns } = parseTags(raw)
+        // Every parameter needs a non-empty @param; a `this` receiver
+        // annotation is not payload and is exempt.
+        for (const p of member.parameters) {
+          if (!ts.isIdentifier(p.name)) {
+            violations.push(`${where}: parameter '${p.name.getText(sf)}' is a binding pattern; the service surface needs simple identifier parameters so @param can name them.`)
+            continue
+          }
+          const pname = p.name.text
+          if (pname === 'this') continue
+          const desc = params.get(pname)
+          if (desc === undefined) violations.push(`${where} is missing @param ${pname}.`)
+          else if (!desc.trim()) violations.push(`${where}: @param ${pname} has an empty description.`)
+        }
+        for (const tag of params.keys()) {
+          if (!member.parameters.some(p => ts.isIdentifier(p.name) && p.name.text === tag)) {
+            violations.push(`${where}: @param ${tag} does not match any parameter (stale tag?).`)
+          }
+        }
+        // A non-void result needs a non-empty @returns. The return type must be
+        // ANNOTATED: a pure-AST walk cannot classify an inferred return. On a
+        // `void`/`Promise<void>` method @returns stays optional (resolution
+        // timing can be worth documenting), never required.
+        const rt = member.type?.getText(sf).replace(/\s+/g, ' ')
+        if (rt === undefined) {
+          violations.push(`${where} has no return type annotation; annotate it explicitly so the gate can classify the result.`)
+        } else if (!/^(void|Promise<void>)$/.test(rt)) {
+          if (returns === null) violations.push(`${where} is missing @returns (return type: ${rt}).`)
+          else if (!returns.trim()) violations.push(`${where}: @returns has an empty description.`)
+        }
       }
       entries.push({
         key,
         type,
         abstract,
-        doc: parseJsDoc(rawJsDoc(text, cls)).doc,
+        doc: clsDoc,
         methods,
         source: pointer(rel, sf, cls),
       })
     }
   }
+  reportViolations(violations)
   return entries.sort((a, b) => a.key.localeCompare(b.key))
 }
 

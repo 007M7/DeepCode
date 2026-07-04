@@ -141,6 +141,7 @@ export abstract class CompactService extends Service {
    *   prior replace can leave the surface non-monotonic in seq order), or if
    *   either boundary is not a balanced tool-pairing cut (would split a step's
    *   tool-call/result pair).
+   * @returns what the compaction did (the replaced range and its summary node).
    */
   abstract compactRegion(
     session: Session,
