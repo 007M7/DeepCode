@@ -284,7 +284,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     // sessionUpdate returns a promise; a closed connection rejects it. The
     // update is best-effort UI feed, never load-bearing for correctness, so a
     // throwing/rejecting send must not break the turn (the chunk is emitted
-    // inside the model step — see AGENTS.md "contain callback exceptions").
+    // inside the model step — see docs/defensive-patterns.md "contain callback exceptions").
     /* v8 ignore next 3 -- the rejection only fires on a stdout/connection write
        failure (closed pipe), which the in-memory test transport never induces;
        the swallow is a defensive best-effort guard like the loop's emit traps */
@@ -639,7 +639,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
   conn = new AgentSideConnection(makeAgent, stream)
 
   /**
-   * Tear ALL live sessions down to quiescence (AGENTS.md "dispose must reach
+   * Tear ALL live sessions down to quiescence (docs/defensive-patterns.md "dispose must reach
    * quiescence"): for each session settle any pending prompt `cancelled`, then
    * run that session's {@link AgentHandle} `dispose()` — which stops the loop
    * (sets `disposed`, aborts the in-flight step), AWAITS the loop's exit (the
@@ -892,7 +892,7 @@ export class ToolPresenter {
    * @param onError invoked when a tool's `presentCall`/`presentResult` THROWS;
    *   the presenter swallows the error and falls back to the generic
    *   presentation so a buggy display callback can never fail a live turn or a
-   *   `session/load` replay (AGENTS.md "contain callback exceptions at the
+   *   `session/load` replay (docs/defensive-patterns.md "contain callback exceptions at the
    *   boundary"). Defaults to a no-op for callers that don't supply a logger.
    */
   constructor(

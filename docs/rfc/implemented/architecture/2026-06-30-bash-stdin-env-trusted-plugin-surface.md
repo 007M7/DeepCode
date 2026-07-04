@@ -26,7 +26,7 @@ Three deliberate choices:
 
 ## Scope: configurable scrub pattern is NOT included
 
-An earlier sketch of this work also proposed making `SENSITIVE_ENV_PATTERN` configurable. Validating against the code, that is **speculative and already subsumed**: `run.ts` documents a configurable whitelist as future work, and the new explicit `env` field — merged after the scrub — already gives a caller full control, including over credential-shaped vars. There is no current caller that needs to *broaden* the ambient scrub (the hazard runs the other way). Adding a config knob now would be a feature with no consumer, against [AGENTS.md](../../../../AGENTS.md) § "Don't add features beyond what the task requires". If a real workflow ever needs to forward a specific ambient credential, the explicit `env` field is the supported path; a configurable scrub can be reconsidered then.
+An earlier sketch of this work also proposed making `SENSITIVE_ENV_PATTERN` configurable. Validating against the code, that is **speculative and already subsumed**: `run.ts` documents a configurable whitelist as future work, and the new explicit `env` field — merged after the scrub — already gives a caller full control, including over credential-shaped vars. There is no current caller that needs to *broaden* the ambient scrub (the hazard runs the other way). Adding a config knob now would be a speculative surface with no consumer. If a real workflow ever needs to forward a specific ambient credential, the explicit `env` field is the supported path; a configurable scrub can be reconsidered then.
 
 ## Consequences
 
