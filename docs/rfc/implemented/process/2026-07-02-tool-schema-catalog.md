@@ -19,7 +19,7 @@ The cordis catalog is a pure TypeScript-AST pass because every event/service nam
 - `tool-subagent`'s tool name is `config.toolName ?? 'subagent'` — chosen at load, not a literal.
 - An MCP plugin can register **raw JSON Schema** directly via `ctx.tools.register()` without `defineTool` at all, so enumerating `defineTool(` call sites structurally under-counts.
 
-The only faithful source of truth is the schema the registry actually holds after the plugin loads. Booting is the [unit-test discipline](../../../../AGENTS.md) "verify the world, not a synthetic stand-in" applied to a doc generator: read the shipped artifact, not a re-derivation of it.
+The only faithful source of truth is the schema the registry actually holds after the plugin loads. Booting is the [testing-policy discipline](../../../testing.md) "verify the world, not the self-report" applied to a doc generator: read the shipped artifact, not a re-derivation of it.
 
 ### Restoring "nothing silently omitted"
 
