@@ -46,11 +46,13 @@ const rows: string[] = []
 
 for (const [path, ceiling] of Object.entries(manifest)) {
   if (!Number.isInteger(ceiling) || ceiling <= 0) {
+    rows.push(`BAD   ${'—'.padStart(6)} / ${String(ceiling).padEnd(6)} ${path}`)
     failures.push(`${path}: ceiling must be a positive integer, got ${ceiling}`)
     continue
   }
   const abs = resolve(root, path)
   if (!existsSync(abs)) {
+    rows.push(`MISS  ${'—'.padStart(6)} / ${String(ceiling).padEnd(6)} ${path}`)
     failures.push(`${path}: budgeted file does not exist (renamed or deleted? update scripts/doc-budgets.manifest.json in the same change)`)
     continue
   }
