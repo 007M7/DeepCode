@@ -18,7 +18,7 @@ Beyond the schema's type/required/enum checks, `execute` rejects an empty or dup
 
 ## Rendering
 
-The tool writes only the session event; it does not render. UIs subscribe to `session/event` and render the `todo/write` data themselves: the [stdio UI](../../support/ui-stdio) prints a glyphed checklist, and the [ACP bridge](../../ui/acp) maps the list to a `plan` sessionUpdate (synthesizing the `priority` ACP requires).
+The tool writes only the session event; it does not render. UIs subscribe to `session/event` and render the `todo/write` data themselves: the [stdio app's readline UI](../../ui/stdio-agent) prints a glyphed checklist, and the [ACP bridge](../../ui/acp) maps the list to a `plan` sessionUpdate (synthesizing the `priority` ACP requires).
 
 ## Export shape
 

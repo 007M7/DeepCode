@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events'
 import type { Readable, Writable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from 'cordis'
-import type { StdioRuntime } from '../src/index.ts'
+import type { StdioRuntime } from '../src/stdio-chat.ts'
 
 const createInterface = vi.hoisted(() => vi.fn(() => {
   const reader = new EventEmitter() as EventEmitter & { close(): void }
@@ -32,7 +32,7 @@ function fakeRuntime(inputIsTTY: boolean, outputIsTTY: boolean): StdioRuntime {
 
 describe('createStdioChat readline mode', () => {
   it('enables terminal editing only when both stdio streams are TTYs', async () => {
-    const { createStdioChat } = await import('../src/index.ts')
+    const { createStdioChat } = await import('../src/stdio-chat.ts')
 
     const tty = fakeRuntime(true, true)
     createStdioChat(fakeContext(), {}, tty)

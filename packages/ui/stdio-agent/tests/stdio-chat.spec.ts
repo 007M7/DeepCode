@@ -5,7 +5,7 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { createStdioChat, type Config, type StdioRuntime } from '../src/index.ts'
+import { createStdioChat, type Config, type StdioRuntime } from '../src/stdio-chat.ts'
 
 /**
  * Unit tests for the stdio UI plugin. They drive the REAL plugin body
