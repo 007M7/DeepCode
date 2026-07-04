@@ -96,8 +96,8 @@ pnpm run typecheck      # build package/vendor outputs, then typecheck examples,
 pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
-pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events-and-services.md from source
-pnpm run verify-cordis-catalog  # fail if the cordis events/services catalog is stale
+pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events.md + services.md from source
+pnpm run verify-cordis-catalog  # fail if either cordis catalog is stale
 pnpm run gen-doc-graphs     # regenerate generated relationship docs from source and curated graph definitions
 pnpm run verify-doc-graphs  # fail if generated relationship docs are stale
 pnpm run gen-rfc-index          # regenerate the docs/rfc/README.md index tables from the RFC tree

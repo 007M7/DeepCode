@@ -713,7 +713,7 @@ function renderIndex(docs: GraphDoc[]): string {
   ]
   return [
     ...generatedHeader('Documentation Graph Index', 'mixed: each linked page declares generated, hybrid, or curated mode'),
-    'These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in [cordis-catalog/](cordis-catalog/events-and-services.md), [tool-catalog/](tool-catalog/tools.md), and [core-data-structures/](core-data-structures/core.md).',
+    'These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, [tool-catalog/](tool-catalog/tools.md), and [core-data-structures/](core-data-structures/core.md).',
     '',
     'The process decision behind this index is recorded in [the documentation graph RFC](rfc/implemented/process/2026-07-03-documentation-graph-atlas.md).',
     '',
