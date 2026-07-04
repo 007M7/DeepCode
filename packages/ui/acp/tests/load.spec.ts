@@ -62,7 +62,7 @@ describe('acp bridge — session/load replay', () => {
     // bridge. The replayed tool_call/tool_call_update must carry the tool's OWN
     // presentation — identical to how it streamed live — via a throwaway
     // presenter that pairs call→result as the log replays in order. Uses the
-    // shipping tool (withBash), not a stand-in (AGENTS.md "prefer the real
+    // shipping tool (withBash), not a stand-in (docs/testing.md "prefer the real
     // implementation over a mock in tests").
     live = await makeBridgeHarness({
       storageDir,

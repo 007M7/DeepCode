@@ -60,6 +60,7 @@ declare module 'cordis' {
      * tool body never runs. Input rewrite is deliberately NOT offered here (see
      * {@link PreToolDecision}); `ask` degrades to deny until the permission
      * system lands (`FIXME(permissions)`).
+     * @param exec - the pending call (name, parsed arguments, caller agent).
      * @mode waterfall
      */
     'tools/pre-execute'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
@@ -74,6 +75,8 @@ declare module 'cordis' {
      * `execute`'s outer try/catch (and the tool body keeps its own inner
      * try/catch, so a thrown tool still reaches `post-execute` as an `isError`
      * result).
+     * @param exec - the call that just ran (name, parsed arguments, caller agent).
+     * @param result - the dispatch outcome a listener may accept, replace, or block.
      * @mode waterfall
      */
     'tools/post-execute'(this: ToolRegistry, exec: ToolExecution, result: ToolExecutionResult, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
@@ -277,6 +280,9 @@ export class ToolRegistry extends Service {
    * registered. The tool's schema (minus the `execute` function) is
    * automatically contributed to the system-prompt assembly. Disposed
    * with the calling fiber. Emits `tools/change` on register/unregister.
+   * @param definition - the tool's schema plus its execute (and optional
+   *   presentation) functions.
+   * @returns the disposer that unregisters the tool.
    */
   register(definition: ToolDefinition): () => void {
     const dispose = this.ctx.effect(function* (this: ToolRegistry) {
@@ -300,6 +306,11 @@ export class ToolRegistry extends Service {
     return () => void dispose()
   }
 
+  /**
+   * Look up a registered tool.
+   * @param name - the tool name as registered.
+   * @returns the definition, or undefined when no tool has that name.
+   */
   get(name: string): ToolDefinition | undefined {
     return this.store.get(name)
   }
@@ -313,6 +324,7 @@ export class ToolRegistry extends Service {
    * those (especially the functions) must never leak into a model request. An
    * allowlist can't drift when a new non-schema member is added to the
    * definition; a denylist (rest-destructure) would silently leak it.
+   * @returns one deep-cloned schema per registered tool, in registration order.
    */
   schemas(): ToolSchema[] {
     return [...this.store.values()].map(({ name, description, parameters, strict }): ToolSchema => ({
@@ -334,6 +346,9 @@ export class ToolRegistry extends Service {
    * still inspect. If the tool is not registered, the result is an `isError`
    * carrying a `UNKNOWN_TOOL` structured error. A thrown {@link HarnessError}
    * surfaces its `{ name, code }` on the result.
+   * @param exec - the call to run (name, parsed arguments, caller agent, signal).
+   * @returns the final result after both waterfalls; failures resolve as
+   *   `isError` results, never rejections.
    */
   async execute(exec: ToolExecution): Promise<ToolExecutionResult> {
     try {

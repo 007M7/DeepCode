@@ -11,9 +11,10 @@ const spillDir = mkdtempSync(join(tmpdir(), 'dsh-bash-exec-spec-'))
 
 async function setup(config: ConstructorParameters<typeof LocalBashExecutor>[1] = {}) {
   const ctx = new Context()
-  await ctx.plugin(LocalBashExecutor, config)
+  // A short kill grace via the REAL config path, so escalation tests stay fast.
+  await ctx.plugin(LocalBashExecutor, { graceMs: 200, ...config })
   const bash = ctx.bash as LocalBashExecutor
-  bash.internals = { spillDir, graceMs: 200 }
+  bash.internals = { spillDir }
   return { ctx, bash }
 }
 
@@ -80,10 +81,20 @@ describe('LocalBashExecutor.run', () => {
     await expect(setup({ timeoutMs: Number.NaN })).rejects.toThrow(/timeoutMs/)
     await expect(setup({ maxTimeoutMs: 0 })).rejects.toThrow(/maxTimeoutMs/)
     await expect(setup({ maxOutputBytes: -1 })).rejects.toThrow(/maxOutputBytes/)
+    await expect(setup({ graceMs: 0 })).rejects.toThrow(/graceMs/)
 
     const { bash } = await setup()
     expect(() => bash.resolve({ command: 'true', timeoutMs: Number.NaN })).toThrow(/request\.timeoutMs/)
     expect(() => bash.resolve({ command: 'true', timeoutMs: -1 })).toThrow(/request\.timeoutMs/)
+  })
+
+  it('kill escalation uses the configured graceMs (a TERM-trapping task dies by SIGKILL)', async () => {
+    const { bash } = await setup() // setup pins graceMs: 200 via config
+    const task = bash.start(bash.resolve({ command: 'trap \'\' TERM; sleep 60' }))
+    await new Promise(resolve => setTimeout(resolve, 100))
+    bash.kill(task.id)
+    await task.done
+    expect(task.signal).toBe('SIGKILL')
   })
 
   it('per-call timeout takes precedence under the cap and kills on expiry', async () => {
@@ -271,9 +282,9 @@ describe('LocalBashExecutor background tasks', () => {
 
   it('disposing with already-finished tasks only kills the running ones', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalBashExecutor, {})
+    const fiber = await ctx.plugin(LocalBashExecutor, { graceMs: 200 })
     const bash = ctx.bash as LocalBashExecutor
-    bash.internals = { spillDir, graceMs: 200 }
+    bash.internals = { spillDir }
 
     const finished = bash.start(bash.resolve({ command: 'true' }))
     await finished.done
@@ -288,9 +299,9 @@ describe('LocalBashExecutor background tasks', () => {
 
   it('disposing the executor fiber kills running tasks (no orphans)', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalBashExecutor, {})
+    const fiber = await ctx.plugin(LocalBashExecutor, { graceMs: 200 })
     const bash = ctx.bash as LocalBashExecutor
-    bash.internals = { spillDir, graceMs: 200 }
+    bash.internals = { spillDir }
     const listener = vi.fn()
     bash.onTaskDone(listener)
 
@@ -337,9 +348,9 @@ describe('review fixes: lifecycle hardening', () => {
 
   it('dispose AWAITS a TERM-trapping process (SIGKILL escalation included)', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(LocalBashExecutor, {})
+    const fiber = await ctx.plugin(LocalBashExecutor, { graceMs: 200 })
     const bash = ctx.bash as LocalBashExecutor
-    bash.internals = { spillDir, graceMs: 200 }
+    bash.internals = { spillDir }
 
     const task = bash.start(bash.resolve({ command: 'trap \'\' TERM; sleep 60' }))
     await new Promise(resolve => setTimeout(resolve, 100))
