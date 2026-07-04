@@ -124,7 +124,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:70`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:78`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 

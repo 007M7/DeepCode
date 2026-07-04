@@ -143,6 +143,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Branded IDs everywhere they belong](implemented/architecture/2026-06-20-branded-ids.md) | 2026-06-20 |
 | [Extract example apps into packages](implemented/architecture/2026-06-20-extract-example-app-packages.md) | 2026-06-20 |
 | [Reorganize packages into a modular hierarchy](implemented/architecture/2026-06-20-package-hierarchy.md) | 2026-06-20 |
+| [Mandatory `User-Agent` attribution for provider requests](implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md) | 2026-06-21 |
 | [Web capability seam - stable tools over multiple providers](implemented/architecture/2026-06-24-web-capability-seam.md) | 2026-06-24 |
 | [Make `dsh-fs-policy` an event-gate plugin, not a method interface](implemented/architecture/2026-06-26-file-context-as-event-gate.md) | 2026-06-26 |
 | [stdin + extra env on the bash seam](implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md) | 2026-06-30 |

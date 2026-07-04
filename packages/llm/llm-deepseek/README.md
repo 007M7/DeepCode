@@ -23,6 +23,10 @@ A second, independent implementation of the same seam exists in `@deepseek-ai/ds
 
 `thinking`/`reasoningEffort` are adapter-level request defaults serialized as the official top-level `thinking: {type}` / `reasoning_effort` wire fields. They live in adapter config (not `GenerateOptions`) to keep the core vocabulary provider-neutral.
 
+## App attribution
+
+Every request carries the shared attribution header from dsh-llm's `attributionHeaders()` - the mandatory `User-Agent` baseline identifying the harness (see [dsh-llm § App attribution](../llm/README.md#app-attribution-attributionts)). Direct DeepSeek requests and OpenAI-compatible gateway requests get no provider-specific app-attribution headers under this adapter contract; OpenRouter app attribution is deferred to a future explicit OpenRouter adapter or mode.
+
 ## Wire-format notes (verified live + against the official docs)
 
 - Streaming only (`stream_options.include_usage` always on). `usage` may arrive attached to the finish chunk or as a trailing usage-only chunk — the translator defers both to `[DONE]`, so `usage` always precedes `finish` and nothing follows `finish`.
