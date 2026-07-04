@@ -26,7 +26,7 @@ Placement test: a story about a bug → postmortem. Why we chose X → RFC. How 
 
 Standing docs accrete: every PR has a lesson it wants to append, and without displacement pressure nothing ever leaves. The gate is that pressure. [scripts/doc-budgets.manifest.json](../scripts/doc-budgets.manifest.json) lists the accretion-prone standing docs with a word ceiling each; `pnpm run verify-doc-budgets` (part of `doc-sync`, so CI and pre-push run it) fails when a doc exceeds its ceiling, and fails when a budgeted file is missing so a rename cannot orphan its budget.
 
-- Ceilings are an enforcement frontier: a ceiling starts at the doc's current size (freezing further growth) and ratchets down as the doc is brought to its target. Target budgets: root `AGENTS.md` ≤ 1,500 words; `architecture.md` ≤ 1,800; each subtree `AGENTS.md` ≤ 600, except this file (which carries the standard) ≤ 1,000; `packages/README.md` ≤ 600.
+- Ceilings are an enforcement frontier with working headroom: a ceiling sits at least 5% above the doc's current size — routine wording edits pass, real growth trips the gate — and ratchets down (keeping the margin) as the doc is brought to target. Target budgets: root `AGENTS.md` ≤ 1,500 words; `architecture.md` ≤ 1,800; each subtree `AGENTS.md` ≤ 600, except this file (which carries the standard) ≤ 1,000; `packages/README.md` ≤ 600.
 - When the gate goes red, the fix is to relocate or condense per the taxonomy above. Raising a ceiling is the last resort: the PR description must justify it, and the manifest diff is the reviewable act.
 - Unbudgeted tiers (package READMEs, RFCs, reference matrices) have no ceiling — length is legitimate there when every row is a fact. Review and the slop checklist govern them instead.
 

@@ -13,9 +13,10 @@
  * matrix is the right kind of long), and the standard governs them through
  * review, not a ceiling.
  *
- * The manifest is an enforcement frontier, i18n-rollout style: ceilings start
- * at a doc's current size (freezing further growth) and ratchet DOWN as the
- * doc is brought to its target budget. A manifest entry whose file is missing
+ * The manifest is an enforcement frontier, i18n-rollout style: a ceiling sits
+ * at least 5% above the doc's current size (working headroom, so routine
+ * wording edits pass while real growth trips the gate) and ratchets DOWN,
+ * keeping that margin, as the doc is brought to its target budget. A manifest entry whose file is missing
  * fails the gate, so a rename cannot silently orphan its budget.
  *
  * Words are counted `wc -w` style over the whole file (whitespace-delimited
