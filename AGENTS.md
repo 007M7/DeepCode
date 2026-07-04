@@ -34,6 +34,10 @@ A wave of review comments lands across several PRs in a dependent stack (`A ← 
 - **Delegated work is trust-but-verify.** When sub-agents implement fixes in parallel, their report describes what they INTENDED, not necessarily what landed. Re-run the gates yourself on the actual tree, and for a regression guard, **prove it FAILS on the unfixed code** (introduce the regression, watch the test go red, revert) — a guard that passes both ways guards nothing. A sub-agent that "reframes the problem as already-handled" instead of fixing it is a signal to dig in personally, not to accept the reframing.
 - **Triage on the merits, then reply in-thread.** Verify each comment against the code before acting (a reviewer flagging the right symptom can still mis-diagnose the cause — confirm both). Reply in the GitHub review thread (`gh api …/pulls/{pr}/comments/{id}/replies`), not as a top-level comment, stating the fix and the commit that carries it.
 
+## Landing changes cleanly: gates and judgment
+
+The recurring failure mode: a mechanical gate proves lines ran and types check; it never proves semantics, doc accuracy, or that a test guards anything. Layer the cheap human/AI judgment on top, in the right order, and keep each unit of work honestly scoped — and lean on an independent agent to review for the class of defect gates structurally cannot catch (prose/RFC/comment drift, a bug introduced while fixing, a test that asserts nothing load-bearing).
+
 ## Architecture
 
 This codebase is based on the **Cordis** framework, built microkernel-style: **everything is a plugin**. All necessary Cordis dependencies are copied into this monorepo as vendored source (under `vendor/`) instead of being depended on via npm.
