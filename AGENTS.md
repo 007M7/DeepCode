@@ -114,8 +114,6 @@ packages/    Harness packages, grouped by role at packages/<group>/<pkg>/.
                     acp bridge, NO stdout logger + a bin (the demo:acp front door)
   support/        dev/test/example infrastructure (lower compat expectations)
     invariants/     dev-mode event-contract invariants + session-log freeze
-    ui-stdio/       minimal stdio (readline) UI plugin: renders agent/* events,
-                    feeds stdin lines to the agent (shared by the demos)
     llm-replay/     record/replay adapter: short-circuits llm/stream from a
                     recorded session JSONL (keyless snapshot tests)
     subagent-mock/  scripted SubagentProvider for deterministic seam/tool tests

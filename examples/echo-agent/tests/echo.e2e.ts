@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it } from 'vitest'
  *
  * This is the guard the per-file unit suite structurally cannot be: it drives
  * the `@deepseek-ai/dsh-stdio-agent` app plugin, the `@deepseek-ai/dsh-agent-core`
- * bundle it loads, the extracted `@deepseek-ai/dsh-ui-stdio` plugin, AND the
+ * bundle it loads, the app's in-package readline UI module, AND the
  * example-local `mock-llm.ts` / `echo-tool.ts` through their REAL load path, so
  * a broken plugin export shape (a stray `export default` that `unwrapExports`
  * would collapse, dropping `inject`/`Config`) fails here even though hand-mounted

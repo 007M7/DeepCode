@@ -53,7 +53,6 @@ dsh-llm-pi-ai     ← dsh-llm                        (pi-ai-backed adapter)
 dsh-agent-loop    ← dsh-llm, dsh-session, dsh-session-persistence, dsh-system-prompt, dsh-tools, dsh-agent
 dsh-invariants    ← dsh-llm, dsh-session, dsh-agent (dev-mode contract checks)
 dsh-acp           ← dsh-agent, dsh-llm, dsh-session, dsh-session-persistence, dsh-tools  (ACP JSON-RPC bridge)
-dsh-ui-stdio      ← dsh-agent, dsh-llm, dsh-session (stdio readline UI plugin)
 dsh-llm-replay    ← dsh-llm, dsh-session            (record/replay adapter for keyless snapshot tests)
 dsh-subagent      ← dsh-agent, dsh-llm, dsh-tools    (abstract subagent provider-registry seam)
 dsh-subagent-inprocess ← dsh-subagent, dsh-agent, dsh-session, dsh-llm  (shared in-process run driver)
@@ -64,7 +63,7 @@ dsh-subagent-acp  ← dsh-subagent, dsh-agent, dsh-llm, @agentclientprotocol/sdk
 dsh-tool-subagent ← dsh-subagent, dsh-tools, dsh-agent, dsh-llm (model-facing delegation tool)
 dsh-tool-todo     ← dsh-tools, dsh-agent, dsh-session  (model-facing todo_write tool; whole list on the session log)
 dsh-agent-core    ← timer, dsh-llm, dsh-session, dsh-system-prompt, dsh-tools, dsh-agent, dsh-invariants, dsh-tool-bash, dsh-agent-loop  (the providerless spine, as one bundle plugin)
-dsh-stdio-agent   ← dsh-agent-core, dsh-ui-stdio, dsh-session-persistence-jsonl, dsh-agent, dsh-session  (stdio chat APP + bin)
+dsh-stdio-agent   ← dsh-agent-core, dsh-session-persistence-jsonl, dsh-agent, dsh-session  (stdio chat APP + readline UI + bin)
 dsh-acp-agent     ← dsh-agent-core, dsh-acp, dsh-session-persistence-jsonl     (ACP server APP + bin)
 ```
 
@@ -105,7 +104,6 @@ The rule: **extension** plugins depend on interfaces, never on the concrete loop
 | `acp/` | `ui` | Agent Client Protocol bridge: serves the agent to an ACP editor over JSON-RPC stdio | (drives `ctx.agents`/`ctx.sessions`) |
 | `stdio-agent/` | `ui` | Terminal stdio chat APP: agent-core spine + console logger + readline UI + a pre-created `main` agent, with a `bin` | (composition + `bin`) |
 | `acp-agent/` | `ui` | ACP server APP: agent-core spine + JSONL persistence + the `acp` bridge (no stdout logger), with a `bin` | (composition + `bin`) |
-| `ui-stdio/` | `support` | Minimal stdio (readline) UI plugin: renders `agent/*` events, feeds stdin lines to the agent | (drives `ctx.agents`) |
 | `llm-replay/` | `support` | Record/replay adapter: short-circuits `llm/stream` with chunks from a recorded session JSONL (keyless snapshot tests) | (listens on `llm/stream`) |
 | `subagent/` | `subagent` | Abstract subagent seam: named-provider registry for delegating to child agents | `ctx.subagents` |
 | `subagent-inprocess/` | `subagent` | Shared in-process subagent run driver used by spawn/fork; pure library, registers nothing | (none) |

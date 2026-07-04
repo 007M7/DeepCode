@@ -9,8 +9,8 @@ import { afterEach, describe, expect, it } from 'vitest'
  * Keyless Loader-path smoke for examples/coding-agent: boot the REAL example
  * through the `@deepseek-ai/dsh-stdio-agent` bin against its `cordis.yml` (the
  * cordis Loader, `unwrapExports`, the full plugin tree incl. the
- * `@deepseek-ai/dsh-agent-core` bundle and the extracted
- * `@deepseek-ai/dsh-ui-stdio`), then close stdin with no prompt and assert the
+ * `@deepseek-ai/dsh-agent-core` bundle and the app's in-package readline UI
+ * module), then close stdin with no prompt and assert the
  * ready banner + a clean exit.
  *
  * No prompt is ever sent, so the model is NEVER called — this is why it runs
