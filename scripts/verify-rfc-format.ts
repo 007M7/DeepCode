@@ -65,6 +65,17 @@ for (const rfc of rfcs) {
     errors.push(`format: ${rfc.rel} — ${msg}`)
   }
   const lines = readFileSync(resolve(rfcRoot, rfc.rel), 'utf8').split('\n')
+  // Content scans ignore fenced code blocks: an RFC may legitimately QUOTE a
+  // status line, a banned heading, or the grandfather comment inside a fence
+  // (the README's own format section does), and only real prose counts.
+  let inFence = false
+  const prose = lines.filter((l) => {
+    if (l.startsWith('```')) {
+      inFence = !inFence
+      return false
+    }
+    return !inFence
+  })
 
   if (!/^# RFC: \S/.test(lines[0] ?? '')) fail('line 1 must be `# RFC: <title>`')
   if (lines[1] !== '') fail('line 2 must be blank')
@@ -73,10 +84,12 @@ for (const rfc of rfcs) {
     fail(`line 3 must match the ${rfc.lifecycle} status grammar (${String(status)})`)
   }
   if (lines[3] !== '') fail('line 4 must be blank')
-  const statusLines = lines.filter((l, i) => i !== 2 && l.startsWith('Status:'))
-  if (statusLines.length > 0) fail('the line-3 `Status:` line must be the only one in the file')
+  const statusLines = prose.filter(l => l.startsWith('Status:') && l !== lines[2])
+  if (statusLines.length > 0 || prose.filter(l => l === lines[2]).length > 1) {
+    fail('the line-3 `Status:` line must be the only one in the file')
+  }
 
-  const h2s = lines.filter(l => l.startsWith('## ')).map(l => l.trimEnd())
+  const h2s = prose.filter(l => l.startsWith('## ')).map(l => l.trimEnd())
   if (h2s[0] !== '## Problem') fail(`the first section must be \`## Problem\` (got ${JSON.stringify(h2s[0] ?? '<none>')})`)
   for (const required of REQUIRED[rfc.lifecycle] ?? []) {
     if (!h2s.includes(required)) fail(`missing the required \`${required}\` section`)
@@ -88,12 +101,12 @@ for (const rfc of rfcs) {
   }
 
   const hasSection = h2s.includes('## Alternatives considered')
-  const hasGrandfather = lines.includes(GRANDFATHER)
+  const hasGrandfather = prose.includes(GRANDFATHER)
   if (hasSection && hasGrandfather) fail('carries both `## Alternatives considered` and the grandfather comment — drop the comment')
   if (!hasSection && !hasGrandfather) fail('missing `## Alternatives considered` (a pre-format RFC whose alternatives are not reconstructible carries the grandfather comment instead — see docs/rfc/README.md § The file format)')
   if (hasGrandfather && rfc.date >= FORMAT_ADOPTED) fail(`the grandfather comment is only valid for RFCs dated before ${FORMAT_ADOPTED}`)
 
-  if (lines.some(l => l.includes(LEGACY_MARKER))) fail('carries the retired legacy-format debt marker')
+  if (prose.some(l => l.includes(LEGACY_MARKER))) fail('carries the retired legacy-format debt marker')
 }
 
 if (errors.length === 0) {
