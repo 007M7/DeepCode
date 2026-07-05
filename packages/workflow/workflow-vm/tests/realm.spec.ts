@@ -81,6 +81,27 @@ describe('materializeFromRealm', () => {
     expect(materializeFromRealm(inRealm('Object.assign(Object.create(null), { a: 1 })'))).toEqual({ a: 1 })
   })
 
+  it('rejects proxies (root, nested, revoked, host-realm) WITHOUT running any trap', () => {
+    const trapped = inRealm(`new Proxy({ a: 1 }, {
+      ownKeys() { throw new Error('trap ran') },
+      getOwnPropertyDescriptor() { throw new Error('trap ran') },
+      getPrototypeOf() { throw new Error('trap ran') },
+    })`)
+    // A trap firing would surface 'trap ran' (a non-MaterializeError) instead.
+    expect(rejection(trapped)).toContain('proxies cannot cross')
+    expect(rejection(inRealm('{ nested: new Proxy([], {}) }'))).toContain('value.nested')
+    const revoked = inRealm('(() => { const r = Proxy.revocable({}, {}); r.revoke(); return r.proxy })()')
+    expect(rejection(revoked)).toContain('proxies cannot cross')
+    expect(rejection(new Proxy({}, {}))).toContain('proxies cannot cross')
+  })
+
+  it('rejects an object whose PROTOTYPE is a proxy without dereferencing through it', () => {
+    const value = inRealm(`Object.create(new Proxy({}, {
+      getPrototypeOf() { throw new Error('trap ran') },
+    }))`)
+    expect(rejection(value)).toContain('exotic prototype')
+  })
+
   it('rejects cycles and accepts the same object reused as a sibling (a DAG)', () => {
     expect(rejection(inRealm('(() => { const o = {}; o.self = o; return o })()'))).toContain('circular')
     const dag = inRealm('(() => { const leaf = { v: 1 }; return { a: leaf, b: leaf } })()')

@@ -108,6 +108,14 @@ return 2`
     expect(error.message).toContain('JSON data')
   })
 
+  it('rejects a meta literal containing a proxy as META_INVALID — its traps never run', () => {
+    // bad() rethrows anything that is not a WorkflowError, so a trap firing
+    // ('trap ran') would fail this test instead of mapping to META_INVALID.
+    const error = bad('export const meta = { name: "x", description: "d", phases: new Proxy([], { getPrototypeOf() { throw new Error("trap ran") } }) }')
+    expect(error.code).toBe('META_INVALID')
+    expect(error.message).toContain('proxies cannot cross')
+  })
+
   it('rejects shape violations with EVERY violation listed (META_INVALID)', () => {
     const error = bad('export const meta = { description: 7, bogus: 1 }\nreturn 1')
     expect(error.code).toBe('META_INVALID')

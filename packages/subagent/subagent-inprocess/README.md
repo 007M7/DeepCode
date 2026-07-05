@@ -24,7 +24,7 @@ Runs a child as a child [`Agent`](../../core/agent) on the same cordis context (
 The mechanism behind `outputSchema` for in-process children. One globally registered `structured_output` capture tool (its registered parameters are a placeholder) plus two listeners, registered once per root context and shared by every holder:
 
 - an `agent/request` waterfall listener registered `prepend: true` that post-processes `await next()` — **final-request enforcement**: the request that hits the wire never carries `structured_output` for an agent without a structured run, and always carries the run's OWN schema (as the tool's `parameters`) for one that has it. Per-agent shaping lives here because the tool registry and prompt assembly are context-global while schemas differ per concurrent child; cooperative mutate-then-`next()` would not survive a downstream listener returning a replacement request.
-- an `agent/turn-continuation` listener that stops a child's turn once its output is captured, so a successful capture doesn't buy a wasted extra model step.
+- an `agent/turn-continuation` listener (also `prepend: true` — an earlier-registered force-continue listener returning without `next()` must not decide the turn before the veto runs) that stops a child's turn once its output is captured, so a successful capture doesn't buy a wasted extra model step.
 
 The capture tool validates each call against the run's schema (`validateStructuredValue`) — violations become an `INVALID_ARGS` isError result the model retries in-turn; a valid call records the value.
 

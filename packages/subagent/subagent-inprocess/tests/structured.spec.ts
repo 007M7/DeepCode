@@ -5,6 +5,7 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
+import type { Agent, ContinuationDecision } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
@@ -83,6 +84,34 @@ describe('in-process structured output', () => {
     // structured runtime's turn-continuation veto stops the turn instead.
     expect(adapter.requests.length).toBe(1)
     await run.dispose()
+  })
+
+  it('the captured-turn veto is prepend: an EARLIER force-continue listener cannot short-circuit it', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    // Registered BEFORE the structured runtime exists — without prepend, this
+    // goal-style listener would decide the turn first (returning WITHOUT
+    // calling next()) and the veto would never run.
+    ctx.on('agent/turn-continuation', () => Promise.resolve<ContinuationDecision>({ action: 'continue' }))
+    const acquisition = acquireStructuredRuntime(ctx)
+    const agent = { id: AgentId('structured-child') } as unknown as Agent
+    acquisition.attach(agent, SCHEMA)
+    const captured = await ctx.tools.execute({
+      callId: 'call-1' as never,
+      name: STRUCTURED_OUTPUT_TOOL,
+      arguments: { answer: 1 },
+      agent,
+    })
+    expect(captured.isError).toBeFalsy()
+    const decision = await ctx.waterfall(
+      'agent/turn-continuation', agent, 1,
+      { action: 'continue' },
+      () => Promise.resolve<ContinuationDecision>({ action: 'continue' }),
+    )
+    expect(decision).toEqual({ action: 'stop' })
+    acquisition.detach(agent)
+    acquisition.release()
   })
 
   it('an invalid call gets an INVALID_ARGS isError result and the model retries in-turn', async () => {

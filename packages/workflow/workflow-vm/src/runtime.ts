@@ -9,8 +9,11 @@
  * descriptor walks; values ENTERING the realm from the host (`args`, agent()
  * results) are rebuilt INSIDE the realm through the context's own
  * `JSON.parse`, so the script never holds an object whose prototype chain
- * reaches host intrinsics. Realm functions (pipeline stages, parallel thunks)
- * are called, not materialized — their values stay realm-side.
+ * reaches host intrinsics. The arrays `parallel`/`pipeline` resolve to are
+ * realm-built for the same reason (their ELEMENTS are realm values already —
+ * only the container needs rebuilding). Realm functions (pipeline stages,
+ * parallel thunks) are called, not materialized — their values stay
+ * realm-side.
  *
  * Failure discipline: fatal {@link WorkflowError}s (bad hook arguments,
  * unsupported options/schemas, tripped caps, seam start failures,
@@ -132,7 +135,10 @@ export class WorkflowExecution {
   private currentPhase: string | undefined
   private readonly context: vm.Context
   private readonly realmJsonParse: (text: string) => unknown
+  private readonly realmArrayFrom: (items: unknown[]) => unknown[]
   private readonly compiled: vm.Script
+  /** Every live `agent()` call promise — awaited or stray — for {@link quiesce}. */
+  private readonly inFlightAgents = new Set<Promise<unknown>>()
 
   constructor(
     private readonly ctx: Context,
@@ -162,9 +168,12 @@ export class WorkflowExecution {
     // The realm's own JSON.parse — the host→realm rebuild channel.
     const realmJson = vm.runInContext('JSON', this.context) as { parse(text: string): unknown }
     this.realmJsonParse = (text: string) => realmJson.parse(text)
+    // The realm's own Array.from, bound NOW so a script reassigning its
+    // globals later cannot swap it: combinator results must be realm arrays.
+    this.realmArrayFrom = vm.runInContext('Array.from.bind(Array)', this.context) as (items: unknown[]) => unknown[]
 
     const globals: Record<string, unknown> = {
-      agent: (prompt: unknown, opts?: unknown) => this.contain(this.agent(prompt, opts)),
+      agent: (prompt: unknown, opts?: unknown) => this.contain(this.track(this.agent(prompt, opts))),
       parallel: (thunks: unknown) => this.contain(this.parallel(thunks)),
       pipeline: (items: unknown, ...stages: unknown[]) => this.contain(this.pipeline(items, stages)),
       phase: (title: unknown) => { this.phase(title) },
@@ -216,8 +225,15 @@ export class WorkflowExecution {
    */
   async drive(): Promise<WorkflowResult> {
     try {
+      // Cancelled before the body ever ran (an already-aborted start signal):
+      // the script must not execute at all, let alone report `completed`.
+      if (this.isCancelled()) throw this.cancelledError()
       const scriptPromise = this.compiled.runInContext(this.context, { timeout: this.limits.syncTimeoutMs }) as Promise<unknown>
       const raw: unknown = await this.contain(Promise.resolve(scriptPromise))
+      // Cancelled while the body ran: a script that settled without touching
+      // another hook (or without any) must still report `cancelled` — the
+      // holder asked for cancellation and `completed` would be a lie.
+      if (this.isCancelled()) throw this.cancelledError()
       const value = raw === undefined ? null : this.materializeResult(raw)
       return { value, stopReason: 'completed', agentsStarted: this.started }
     } catch (error: unknown) {
@@ -243,6 +259,31 @@ export class WorkflowExecution {
   private contain<T>(promise: Promise<T>): Promise<T> {
     promise.catch(() => { /* consumed: see method contract — a dropped hook promise must not surface an unhandled rejection */ })
     return promise
+  }
+
+  /**
+   * Register one `agent()` call promise for {@link quiesce} tracking; the
+   * entry drops when the call fully settles (which is AFTER its child's
+   * `dispose()` — the call wrapper disposes in its `finally`).
+   */
+  private track<T>(promise: Promise<T>): Promise<T> {
+    this.inFlightAgents.add(promise)
+    const drop = (): void => { this.inFlightAgents.delete(promise) }
+    promise.then(drop, drop)
+    return promise
+  }
+
+  /**
+   * Settles once every `agent()` call — awaited or stray — has fully settled,
+   * INCLUDING each child's `dispose()`. The reap in {@link drive}'s finally
+   * aborts strays; this is the wait for those aborts to reach quiescence, so
+   * the engine's `dispose()` cannot return while a child is still winding
+   * down. Never rejects (the tracked promises' rejections are contained).
+   */
+  async quiesce(): Promise<void> {
+    while (this.inFlightAgents.size > 0) {
+      await Promise.allSettled([...this.inFlightAgents])
+    }
   }
 
   private cancelledError(): WorkflowError {
@@ -430,7 +471,7 @@ export class WorkflowExecution {
       }
       return thunk as () => unknown
     })
-    return Promise.all(thunks.map(async (thunk) => {
+    const settled = await Promise.all(thunks.map(async (thunk) => {
       try {
         return await thunk()
       } catch (error: unknown) {
@@ -438,6 +479,9 @@ export class WorkflowExecution {
         return null
       }
     }))
+    // The container must be a REALM array (module doc); the elements are
+    // realm values already.
+    return this.realmArrayFrom(settled)
   }
 
   /** The `pipeline(items, ...stages)` hook: per-item stage chains, NO cross-stage barrier. */
@@ -455,7 +499,7 @@ export class WorkflowExecution {
       }
       return stage as (previous: unknown, item: unknown, index: number) => unknown
     })
-    return Promise.all(rawItems.map(async (item: unknown, index) => {
+    const settled = await Promise.all(rawItems.map(async (item: unknown, index) => {
       let value: unknown = item
       try {
         for (const stage of stages) {
@@ -469,6 +513,9 @@ export class WorkflowExecution {
         return null
       }
     }))
+    // The container must be a REALM array (module doc); the elements are
+    // realm values already.
+    return this.realmArrayFrom(settled)
   }
 
   private assertItemCap(length: number, hook: string): void {

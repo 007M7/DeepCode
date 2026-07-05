@@ -235,13 +235,13 @@ Semantics every implementation must honor:
 
 - start throws synchronously for a request that cannot begin (an unparseable script, an invalid meta block). Once it returns a WorkflowRun, `result` NEVER rejects — every failure resolves with `stopReason: 'error'` (or `'cancelled'`).
 - The `workflow/*` events fire through emitWorkflowEvent (data snapshots, per-listener containment); `workflow/end` fires exactly once per started run, after `result` is settled or as it settles.
-- `dispose()` reaches quiescence within a bounded grace: it cancels, waits for the script to settle, and abandons a stuck script rather than hanging its caller (the engine documents what abandonment leaves behind).
+- `dispose()` reaches quiescence within a bounded grace: it cancels, waits for the script to settle AND its started children to finish disposing, and abandons whatever is left rather than hanging its caller (the engine documents what abandonment leaves behind).
 
 ```ts cordis-catalog
 abstract start(request: WorkflowStartRequest): WorkflowRun
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:188`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:191`](../../packages/workflow/workflow/src/index.ts)
 
 ## Inherited `ctx` members (cordis core + loader/hmr/timer)
 

@@ -18,7 +18,9 @@
  *
  * A companion `agent/turn-continuation` listener stops a child's turn once its
  * output is captured — without it, the loop's default "had tool calls ⇒
- * continue" buys a wasted extra model step per structured child.
+ * continue" buys a wasted extra model step per structured child. It is also
+ * `prepend: true`: the veto must run before any earlier-registered listener
+ * that could short-circuit the chain into a forced continue.
  *
  * Lifetime is refcounted with two kinds of holder: each backend acquires for
  * its plugin lifetime (so the tool exists before any run), and each structured
@@ -183,11 +185,15 @@ function registerRuntime(root: Context, runtime: StructuredRuntime): void {
 
   // Stop a structured child's turn once its output is captured: the default
   // "had tool calls ⇒ continue" would otherwise buy a wasted extra model step
-  // after every successful capture.
+  // after every successful capture. `prepend: true` puts the veto OUTERMOST —
+  // an earlier-registered listener that short-circuits the chain (a goal-style
+  // force-continue returning without `next()`) would otherwise decide the turn
+  // before this listener ever ran, and no downstream decision may resurrect a
+  // structured turn that is already finished.
   runtime.disposers.push(root.on('agent/turn-continuation', function (
     this: unknown, agent: Agent, _turn: number, _decision: ContinuationDecision, next: () => Promise<ContinuationDecision>,
   ): Promise<ContinuationDecision> {
     if (runtime.states.get(agent)?.captured) return Promise.resolve({ action: 'stop' })
     return next()
-  }))
+  }, { prepend: true }))
 }

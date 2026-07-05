@@ -4,9 +4,9 @@ The **workflow seam** (`ctx.workflows`): an abstract service defining WHAT a wor
 
 ## Service: `WorkflowService` (abstract)
 
-`start(request: WorkflowStartRequest): WorkflowRun` — parse and execute a script. Throws synchronously (`SCRIPT_PARSE`/`META_INVALID`) for a script that cannot begin; once a run is returned, its `result` NEVER rejects — every failure resolves with `stopReason: 'error'` (or `'cancelled'`). `dispose()` must reach quiescence within a bounded grace (cancel → wait → abandon), never hanging its caller.
+`start(request: WorkflowStartRequest): WorkflowRun` — parse and execute a script. Throws synchronously (`SCRIPT_PARSE`/`META_INVALID`) for a script that cannot begin; once a run is returned, its `result` NEVER rejects — every failure resolves with `stopReason: 'error'` (or `'cancelled'`). `dispose()` must reach quiescence within a bounded grace (cancel → wait for the script to settle and its children to finish disposing → abandon), never hanging its caller.
 
-The protected `emitWorkflowEvent` helper dispatches the `workflow/*` events with PER-LISTENER containment (a throwing subscriber is logged, never propagated, and cannot starve later listeners) — the same guarantee as the subagent seam's lifecycle emits.
+The protected `emitWorkflowEvent` helper dispatches the `workflow/*` events with PER-LISTENER containment and PER-LISTENER payload snapshots (a throwing subscriber is logged, never propagated, and cannot starve later listeners; each subscriber gets its own clone of the payload, so mutating it corrupts neither the engine nor other listeners) — the same containment guarantee as the subagent seam's lifecycle emits.
 
 ## Vocabulary
 

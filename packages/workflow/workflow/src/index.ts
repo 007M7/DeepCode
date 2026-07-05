@@ -13,8 +13,10 @@
  * carry {@link WorkflowRunInfo} (id + meta), never the live {@link WorkflowRun}
  * — a listener must not gain `cancel`/`dispose`; control stays with the
  * `start()` caller holding the run. Every emit is per-listener contained (a
- * throwing subscriber is logged, never propagated), so one bad observer can
- * neither strand a live run nor starve later listeners.
+ * throwing subscriber is logged, never propagated) and every listener gets its
+ * own payload clone (mutating it corrupts nothing), so one bad observer can
+ * neither strand a live run, starve later listeners, nor poison another
+ * listener's view.
  *
  * @module @deepseek-ai/dsh-workflow
  */
@@ -182,8 +184,9 @@ export function isFatalWorkflowError(error: unknown): boolean {
  *   snapshots, per-listener containment); `workflow/end` fires exactly once
  *   per started run, after `result` is settled or as it settles.
  * - `dispose()` reaches quiescence within a bounded grace: it cancels, waits
- *   for the script to settle, and abandons a stuck script rather than
- *   hanging its caller (the engine documents what abandonment leaves behind).
+ *   for the script to settle AND its started children to finish disposing,
+ *   and abandons whatever is left rather than hanging its caller (the engine
+ *   documents what abandonment leaves behind).
  */
 export abstract class WorkflowService extends Service {
   constructor(ctx: Context) {
@@ -199,12 +202,16 @@ export abstract class WorkflowService extends Service {
   abstract start(request: WorkflowStartRequest): WorkflowRun
 
   /**
-   * Emit one `workflow/*` lifecycle event with PER-LISTENER containment:
-   * dispatch each subscriber individually and log (never propagate) a thrown
-   * one, so one bad subscriber can neither fail the engine mid-run, surface as
-   * an unhandled rejection on a detached settle hook, nor starve the listeners
-   * registered after it (cordis `emit` halts on the first throw — same
-   * guarantee as the subagent seam's lifecycle emits).
+   * Emit one `workflow/*` lifecycle event with PER-LISTENER containment and
+   * PER-LISTENER payload snapshots: each subscriber is dispatched individually
+   * with its OWN structural clone of the payload (the payloads are plain JSON
+   * data by the seam contract), so a listener mutating what it received can
+   * corrupt neither the engine's live state nor any other listener's or later
+   * event's view; a thrown listener is logged (never propagated), so one bad
+   * subscriber can neither fail the engine mid-run, surface as an unhandled
+   * rejection on a detached settle hook, nor starve the listeners registered
+   * after it (cordis `emit` halts on the first throw — same guarantee as the
+   * subagent seam's lifecycle emits).
    * @param name - the `workflow/*` event to dispatch.
    * @param args - the event's payload, matching its declared signature.
    */
@@ -213,7 +220,7 @@ export abstract class WorkflowService extends Service {
       try {
         // The declared workflow/* signatures are all void-returning emits; the
         // dispatch callback applies the payload tuple.
-        ;(callback as (...payload: unknown[]) => void)(...args)
+        ;(callback as (...payload: unknown[]) => void)(...structuredClone(args))
       } catch (error: unknown) {
         this.ctx.logger.warn(`workflow: ${name} listener threw: ${String(error)}`)
       }

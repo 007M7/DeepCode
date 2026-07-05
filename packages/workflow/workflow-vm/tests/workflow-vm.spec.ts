@@ -36,6 +36,7 @@ class StubProvider implements SubagentProvider {
   constructor(
     readonly name: string,
     private readonly reply?: (request: SubagentStartRequest, index: number) => SubagentResult,
+    private readonly disposeDelayMs = 0,
   ) {}
 
   start(request: SubagentStartRequest): SubagentRun {
@@ -57,8 +58,17 @@ class StubProvider implements SubagentProvider {
         settle({ output: [], stopReason: 'aborted' })
       },
       dispose: () => {
-        controlled.disposed = true
-        return Promise.resolve()
+        if (this.disposeDelayMs === 0) {
+          controlled.disposed = true
+          return Promise.resolve()
+        }
+        // A slow-winding child (quiescence tests): disposal completes late.
+        return new Promise<void>((resolve) => {
+          setTimeout(() => {
+            controlled.disposed = true
+            resolve()
+          }, this.disposeDelayMs)
+        })
       },
     }
   }
@@ -73,12 +83,17 @@ interface SetupOptions {
   config?: Config
   reply?: (request: SubagentStartRequest, index: number) => SubagentResult
   manual?: boolean
+  disposeDelayMs?: number
 }
 
 async function setup(options?: SetupOptions) {
   const ctx = new Context()
   await ctx.plugin(SubagentService)
-  const provider = new StubProvider('stub', options?.manual ? undefined : options?.reply ?? (() => text('stub reply')))
+  const provider = new StubProvider(
+    'stub',
+    options?.manual ? undefined : options?.reply ?? (() => text('stub reply')),
+    options?.disposeDelayMs ?? 0,
+  )
   ctx.subagents.registerProvider(provider)
   await ctx.plugin(VmWorkflowEngine, { provider: 'stub', ...options?.config })
   return { ctx, provider, parent: fakeParent() }
@@ -405,6 +420,50 @@ describe('dsh-workflow-vm', () => {
       expect((await run(ctx, parent, script('return typeof args'))).value).toBe('undefined')
     })
 
+    it('parallel/pipeline resolve to REALM arrays: instanceof holds in-script, host intrinsics stay unreachable', async () => {
+      const { ctx, parent } = await setup()
+      const result = await run(ctx, parent, script(`
+        const fromParallel = await parallel([() => agent('a'), () => 'plain'])
+        const fromPipeline = await pipeline([1], (prev) => prev + 1)
+        Object.getPrototypeOf(fromParallel).polluted = 'realm-only'
+        return {
+          parallelIsRealmArray: fromParallel instanceof Array,
+          pipelineIsRealmArray: fromPipeline instanceof Array,
+          values: [fromParallel[1], fromPipeline[0]],
+        }
+      `))
+      expect(result.stopReason).toBe('completed')
+      expect(result.value).toEqual({
+        parallelIsRealmArray: true,
+        pipelineIsRealmArray: true,
+        values: ['plain', 2],
+      })
+      // The script's prototype mutation stayed realm-side: the HOST
+      // Array.prototype was never reachable through a combinator result.
+      expect(([] as unknown as Record<string, unknown>).polluted).toBeUndefined()
+    })
+
+    it('a returned proxy is rejected as RESULT_UNSERIALIZABLE without running its traps', async () => {
+      const { ctx, parent } = await setup()
+      const result = await run(ctx, parent, script(`
+        return new Proxy({ a: 1 }, { ownKeys() { throw new Error('trap ran') } })
+      `))
+      expect(result.stopReason).toBe('error')
+      expect(result.error).toContain('not plain JSON data')
+      expect(result.error).toContain('proxies cannot cross')
+      expect(result.error).not.toContain('trap ran')
+    })
+
+    it('agent() options passed as a proxy are rejected loudly, traps never invoked', async () => {
+      const { ctx, parent } = await setup()
+      const result = await run(ctx, parent, script(`
+        return await agent('p', new Proxy({}, { ownKeys() { throw new Error('trap ran') } }))
+      `))
+      expect(result.stopReason).toBe('error')
+      expect(result.error).toContain('options must be plain JSON data')
+      expect(result.error).not.toContain('trap ran')
+    })
+
     it('a non-JSON return value fails loud as RESULT_UNSERIALIZABLE', async () => {
       const { ctx, parent } = await setup()
       const withDate = await run(ctx, parent, script('return { when: new Date(0) }'))
@@ -449,6 +508,51 @@ describe('dsh-workflow-vm', () => {
       const result = await handle.result
       expect(result.stopReason).toBe('cancelled')
       expect(provider.runs.length).toBe(0)
+      await handle.dispose()
+    })
+
+    it('an already-aborted signal cancels a HOOK-FREE script: the body never runs at all', async () => {
+      const { ctx, parent } = await setup()
+      const controller = new AbortController()
+      controller.abort()
+      const logs: string[] = []
+      ctx.on('workflow/log', (_info, message) => { logs.push(message) })
+      const handle = ctx.workflows.start({ script: script("log('ran')\nreturn 123"), parent, signal: controller.signal })
+      const result = await handle.result
+      expect(result.stopReason).toBe('cancelled')
+      expect(result.value).toBeNull()
+      expect(logs).toEqual([])
+      await handle.dispose()
+    })
+
+    it('cancel() right after start() reports cancelled even when the script needed no hooks', async () => {
+      const { ctx, parent } = await setup()
+      const handle = ctx.workflows.start({ script: script('return 123'), parent })
+      handle.cancel('changed my mind')
+      const result = await handle.result
+      expect(result.stopReason).toBe('cancelled')
+      expect(result.value).toBeNull()
+      expect(result.error).toContain('changed my mind')
+      await handle.dispose()
+    })
+
+    it('an agent() call AFTER a mid-run cancel rejects at entry — no child ever starts', async () => {
+      const { ctx, parent, provider } = await setup({ manual: true })
+      const handle = ctx.workflows.start({
+        script: script(`
+          await agent('first')
+          return await agent('second')
+        `),
+        parent,
+      })
+      await vi.waitFor(() => { expect(provider.runs.length).toBe(1) })
+      // Same synchronous block: the first child settles completed, then the
+      // cancel lands BEFORE the script's continuation can call agent() again.
+      provider.runs[0]!.settle(text('first done'))
+      handle.cancel('mid-run')
+      const result = await handle.result
+      expect(result.stopReason).toBe('cancelled')
+      expect(provider.runs.length).toBe(1)
       await handle.dispose()
     })
 
@@ -577,6 +681,24 @@ describe('dsh-workflow-vm', () => {
       })
       await handle.dispose()
     })
+
+    it('dispose() waits for a stray child to FINISH disposing (quiescence), not just the script settle', async () => {
+      const { ctx, parent, provider } = await setup({ manual: true, disposeDelayMs: 40 })
+      const handle = ctx.workflows.start({
+        script: script(`
+          agent('stray')
+          return 'done without awaiting'
+        `),
+        parent,
+      })
+      const result = await handle.result
+      expect(result.stopReason).toBe('completed')
+      expect(provider.runs.length).toBe(1)
+      await handle.dispose()
+      // Not a waitFor: by the time dispose() returns, the slow child disposal
+      // must already be complete.
+      expect(provider.runs[0]!.disposed).toBe(true)
+    })
   })
 
   describe('service surface', () => {
@@ -593,6 +715,24 @@ describe('dsh-workflow-vm', () => {
       await Promise.all([first.result, second.result])
       await first.dispose()
       await second.dispose()
+    })
+
+    it('a listener mutating one event payload cannot corrupt later events (per-emission snapshots)', async () => {
+      const { ctx, parent } = await setup()
+      const ends: unknown[] = []
+      let endInfo: WorkflowRunInfo | undefined
+      ctx.on('workflow/agent-start', (info, agent) => {
+        agent.seq = 999
+        agent.label = 'HACKED'
+        info.meta.name = 'HACKED'
+      })
+      ctx.on('workflow/agent-end', (info, agent) => {
+        ends.push(agent)
+        endInfo = info
+      })
+      await run(ctx, parent, script("return await agent('job', { label: 'honest' })"))
+      expect(ends[0]).toMatchObject({ seq: 1, label: 'honest', outcome: 'completed' })
+      expect(endInfo!.meta.name).toBe('test-flow')
     })
 
     it('unregisters ctx.workflows when the engine fiber is disposed (HMR safety)', async () => {

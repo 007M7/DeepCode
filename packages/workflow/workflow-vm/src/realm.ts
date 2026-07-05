@@ -10,7 +10,13 @@
  * host containers, rejecting loud everything JSON cannot carry:
  * accessor properties, non-plain prototypes, functions, symbols (keys or
  * values), bigints, non-finite numbers, `undefined` values, cycles, sparse
- * arrays, and arrays with non-index own properties.
+ * arrays, arrays with non-index own properties, and proxies. Proxies are
+ * rejected via the trap-free native `util.types.isProxy` check BEFORE any
+ * other inspection — a descriptor walk over a proxy would otherwise run its
+ * realm-side traps (`ownKeys`, `getOwnPropertyDescriptor`, `getPrototypeOf`)
+ * on the host stack, outside the vm's timed window, and a throwing trap would
+ * escape as a raw realm error instead of a {@link MaterializeError}. The same
+ * check guards the PROTOTYPE position (an object whose prototype is a proxy).
  *
  * Host objects are built with `Object.defineProperty` into a fresh `{}` —
  * never plain `target[key] =` assignment, which a `"__proto__"` key would turn
@@ -24,6 +30,8 @@
  * @module @deepseek-ai/dsh-workflow-vm/realm
  */
 
+import { types } from 'node:util'
+
 /** Thrown by {@link materializeFromRealm}; the caller wraps it into the right `WorkflowError` code. */
 export class MaterializeError extends Error {
   constructor(public readonly path: string, public readonly reason: string) {
@@ -36,11 +44,13 @@ export class MaterializeError extends Error {
  * Whether an object's prototype chain is data-shaped: `null`, or a prototype
  * whose own prototype is `null` (the realm's `Object.prototype` — which we
  * cannot compare by identity across realms). A `Date`/`Map`/class instance
- * has a longer chain and is rejected.
+ * has a longer chain and is rejected, as is a proxy sitting in the prototype
+ * position (checked trap-free BEFORE its own prototype is dereferenced).
  */
 function hasPlainPrototype(value: object): boolean {
   const proto: unknown = Object.getPrototypeOf(value)
   if (proto === null) return true
+  if (types.isProxy(proto)) return false
   return Object.getPrototypeOf(proto) === null
 }
 
@@ -81,6 +91,11 @@ function materialize(value: unknown, path: string, seen: Set<object>): unknown {
       break
   }
   if (value === null) return null
+  // BEFORE anything else touches the object: every inspection below —
+  // Array.isArray aside — can trigger a proxy trap, running realm code on the
+  // host stack (module doc). isProxy is a native internal-slot check (no
+  // traps, catches revoked proxies, realm-agnostic).
+  if (types.isProxy(value)) throw new MaterializeError(path, 'proxies cannot cross the workflow realm boundary')
   const objectValue: object = value
   if (seen.has(objectValue)) throw new MaterializeError(path, 'circular references are not JSON data')
   seen.add(objectValue)

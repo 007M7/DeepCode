@@ -13,10 +13,12 @@
  *   is correctness containment, not a sandbox.
  * - The vm `timeout` covers only the initial SYNCHRONOUS slice of the script;
  *   a pathological synchronous spin after the first await cannot be killed
- *   in-process. `dispose()` therefore waits a bounded grace and then ABANDONS
- *   a stuck script: its pending hook promises are already rejected and its
- *   settlement is contained (no unhandled rejection), but an abandoned
- *   synchronous spin would still occupy the event loop.
+ *   in-process. `dispose()` waits a bounded grace for the script to settle
+ *   AND its children (stray `agent()` calls included) to finish disposing,
+ *   then ABANDONS whatever is left: pending hook promises are already
+ *   rejected and the script's settlement is contained (no unhandled
+ *   rejection), but an abandoned synchronous spin would still occupy the
+ *   event loop.
  *
  * Plugin export shape: a default-exported {@link WorkflowService} subclass
  * (the class-based service form, like `dsh-bash-local`).
@@ -142,12 +144,22 @@ export class VmWorkflowEngine extends WorkflowService {
         execution.cancel(reason)
       },
       dispose: (): Promise<void> => {
-        // Idempotent: cancel, then wait min(settle, grace). `result` never
-        // rejects, so the race needs no rejection handling; an unsettled
-        // script past the grace is abandoned per the module contract.
+        // Idempotent: cancel, then wait min(settle + child quiescence, grace).
+        // `result` and `quiesce()` never reject, so the race needs no
+        // rejection handling; a script or child still unsettled past the grace
+        // is abandoned per the module contract.
         disposed ??= (async () => {
           execution.cancel('workflow disposed')
-          await Promise.race([result, sleep(this.config.disposeGraceMs)])
+          await Promise.race([
+            (async () => {
+              await result
+              // The result settles with the SCRIPT; stray children a script
+              // fired without awaiting are still winding down — dispose must
+              // not return while they hold live resources.
+              await execution.quiesce()
+            })(),
+            sleep(this.config.disposeGraceMs),
+          ])
         })()
         return disposed
       },

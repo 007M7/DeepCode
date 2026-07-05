@@ -66,6 +66,28 @@ describe('dsh-workflow (interface)', () => {
     ])
   })
 
+  it('gives each listener its OWN payload snapshot: mutation corrupts neither peers nor the caller', async () => {
+    const ctx = new Context()
+    await ctx.plugin(StubEngine)
+    const seen: string[] = []
+    ctx.on('workflow/agent-start', (info, agent) => {
+      agent.label = 'HACKED'
+      info.meta.name = 'HACKED'
+      seen.push('mutator')
+    })
+    ctx.on('workflow/agent-start', (info, agent) => {
+      seen.push(`${info.meta.name}/${agent.label}`)
+    })
+    const engine = ctx.workflows as StubEngine
+    const info: WorkflowRunInfo = { id: WorkflowRunId('run-2'), meta: { name: 'w', description: 'd' } }
+    const payload = { seq: 1, label: 'original', childId: 'c' }
+    engine.emit('workflow/agent-start', info, payload)
+    expect(seen).toEqual(['mutator', 'w/original'])
+    // The caller's own objects are pristine too — no listener ever saw them.
+    expect(info.meta.name).toBe('w')
+    expect(payload.label).toBe('original')
+  })
+
   it('contains a throwing listener PER LISTENER: later listeners still run, nothing propagates', async () => {
     const ctx = new Context()
     await ctx.plugin(StubEngine)
