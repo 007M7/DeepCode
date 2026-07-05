@@ -145,8 +145,22 @@ export async function resolveLocalTarget(cwd: string, path: string): Promise<Loc
   while (true) {
     try {
       const realAncestor = await realpath(ancestor)
+      // On Windows, realpath of a regular file succeeds where POSIX returns
+      // ENOTDIR (the OS reports ENOENT for `regular-file/child`, not ENOTDIR).
+      // Stat the ancestor to restore the semantic distinction: a non-directory
+      // ancestor means the target passes through a file and can never be created.
+      /* v8 ignore start -- native Windows coverage exercises this repair; POSIX reports ENOTDIR before this point. */
+      if (process.platform === 'win32') {
+        const parentInfo = await stat(realAncestor)
+        if (!parentInfo.isDirectory()) {
+          throw new FsError(`cannot resolve "${displayPath}": a parent path segment is not a directory`, 'FS_NOT_FOUND')
+        }
+      }
+      /* v8 ignore stop */
       return { displayPath, targetKey: FsTargetKey(join(realAncestor, ...missing)) }
     } catch (error: unknown) {
+      /* v8 ignore next -- native Windows coverage exercises the FsError raised by the repair above. */
+      if (error instanceof FsError) throw error
       /* v8 ignore next -- a non-ENOENT realpath failure needs a permission/IO fault. */
       if (!isENOENT(error)) throw error
       const parent = dirname(ancestor)
