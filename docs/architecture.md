@@ -1,6 +1,6 @@
 # DeepSeek Harness Architecture
 
-The **DeepSeek Harness SDK** is an agent-runtime SDK built microkernel-style on the vendored Cordis framework. The governing principle is simple: **everything is a plugin**. The shipped agent loop is one plugin in the default bundle, not a privileged kernel; most behavior attaches through typed service and event seams that another loop plugin can honor.
+The **DeepSeek Harness SDK** is an SDK for building agent harnesses using the Cordis framework. The governing principle is simple: **everything is a plugin**. For example, the shipped agent loop is just one plugin in the default bundle, not a privileged kernel.
 
 Read this page as the system map before changing `packages/`. It explains how the runtime is shaped, how the default loop moves work, where state lives, and where extensions attach. Type shapes live in [core-data-structures/](core-data-structures/core.md); exact event and service signatures live in the generated [events](cordis-catalog/events.md) and [services](cordis-catalog/services.md) catalogs; package contracts live in the [package map](../packages/README.md); rationale lives in the [RFCs](rfc/README.md). If Cordis itself is new to you, start with the [Cordis primer](cordis-primer.md).
 
@@ -8,7 +8,7 @@ Read this page as the system map before changing `packages/`. It explains how th
 
 A running harness is one Cordis context. Packages contribute service keys, typed events, and disposable registrations to that context. Services are the stable call surfaces (`ctx.llm`, `ctx.tools`, `ctx.sessions`); events are interception and notification points (`agent/request`, `tools/pre-execute`, `session/event`); registrations install prompt sections, tool schemas, providers, adapters, and listeners.
 
-The default distribution is a composition, not a hierarchy. `packages/core/` is a repository grouping for the default agent spine; capability seams around it are equally first-class plugins. Swapping the loop means shipping a different composition bundle, while ordinary extensions should depend on the public services and event vocabulary.
+The default distribution is a composition, not a hierarchy. `packages/core/` is a repository grouping for the default agent spine; capability seams around it are equally first-class plugins from a Cordis perspective.
 
 ### Default Service Spine
 
@@ -16,11 +16,9 @@ The default distribution is a composition, not a hierarchy. `packages/core/` is 
 |---|---|---|
 | `ctx.sessions` | `dsh-session` | in-memory event-sourced sessions |
 | `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections plus tool schemas |
-| `ctx.tools` | `dsh-tools` | tool registry and execution pipeline |
+| `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
 | `ctx.agents` | `dsh-agent` | live agent registry, public `Agent` handle, `agent/*` vocabulary |
 | `ctx.agentLoop` | `dsh-agent-loop` | shipped `ReactLoopAgent` driver |
-
-Tool schemas ride in prompt assembly, so "what the model is told it can do" stays coherent with the tools registry. Tool execution runs through `tools/pre-execute` -> dispatch -> `tools/post-execute`, the gate pair for sandbox, permission, hook, and plan-mode plugins ([pipeline graph](tool-execution-pipeline.md)).
 
 ### Capability Services
 
@@ -55,10 +53,6 @@ Waterfall events behave like around-middleware: a listener delegates by calling 
 The shipped loop drains queued work, assembles a request, streams a model answer, executes tools, decides whether to continue, and checkpoints durable state. The important architecture is where it pauses: each pause is a documented service call or event seam that another plugin can program against.
 
 A **session** is one agent's append-only event log. A **turn** drains one queued batch and runs until the model stops asking for tools and no plugin requests continuation. A **step** is one model request plus the tool executions caused by that response. In the flow below ([sequence companion](agent-lifecycle.md)), quoted names are durable session events and event names are extension seams.
-
-### Agent Handles
-
-`ctx.agents` owns live agents and returns an `AgentHandle { agent, dispose() }`. `Agent` is the surface other plugins drive: `send()` queues work, `steer()` injects mid-turn content, `inject()` appends context and opens a one-shot injection turn when idle, `cancel()` is the public stop primitive, and `whenIdle()` observes quiescence. Lifecycle owners tear down with `await dispose()`.
 
 ### Turn Flow
 
@@ -102,6 +96,10 @@ The turn is the containment boundary. A throwing listener, adapter error finish,
 
 Every session event is turn-enclosed. Reloading a crashed session preserves the interrupted tail and closes it with a synthetic `interrupted` turn end. A failure after the durable turn has closed reports through `agent/error` only because no safe in-turn position remains. A turn ends with one `TurnEndReason` (`completed`, `aborted`, `error`, `disposed`, `max-tokens`, `rejected`, or `interrupted`); per-variant semantics are in [session.md § TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
 
+### Agent Handles
+
+`ctx.agents` owns live agents and returns an `AgentHandle { agent, dispose() }`. `Agent` is the surface other plugins drive: `send()` queues work, `steer()` injects mid-turn content, `inject()` appends context and opens a one-shot injection turn when idle, `cancel()` is the public stop primitive, and `whenIdle()` observes quiescence. Lifecycle owners tear down with `await dispose()`.
+
 ## State And Model Surface
 
 ### Session Log
@@ -136,7 +134,8 @@ New behavior should attach to a documented seam; changing the shipped loop requi
 |---|---|
 | Add a model provider | register an adapter on `ctx.llm` |
 | Add a model-facing capability | register a tool on `ctx.tools`; schemas flow into prompt assembly |
-| Add an executor or storage backend | implement the owning seam and register the service |
+| Add command execution | implement and register a `ctx.bash` backend |
+| Add filesystem access or policy | implement a `ctx.fs` provider or listen on `fs/*` policy events |
 | Intercept prompts, requests, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` waterfall |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
 | Add durable session state | add a `SessionEventMap` member and render/replay from the log |
