@@ -12,13 +12,17 @@
  *   level as the model's bash access — and the realm-boundary materialization
  *   is correctness containment, not a sandbox.
  * - The vm `timeout` covers only the initial SYNCHRONOUS slice of the script;
- *   a pathological synchronous spin after the first await cannot be killed
- *   in-process. `dispose()` waits a bounded grace for the script to settle
- *   AND its children (stray `agent()` calls included) to finish disposing,
- *   then ABANDONS whatever is left: pending hook promises are already
- *   rejected and the script's settlement is contained (no unhandled
- *   rejection), but an abandoned synchronous spin would still occupy the
- *   event loop.
+ *   realm code that runs past that slice — an await continuation, a
+ *   thenable's `then` invoked by promise resolution (including one the script
+ *   RETURNS: a returned thenable resolves per JavaScript semantics before
+ *   materialization, which is what makes an un-awaited `return agent('x')`
+ *   work) — is beyond the timeout, so a pathological synchronous spin there
+ *   cannot be killed in-process. `dispose()` waits a bounded grace for the
+ *   script to settle AND its children (stray `agent()` calls included) to
+ *   finish disposing, then ABANDONS whatever is left: pending hook promises
+ *   are already rejected and the script's settlement is contained (no
+ *   unhandled rejection), but an abandoned synchronous spin would still
+ *   occupy the event loop.
  *
  * Plugin export shape: a default-exported {@link WorkflowService} subclass
  * (the class-based service form, like `dsh-bash-local`).

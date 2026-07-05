@@ -217,6 +217,19 @@ describe('dsh-workflow-vm', () => {
       expect(result.stopReason).toBe('completed')
       expect(result.value).toBeNull()
     })
+
+    it('a returned promise/thenable resolves per async-JS semantics before materialization', async () => {
+      const { ctx, parent } = await setup()
+      // Load-bearing ergonomics: forgetting await on the final hook call works.
+      expect((await run(ctx, parent, script("return agent('x')"))).value).toBe('stub reply')
+      // A hand-built thenable is assimilated by the async return — the
+      // RESOLUTION is the script's return value (standard JavaScript), and the
+      // realm-boundary guard applies to that resolution, not the thenable.
+      expect((await run(ctx, parent, script('return { value: 1, then(resolve) { resolve({ ok: true }) } }'))).value).toEqual({ ok: true })
+      const nonJson = await run(ctx, parent, script('return { then(resolve) { resolve({ bad: new Date(0) }) } }'))
+      expect(nonJson.stopReason).toBe('error')
+      expect(nonJson.error).toContain('not plain JSON data')
+    })
   })
 
   describe('combinator semantics', () => {
