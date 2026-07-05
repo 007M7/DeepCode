@@ -26,6 +26,7 @@
     "@deepseek-ai/dsh-fs": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
     "@deepseek-ai/dsh-paths": "^0.0.1",
+    "@deepseek-ai/dsh-tools": "^0.0.1",
     "cordis": "^4.0.0-rc.6"
   },
   "dependencies": {
@@ -42,6 +43,7 @@
     "@deepseek-ai/dsh-paths": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
+    "@deepseek-ai/dsh-tool-fs": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }

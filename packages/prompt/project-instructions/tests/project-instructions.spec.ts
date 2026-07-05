@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import * as projectInstructions from '@deepseek-ai/dsh-project-instructions'
-import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
+import { CallId, type GenerateOptions } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { AgentId } from '@deepseek-ai/dsh-agent'
@@ -20,6 +20,9 @@ import type {
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRegistry from '@deepseek-ai/dsh-tools'
+import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import {
   discoverBaselineInstructionFiles,
   loadBaselineInstructions,
@@ -86,6 +89,14 @@ async function mountProjectInstructions(ctx: Context, config: projectInstruction
   return ctx.plugin(projectInstructions, config)
 }
 
+async function mountFileToolsAndProjectInstructions(ctx: Context, config: projectInstructions.Config): Promise<Awaited<ReturnType<Context['plugin']>>> {
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(LocalFileSystem, { cwd: '/' })
+  await ctx.plugin(ToolFs)
+  return ctx.plugin(projectInstructions, config)
+}
+
 function stubAgent(cwd?: string): Agent {
   const id = SessionId('s1')
   const session = new Session(id, [], cwd === undefined ? undefined : { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd })
@@ -105,6 +116,10 @@ function stubAgent(cwd?: string): Agent {
 function firstText(message: GenerateOptions['messages'][number] | undefined): string | undefined {
   const block = message?.content[0]
   return block?.type === 'text' ? block.text : undefined
+}
+
+function blocksText(blocks: { type: string; text?: string }[] | undefined): string {
+  return blocks?.map(block => block.type === 'text' ? block.text ?? '' : '').join('\n') ?? ''
 }
 
 describe('project instruction discovery', () => {
@@ -865,6 +880,121 @@ describe('project instruction request injection', () => {
     } finally {
       vi.doUnmock('node:fs/promises')
       vi.resetModules()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('dynamic nested project instruction injection', () => {
+  it('attaches newly discovered nested instructions after a successful file read touches a descendant path', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'baseline root rule')
+      await write(join(root, 'pkg/AGENTS.md'), 'nested package rule')
+      await write(join(root, 'pkg/deep/file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndProjectInstructions(ctx, { dshHome: home })
+      const agent = stubAgent(root)
+
+      const result = await ctx.tools.execute({
+        callId: CallId('read-nested'),
+        name: 'read',
+        arguments: { file_path: 'pkg/deep/file.txt' },
+        agent,
+      })
+
+      expect(result.isError).toBe(false)
+      expect(result.additionalContext?.source).toEqual({ kind: 'plugin', plugin: 'project-instructions' })
+      const text = blocksText(result.additionalContext?.content)
+      expect(text).toContain('<workspace-context source="project-instruction-files">')
+      expect(text).toContain('## pkg/AGENTS.md\n\nnested package rule')
+      expect(text).not.toContain('baseline root rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('does not attach nested instructions again for the same session once a path has been loaded', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'nested package rule')
+      await write(join(root, 'pkg/deep/file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndProjectInstructions(ctx, { dshHome: home })
+      const agent = stubAgent(root)
+
+      const first = await ctx.tools.execute({
+        callId: CallId('read-nested-1'),
+        name: 'read',
+        arguments: { file_path: 'pkg/deep/file.txt' },
+        agent,
+      })
+      const second = await ctx.tools.execute({
+        callId: CallId('read-nested-2'),
+        name: 'read',
+        arguments: { file_path: 'pkg/deep/file.txt' },
+        agent,
+      })
+
+      expect(first.additionalContext).toBeDefined()
+      expect(second.additionalContext).toBeUndefined()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('does not attach nested instructions after a failed file read', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'nested package rule')
+      const ctx = new Context()
+      await mountFileToolsAndProjectInstructions(ctx, { dshHome: home })
+
+      const result = await ctx.tools.execute({
+        callId: CallId('read-missing'),
+        name: 'read',
+        arguments: { file_path: 'pkg/missing.txt' },
+        agent: stubAgent(root),
+      })
+
+      expect(result.isError).toBe(true)
+      expect(result.additionalContext).toBeUndefined()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('cleans up its tools/post-execute listener when the plugin fiber is disposed', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'nested package rule')
+      await write(join(root, 'pkg/deep/file.txt'), 'hello')
+      const ctx = new Context()
+      const fiber = await mountFileToolsAndProjectInstructions(ctx, { dshHome: home })
+      await fiber.dispose()
+
+      const result = await ctx.tools.execute({
+        callId: CallId('read-after-dispose'),
+        name: 'read',
+        arguments: { file_path: 'pkg/deep/file.txt' },
+        agent: stubAgent(root),
+      })
+
+      expect(result.isError).toBe(false)
+      expect(result.additionalContext).toBeUndefined()
+    } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
     }

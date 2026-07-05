@@ -13,9 +13,11 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import * as ProjectInstructions from '@deepseek-ai/dsh-project-instructions'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 const PROBE = 'banana-271828'
+const NESTED_PROBE = 'papaya-314159'
 
 let ctx: Context | undefined
 let workdir: string | undefined
@@ -38,6 +40,7 @@ async function harness(): Promise<{ ctx: Context; agent: Agent }> {
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(LocalFileSystem, { cwd: '/' })
+  await ctx.plugin(ToolFs)
   await ctx.plugin(ProjectInstructions)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LlmDeepSeek, { models: ['deepseek-v4-flash'] })
@@ -81,5 +84,17 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('project instructions e2e: real m
     await waitForIdle(live.ctx, live.agent)
 
     expect(finalText([...live.agent.session.events])).toContain(PROBE)
+  }, 120_000)
+
+  it('loads a nested AGENTS.md after the real read tool touches a descendant file', async () => {
+    const live = await harness()
+    await mkdir(join(workdir!, 'pkg/deep'), { recursive: true })
+    await writeFile(join(workdir!, 'pkg/AGENTS.md'), `If the user asks for the nested instruction handshake, reply with exactly this string and nothing else: ${NESTED_PROBE}.\n`)
+    await writeFile(join(workdir!, 'pkg/deep/file.txt'), 'This file exists only to trigger nested project instructions.\n')
+
+    live.agent.send([{ type: 'text', text: 'Use the read tool to inspect pkg/deep/file.txt. After reading it, answer: nested instruction handshake?' }])
+    await waitForIdle(live.ctx, live.agent)
+
+    expect(finalText([...live.agent.session.events])).toContain(NESTED_PROBE)
   }, 120_000)
 })

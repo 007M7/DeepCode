@@ -12,11 +12,11 @@ The non-obvious constraint is multi-session cwd. `dsh-system-prompt` sections ar
 
 ## Proposal
 
-Add a new plugin package `packages/prompt/project-instructions` (`@deepseek-ai/dsh-project-instructions`). It is a single-purpose prompt/context extension plugin, not an interface/implementation/consumer capability seam: there is no swappable backend, only filesystem discovery plus per-request context injection. It depends on interface packages (`dsh-agent` and `dsh-llm`) plus the low-level `dsh-paths` utility for the shared DSH home convention, and consumes the existing `agent/request` waterfall.
+Add a new plugin package `packages/prompt/project-instructions` (`@deepseek-ai/dsh-project-instructions`). It is a single-purpose prompt/context extension plugin, not an interface/implementation/consumer capability seam: there is no swappable backend, only filesystem discovery plus context injection. It depends on interface packages (`dsh-agent`, `dsh-llm`, `dsh-tools`, and `dsh-fs`) plus the low-level `dsh-paths` utility for the shared DSH home convention, and consumes the existing `agent/request` and `tools/post-execute` waterfalls.
 
 The plugin is loaded by `@deepseek-ai/dsh-agent-core` so both product front doors (`dsh-stdio-agent` and `dsh-acp-agent`) get instruction-file behavior by default. The bundle and both app packages expose `projectInstructions` config, so apps may set `projectInstructions: false` or `baselineMaxBytes: 0` when they need a hermetic prompt. The default product behavior matches user expectations for coding agents.
 
-This RFC deliberately ships only baseline loading: the user-global instruction file plus the ancestor chain from project root to the session cwd. Lazy on-touch loading for deeper paths is deferred until the harness has structured file read/write/edit tools that can truthfully report which paths a call touches. Shipping an inert `contextPaths()` hook before a production consumer would add API surface that can only be tested with artificial tools.
+This RFC ships baseline loading plus structured file-tool nested loading. The baseline path is the user-global instruction file plus the ancestor chain from project root to the session cwd. When the real `read`, `write`, or `edit` tools successfully touch a descendant path, the plugin loads newly discovered instruction files between the session cwd and the touched file. It deliberately does not add a generic `contextPaths()` hook or parse arbitrary shell commands; those would add broader path-reporting semantics than this feature needs.
 
 ### File names and precedence
 
@@ -38,7 +38,13 @@ The plugin finds the project root by walking upward from that cwd until it finds
 
 Example: if the session cwd is `/repo/packages/app`, and `/repo/.git` exists, the baseline search order is `/repo`, `/repo/packages`, `/repo/packages/app`. If `/repo/AGENTS.md`, `/repo/packages/CLAUDE.md`, and `/repo/packages/app/AGENTS.md` exist, the rendered order is user-global first, then `/repo/AGENTS.md`, then `/repo/packages/CLAUDE.md`, then `/repo/packages/app/AGENTS.md`. Later entries are more specific, so the rendered text states that deeper files override parent files and direct user/developer/system instructions override all instruction files.
 
-If the user launches from the repository root, only the root directory is in the baseline chain. The plugin must not recursively scan every subdirectory at startup or request time. Subtree-specific instruction files are not loaded in this phase unless their directories are already on the project-root-to-cwd baseline chain.
+If the user launches from the repository root, only the root directory is in the baseline chain. The plugin must not recursively scan every subdirectory at startup or request time. Subtree-specific instruction files are loaded only when a structured file tool touches a descendant path under that subtree.
+
+### Nested discovery after file tools
+
+The plugin observes successful `read`, `write`, and `edit` calls through `tools/post-execute`. For a touched file under the session cwd, it checks the directory chain from just below the session cwd through the touched file's parent directory, using the same file-name precedence as baseline discovery. Newly discovered nested files are attached as `additionalContext` so the loop records them after the tool result as durable `context/message` events for the next request. A per-session loaded-path set suppresses duplicate nested injections even if file content is evicted from the content cache.
+
+Shell commands are not a trigger. `dsh-bash-local` runs each command in a fresh shell and does not persist shell cwd, and parsing `cd subdir && cat file` reliably would require shell semantics the harness does not own. If bash-driven path discovery becomes necessary, it should be a separate design over an explicit path-reporting contract rather than a heuristic bolted onto this plugin.
 
 ### Context injection and trust
 
@@ -86,7 +92,7 @@ The implementation should not cache a rendered block for the lifetime of the pro
 
 ### Source and role
 
-Project instruction files enter the model as synthetic workspace context, not as provider system text and not as durable session events. They are recomputed from disk for each request, so changing an instruction file affects future requests without rewriting the event log. Because the message is not persisted, replay fixtures do not prove that baseline instructions are present; tests must verify the actual generated request shape.
+Project instruction files enter the model as synthetic workspace context, not as provider system text. Baseline files are recomputed from disk for each request and are not durable session events, so changing a baseline instruction file affects future requests without rewriting the event log. Nested files discovered after file-tool touches are durable `context/message` events because they describe path-specific context the agent learned during the session; replay and resume should preserve that fact. Tests therefore need both request-shape coverage for baseline injection and tool-execution coverage for nested `additionalContext`.
 
 ## Alternatives considered
 
@@ -104,11 +110,11 @@ Summarize instruction files before injection. This saves tokens but makes the in
 
 1. Add `packages/prompt/project-instructions` with config for `dshHome`, `projectRootMarkers` (default `['.git']`), `baselineMaxBytes` (default `65536`), and `enableClaudeFallback` (default `true`). Include pure discovery/rendering helpers so the filesystem rules can be tested without Cordis.
 
-2. Implement baseline `agent/request` injection in `dsh-project-instructions`. The listener computes the instruction block for `agent.session.header.cwd` or the stdio-only `process.cwd()` fallback, prepends one synthetic workspace-context message to the request messages, and returns the request through `next()`. It must never mutate shared global prompt sections or the provider system field.
+2. Implement baseline `agent/request` injection in `dsh-project-instructions`. The listener computes the instruction block for `agent.session.header.cwd` or the stdio-only `process.cwd()` fallback, prepends one synthetic workspace-context message to the request messages, and returns the request through `next()`. It must never mutate shared global prompt sections or the provider system field. Implement nested `tools/post-execute` injection for successful structured file-tool touches, folding the new context onto any downstream `additionalContext`.
 
 3. Load the plugin from `@deepseek-ai/dsh-agent-core` so both app packages receive it by default, and expose `projectInstructions` config through `agent-core`, `stdio-agent`, and `acp-agent`. Update `packages/README.md` and `docs/architecture.md` as part of the implementation. No generated Cordis catalog update is expected because the implementation adds no event or service.
 
-4. Add tests: pure discovery order, `AGENTS.md` over `CLAUDE.md`, `$DSH_HOME` defaulting to `~/.dsh`, `.git` file and directory markers, no project-root overrun, no recursive startup scan, full-text rendering, budget truncation naming omitted/truncated paths, per-request discovery of new baseline files, content cache invalidation by signature, per-agent no-leak behavior with two agents in different cwd values, and HMR/dispose cleanup.
+4. Add tests: pure discovery order, `AGENTS.md` over `CLAUDE.md`, `$DSH_HOME` defaulting to `~/.dsh`, `.git` file and directory markers, no project-root overrun, no recursive startup scan, full-text rendering, budget truncation naming omitted/truncated paths, per-request discovery of new baseline files, content cache invalidation by signature, per-agent no-leak behavior with two agents in different cwd values, dynamic nested loading through the real file tools, duplicate suppression, and HMR/dispose cleanup.
 
 5. Add request-shape coverage that proves the synthetic workspace-context message is present and lower in authority than the system field. Add a with-key e2e smoke test because the baseline change affects real model behavior but is not observable in replay snapshots. Snapshot coverage is not required for this phase unless the implementation also changes editor-visible transcript output.
 
@@ -126,6 +132,6 @@ Multi-session isolation is load-bearing. Any implementation that stores the rend
 
 ## Deferred
 
-Lazy on-touch nested instruction loading is deferred until the harness has structured file tools. The follow-up design should add an explicit path-reporting contract to the real file tools, load instruction files between the session cwd and touched paths, inject newly discovered blocks through the existing durable `context/message` mechanism, and add snapshot coverage because those injected context events would be editor- and replay-visible. `dsh-tool-bash` should not be the first consumer: parsing arbitrary shell commands for touched paths is brittle and would create false positives.
+Bash-driven nested instruction loading is deferred. `dsh-tool-bash` should not be the first path-reporting consumer: parsing arbitrary shell commands for touched paths is brittle and would create false positives. If the product later needs bash-derived context, it should add an explicit path-reporting contract to the real execution surface and cover the resulting editor-visible context with snapshots.
 
 Lowercase file names, `.claude/CLAUDE.md`, `.claude/rules/*.md`, local/private variants, import directives such as Reasonix/Claude-style `@path`, ACP `additionalDirectories`, file watching for changed instruction files, first-load trust acknowledgements, and model-generated summaries are also deferred. Each adds real semantics beyond the minimal compatibility contract and should land only after the native/fallback baseline proves itself.

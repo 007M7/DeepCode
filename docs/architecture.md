@@ -67,7 +67,7 @@ A `Session` is an append-only log of typed `SessionEvent`s — the single source
 
 Plugins contribute `PromptSection`s (named, ordered, static or computed) and tool-schema providers; `assemble()` returns `PromptAssembly { sections, tools }` through the `system-prompt/assemble` waterfall. Tool schemas are deliberately part of the assembly — "what the model is told it can do" is one coherent thing — though adapters transmit them as the wire-level `tools` field ([RFC](rfc/implemented/architecture/2026-06-11-tool-schemas-in-prompt-assembly.md)).
 
-Prompt/context extension plugins that shape model inputs without owning a core service live under `packages/prompt/`. `dsh-project-instructions` is the reference case: it is semantically prompt/context assembly, but it uses the per-agent `agent/request` seam instead of a global `ctx.systemPrompt.section()` so concurrent sessions with different cwd values stay isolated, and it reads instruction content through the `ctx.fs` provider seam. Shared filesystem path conventions such as the default DSH home live in the low-level `dsh-paths` utility package rather than in the prompt plugin.
+Prompt/context extension plugins that shape model inputs without owning a core service live under `packages/prompt/`. `dsh-project-instructions` is the reference case: it uses per-agent `agent/request` instead of global `ctx.systemPrompt.section()` for multi-cwd isolation, reads through `ctx.fs`, and observes successful `read`/`write`/`edit` calls via `tools/post-execute` to inject nested files as durable `context/message` entries. Shared filesystem path conventions such as the default DSH home live in the low-level `dsh-paths` utility package rather than in the prompt plugin.
 
 ## Tool pipeline (dsh-tools)
 

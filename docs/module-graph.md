@@ -123,10 +123,6 @@ flowchart TD
   pkg_invariants --> pkg_agent
   pkg_invariants --> pkg_llm
   pkg_invariants --> pkg_session
-  pkg_project_instructions --> pkg_agent
-  pkg_project_instructions --> pkg_fs
-  pkg_project_instructions --> pkg_llm
-  pkg_project_instructions --> pkg_paths
   pkg_agent_loop --> pkg_agent
   pkg_agent_loop --> pkg_llm
   pkg_agent_loop --> pkg_session
@@ -162,6 +158,11 @@ flowchart TD
   pkg_acp --> pkg_session
   pkg_acp --> pkg_session_persistence
   pkg_acp --> pkg_tools
+  pkg_project_instructions --> pkg_agent
+  pkg_project_instructions --> pkg_fs
+  pkg_project_instructions --> pkg_llm
+  pkg_project_instructions --> pkg_paths
+  pkg_project_instructions --> pkg_tools
   pkg_agent_core --> pkg_agent
   pkg_agent_core --> pkg_agent_loop
   pkg_agent_core --> pkg_invariants
@@ -241,7 +242,6 @@ flowchart TD
 | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl) | `session-persistence` | [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |
 | [`session-persistence-sqlite`](../packages/session-persistence/session-persistence-sqlite) | `session-persistence` | [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |
 | [`invariants`](../packages/support/invariants) | `support` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
-| [`project-instructions`](../packages/prompt/project-instructions) | `prompt` | [`agent`](../packages/core/agent), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`paths`](../packages/util/paths) |
 | [`agent-loop`](../packages/core/agent-loop) | `core` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-bash`](../packages/bash/tool-bash) | `bash` | [`agent`](../packages/core/agent), [`bash`](../packages/bash/bash), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-fs`](../packages/fs/tool-fs) | `fs` | [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
@@ -250,6 +250,7 @@ flowchart TD
 | [`tool-todo`](../packages/todo/tool-todo) | `todo` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
 | [`hooks-codex`](../packages/hooks/hooks-codex) | `hooks` | [`agent`](../packages/core/agent), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
 | [`acp`](../packages/ui/acp) | `ui` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`tools`](../packages/core/tools) |
+| [`project-instructions`](../packages/prompt/project-instructions) | `prompt` | [`agent`](../packages/core/agent), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`paths`](../packages/util/paths), [`tools`](../packages/core/tools) |
 | [`agent-core`](../packages/core/agent-core) | `core` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`project-instructions`](../packages/prompt/project-instructions), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tool-bash`](../packages/bash/tool-bash), [`tools`](../packages/core/tools) |
 | [`subagent-acp`](../packages/subagent/subagent-acp) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent) |
 | [`subagent-inprocess`](../packages/subagent/subagent-inprocess) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent) |
