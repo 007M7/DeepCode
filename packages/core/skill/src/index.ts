@@ -15,7 +15,7 @@ import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import type Schema from 'schemastery'
 import { parse as parseYaml } from 'yaml'
-import type { FileSystem, FsTarget } from '@deepseek-ai/dsh-fs'
+import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-agent'
 
@@ -338,6 +338,47 @@ function renderSkillFile(skill: SkillDefinition): string {
 }
 
 async function discoverRoot(root: SkillRoot, ctx: Context): Promise<SkillDefinition[]> {
+  const skills: SkillDefinition[] = []
+  const entries = await listSkillRootEntries(root, ctx)
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (root.skipSystem && entry.name === '.system') continue
+    const parsed = entry.type === 'directory'
+      ? await parseSkillFile(join(entry.path, 'SKILL.md'), entry.path, root.source, ctx)
+      : entry.type === 'file' && entry.name.endsWith('.md')
+        ? await parseSkillFile(entry.path, root.path, root.source, ctx)
+        : undefined
+    if (parsed) skills.push(parsed)
+  }
+  return skills
+}
+
+interface SkillRootEntry {
+  name: string
+  type: 'directory' | 'file' | 'other'
+  path: string
+}
+
+async function listSkillRootEntries(root: SkillRoot, ctx: Context): Promise<SkillRootEntry[]> {
+  const fs = optionalFileSystem(ctx)
+  if (fs !== undefined) return await listSkillRootEntriesFromFileSystem(root, fs)
+  return await listSkillRootEntriesFromNode(root, ctx)
+}
+
+async function listSkillRootEntriesFromFileSystem(root: SkillRoot, fs: FileSystem): Promise<SkillRootEntry[]> {
+  try {
+    const target = await fs.resolve(root.path)
+    const entries = await fs.listDir(target)
+    return entries.map(entryFromFs)
+  } catch {
+    return []
+  }
+}
+
+function entryFromFs(entry: FsDirEntry): SkillRootEntry {
+  return { name: entry.name, type: entry.type, path: entry.target.displayPath }
+}
+
+async function listSkillRootEntriesFromNode(root: SkillRoot, ctx: Context): Promise<SkillRootEntry[]> {
   let entries
   try {
     entries = await readdir(root.path, { withFileTypes: true, encoding: 'utf8' })
@@ -345,19 +386,13 @@ async function discoverRoot(root: SkillRoot, ctx: Context): Promise<SkillDefinit
     return []
   }
 
-  const skills: SkillDefinition[] = []
-  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    if (root.skipSystem && entry.name === '.system') continue
-    const fullPath = join(root.path, entry.name)
-    const kind = await entryKind(fullPath, entry, ctx)
-    const parsed = kind === 'directory'
-      ? await parseSkillFile(join(fullPath, 'SKILL.md'), fullPath, root.source, ctx)
-      : kind === 'file' && entry.name.endsWith('.md')
-        ? await parseSkillFile(fullPath, root.path, root.source, ctx)
-        : undefined
-    if (parsed) skills.push(parsed)
+  const result: SkillRootEntry[] = []
+  for (const entry of entries) {
+    const path = join(root.path, entry.name)
+    const type = await nodeEntryKind(path, entry, ctx)
+    result.push({ name: entry.name, type: type ?? 'other', path })
   }
-  return skills
+  return result
 }
 
 async function parseSkillFile(path: string, directory: string, source: SkillSource, ctx: Context): Promise<SkillDefinition | undefined> {
@@ -456,7 +491,7 @@ function fsReadErrorMessage(target: FsTarget, error: unknown): string {
   return `failed to read text file at ${target.displayPath}: ${errorMessage(error)}`
 }
 
-async function entryKind(fullPath: string, entry: { isDirectory(): boolean; isFile(): boolean; isSymbolicLink(): boolean }, ctx: Context): Promise<'directory' | 'file' | undefined> {
+async function nodeEntryKind(fullPath: string, entry: { isDirectory(): boolean; isFile(): boolean; isSymbolicLink(): boolean }, ctx: Context): Promise<'directory' | 'file' | undefined> {
   if (entry.isDirectory()) return 'directory'
   if (entry.isFile()) return 'file'
   /* v8 ignore next -- Non-file directory entries such as FIFOs are platform-specific and intentionally skipped. */

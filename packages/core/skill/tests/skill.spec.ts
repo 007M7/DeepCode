@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, stat, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import SkillService from '@deepseek-ai/dsh-skill'
-import { FileSystem, FsVersion, type FsEditOutcome, type FsEditRequest, type FsInfo, type FsTarget, type FsWriteOutcome } from '@deepseek-ai/dsh-fs'
+import { FileSystem, FsVersion, type FsDirEntry, type FsEditOutcome, type FsEditRequest, type FsInfo, type FsTarget, type FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 
 async function tempDir(name: string): Promise<string> {
   return await import('node:fs/promises').then(fs => fs.mkdtemp(join(tmpdir(), `dsh-${name}-`)))
@@ -22,6 +22,8 @@ async function writeFlatSkill(root: string, name: string, description: string, b
 }
 
 class TestFileSystem extends FileSystem {
+  listDirCalls = 0
+
   override async resolve(path: string): Promise<FsTarget> {
     return { targetKey: path as never, displayPath: path }
   }
@@ -50,8 +52,30 @@ class TestFileSystem extends FileSystem {
     throw new Error('not needed in skill tests')
   }
 
-  override async listDir(): Promise<never> {
-    throw new Error('not needed in skill tests')
+  override async listDir(target: FsTarget): Promise<FsDirEntry[]> {
+    this.listDirCalls += 1
+    const entries = await readdir(target.displayPath, { withFileTypes: true, encoding: 'utf8' })
+    const result: FsDirEntry[] = []
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      const childPath = join(target.displayPath, entry.name)
+      let type: FsInfo['type'] = 'other'
+      let size: number | undefined
+      try {
+        const info = await stat(childPath)
+        type = info.isFile() ? 'file' : info.isDirectory() ? 'directory' : 'other'
+        size = info.isFile() ? info.size : undefined
+      } catch {
+        type = 'other'
+      }
+      result.push({
+        name: entry.name,
+        type,
+        target: { targetKey: childPath as never, displayPath: childPath },
+        version: FsVersion('test'),
+        ...(size !== undefined ? { size } : {}),
+      })
+    }
+    return result
   }
 
   override async writeText(target: FsTarget, content: string): Promise<FsWriteOutcome> {
@@ -412,9 +436,11 @@ describe('SkillService', () => {
 
     const ctx = new Context()
     await ctx.plugin(TestFileSystem)
+    const fs = ctx.fs as TestFileSystem
     await ctx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false })
 
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['text-skill'])
+    expect(fs.listDirCalls).toBeGreaterThan(0)
     expect(await ctx.skills.get('binary-skill')).toBeUndefined()
   })
 
