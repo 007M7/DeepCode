@@ -21,9 +21,10 @@
 
 import type { Context } from 'cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
-import type { CallId } from '@deepseek-ai/dsh-llm'
+import type { CallId, GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
-import type { Session, SessionEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
 
 export const name = 'invariants'
 export const inject = ['sessions']
@@ -360,4 +361,74 @@ export function apply(ctx: Context, config: Config = {}): void {
     checkTransition(lastStatus.get(agent), status)
     lastStatus.set(agent, status)
   })
+
+  // Request-reconstruction cross-check (the reconstructability RFC): a
+  // loop-built request — frozen envelope + live sessionId is the marker; a
+  // hand-built one-shot (compaction summarize) is unfrozen and skipped — must
+  // be EXACTLY what the session log reconstructs:
+  //
+  // - messages: the derivation over the log prefix strictly before the
+  //   in-flight step's `step/start` (the reconstruction boundary). Compared
+  //   against a FRESH Session built over that prefix — the same projection
+  //   code with zero shared state, so the live cache under test cannot vouch
+  //   for itself. Boundary-correct by construction: content appended after
+  //   the boundary (an `agent/request`-window inject) is legitimately absent
+  //   from this request, and a current-surface comparison would false-fire.
+  // - header: every non-content field must equal the fold of the log's
+  //   `request/header*` events — the loop logs the header event BEFORE
+  //   dispatch, so the fold already covers this request.
+  //
+  // Registered with `prepend: true` so a short-circuiting llm/stream listener
+  // (the replay adapter returns its chunks without calling next()) cannot
+  // silence the check by registering first. Prepend beats APPEND-registered
+  // listeners only — two prepended listeners have no defined mutual order
+  // (cordis unshift) — which is fine: correctness rests on the seq-bounded
+  // fold below, never on listener timing.
+  ctx.on('llm/stream', (options: GenerateOptions, next) => {
+    if (options.sessionId === undefined || !Object.isFrozen(options)) return next()
+    // GenerateOptions types sessionId as Branded<'SessionId'>, which IS
+    // SessionId (dsh-llm cannot import it without a cycle) — no cast needed.
+    const session = ctx.sessions.get(options.sessionId)
+    if (!session) return next()
+    if (!Object.isFrozen(options.messages)) {
+      throw new InvariantError('a loop-built request must carry a frozen messages array')
+    }
+
+    const events = session.events
+    // seq === index (checked above), so the last step/start's seq bounds the
+    // prefix directly. The in-flight step's step/start is necessarily the
+    // last one: the loop cannot open another step while this call streams.
+    let boundary = -1
+    for (let i = events.length - 1; i >= 0; i -= 1) {
+      if (events[i]?.type === 'step/start') {
+        boundary = i
+        break
+      }
+    }
+    if (boundary === -1) {
+      throw new InvariantError('a loop-built request with no step/start in its session log')
+    }
+    const rebuilt = new Session(SessionId(`${String(session.id)}-invariant-rebuild`), structuredClone(events.slice(0, boundary)))
+    // JSON equality is sound here: both sides are structuredClones produced by
+    // the same projection code path, so key insertion order matches when the
+    // values do.
+    if (JSON.stringify(options.messages) !== JSON.stringify(rebuilt.deriveMessages())) {
+      throw new InvariantError(`llm request for session "${String(session.id)}" diverges from the boundary derivation (log-reconstruction desync)`)
+    }
+
+    const header = foldRequestHeader(events)
+    if (header === undefined) {
+      throw new InvariantError('a loop-built request with no request/header event in its session log')
+    }
+    const headerMatches = options.model === header.config.model
+      && options.system === header.system
+      && options.temperature === header.config.temperature
+      && options.maxTokens === header.config.maxTokens
+      && JSON.stringify(options.stop) === JSON.stringify(header.config.stop)
+      && JSON.stringify(options.tools ?? []) === JSON.stringify(header.tools ?? [])
+    if (!headerMatches) {
+      throw new InvariantError(`llm request for session "${String(session.id)}" diverges from the folded request header`)
+    }
+    return next()
+  }, { prepend: true })
 }
