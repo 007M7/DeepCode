@@ -58,13 +58,13 @@ class TestCompactService extends BasicCompactService {
     return blocks.length * 10
   }
 
-  override async summarize(text: string, agent: Agent): Promise<ContentBlock[]> {
+  override async summarize(text: string, agent: Agent): Promise<{ summary: ContentBlock[]; model: string; maxTokens?: number }> {
     const model = this.config.summarizationModel || agent.options.model || ''
     this.summarizeCalls.push({ text, model })
     if (this.summarizeError) throw this.summarizeError
     const summary = this.mockSummaryQueue.shift() ?? this.mockSummary
     this.summaryOutputs.add(summary)
-    return summary
+    return { summary, model }
   }
 }
 
@@ -402,6 +402,9 @@ describe('BasicCompactService.compactRegion', () => {
     expect(startEvent).toBeDefined()
     expect(summaryEvent).toBeDefined()
     expect(endEvent).toBeDefined()
+    // The provenance record carries the summarize call's envelope, so "which
+    // model wrote this summary" is answerable from the log alone.
+    expect(summaryEvent?.type === 'compact/summary' && summaryEvent.data.model).toBe('test-model')
 
     // compact/* events are log-only — no surfaceOp (type system enforces this).
     const startRaw = startEvent as unknown as { surfaceOp?: unknown }
@@ -1003,8 +1006,12 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     const { ctx, adapter } = await ctxWithModel('SUMMARY TEXT')
     const svc = new BasicCompactService(ctx, cfg({ auto: false, maxTokens: 512 }))
 
-    const summary = await summarize(svc, 'User: hi\n\nAssistant: hello', 'test-model')
+    const { summary, model, maxTokens } = await summarize(svc, 'User: hi\n\nAssistant: hello', 'test-model')
     expect(summary).toEqual([{ type: 'text', text: 'SUMMARY TEXT' }])
+    // The returned envelope reports what the call actually used — the caller
+    // logs it on compact/summary (the reconstructability RFC).
+    expect(model).toBe('test-model')
+    expect(maxTokens).toBe(512)
     // The fixed system prompt and maxTokens flow through.
     expect(adapter.lastOptions!.system).toContain('compaction engine')
     expect(adapter.lastOptions!.system).toContain('## Next Step')
@@ -1035,7 +1042,7 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     ])
     const svc = new BasicCompactService(ctx, cfg({ auto: false }))
 
-    const summary = await summarize(svc, 'User: hi', 'test-model')
+    const { summary } = await summarize(svc, 'User: hi', 'test-model')
 
     expect(summary).toEqual([{ type: 'text', text: 'PUBLIC SUMMARY' }])
   })

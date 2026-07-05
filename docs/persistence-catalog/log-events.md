@@ -47,7 +47,7 @@ Marks the end of a compaction — log-only, releases the lock. `error` set if su
 'compact/end': { turn: number; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:37`](../../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:46`](../../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
@@ -64,7 +64,7 @@ Source: [`packages/compact/compact/src/types.ts:23`](../../packages/compact/comp
 Provenance record of a completed summarization — log-only, no surfaceOp. The summary content is in `data.summary`; the actual surface replacement is performed by a subsequent `user/message` event that shadows the compacted range.
 
 ```ts persistence-catalog
-'compact/summary': { summary: ContentBlock[]; shadowedRange: { start: number; end: number }; shadowedSeqs: number[]; shadowedTokenCount: number }
+'compact/summary': { summary: ContentBlock[]; shadowedRange: { start: number; end: number }; shadowedSeqs: number[]; shadowedTokenCount: number; model: string; maxTokens?: number }
 ```
 
 Types: [ContentBlock](../core-data-structures/core.md)

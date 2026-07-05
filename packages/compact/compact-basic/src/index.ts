@@ -287,8 +287,15 @@ export class BasicCompactService extends CompactService {
    *
    * Forwards `signal` into `GenerateOptions.signal` so an abort/dispose tears
    * down the in-flight summarization rather than orphaning the model call.
+   *
+   * Returns the summary blocks TOGETHER with the call envelope it actually
+   * used (`model`, `maxTokens`) — the caller logs the envelope on the
+   * `compact/summary` provenance event, so an overriding subclass (template
+   * or remote summarizer) reports its own envelope honestly.
    */
-  async summarize(text: string, agent: Agent, signal?: AbortSignal): Promise<ContentBlock[]> {
+  async summarize(
+    text: string, agent: Agent, signal?: AbortSignal,
+  ): Promise<{ summary: ContentBlock[]; model: string; maxTokens?: number }> {
     const assembler = new BlockAssembler()
     const options: GenerateOptions = {
       model: this.config.summarizationModel || agent.options.model || '',
@@ -318,7 +325,11 @@ export class BasicCompactService extends CompactService {
       throw new Error('summarization produced no text summary content')
     }
 
-    return summary
+    return {
+      summary,
+      model: options.model,
+      ...options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {},
+    }
   }
 
   // ---- Core API (implements the abstract contract) ----
@@ -449,7 +460,7 @@ export class BasicCompactService extends CompactService {
     try {
       // --- Extract text and summarize ---
       const text = this._extractText(session, shadowedSeqs)
-      const summary = await this.summarize(text, agent, signal)
+      const { summary, model, maxTokens } = await this.summarize(text, agent, signal)
 
       // Estimate token count of the shadowed content for provenance.
       let shadowedTokenCount = 0
@@ -471,6 +482,8 @@ export class BasicCompactService extends CompactService {
         shadowedRange: { start, end },
         shadowedSeqs,
         shadowedTokenCount,
+        model,
+        ...maxTokens !== undefined ? { maxTokens } : {},
       })
 
       // --- Surface replacement ---
