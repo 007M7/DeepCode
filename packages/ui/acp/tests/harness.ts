@@ -158,7 +158,7 @@ export async function makeBridgeHarness(options: {
    * Plug the REAL `dsh-bash-local` executor + `dsh-tool-bash` tools (instead of
    * a test's own inline tool). Lets a test drive the actual `bash` tool — its
    * real `presentCall`/`presentResult` — through the bridge, so tool-call UI
-   * tests verify the SHIPPING tool, not a stand-in (AGENTS.md "prefer the real
+   * tests verify the SHIPPING tool, not a stand-in (docs/testing.md "prefer the real
    * implementation over a mock in tests").
    */
   withBash?: boolean

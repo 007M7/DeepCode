@@ -11,6 +11,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
+  FsDirEntry,
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
@@ -42,7 +43,7 @@ class RecordingFileSystem extends FileSystem {
 
   override async resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget> {
     const absolute = join(opts?.cwd ?? '/', path)
-    return { inputPath: path, targetKey: FsTargetKey(absolute), displayPath: absolute }
+    return { targetKey: FsTargetKey(absolute), displayPath: absolute }
   }
 
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
@@ -67,12 +68,16 @@ class RecordingFileSystem extends FileSystem {
     return (async function* () { yield content })()
   }
 
+  override async listDir(_target: FsTarget): Promise<FsDirEntry[]> {
+    return []
+  }
+
   override async writeText(_target: FsTarget, _content: string, _expected?: FsWriteIntent): Promise<FsWriteOutcome> {
-    return { operation: 'update', version: FsVersion('unused') }
+    return { operation: 'update', version: FsVersion('unused'), before: '', after: _content }
   }
 
   override async editText(_target: FsTarget, _edit: FsEditRequest): Promise<FsEditOutcome> {
-    return { replacements: 0, replaceAll: false, version: FsVersion('unused') }
+    return { version: FsVersion('unused'), before: '', after: '' }
   }
 }
 

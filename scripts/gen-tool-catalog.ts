@@ -41,12 +41,16 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import WebService from '@deepseek-ai/dsh-web'
+import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
+import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentMock from '@deepseek-ai/dsh-subagent-mock'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
+import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/tool-catalog/tools.md'
@@ -71,6 +75,12 @@ interface ToolPackage {
   dir: string
   /** Repo-relative source path linked from the catalog entry. */
   source: string
+  /** Services or owning runtime surfaces the package requires at execution time. */
+  requires: string[]
+  /** Session events or other visible state the tools write or affect. */
+  writes: string[]
+  /** Additional model-visible names shipped by example/app config. */
+  shippedNames?: string[]
   /** Plug the injected seams + the tool plugin onto a context that already
    * carries `systemPrompt` + `tools`. */
   mount: (ctx: Context) => Promise<void>
@@ -94,15 +104,21 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-bash',
     dir: 'tool-bash',
     source: 'packages/bash/tool-bash/src/index.ts',
+    requires: ['ctx.tools', 'ctx.bash'],
+    writes: ['tool/call', 'tool/result', 'context/message via agent.inject() for background completion notices'],
     async mount(ctx) {
       await ctx.plugin(LocalBashExecutor)
       await ctx.plugin(ToolBash)
     },
+    note:
+      'The bash/bash_output/bash_kill tools are model-facing consumers of the bash executor seam.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-fs',
     dir: 'tool-fs',
     source: 'packages/fs/tool-fs/src/index.ts',
+    requires: ['ctx.tools', 'ctx.fs', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'fs/write-intent or fs/edit-intent for mutations', 'fs/observed after successful file operations', 'tool/result'],
     async mount(ctx) {
       // The tool injects `fs`; boot the local backend to satisfy it. The schemas
       // do not depend on the policy plugin (an event gate that changes behavior,
@@ -117,6 +133,9 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-subagent',
     dir: 'tool-subagent',
     source: 'packages/subagent/tool-subagent/src/index.ts',
+    requires: ['ctx.tools', 'ctx.subagents'],
+    writes: ['tool/call', 'tool/result', 'child session events through the chosen provider'],
+    shippedNames: ['subagent', 'subagent_fork'],
     async mount(ctx) {
       await ctx.plugin(SubagentService)
       // Register a scripted provider under the name the tool delegates to.
@@ -130,9 +149,32 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-todo',
     dir: 'tool-todo',
     source: 'packages/todo/tool-todo/src/index.ts',
+    requires: ['ctx.tools', 'owning Agent session'],
+    writes: ['tool/call', 'todo/write', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(ToolTodo)
     },
+    note:
+      'todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-web',
+    dir: 'tool-web',
+    source: 'packages/web/tool-web/src/index.ts',
+    requires: ['ctx.tools', 'ctx.web', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // The tools inject `web`; boot the seam plus one search and one fetch
+      // provider so both `web_search` and `web_fetch` register. The schemas do
+      // not depend on which provider backs the seam (or on it being available),
+      // so any registered provider is enough to harvest them.
+      await ctx.plugin(WebService)
+      await ctx.plugin(WebSearchExa)
+      await ctx.plugin(WebFetchLocal)
+      await ctx.plugin(ToolWeb)
+    },
+    note:
+      'web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps.',
   },
 ]
 
@@ -140,6 +182,9 @@ const TOOL_PACKAGES: ToolPackage[] = [
 interface CatalogPackage {
   pkg: string
   source: string
+  requires: string[]
+  writes: string[]
+  shippedNames?: string[]
   schemas: ToolSchema[]
   /** A deployment note (see {@link ToolPackage.note}), rendered after the tools. */
   note?: string
@@ -189,7 +234,15 @@ export async function collectToolCatalog(packages: ToolPackage[] = TOOL_PACKAGES
       await ctx.plugin(ToolRegistry)
       await entry.mount(ctx)
       const schemas = ctx.tools.schemas().sort((a, b) => a.name.localeCompare(b.name))
-      catalog.push({ pkg: entry.pkg, source: entry.source, schemas, ...entry.note !== undefined ? { note: entry.note } : {} })
+      catalog.push({
+        pkg: entry.pkg,
+        source: entry.source,
+        requires: entry.requires,
+        writes: entry.writes,
+        schemas,
+        ...entry.shippedNames !== undefined ? { shippedNames: entry.shippedNames } : {},
+        ...entry.note !== undefined ? { note: entry.note } : {},
+      })
     } finally {
       await ctx.fiber.dispose()
     }
@@ -201,10 +254,17 @@ export async function collectToolCatalog(packages: ToolPackage[] = TOOL_PACKAGES
 function renderTool(schema: ToolSchema, source: string): string[] {
   const out = [`### \`${schema.name}\``, '']
   if (schema.description) out.push(schema.description, '')
-  if (schema.strict !== undefined) out.push(`Strict: \`${String(schema.strict)}\``, '')
   out.push('```json', JSON.stringify(schema.parameters, null, 2), '```', '')
   out.push(`Source: [\`${source}\`](../../${source})`, '')
   return out
+}
+
+function codeList(values: string[] | undefined): string {
+  return values?.length ? values.map(value => `\`${value}\``).join(', ') : '-'
+}
+
+function tableCell(value: string | undefined): string {
+  return value ? value.replace(/\|/g, '\\|').replace(/\n/g, '<br>') : '-'
 }
 
 /** Render the full catalog (pure, deterministic given the manifest-ordered input). */
@@ -215,11 +275,19 @@ export function render(catalog: ToolCatalog): string {
     '',
     '# Tool Schema Catalog',
     '',
-    'Every model-facing tool a shipped plugin contributes to `ctx.tools`: the `name`, `description`, and JSON-Schema `parameters` the model receives via the system-prompt assembly. It complements the [cordis events & services catalog](../cordis-catalog/events-and-services.md) (the wiring a plugin listens to and calls) and [core-data-structures/](../core-data-structures/core.md) (the types those signatures move) — this page is the *tools* the agent is offered.',
+    'Every model-facing tool a shipped plugin contributes to `ctx.tools`: the `name`, `description`, and JSON-Schema `parameters` the model receives via the system-prompt assembly. It complements the cordis [events](../cordis-catalog/events.md) & [services](../cordis-catalog/services.md) catalogs (the wiring a plugin listens to and calls) and [core-data-structures/](../core-data-structures/core.md) (the types those signatures move) — this page is the *tools* the agent is offered.',
     '',
     'This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any package is missing from the generator\'s boot manifest, so a new tool cannot be silently undocumented. See [the tool-schema-catalog RFC](../rfc/implemented/process/2026-07-02-tool-schema-catalog.md).',
     '',
     'Scope: shipped product tools under `packages/*/tool-*`, each booted with its DEFAULT config. The registered tool NAME can be a load-time config (e.g. `tool-subagent`\'s `toolName`), so a deployment may surface a package under a different or additional name — a per-package note records those shipped aliases where they exist. The `examples/` demo tools (e.g. `echo`) are excluded, matching the cordis catalog\'s packages-only scope.',
+    '',
+    '## Tool Package Map',
+    '',
+    'This table connects model-visible tool names to the plugin package and service seams behind them. Exact JSON Schemas follow in the package sections below.',
+    '',
+    '| Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Deployment note |',
+    '| --- | --- | --- | --- | --- | --- |',
+    ...catalog.map(entry => `| \`${entry.pkg}\` | ${codeList(entry.schemas.map(schema => schema.name))} | ${codeList(entry.requires)} | ${codeList(entry.writes)} | ${codeList(entry.shippedNames)} | ${tableCell(entry.note)} |`),
     '',
   ]
   for (const entry of catalog) {

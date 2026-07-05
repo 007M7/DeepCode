@@ -1,4 +1,4 @@
-# The coding-agent plugin tree: the real coding agent. The two swappable
+# The coding-agent plugin tree: the REPL agent demo. The two swappable
 # backends — the DeepSeek adapter and the local bash executor — plus `hmr` for
 # the dev/demo reload loop, then the stdio chat app (@deepseek-ai/dsh-stdio-
 # agent), which bundles the whole agent-core spine (timer, llm, sessions,
@@ -6,7 +6,7 @@
 # logger, JSONL persistence, the readline UI, and a pre-created `main` agent.
 #
 # `hmr` is a leaf entry (not baked into dsh-stdio-agent): it is a Loader-only
-# dev plugin that needs `--expose-internals` — the `demo:coding` script passes
+# dev plugin that needs `--expose-internals` — the `demo:repl` script passes
 # it. Requires DEEPSEEK_API_KEY (and optionally DEEPSEEK_BASE_URL) in the
 # environment — the dsh-stdio-agent bin loads the gitignored repo-root .env
 # first. cordis.yml reads them via the `!!js` tag.
@@ -37,7 +37,7 @@
     timeoutMs: 60000
 
 # The stdio chat app: the whole spine + front-door cluster, configured for a
-# real coding agent driving a pre-created `main` agent.
+# REPL agent demo driving a pre-created `main` agent.
 - id: stdio-agent
   name: '@deepseek-ai/dsh-stdio-agent'
   config:
@@ -46,7 +46,7 @@
     # under ./.sessions); unset starts a fresh session each run.
     resumeSessionId: !!js process.env.RESUME_SESSION_ID
     persistenceRoot: './.sessions'
-    welcome: 'coding-agent ready. Give it a coding task (its tools are read, write, edit, bash, subagent, and todo_write).'
+    welcome: 'agent REPL ready. Give it a coding task (its tools are read, write, edit, bash, subagent, and todo_write).'
     systemPrompt: |
       You are coding-agent, a CLI coding assistant.
 

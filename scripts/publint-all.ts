@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { readdirSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 // publint every harness package. Packages live at packages/<group>/<pkg>
@@ -14,6 +14,7 @@ const packages = readdirSync(packagesRoot, { withFileTypes: true })
   .flatMap(group =>
     readdirSync(resolve(packagesRoot, group.name), { withFileTypes: true })
       .filter(pkg => pkg.isDirectory())
+      .filter(pkg => existsSync(resolve(packagesRoot, group.name, pkg.name, 'package.json')))
       .map(pkg => `packages/${group.name}/${pkg.name}`),
   )
 

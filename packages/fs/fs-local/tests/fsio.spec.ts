@@ -6,12 +6,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtemp, readFile, rm, stat, symlink, writeFile, mkdir, readdir, realpath } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, stat, symlink, unlink, writeFile, mkdir, readdir, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:net'
 import {
   applyLiteralEdit,
+  listDirectory,
   probe,
   readForEdit,
   readWholeText,
@@ -142,6 +143,110 @@ describe('probe', () => {
   it('returns null when an ancestor path segment is a file (ENOTDIR), not a raw throw', async () => {
     await writeFile(join(dir, 'afile'), 'i am a file')
     expect(await probe(join(dir, 'afile', 'child.txt'))).toBeNull()
+  })
+})
+
+describe('listDirectory', () => {
+  it('lists direct children in stable order without reading content', async () => {
+    const root = join(dir, 'skills')
+    await mkdir(join(root, 'dir-skill'), { recursive: true })
+    await writeFile(join(root, 'zeta.md'), 'zeta')
+    await writeFile(join(root, 'alpha.md'), 'alpha')
+    await symlink(join(root, 'missing-target'), join(root, 'broken-link'))
+
+    const entries = await listDirectory(localTarget(root))
+    expect(entries.map(entry => [entry.name, entry.type])).toEqual([
+      ['alpha.md', 'file'],
+      ['broken-link', 'other'],
+      ['dir-skill', 'directory'],
+      ['zeta.md', 'file'],
+    ])
+    expect(entries.find(entry => entry.name === 'alpha.md')?.size).toBe(5)
+    expect(typeof entries.find(entry => entry.name === 'alpha.md')?.version).toBe('string')
+    expect(entries.find(entry => entry.name === 'broken-link')?.version).toBeUndefined()
+    expect(entries.find(entry => entry.name === 'dir-skill')?.size).toBeUndefined()
+  })
+
+  it('derives child target keys from the listed parent identity', async () => {
+    const realOne = join(dir, 'real-one')
+    const realTwo = join(dir, 'real-two')
+    const link = join(dir, 'link')
+    await mkdir(realOne)
+    await mkdir(realTwo)
+    await writeFile(join(realOne, 'same.txt'), 'one')
+    await writeFile(join(realTwo, 'same.txt'), 'different two')
+    await symlink(realOne, link)
+    const target = await resolveLocalTarget(dir, 'link')
+
+    await unlink(link)
+    await symlink(realTwo, link)
+
+    const entries = await listDirectory(target)
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      name: 'same.txt',
+      target: {
+        displayPath: join(link, 'same.txt'),
+        targetKey: await realpath(join(realOne, 'same.txt')),
+      },
+      size: 3,
+    })
+  })
+
+  it('rejects missing, non-directory, and aborted listing requests', async () => {
+    await expect(listDirectory(localTarget(join(dir, 'missing')))).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
+    const file = join(dir, 'a.txt')
+    await writeFile(file, 'hi')
+    await expect(listDirectory(localTarget(file))).rejects.toMatchObject({ code: 'FS_NOT_DIRECTORY' })
+    await expect(listDirectory(localTarget(dir), AbortSignal.abort())).rejects.toMatchObject({ code: 'FS_ABORTED' })
+  })
+
+  it('translates directory permission failures into FS_PERMISSION_DENIED', async () => {
+    const root = join(dir, 'restricted')
+    await mkdir(root)
+    await chmod(root, 0o000)
+    try {
+      const error = await listDirectory(localTarget(root)).then(() => undefined, (caught: unknown) => caught)
+      // Root-like environments may still be able to list mode-000 directories.
+      if (error === undefined) return
+      expect(error).toBeInstanceOf(FsError)
+      expect(error).toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+    } finally {
+      await chmod(root, 0o700)
+    }
+  })
+
+  it('translates preflight metadata IO failures into FS_IO_ERROR', async () => {
+    const loop = join(dir, 'loop')
+    await symlink(loop, loop)
+    await expect(listDirectory(localTarget(loop))).rejects.toMatchObject({ code: 'FS_IO_ERROR' })
+  })
+
+  it('translates child resolution failures into structured listing errors', async () => {
+    const root = join(dir, 'listed')
+    await mkdir(root)
+    const loop = join(root, 'loop')
+    await symlink(loop, loop)
+    await expect(listDirectory(localTarget(root))).rejects.toMatchObject({ code: 'FS_IO_ERROR' })
+  })
+
+  it('translates child permission failures into FS_PERMISSION_DENIED', async () => {
+    const root = join(dir, 'listed')
+    const protectedRoot = join(dir, 'protected')
+    const secret = join(protectedRoot, 'secret')
+    await mkdir(root)
+    await mkdir(secret, { recursive: true })
+    await symlink(secret, join(root, 'secret-link'))
+    await chmod(protectedRoot, 0o000)
+    try {
+      const error = await listDirectory(localTarget(root)).then(() => undefined, (caught: unknown) => caught)
+      // Root-like environments may still resolve through mode-000 directories.
+      if (error === undefined) return
+      expect(error).toBeInstanceOf(FsError)
+      expect(error).toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+    } finally {
+      await chmod(protectedRoot, 0o700)
+    }
   })
 })
 

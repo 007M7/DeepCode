@@ -40,7 +40,7 @@ const acpBin = join(repoRoot, 'packages/ui/acp-agent/lib/bin.js')
 const dshPackages = [
   'core/agent-core', 'core/agent', 'core/session', 'core/system-prompt',
   'core/tools', 'core/agent-loop', 'llm/llm', 'llm/llm-deepseek', 'bash/bash',
-  'bash/bash-local', 'bash/tool-bash', 'support/invariants',
+  'bash/bash-local', 'bash/tool-bash', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence',
   'session-persistence/session-persistence-jsonl', 'ui/acp', 'ui/acp-agent',
 ]

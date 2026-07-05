@@ -4,7 +4,7 @@ Status: implemented (accepted 2026-07-02)
 
 ## Context
 
-A reader — a plugin author, a prompt engineer, someone auditing what the agent can do — has no single place that lists the model-facing tools the harness ships. The `name` / `description` / JSON-Schema `parameters` a tool contributes are what the model actually receives (via `ctx.systemPrompt.tools()` off `ctx.tools.schemas()`), but they are scattered across each `defineTool` call in each `packages/*/tool-*` package, buried in string concatenation and runtime spreads. The [cordis events & services catalog](../../../cordis-catalog/events-and-services.md) ([its RFC](2026-06-20-generated-cordis-catalog.md)) documents the *wiring* a plugin works against and the [core-data-structures catalog](../../../core-data-structures/core.md) documents the *vocabulary* those signatures move — but neither documents the *tools* the agent is offered. This RFC adds that third reference surface, `docs/tool-catalog/tools.md`, and a freshness gate so it cannot drift.
+A reader — a plugin author, a prompt engineer, someone auditing what the agent can do — has no single place that lists the model-facing tools the harness ships. The `name` / `description` / JSON-Schema `parameters` a tool contributes are what the model actually receives (via `ctx.systemPrompt.tools()` off `ctx.tools.schemas()`), but they are scattered across each `defineTool` call in each `packages/*/tool-*` package, buried in string concatenation and runtime spreads. The cordis [events](../../../cordis-catalog/events.md) & [services](../../../cordis-catalog/services.md) catalogs ([their RFC](2026-06-20-generated-cordis-catalog.md)) document the *wiring* a plugin works against and the [core-data-structures catalog](../../../core-data-structures/core.md) documents the *vocabulary* those signatures move — but neither documents the *tools* the agent is offered. This RFC adds that third reference surface, `docs/tool-catalog/tools.md`, and a freshness gate so it cannot drift.
 
 ## Decision
 
@@ -19,7 +19,7 @@ The cordis catalog is a pure TypeScript-AST pass because every event/service nam
 - `tool-subagent`'s tool name is `config.toolName ?? 'subagent'` — chosen at load, not a literal.
 - An MCP plugin can register **raw JSON Schema** directly via `ctx.tools.register()` without `defineTool` at all, so enumerating `defineTool(` call sites structurally under-counts.
 
-The only faithful source of truth is the schema the registry actually holds after the plugin loads. Booting is the [unit-test discipline](../../../../AGENTS.md) "verify the world, not a synthetic stand-in" applied to a doc generator: read the shipped artifact, not a re-derivation of it.
+The only faithful source of truth is the schema the registry actually holds after the plugin loads. Booting is the [testing-policy discipline](../../../testing.md) "verify the world, not the self-report" applied to a doc generator: read the shipped artifact, not a re-derivation of it.
 
 ### Restoring "nothing silently omitted"
 

@@ -115,6 +115,10 @@ It keeps the interface/implementation/consumer discipline, consumer-never-import
 - Docs and generated artifacts are updated: `docs/architecture.md`, `packages/README.md`, fs package READMEs, `docs/core-data-structures/filesystem.md`, affected `type-equiv` blocks and `scripts/type-equiv.manifest.json`, Cordis catalog, module graph, and doc references.
 - Gates stay green: normal `doc-sync`, `pnpm run knip`, and `pnpm run test:coverage` with 100% per-file coverage.
 
+## Later extension
+
+The seam was later extended with direct directory listing by [Add direct directory listing to the filesystem seam](../architecture/2026-07-03-filesystem-directory-listing-seam.md). That follow-up is tracked separately so this RFC's acceptance criteria continue to describe the fsspec-style refit that originally shipped.
+
 ## Risks
 
 - Adds a fourth fs package and a new service. This is intentional: it is the previously deferred policy layer, not a second abstract backend seam.

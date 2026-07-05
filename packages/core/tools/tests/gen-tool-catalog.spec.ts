@@ -35,7 +35,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
   it('boots every shipped tool package and harvests its model-facing schemas', async () => {
     const catalog = await collectToolCatalog()
     const names = catalog.flatMap(entry => entry.schemas.map(s => s.name)).sort()
-    expect(names).toEqual(['bash', 'bash_kill', 'bash_output', 'edit', 'read', 'subagent', 'todo_write', 'write'])
+    expect(names).toEqual(['bash', 'bash_kill', 'bash_output', 'edit', 'read', 'subagent', 'todo_write', 'web_fetch', 'web_search', 'write'])
     // Every tool carries a JSON-Schema `parameters` object (what the model sees).
     for (const entry of catalog) {
       for (const schema of entry.schemas) {
@@ -93,25 +93,17 @@ describe('gen-tool-catalog render', () => {
       {
         pkg: '@deepseek-ai/dsh-tool-demo',
         source: 'packages/demo/tool-demo/src/index.ts',
+        requires: ['ctx.tools'],
+        writes: ['tool/result'],
         schemas: [{ name: 'demo', description: 'A demo tool.', parameters: { type: 'object', properties: {} } }],
       },
     ]
     const md = render(catalog)
+    expect(md).toContain('| `@deepseek-ai/dsh-tool-demo` | `demo` | `ctx.tools` | `tool/result` |')
     expect(md).toContain('## `@deepseek-ai/dsh-tool-demo`')
     expect(md).toContain('### `demo`')
     expect(md).toContain('A demo tool.')
     expect(md).toContain('```json')
     expect(md).toContain('Source: [`packages/demo/tool-demo/src/index.ts`]')
-  })
-
-  it('renders the strict flag when a schema sets it', () => {
-    const catalog: ToolCatalog = [
-      {
-        pkg: '@deepseek-ai/dsh-tool-demo',
-        source: 'packages/demo/tool-demo/src/index.ts',
-        schemas: [{ name: 'demo', description: '', parameters: { type: 'object', properties: {} }, strict: true }],
-      },
-    ]
-    expect(render(catalog)).toContain('Strict: `true`')
   })
 })

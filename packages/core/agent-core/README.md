@@ -13,7 +13,7 @@ This is the package to read to see **the whole plugin tree at once** — the tea
 @deepseek-ai/dsh-llm              abstract LLM service + content-block vocabulary
 @deepseek-ai/dsh-session          event-sourced session log + store
 @deepseek-ai/dsh-system-prompt    prompt-section + tool-schema assembly
-@deepseek-ai/dsh-tools            tool registry + tools/execute waterfall
+@deepseek-ai/dsh-tools            tool registry + tools/pre-execute/post-execute
 @deepseek-ai/dsh-agent            agent registry + agent/* event vocabulary
 @deepseek-ai/dsh-invariants       dev-mode event-contract assertions
 @deepseek-ai/dsh-tool-bash        the model-facing bash/bash_output/bash_kill schemas

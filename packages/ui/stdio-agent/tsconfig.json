@@ -18,6 +18,9 @@
       "path": "../../../vendor/loader"
     },
     {
+      "path": "../app-boot"
+    },
+    {
       "path": "../../../vendor/logger-console"
     },
     {
@@ -34,9 +37,6 @@
     },
     {
       "path": "../../session-persistence/session-persistence-jsonl"
-    },
-    {
-      "path": "../../support/ui-stdio"
     }
   ]
 }

@@ -12,7 +12,6 @@ Every operation resolves a user-supplied path to an opaque backend target first.
 
 ```ts type-equiv
 interface FsTarget {
-  inputPath: string
   targetKey: FsTargetKey
   displayPath: string
 }
@@ -38,6 +37,18 @@ interface FsInfo {
 }
 ```
 
+`listDir` returns direct child entries in stable name order. Each entry carries the child basename, type, resolved target, and cheap metadata when the backend can report it. It must not read file contents, so `size` is only for regular files and `version` is metadata-derived. Broken or disappeared children may be returned as `other` without metadata; permission or backend I/O failures while listing or resolving child metadata fail the whole listing with `FS_PERMISSION_DENIED` or `FS_IO_ERROR`.
+
+```ts type-equiv
+interface FsDirEntry {
+  name: string
+  type: 'file' | 'directory' | 'other'
+  target: FsTarget
+  version?: FsVersion
+  size?: number
+}
+```
+
 ## Write and edit guards (provider seam)
 
 Both `writeText` and `editText` take their version guard OPTIONALLY: omit it for an unconditional (bare-provider) mutation, supply it to guard. `writeText`'s guard is an `FsWriteIntent` — `createIfAbsent` creates a missing target and rejects an existing one with `FS_NOT_OBSERVED`; `replaceIfVersion` replaces only when the target exists at the observed version, else `FS_STALE_VERSION`. Omitting `expected` unconditionally creates-or-overwrites. The union itself carries only the two guarded intents; "no guard" is expressed by omission, so write and edit share one symmetric `expected?` shape.
@@ -52,6 +63,8 @@ type FsWriteIntent =
 interface FsWriteOutcome {
   operation: 'create' | 'update'
   version: FsVersion
+  before: string | null
+  after: string
 }
 ```
 
@@ -67,9 +80,9 @@ interface FsEditRequest {
 
 ```ts type-equiv
 interface FsEditOutcome {
-  replacements: number
-  replaceAll: boolean
   version: FsVersion
+  before: string
+  after: string
 }
 ```
 
@@ -77,7 +90,7 @@ interface FsEditOutcome {
 
 `dsh-fs` owns three events the tool dispatches and the policy plugin listens for, so the emitter (`dsh-tool-fs`) and the listener (`dsh-fs-policy`) share a vocabulary without the emitter depending on the policy plugin. They carry only `dsh-fs` vocabulary plus an opaque `object` actor — no model-facing concepts and no agent/session owner structure.
 
-`fs/write-intent` and `fs/edit-intent` are **single-slot decision waterfalls**: the tool dispatches each with a default thunk returning `undefined` (the bare provider), and a listener fully decides without calling `next()`. The slot is first-wins by registration order — the policy plugin owning it is a deployment convention, not an enforced invariant. `fs/observed` is a fire-and-forget recording event dispatched with a plain `ctx.emit`; its listener MUST be synchronous and side-effect-only, because the tool does NOT guard the emit — a throwing listener would surface as the tool's `isError` result for a mutation that already succeeded. The generated catalog shows the exact signatures on [events-and-services.md](../cordis-catalog/events-and-services.md).
+`fs/write-intent` and `fs/edit-intent` are **single-slot decision waterfalls**: the tool dispatches each with a default thunk returning `undefined` (the bare provider), and a listener fully decides without calling `next()`. The slot is first-wins by registration order — the policy plugin owning it is a deployment convention, not an enforced invariant. `fs/observed` is a fire-and-forget recording event dispatched with a plain `ctx.emit`; its listener MUST be synchronous and side-effect-only, because the tool does NOT guard the emit — a throwing listener would surface as the tool's `isError` result for a mutation that already succeeded. The generated catalog shows the exact signatures on [events.md](../cordis-catalog/events.md).
 
 ## Execution context (policy plugin)
 
@@ -93,16 +106,14 @@ interface FsPolicyExec {
 
 ## Read outcome (consumer / read rendering)
 
-A text read is bounded by line window, byte cap, and backend limits. The outcome the model-facing `read` tool renders carries the file's version at read time; there is no `full`/`partial` view — authorization is freshness-based, so any windowed read can authorize a later write/edit when the file is unchanged. Read windowing and this outcome shape live in `dsh-tool-fs` (the executor that owns the read), not in the policy plugin.
+A text read is bounded by line window, byte cap, and backend limits. The outcome the model-facing `read` tool renders is purely presentational; there is no `full`/`partial` view — authorization is freshness-based (the tool emits `fs/observed` with the stat's version directly), so any windowed read can authorize a later write/edit when the file is unchanged. Read windowing and this outcome shape live in `dsh-tool-fs` (the executor that owns the read), not in the policy plugin.
 
 ```ts type-equiv
 interface FileReadOutcome {
   offset: number
-  limit: number
   lines: FileTextLine[]
   totalLines: number
   truncatedByBytes?: true
-  version: FsVersion
 }
 ```
 
@@ -117,8 +128,11 @@ Filesystem failures use stable `FsErrorCode` strings carried by `FsError` (`Harn
 ```ts type-equiv
 type FsErrorCode =
   | 'FS_NOT_FOUND'
+  | 'FS_NOT_DIRECTORY'
   | 'FS_NOT_TEXT'
   | 'FS_NOT_REGULAR_FILE'
+  | 'FS_PERMISSION_DENIED'
+  | 'FS_IO_ERROR'
   | 'FS_STALE_VERSION'
   | 'FS_NOT_OBSERVED'
   | 'FS_AMBIGUOUS_EDIT'
@@ -126,8 +140,8 @@ type FsErrorCode =
   | 'FS_ABORTED'
 ```
 
-`FS_NOT_OBSERVED` means the policy plugin has no prior-observation record for this owner (or a `createIfAbsent` hit an existing file). `FS_STALE_VERSION` means the backend version no longer matches the observed one (or an edit hit a missing target). Freshness authorization has no partial/full distinction, so there is no `FS_PARTIAL_OBSERVATION`.
+`FS_NOT_DIRECTORY`, `FS_PERMISSION_DENIED`, and `FS_IO_ERROR` are used by directory listing to distinguish an existing non-directory target, a denied listing, and an unexpected backend I/O failure. `FS_NOT_OBSERVED` means the policy plugin has no prior-observation record for this owner (or a `createIfAbsent` hit an existing file). `FS_STALE_VERSION` means the backend version no longer matches the observed one (or an edit hit a missing target). Freshness authorization has no partial/full distinction, so there is no `FS_PARTIAL_OBSERVATION`.
 
 ## The service and the plugin
 
-`FileSystem` (`ctx.fs`, abstract) owns the provider primitives: `resolve`, `stat`, `readText`, `streamText`, `writeText`, and `editText`. `dsh-fs-policy` registers **no service** — it is a plugin that adds policy through the `fs/*` event gate: it decides the write/edit intent waterfalls (supplying `createIfAbsent`/`replaceIfVersion`/`{ version }` or throwing `FS_NOT_OBSERVED`) and records on `fs/observed`. The executor is `dsh-tool-fs`: it reads/writes/edits through `ctx.fs`, dispatches the waterfalls, and emits the recording event. The generated wiring catalog shows the exact `ctx.fs` signatures on [events-and-services.md](../cordis-catalog/events-and-services.md#ctxfs--filesystem-abstract-seam).
+`FileSystem` (`ctx.fs`, abstract) owns the provider primitives: `resolve`, `stat`, `readText`, `streamText`, `listDir`, `writeText`, and `editText`. `dsh-fs-policy` registers **no service** — it is a plugin that adds policy through the `fs/*` event gate: it decides the write/edit intent waterfalls (supplying `createIfAbsent`/`replaceIfVersion`/`{ version }` or throwing `FS_NOT_OBSERVED`) and records on `fs/observed`. The executor is `dsh-tool-fs`: it reads/writes/edits through `ctx.fs`, dispatches the waterfalls, and emits the recording event. The generated wiring catalog shows the exact `ctx.fs` signatures on [services.md](../cordis-catalog/services.md#ctxfs--filesystem-abstract-seam).

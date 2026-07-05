@@ -52,8 +52,6 @@ export function FsVersion(v: string): FsVersion {
  * this; every other operation takes it.
  */
 export interface FsTarget {
-  /** The original model/plugin-supplied path, for diagnostics only. */
-  inputPath: string
   /** Opaque key for stale guards and target lookup. */
   targetKey: FsTargetKey
   /**
@@ -74,6 +72,23 @@ export interface FsInfo {
   version: FsVersion
   /** Whether the target is a regular file, a directory, or something else. */
   type: 'file' | 'directory' | 'other'
+  /** Byte size of a regular file, when the backend can report it. */
+  size?: number
+}
+
+/**
+ * One direct child returned by {@link FileSystem.listDir}. Listing returns
+ * metadata and resolved targets only; it must not read file contents.
+ */
+export interface FsDirEntry {
+  /** Basename of the child inside the listed directory. */
+  name: string
+  /** Whether the child is a regular file, a directory, or something else. */
+  type: 'file' | 'directory' | 'other'
+  /** Resolved child target for follow-up operations. */
+  target: FsTarget
+  /** Opaque freshness token when the backend can report metadata cheaply. */
+  version?: FsVersion
   /** Byte size of a regular file, when the backend can report it. */
   size?: number
 }
@@ -101,6 +116,16 @@ export interface FsWriteOutcome {
   operation: 'create' | 'update'
   /** Opaque version of the file after the write. */
   version: FsVersion
+  /**
+   * The file's content BEFORE the write, or `null` when the file did not exist
+   * (a create) or was undiffable (binary/non-UTF-8). LF-normalized storage text
+   * (the diff basis), never a diff — a consumer computes the result-time
+   * contextual diff from `before`/`after` when `before` is present, else falls
+   * back to a whole-file diff.
+   */
+  before: string | null
+  /** The file's content AFTER the write, LF-normalized to share `before`'s diff basis. */
+  after: string
 }
 
 /** A literal-replacement edit request. */
@@ -115,12 +140,16 @@ export interface FsEditRequest {
 
 /** Outcome of a literal edit. */
 export interface FsEditOutcome {
-  /** Number of literal replacements applied. */
-  replacements: number
-  /** Whether every match was replaced. */
-  replaceAll: boolean
   /** Opaque version of the file after the edit. */
   version: FsVersion
+  /**
+   * The file's content BEFORE the edit. Raw storage text (LF-normalized by the
+   * backend), never a diff — a consumer computes the result-time contextual diff
+   * (the applied hunk with context) from `before`/`after`.
+   */
+  before: string
+  /** The file's content AFTER the edit. */
+  after: string
 }
 
 /**
@@ -130,8 +159,11 @@ export interface FsEditOutcome {
  */
 export type FsErrorCode =
   | 'FS_NOT_FOUND'
+  | 'FS_NOT_DIRECTORY'
   | 'FS_NOT_TEXT'
   | 'FS_NOT_REGULAR_FILE'
+  | 'FS_PERMISSION_DENIED'
+  | 'FS_IO_ERROR'
   | 'FS_STALE_VERSION'
   | 'FS_NOT_OBSERVED'
   | 'FS_AMBIGUOUS_EDIT'
