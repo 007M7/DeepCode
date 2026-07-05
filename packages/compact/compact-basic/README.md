@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-compact-basic
 
-The **basic compaction backend**: a `BasicCompactService` implementing the `@deepseek-ai/dsh-compact` seam with a chars-per-token heuristic (the `charsPerToken` config, default 4), token-budget retention, and summarization routed through the agent request pipeline.
+The **basic compaction backend**: a `BasicCompactService` implementing the `@deepseek-ai/dsh-compact` seam with a chars-per-token heuristic (the `charsPerToken` config, default 4), token-budget retention, and summarization as a direct one-shot `ctx.llm.stream()` call (interceptable at `llm/stream`).
 
 This is the implementation tier of the compaction capability — see the [interface package](../compact/README.md) for the seam and the [capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md) for the design.
 
