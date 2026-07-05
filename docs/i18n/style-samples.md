@@ -14,9 +14,9 @@
 
 依赖约束规范：各类扩展插件仅依赖抽象接口，严禁直接依赖 `dsh-agent-loop`（该主循环支持替换实现）；唯一允许的特例是组合包 `dsh-agent-core`，它的职责是组装整套实体主干。
 
-> This document covers **behavior**; type shapes live in [core-data-structures/](core-data-structures/core.md), the per-event/service reference in the [generated catalog](cordis-catalog/events-and-services.md), per-package contracts in the package READMEs ([map](../packages/README.md)).
+> This document covers **behavior**; type shapes live in [core-data-structures/](../core-data-structures/core.md), the per-event/service reference in the [generated catalog](../cordis-catalog/events-and-services.md), per-package contracts in the package READMEs ([map](../../packages/README.md)).
 
-本文档描述整体行为逻辑；类型定义存放于 [core-data-structures/](core-data-structures/core.md)；各类事件、服务的详细参考见[生成目录](cordis-catalog/events-and-services.md)；各 package 对外约束协议写在对应包的 README（[索引](../packages/README.md)）。
+本文档描述整体行为逻辑；类型定义存放于 [core-data-structures/](../core-data-structures/core.md)；各类事件、服务的详细参考见[生成目录](../cordis-catalog/events-and-services.md)；各 package 对外约束协议写在对应包的 README（[索引](../../packages/README.md)）。
 
 ## ② 防御模式规则
 
