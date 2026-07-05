@@ -37,12 +37,14 @@ const DEFAULT_CAPS: SubagentCapabilities = { outputSchema: true, depthLimit: tru
  */
 class MockSubagentProvider implements SubagentProvider {
   readonly capabilities: SubagentCapabilities
+  readonly inheritsParentContext: boolean
 
   constructor(
     readonly name: string,
     private readonly config: Config,
   ) {
     this.capabilities = { ...DEFAULT_CAPS, ...config.capabilities }
+    this.inheritsParentContext = config.inheritsParentContext ?? false
   }
 
   start(request: SubagentStartRequest): SubagentRun {
@@ -89,6 +91,12 @@ export interface Config {
   /** Which start-time capabilities to advertise (default: all `true`). */
   capabilities?: Partial<SubagentCapabilities>
   /**
+   * The context contract to declare ({@link SubagentProvider.inheritsParentContext});
+   * default `false` (spawn-like). Set `true` to exercise the fork-shaped tool
+   * wording in consumer tests.
+   */
+  inheritsParentContext?: boolean
+  /**
    * Structured value surfaced when a request carries an `outputSchema` and the
    * `outputSchema` capability is on (default: `{ reply }`).
    */
@@ -104,6 +112,7 @@ export const Config: z<Config> = z.object({
     depthLimit: z.boolean(),
     toolFilter: z.boolean(),
   }),
+  inheritsParentContext: z.boolean(),
   structured: z.any(),
 })
 

@@ -23,9 +23,8 @@
       - deepseek-v4-flash
       - deepseek-v4-pro
 
-# Local bash executor for agent-core's tool-bash schema.
-# FIXME(config-comments): keep this executor note from implying bash is the
-# whole tool set; filesystem, subagent, and todo_write are loaded below.
+# Local bash executor for agent-core's tool-bash schema (one of several tool
+# stacks in this tree: filesystem, subagent, and todo_write load below).
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
   config:
@@ -39,28 +38,17 @@
   config:
     model: deepseek-v4-flash
     persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
-    systemPrompt: |
-      You are a coding assistant driven over the Agent Client Protocol.
+    # The persona: identity + behavior only, nothing about transports or
+    # tooling — tool guidance lives with each tool plugin (descriptions +
+    # prompt sections). {{model}} and {{cwd}} are prompt variables the agent
+    # loop resolves per session (every ACP session carries the client's cwd,
+    # so the persona can state the workspace).
+    persona: |
+      You are a coding assistant powered by the {{model}} model. Your working
+      directory is {{cwd}}.
 
-      Your tools are read/write/edit for file operations, bash (plus
-      bash_output/bash_kill for background tasks), and subagent. Use read to
-      inspect UTF-8 text files, write to create or replace files, and edit for
-      targeted literal replacements. Use bash for shell commands, tests,
-      searches, and operations that are not ordinary file reads or edits. Each
-      bash call runs in a fresh shell — pass workdir instead of cd. Check the
-      [exit code: N] marker; verify your work. Keep answers brief and factual.
-
-      Use the subagent tool to delegate a focused, self-contained subtask to
-      a fresh child agent (it works in its own context and returns only its
-      final result) — give it a complete, standalone instruction. Use
-      subagent_fork instead when the subtask needs THIS conversation's
-      context: the child inherits the log so far.
-
-      For multi-step work, use the todo_write tool to track a task list:
-      send the WHOLE list each call (it replaces the previous one), keep at
-      most one task in_progress (exactly one while work remains), and mark a
-      task completed as soon as it is done. Skip it for trivial single-step
-      tasks.
+      Verify your work by running the code or tests. Keep answers brief and
+      factual.
 
 # The subagent seam + both in-process backends + two model-facing tools, as leaf
 # entries after the app (which provides ctx.agents/ctx.tools). spawn (a fresh

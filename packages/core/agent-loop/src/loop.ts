@@ -152,7 +152,8 @@ export interface LoopHandle {
  *     every prompt blocked → 'turn/end'(rejected), 0 steps
  *     STEP loop:
  *       drain steering → session('steering/message')  ⟵ catches late steering
- *       assembly = ctx.systemPrompt.assemble()        ⟵ waterfall system-prompt/assemble
+ *       assembly = ctx.systemPrompt.assemble({agent}) ⟵ waterfall system-prompt/assemble; renderPrompt
+ *                                                        (persona section + {{variables}}) IS the full prompt
  *       await ctx.serial('agent/pre-step')            ⟵ surface mutation (compaction) OUTSIDE the step
  *       session('step/start')                         ⟵ durable step boundary (no agent/* mirror)
  *       req = {model, system, tools, messages: session.deriveMessages(), signal}
@@ -434,11 +435,11 @@ async function runTurn(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle, 
       // because the pre-step seam needs it: compaction measures token pressure
       // against the system prompt (it counts toward the budget). runStep reuses
       // this same assembly for the request, so the prompt is assembled once per
-      // step.
-      const assembly = await ctx.systemPrompt.assemble()
-      const fullSystemPrompt = [renderPrompt(assembly), agent.options.systemPrompt ?? '']
-        .filter(text => text.length > 0)
-        .join('\n\n')
+      // step. renderPrompt IS the full prompt — the persona is the order-0
+      // section (registered by the AgentLoop plugin) and `{{variable}}`
+      // interpolation happens in the render, so there is no separate join.
+      const assembly = await ctx.systemPrompt.assemble({ agent })
+      const fullSystemPrompt = renderPrompt(assembly)
 
       // Interruption landing after assembly: dispose() or cancel() in a
       // turn-start listener (or a listener whose promise resolved before the

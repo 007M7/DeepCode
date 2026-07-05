@@ -1016,7 +1016,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     ctx.llm.registerAdapter(['mock'], adapter)
 
     // Blocking listener on the parent context (survives fiber disposal).
-    const unlisten = ctx.on('system-prompt/assemble', async function (_assembly, next) {
+    const unlisten = ctx.on('system-prompt/assemble', async function (_assembly, _context, next) {
       await blocked
       return next()
     })
@@ -1072,7 +1072,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     await ctx.plugin(Invariants, { freeze: false })
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    const unlisten = ctx.on('system-prompt/assemble', async function (_assembly, next) {
+    const unlisten = ctx.on('system-prompt/assemble', async function (_assembly, _context, next) {
       await blocker
       return next()
     })
@@ -1229,7 +1229,7 @@ describe('disposal/cancel honored during pre-step assembly (P1-1)', () => {
     await ctx.plugin(Invariants, { freeze: false })
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    ctx.on('system-prompt/assemble', async function (_assembly, next) {
+    ctx.on('system-prompt/assemble', async function (_assembly, _context, next) {
       await blocker
       return next()
     })

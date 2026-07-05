@@ -33,6 +33,6 @@
   name: '@deepseek-ai/dsh-stdio-agent'
   config:
     model: mock-echo
-    systemPrompt: 'You are echo-agent, a demo agent.'
+    persona: 'You are echo-agent, a demo agent.'
     welcome: 'echo-agent ready. Type a message ("echo <text>" triggers the tool).'
     persistenceRoot: './.sessions'
