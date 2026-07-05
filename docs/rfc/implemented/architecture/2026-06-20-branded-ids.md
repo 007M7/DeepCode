@@ -1,6 +1,6 @@
 # RFC: Branded IDs everywhere they belong
 
-Status: implemented (proposed and accepted 2026-06-20)
+Status: implemented
 
 ## Problem
 
@@ -12,7 +12,7 @@ The bash **owner token** is the related sub-case: `BashExecRequest.owner?: strin
 
 **Gap 2 — brand erosion at the seams of the *already-branded* IDs.** Even `CallId`/`SessionId`/`AgentId` decay back to bare `string` at exactly the places confusion is most likely: the registry/store `Map` key types and most public method params. Representative sites: `SessionStore.store = new Map<string, Session>()` and `create`/`prepare(id?: string)`/`get(id: string)` (`packages/core/session/src/index.ts`); `AgentRegistry.store = new Map<string, Agent>()` and `register`/`get(id: string)` (`packages/core/agent/src/index.ts`); `ToolPresenter.pending = new Map<string, …>()` keyed by call id and `call(callId: string)`/`result(callId: string)` (`packages/ui/acp/src/index.ts`); the ACP session-id surface beyond the store map — `SessionRecord.sessionId: string`, `bySession = new WeakMap<Agent, string>()`, `loadingIds = new Set<string>()`, `requireSession(sessionId: string)`, and the exported `streamSessionEventUpdate(sessionId: string, …)` (`packages/ui/acp/src/index.ts`); and the persistence coordinator's `Map<string, …>` keyed by session id (`packages/session-persistence/session-persistence/src/coordinator.ts`). A brand that is dropped at the `Map` key buys nothing on lookups — the value of the existing brands is partly unrealized.
 
-## Proposal
+## Decision
 
 A type-only change. Brands are zero-cost casts; nothing about runtime behavior, serialization, comparison, or the wire format changes. The work is in three parts, all honoring the existing "not every string" policy.
 
@@ -40,7 +40,9 @@ export function OwnerToken(id: string): OwnerToken {
 }
 ```
 
-## Why a distinct OwnerToken brand (not SessionId)
+## Alternatives considered
+
+### Why not typing `owner` as `SessionId`?
 
 The obvious shortcut is to type `owner` as `SessionId` directly — it always *is* one. We reject that. The bash executor seam is a capability seam (interface `dsh-bash`, implementation `dsh-bash-local`, consumer `dsh-tool-bash`) and its owner token is *documented as deliberately opaque*: the executor "never interprets it (no access policy lives in the seam — that is the consumer's job)" (`packages/bash/bash/src/types.ts`). Typing the seam's field as `SessionId` would import `dsh-session`'s vocabulary into a package that must not know what an owner token *means* — it would couple a generic execution backend to the session model and contradict the opaque-token design. A sandboxed or remote executor that replaces `dsh-bash-local` should not inherit a session dependency. The distinct `OwnerToken` brand keeps the seam decoupled: `dsh-bash` knows only "an owner is some opaque branded token," and the `dsh-tool-bash` consumer — which already decides the access policy — is the single boundary that casts its `SessionId` into an `OwnerToken`. The brand still delivers the safety win (you cannot pass a `BashTaskId` or a raw string where an owner is expected) without the coupling.
 
@@ -54,15 +56,12 @@ Kept deliberately narrow per the "not every string needs a brand" policy. Each o
 - **Numeric ordinals** — turn number, step number, and the event `seq` are `number`, not `string`, so `Branded<string>` does not apply; a parallel `number & { readonly [BRAND]: B }` variant could brand them, but they are positional ordinals rarely passed across boundaries, so the payoff is low.
 - **Validated construction** — the brand factories are pure casts with no runtime check, and every boundary (ACP `sessionId`, provider-issued `call.id`, the empty-string fallback in `dsh-llm-deepseek`) trusts the raw string today. A `SessionId.parse()` / `isValid()` companion that throws on malformed input at boundaries is a genuine gap, but it is a *runtime-behavior* change with its own design (what is "malformed"? what do we do on failure?) and belongs in its own RFC, not bundled into this type-only pass.
 
-## Acceptance criteria
+## Verification
 
-- `BashTaskId` and `OwnerToken` are defined in `dsh-bash` and threaded end-to-end: the executor seam, the `dsh-bash-local` generation site, and the `dsh-tool-bash` model-facing surface all speak the brands; `dsh-bash` gains no dependency on `dsh-session`.
-- No collection keyed by an in-scope branded id (`CallId`/`SessionId`/`AgentId`/`BashTaskId`) is keyed by bare `string` — this covers `Map`, `WeakMap` value slots, and `Set` membership (e.g. the ACP `bySession`/`loadingIds`), not just `Map<string, …>`; the corresponding public method params and exported function signatures (e.g. `streamSessionEventUpdate`) take the brand, not `string`.
-- Brands are constructed via the cast factory at each boundary where a raw string enters (provider call id, ACP session id, model-supplied `task_id`); no `as` casts scattered at call sites.
-- `pnpm run typecheck` and `pnpm run doc-sync` are green; the change is observably type-only (no snapshot, no e2e behavioral diff).
+The landed invariants: `BashTaskId` and `OwnerToken` are defined in `dsh-bash` and threaded end-to-end (executor seam, the `dsh-bash-local` generation site, the `dsh-tool-bash` model-facing surface) with no `dsh-bash` dependency on `dsh-session`; no collection keyed by an in-scope branded id (`CallId`/`SessionId`/`AgentId`/`BashTaskId`) is keyed by bare `string` — `Map` keys, `WeakMap` value slots, `Set` membership (the ACP `bySession`/`loadingIds`), public method params, and exported signatures (`streamSessionEventUpdate`) all take the brand; and brands are constructed via the cast factory at each boundary where a raw string enters (provider call id, ACP session id, model-supplied `task_id`), never as scattered `as` casts.
 
-## Risks / what we give up
+## Consequences
 
-- **Mechanical churn across two surfaces.** Propagating brands touches the bash seam (interface + impl + consumer) and the ACP session-id surface plus the persistence coordinator. The risk is broad but low-severity: a missed site is a compile error, not a silent bug. It ships as its own PR, converged with Codex, and stacks naturally near the [unify-the-agent-id-and-the-session-id](../../proposed/simplification/2026-06-20-unify-agent-and-session-id.md) work (both touch the session-id / owner-token boundary; if that proposal lands first, `OwnerToken` still stays distinct from the unified id for the decoupling reason above).
+- **Mechanical churn across two surfaces.** Propagating brands touches the bash seam (interface + impl + consumer) and the ACP session-id surface plus the persistence coordinator. The churn is broad but low-severity: a missed site is a compile error, not a silent bug. The change is observably type-only — no snapshot or e2e behavioral diff. It sits next to the [unify-the-agent-id-and-the-session-id](../../proposed/simplification/2026-06-20-unify-agent-and-session-id.md) proposal (both touch the session-id / owner-token boundary); if that proposal lands, `OwnerToken` still stays distinct from the unified id for the decoupling reason above.
 - **Brands do not validate.** A brand is a confusability guard, not a correctness proof: a *wrong* session id that is still a well-formed string passes the type checker exactly as before. This RFC does not close that gap (see Out of scope) — it only stops the *category* error of passing the wrong *kind* of id.
 - **The "where to stop" line stays a judgment call.** Branding `BashTaskId` but not `ToolName`, `OwnerToken` but not `ModelId`, is a taste call about which strings "could plausibly be confused." Reasonable reviewers may want more or fewer; the policy in `brand.ts` is the tie-breaker, and this RFC errs toward the ids that are model-facing or used for access control.

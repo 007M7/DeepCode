@@ -1,12 +1,10 @@
 # RFC: Session persistence as an abstract service over the existing `SessionEvent`
 
-Status: implemented (proposed 2026-06-14, accepted 2026-06-15)
-
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
+Status: implemented
 
 > Merges the original proposal and the decision record for one topic. The proposal's full method-surface and write-path detail lives in git history; this records the decision and the durable, contested choices.
 
-## Context
+## Problem
 
 Sessions lived only in memory. The example `session-jsonl.ts` plugin (duplicated byte-for-byte in both examples) was write-only telemetry: it buffered `session/event` and appended JSON lines, with no read/replay path, no crash-safety (no fsync, no atomic write, a fire-and-forget dispose drain), no listing, and no format versioning. Nothing could rehydrate a past session from disk into a live agent, so durable resume ("continue yesterday's task"), durable forking, and the ACP `session/load` method ([ACP support](../../proposed/feature/2026-06-14-acp-agent-client-protocol.md)) were all impossible.
 
@@ -26,6 +24,10 @@ Key choices recorded here because they are durable, contested, and surprising:
 - **File backend canonical, DB backend a proven drop-in.** `SessionEvent` maps 1:1 onto a row `(session_id, seq, type, time, data)` — `append` is INSERT (in a transaction asserting the contiguous-seq contract), `load` is SELECT … ORDER BY seq. `dsh-session-persistence-sqlite` is exactly this: a `SessionPersistence` subclass with no interface change (opencode runs this exact shape on SQLite/WAL), and it passes the same `runPersistenceContract` suite as the JSONL backend — so the contract holds both backends to identical semantics (lazy materialization, interrupted-turn close on load, contiguous-seq), expressed once over file bytes and once over rows.
 - **Metadata is out-of-log.** Format version, cwd, and lineage are storage concerns, not replayable conversation state, so they live in a `SessionHeader` owned by `dsh-session` and attached to a `Session` via a new readonly `session.header` — never in `SessionEventMap`, never reaching `deriveMessages()`. The alternative (a merge-extensible `session/meta` event as log line 0) was rejected: an in-log event would ride along with a seeded/forked session for free, but metadata is not replayable state, so the explicit out-of-log header seam is the cleaner cost. (The header was originally split into an immutable `SessionHeader` plus a mutable `SessionSummary` whose union was `SessionMeta`; the mutable summary was later removed as dead state — see [Drop the mutable session summary](../simplification/2026-06-19-drop-mutable-session-summary.md).)
 - **Resume is an async factory, not a change to synchronous create.** `ctx.agents.resume({ resumeSessionId })` awaits `ctx.sessionPersistence.load`, recreates the live session with the loaded events (so `lastTurnNumber`/`deriveMessages` continue), and starts a fresh agent on the resumed id (NOT `${agentId}-session`). The agent-loop does NOT hard-inject `sessionPersistence` (that would pend non-persistent demos forever); `resume` rejects with a clear error when it is absent.
+
+## Alternatives considered
+
+Each key choice above records its rejected alternative where the choice is stated: a **chunk-filtered canonical log** (Codex's `policy.rs` shape) — breaks the contiguous-seq contract; **truncating a crashed turn** — silently destroys a long autonomous run's real work; an **in-log `session/meta` event as line 0** — metadata is not replayable state; **hard-injecting `sessionPersistence` into the loop** — would pend non-persistent demos forever.
 
 Format versioning: the header carries a `version`; `load` rejects any non-current version (no migration — the pre-release session format is pinned at `SESSION_FORMAT_VERSION = 0` and absorbs shape churn, per the AGENTS.md pre-release stance). Stated honestly: append-only + flush is robust to partial trailing writes (tolerated on load) but not to fsync-less power loss mid-line; a DB/WAL backend is the stronger option later.
 

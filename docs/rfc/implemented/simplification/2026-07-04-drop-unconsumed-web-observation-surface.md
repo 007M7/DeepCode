@@ -1,6 +1,6 @@
 # RFC: Drop the unconsumed web observation surface — the `providers-change` event and the status methods
 
-Status: implemented (proposed and accepted 2026-07-04)
+Status: implemented
 
 ## Problem
 
@@ -13,20 +13,20 @@ The seam's own design starves both surfaces of consumers: tool registration foll
 
 This mirrors [drop the unconsumed `llm/adapter-change` event](../../implemented/simplification/2026-06-20-drop-unconsumed-llm-adapter-change-event.md), which removed the same notification shape, the same rollback-before-emit machinery, and the same listener-throw test from `LlmService`. That RFC's keep/cut criterion — keep `tools/change` for its plausible user-facing tool-list consumer, cut the boot-time backend-registry signal — puts a web-provider registry squarely on the cut side; the status methods are the same judgment applied to a pull surface instead of a push one.
 
-## Proposal
+## Decision
 
-Delete the event declaration, both emits, and the rollback-before-emit ordering (the plain `ctx.effect` disposer keeps HMR cleanup). Delete `searchStatus()`/`fetchStatus()`/`WebCapabilityStatus` — the provider-private `status()` stays, since it feeds execution-time selection. Delete the listener-throw rollback test that exists solely for the removed event, and rewrite the emission assertions and every status-based assertion onto the behavior a real caller observes (a successful `search()`/`fetch()`, or the structured `WebError` codes for unavailable/ambiguous/misconfigured provider sets). Run `pnpm run gen-cordis-catalog`; update `packages/web/web/README.md`, `packages/web/tool-web/README.md` (the drifted reads-status sentence), [web.md](../../../core-data-structures/web.md), and the web paragraph in [architecture.md](../../../architecture.md). Amend the [web capability seam RFC](../../implemented/architecture/2026-06-24-web-capability-seam.md)'s facts (it specified the event and the status aggregation) per [implemented/AGENTS.md](../AGENTS.md).
+The event declaration, both emits, and the rollback-before-emit ordering are deleted (the plain `ctx.effect` disposer carries HMR cleanup). `searchStatus()`/`fetchStatus()`/`WebCapabilityStatus` are deleted — the provider-private `status()` stays, since it feeds execution-time selection. The listener-throw rollback test that existed solely for the removed event is gone, and the emission assertions and every status-based assertion are rewritten onto the behavior a real caller observes: a successful `search()`/`fetch()`, or the structured `WebError` codes for unavailable/ambiguous/misconfigured provider sets. The cordis catalog is regenerated; `packages/web/web/README.md`, `packages/web/tool-web/README.md` (the drifted reads-status sentence), [web.md](../../../core-data-structures/web.md), and the web paragraph in [architecture.md](../../../architecture.md) describe the shipped contract; the [web capability seam RFC](../../implemented/architecture/2026-06-24-web-capability-seam.md)'s facts (it specified the event and the status aggregation) are amended per [implemented/AGENTS.md](../AGENTS.md).
 
-## Why not keep it?
+## Alternatives considered
+
+### Why not keep it?
 
 The web seam RFC specified both deliberately — the event as a minimal HMR-visibility signal, the status methods as the tool's aggregated diagnostics — and a future provider-status panel is imaginable. But the same RFC's other choices starved them: derived-on-call selection and enablement-based registration leave no consumer that CAN need either, the shipped tool demonstrates the real pattern (execute and route the structured error), and the drifted README sentence shows the promised consumer never materialized. Per AGENTS.md "RFCs are proposals, not golden truth", these are the parts of that proposal the code has since shown to over-reach; a future observer reintroduces the smallest signal or query it actually consumes, shaped by that consumer.
 
-## Acceptance criteria
+## Verification
 
-- No `providers-change`, `searchStatus`, `fetchStatus`, or `WebCapabilityStatus` spelling outside RFC history; the catalog is regenerated and fresh (`verify-cordis-catalog` green).
-- Registration/disposal HMR-safety tests prove cleanup through execution behavior rather than the removed surfaces.
-- `packages/web/tool-web/README.md` and the architecture paragraph describe the execution-time error-routing contract the tool actually has.
+No `providers-change`, `searchStatus`, `fetchStatus`, or `WebCapabilityStatus` spelling survives outside RFC history; the catalog is fresh (`verify-cordis-catalog` green); registration/disposal HMR-safety tests prove cleanup through execution behavior; and the tool-web README plus the architecture paragraph describe the execution-time error-routing contract the tool actually has.
 
-## Risks
+## Consequences
 
-A future provider-picker UI or diagnostics panel wants change notifications or a status query — it re-adds the smallest surface it consumes; the identical judgment, and its reversal condition, is already recorded on the llm precedent.
+A future provider-picker UI or diagnostics panel that wants change notifications or a status query re-adds the smallest surface it consumes; the identical judgment, and its reversal condition, is already recorded on the llm precedent.

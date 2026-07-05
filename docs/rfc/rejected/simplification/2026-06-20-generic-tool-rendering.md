@@ -12,6 +12,8 @@ The real first-party use is bash presentation for ACP. That is too little eviden
 
 Remove tool-owned UI presentation callbacks for now. The canonical tool events already carry the tool name, raw argument string, result content, and error state. UIs render a generic tool card from those fields. Tool-specific rich rendering can return later as a tagged render-intent union after there are at least two real tools and two real consumers to validate the vocabulary.
 
+## Alternatives considered
+
 As a smaller alternative, replace the current optional-field bag with one explicit union in a single PR; but if the goal is simplification, the stronger move is to delete the callbacks and keep the generic path.
 
 ## Acceptance criteria

@@ -12,7 +12,9 @@ The helpers live once, in [`@deepseek-ai/dsh-app-boot`](../../../../packages/ui/
 
 Each `bin.ts` is a thin self-executing composition over the shared helpers plus its app-specific lifecycle (the ACP bin: replay-mode env skipping and the stdin-EOF dispose; the stdio bin: nothing extra). The bins stay coverage-excluded and export nothing; the published-artifact guards are unchanged — the built-bin smokes still run each bin under plain node in a node_modules-shaped temp dir (now symlinking `ui/app-boot` too) and still assert the missing-config non-zero exit, per the "real entry path means the published artifact" defensive pattern. The [extract-example-app-packages RFC](../architecture/2026-06-20-extract-example-app-packages.md)'s bin-ownership facts are amended accordingly.
 
-## Why not keep the duplication?
+## Alternatives considered
+
+### Why not keep the duplication?
 
 The bins were framed as independently-owned published artifacts, and a new package carries fixed overhead (manifest, README, tsconfig reference, publint surface) comparable to the deduplicated line count. But app-vs-app sharing was never weighed by the RFC that created the bins — it consolidated three example `start.ts` copies INTO the bins and stopped there; the drift was observed fact; and the coverage-gap argument is independent of the dedup argument: this was the only nontrivial runtime logic in the repo exempt from the per-file 100% gate. The recorded fallback (extracting only the pure logic into per-app modules) would have ended the exemption but kept two homes for the lore.
 

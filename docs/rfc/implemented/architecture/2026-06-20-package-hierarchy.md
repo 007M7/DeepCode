@@ -8,7 +8,7 @@ Status: implemented
 
 This was not just cosmetic. Because every top-level package looked like part of the same public surface, future removal was harder, and publish/lint/doc scripts had to encode intent through comments or hand-maintained static lists rather than reading it off the layout.
 
-## What landed
+## Decision
 
 Packages are grouped by modular role at a uniform `packages/<group>/<pkg>/` depth. Group directories are pure containers (no `package.json`); every package keeps its `@deepseek-ai/dsh-<pkg>` name — this is repo structure and maintenance policy, not package renaming.
 
@@ -62,6 +62,12 @@ Two doc-sync/hygiene gates keep the structure and its references honest, so the 
 - `scripts/verify-package-paths.ts` flags a `packages/<path>` reference (in Markdown or a `.ts` comment/string) that does not resolve **and** names a real package in a segment — i.e. a stale path to a moved package. A path naming a package that exists nowhere (a forward-looking proposal) is left alone, so the gate applies uniformly across proposed/implemented/rejected.
 - `scripts/check-workspace-constraints.ts` asserts the `packages/<group>/<pkg>` shape: group dirs carry no `package.json`, and no package sits flat at the root or nests deeper. Group names stay open — a new group may be added without editing the gate; only the depth-2 shape is fixed.
 
-## What we gave up
+## Alternatives considered
+
+- **A third tier (`adapters/` / `impls/` under each family)** — rejected: uniform depth 2 keeps the workspace glob a clean `packages/*/*` and lets one `@deepseek-ai/dsh-*` tsconfig wildcard resolve every package.
+- **Nesting persistence under `core/session/`** — rejected: the storage backends form a parallel capability family mirroring `llm/` and `bash/`, while the session log itself stays core product API.
+- **`ui-stdio` under `ui/`** — rejected: it is example-coupled dev support, not a product surface; `acp` is the only `ui/` member because an editor actually drives it.
+
+## Consequences
 
 The restructure churned imports, workspace globs, doc links, build references, and package paths in one coordinated move. That churn is acceptable pre-release (per the AGENTS.md foundation-over-blast-radius stance) because it stops the flat layout from fossilizing support packages as product contracts, and it is a one-time cost: the wildcard `paths`, the glob-derived publint list, and the shape gate mean a new package needs no further structural edits.

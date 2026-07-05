@@ -25,3 +25,5 @@ This proposal can land independently of [a generic long-running tool runtime](..
 ## What we give up
 
 A model or user cannot recover the omitted prefix of a huge command output from a temp file. That is acceptable until there is a real artifact service. The current spill path is too much bespoke machinery for a feature whose lifecycle and permissions are not designed.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

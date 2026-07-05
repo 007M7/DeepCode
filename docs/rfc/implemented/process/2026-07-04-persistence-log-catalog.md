@@ -1,8 +1,8 @@
 # RFC: Generated persistence log event catalog
 
-Status: implemented (accepted 2026-07-04)
+Status: implemented
 
-## Context
+## Problem
 
 The session event log is the harness's on-disk contract: every `SessionEventMap` member is a record a persistence backend writes verbatim and a replay reconstructs from, and adding one that breaks the durability rules is a breaking change to the on-disk format. Yet the vocabulary had no single reference. The declarations are split across three files — the owning interface in `@deepseek-ai/dsh-session` plus declaration merges in `@deepseek-ai/dsh-compact` and `@deepseek-ai/dsh-hook-protocol` — and the doc surfaces covered it with hand-copies: a `hook/*` payload table in [session.md](../../../core-data-structures/session.md), a `compact/*` payload table in the compact README, payload bullets in the hook-protocol README, and a name-list in the session README. The name-list's merge note had already drifted (it named the compaction merge and omitted the hook merge entirely), and nothing could catch the next merge going undocumented: a hand-copy only checks the names someone already wrote down. This is the same gap the [cordis catalog](2026-06-20-generated-cordis-catalog.md) closed for bus events and the [tool catalog](2026-07-02-tool-schema-catalog.md) closed for model-facing tools — and log events are covered by neither: a `SessionEventMap` member is not a cordis `Events` declaration (it reaches listeners via the single `session/event` emit), so it has no cordis-catalog row by design.
 
@@ -10,7 +10,7 @@ The session event log is the harness's on-disk contract: every `SessionEventMap`
 
 Generate `docs/persistence-catalog/log-events.md` from source, with a freshness gate, as the fourth reference surface: the *records* a persisted session log can contain, complementing the cordis catalog (wiring), core-data-structures (vocabulary), and the tool catalog (tools).
 
-`scripts/gen-persistence-catalog.ts` is a pure TypeScript-AST pass, like `gen-cordis-catalog.ts` and unlike the boot-based tool catalog — the right technique because log events ARE statically knowable: every member is a string-literal-named property with a static type annotation, so the AST is the whole truth. The walk collects every `interface SessionEventMap` declaration under `packages/*/*/src` — the owning top-level interface and every `declare module '@deepseek-ai/dsh-session'` merge — so a brand-new event, core or merged, appears in the next regenerate and an un-regenerated file fails `--check` (`verify-persistence-catalog`, a `doc-sync` member, so pre-push and CI both run it). Each entry renders the member's JSDoc prose, its payload (printed through the TypeScript printer, so a newline-separated multi-line type literal still yields a valid one-line fragment), a surface badge, cross-links into core-data-structures, and the declaration's source pointer, grouped by scope.
+`scripts/gen-persistence-catalog.ts` is a pure TypeScript-AST pass, like `gen-cordis-catalog.ts` — log events ARE statically knowable: every member is a string-literal-named property with a static type annotation, so the AST is the whole truth. The walk collects every `interface SessionEventMap` declaration under `packages/*/*/src` — the owning top-level interface and every `declare module '@deepseek-ai/dsh-session'` merge — so a brand-new event, core or merged, appears in the next regenerate and an un-regenerated file fails `--check` (`verify-persistence-catalog`, a `doc-sync` member, so pre-push and CI both run it). Each entry renders the member's JSDoc prose, its payload (printed through the TypeScript printer, so a newline-separated multi-line type literal still yields a valid one-line fragment), a surface badge, cross-links into core-data-structures, and the declaration's source pointer, grouped by scope.
 
 Specific choices:
 
@@ -20,6 +20,11 @@ Specific choices:
 - **Repo scope.** The catalog enumerates the packages in this repo, matching the siblings' packages-only scope; a downstream plugin can merge further event types, which are outside the catalog by construction. The walk defends its own assumptions with hard errors: the owning top-level `interface SessionEventMap` must be the single exported declaration in `@deepseek-ai/dsh-session` (an unrelated, local, or duplicate same-named interface cannot be catalogued as the on-disk vocabulary), no declaration may carry `extends` (inherited keys would join `keyof SessionEventMap` without a catalog row), every member must be a property signature with an explicit payload type (a method-form member would join `keyof` yet slip past a silent walk), and a duplicate member across declarations fails.
 
 This supersedes the hand-copies: the session.md `hook/*` table, the compact README's event table, the hook-protocol README's payload bullets, and the session README's name-list now link the catalog instead of restating payloads (the surrounding semantics prose stays where it was). The two stray `@mode emit` tags on the hook-protocol merge members are removed — the new gate rejects them as the category error they were.
+
+## Alternatives considered
+
+- **A boot-based generator, like the tool catalog's** — the log vocabulary is fully static, so the AST pass reads the whole truth without booting anything.
+- **Keeping the hand-copies** — a hand-copy only checks the names someone already wrote down; the session README's merge note had already drifted when the catalog landed.
 
 ## Consequences
 

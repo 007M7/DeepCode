@@ -6,9 +6,9 @@ Status: implemented
 
 Several ACP and tool-bash limitations were symptoms of the same missing seam: plugins could create or resume agents through `ctx.agents`, but they could not own and dispose one agent independently, and long-running bash tasks carried no stable owner in the executor itself. ACP aborted and awaited agents on disconnect but could not unregister just that session's agent; `session/cancel` could not cancel queued-but-not-yet-started work; and `tool-bash` kept task ownership in a plugin-local `Map`, so an HMR reload could make an old task look unowned.
 
-## What was implemented
+## Decision
 
-The three seams shipped across a stacked chain of PRs (the queue-aware cancel, the `AgentHandle` disposer, and the bash owner token), each converged independently.
+Three seams: the queue-aware cancel, the `AgentHandle` disposer, and the bash owner token.
 
 ### 1. Queue-aware `Agent.cancel(reason?)`
 
@@ -24,7 +24,9 @@ A new `cancel()` verb on the `Agent` interface — the single public stop primit
 
 Background-task ownership moved from a `tool-bash` plugin-local `Map<string, Agent>` into the executor. `BashExecRequest` gains an optional `owner?: string`; the resolved `BashExecSpec` carries it as required-but-nullable `owner: string | undefined` (a forgotten owner is a visible `undefined`, never a silently-absent property). The executor stores the token on its task and exposes it via a new `BashExecutor.ownerOf(id): string | undefined` seam (NOT on the public `BashTask` — one read path, no redundant API). `tool-bash` deletes its `Map` entirely: it stamps `exec.agent?.session.header.id` as the owner at `start`, and `bash_output`/`bash_kill` compare `ctx.bash.ownerOf(id)` to the caller's token with `!== undefined` semantics (an empty-string token is still a real owner). The completion notice finds the live agent by scanning `ctx.get('agents')?.list()` for `agent.session.header.id === ownerToken` (read via `ctx.get` — `onTaskDone` runs on the bash fiber, a foreign fiber, where the `ctx.agents` proxy would throw). Because ownership now lives on the task in the executor (disposed with the `dsh-bash` fiber), it SURVIVES a `tool-bash` HMR reload — closing the old `XXX(tool-bash-owner-hmr)` gap. (The `onTaskDone` listener is still effect-scoped to `tool-bash`'s `apply`, so a completion landing during the reload gap still drops its one notice — the pre-existing reload-gap drop — but the ownership fence itself is HMR-proof.)
 
-## Acceptance Criteria (met)
+## Verification
+
+These invariants hold and are pinned by tests:
 
 - ACP disconnect/session close leaves no registered agent AND no session-store entry for that session, even when `session/load` races teardown.
 - `session/cancel` before a queued prompt starts prevents that prompt from running and cannot batch the next prompt into the cancelled turn.
@@ -37,6 +39,12 @@ The bash owner-token comparison relies on `session.header.id` being unique among
 
 The planned resolution is to remove the precondition by construction — see [unify the agent id and the session id](../../proposed/simplification/2026-06-20-unify-agent-and-session-id.md): once an agent IS its session (one id), the registry's existing unique-`agentId` check is a unique-session-id guarantee and no two live agents can share a session token.
 
-## Notes
+## Alternatives considered
+
+- **A public `BashTask.owner` field** instead of the `BashExecutor.ownerOf(id)` seam — rejected: one read path, no redundant API.
+- **Sibling cordis effects for the agent's session lifecycle** — rejected: a fiber unload disposes sibling effects concurrently (`Promise.all`), racing the session's `onAppend` detach against the loop's closing `session/flush`; the single composite effect's ordered LIFO chain is what captures the closing `turn/end` on both disposal paths.
+- **A separate step-only `abort()` beside `cancel()`** — shipped originally, then removed as unused; `cancel()` is the single public stop primitive ([the public-stop-surface RFC](../simplification/2026-06-20-public-agent-stop-surface.md)).
+
+## Consequences
 
 This touched public interfaces (`Agent`, `AgentFactory`, the bash seam) deliberately, not as a local ACP patch. The simple synchronous `Agent.send()` ergonomics were preserved; the async lifecycle path is additive, for owners that need it.
