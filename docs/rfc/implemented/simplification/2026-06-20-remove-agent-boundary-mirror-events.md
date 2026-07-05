@@ -1,6 +1,6 @@
 # RFC: Stop mirroring durable boundaries as agent events
 
-Status: implemented (accepted 2026-07-01)
+Status: implemented
 
 <!-- Shipped in AMENDED, narrowed form: the four turn/step BOUNDARY mirrors are
      removed; `agent/steering` and `agent/stream-chunk` were RETAINED here (they
@@ -35,6 +35,11 @@ RETAINED — NOT durable-boundary mirrors, so out of scope for this decision:
 - `agent/stream-chunk` — the live token stream. Out of scope for THIS decision (a mirror of the durable `assistant/chunk`, not a boundary), it was removed by its own follow-up: [Stop mirroring the token stream as an agent event](2026-07-02-remove-stream-chunk-mirror.md).
 - `agent/created`, `agent/disposed`, `agent/status`, `agent/error`, `agent/queued` — lifecycle/control events that are not transcript data. `agent/queued` in particular is an inbox acknowledgement that fires before any durable event exists (cancelled queued work may never enter the log), so it is deliberately live-only.
 
-## What we give up
+## Alternatives considered
+
+- **Bundling `agent/steering` into the removal** — the original proposal's shape; narrowed out as scope creep: it mirrors the durable `steering/message` control record, not a boundary, and was removed by [its own later decision](2026-07-04-remove-agent-steering-mirror.md) (as was `agent/stream-chunk`, by [the stream-chunk-mirror RFC](2026-07-02-remove-stream-chunk-mirror.md)).
+- **Keeping the turn mirrors for the stdio UI** — [the event-domain-semantics RFC](../architecture/2026-06-30-event-domain-semantics.md)'s original stance; rejected here because `dsh-ui-stdio` is a disposable test REPL, not a load-bearing consumer, and it renders boundaries from `session/event` + the id map instead.
+
+## Consequences
 
 A plugin can no longer observe turn/step boundaries from a convenient `Agent`-first event. It must either subscribe to `session/event` or maintain a session-to-agent association. That is an acceptable trade: boundary consumers should not depend on a second event feed that can drift from the durable log.

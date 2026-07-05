@@ -1,12 +1,10 @@
 # RFC: Microkernel — extension via Cordis event taxonomy, one concrete loop
 
-Status: implemented (accepted 2026-06-11)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
+## Problem
 
-## Context
-
-The product principle is "everything is a plugin": hooks, /goal, /loop, dynamic workflows, compaction, sandboxing, permissions, UI, persistence, MCP, skills must all be writable as plugins without modifying the core. Candidate mechanisms considered: a purpose-built middleware stack (koa-compose style), an explicit phase state machine plugins can insert into, or Cordis's native event system.
+The product principle is "everything is a plugin": hooks, /goal, /loop, dynamic workflows, compaction, sandboxing, permissions, UI, persistence, MCP, skills must all be writable as plugins without modifying the core.
 
 ## Decision
 
@@ -17,6 +15,10 @@ Pure Cordis event taxonomy. The loop's extension seams are typed events with del
 - **parallel** (awaited) for the one durability checkpoint: `session/flush`.
 
 The event vocabulary lives in interface packages (dsh-agent declares the agent/* events); `@deepseek-ai/dsh-agent-loop` is the only concrete loop plugin and is itself swappable — nothing outside it may depend on it.
+
+## Alternatives considered
+
+**A purpose-built middleware stack (koa-compose style)** and **an explicit phase state machine plugins insert into** — both would re-implement dispatch, disposal, and reload semantics that Cordis's native event system already provides; as Cordis effects, listeners get HMR and disposal for free.
 
 ## Consequences
 

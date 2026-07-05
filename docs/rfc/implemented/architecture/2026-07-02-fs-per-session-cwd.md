@@ -16,7 +16,9 @@ Thread the caller's session cwd into path resolution, exactly as `dsh-tool-bash`
 - `dsh-fs-local.resolve` uses `resolveLocalTarget(opts?.cwd ?? this.config.cwd, path)`. `config.cwd` stays the default for a caller that supplies none (non-ACP / no-session use, and the single-session stdio demo where `process.cwd()` IS the workspace).
 - `dsh-tool-fs`'s `read`/`write`/`edit` derive the session cwd through a shared `sessionCwd(exec)` helper (`exec.agent?.session.header.cwd`, mirroring bash's `resolveWorkdir`) and pass it to `resolve`. A non-agent / headerless caller yields `undefined`, so the backend applies its default.
 
-## Why the caller supplies the cwd (not the provider)
+## Alternatives considered
+
+### Why the caller supplies the cwd (not the provider)
 
 The provider seam must not depend on `dsh-agent` / `dsh-session` — it is a text-storage backend that a sandboxed or remote implementation also satisfies, and those have no notion of an "agent session". The tool already receives the `ToolExecution` (`exec`), which carries the agent, so the tool is the right place to project `exec → cwd` and hand the provider a plain string. This is the "explicit > implicit at package seams" convention: the base directory arrives as an explicit argument the provider acts on, not smuggled in by having the provider reach into a session it should not know about. It also matches `dsh-tool-bash` one-to-one, so the two model-facing file surfaces resolve paths identically.
 

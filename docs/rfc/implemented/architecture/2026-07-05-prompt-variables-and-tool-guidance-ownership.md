@@ -1,6 +1,6 @@
 # RFC: Prompt variables and tool-guidance ownership
 
-Status: implemented (proposed and accepted 2026-07-05)
+Status: implemented
 
 ## Problem
 
@@ -40,7 +40,7 @@ Per-tool semantics and when-to-use live in tool DESCRIPTIONS, which already ship
 
 `SubagentProvider` gains `readonly inheritsParentContext: boolean` — a DESCRIPTIVE fact beside `capabilities`, not in it (capabilities are start-time validation; nothing validates against this flag). Spawn and ACP declare `false`, fork declares `true`. `dsh-tool-subagent` derives both the tool description and the `prompt` parameter description from the flag (`providerWording`): the fork instance now tells the model the child inherits the conversation's completed turns (not the in-flight turn) and that its prompt should state only what is new. Deriving the description from a provider that arrives on its own fiber is what forced the provider-lifecycle events and the tool's reactive registration — that mechanism, its Loader-concurrency rationale, and its rejected alternatives are recorded in [the provider-lifecycle-events RFC](2026-07-05-subagent-provider-lifecycle-events.md).
 
-## Rejected alternatives
+## Alternatives considered
 
 - **The loop composes an identity line itself** — hardcodes model-facing prose in the one package that must stay thin ("plugins, not loop changes"), and outside the section pipeline it would be a second composition path. (The identity DOES ship as a code literal — but as an ordinary section registered by `dsh-system-prompt`, whose `system-prompt/assemble` waterfall remains the escape valve for a deployment that must drop it.)
 - **Inject the model name via the `agent/request` waterfall** — prompt text composed in two places, and `agent/pre-step`'s `fullSystemPrompt` would omit it, so compaction would measure a prompt that is not what the model sees.
@@ -48,13 +48,6 @@ Per-tool semantics and when-to-use live in tool DESCRIPTIONS, which already ship
 - **Lenient interpolation (leave unknown refs verbatim, or substitute empty)** — a typo ships `{{modle}}` (or a hole) to the model and nobody notices until transcript review.
 - **Per-instance subagent wording in config** — returns model-facing prose to every deployment × instance, the P2 disease again. **Keying wording off the provider NAME** — `providerName` is itself config, so a renamed provider silently gets the wrong words.
 - **Resolving the provider at `apply` time (a load-order requirement)** and **section-only subagent wording (lazily resolved at assemble)** — the alternatives to the provider-lifecycle events; both rejected in [the provider-lifecycle-events RFC](2026-07-05-subagent-provider-lifecycle-events.md).
-
-## What we give up
-
-- `{{model}}` reflects `AgentOptions.model` at assembly time. A plugin that switches models in the `agent/request` waterfall makes the prompt's claim stale for that step; such a plugin can rewrite `options.system` in the same waterfall if it cares. Accepted.
-- While a bound provider is absent (not yet activated, unloaded, mid-HMR-reload), the subagent tool does not exist and a model request in that window simply lacks it. That is the honest state — the alternative was a registered tool whose description or execution could not be trusted.
-- Strictness means a persona can fail a turn at render (e.g. `{{cwd}}` on a cwd-less session). The failure is contained — the turn ends `error`, the loop survives — and it is an authoring error we WANT loud.
-- No escape syntax for a literal `{{name}}` in prompt prose yet; add one if a real prompt ever needs it.
 
 ## Out of scope
 
@@ -67,3 +60,11 @@ Per-tool semantics and when-to-use live in tool DESCRIPTIONS, which already ship
 - The `subagent_fork` schema description says the child inherits the conversation; the `subagent` one says it does not. The tool follows its provider: absent before the backend activates, present after, gone when the backend unloads, re-worded from the fresh provider on reload.
 - Unknown/valueless/malformed/unbalanced `{{…}}` references throw with the section name in the message; duplicate section, variable, and tool-name registrations all throw.
 - Snapshot goldens are prompt-independent by construction: llm-replay keys replay on (turn, step) chunk streams and never re-verifies the outgoing request.
+
+## Consequences
+
+- Every fact in the assembled prompt now has exactly one owner, and the hand-maintained tool prose in leaf YAML is gone: loading or dropping a tool plugin no longer means editing any deployment's persona.
+- `{{model}}` reflects `AgentOptions.model` at assembly time. A plugin that switches models in the `agent/request` waterfall makes the prompt's claim stale for that step; such a plugin can rewrite `options.system` in the same waterfall if it cares. Accepted.
+- While a bound provider is absent (not yet activated, unloaded, mid-HMR-reload), the subagent tool does not exist and a model request in that window simply lacks it. That is the honest state — the alternative was a registered tool whose description or execution could not be trusted.
+- Strictness means a persona can fail a turn at render (e.g. `{{cwd}}` on a cwd-less session). The failure is contained — the turn ends `error`, the loop survives — and it is an authoring error we WANT loud.
+- No escape syntax for a literal `{{name}}` in prompt prose yet; add one if a real prompt ever needs it.

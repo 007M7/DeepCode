@@ -1,10 +1,8 @@
 # RFC: Mechanical quality gates over prose guidelines
 
-Status: implemented (accepted 2026-06-11)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 This codebase is developed primarily by coding agents. Agents follow enforced gates far more reliably than prose conventions, and "a lot of work" is not a cost argument when agents do the labor. Early evidence: tests that didn't typecheck shipped (vitest doesn't typecheck) and were only caught by a review.
 
@@ -23,3 +21,5 @@ Every AGENTS.md promise gets a command that exits non-zero, wired into git hooks
 - Conventions survive agent turnover; violations fail fast and locally.
 - The gates themselves are code to maintain; config changes are reviewed like any change.
 - 100%-coverage pressure can produce assertion-free tests — mutation testing is the planned counterweight (see [the mutation-testing proposal](../../proposed/testing/2026-06-11-mutation-testing.md)).
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

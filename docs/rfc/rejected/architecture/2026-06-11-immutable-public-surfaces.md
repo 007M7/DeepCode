@@ -2,8 +2,6 @@
 
 Status: rejected — the pervasive `DeepReadonly<T>` type flip was rejected in favor of an always-on `deriveMessages` clone plus dev-mode `Object.freeze` + invariants. The immutability *goal* shipped via that alternative; see [dev-mode invariants](../../implemented/architecture/2026-06-11-dev-invariants-over-deep-readonly.md).
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
 ## Problem
 
 The session log is append-only by contract, but `session.events` returns `readonly SessionEvent[]` whose *elements* are mutable: a plugin can reach in and rewrite history (`events[0].data.content.push(...)`), silently breaking replay equivalence and the derived-history guarantee. The same applies to derived messages and prompt assemblies passed through waterfalls — mutation is sometimes the intended idiom (waterfall middleware mutates the request) and sometimes corruption (mutating a *logged* event), and the types don't distinguish.
@@ -26,3 +24,5 @@ Introduce `DeepReadonly`, flip the session read paths, fix resulting compile err
 ## Risks
 
 `DeepReadonly` types can produce noisy errors at waterfall boundaries where mutation IS the API — keep the mutable/readonly boundary exactly at "logged vs in-flight" and document it in the session README.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

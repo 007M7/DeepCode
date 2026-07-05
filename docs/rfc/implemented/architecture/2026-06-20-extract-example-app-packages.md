@@ -8,7 +8,7 @@ An example folder is supposed to be *thin* — the variable wiring of a demo, no
 
 The deeper problem was a **coupled front-door cluster** that lived at the leaf with nothing enforcing it. Choosing the ACP bridge over `ui-stdio` was not one swappable line: an ACP server must **drop the stdout console logger** (stdout is the JSON-RPC channel — a stray log corrupts the frames) and pre-create **no** agents (ACP `session/new` creates them on demand), whereas the stdio app needs a console logger and a pre-created `main`. (`timer` is the one infra plugin common to both — it writes nothing to stdout — so it belongs in the shared spine, not the cluster.) That coupling was enforced only by prose warnings in the leaf YAML. A leaf that wired a console logger into the ACP config was a one-line, comment-only mistake away — exactly the [stdout-purity footgun](../feature/2026-06-18-acp-terminal-and-tool-rendering.md) the examples guarded by hand. The three `start.ts` files also duplicated the Loader-boot tail, the `.env` loader, and (for ACP) snapshot-mode branching and the stdin-dispose lifecycle.
 
-## What shipped
+## Decision
 
 Each example is now **mostly an invocation of an app package**, splitting the wiring along the existing [interface / implementation / consumer seam](2026-06-13-capability-seams.md): the **app package owns the composition**, the leaf `cordis.yml` owns only the **swappable choices** (which LLM adapter, which bash executor, model, prompt, persistence root).
 
@@ -30,7 +30,9 @@ The proposal listed `hmr` among the stdio app's baked-in front-door cluster. Val
 
 Crucially, `hmr` is **not** a stdout-purity footgun the way the console logger is — a stray `hmr` in the ACP config would not corrupt the JSON-RPC frames — so leaving it at the leaf costs none of the safety the coupling argument is about. The **logger** (the real coupling) stays baked in: the stdio app includes it, the ACP app omits it.
 
-## Why not keep the wiring in shared YAML includes?
+## Alternatives considered
+
+### Why not keep the wiring in shared YAML includes?
 
 The old `base*.yml`/`acp-tail.yml` includes already deduped the *config*, but a YAML include cannot **encapsulate** the front-door coupling — it can only describe it in a comment and trust every leaf to obey. It also cannot own a `bin`, so the boot glue stayed copied across three `start.ts` files. A package turns "the ACP app never logs to stdout" from a prose warning into a property of the artifact: there is no logger entry in the leaf to get wrong.
 
@@ -41,7 +43,7 @@ The old `base*.yml`/`acp-tail.yml` includes already deduped the *config*, but a 
 - The new packages carry the per-file 100% coverage gate and a README like every `@deepseek-ai/dsh-*`. Each app package has a keyless **real-load-path** smoke that boots it through its `bin` + the cordis Loader (not a hand-built `ctx.plugin({...})` mount), guarding the `unwrapExports` export-shape bug class ([postmortem 0001](../../../postmortem/0001-acp-default-export-drops-inject.md)).
 - The ACP snapshot **replay** transcript is unchanged: the boot restructuring preserved the plugin set + load order, so `pnpm run test:snapshot` stays green against the committed goldens with no re-record.
 
-## What we give up
+## Consequences
 
 - **The bare-plugin-tree pedagogy.** echo-agent's inlined `cordis.yml` showed every plugin at once; the spine now lives behind a bundle, so seeing the whole tree means opening `dsh-agent-core`. The app package's README carries that teaching weight.
 - **A layer of indirection.** "What does this demo load?" becomes a package read, not a single YAML scan.

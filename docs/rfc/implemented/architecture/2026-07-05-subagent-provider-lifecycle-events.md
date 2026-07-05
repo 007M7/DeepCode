@@ -1,8 +1,8 @@
-# Subagent provider-lifecycle events: `subagent/provider-added` / `subagent/provider-removed`
+# RFC: Subagent provider-lifecycle events — `subagent/provider-added` / `subagent/provider-removed`
 
-Status: implemented (accepted 2026-07-05)
+Status: implemented
 
-## Context
+## Problem
 
 [The prompt-variables RFC](2026-07-05-prompt-variables-and-tool-guidance-ownership.md) makes `dsh-tool-subagent` DERIVE its model-facing wording from its provider: `SubagentProvider.inheritsParentContext` (spawn/ACP `false`, fork `true`) drives both the tool description and the `prompt` parameter description (`providerWording`), so the fork tool stops lying about context inheritance. That fix created a cross-fiber data dependency: a tool's description is fixed at TOOL REGISTRATION (deliberately — the description is where tool-choice guidance lives), but the provider arrives on its own plugin fiber, on no particular schedule.
 
@@ -19,18 +19,15 @@ The registry announces provider membership as typed events, and the consumer mir
 
 The events also complete the seam's vocabulary: `ctx.subagents` is a named registry on which multiple delegation backends coexist (`spawn`, `fork`, `acp`), and a registry whose contents other plugins derive state from should announce membership changes as typed events rather than requiring polling or load-order faith.
 
-## Rejected alternatives
+## Alternatives considered
 
 - **Resolving the provider at `apply` time and throwing when absent (a load-order requirement)** — the first implementation, rejected after review reproduced the failure above. Documenting the requirement ("list backends first") would pin a guarantee the Loader does not make.
 - **Retrying the lookup (poll until the provider appears)** — converges eventually but invents a private readiness protocol beside the one the framework already has (effect registration + disposal); it also cannot notice a provider LEAVING, so HMR would strand a tool whose wording describes a disposed backend.
 - **Section-only subagent wording, lazily resolved at assemble time** — tolerates any load order too, but moves tool-choice guidance out of the DESCRIPTION, contradicting the ownership rule the prompt-variables RFC establishes (per-tool semantics and when-to-use belong in the description). Reactive registration keeps the description authoritative AND order-free.
 - **Keying wording off the provider NAME instead of the provider object** — `providerName` is itself config, so a renamed provider silently gets the wrong words; deriving from the resolved provider's own `inheritsParentContext` cannot drift.
 
-## What we give up
-
-- **A window where the tool is absent.** Between backend disposal and re-registration (an HMR reload), the model sees no subagent tool. This is the honest state — the alternative is a tool that dispatches into nothing — and the tool registry's `tools/change` emit keeps prompt assembly current.
-- **Two waiting fibers sharing a `toolName` is an invalid config caught late.** If two loads of `dsh-tool-subagent` name different providers but the same `toolName`, both wait, and whichever provider arrives first registers; the second registration throws only when ITS provider arrives. `TODO(subagent-dup-toolname)` in the plugin records this blast radius; the tool registry's duplicate-name rejection remains the backstop.
-
 ## Consequences
 
-Consumers deriving state from a named provider react to `subagent/provider-added`/`-removed` instead of reading the registry at `apply` time; `dsh-tool-subagent` is the reference implementation. The [events catalog](../../../cordis-catalog/events.md) carries the exact signatures, and the [producer/consumer map](../../../event-producer-consumer.md) shows `dsh-subagent` emitting and `dsh-tool-subagent` consuming both events.
+- Consumers deriving state from a named provider react to `subagent/provider-added`/`-removed` instead of reading the registry at `apply` time; `dsh-tool-subagent` is the reference implementation. The [events catalog](../../../cordis-catalog/events.md) carries the exact signatures, and the [producer/consumer map](../../../event-producer-consumer.md) shows `dsh-subagent` emitting and `dsh-tool-subagent` consuming both events.
+- **A window where the tool is absent.** Between backend disposal and re-registration (an HMR reload), the model sees no subagent tool. This is the honest state — the alternative is a tool that dispatches into nothing — and the tool registry's `tools/change` emit keeps prompt assembly current.
+- **Two waiting fibers sharing a `toolName` is an invalid config caught late.** If two loads of `dsh-tool-subagent` name different providers but the same `toolName`, both wait, and whichever provider arrives first registers; the second registration throws only when ITS provider arrives. `TODO(subagent-dup-toolname)` in the plugin records this blast radius; the tool registry's duplicate-name rejection remains the backstop.

@@ -1,10 +1,8 @@
 # RFC: Generated cordis events + services catalog
 
-Status: implemented (accepted 2026-06-20)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 A plugin author needs two reference surfaces that no single document gave them: every cordis **event** they can listen to (with its exact signature and dispatch mode) and every `ctx.<key>` **service** they can call (with its exact interface). The pieces existed but were scattered — a hand-maintained event-taxonomy *table* in `docs/architecture.md` (names + prose Mode/Purpose, name-set-checked by `verify-event-taxonomy`), a Service-map table (8 rows of role prose), and the `interface Events` / `interface Context` declarations themselves. The taxonomy table also could not catch a brand-new *undocumented* event: a name-set verifier only checks the names that are already in the table on both sides.
 
@@ -25,7 +23,13 @@ Specific choices:
 - **Cross-links to the data-structure catalog.** A type name in a signature (`GenerateOptions`, `StreamChunk`, `ToolDefinition`, …) links to the core-data-structures page that documents it. The map is a small hand-curated const in the generator — NOT `type-equiv.manifest.json`, which documents the `…Map` symbols while signatures reference the derived union names, and lists a few symbols on two pages.
 - **A dedicated fence.** Signature blocks use a ` ```ts cordis-catalog ` info string that `doc-typecheck` recognizes and skips (a bare signature fragment is not standalone-compilable), excluded from the opt-out ratio — the same treatment `type-equiv` blocks get.
 
-This **supersedes the event-taxonomy half** of [doc-sync enforcement](2026-06-11-doc-sync-enforcement.md): `verify-event-taxonomy` and its `docs/architecture.md` table are retired (the architecture.md heading stays, its body now points at the catalog; the Service-map role table stays as curated prose). The verify-don't-generate principle that RFC chose for the taxonomy is reversed *for this surface only* — the data here is mechanically complete, so generation is strictly stronger (full signatures, cannot drift, catches undocumented events) than a name-set check of a hand-table. doc-typecheck, verify-md-wrap, verify-md-links, and verify-type-equiv are unchanged.
+This **supersedes the event-taxonomy half** of [doc-sync enforcement](2026-06-11-doc-sync-enforcement.md): `verify-event-taxonomy` and its `docs/architecture.md` table are retired (the architecture.md heading stays, its body now points at the catalog; the Service-map role table stays as curated prose). doc-typecheck, verify-md-wrap, verify-md-links, and verify-type-equiv are unchanged.
+
+## Alternatives considered
+
+- **Verify-don't-generate, as the retired taxonomy check did** — reversed *for this surface only*: the data here is mechanically complete, so generation is strictly stronger (full signatures, cannot drift, catches undocumented events) than a name-set check of a hand-maintained table.
+- **Walking the vendor AST for the inherited tier** — rejected for the curated table: the cordis-core `Context` mixes true ctx members with non-service fields, and the pinned vendor surface changes only on a deliberate sync.
+- **Reusing `type-equiv.manifest.json` as the signature cross-link map** — rejected for a small hand-curated const: the manifest documents the `…Map` symbols while signatures reference the derived union names, and it lists a few symbols on two pages.
 
 ## Consequences
 

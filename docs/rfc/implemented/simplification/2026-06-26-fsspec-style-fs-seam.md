@@ -105,24 +105,24 @@ This RFC reverses two decisions from [filesystem-capability-seam](../../implemen
 
 It keeps the interface/implementation/consumer discipline, consumer-never-imports-backend rule, backend-defined target/version/display metadata, atomic local writes, and the shared `FsError` taxonomy.
 
-## Acceptance Criteria
+## Verification
 
-- `dsh-fs` exposes exactly `resolve`/`stat`/`readText`/`streamText`/`writeText`/`editText`; `stat` returns `FsInfo | undefined`; `writeText` uses `FsWriteIntent` (`createIfAbsent` or `replaceIfVersion`); removed types/primitives are gone, and the old `applyEdit` API is replaced by `editText`.
-- `dsh-fs-policy` adds the observed-state + `read`/`write`/`edit` freshness policy and has HMR/disposal coverage. (It does so as a gate PLUGIN on the `fs/*` events with no `ctx.fileContext` service, per [the event-gate RFC](../architecture/2026-06-26-file-context-as-event-gate.md) — the original service form this RFC proposed was reworked.)
-- `dsh-tool-fs` reaches the policy decisions and model-facing schemas stay byte-for-byte unchanged; the observation contract (a read records observed-state; a direct `ctx.fs` read does not) is documented and tested. (The tool injects `fs` and dispatches the `fs/*` events rather than injecting a `fileContext` service, per the event-gate RFC.)
-- Windowed read authorizing edit is shown to fail on the pre-refit code and pass after the refit. Existing version-CAS behavior is preserved with a regression test; it is not claimed as a pre-refit failure. An edit based on a stale read must report `FS_STALE_VERSION` before attempting literal matching.
-- `dsh-fs-local` carries no line, view, or `formatReadBody` logic; it does carry provider-level `editText` logic.
-- Docs and generated artifacts are updated: `docs/architecture.md`, `packages/README.md`, fs package READMEs, `docs/core-data-structures/filesystem.md`, affected `type-equiv` blocks and `scripts/type-equiv.manifest.json`, Cordis catalog, module graph, and doc references.
-- Gates stay green: normal `doc-sync`, `pnpm run knip`, and `pnpm run test:coverage` with 100% per-file coverage.
+`dsh-fs` exposes exactly `resolve`/`stat`/`readText`/`streamText`/`writeText`/`editText` (`stat` returning `FsInfo | undefined`, `writeText` taking `FsWriteIntent`), with the removed types/primitives gone; `dsh-fs-local` carries no line, view, or `formatReadBody` logic; model-facing schemas stayed byte-for-byte unchanged. Tests pin that a windowed read authorizes a later edit of an unchanged file, that an edit based on a stale read reports `FS_STALE_VERSION` before attempting literal matching, that version-CAS behavior is preserved, and that the observation contract holds (a `read`-tool read records observed-state; a direct `ctx.fs` read does not); `dsh-fs-policy` has HMR/disposal coverage.
 
 ## Later extension
 
 The seam was later extended with direct directory listing by [Add direct directory listing to the filesystem seam](../architecture/2026-07-03-filesystem-directory-listing-seam.md). That follow-up is tracked separately so this RFC's acceptance criteria continue to describe the fsspec-style refit that originally shipped.
 
-## Risks
+## Alternatives considered
 
-- Adds a fourth fs package and a new service. This is intentional: it is the previously deferred policy layer, not a second abstract backend seam.
+- **Byte-level fsspec (`cat`/`open` handing back raw bytes)** — rejected: the seam is deliberately text-storage, half a level up, so UTF-8 decoding, binary/NUL rejection, and guarded text mutations live once in the provider and the policy layer never touches raw bytes or separates stale checks from the mutation critical section.
+- **A concrete `ctx.fileContext` method service** — this RFC's original policy shape; reworked by [the event-gate RFC](../architecture/2026-06-26-file-context-as-event-gate.md) into the gate plugin, so the tool is never method-coupled to the policy.
+- **Keeping `readPage` and `full`/`partial` view authorization on the provider** — the pre-refit shape the Supersedes section reverses: view completeness is not what edit safety needs, version freshness is, and the view rule made large files past the read cap impossible to edit.
+
+## Consequences
+
+- Adds a fourth fs package and a new plugin layer. This is intentional: it is the previously deferred policy layer, not a second abstract backend seam.
 - Direct `ctx.fs` use bypasses the policy: a direct `ctx.fs.readText` emits no `fs/observed`, so under the default policy a later `edit` rejects with `FS_NOT_OBSERVED` until the file is read through the `read` tool. The failure is explicit and documented.
 - Large-file line windowing moves from the backend to the `read` tool in `dsh-tool-fs`; text decoding and binary rejection stay in `ctx.fs.streamText`, so this is relocation of windowing only, not a second text-IO implementation.
 - Keeping `editText` in the provider seam means every backend must implement the literal replacement contract. This is intentional: the operation is not pure storage, but stale guard + literal match + atomic rewrite is the unit that must stay together for correct error attribution and concurrency behavior. The contract should stay narrow and text-only so future backends can implement it natively or by whole-file rewrite.
-- Freshness permits full-file `write` after a windowed read. That is weaker than the old view check, but avoids making large files impossible to edit; prompt guidance should still discourage blind full replaces.
+- Freshness permits full-file `write` after a windowed read. That is weaker than the old view check, but avoids making large files impossible to edit; prompt guidance still discourages blind full replaces.

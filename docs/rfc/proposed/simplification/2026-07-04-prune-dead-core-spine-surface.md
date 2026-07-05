@@ -16,7 +16,9 @@ Delete the method and its test; delete the three export lines and their `package
 
 Sequencing: the in-flight surface-cache work (tool-pairing balance caching) neither uses nor touches `invalidate`, so that removal lands after or alongside it mechanically. The execute pipeline is `tools/pre-execute` → dispatch → `tools/post-execute`, and post-execute listeners receive the execution object alongside the result — nothing needs the result's own id.
 
-## Why not keep them?
+## Alternatives considered
+
+### Why not keep them?
 
 A future consumer that swaps a session's log in place would want a reset primitive — it re-adds `invalidate` with itself. A replacement-loop author might want to reuse the inbox or the driver — the architecture already answers that a replacement loop is a different bundle. An isolated result-logging listener might want self-contained correlation on the result — the execution object is in scope at every listener, and a field that exists only to be ignored is worse than absent: it invites exactly the orphaned-pairing bug the loop comment warns about.
 
