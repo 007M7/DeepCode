@@ -96,7 +96,7 @@
 | mod | 模组 | 区别于 module（模块）；plugin 译作「插件」 |
 | model provider | 模型提供方 | |
 | module | 模块 | |
-| orphan | 孤立 | git 官方中文同译（如「孤立分支」）；指英文源已不存在的 `.zh.md`；不要译作：孤儿 |
+| orphan | 孤立 | git 官方中文同译（如「孤立分支」）；指英文源已不存在的 `.zh.md`；不要译作：孤儿。进程语境按 OS 惯用语译「孤儿进程」 |
 | pairing | 配对 | |
 | permission | 权限 | |
 | persistence | 持久化 | |

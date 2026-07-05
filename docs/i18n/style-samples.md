@@ -14,11 +14,23 @@
 
 依赖约束规范：各类扩展插件仅依赖抽象接口，严禁直接依赖 `dsh-agent-loop`（该主循环支持替换实现）；唯一允许的特例是组合包 `dsh-agent-core`，它的职责是组装整套实体主干。
 
+> This document covers **behavior**; type shapes live in [core-data-structures/](core-data-structures/core.md), the per-event/service reference in the [generated catalog](cordis-catalog/events-and-services.md), per-package contracts in the package READMEs ([map](../packages/README.md)).
+
+本文档描述整体行为逻辑；类型定义存放于 [core-data-structures/](core-data-structures/core.md)；各类事件、服务的详细参考见[生成目录](cordis-catalog/events-and-services.md)；各 package 对外约束协议写在对应包的 README（[索引](../packages/README.md)）。
+
 ## ② 防御模式规则
 
 > Hard-won bug-class rules: each pattern below is a class of defect that actually shipped or nearly shipped here, stated as the rule that prevents its recurrence. Read this before writing lifecycle, concurrency, subprocess, or teardown code.
 
 这些都是踩坑总结得出的缺陷分类规范：下文每种范式都对应一类曾上线、或险些流入线上的问题，每条规范旨在杜绝同类问题复现。编写生命周期、并发、子进程、资源销毁相关代码前，请务必阅读本文档。
+
+> **Dispose must reach quiescence, not just request it** — A teardown that issues kills/aborts but returns before the work stops leaves orphans. Make cleanup async and await the children's exit (kill → await `done`), and close listener/notification registries BEFORE killing so late completions stay silent. Tests prove disposal waited (pid gone right after `await fiber.dispose()`), not merely that the process eventually dies.
+
+**销毁操作必须等待所有任务完全停稳，不能仅下发终止指令就返回**——若销毁逻辑仅发送终止、中断信号，但不等任务停止就直接退出，会产生孤儿进程。清理逻辑需设为异步，等待所有子任务彻底退出（先下发终止信号，再等待执行完成）；在执行终止操作前先关闭监听器与通知注册表，让延迟到达的完成事件不再触发任何通知。测试要验证销毁流程确实完成等待：执行完 `await fiber.dispose()` 后进程 PID 立即消失，不能仅校验进程最终会自行消亡。
+
+> **Async state is not synchronous state** — `agent.send()` does not flip status before returning; a background task's completion races turn boundaries; `reader.close()` fires for both EOF and disposal. Never gate control flow on a status you only just requested — drive lifecycle off the events/promises that actually fire (`agent/status`, `task.done`), and observe the transition (saw `running` THEN `idle`) rather than counting actions you assume map 1:1 to turns.
+
+**异步状态不等同于同步瞬时状态**——调用 `agent.send()` 不会在返回前同步更新状态；后台任务完成时机与轮次边界存在竞态；调用 `reader.close()` 既可能是读到文件末尾，也可能是资源销毁触发。切勿仅凭刚查询到的状态来阻断流程；生命周期逻辑应基于真实触发的事件与 promise 驱动（`agent/status`、`task.done`），观测完整状态切换（先 `running`、再 `idle`），而非主观认定操作和执行轮次一一对应（主循环会批量处理排队消息）。
 
 ## ③ 测试政策清单
 
@@ -33,6 +45,10 @@
 成本最低、收益最高的是**冒烟测试**：拉起完整真实示例，发送一条真实提示并校验整体运行状态。这类用例能捕获一类问题——单元测试全部绿灯，但产品实际运行故障，单靠 mock 完全无法发现这类缺陷。
 
 自带自动跳过逻辑，仅用于保障无密钥 CI 环境、无权限贡献者不会被流程拦截，不代表可以以此为由削减真实接口测试投入。
+
+> **Prefer the real implementation over a mock** — Mock only the genuinely expensive or non-deterministic boundary (the LLM adapter, the network, the clock); keep everything downstream real. A hand-rolled stand-in proves the bridge moves bytes, not that the shipping tool behaves as asserted — the two drift while the test stays green.
+
+**优先使用真实实现，而非 mock 替身**——仅对开销极大、结果不确定的边界模块做 mock（LLM 适配器、网络、时钟），其余下游组件全部使用真实实现。手写的 mock 替身只能验证数据通路能传输字节，无法保证线上工具符合预期逻辑；长期下来业务逻辑与 mock 实现会出现偏差，但测试仍会显示通过。
 
 ## ④ 机制描述
 
@@ -67,4 +83,5 @@
 - 类别名词说中文并在首现括注英文：实操手册（cookbook）、事故复盘（postmortem）；指目录或路径时保留代码体英文。
 - 长段按语义单元拆段，一段一件事；名词短语展开为动词句。
 - 母语重写不等于删减：原文每个语义成分都要落地。
-- 样例与 [terminology.md](terminology.md) 冲突时，以术语表为准：收录样例前按表修正术语（例如 agent、mock 保留英文，cancellation 译「取消」）。
+- 样例与 [terminology.md](terminology.md) 冲突时，以术语表为准：收录样例前按表修正术语（例如 agent、mock、LLM 保留英文，cancellation 译「取消」）。
+- 代码体标识符（事件名 `agent/status`、状态值 `running`、包名 `dsh-bash-local` 等）在译文中保留 code span 原文，不得口语化改写——这是行文规则的硬边界，Pass 2 逐句核验的重点。
