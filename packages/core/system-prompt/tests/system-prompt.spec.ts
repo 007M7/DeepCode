@@ -7,7 +7,7 @@ describe('SystemPrompt', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
 
-    ctx.systemPrompt.section({ name: 'persona', order: 0, text: 'You are DeepSeek Code.' })
+    ctx.systemPrompt.section({ name: 'persona', order: 0, text: 'You are DeepSeek Harness SDK.' })
     ctx.systemPrompt.section({ name: 'cwd', order: 20, text: () => 'cwd: /tmp' })
     ctx.systemPrompt.section({ name: 'rules', order: 10, text: 'Be precise.' })
     ctx.systemPrompt.tools(() => [{ name: 'echo', description: 'echo back', parameters: {} }])
@@ -15,7 +15,7 @@ describe('SystemPrompt', () => {
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.map(s => s.name)).toEqual(['persona', 'rules', 'cwd'])
     expect(assembly.tools).toEqual([{ name: 'echo', description: 'echo back', parameters: {} }])
-    expect(renderPrompt(assembly)).toBe('You are DeepSeek Code.\n\nBe precise.\n\ncwd: /tmp')
+    expect(renderPrompt(assembly)).toBe('You are DeepSeek Harness SDK.\n\nBe precise.\n\ncwd: /tmp')
   })
 
   it('removes contributions when the contributing fiber is disposed (HMR safety)', async () => {

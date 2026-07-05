@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This is the monorepo of the DeepSeek Harness group; it hosts **DeepSeek Code**, DeepSeek's coding agent product. The codebase is built on the vendored Cordis framework, microkernel-style: **everything is a plugin**. Read [docs/architecture.md](docs/architecture.md) before changing anything under `packages/` — the service map, event taxonomy, loop lifecycle, and extension seams. The documentation standard is [docs/AGENTS.md](docs/AGENTS.md).
+This is the monorepo of the DeepSeek Harness group; it hosts **DeepSeek Harness SDK**, a plugin-based SDK for building agent harnesses. The codebase is built on the vendored Cordis framework, microkernel-style: **everything is a plugin**. Read [docs/architecture.md](docs/architecture.md) before changing anything under `packages/` — the service map, event surface, loop lifecycle, and extension seams. The documentation standard is [docs/AGENTS.md](docs/AGENTS.md).
 
 ## Pre-release stance: foundation over blast radius
 
@@ -85,7 +85,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY` (and optional `DEEPSEEK_BASE_UR
 - **Registrations are effects**: every contribution goes through `ctx.effect()` / `ctx.on()`; a registry's `register()` returns the disposer.
 - **Typed events via declaration merging**; extensible unions use the merge-extensible-map pattern (`ContentBlockMap`, `SessionEventMap`, …). Every new event's JSDoc carries an `@mode` tag and a `@param` per payload parameter (`this`/trailing `next` exempt); every public service-class method documents each parameter and non-void return (`@param`/`@returns`) — the catalog generator hard-errors otherwise ([completeness RFC](docs/rfc/implemented/process/2026-07-04-cordis-jsdoc-completeness-gate.md)); mode semantics are in the [generated events catalog](docs/cordis-catalog/events.md) header and [the catalog RFC](docs/rfc/implemented/process/2026-06-20-generated-cordis-catalog.md).
 - **Discriminated unions: `switch` on the tag**, not if-chains. Closed unions end with `default: assertNever(...)`; merge-extensible unions must NOT — handle known cases and fall through `default` with a comment.
-- **Waterfall listeners MUST call `next()`** to delegate; returning without it is the veto ([semantics](docs/architecture.md#cordis-waterfall-semantics)).
+- **Waterfall listeners MUST call `next()`** to delegate; returning without it is the veto ([semantics](docs/cordis-primer.md#cordis-waterfall-semantics)).
 - **Plugins, not loop changes**: new behavior goes on the documented extension seams; changing `agent-loop` requires updating docs/architecture.md.
 - **Capability seams are three packages** — interface / implementation / consumer ([capability seams](docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)); don't split preemptively.
 - **Explicit > implicit at package seams**: no optional field silently filled by a hidden `?? default` inside `run()`; defaulting is an explicit `resolve(request): Spec` step in the owning implementation (the `dsh-bash` request/spec split is the template).

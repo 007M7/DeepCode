@@ -33,7 +33,7 @@
  * TODO(permissions): commands run with the executor's full authority. The
  * permission/sandbox seam is the `tools/pre-execute` waterfall (deny/ask) plus
  * sandboxing `BashExecutor` implementations — see docs/architecture.md
- * § plugin checklist.
+ * § Extending The Harness.
  *
  * @module @deepseek-ai/dsh-tool-bash
  */
