@@ -589,6 +589,39 @@ describe('dsh-workflow-vm', () => {
       expect(result.error).toBe('[object Object]')
     })
 
+    it('hostile thrown values render contained: result NEVER rejects, no unhandled rejection', async () => {
+      const unhandled: unknown[] = []
+      const onUnhandled = (reason: unknown): void => { unhandled.push(reason) }
+      process.on('unhandledRejection', onUnhandled)
+      try {
+        const { ctx, parent } = await setup()
+        // Each thrown value would run realm code (or throw) under a plain
+        // property read or String(); rendering must stay total — the only
+        // permitted realm call is the CONTAINED stack getter.
+        const cases: [string, string][] = [
+          ["throw { get stack() { throw new Error('stack getter threw') } }", '[object Object]'],
+          ["throw { get stack() { throw new Error('x') }, message: 'getter threw, message renders' }", 'getter threw, message renders'],
+          ["throw { get message() { throw new Error('message getter ran') } }", '[object Object]'],
+          ["throw { stack: 'custom data stack' }", 'custom data stack'],
+          ["throw (() => { const o = { message: 'setter-only stack' }; Object.defineProperty(o, 'stack', { set() {} }); return o })()", 'setter-only stack'],
+          ["throw new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('trap ran') } })", '[thrown proxy]'],
+          ["throw { [Symbol.toPrimitive]() { throw new Error('toPrimitive ran') } }", '[object Object]'],
+          ['throw () => 1', '[thrown function]'],
+          ['throw null', 'null'],
+        ]
+        for (const [body, rendered] of cases) {
+          const result = await run(ctx, parent, script(body))
+          expect(result.stopReason).toBe('error')
+          expect(result.error).toBe(rendered)
+        }
+        // Let any stray rejection reach the process hook before asserting.
+        await new Promise(resolve => setTimeout(resolve, 20))
+        expect(unhandled).toEqual([])
+      } finally {
+        process.off('unhandledRejection', onUnhandled)
+      }
+    })
+
     it('falls back to the message for an Error whose stack was stripped', async () => {
       const { ctx, parent } = await setup()
       const result = await run(ctx, parent, script(`

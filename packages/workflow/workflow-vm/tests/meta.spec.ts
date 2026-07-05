@@ -116,6 +116,13 @@ return 2`
     expect(error.message).toContain('proxies cannot cross')
   })
 
+  it('a meta expression THROWING a hostile value maps to META_INVALID — rendering runs no realm code', () => {
+    const error = bad('export const meta = { name: (() => { throw { get stack() { throw new Error("boom") }, toString() { throw new Error("boom") } } })(), description: "d" }\nreturn 1')
+    expect(error.code).toBe('META_INVALID')
+    expect(error.message).toContain('pure literal')
+    expect(error.message).toContain('[object Object]')
+  })
+
   it('rejects shape violations with EVERY violation listed (META_INVALID)', () => {
     const error = bad('export const meta = { description: 7, bogus: 1 }\nreturn 1')
     expect(error.code).toBe('META_INVALID')

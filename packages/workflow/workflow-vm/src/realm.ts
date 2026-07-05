@@ -27,6 +27,11 @@
  * chain, so the engine rebuilds inbound values INSIDE the realm via the
  * context's own `JSON.parse` (see the runtime).
  *
+ * {@link describeThrown} is the same discipline for the one place realm
+ * values reach the host WITHOUT materialization: rendering a thrown value
+ * for a failure report. It never throws; the only realm code it can invoke
+ * is a stack getter, contained (see its doc).
+ *
  * @module @deepseek-ai/dsh-workflow-vm/realm
  */
 
@@ -38,6 +43,73 @@ export class MaterializeError extends Error {
     super(`${path}: ${reason}`)
     this.name = 'MaterializeError'
   }
+}
+
+/**
+ * Render a value THROWN by realm code (a script failure, a meta-literal
+ * evaluation failure) as text, without ever throwing itself — the callers sit
+ * in catch blocks whose totality is a seam contract (`WorkflowRun.result`
+ * never rejects). Plain property reads and `String(value)` are hostile-value
+ * hazards (`{ get stack() { throw ... } }`, a throwing
+ * `toString`/`Symbol.toPrimitive`), so: proxies render as a fixed label
+ * (trap-free `isProxy`, before any inspection); `message` is read as an OWN
+ * DATA descriptor only; everything else object-shaped renders as
+ * `[object Object]` without being touched; only primitives (which cannot
+ * carry code) reach `String()`. The one exception is the `stack` getter —
+ * modern V8 makes `stack` an own ACCESSOR on genuine `Error`s, so it is
+ * invoked (that is how real stacks, with the script's own line numbers via
+ * the compile lineOffset, are obtained) but CONTAINED: a hostile getter's
+ * throw is swallowed and rendering falls back to message. Detection is
+ * structural, not `instanceof` — a realm Error is not an instance of the host
+ * class.
+ * @param error - the thrown value, of any shape and any realm.
+ * @returns human-readable text for the failure report; prefers the stack.
+ */
+export function describeThrown(error: unknown): string {
+  switch (typeof error) {
+    case 'object':
+      break
+    case 'function':
+      return '[thrown function]'
+    default:
+      // Primitives (string/number/boolean/bigint/symbol/undefined): String()
+      // cannot reach user code on these.
+      return String(error)
+  }
+  if (error === null) return 'null'
+  if (types.isProxy(error)) return '[thrown proxy]'
+  const stack = readStack(error)
+  if (typeof stack === 'string' && stack.length > 0) return stack
+  const message = ownDataProperty(error, 'message')
+  if (typeof message === 'string') return message
+  return '[object Object]'
+}
+
+/**
+ * Read `error.stack`, tolerating both descriptor shapes: an own DATA property
+ * (older V8, plain objects) and the modern own ACCESSOR pair (the Error Stack
+ * Accessor proposal). Invoking the getter is the only way to obtain a real
+ * stack; on a hostile object that getter is user code, so the call is
+ * contained — a throw yields `undefined` (the caller falls back to message),
+ * and a synchronous spin is the engine's already-accepted post-await
+ * limitation (a script can spin directly just the same).
+ */
+function readStack(error: object): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(error, 'stack')
+  if (descriptor === undefined) return undefined
+  if ('value' in descriptor) return descriptor.value
+  if (typeof descriptor.get !== 'function') return undefined
+  try {
+    return descriptor.get.call(error)
+  } catch {
+    return undefined // a hostile stack getter threw; message/fallback renders instead
+  }
+}
+
+/** An own DATA property's value (`undefined` for absent or accessor); never invokes user code on a non-proxy object. */
+function ownDataProperty(value: object, key: string): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(value, key)
+  return descriptor !== undefined && 'value' in descriptor ? descriptor.value : undefined
 }
 
 /**

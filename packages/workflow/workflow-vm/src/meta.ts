@@ -20,7 +20,7 @@
 import * as vm from 'node:vm'
 import { WorkflowError } from '@deepseek-ai/dsh-workflow'
 import type { WorkflowMeta, WorkflowPhase } from '@deepseek-ai/dsh-workflow'
-import { materializeFromRealm, MaterializeError } from './realm.ts'
+import { materializeFromRealm, MaterializeError, describeThrown } from './realm.ts'
 
 /** The result of {@link extractMeta}: the validated meta and the runnable body. */
 export interface ExtractedScript {
@@ -174,7 +174,10 @@ export function extractMeta(script: string, evalTimeoutMs: number): ExtractedScr
     // below are part of the same boundary.
     evaluated = vm.runInNewContext(`(${literal})`, undefined, { timeout: evalTimeoutMs })
   } catch (error: unknown) {
-    throw new WorkflowError(`meta block failed to evaluate as a pure literal: ${String(error)}`, 'META_INVALID', { cause: error })
+    // describeThrown, not String(): an expression in the literal can THROW a
+    // hostile value (a throwing toString/accessor), and this catch must map
+    // it to META_INVALID rather than let realm code run or a raw error escape.
+    throw new WorkflowError(`meta block failed to evaluate as a pure literal: ${describeThrown(error)}`, 'META_INVALID', { cause: error })
   }
   let data: unknown
   try {

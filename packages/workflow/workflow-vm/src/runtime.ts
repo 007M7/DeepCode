@@ -41,7 +41,7 @@ import type {
   WorkflowMeta,
   WorkflowResult,
 } from '@deepseek-ai/dsh-workflow'
-import { materializeFromRealm, MaterializeError } from './realm.ts'
+import { materializeFromRealm, MaterializeError, describeThrown } from './realm.ts'
 
 /** The per-run knobs the engine resolves from its Config. */
 export interface ExecutionLimits {
@@ -95,21 +95,6 @@ function outputText(blocks: ContentBlock[]): string {
     .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
     .map(block => block.text)
     .join('')
-}
-
-/**
- * Render a script failure for the result: prefer the stack (it carries the
- * script's own line numbers via the compile lineOffset), then the message.
- * STRUCTURAL detection, not `instanceof Error` — a realm-thrown Error is not
- * an instance of the host Error class.
- */
-function errorText(error: unknown): string {
-  if (typeof error === 'object' && error !== null) {
-    const maybe = error as { stack?: unknown; message?: unknown }
-    if (typeof maybe.stack === 'string' && maybe.stack.length > 0) return maybe.stack
-    if (typeof maybe.message === 'string') return maybe.message
-  }
-  return String(error)
 }
 
 /** A short display label derived from the prompt when the script passes none. */
@@ -240,7 +225,10 @@ export class WorkflowExecution {
       if (error instanceof WorkflowError && error.code === 'CANCELLED') {
         return { value: null, stopReason: 'cancelled', error: error.message, agentsStarted: this.started }
       }
-      return { value: null, stopReason: 'error', error: errorText(error), agentsStarted: this.started }
+      // describeThrown is total and trap-free: a hostile thrown value (a
+      // throwing accessor, a proxy) cannot make this catch throw — drive()
+      // resolving is the `result` never-rejects seam contract.
+      return { value: null, stopReason: 'error', error: describeThrown(error), agentsStarted: this.started }
     } finally {
       // Reap strays: a script that fired agent() calls without awaiting them
       // leaves live children behind after settlement — abort them all. (The
