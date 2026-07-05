@@ -19,7 +19,9 @@ import { AgentId } from '@deepseek-ai/dsh-agent'
  */
 async function mount(config?: agentCore.Config): Promise<Context> {
   const oldDshHome = process.env.DSH_HOME
+  const oldAgentsHome = process.env.DSH_AGENTS_HOME
   process.env.DSH_HOME = await mkdtemp(join(tmpdir(), 'dsh-agent-core-home-'))
+  process.env.DSH_AGENTS_HOME = await mkdtemp(join(tmpdir(), 'dsh-agent-core-agents-'))
   const ctx = new Context()
   try {
     await ctx.plugin(agentCore, config)
@@ -32,6 +34,11 @@ async function mount(config?: agentCore.Config): Promise<Context> {
       delete process.env.DSH_HOME
     } else {
       process.env.DSH_HOME = oldDshHome
+    }
+    if (oldAgentsHome === undefined) {
+      delete process.env.DSH_AGENTS_HOME
+    } else {
+      process.env.DSH_AGENTS_HOME = oldAgentsHome
     }
   }
 }
@@ -75,6 +82,21 @@ describe('dsh-agent-core bundle', () => {
       agents: [{ id: AgentId('main'), model: 'mock', systemPrompt: 'hi' }],
     })
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('forwards skill config to the skill service', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-agent-core-skill-home-'))
+    const agentsHome = await mkdtemp(join(tmpdir(), 'dsh-agent-core-skill-agents-'))
+    const ctx = await mount({
+      agents: [],
+      skills: {
+        dshHome: join(home, '.dsh'),
+        agentsHome: join(agentsHome, '.agents'),
+        installSystemSkills: false,
+      },
+    })
+    expect(await ctx.skills.list()).toEqual([])
     await ctx.fiber.dispose()
   })
 

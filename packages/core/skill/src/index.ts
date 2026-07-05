@@ -8,18 +8,20 @@
  * @module @deepseek-ai/dsh-skill
  */
 
-import { access, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { Context, Service } from 'cordis'
+import z from 'schemastery'
+import type Schema from 'schemastery'
 import { parse as parseYaml } from 'yaml'
 import type { FileSystem, FsTarget } from '@deepseek-ai/dsh-fs'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-agent'
 
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
-const MAX_PROMPT_FIELD_LENGTH = 500
-const MAX_COLLECT_CACHE_ENTRIES = 128
+const DEFAULT_PROMPT_FIELD_LENGTH = 500
+const DEFAULT_COLLECT_CACHE_ENTRIES = 128
 
 export function isSkillName(name: string): boolean {
   return SKILL_NAME.test(name)
@@ -55,9 +57,7 @@ export interface SkillDefinition extends SkillSummary {
 }
 
 /** Runtime skill contribution accepted by `ctx.skills.register()`. */
-export type SkillRegistration = Omit<SkillDefinition, 'disableModelInvocation'> & {
-  disableModelInvocation?: boolean
-}
+export type SkillRegistration = Omit<SkillDefinition, 'disableModelInvocation'> & { disableModelInvocation?: boolean }
 
 /** Workspace selector used for cwd-sensitive project-root discovery. */
 export interface SkillLookupOptions {
@@ -68,12 +68,16 @@ export interface SkillLookupOptions {
 export interface Config {
   /** DeepSeek Harness config root. Defaults to `$DSH_HOME` or `~/.dsh`. */
   dshHome?: string
-  /** Shared agent config root. Defaults to `~/.agents`. */
+  /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
   agentsHome?: string
   /** Extra skill roots, scanned after user roots and before system skills. */
   extraRoots?: string[]
   /** Ensure bundled system skills exist under `<dshHome>/skills/.system`. Defaults true. */
   installSystemSkills?: boolean
+  /** Maximum rendered description/whenToUse length in the prompt listing. */
+  promptFieldMaxLength?: number
+  /** Maximum number of cwd/root discovery promises kept in the in-memory cache. */
+  collectCacheMaxEntries?: number
 }
 
 declare module 'cordis' {
@@ -126,10 +130,21 @@ const SYSTEM_SKILLS: SkillDefinition[] = [
  * stable `## Skills` listing into each agent request.
  */
 export class SkillService extends Service {
+  static Config: Schema<Config> = z.object({
+    dshHome: z.string(),
+    agentsHome: z.string(),
+    extraRoots: z.array(z.string()).default([]),
+    installSystemSkills: z.boolean().default(true),
+    promptFieldMaxLength: z.number().default(DEFAULT_PROMPT_FIELD_LENGTH),
+    collectCacheMaxEntries: z.number().default(DEFAULT_COLLECT_CACHE_ENTRIES),
+  })
+
   private readonly dshHome: string
   private readonly agentsHome: string
   private readonly extraRoots: string[]
   private readonly installSystemSkills: boolean
+  private readonly promptFieldMaxLength: number
+  private readonly collectCacheMaxEntries: number
   private readonly runtime = new Map<string, SkillDefinition>()
   private readonly collectCache = new Map<string, Promise<SkillDefinition[]>>()
   private runtimeRevision = 0
@@ -138,9 +153,13 @@ export class SkillService extends Service {
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'skills')
     this.dshHome = resolve(config.dshHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh'))
-    this.agentsHome = resolve(config.agentsHome ?? join(homedir(), '.agents'))
+    this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
     this.extraRoots = (config.extraRoots ?? []).map(root => resolve(root))
     this.installSystemSkills = config.installSystemSkills ?? true
+    this.promptFieldMaxLength = config.promptFieldMaxLength ?? DEFAULT_PROMPT_FIELD_LENGTH
+    this.collectCacheMaxEntries = config.collectCacheMaxEntries ?? DEFAULT_COLLECT_CACHE_ENTRIES
+    assertPositiveInteger('promptFieldMaxLength', this.promptFieldMaxLength)
+    assertPositiveInteger('collectCacheMaxEntries', this.collectCacheMaxEntries)
     if (this.installSystemSkills) {
       const systemRoot = join(this.dshHome, 'skills/.system')
       this.systemReady = writeSystemSkills(systemRoot, this.ctx).catch((error: unknown) => {
@@ -208,8 +227,8 @@ export class SkillService extends Service {
     const entries = skills.map((skill) => {
       const lines = [
         `<skill name="${escapeAttr(skill.name)}" source="${escapeAttr(skill.source)}">`,
-        `description: ${promptLine(skill.description)}`,
-        ...skill.whenToUse ? [`whenToUse: ${promptLine(skill.whenToUse)}`] : [],
+        `description: ${promptLine(skill.description, this.promptFieldMaxLength)}`,
+        ...skill.whenToUse ? [`whenToUse: ${promptLine(skill.whenToUse, this.promptFieldMaxLength)}`] : [],
         '</skill>',
       ]
       return lines.join('\n')
@@ -231,12 +250,16 @@ export class SkillService extends Service {
     if (cached !== undefined) return cached
 
     const collected = this.collectFresh(roots)
-    this.collectCache.set(key, collected)
-    if (this.collectCache.size > MAX_COLLECT_CACHE_ENTRIES) {
+    const cachedPromise = collected.catch((error: unknown) => {
+      this.collectCache.delete(key)
+      throw error
+    })
+    this.collectCache.set(key, cachedPromise)
+    if (this.collectCache.size > this.collectCacheMaxEntries) {
       const oldest = this.collectCache.keys().next() as IteratorYieldResult<string>
       this.collectCache.delete(oldest.value)
     }
-    return collected
+    return cachedPromise
   }
 
   private async collectFresh(roots: { project: SkillRoot[]; shared: SkillRoot[] }): Promise<SkillDefinition[]> {
@@ -326,9 +349,10 @@ async function discoverRoot(root: SkillRoot, ctx: Context): Promise<SkillDefinit
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (root.skipSystem && entry.name === '.system') continue
     const fullPath = join(root.path, entry.name)
-    const parsed = entry.isDirectory()
+    const kind = await entryKind(fullPath, entry, ctx)
+    const parsed = kind === 'directory'
       ? await parseSkillFile(join(fullPath, 'SKILL.md'), fullPath, root.source, ctx)
-      : entry.isFile() && entry.name.endsWith('.md')
+      : kind === 'file' && entry.name.endsWith('.md')
         ? await parseSkillFile(fullPath, root.path, root.source, ctx)
         : undefined
     if (parsed) skills.push(parsed)
@@ -341,7 +365,13 @@ async function parseSkillFile(path: string, directory: string, source: SkillSour
   if (raw === undefined) {
     return undefined
   }
-  const parsed = parseFrontmatter(raw)
+  let parsed
+  try {
+    parsed = parseFrontmatter(raw)
+  } catch (error) {
+    ctx.logger.warn(`skill file ${path} ignored: invalid YAML frontmatter: ${errorMessage(error)}`)
+    return undefined
+  }
   if (!parsed) {
     ctx.logger.warn(`skill file ${path} ignored: missing YAML frontmatter`)
     return undefined
@@ -426,15 +456,48 @@ function fsReadErrorMessage(target: FsTarget, error: unknown): string {
   return `failed to read text file at ${target.displayPath}: ${errorMessage(error)}`
 }
 
+async function entryKind(fullPath: string, entry: { isDirectory(): boolean; isFile(): boolean; isSymbolicLink(): boolean }, ctx: Context): Promise<'directory' | 'file' | undefined> {
+  if (entry.isDirectory()) return 'directory'
+  if (entry.isFile()) return 'file'
+  /* v8 ignore next -- Non-file directory entries such as FIFOs are platform-specific and intentionally skipped. */
+  if (!entry.isSymbolicLink()) return undefined
+  try {
+    const info = await stat(fullPath)
+    if (info.isDirectory()) return 'directory'
+    if (info.isFile()) return 'file'
+    return undefined
+  } catch (error) {
+    ctx.logger.warn(`skill entry ${fullPath} ignored: failed to follow symbolic link: ${errorMessage(error)}`)
+    return undefined
+  }
+}
+
 function parseFrontmatter(raw: string): { data: Record<string, unknown>; body: string } | undefined {
-  if (!raw.startsWith('---\n')) return undefined
-  const end = raw.indexOf('\n---', 4)
-  if (end < 0) return undefined
-  const yaml = raw.slice(4, end)
+  const firstLineEnd = raw.indexOf('\n')
+  if (firstLineEnd < 0) return undefined
+  const firstLine = raw.slice(0, firstLineEnd).replace(/\r$/, '')
+  if (firstLine !== '---') return undefined
+  const start = firstLineEnd + 1
+  const closing = findClosingFrontmatter(raw, start)
+  if (closing === undefined) return undefined
+  const yaml = raw.slice(start, closing.start)
   const parsed = parseYaml(yaml) as unknown
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
-  const body = raw.slice(end + 4)
-  return { data: parsed as Record<string, unknown>, body: body.startsWith('\n') ? body.slice(1) : body }
+  return { data: parsed as Record<string, unknown>, body: raw.slice(closing.bodyStart) }
+}
+
+function findClosingFrontmatter(raw: string, start: number): { start: number; bodyStart: number } | undefined {
+  let lineStart = start
+  while (lineStart <= raw.length) {
+    const nextNewline = raw.indexOf('\n', lineStart)
+    const lineEnd = nextNewline < 0 ? raw.length : nextNewline
+    const line = raw.slice(lineStart, lineEnd).replace(/\r$/, '')
+    if (line === '---') {
+      return { start: lineStart, bodyStart: nextNewline < 0 ? raw.length : nextNewline + 1 }
+    }
+    if (nextNewline < 0) return undefined
+    lineStart = nextNewline + 1
+  }
 }
 
 async function findProjectRoot(cwd: string): Promise<string> {
@@ -474,12 +537,18 @@ function compareSummary(left: SkillSummary, right: SkillSummary): number {
   return left.name.localeCompare(right.name)
 }
 
-function promptLine(value: string): string {
+function promptLine(value: string, maxLength: number): string {
   const normalized = value.replaceAll(/\s+/g, ' ').trim()
-  const truncated = normalized.length <= MAX_PROMPT_FIELD_LENGTH
+  const truncated = normalized.length <= maxLength
     ? normalized
-    : `${normalized.slice(0, MAX_PROMPT_FIELD_LENGTH - 3)}...`
+    : `${normalized.slice(0, maxLength - 3)}...`
   return escapeText(truncated)
+}
+
+function assertPositiveInteger(name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`skill: ${name} must be a positive integer`)
+  }
 }
 
 function stringField(data: Record<string, unknown>, key: string): string | undefined {

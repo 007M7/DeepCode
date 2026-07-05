@@ -49,6 +49,15 @@ import * as uiStdio from './stdio-chat.ts'
 
 export const name = 'stdio-agent'
 
+const SkillConfigSchema: z<agentCore.SkillConfig> = z.object({
+  dshHome: z.string(),
+  agentsHome: z.string(),
+  extraRoots: z.array(z.string()).default([]),
+  installSystemSkills: z.boolean().default(true),
+  promptFieldMaxLength: z.number().default(500),
+  collectCacheMaxEntries: z.number().default(128),
+})
+
 /**
  * App config: the swappable per-demo values, each routed to where the app wires
  * it. `model`/`systemPrompt`/`resumeSessionId` configure the pre-created `main`
@@ -66,6 +75,8 @@ export interface Config {
   persistenceRoot?: string
   /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
   welcome?: string
+  /** Skill discovery config forwarded to the shared agent-core spine. */
+  skills?: agentCore.SkillConfig
   /**
    * If set, the `main` agent RESUMES this persisted session id instead of
    * starting fresh. Sourced from an env var in the leaf `cordis.yml`
@@ -79,6 +90,7 @@ export const Config: z<Config> = z.object({
   systemPrompt: z.string().required(),
   persistenceRoot: z.string().default('./.sessions'),
   welcome: z.string().default('ready.'),
+  skills: SkillConfigSchema,
   resumeSessionId: z.string(),
 })
 
@@ -99,6 +111,7 @@ export function apply(ctx: Context, config: Config): void {
       cwd: process.cwd(),
       ...config.resumeSessionId !== undefined ? { resumeSessionId: SessionId(config.resumeSessionId) } : {},
     }],
+    ...config.skills !== undefined ? { skills: config.skills } : {},
   })
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
   ctx.plugin(uiStdio, { welcome: config.welcome ?? 'ready.', agent: 'main' })

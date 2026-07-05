@@ -1,0 +1,28 @@
+[
+  {
+    "kind": "chunks",
+    "chunks": [
+      { "type": "block-start", "index": 0, "blockType": "reasoning" },
+      { "type": "reasoning-delta", "index": 0, "text": "Load the requested skill." },
+      { "type": "block-start", "index": 1, "blockType": "tool-call" },
+      { "type": "tool-call-delta", "index": 1, "id": "call_skill_load", "name": "skill", "argumentsDelta": "{\"name\":\"dsh-skill-creator\"}" },
+      { "type": "block-end", "index": 0, "block": { "type": "reasoning", "text": "Load the requested skill." } },
+      { "type": "block-end", "index": 1, "block": { "type": "tool-call", "id": "call_skill_load", "name": "skill", "arguments": "{\"name\":\"dsh-skill-creator\"}" } },
+      { "type": "usage", "usage": { "inputTokens": 100, "outputTokens": 20, "cacheReadTokens": 0, "reasoningTokens": 5 } },
+      { "type": "finish", "reason": { "kind": "tool-calls" } }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      { "type": "block-start", "index": 0, "blockType": "reasoning" },
+      { "type": "reasoning-delta", "index": 0, "text": "The skill is loaded." },
+      { "type": "block-start", "index": 1, "blockType": "text" },
+      { "type": "text-delta", "index": 1, "text": "DONE" },
+      { "type": "block-end", "index": 0, "block": { "type": "reasoning", "text": "The skill is loaded." } },
+      { "type": "block-end", "index": 1, "block": { "type": "text", "text": "DONE" } },
+      { "type": "usage", "usage": { "inputTokens": 180, "outputTokens": 10, "cacheReadTokens": 0, "reasoningTokens": 4 } },
+      { "type": "finish", "reason": { "kind": "stop" } }
+    ]
+  }
+]

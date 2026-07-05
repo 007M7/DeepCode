@@ -10,6 +10,17 @@ Agent skill discovery and model-facing skill guidance.
 - `ctx.skills.get(name, { cwd? })` Returns the full skill, including disabled-for-model skills.
 - `ctx.skills.register(skill): () => void` Registers a runtime skill, disposed with the calling fiber.
 
+### Config
+
+| Field | Default | Meaning |
+|---|---|---|
+| `dshHome` | `$DSH_HOME` or `~/.dsh` | DeepSeek Harness config root; system skills live under `skills/.system`. |
+| `agentsHome` | `$DSH_AGENTS_HOME` or `~/.agents` | Shared agent config root scanned for compatible skills. |
+| `extraRoots` | `[]` | Additional skill roots scanned after user roots and before system skills. |
+| `installSystemSkills` | `true` | Whether startup materializes bundled system skills under `dshHome`. |
+| `promptFieldMaxLength` | `500` | Maximum rendered `description` / `whenToUse` length in the prompt listing. |
+| `collectCacheMaxEntries` | `128` | Maximum cwd/root discovery promises kept in memory. |
+
 ### Discovery
 
 Default roots are resolved in this conflict priority order:

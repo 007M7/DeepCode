@@ -8,6 +8,7 @@
   "references": [
     { "path": "../../../vendor/cosmokit" },
     { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
     { "path": "../../fs/fs" },
     { "path": "../../llm/llm" },
     { "path": "../agent" }

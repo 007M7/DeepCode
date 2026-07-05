@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { mkdtemp } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import * as acpAgent from '../src/index.ts'
@@ -22,9 +25,14 @@ async function mount(config: acpAgent.Config): Promise<Context> {
   return ctx
 }
 
+async function isolatedSkillsConfig(): Promise<NonNullable<acpAgent.Config['skills']>> {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-acp-agent-skills-'))
+  return { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false }
+}
+
 describe('dsh-acp-agent composition', () => {
   it('brings up the spine + persistence + the ACP bridge', async () => {
-    const ctx = await mount({ model: 'mock', systemPrompt: 'hi', persistenceRoot: '/tmp/dsh-acp-agent-test' })
+    const ctx = await mount({ model: 'mock', systemPrompt: 'hi', persistenceRoot: '/tmp/dsh-acp-agent-test', skills: await isolatedSkillsConfig() })
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('sessions')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
@@ -40,9 +48,15 @@ describe('dsh-acp-agent composition', () => {
     // `ctx.plugin`, which validates+defaults the config first) with no
     // persistenceRoot, so the runtime fallback is the one that fires.
     const ctx = new Context()
-    acpAgent.apply(ctx, { model: 'mock', systemPrompt: 'hi' })
+    acpAgent.apply(ctx, { model: 'mock', systemPrompt: 'hi', skills: await isolatedSkillsConfig() })
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(ctx.get('sessionPersistence')).toBeDefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('forwards skill config into agent-core', async () => {
+    const ctx = await mount({ model: 'mock', systemPrompt: 'hi', skills: await isolatedSkillsConfig() })
+    expect(await ctx.skills.list()).toEqual([])
     await ctx.fiber.dispose()
   })
 

@@ -79,6 +79,8 @@ interface Config {
   agentsHome?: string
   extraRoots?: string[]
   installSystemSkills?: boolean
+  promptFieldMaxLength?: number
+  collectCacheMaxEntries?: number
 }
 ```
 

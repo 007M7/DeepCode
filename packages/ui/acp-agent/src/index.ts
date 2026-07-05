@@ -38,6 +38,15 @@ import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 
 export const name = 'acp-agent'
 
+const SkillConfigSchema: z<agentCore.SkillConfig> = z.object({
+  dshHome: z.string(),
+  agentsHome: z.string(),
+  extraRoots: z.array(z.string()).default([]),
+  installSystemSkills: z.boolean().default(true),
+  promptFieldMaxLength: z.number().default(500),
+  collectCacheMaxEntries: z.number().default(128),
+})
+
 /**
  * App config: the swappable per-deployment values. `model`/`systemPrompt`
  * configure the agent template the ACP bridge creates each session's agent from
@@ -51,12 +60,15 @@ export interface Config {
   systemPrompt: string
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** Skill discovery config forwarded to the shared agent-core spine. */
+  skills?: agentCore.SkillConfig
 }
 
 export const Config: z<Config> = z.object({
   model: z.string().required(),
   systemPrompt: z.string().required(),
   persistenceRoot: z.string().default('./.sessions'),
+  skills: SkillConfigSchema,
 })
 
 /**
@@ -67,7 +79,7 @@ export const Config: z<Config> = z.object({
  * stdout stays pure.
  */
 export function apply(ctx: Context, config: Config): void {
-  ctx.plugin(agentCore)
+  ctx.plugin(agentCore, { agents: [], ...config.skills === undefined ? {} : { skills: config.skills } })
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
   ctx.plugin(acp, { model: config.model, systemPrompt: config.systemPrompt })
 }

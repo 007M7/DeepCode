@@ -28,6 +28,7 @@
     "cordis": "^4.0.0-rc.6"
   },
   "dependencies": {
+    "schemastery": "^3.18.0",
     "yaml": "^2.4.2"
   },
   "devDependencies": {

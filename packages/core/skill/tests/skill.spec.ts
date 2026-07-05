@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import SkillService from '@deepseek-ai/dsh-skill'
-import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import { FileSystem, FsVersion, type FsEditOutcome, type FsEditRequest, type FsInfo, type FsTarget, type FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 
 async function tempDir(name: string): Promise<string> {
   return await import('node:fs/promises').then(fs => fs.mkdtemp(join(tmpdir(), `dsh-${name}-`)))
@@ -19,6 +19,50 @@ async function writeSkill(root: string, name: string, description: string, body 
 async function writeFlatSkill(root: string, name: string, description: string, body = 'Flat body.'): Promise<void> {
   await mkdir(root, { recursive: true })
   await writeFile(join(root, `${name}.md`), `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`)
+}
+
+class TestFileSystem extends FileSystem {
+  override async resolve(path: string): Promise<FsTarget> {
+    return { targetKey: path as never, displayPath: path }
+  }
+
+  override async stat(target: FsTarget): Promise<FsInfo | undefined> {
+    try {
+      const fs = await import('node:fs/promises')
+      const info = await fs.stat(target.displayPath)
+      return {
+        version: FsVersion(String(info.mtimeMs)),
+        type: info.isFile() ? 'file' : info.isDirectory() ? 'directory' : 'other',
+        size: info.size,
+      }
+    } catch {
+      return undefined
+    }
+  }
+
+  override async readText(target: FsTarget): Promise<string> {
+    const text = await readFile(target.displayPath, 'utf8')
+    if (text.includes('\uFFFD')) throw new Error('not text')
+    return text
+  }
+
+  override async streamText(_target: FsTarget): Promise<AsyncIterable<string>> {
+    throw new Error('not needed in skill tests')
+  }
+
+  override async listDir(): Promise<never> {
+    throw new Error('not needed in skill tests')
+  }
+
+  override async writeText(target: FsTarget, content: string): Promise<FsWriteOutcome> {
+    await mkdir(dirname(target.displayPath), { recursive: true })
+    await writeFile(target.displayPath, content)
+    return { operation: 'create', version: FsVersion('test'), before: null, after: content }
+  }
+
+  override async editText(_target: FsTarget, _request: FsEditRequest): Promise<FsEditOutcome> {
+    throw new Error('not needed in skill tests')
+  }
 }
 
 describe('SkillService', () => {
@@ -113,6 +157,7 @@ describe('SkillService', () => {
     await writeFile(join(home, '.dsh/skills/bad.md'), '---\nname: Bad_Name\ndescription: bad\n---\n\nbad')
     await writeFile(join(home, '.dsh/skills/missing-description.md'), '---\nname: missing-description\n---\n\nbad')
     await writeFile(join(home, '.dsh/skills/no-frontmatter.md'), 'No frontmatter.')
+    await writeFile(join(home, '.dsh/skills/plain-markdown.md'), '# Notes\nNot a skill.')
     await writeFile(join(home, '.dsh/skills/open-frontmatter.md'), '---\nname: open-frontmatter')
     await writeFile(join(home, '.dsh/skills/non-object.md'), '---\n[]\n---\n\nbad')
     await writeFile(join(home, '.dsh/skills/no-trailing-body.md'), '---\nname: no-trailing-body\ndescription: No trailing body\n---')
@@ -129,22 +174,141 @@ describe('SkillService', () => {
     expect(await ctx.skills.get('Bad_Name')).toBeUndefined()
   })
 
-  it('keeps skill body text that begins immediately after the closing frontmatter delimiter', async () => {
-    const home = await tempDir('skill-frontmatter-body')
+  it('supports CRLF frontmatter and ignores delimiter-looking text inside YAML values', async () => {
+    const home = await tempDir('skill-frontmatter-crlf')
     const root = join(home, '.dsh/skills')
     await mkdir(root, { recursive: true })
-    await writeFile(join(root, 'tight-body.md'), [
+    await writeFile(join(root, 'crlf-skill.md'), [
       '---',
-      'name: tight-body',
-      'description: Tight body',
-      '---First line must survive.',
-      'Second line.',
+      'name: crlf-skill',
+      'description: CRLF skill',
+      'metadata:',
+      '  marker: "----"',
+      '---',
+      '',
+      'CRLF body.',
+    ].join('\r\n'))
+    await writeFile(join(root, 'block-skill.md'), [
+      '---',
+      'name: block-skill',
+      'description: |',
+      '  Includes a ---- marker that is not a delimiter.',
+      '---',
+      '',
+      'Block body.',
     ].join('\n'))
 
     const ctx = new Context()
     await ctx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false })
 
-    expect((await ctx.skills.get('tight-body'))?.content).toBe('First line must survive.\nSecond line.')
+    expect((await ctx.skills.get('crlf-skill'))?.content).toBe('CRLF body.')
+    expect((await ctx.skills.get('crlf-skill'))?.metadata).toEqual({ marker: '----' })
+    expect((await ctx.skills.get('block-skill'))?.description).toBe('Includes a ---- marker that is not a delimiter.\n')
+    expect((await ctx.skills.get('block-skill'))?.content).toBe('Block body.')
+  })
+
+  it('skips invalid YAML skill files without poisoning discovery cache', async () => {
+    const home = await tempDir('skill-invalid-yaml')
+    const root = join(home, '.dsh/skills')
+    await writeSkill(root, 'good-skill', 'Good skill')
+    await writeFile(join(root, 'bad-yaml.md'), '---\nname: bad-yaml\ndescription: [unclosed\n---\n\nBad body.\n')
+
+    const ctx = new Context()
+    await ctx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false })
+
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['good-skill'])
+    await writeFile(join(root, 'bad-yaml.md'), '---\nname: fixed-skill\ndescription: Fixed skill\n---\n\nFixed body.\n')
+
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['good-skill'])
+    const dispose = ctx.skills.register({
+      name: 'runtime-skill',
+      description: 'Runtime skill',
+      content: 'Runtime body.',
+      directory: 'memory://runtime',
+      source: 'runtime',
+    })
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['fixed-skill', 'good-skill', 'runtime-skill'])
+    dispose()
+  })
+
+  it('does not cache a rejected discovery promise', async () => {
+    const home = await tempDir('skill-rejected-cache')
+    const ctx = new Context()
+    await ctx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false })
+    const internals = ctx.skills as unknown as {
+      collectFresh(roots: unknown): Promise<unknown[]>
+    }
+    const original = internals.collectFresh.bind(ctx.skills)
+    let fail = true
+    internals.collectFresh = async (roots: unknown) => {
+      if (fail) throw new Error('transient discovery failure')
+      return await original(roots)
+    }
+
+    await expect(ctx.skills.list()).rejects.toThrow('transient discovery failure')
+    fail = false
+    await writeSkill(join(home, '.dsh/skills'), 'late-good', 'Late good')
+    await expect(ctx.skills.list()).resolves.toMatchObject([{ name: 'late-good' }])
+  })
+
+  it('discovers symlinked skill directories and flat files', async () => {
+    const home = await tempDir('skill-symlink-home')
+    const external = await tempDir('skill-symlink-external')
+    await writeSkill(external, 'linked-dir', 'Linked directory')
+    await writeFlatSkill(external, 'linked-flat', 'Linked flat')
+    await mkdir(join(home, '.dsh/skills'), { recursive: true })
+    await symlink(join(external, 'linked-dir'), join(home, '.dsh/skills/linked-dir'))
+    await symlink(join(external, 'linked-flat.md'), join(home, '.dsh/skills/linked-flat.md'))
+    await symlink(join(external, 'missing'), join(home, '.dsh/skills/broken-link'))
+    await symlink('/dev/null', join(home, '.dsh/skills/device-link'))
+
+    const ctx = new Context()
+    await ctx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false })
+
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['linked-dir', 'linked-flat'])
+  })
+
+  it('honors prompt and cache bounds from config', async () => {
+    const home = await tempDir('skill-config-bounds')
+    const firstProject = await tempDir('skill-config-first')
+    const secondProject = await tempDir('skill-config-second')
+    await mkdir(join(firstProject, '.git'), { recursive: true })
+    await mkdir(join(secondProject, '.git'), { recursive: true })
+    await writeSkill(join(firstProject, '.dsh/skills'), 'first-skill', 'abcdefghij')
+    await writeSkill(join(secondProject, '.dsh/skills'), 'second-skill', 'Second')
+
+    const ctx = new Context()
+    await ctx.plugin(SkillService, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      installSystemSkills: false,
+      promptFieldMaxLength: 6,
+      collectCacheMaxEntries: 1,
+    })
+
+    expect(await ctx.skills.renderModelListing({ cwd: firstProject })).toContain('description: abc...')
+    expect((await ctx.skills.list({ cwd: firstProject })).map(skill => skill.name)).toEqual(['first-skill'])
+    await writeSkill(join(firstProject, '.dsh/skills'), 'late-first', 'Late first')
+    expect((await ctx.skills.list({ cwd: firstProject })).map(skill => skill.name)).toEqual(['first-skill'])
+    await ctx.skills.list({ cwd: secondProject })
+    expect((await ctx.skills.list({ cwd: firstProject })).map(skill => skill.name)).toEqual(['first-skill', 'late-first'])
+  })
+
+  it('rejects invalid positive-integer config caps', async () => {
+    const home = await tempDir('skill-invalid-config')
+    const ctx = new Context()
+    await expect(ctx.plugin(SkillService, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      installSystemSkills: false,
+      promptFieldMaxLength: 0,
+    })).rejects.toThrow('promptFieldMaxLength')
+    await expect(ctx.plugin(SkillService, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      installSystemSkills: false,
+      collectCacheMaxEntries: 1.5,
+    })).rejects.toThrow('collectCacheMaxEntries')
   })
 
   it('renders no model listing when no model-invocable skills exist', async () => {
@@ -178,6 +342,16 @@ describe('SkillService', () => {
     }
   })
 
+  it('keeps constructor defaults when schema preprocessing is not involved', async () => {
+    const home = await tempDir('skill-constructor-defaults')
+    const service = new SkillService(new Context(), {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+    })
+
+    expect((await service.list()).map(skill => skill.name)).toEqual(['dsh-plugin-creator', 'dsh-skill-creator'])
+  })
+
   it('installs system skills into the DSH home without overwriting existing files', async () => {
     const home = await tempDir('skill-install')
     const existing = join(home, '.dsh/skills/.system/dsh-plugin-creator/SKILL.md')
@@ -202,7 +376,7 @@ describe('SkillService', () => {
     await writeFile(existing, '---\nname: dsh-plugin-creator\ndescription: Existing system skill\n---\n\nExisting body.\n')
 
     const ctx = new Context()
-    await ctx.plugin(LocalFileSystem, { cwd: home })
+    await ctx.plugin(TestFileSystem)
     await ctx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents') })
 
     expect((await ctx.skills.list()).map(skill => [skill.name, skill.description])).toEqual([
@@ -237,7 +411,7 @@ describe('SkillService', () => {
     ]))
 
     const ctx = new Context()
-    await ctx.plugin(LocalFileSystem, { cwd: home })
+    await ctx.plugin(TestFileSystem)
     await ctx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false })
 
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['text-skill'])

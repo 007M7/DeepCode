@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest'
+import { mkdtemp } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { AgentId } from '@deepseek-ai/dsh-agent'
@@ -28,9 +31,14 @@ async function mount(config: stdioAgent.Config): Promise<Context> {
   return ctx
 }
 
+async function isolatedSkillsConfig(): Promise<NonNullable<stdioAgent.Config['skills']>> {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-stdio-agent-skills-'))
+  return { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false }
+}
+
 describe('dsh-stdio-agent app', () => {
   it('composes the spine + front-door cluster and pre-creates the main agent', async () => {
-    const ctx = await mount({ model: 'mock', systemPrompt: 'hi', persistenceRoot: '/tmp/dsh-stdio-agent-spec' })
+    const ctx = await mount({ model: 'mock', systemPrompt: 'hi', persistenceRoot: '/tmp/dsh-stdio-agent-spec', skills: await isolatedSkillsConfig() })
     // The spine services (brought up by the agent-core bundle) are all present.
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
@@ -48,7 +56,7 @@ describe('dsh-stdio-agent app', () => {
     // apply()'s last two lines are the ones that fire — covering a
     // schema-bypassing direct-mount caller.
     const ctx = new Context()
-    stdioAgent.apply(ctx, { model: 'mock', systemPrompt: 'hi' })
+    stdioAgent.apply(ctx, { model: 'mock', systemPrompt: 'hi', skills: await isolatedSkillsConfig() })
     await new Promise(resolve => setTimeout(resolve, 80))
     expect(ctx.get('sessionPersistence')).toBeDefined()
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
@@ -64,8 +72,15 @@ describe('dsh-stdio-agent app', () => {
       systemPrompt: 'hi',
       persistenceRoot: '/tmp/dsh-stdio-agent-spec-resume',
       resumeSessionId: 'no-such-session',
+      skills: await isolatedSkillsConfig(),
     })
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('forwards skill config into agent-core', async () => {
+    const ctx = await mount({ model: 'mock', systemPrompt: 'hi', skills: await isolatedSkillsConfig() })
+    expect(await ctx.skills.list()).toEqual([])
     await ctx.fiber.dispose()
   })
 

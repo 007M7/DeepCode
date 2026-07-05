@@ -15,6 +15,9 @@
       "path": "../../../vendor/timer"
     },
     {
+      "path": "../../../vendor/schemastery"
+    },
+    {
       "path": "../../llm/llm"
     },
     {

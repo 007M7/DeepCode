@@ -44,11 +44,13 @@
 
 import type { Context } from 'cordis'
 import Timer from '@cordisjs/plugin-timer'
+import z from 'schemastery'
+import type Schema from 'schemastery'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import SkillService from '@deepseek-ai/dsh-skill'
+import SkillService, { type Config as SkillConfig } from '@deepseek-ai/dsh-skill'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import * as invariants from '@deepseek-ai/dsh-invariants'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
@@ -58,16 +60,39 @@ import AgentLoop, { type Config as AgentLoopConfig } from '@deepseek-ai/dsh-agen
 export const name = 'agent-core'
 
 /**
- * Bundle config: the agent-loop `agents` list, forwarded verbatim. Default `[]`
- * — an app that pre-creates no agents (the ACP bridge creates them on demand at
- * `session/new`) simply omits it; an app that needs a pre-created `main` (the
- * stdio chat) supplies one. This IS {@link AgentLoopConfig}, so the schema and
- * the forwarded shape can never drift.
+ * Bundle config: the agent-loop `agents` list plus skill discovery config.
+ * Default `agents: []` means an app that pre-creates no agents (the ACP bridge
+ * creates them on demand at `session/new`) can omit it; an app that needs a
+ * pre-created `main` (the stdio chat) supplies one. `skills` is forwarded to
+ * {@link @deepseek-ai/dsh-skill}, so leaf cordis.yml files can change DSH/user
+ * skill roots and caps without code changes.
  */
-export type Config = AgentLoopConfig
+export interface Config extends AgentLoopConfig {
+  /** Skill discovery roots, system-skill installation, and prompt/cache bounds. */
+  skills?: SkillConfig
+}
 
-/** Forward the loop's own schema so validation + defaulting stay identical. */
-export const Config = AgentLoop.Config
+/** Local schema for the forwarded skill config. Keep this in sync with `SkillService.Config`. */
+export const SkillConfigSchema: Schema<SkillConfig> = z.object({
+  dshHome: z.string(),
+  agentsHome: z.string(),
+  extraRoots: z.array(z.string()).default([]),
+  installSystemSkills: z.boolean().default(true),
+  promptFieldMaxLength: z.number().default(500),
+  collectCacheMaxEntries: z.number().default(128),
+})
+
+/** Bundle schema: keep the loop agent shape aligned and expose skill config. */
+export const Config: Schema<Config> = z.object({
+  agents: z.array(z.object({
+    id: z.string().required(),
+    model: z.string(),
+    systemPrompt: z.string(),
+    cwd: z.string(),
+    resumeSessionId: z.string(),
+  })).default([]),
+  skills: SkillConfigSchema,
+}) as unknown as Schema<Config>
 
 /**
  * Load the spine. Each `ctx.plugin(...)` mounts one child of the bundle fiber;
@@ -83,10 +108,12 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(SessionStore)
   ctx.plugin(SystemPrompt)
   ctx.plugin(ToolRegistry)
-  ctx.plugin(SkillService)
+  ctx.plugin(SkillService, config.skills ?? {})
   ctx.plugin(AgentRegistry)
   ctx.plugin(invariants)
   ctx.plugin(toolBash)
   ctx.plugin(toolSkill)
   ctx.plugin(AgentLoop, { agents: config.agents })
 }
+
+export type { SkillConfig }

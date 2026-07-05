@@ -62,6 +62,8 @@ async function bootAndEof(): Promise<{ stdout: string; code: number }> {
           // A dummy key so llm-deepseek's apply() (key-PRESENT check only) boots.
           // No prompt is sent, so the adapter never streams — no network call.
           DEEPSEEK_API_KEY: 'keyless-smoke-no-call',
+          DSH_HOME: join(cwd, '.dsh'),
+          DSH_AGENTS_HOME: join(cwd, '.agents'),
         },
         stdio: ['pipe', 'pipe', 'pipe'],
       },

@@ -1,4 +1,5 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
@@ -18,6 +19,16 @@ export default defineConfig({
   // upstream copies (vendor/README.md). The plugin's `projects` option
   // instead applies the one root map to every importer.
   plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
+  resolve: {
+    // The root tsconfig maps `schemastery` to its vendored TS source, whose
+    // upstream module shape is `export = Schema`. Vite/Vitest does not synthesize
+    // a default export for that source file consistently, while the package's
+    // built ESM artifact does. Tests exercise harness source but can use the
+    // vendored dependency's built artifact for this CJS-interop boundary.
+    alias: {
+      schemastery: fileURLToPath(new URL('./vendor/schemastery/lib/index.mjs', import.meta.url)),
+    },
+  },
   test: {
     include: ['packages/*/*/tests/**/*.spec.ts', 'examples/*/tests/**/*.spec.ts'],
     coverage: {
