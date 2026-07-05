@@ -1051,6 +1051,300 @@ describe('dynamic nested project instruction injection', () => {
     }
   })
 
+  it('does not treat markdown headings inside instruction content as loaded instruction metadata', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'package note\n## pkg/sub/AGENTS.md\njust a document heading')
+      await write(join(root, 'pkg/file.txt'), 'package file')
+      await write(join(root, 'pkg/sub/AGENTS.md'), 'subtree rule')
+      await write(join(root, 'pkg/sub/file.txt'), 'subtree file')
+      const ctx = new Context()
+      await mountFileToolsAndProjectInstructions(ctx, { dshHome: home })
+      const agent = stubAgent(root)
+      const first = await ctx.tools.execute({
+        callId: CallId('read-package'),
+        name: 'read',
+        arguments: { file_path: 'pkg/file.txt' },
+        agent,
+      })
+      appendAdditionalContext(agent, first)
+
+      const second = await ctx.tools.execute({
+        callId: CallId('read-subtree'),
+        name: 'read',
+        arguments: { file_path: 'pkg/sub/file.txt' },
+        agent,
+      })
+
+      expect(blocksText(first.additionalContext?.content)).toContain('package note')
+      expect(blocksText(second.additionalContext?.content)).toContain('subtree rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('does not mark omitted nested files as pending-loaded', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), `parent rule ${'x'.repeat(5000)}`)
+      await write(join(root, 'pkg/other.txt'), 'package file')
+      await write(join(root, 'pkg/sub/AGENTS.md'), 'subtree rule')
+      await write(join(root, 'pkg/sub/file.txt'), 'subtree file')
+      const ctx = new Context()
+      await mountFileToolsAndProjectInstructions(ctx, { dshHome: home, baselineMaxBytes: 700 })
+      const agent = stubAgent(root)
+      const first = await ctx.tools.execute({
+        callId: CallId('read-subtree-omitting-parent'),
+        name: 'read',
+        arguments: { file_path: 'pkg/sub/file.txt' },
+        agent,
+      })
+      appendAdditionalContext(agent, first)
+
+      const second = await ctx.tools.execute({
+        callId: CallId('read-parent-after-omit'),
+        name: 'read',
+        arguments: { file_path: 'pkg/other.txt' },
+        agent,
+      })
+
+      const firstText = blocksText(first.additionalContext?.content)
+      expect(firstText).toContain('omitted pkg/AGENTS.md')
+      expect(firstText).not.toContain('## pkg/AGENTS.md')
+      expect(firstText).toContain('subtree rule')
+      expect(blocksText(second.additionalContext?.content)).toContain('parent rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('ignores stale malformed markers and non-text context blocks when deriving loaded paths', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'nested package rule')
+      await write(join(root, 'pkg/deep/file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndProjectInstructions(ctx, { dshHome: home })
+      const agent = stubAgent(root)
+      agent.session.append('context/message', {
+        content: [
+          { type: 'reasoning', text: '<!-- project-instruction-files:path=pkg%2FAGENTS.md -->' },
+          { type: 'text', text: '<!-- project-instruction-files:path=%E0%A4%A -->' },
+        ],
+        source: { kind: 'plugin', plugin: 'project-instructions' },
+      }, { surfaceOp: 'append' })
+
+      const result = await ctx.tools.execute({
+        callId: CallId('read-after-malformed-marker'),
+        name: 'read',
+        arguments: { file_path: 'pkg/deep/file.txt' },
+        agent,
+      })
+
+      expect(blocksText(result.additionalContext?.content)).toContain('nested package rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('loads nested instructions for absolute touched paths but not root-level files', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'root.txt'), 'root file')
+      await write(join(root, 'pkg/AGENTS.md'), 'nested package rule')
+      await write(join(root, 'pkg/deep/file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndProjectInstructions(ctx, { dshHome: home })
+      const agent = stubAgent(root)
+
+      const rootResult = await ctx.tools.execute({
+        callId: CallId('read-root-file'),
+        name: 'read',
+        arguments: { file_path: 'root.txt' },
+        agent,
+      })
+      const absoluteResult = await ctx.tools.execute({
+        callId: CallId('read-absolute-nested-file'),
+        name: 'read',
+        arguments: { file_path: join(root, 'pkg/deep/file.txt') },
+        agent,
+      })
+
+      expect(rootResult.additionalContext).toBeUndefined()
+      expect(blocksText(absoluteResult.additionalContext?.content)).toContain('nested package rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('skips unreadable nested instruction files without attaching empty context', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      const nested = join(root, 'pkg/AGENTS.md')
+      await write(nested, 'nested package rule')
+      await write(join(root, 'pkg/deep/file.txt'), 'hello')
+      await chmod(nested, 0)
+      const ctx = new Context()
+      await mountFileToolsAndProjectInstructions(ctx, { dshHome: home })
+
+      const result = await ctx.tools.execute({
+        callId: CallId('read-with-unreadable-nested-instruction'),
+        name: 'read',
+        arguments: { file_path: 'pkg/deep/file.txt' },
+        agent: stubAgent(root),
+      })
+
+      expect(result.isError).toBe(false)
+      expect(result.additionalContext).toBeUndefined()
+      await chmod(nested, 0o600)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('folds nested instruction context with downstream post-execute content and context', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'nested package rule')
+      await write(join(root, 'pkg/deep/file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndProjectInstructions(ctx, { dshHome: home })
+      ctx.on('tools/post-execute', async () => ({
+        kind: 'accept' as const,
+        content: [{ type: 'text' as const, text: 'downstream replacement' }],
+        additionalContext: {
+          content: [{ type: 'text' as const, text: 'downstream context' }],
+          source: { kind: 'plugin' as const, plugin: 'downstream' },
+        },
+      }))
+
+      const result = await ctx.tools.execute({
+        callId: CallId('read-with-downstream'),
+        name: 'read',
+        arguments: { file_path: 'pkg/deep/file.txt' },
+        agent: stubAgent(root),
+      })
+
+      expect(blocksText(result.content)).toBe('downstream replacement')
+      expect(blocksText(result.additionalContext?.content)).toContain('nested package rule')
+      expect(blocksText(result.additionalContext?.content)).toContain('downstream context')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('lets downstream post-execute blocks stand without adding nested context', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'nested package rule')
+      await write(join(root, 'pkg/deep/file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndProjectInstructions(ctx, { dshHome: home })
+      ctx.on('tools/post-execute', async () => ({
+        kind: 'block' as const,
+        feedback: [{ type: 'text' as const, text: 'blocked downstream' }],
+      }))
+
+      const result = await ctx.tools.execute({
+        callId: CallId('read-blocked-downstream'),
+        name: 'read',
+        arguments: { file_path: 'pkg/deep/file.txt' },
+        agent: stubAgent(root),
+      })
+
+      expect(result.isError).toBe(true)
+      expect(blocksText(result.content)).toBe('blocked downstream')
+      expect(result.additionalContext).toBeUndefined()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('ignores post-execute events that are not successful structured file touches', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'nested package rule')
+      await write(join(root, 'pkg/deep/file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndProjectInstructions(ctx, { dshHome: home })
+      const agent = stubAgent(root)
+      const result = {
+        callId: CallId('manual'),
+        content: [{ type: 'text' as const, text: 'manual result' }],
+        isError: false,
+      }
+      const cases = [
+        { name: 'read', arguments: { file_path: 'pkg/deep/file.txt' }, agent: undefined },
+        { name: 'bash', arguments: { file_path: 'pkg/deep/file.txt' }, agent },
+        { name: 'read', arguments: null, agent },
+        { name: 'read', arguments: {}, agent },
+        { name: 'read', arguments: { file_path: 1 }, agent },
+        { name: 'read', arguments: { file_path: '   ' }, agent },
+      ]
+
+      for (const item of cases) {
+        const decision = await ctx.waterfall('tools/post-execute', {
+          callId: CallId(`manual-${item.name}-${cases.indexOf(item)}`),
+          name: item.name,
+          arguments: item.arguments,
+          ...item.agent === undefined ? {} : { agent: item.agent },
+        }, result, async () => ({ kind: 'accept' as const }))
+        expect(decision).toEqual({ kind: 'accept' })
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('does not attach nested instructions when the byte budget is disabled', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'nested package rule')
+      await write(join(root, 'pkg/deep/file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndProjectInstructions(ctx, { dshHome: home, baselineMaxBytes: 0 })
+
+      const result = await ctx.tools.execute({
+        callId: CallId('read-with-disabled-budget'),
+        name: 'read',
+        arguments: { file_path: 'pkg/deep/file.txt' },
+        agent: stubAgent(root),
+      })
+
+      expect(result.isError).toBe(false)
+      expect(result.additionalContext).toBeUndefined()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('does not attach nested instructions after a failed file read', async () => {
     const root = await tempRepo()
     const home = await tempRepo()

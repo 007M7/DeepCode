@@ -735,6 +735,8 @@ async function runStep(
   }
 
   // --- Tool execution (sequential; parallel execution is a TODO) ---
+  // If this becomes parallel, audit post-execute plugins that keep per-step
+  // pending state before their returned additionalContext is appended.
   // ToolRegistry.execute converts tool failures (including aborts) into
   // isError results, so abort is re-checked around every call here.
   const toolCalls = message.content.filter(block => block.type === 'tool-call')
