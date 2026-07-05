@@ -28,11 +28,61 @@ pre-push:
     - name: snapshot
       run: pnpm run test:snapshot
 
-    - name: hygiene
-      run: pnpm run hygiene
+    # Flatten `pnpm run hygiene` and `pnpm run doc-sync` so lefthook can run
+    # their independent member gates concurrently before a push.
+    - name: knip
+      run: pnpm run knip
 
-    - name: doc-sync
-      run: pnpm run doc-sync
+    - name: publint
+      run: pnpm run publint
+
+    - name: constraints
+      run: pnpm run constraints
+
+    - name: node-next types
+      run: pnpm run verify-node-next-types
+
+    - name: doc typecheck
+      run: pnpm run doc-typecheck
+
+    - name: cordis catalog
+      run: pnpm run verify-cordis-catalog
+
+    - name: tool catalog
+      run: pnpm run verify-tool-catalog
+
+    - name: persistence catalog
+      run: pnpm run verify-persistence-catalog
+
+    - name: doc graphs
+      run: pnpm run verify-doc-graphs
+
+    - name: markdown wrap
+      run: pnpm run verify-md-wrap
+
+    - name: markdown links
+      run: pnpm run verify-md-links
+
+    - name: doc refs
+      run: pnpm run verify-doc-refs
+
+    - name: package paths
+      run: pnpm run verify-package-paths
+
+    - name: mermaid
+      run: pnpm run verify-mermaid
+
+    - name: rfc classification
+      run: pnpm run verify-rfc-classification
+
+    - name: type equivalence
+      run: pnpm run verify-type-equiv
+
+    - name: translation pairing
+      run: pnpm run verify-translation-pairing
+
+    - name: doc budgets
+      run: pnpm run verify-doc-budgets
 
     - name: module-graph freshness
       run: pnpm run verify-module-graph
