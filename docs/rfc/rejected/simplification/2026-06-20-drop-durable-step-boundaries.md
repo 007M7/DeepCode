@@ -26,3 +26,5 @@ The invariants plugin should enforce that step-scoped events have valid positive
 ## What we give up
 
 The log no longer records "a model request started but produced no event before the process died" as a durable fact, and no longer has an explicit "this step completed" marker. That loss is not acceptable while the session log is the durable replay and audit surface.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

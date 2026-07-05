@@ -1,10 +1,8 @@
 # RFC: ACP snapshot tests — record-once / replay-deterministic
 
-Status: implemented (accepted 2026-06-19)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 The harness has two test tiers: keyless unit `.spec.ts` (the 100%-per-file coverage gate) and real-API `.e2e.ts` (key-gated, self-skipping in CI). Neither continuously verifies the **complete output transcript** an ACP editor (Zed) sees on its stdin/stdout. The existing ACP e2e ([examples/acp-agent/tests/acp.e2e.ts](../../../../examples/acp-agent/tests/acp.e2e.ts)) is the closest end-to-end check, but it is key-gated and asserts on a handful of *structured fields* (`stopReason`, a `tool_call` title), not the byte-for-byte stream of `session/update` frames. That leaves the "green units, broken product" gap: every unit test can pass while the actual editor-facing protocol output regresses — the same class of failure that shipped the inject bug ([docs/postmortem/0001](../../../postmortem/0001-acp-default-export-drops-inject.md)), where 178 hand-mounted tests stayed green while a real Zed session crashed instantly.
 
@@ -71,6 +69,12 @@ The replay plugin lives in its own package, `@deepseek-ai/dsh-llm-replay` (`pack
 ### Two subcommands, replay in the default gate
 
 `pnpm run test:snapshot` runs replay (keyless) and is composed into the default `pnpm run test` gate so every PR gets the regression check (the main `vitest.config.ts` include stays narrow; the gate is `test && test:snapshot`). `pnpm run test:snapshot:record` requires `DEEPSEEK_API_KEY` (loaded from repo `.env` first), hits the real API, harvests the produced `session.jsonl` (the replay source AND the expected-log artifact), and `--update`s the stdout golden in one pass. Both forward a scenario filter. A missing fixture in replay **fails loud** with a "record first" message rather than self-skipping (the e2e self-skip rule is a CI-secret accommodation, not appropriate here — a committed-fixture test that silently vanishes is a coverage hole). A no-model scenario's `session.jsonl` simply has no `assistant/chunk` events (empty derived script); fail-loud still applies if a model call happens with no entry. An orphan-fixture guard test fails on a golden/fixture not referenced by any scenario (Vitest does not prune orphaned raw goldens), and a per-kind required-fixture guard asserts each scenario ships exactly the files its kind needs (`input.json` + `stdout.golden.jsonl` + `session.jsonl` for ALL scenarios — the harness passes `<dir>/session.jsonl` to `llm-replay` unconditionally, so even a no-model scenario needs its header-only fixture or `loadReplayScript()` fails; `replay.override.json` additionally for authored model scenarios).
+
+## Alternatives considered
+
+- **A hand-authored `llm.json` of model chunks** — the earlier draft; reusing the real session log makes the fixture a genuine product of the system rather than a hand-built mock, and doubles it as a behavioral golden.
+- **A byte-level HTTP-record library (Polly/nock/MSW)** — rejected: adapter-specific, awkward with streaming SSE, and lower-level than the thing under test.
+- **Synthesizing throw/cancel entries from `turn/end {kind:'error'|'aborted'}`** — rejected: it couples `llm-replay` to loop-internal turn-closing semantics, and the `turn/end` reason is lossy (it cannot distinguish a thrown 401 from a finish-error); the explicit `replay.override.json` sidecar is the cleaner seam.
 
 ## Consequences
 

@@ -43,11 +43,12 @@ import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, TerminalCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import { BashTaskId, OwnerToken } from '@deepseek-ai/dsh-bash'
 import type { BashRunResult, BashTask, CollectedOutput } from '@deepseek-ai/dsh-bash'
 
 export const name = 'tool-bash'
-export const inject = ['tools', 'bash']
+export const inject = ['tools', 'bash', 'systemPrompt']
 
 /**
  * Validate the constraints the SchemaSpec can't express. `defineTool` now
@@ -285,6 +286,15 @@ function statusLine(task: BashTask): string {
 }
 
 export function apply(ctx: Context): void {
+  // The bash tools' cross-call HABIT, which the per-tool descriptions cannot
+  // carry (they describe one call each): the exit-code marker is only useful
+  // if the model actually checks it every time.
+  ctx.systemPrompt.section({
+    name: 'tool:bash',
+    order: 105,
+    text: 'Check the [exit code: N] marker on every bash result; investigate failures before moving on.',
+  })
+
   /**
    * The caller's owner TOKEN — the owning agent's `session.header.id`, or
    * `undefined` for a non-agent caller. Read `session.header.id` (NOT

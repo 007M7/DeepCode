@@ -1,8 +1,8 @@
 # RFC: JSDoc completeness gate for the cordis surface
 
-Status: implemented (accepted 2026-07-04)
+Status: implemented
 
-## Context
+## Problem
 
 The [generated cordis catalog](2026-06-20-generated-cordis-catalog.md) already walks every harness `interface Events` member and every `ctx.<key>` service class with the TypeScript compiler API, and already hard-errors on a missing `@mode` tag — a forcing function that made dispatch modes impossible to leave undocumented. Nothing equivalent guarded the rest of the JSDoc: a service method could ship with no doc at all, and no event or method documented its parameters or return value individually. A survey at adoption found 5 public service methods with no JSDoc and roughly 139 missing `@param`/`@returns` entries across 15 files — on the product API spine (`ctx.bash`, `ctx.fs`, `ctx.sessions`, …) and the cross-plugin event payload contracts, exactly the surface where "what does this argument mean" is the question a plugin author asks the IDE.
 
@@ -20,9 +20,15 @@ The contract:
 - **Explicitness the walk can check**: the gate is a pure-AST pass (no type checker), so a service method must annotate its return type (an inferred return cannot be classified) and surface parameters must be simple identifiers (a binding pattern has no name for `@param` to match).
 - **Violations aggregate** into one error listing every offender — a remediation pass sees the whole list at once. The previously fail-fast `@mode` checks moved into the same aggregated report, with their message texts unchanged.
 
-The tags are **enforcement-only**: `parseJsDoc` now ends description prose at the first block tag (standard JSDoc semantics, which also stops multi-line tag descriptions from leaking into the catalog as prose), so `@param`/`@returns` never change the rendered catalog. Rendering them — restructuring the services section into per-method entries — was considered and deliberately deferred: source JSDoc plus IDE hover is where method docs are consumed, and the catalog stays an index. No escape-hatch tag exists; the surface is small and curated (12 services, 57 methods, 27 events at adoption), and the point is that the check cannot be waved off.
+The tags are **enforcement-only**: `parseJsDoc` now ends description prose at the first block tag (standard JSDoc semantics, which also stops multi-line tag descriptions from leaking into the catalog as prose), so `@param`/`@returns` never change the rendered catalog.
 
 Negative-path tests in `packages/core/agent/tests/gen-cordis-catalog.spec.ts` drive `collectEvents`/`collectServices` against synthetic fixtures to prove each guard fires and that the exemptions hold. The authoring rule lives in the root [AGENTS.md](../../../../AGENTS.md) conventions bullet alongside the `@mode` rule.
+
+## Alternatives considered
+
+- **An ESLint rule** — cannot see the scope's machine definition (which `interface Events` members and which `ctx.<key>` classes are the cordis surface); the catalog generator computes exactly that mapping on every run, so the gate lives there.
+- **Rendering the tags into the catalog** — restructuring the services section into per-method entries was considered and deliberately deferred: source JSDoc plus IDE hover is where method docs are consumed, and the catalog stays an index.
+- **An escape-hatch tag** — none exists; the surface is small and curated (12 services, 57 methods, 27 events at adoption), and the point is that the check cannot be waved off.
 
 ## Consequences
 

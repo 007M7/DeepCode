@@ -200,7 +200,7 @@ describe('tool-web registration', () => {
   it('contributes prompt sections for the enabled tools', async () => {
     const { fiber, ctx } = await mountTools()
     const prompt = await ctx.systemPrompt.assemble()
-    const text = prompt.sections.map(s => (typeof s.text === 'function' ? s.text() : s.text)).join('\n')
+    const text = prompt.sections.map(s => s.text).join('\n')
     expect(text).toContain('web_search')
     expect(text).toContain('web_fetch')
     await fiber.dispose()

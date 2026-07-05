@@ -51,15 +51,16 @@ export const name = 'stdio-agent'
 
 /**
  * App config: the swappable per-demo values, each routed to where the app wires
- * it. `model`/`systemPrompt`/`resumeSessionId` configure the pre-created `main`
- * agent (through {@link @deepseek-ai/dsh-agent-core}'s forwarded `agents` list);
+ * it. `model`/`resumeSessionId` configure the pre-created `main` agent (through
+ * {@link @deepseek-ai/dsh-agent-core}'s forwarded `agents` list); `persona` is
+ * the deployment persona (forwarded to the system-prompt plugin);
  * `persistenceRoot` is the JSONL backend's directory; `welcome` is the UI banner.
  */
 export interface Config {
   /** Model name for the `main` agent (must have a registered adapter). */
   model: string
-  /** System prompt for the `main` agent. */
-  systemPrompt: string
+  /** Deployment persona (the system-prompt plugin's `persona` config). */
+  persona?: string
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
@@ -74,7 +75,7 @@ export interface Config {
 
 export const Config: z<Config> = z.object({
   model: z.string().required(),
-  systemPrompt: z.string().required(),
+  persona: z.string(),
   persistenceRoot: z.string().default('./.sessions'),
   welcome: z.string().default('ready.'),
   resumeSessionId: z.string(),
@@ -83,17 +84,17 @@ export const Config: z<Config> = z.object({
 /**
  * Compose the spine with the stdio front door. The console logger comes first
  * (infra), then the agent-core bundle pre-creating the `main` agent from this
- * app's `model`/`systemPrompt`/`resumeSessionId`, then the JSONL backend, then
- * the readline UI bound to `main`. The `hmr` dev-reload plugin is a leaf
- * concern (see the module doc), so it is not mounted here.
+ * app's `model`/`resumeSessionId` with the deployment `persona`, then the JSONL
+ * backend, then the readline UI bound to `main`. The `hmr` dev-reload plugin is
+ * a leaf concern (see the module doc), so it is not mounted here.
  */
 export function apply(ctx: Context, config: Config): void {
   ctx.plugin(ConsoleExporter)
   ctx.plugin(agentCore, {
+    ...config.persona !== undefined ? { persona: config.persona } : {},
     agents: [{
       id: AgentId('main'),
       model: config.model,
-      systemPrompt: config.systemPrompt,
       ...config.resumeSessionId !== undefined ? { resumeSessionId: SessionId(config.resumeSessionId) } : {},
     }],
   })

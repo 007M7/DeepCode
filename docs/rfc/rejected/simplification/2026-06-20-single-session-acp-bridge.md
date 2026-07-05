@@ -25,3 +25,5 @@ Remove the multi-session maps and demux where a single `SessionRecord | undefine
 ## What we give up
 
 An ACP client cannot host several concurrent conversations on one server process. That is a meaningful capability cut. The simpler model is still reasonable for an unreleased harness: one editor conversation maps to one agent process, and cross-session permission/background-task isolation stops being a live correctness burden.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

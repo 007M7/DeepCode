@@ -8,7 +8,7 @@ Status: implemented
 
 The schema should be small enough to implement in the first `dsh-tool-fs` pass, but stable enough that future local/remote/sandboxed filesystem backends do not require model-facing churn. It should also avoid importing every option from reference systems. Claude Code and OpenCode expose similar core file tools but differ in naming style and extra flags; this RFC chooses the minimal shared surface for the prototype.
 
-## Proposal
+## Decision
 
 `@deepseek-ai/dsh-tool-fs` exposes these three model-facing tools in the first filesystem suite:
 
@@ -78,7 +78,7 @@ Default native projections:
 | `write` | create/update operation, target display path, new file version | concise create/update success text |
 | `edit` | replacement count, replace-all flag, target display path, new file version | concise edit success text |
 
-The structured outcome should not restate model arguments such as `file_path`, `old_string`, or `content` unless the backend has resolved them into new information such as `displayPath`, `targetKey`, or a new version. Token-conscious truncation is part of the model projection, not the backend's canonical result.
+The structured outcome does not restate model arguments such as `file_path`, `old_string`, or `content` unless the backend has resolved them into new information such as `displayPath`, `targetKey`, or a new version. Token-conscious truncation is part of the model projection, not the backend's canonical result.
 
 ## Deferred
 
@@ -91,22 +91,19 @@ The following are deliberately out of scope for the first filesystem schema pass
 - Code Mode projection values for filesystem tools.
 - A canonical edit diff format.
 
-## Tests
+## Testing
 
-`dsh-tool-fs` schema tests should assert:
+Schema tests pin the required/optional argument set per tool, empty-`old_string` rejection, the `replace_all` default, the snake_case field names, description prose that states the observation policy, and root-plugin suite registration; integration tests execute all three tools through `ctx.tools.execute()` against the real `dsh-fs-local` provider and verify the model arguments translate into the expected `ctx.fs` calls and `fs/*` dispatches.
 
-- `read` requires `file_path` and accepts optional positive integer `offset` / `limit`.
-- `write` requires `file_path` and `content`.
-- `edit` requires `file_path`, `old_string`, and `new_string`, accepts optional boolean `replace_all`, rejects empty `old_string`, and defaults `replace_all` to false.
-- The registered JSON schemas use the snake_case field names in this RFC.
-- The tool descriptions accurately describe that, under the default fs-policy, existing-file `write` and `edit` require a prior observation (any windowed read counts) in the same execution context, while new-file `write` does not.
-- The `tool-fs` root plugin registers all three schemas.
+## Alternatives considered
 
-Integration tests should execute `read`, `write`, and `edit` through `ctx.tools.execute()` against the real `dsh-fs-local` provider and verify that model arguments are translated into the expected `ctx.fs` calls and `fs/*` dispatches.
+- **A Codex-style patch grammar or multi-mode edit API** — rejected: one strict literal replacement mode keeps the model-facing contract simple and lets the backend own exact-match, duplicate-match, line-ending, and stale-version semantics.
+- **camelCase argument names (OpenCode's style)** — snake_case aligns with Claude Code and the existing harness tool-schema examples, and naming is public surface once shipped.
+- **Model-facing `expected_hash` / `expected_version` / `create_only` parameters** — rejected: stale checks are driven by backend-minted versions and the policy plugin's observed state, never by fragile model-copied tokens.
 
-## Risks
+## Consequences
 
-**The first schema is intentionally smaller than Claude Code's.** Dropping PDF pages, multimodal read, rich grep/list flags, and expected hash fields keeps the first implementation focused, but users may ask for those quickly. They should be added as separate RFCs or focused follow-ups rather than overloaded into the initial schema.
+**The first schema is intentionally smaller than Claude Code's.** Dropping PDF pages, multimodal read, rich grep/list flags, and expected hash fields keeps the implementation focused, but users may ask for those quickly. They arrive as separate RFCs or focused follow-ups rather than overloads of the initial schema.
 
 **No explicit model-facing stale guard in v1.** The schema does not ask the model to provide an expected hash/version. That is intentional: stale checks come from backend-produced versions and the `dsh-fs-policy` plugin's observed state, not from fragile model-copied tokens. Filesystem safety failures surface through structured `FsError` codes owned by `dsh-fs`, not through model-supplied version fields.
 

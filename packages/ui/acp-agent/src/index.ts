@@ -39,35 +39,38 @@ import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 export const name = 'acp-agent'
 
 /**
- * App config: the swappable per-deployment values. `model`/`systemPrompt`
- * configure the agent template the ACP bridge creates each session's agent from
- * (NOT a pre-created agent — ACP creates agents at `session/new`);
+ * App config: the swappable per-deployment values. `model` configures the
+ * agent template the ACP bridge creates each session's agent from (NOT a
+ * pre-created agent — ACP creates agents at `session/new`); `persona` is the
+ * deployment persona (forwarded to the system-prompt plugin);
  * `persistenceRoot` is the JSONL backend's directory.
  */
 export interface Config {
   /** Model name for ACP-created agents (must have a registered adapter). */
   model: string
-  /** Per-agent system prompt for ACP-created agents. */
-  systemPrompt: string
+  /** Deployment persona (the system-prompt plugin's `persona` config). */
+  persona?: string
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
 }
 
 export const Config: z<Config> = z.object({
   model: z.string().required(),
-  systemPrompt: z.string().required(),
+  persona: z.string(),
   persistenceRoot: z.string().default('./.sessions'),
 })
 
 /**
  * Compose the spine with the ACP front door. The agent-core bundle pre-creates
- * NO agents (its `agents` list defaults to `[]`); the JSONL backend persists
- * under `persistenceRoot`; the ACP bridge owns stdout for JSON-RPC and creates
- * one agent per `session/new` from `model`/`systemPrompt`. No logger, no `hmr` —
- * stdout stays pure.
+ * NO agents (its `agents` list defaults to `[]`) and carries the deployment
+ * `persona`; the JSONL backend persists under `persistenceRoot`; the ACP
+ * bridge owns stdout for JSON-RPC and creates one agent per `session/new`
+ * from `model`. No logger, no `hmr` — stdout stays pure.
  */
 export function apply(ctx: Context, config: Config): void {
-  ctx.plugin(agentCore)
+  ctx.plugin(agentCore, {
+    ...config.persona !== undefined ? { persona: config.persona } : {},
+  })
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
-  ctx.plugin(acp, { model: config.model, systemPrompt: config.systemPrompt })
+  ctx.plugin(acp, { model: config.model })
 }

@@ -1,6 +1,6 @@
 # RFC: Prune dead methods from the persistence seam
 
-Status: implemented (proposed and accepted 2026-06-20)
+Status: implemented
 
 > **Implementation note (scope narrowed from the original proposal).** This RFC proposed pruning dead methods from BOTH the persistence seam (`SessionPersistence.has()`/`.delete()`) and the bash seam (`BashExecutor.get()`/`.list()`). Only the **persistence** removal shipped. The bash `get()`/`.list()` removal was reverted before merge: each is a one-line accessor over the executor's already-tracked `tasks` map, and removing them forced `dsh-tool-bash`'s tests onto a ~35-line `onTaskDone`-based completion-tracking harness to replace the one-line `ctx.bash.get(id)` lookup — the migration cost dwarfed the surface removed. Per the [AGENTS.md "RFCs are proposals, not golden truth"](../../../../AGENTS.md) principle, that friction is evidence the method earns its keep (a test harness IS a consumer that programs against the seam), so `get()`/`list()` stay. The bash-seam analysis below is retained for the record but was NOT acted on; `BashTaskId`-branding those methods lands in the [branded-ids RFC](../architecture/2026-06-20-branded-ids.md) instead. The persistence removal stands: `has()`/`delete()` had only contract-test callers and no test-ergonomics cost to remove.
 
@@ -14,27 +14,26 @@ The abstract service declared its operations beyond create/append: `load`, `list
 
 `has()` was not just unused — it was the most intricate branch in the shared coordinator: a tracked-vs-untracked dual-probe (`loadLive(id, cwd)` for a live-tracked session vs `loadStored(id)` for an untracked one) with a multi-line rationale. `delete()` dragged the `deleteStored` backend hook that every backend had to implement. This is the [drop-mutable-session-summary](../../implemented/simplification/2026-06-19-drop-mutable-session-summary.md) pattern: a contract test exercised both, but no shipping code asks "is this session persisted?" or removes one.
 
-## Proposal
+## Decision
 
-Remove the methods nothing consumes, from the abstract seam, the implementation, and the contract/spec suites that exist only to exercise them:
+The methods nothing consumes are removed — from the abstract seam, the implementation, and the contract/spec suites that existed only to exercise them:
 
-- `SessionPersistence.has()` / `.delete()`: delete the abstract declarations, the coordinator's `has`/`delete`/`deleteCore`, and the `PersistenceBackend.deleteStored` hook. Remove the `has`/`delete` rows from the contract suite and the per-backend specs (jsonl + sqlite each implemented `deleteStored` only to satisfy the hook — that implementation goes too). The backends are the [dual-backend](../../implemented/architecture/2026-06-14-session-persistence.md) design and otherwise out of scope, but removing a hook they implement for no consumer is part of removing the hook, not a backend redesign.
-- Update every doc and source-comment reference to the removed methods — not only literal `has(`/`delete(`/`deleteStored` call spellings, but also `{@link has}`/`{@link delete}` JSDoc links and prose that counts the methods (removing 2 of the persistence service's 6 public methods makes any "six public methods" phrasing wrong). The implementing PR greps `has`/`delete`/`deleteStored`/`{@link `/`six ` across `docs/`, `packages/*/README.md`, and source comments, and fixes each. The known doc sites: the seam README ([packages/session-persistence/session-persistence/README.md](../../../../packages/session-persistence/session-persistence/README.md)'s `has(id)`/`delete(id)` API row and its "delegates its six public service methods" prose → four), the backend READMEs that describe `has`/`list` semantics ([packages/session-persistence/session-persistence-sqlite/README.md](../../../../packages/session-persistence/session-persistence-sqlite/README.md), [packages/session-persistence/session-persistence-jsonl/README.md](../../../../packages/session-persistence/session-persistence-jsonl/README.md) — reword "absent from `has()`/`list()`" to just `list()`), the service-map / seam docs in [docs/architecture.md](../../../architecture.md), and the persistence prose in the [session-persistence RFC](../../implemented/architecture/2026-06-14-session-persistence.md) and [shared write-coordinator RFC](../../implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md). The known source-comment sites: the abstract `create()` JSDoc's `{@link has}/{@link list}` link ([packages/session-persistence/session-persistence/src/index.ts](../../../../packages/session-persistence/session-persistence/src/index.ts) — drop the `has` link), the coordinator's "six public methods"/"six public service methods" module + class JSDoc and its lazy-materialization JSDoc justifying the `materialized` flag by "the signal `has`/`list` rely on" ([packages/session-persistence/session-persistence/src/coordinator.ts](../../../../packages/session-persistence/session-persistence/src/coordinator.ts)), the JSONL backend's `loadStored`/`deleteStored` comment, and the SQLite backend's `schema.ts` and `index.ts` comments that mention "absent from `has`/`list`" — all reworded to the surviving four-method, `list()`-only contract.
+- `SessionPersistence.has()` / `.delete()` are gone: the abstract declarations, the coordinator's `has`/`delete`/`deleteCore`, and the `PersistenceBackend.deleteStored` hook (jsonl + sqlite each implemented `deleteStored` only to satisfy the hook — those implementations went too). The backends are the [dual-backend](../../implemented/architecture/2026-06-14-session-persistence.md) design and otherwise out of scope; removing a hook they implemented for no consumer is part of removing the hook, not a backend redesign.
+- Every doc and source-comment reference is updated to the surviving four-method, `list()`-only contract — not only literal `has(`/`delete(`/`deleteStored` spellings but `{@link has}`/`{@link delete}` JSDoc links and "six public methods" counts — across the seam and backend READMEs, [docs/architecture.md](../../../architecture.md), the [session-persistence](../../implemented/architecture/2026-06-14-session-persistence.md) and [write-coordinator](../../implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md) RFCs, and the coordinator/backends JSDoc.
 
-## Why not keep them as "the seam should be complete"?
+## Alternatives considered
+
+### Why not keep them as "the seam should be complete"?
 
 The instinct that a persistence seam "should" offer delete is real — and it is exactly the speculative-completeness the pre-release stance warns against ([AGENTS.md](../../../../AGENTS.md): optimize for the correct foundation, not for hypothetical callers you do not have). `delete()` is one method to re-add the day a consumer needs it: a session-management UI that deletes old sessions will want it — add it then, designed against that UI's real needs (soft-delete? cascade? confirmation?), not guessed now.
 
 Re-adding a seam method with a live consumer is cheap and better-designed than the speculative version, because the consumer pins the contract. Carrying it unused means every implementation (and every future backend) must implement and test a method that does nothing.
 
-## Acceptance criteria
+## Verification
 
-- `has`/`delete`/`deleteStored` are gone from the persistence seam, impl, and contract suites; `pnpm run knip` reports no new dead exports.
-- The remaining persistence operations (`create`/`append`/`load`/`list`) are untouched; ACP `session/list` and crash-recovery behave identically.
-- `pnpm run test:coverage` stays 100% per-file (the contract/spec rows for the removed persistence methods are deleted with them).
-- The persistence seam README and `docs/architecture.md` no longer list the removed `has`/`delete` methods.
+`has`/`delete`/`deleteStored` are gone from the persistence seam, impl, and contract suites with no new dead exports; the remaining operations (`create`/`append`/`load`/`list`) are untouched, with ACP `session/list` and crash-recovery behaving identically; and the seam README and `docs/architecture.md` list only the surviving methods.
 
-## Risks
+## Consequences
 
 - **`delete()` is the kind of operation a product eventually wants.** True — but "eventually" is the point. Deleting it now and re-adding it against a real consumer is strictly better than shipping a guessed contract. The dual backends each shed a `deleteStored` impl, which is a bounded edit in otherwise-out-of-scope packages.
 - **Low coupling.** The removal is confined to the persistence seam + impl + tests; no cross-package consumer references the removed methods, so there is no ripple beyond the docs.

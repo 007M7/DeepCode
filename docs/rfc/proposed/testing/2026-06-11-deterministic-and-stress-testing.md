@@ -2,8 +2,6 @@
 
 Status: proposed
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
 ## Problem
 
 Several loop tests synchronize with `setTimeout(30)` sleeps — flakiness debt that wastes agent cycles on retries and can mask ordering bugs. Separately, our core architectural promise (any session log replays to identical derived history) is asserted in two tests but is cheap to assert *everywhere*. And the inbox wakeup race was verified by hand exactly once; nothing re-verifies it continuously.
@@ -20,6 +18,14 @@ Three measures:
 
 Land 1 and 2 together (they touch the same helpers); add the nightly job after the suite is sleep-free so repeats are fast.
 
+## Acceptance criteria
+
+- No `setTimeout` remains in `packages/*/tests` outside the allowlisted helper module, enforced by the lint rule.
+- The shared harness replays every test's session log into a fresh `Session` and asserts `deriveMessages()` equality automatically, across the whole suite.
+- The nightly job runs the agent-loop and inbox suites with `--repeat` and `--shuffle`; a flake it finds is triaged as a bug, never retried away.
+
 ## Risks
 
 Fake timers interact subtly with Promise scheduling in the loop — prefer event-driven waits; reserve fake timers for timer-service behavior itself.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

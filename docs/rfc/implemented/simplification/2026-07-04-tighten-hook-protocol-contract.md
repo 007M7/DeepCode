@@ -1,6 +1,6 @@
 # RFC: Tighten the hook-protocol contract — dialect, discarded fields, double defaults, and lib-owned `hook/result` semantics
 
-Status: implemented (proposed and accepted 2026-07-04)
+Status: implemented
 
 ## Problem
 
@@ -11,21 +11,20 @@ Four pieces of the `dsh-hook-protocol`/bridge contract missed the discipline the
 3. **`defaultTimeoutMs` was double-defaulted in both bridge configs with a floating literal** — a schema `.default(600_000)` AND a `?? 600_000` fallback (`packages/hooks/hooks-claude/src/index.ts`, `packages/hooks/hooks-codex/src/index.ts`), two homes per bridge for one protocol-level constant, so the bridges could silently drift apart on the shared default. *The proposal's original remedy — delete the knob outright — was overtaken by the no-hardcoded-tunables audit, which kept the knob as the explicit bridge-owned config (and added `stderrSummaryMaxChars` beside it); what remained to fix was the literal's home.*
 4. **The `hook/result` semantics lived in the bridges, twice, not in the lib that owns the event.** `summarize()` — the stderr truncation rule — was byte-identical in `packages/hooks/hooks-claude/src/index.ts` and `packages/hooks/hooks-codex/src/index.ts`, and so was the decision-string rule `output.decision ?? (output.continue === false ? 'stop' : 'pass')`; yet `dsh-hook-protocol` declared `hook/result`, documented `stderrSummary` as "truncated" without owning the truncation, and documented the decision values without owning the mapping. If one bridge drifted (a different cap, a different fallback), the shared durable event's semantics would fork silently.
 
-## What shipped
+## Decision
 
 `HookDialect` is `'claude' | 'codex'`, its JSDoc names the two bridges, and the lib's unit test constructs a `'codex'` invocation. `suppressOutput` is gone from `HookOutput`, the codec's parse, the codec tests, and the parsed-superset lists in the lib README and the [hook-protocol-lib RFC](../feature/2026-06-30-hook-protocol-lib.md) (amended per [implemented/AGENTS.md](../AGENTS.md)). `hook/result.durationMs` stays: review judged wall-clock hook runtime worth its bytes as durable audit timing (which hook made a turn slow), so `runHook` keeps its injected `now` clock and `RunHookResult` wrapper, the bridges keep passing the measured duration through `HookResultRecord`, and the snapshot normalizer keeps scrubbing the one nondeterministic field to `0` for replay. On the tunables, the no-hardcoded-tunables audit set the shape this change keeps: `defaultTimeoutMs` and `stderrSummaryMaxChars` stay explicit bridge configs, and `RunHookOptions.defaultTimeoutMs` stays a required parameter the bridge passes in. What this change adds is one home per literal: the reference defaults live in the lib as `DEFAULT_HOOK_TIMEOUT_MS` (600 000 ms, exported from the runner) and `DEFAULT_STDERR_SUMMARY_MAX_CHARS` (500, exported from the events module), and both bridges' schema defaults and `??` fallbacks read those constants instead of restating the numbers. The `hook/result` semantics live in the lib: `HookResultRecord` carries the decoded `HookOutput` plus the bridge's `stderrSummaryMaxChars`, and `appendHookResult` derives `stderrSummary` (via the exported `summarizeStderr(stderr, maxChars)`) and the decision string from them; both bridges deleted their private copies, and the derived values are byte-identical to what the bridges wrote (the goldens prove it — their only diff is the dropped `durationMs`). Rider: `BLOCKING_EXIT_CODE` is a codec-internal const, no longer exported (it had zero importers; even the codec tests spell the literal `2`).
 
-## Why not keep them?
+## Alternatives considered
+
+### Why not keep them?
 
 The [hook-protocol-lib RFC](../feature/2026-06-30-hook-protocol-lib.md) deliberately recorded "parses the full CC superset" — the strongest counterargument was that this proposal re-litigates decisions that RFC records. But parsing a field whose value can never influence anything is not protocol faithfulness, it is a reader trap; a dialect variant that the design's own thesis says will never be stamped is vocabulary without an interpreter; Each returns trivially with its first real consumer (a transcript surface with hook stdout to suppress; a native-provenance feature that logs hook events). On `durationMs` the review reached the opposite verdict: a persistence log is written for future readers, and wall-clock hook timing is audit signal worth carrying before a reader exists — so it stays, with replay normalization as the accepted cost. On item 4, the lib RFC chose per-bridge explicitness over a parameterized engine — but that choice governed payload construction and Decision mapping; the semantics of the SHARED durable event are precisely the "primitives where duplication would actually be dangerous" that the same RFC assigns to the lib.
 
-## Acceptance criteria
+## Verification
 
-- `HookDialect` is two-valued; `rg "'native'"` in the hooks packages returns nothing.
-- `suppressOutput` appears nowhere in source, parsed-field doc lists, or the normalizer; `durationMs` stays on `hook/result` (and in the fixtures), with the normalizer's replay scrub intact.
-- Both bridge configs keep `defaultTimeoutMs`/`stderrSummaryMaxChars` (the audit's explicit-tunables shape), but the literals `600_000` and `500` each live once, in the lib's `DEFAULT_HOOK_TIMEOUT_MS`/`DEFAULT_STDERR_SUMMARY_MAX_CHARS`; per-hook `timeoutSec` still overrides the timeout.
-- One definition each of the truncation rule and the decision-string rule, in `dsh-hook-protocol`'s `appendHookResult`, exercised by both bridges' suites.
+`HookDialect` is two-valued (`rg "'native'"` in the hooks packages returns nothing); `suppressOutput` appears nowhere in source, parsed-field doc lists, or the normalizer, while `durationMs` stays on `hook/result` and in the fixtures with the replay scrub intact; the literals `600_000` and `500` each live once, in the lib's `DEFAULT_HOOK_TIMEOUT_MS`/`DEFAULT_STDERR_SUMMARY_MAX_CHARS`, with per-hook `timeoutSec` still overriding; and the truncation rule and decision-string rule are defined once, in `dsh-hook-protocol`'s `appendHookResult`, exercised by both bridges' suites.
 
-## Risks
+## Consequences
 
 The `dialect`, `suppressOutput`, tunables, and semantics changes are invisible on the wire and in the goldens. The cost was churn in `dsh-hook-protocol` and both bridges — cheap under the pre-release stance, and cheaper than letting two copies of a durable event's semantics age apart.

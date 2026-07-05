@@ -1,10 +1,8 @@
 # RFC: Capability seams — interface / implementation / consumer split
 
-Status: implemented (accepted 2026-06-13)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 The harness has swappable capabilities — bash execution today, sandboxed/remote executors and alternative model providers tomorrow. A capability has three concerns that change at different rates and for different reasons: the *contract* (what the capability is), the *implementation* (how it runs), and the *consumer surface* (what the model and other plugins program against). Bundling them in one package couples those rates of change — swapping a local executor for a sandboxed one would churn the tool schemas the model sees, even though the model-facing contract never changed.
 
@@ -20,9 +18,12 @@ A swappable capability is **three packages**:
 
 Implementation and consumer then evolve independently: a sandboxed executor replaces `dsh-bash-local` without touching a tool schema.
 
-Alternatives considered: **one combined package** — rejected because it recouples the three rates of change the split exists to separate (the whole point). **`@cordisjs/plugin-capability`** — a different axis entirely: it is a permission/capability-*security* service (named permissions with inheritance, tested against a session via `ctx.capability.test`), a candidate for the deferred permissions/sandbox work on the `tools/pre-execute` deny/ask seam, NOT a mechanism for swapping implementations. Confusing the two ("capability") is the trap this RFC names.
-
 The split is not mandatory when the parts are genuinely one concern: the LLM seam folds interface + consumer into `dsh-llm` (the consumer is the loop itself, not a swappable schema surface) with adapters as the implementation packages. Don't split preemptively — a capability with one conceivable implementation and one consumer stays one package until a second appears.
+
+## Alternatives considered
+
+- **One combined package** — rejected because it recouples the three rates of change the split exists to separate (the whole point).
+- **`@cordisjs/plugin-capability`** — a different axis entirely: it is a permission/capability-*security* service (named permissions with inheritance, tested against a session via `ctx.capability.test`), a candidate for the deferred permissions/sandbox work on the `tools/pre-execute` deny/ask seam, NOT a mechanism for swapping implementations. Confusing the two ("capability") is the trap this RFC names.
 
 ## Consequences
 
