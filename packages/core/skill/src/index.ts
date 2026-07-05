@@ -23,6 +23,7 @@ const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const DEFAULT_PROMPT_FIELD_LENGTH = 500
 const DEFAULT_COLLECT_CACHE_ENTRIES = 128
 
+/** Return whether a string is a valid kebab-case skill name. */
 export function isSkillName(name: string): boolean {
   return SKILL_NAME.test(name)
 }
@@ -365,13 +366,14 @@ async function listSkillRootEntries(root: SkillRoot, ctx: Context): Promise<Skil
 }
 
 async function listSkillRootEntriesFromFileSystem(root: SkillRoot, fs: FileSystem): Promise<SkillRootEntry[]> {
-  try {
-    const target = await fs.resolve(root.path)
-    const entries = await fs.listDir(target)
-    return entries.map(entryFromFs)
-  } catch {
-    return []
-  }
+  // Skill roots are optional; an absent or unlistable root contributes no skills.
+  const entries = await fsListDir(fs, root.path).catch(() => undefined)
+  return entries === undefined ? [] : entries.map(entryFromFs)
+}
+
+async function fsListDir(fs: FileSystem, path: string): Promise<FsDirEntry[]> {
+  const target = await fs.resolve(path)
+  return await fs.listDir(target)
 }
 
 function entryFromFs(entry: FsDirEntry): SkillRootEntry {
@@ -476,8 +478,13 @@ async function readSkillText(ctx: Context, path: string): Promise<string | undef
 }
 
 async function readSkillTextFromFileSystem(ctx: Context, fs: FileSystem, path: string): Promise<string | undefined> {
-  const target = await fs.resolve(path)
-  const info = await fs.stat(target)
+  // A missing or temporarily inaccessible skill file is not fatal to discovery.
+  const target = await fs.resolve(path).catch(() => undefined)
+  if (target === undefined) return undefined
+  const info = await fs.stat(target).catch((error: unknown) => {
+    ctx.logger.warn(`skill file ${path} ignored: failed to stat through filesystem service: ${errorMessage(error)}`)
+    return undefined
+  })
   if (info === undefined || info.type !== 'file') return undefined
   try {
     return await fs.readText(target)
@@ -553,7 +560,7 @@ async function findProjectRoot(cwd: string): Promise<string> {
 function normalizeSkill(skill: SkillRegistration): SkillDefinition {
   if (!SKILL_NAME.test(skill.name)) throw new Error(`invalid skill name "${skill.name}"`)
   if (skill.description.length === 0) throw new Error(`skill "${skill.name}" requires a description`)
-  return { ...skill, source: skill.source }
+  return { ...skill }
 }
 
 function toSummary(skill: SkillDefinition): SkillSummary {

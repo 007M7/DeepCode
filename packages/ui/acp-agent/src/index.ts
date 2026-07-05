@@ -38,15 +38,6 @@ import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 
 export const name = 'acp-agent'
 
-const SkillConfigSchema: z<agentCore.SkillConfig> = z.object({
-  dshHome: z.string(),
-  agentsHome: z.string(),
-  extraRoots: z.array(z.string()).default([]),
-  installSystemSkills: z.boolean().default(true),
-  promptFieldMaxLength: z.number().default(500),
-  collectCacheMaxEntries: z.number().default(128),
-})
-
 /**
  * App config: the swappable per-deployment values. `model`/`systemPrompt`
  * configure the agent template the ACP bridge creates each session's agent from
@@ -68,7 +59,7 @@ export const Config: z<Config> = z.object({
   model: z.string().required(),
   systemPrompt: z.string().required(),
   persistenceRoot: z.string().default('./.sessions'),
-  skills: SkillConfigSchema,
+  skills: agentCore.SkillConfigSchema,
 })
 
 /**

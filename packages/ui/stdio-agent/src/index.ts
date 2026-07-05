@@ -49,15 +49,6 @@ import * as uiStdio from './stdio-chat.ts'
 
 export const name = 'stdio-agent'
 
-const SkillConfigSchema: z<agentCore.SkillConfig> = z.object({
-  dshHome: z.string(),
-  agentsHome: z.string(),
-  extraRoots: z.array(z.string()).default([]),
-  installSystemSkills: z.boolean().default(true),
-  promptFieldMaxLength: z.number().default(500),
-  collectCacheMaxEntries: z.number().default(128),
-})
-
 /**
  * App config: the swappable per-demo values, each routed to where the app wires
  * it. `model`/`systemPrompt`/`resumeSessionId` configure the pre-created `main`
@@ -90,7 +81,7 @@ export const Config: z<Config> = z.object({
   systemPrompt: z.string().required(),
   persistenceRoot: z.string().default('./.sessions'),
   welcome: z.string().default('ready.'),
-  skills: SkillConfigSchema,
+  skills: agentCore.SkillConfigSchema,
   resumeSessionId: z.string(),
 })
 

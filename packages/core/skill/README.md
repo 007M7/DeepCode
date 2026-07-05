@@ -37,11 +37,13 @@ Default roots are resolved in this conflict priority order:
 
 The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. The user DSH root skips `.system` during normal user scanning so system skills are read exactly once. Same-name skills keep the highest-priority copy, then model-visible summaries are sorted by skill name for stable prompts and provider prefix-cache friendliness.
 
+When `ctx.fs` is available, discovery lists roots through `ctx.fs.listDir`, reads skill files through `ctx.fs.readText`, and installs system skills through `ctx.fs.writeText`. Without a filesystem service, the package falls back to Node filesystem I/O so the service can still run in minimal test contexts. Missing, unreadable, or malformed skill files warn and skip instead of failing the whole request.
+
 Discovery is memoized per resolved root set and runtime-skill revision. Runtime `register()` and disposer calls invalidate the cache; disk-only changes are picked up on the next invalidation or process restart.
 
 ## Skill Format
 
-Skills can be single-level directory bundles (`<name>/SKILL.md`) or flat Markdown files (`<name>.md`). Nested `**/SKILL.md` discovery is intentionally not part of v1. Frontmatter requires `name` and `description`; `whenToUse`, `disableModelInvocation`, and `metadata` are optional. Names must be kebab-case.
+Skills can be single-level directory bundles (`<name>/SKILL.md`) or flat Markdown files (`<name>.md`). Nested `**/SKILL.md` discovery is intentionally not part of v1. Frontmatter is parsed as YAML with the `yaml` package; it requires `name` and `description`, while `whenToUse`, `disableModelInvocation`, and `metadata` are optional. Names must be kebab-case.
 
 ## Prompt Integration
 

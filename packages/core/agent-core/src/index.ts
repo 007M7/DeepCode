@@ -72,27 +72,14 @@ export interface Config extends AgentLoopConfig {
   skills?: SkillConfig
 }
 
-/** Local schema for the forwarded skill config. Keep this in sync with `SkillService.Config`. */
-export const SkillConfigSchema: Schema<SkillConfig> = z.object({
-  dshHome: z.string(),
-  agentsHome: z.string(),
-  extraRoots: z.array(z.string()).default([]),
-  installSystemSkills: z.boolean().default(true),
-  promptFieldMaxLength: z.number().default(500),
-  collectCacheMaxEntries: z.number().default(128),
-})
+/** The skill config schema exported for app packages that forward `skills`. */
+export const SkillConfigSchema: Schema<SkillConfig> = SkillService.Config
 
-/** Bundle schema: keep the loop agent shape aligned and expose skill config. */
-export const Config: Schema<Config> = z.object({
-  agents: z.array(z.object({
-    id: z.string().required(),
-    model: z.string(),
-    systemPrompt: z.string(),
-    cwd: z.string(),
-    resumeSessionId: z.string(),
-  })).default([]),
-  skills: SkillConfigSchema,
-}) as unknown as Schema<Config>
+/** Bundle schema: reuse agent-loop's agent shape and add skill config. */
+export const Config: Schema<Config> = z.intersect([
+  AgentLoop.Config,
+  z.object({ skills: SkillConfigSchema }),
+])
 
 /**
  * Load the spine. Each `ctx.plugin(...)` mounts one child of the bundle fiber;
