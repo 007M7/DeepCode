@@ -18,7 +18,7 @@ import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import type { FsPolicyExec } from '@deepseek-ai/dsh-fs-policy'
 
 function target(path: string): FsTarget {
-  return { inputPath: path, targetKey: FsTargetKey(path), displayPath: path }
+  return { targetKey: FsTargetKey(path), displayPath: path }
 }
 const ownerExec = (session: object): FsPolicyExec => ({ agent: { session } })
 

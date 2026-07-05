@@ -14,10 +14,11 @@
 
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { DiffCallView, DiffResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { FsEditOutcome } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import { computeHunkDiffs, diffsFromMeta, type FsDiffMeta } from './diff.ts'
 import { sessionCwd } from './session-cwd.ts'
 
 /** Validated `edit` arguments after defaulting. */
@@ -41,9 +42,9 @@ export function parseEditArgs(args: { file_path: string; old_string: string; new
   }
 }
 
-/** Format an edit outcome as a Claude-style model-facing success message. */
-export function formatEditOutput(displayPath: string, outcome: FsEditOutcome): string {
-  return outcome.replaceAll
+/** Format an edit success (single-match or replace-all) as a Claude-style model-facing message. */
+export function formatEditOutput(displayPath: string, replaceAll: boolean): string {
+  return replaceAll
     ? `The file ${displayPath} has been updated. All occurrences were successfully replaced.`
     : `The file ${displayPath} has been updated successfully.`
 }
@@ -65,7 +66,7 @@ export function applyEditTool(ctx: Context): void {
       new_string: { type: 'string', required: true, description: 'Literal replacement text. Use an empty string to delete the match.' },
       replace_all: { type: 'boolean', description: 'Replace all matches. Defaults to false; when false, old_string must appear exactly once.' },
     },
-    async execute(args, exec): Promise<ContentBlock[]> {
+    async execute(args, exec): Promise<{ content: ContentBlock[]; meta?: FsDiffMeta }> {
       const input = parseEditArgs(args)
       const cwd = sessionCwd(exec)
       const target = await ctx.fs.resolve(input.filePath, cwd !== undefined ? { cwd } : undefined)
@@ -81,20 +82,39 @@ export function applyEditTool(ctx: Context): void {
       )
       // Record the observed version (a no-op when no policy plugin listens).
       ctx.emit('fs/observed', target, outcome.version, exec)
-      return [{ type: 'text', text: formatEditOutput(target.displayPath, outcome) }]
-    },
-    // Pure display: `edit` kind, a location for editor follow-along, and a short
-    // old→new summary as rawInput (truncated so a large replacement stays a
-    // readable card). The replacement COUNT is not available here — presentResult
-    // only sees `{ content, isError }`, not the outcome — so the title is static.
-    presentCall(args) {
-      const clip = (s: string): string => (s.length > 40 ? `${s.slice(0, 40)}…` : s)
+      // The result-time applied-hunk diff (before→after with context lines). An
+      // edit always changes content (parseEditArgs requires old_string to differ
+      // and editText matches at least once), so there is always at least one hunk.
+      // The bridge renders these as an inline diff that supersedes the call-time
+      // snippet; the display path is the model-facing `file_path` (the bridge
+      // relativizes it).
+      const diffs = computeHunkDiffs(input.filePath, outcome.before, outcome.after)
       return {
+        content: [{ type: 'text', text: formatEditOutput(target.displayPath, input.replaceAll) }],
+        meta: { diffs },
+      }
+    },
+    // Pure display: a diff card of the literal replacement (old_string →
+    // new_string), derived from the call args. `oldText: old_string || null`
+    // matches claude-agent-acp's Edit arm; new_string is a required arg here, so
+    // it maps straight to newText. A follow-along location points at the file.
+    presentCall(args): DiffCallView {
+      return {
+        card: 'diff',
         title: `Edit ${args.file_path}`,
-        kind: 'edit',
-        rawInput: `${JSON.stringify(clip(args.old_string))} → ${JSON.stringify(clip(args.new_string))}`,
+        diffs: [{ path: args.file_path, oldText: args.old_string || null, newText: args.new_string }],
         locations: [{ path: args.file_path }],
       }
+    },
+    // Result-time display: the applied contextual-diff hunks carried on `meta`.
+    // On success with diffs, a `diff` result card supersedes the call-time
+    // snippet; on error (nothing applied) or malformed meta, fall through to the
+    // generic "updated successfully" rendering.
+    presentResult(args, result: ToolResult): DiffResultView | undefined {
+      if (result.isError) return undefined
+      const diffs = diffsFromMeta(result.meta)
+      if (diffs === undefined) return undefined
+      return { card: 'diff', title: `Edit ${args.file_path}`, diffs }
     },
   }))
 }

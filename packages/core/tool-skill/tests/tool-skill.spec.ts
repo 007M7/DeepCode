@@ -39,6 +39,7 @@ describe('dsh-tool-skill', () => {
     const fiber = await ctx.plugin(toolSkill)
     expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['skill'])
     expect(ctx.tools.get('skill')?.presentCall?.({ name: 'project-skill' })).toEqual({
+      card: 'generic',
       title: 'Load skill project-skill',
       kind: 'read',
       rawInput: 'project-skill',

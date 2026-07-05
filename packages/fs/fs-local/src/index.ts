@@ -1,6 +1,6 @@
 /**
  * Local-filesystem implementation of the `ctx.fs` provider seam.
- * {@link LocalFileSystem} subclasses {@link FileSystem} and backs the six
+ * {@link LocalFileSystem} subclasses {@link FileSystem} and backs the seven
  * text-storage primitives with the host filesystem via
  * {@link module:@deepseek-ai/dsh-fs-local/fsio}. Path resolution uses
  * `realpath`, so the stable `targetKey` is the real file identity (two input
@@ -17,6 +17,7 @@ import { Context } from 'cordis'
 import z from 'schemastery'
 import { FileSystem, FsError, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
+  FsDirEntry,
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
@@ -26,8 +27,11 @@ import type {
 } from '@deepseek-ai/dsh-fs'
 import {
   applyLiteralEdit,
+  listDirectory,
+  normalizeLineEndings,
   probe,
   readForEdit,
+  readTextForDiff,
   readWholeText,
   resolveLocalTarget,
   restoreLineEndings,
@@ -37,17 +41,18 @@ import {
 import type { FsIoInternals } from './fsio.ts'
 
 export {
-  STREAM_MIN_SIZE,
   applyLiteralEdit,
+  listDirectory,
   probe,
   readForEdit,
+  readTextForDiff,
   readWholeText,
   resolveLocalTarget,
   restoreLineEndings,
   streamWholeText,
   writeFileAtomic,
 } from './fsio.ts'
-export type { FsIoInternals, LineEndings, LocalTarget, PathInfo } from './fsio.ts'
+export type { FsIoInternals, LineEndings, LocalDirEntry, LocalTarget, PathInfo } from './fsio.ts'
 
 /** Configuration for the local filesystem backend. */
 export interface Config {
@@ -99,7 +104,7 @@ export class LocalFileSystem extends FileSystem {
 
   override async resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget> {
     const local = await resolveLocalTarget(opts?.cwd ?? this.config.cwd, path)
-    return { inputPath: path, targetKey: local.targetKey, displayPath: local.displayPath }
+    return { targetKey: local.targetKey, displayPath: local.displayPath }
   }
 
   override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
@@ -115,6 +120,17 @@ export class LocalFileSystem extends FileSystem {
 
   override streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
     return Promise.resolve(streamWholeText({ displayPath: target.displayPath, targetKey: target.targetKey }, signal))
+  }
+
+  override async listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]> {
+    const entries = await listDirectory({ displayPath: target.displayPath, targetKey: target.targetKey }, signal)
+    return entries.map(entry => ({
+      name: entry.name,
+      type: entry.type,
+      target: { targetKey: entry.target.targetKey, displayPath: entry.target.displayPath },
+      ...(entry.version !== undefined ? { version: entry.version } : {}),
+      ...(entry.size !== undefined ? { size: entry.size } : {}),
+    }))
   }
 
   override async writeText(
@@ -143,11 +159,25 @@ export class LocalFileSystem extends FileSystem {
       // provider) — no version guard, no read-first requirement. Still atomic
       // (the per-target lock is unconditional), so the write is never torn.
 
+      // Capture the prior text (the before/after diff basis) BEFORE the write.
+      // `null` for a create (no existing file) OR an existing-but-undiffable
+      // file (binary/invalid-UTF-8) — a null `before` gives no contextual-hunk
+      // basis, so a consumer falls back to a whole-file diff (the tool still
+      // renders a result-time diff card, not the raw result text).
+      // TODO(overwrite-diff-bound): this reads the whole prior file into memory
+      // for a UI-only diff; bound the pre-read and fall back to no contextual
+      // basis above a size threshold (see the applied-hunk-diffs RFC non-goals).
+      const before = existing ? await readTextForDiff(target.targetKey, signal) : null
       await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.internals)
       const after = await probe(target.targetKey)
       return {
         operation: existing ? 'update' : 'create',
         version: this.versionAfterWrite(after, target),
+        before,
+        // LF-normalized to share the diff basis with `before` (also LF): a CRLF
+        // overwrite must not read as every line changed. Line-ending restoration
+        // is a storage detail the applied-hunk diff ignores.
+        after: normalizeLineEndings(content),
       }
     })
   }
@@ -180,9 +210,11 @@ export class LocalFileSystem extends FileSystem {
 
       const after = await probe(target.targetKey)
       return {
-        replacements: edited.replacements,
-        replaceAll: edit.replaceAll,
         version: this.versionAfterWrite(after, target),
+        // The LF-normalized before/after text (the applied-hunk diff basis);
+        // line-ending restoration is a storage detail the diff ignores.
+        before: original.content,
+        after: edited.content,
       }
     })
   }

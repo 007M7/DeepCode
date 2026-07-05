@@ -105,6 +105,11 @@ const SYSTEM_SKILLS: SkillDefinition[] = [
   },
 ]
 
+/**
+ * Skill discovery service. It scans project/user/system skill roots, exposes
+ * model-visible summaries, loads full skill bodies on demand, and injects the
+ * stable `## Skills` listing into each agent request.
+ */
 export class SkillService extends Service {
   private readonly dshHome: string
   private readonly agentsHome: string
@@ -136,6 +141,11 @@ export class SkillService extends Service {
     })
   }
 
+  /**
+   * Register a runtime skill contribution.
+   * @param skill - the complete skill definition to expose for discovery.
+   * @returns a disposer that removes the runtime skill and invalidates caches.
+   */
   register(skill: SkillRegistration): () => void {
     const normalized = normalizeSkill(skill)
     const dispose = this.ctx.effect(function* (this: SkillService) {
@@ -149,6 +159,11 @@ export class SkillService extends Service {
     return () => void dispose()
   }
 
+  /**
+   * List model-invocable skill summaries for a workspace.
+   * @param options - lookup options; `cwd` selects the project roots to scan.
+   * @returns sorted summaries, excluding skills disabled for model invocation.
+   */
   async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]> {
     return (await this.collect(options))
       .filter(skill => skill.disableModelInvocation !== true)
@@ -156,11 +171,22 @@ export class SkillService extends Service {
       .sort(compareSummary)
   }
 
+  /**
+   * Load one full skill definition by name.
+   * @param name - kebab-case skill name.
+   * @param options - lookup options; `cwd` selects the project roots to scan.
+   * @returns the full skill, including body content, or `undefined`.
+   */
   async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined> {
     if (!isSkillName(name)) return undefined
     return (await this.collect(options)).find(skill => skill.name === name)
   }
 
+  /**
+   * Render the request-time `## Skills` prompt fragment.
+   * @param options - lookup options; `cwd` selects the project roots to scan.
+   * @returns an empty string when no model-invocable skills are available.
+   */
   async renderModelListing(options: SkillLookupOptions = {}): Promise<string> {
     const skills = await this.list(options)
     if (skills.length === 0) return ''

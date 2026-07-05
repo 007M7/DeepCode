@@ -32,7 +32,7 @@ export function apply(ctx: Context): void {
       return [{ type: 'text', text: renderSkillContent(skill) }]
     },
     presentCall(args) {
-      return { title: `Load skill ${args.name}`, kind: 'read', rawInput: args.name }
+      return { card: 'generic', title: `Load skill ${args.name}`, kind: 'read', rawInput: args.name }
     },
   })
   ctx.tools.register(skillTool)

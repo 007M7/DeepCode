@@ -46,6 +46,24 @@ export interface BashExecRequest {
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
   /**
+   * Bytes to write to the command's stdin, then close it. Absent leaves stdin
+   * closed/empty (the default for model-driven tool calls). Set by in-process
+   * plugins (e.g. the hooks bridges, which write a hook command's JSON payload
+   * to its stdin); the model-facing bash tool does not expose it as a parameter
+   * (a model that needs stdin uses shell syntax like a heredoc or a pipe).
+   */
+  stdin?: string | undefined
+  /**
+   * Extra environment entries for the command, merged AFTER the
+   * implementation's credential scrub (so an explicit entry here is honored even
+   * when its name matches the scrub pattern — the caller named a value it holds,
+   * not the harness's ambient secret). Set by in-process plugins (the hooks
+   * bridges set `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the model-facing
+   * bash tool does not expose it as a parameter (a model that needs an env var
+   * uses shell syntax like `FOO=bar cmd`).
+   */
+  env?: Record<string, string> | undefined
+  /**
    * Opaque OWNER token for a background task — the consumer's isolation key
    * (the tool layer passes the owning agent's `session.header.id`). The
    * executor stores it on the task and exposes it via {@link BashExecutor.ownerOf};
@@ -70,6 +88,22 @@ export interface BashExecSpec {
   timeoutMs: number
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
+  /**
+   * Bytes to write to the command's stdin (then close it), carried through
+   * verbatim from {@link BashExecRequest.stdin}. OPTIONAL on the resolved spec
+   * (unlike `owner`): it has no config default, so a missing one means "no
+   * stdin" — the safe, ordinary case — not a silent footgun, so it stays a
+   * plain optional rather than required-but-nullable (see the request field).
+   */
+  stdin?: string | undefined
+  /**
+   * Extra environment entries, carried through verbatim from
+   * {@link BashExecRequest.env} and merged by the implementation AFTER its
+   * credential scrub (an explicit entry wins even when its name matches the
+   * scrub pattern). OPTIONAL on the spec for the same reason as `stdin` — no
+   * config default, absent means "no extra env".
+   */
+  env?: Record<string, string> | undefined
   /**
    * Opaque owner token, REQUIRED-but-nullable (mirrors `workdir`/`timeoutMs`
    * being required on the resolved spec): {@link BashExecutor.resolve} carries

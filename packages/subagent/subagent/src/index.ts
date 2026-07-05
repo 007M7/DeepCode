@@ -20,11 +20,21 @@
  * semantics are deferred to a future redesign that unifies long-running-tool
  * handling across subagents and bash.
  *
+ * The `subagent/start` / `subagent/end` lifecycle events carry an OBSERVE-ONLY
+ * payload; `subagent/end` additionally carries the child's `lastAssistantMessage`
+ * — see `docs/rfc/implemented/feature/2026-06-30-subagent-observe-enrich.md`.
+ * FIXME(subagent-continuation): a control-flow `subagent/end` (an awaited
+ * waterfall returning a stop/continue decision, like the other interception
+ * seams) would require reshaping this emit into a waterfall, awaiting listeners
+ * before settling, and a `resume` capability on the in-process provider — part
+ * of the deferred background/steering redesign, NOT this observe-only cut.
+ *
  * @module @deepseek-ai/dsh-subagent
  */
 
 import { Context, Service } from 'cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { AgentId } from '@deepseek-ai/dsh-agent'
 import type {
   SubagentCapabilities,
@@ -54,12 +64,14 @@ declare module 'cordis' {
      * A subagent run started — emitted after the provider is resolved and its
      * capabilities validated, as the child run begins. Paired with
      * {@link Events['subagent/end']}.
+     * @param info - which provider started which child agent.
      * @mode emit
      */
     'subagent/start'(info: SubagentRunInfo): void
     /**
      * A subagent run settled — emitted when {@link SubagentRun.result}
      * resolves (any stop reason). Paired with {@link Events['subagent/start']}.
+     * @param info - the run identity plus stop reason and final output.
      * @mode emit
      */
     'subagent/end'(info: SubagentRunEndInfo): void
@@ -82,6 +94,14 @@ export interface SubagentRunEndInfo {
   id: AgentId
   /** The terminal stop reason. */
   stopReason: SubagentResult['stopReason']
+  /**
+   * The child's final assistant output ({@link SubagentResult.output}), carried
+   * onto the end event so an observer sees WHAT the subagent produced without
+   * holding the run. Absent when the run rejected at the infrastructure level
+   * (no {@link SubagentResult} was produced — the seam only knows `stopReason:
+   * 'error'`).
+   */
+  lastAssistantMessage?: ContentBlock[]
 }
 
 /**
@@ -111,6 +131,8 @@ export class SubagentService extends Service {
    * Register a provider under its `provider.name`. Throws {@link SubagentError}
    * (`DUPLICATE_PROVIDER`) if the name is already taken. Effect-scoped: disposed
    * with the calling fiber (HMR-safe).
+   * @param provider - the provider; its `name` is the registry key.
+   * @returns the disposer that unregisters the provider.
    */
   registerProvider(provider: SubagentProvider): () => void {
     const dispose = this.ctx.effect(function* (this: SubagentService) {
@@ -127,12 +149,19 @@ export class SubagentService extends Service {
     return () => void dispose()
   }
 
-  /** Look up a registered provider by name (`undefined` if absent). */
+  /**
+   * Look up a registered provider by name (`undefined` if absent).
+   * @param name - the provider name as registered.
+   * @returns the provider, or undefined when the name is unknown.
+   */
   getProvider(name: string): SubagentProvider | undefined {
     return this.providers.get(name)
   }
 
-  /** The names of all registered providers (insertion order). */
+  /**
+   * The names of all registered providers (insertion order).
+   * @returns the registered provider names.
+   */
   list(): string[] {
     return [...this.providers.keys()]
   }
@@ -144,6 +173,9 @@ export class SubagentService extends Service {
    * for the first unmet one — fail loud, before any child is created), then
    * delegates to {@link SubagentProvider.start} and emits `subagent/start` /
    * `subagent/end` around the run.
+   * @param name - the provider to run on.
+   * @param request - the child's prompt, capabilities, and options.
+   * @returns the live run (its `result` resolves when the child settles).
    */
   start(name: string, request: SubagentStartRequest): SubagentRun {
     const provider = this.providers.get(name)
@@ -165,11 +197,33 @@ export class SubagentService extends Service {
     // reject on a child-level failure (it resolves with stopReason 'error'),
     // so a rejection here is an infrastructure fault — surface its stop reason
     // as 'error' for the telemetry event without swallowing the rejection
-    // (the consumer still observes it via `run.result`). Per-listener
-    // containment also keeps a thrown `subagent/end` listener from becoming an
-    // unhandled rejection on this detached `.then`.
+    // (the consumer still observes it via `run.result`). On the resolve path the
+    // child's final output rides on the event (lastAssistantMessage); on the
+    // reject path there is no SubagentResult, so only the stop reason is known.
+    // Per-listener containment also keeps a thrown `subagent/end` listener from
+    // becoming an unhandled rejection on this detached `.then`.
     void run.result.then(
-      (result) => { this.emitLifecycle('subagent/end', { provider: name, id: run.id, stopReason: result.stopReason }) },
+      (result) => {
+        // Deep-clone the output onto the event: this detached `.then` runs BEFORE
+        // the caller's own `await run.result` continuation, so handing listeners
+        // the SAME array reference the caller consumes would let a mutating
+        // `subagent/end` listener corrupt the caller's SubagentResult.output —
+        // breaking the observe-only contract. A snapshot makes the event a
+        // read-only view, not a shared handle. The clone is wrapped: it runs
+        // inside `onFulfilled`, OUTSIDE emitLifecycle's per-listener containment,
+        // so an uncloneable value (a future non-serializable content-block type,
+        // or a contract-violating result with no `output`) would otherwise become
+        // an unhandled rejection on this detached `.then`. On clone failure, log
+        // and emit the event WITHOUT lastAssistantMessage rather than dropping the
+        // whole `subagent/end`.
+        let lastAssistantMessage: SubagentResult['output'] | undefined
+        try {
+          lastAssistantMessage = structuredClone(result.output)
+        } catch (error: unknown) {
+          this.ctx.logger.warn(`subagent: could not clone ${name} output for subagent/end: ${String(error)}`)
+        }
+        this.emitLifecycle('subagent/end', { provider: name, id: run.id, stopReason: result.stopReason, ...lastAssistantMessage !== undefined ? { lastAssistantMessage } : {} })
+      },
       () => { this.emitLifecycle('subagent/end', { provider: name, id: run.id, stopReason: 'error' }) },
     )
     return run

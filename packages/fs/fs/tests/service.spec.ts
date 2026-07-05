@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { FileSystem, FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
+  FsDirEntry,
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
@@ -17,12 +18,12 @@ import type {
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
 
-/** A minimal in-memory fake implementing the six provider primitives. */
+/** A minimal in-memory fake implementing the seven provider primitives. */
 class FakeFileSystem extends FileSystem {
   files = new Map<string, string>()
 
   override async resolve(path: string): Promise<FsTarget> {
-    return { inputPath: path, targetKey: FsTargetKey(path), displayPath: path }
+    return { targetKey: FsTargetKey(path), displayPath: path }
   }
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
     const content = this.files.get(target.targetKey)
@@ -38,15 +39,28 @@ class FakeFileSystem extends FileSystem {
     const content = await this.readText(target)
     return (async function* () { yield content })()
   }
+  override async listDir(target: FsTarget): Promise<FsDirEntry[]> {
+    if (target.targetKey !== 'skills') throw new FsError(`not a directory: ${target.displayPath}`, 'FS_NOT_DIRECTORY')
+    return [
+      {
+        name: 'alpha.md',
+        type: 'file',
+        target: { targetKey: FsTargetKey('skills/alpha.md'), displayPath: 'skills/alpha.md' },
+        size: 2,
+        version: FsVersion('v1'),
+      },
+    ]
+  }
   override async writeText(target: FsTarget, content: string, _expected?: FsWriteIntent): Promise<FsWriteOutcome> {
-    const existed = this.files.has(target.targetKey)
+    const before = this.files.get(target.targetKey) ?? null
     this.files.set(target.targetKey, content)
-    return { operation: existed ? 'update' : 'create', version: FsVersion('v2') }
+    return { operation: before !== null ? 'update' : 'create', version: FsVersion('v2'), before, after: content }
   }
   override async editText(target: FsTarget, edit: FsEditRequest): Promise<FsEditOutcome> {
     const content = this.files.get(target.targetKey) ?? ''
-    this.files.set(target.targetKey, content.split(edit.oldString).join(edit.newString))
-    return { replacements: 1, replaceAll: edit.replaceAll, version: FsVersion('v3') }
+    const after = content.split(edit.oldString).join(edit.newString)
+    this.files.set(target.targetKey, after)
+    return { version: FsVersion('v3'), before: content, after }
   }
 }
 
@@ -84,6 +98,20 @@ describe('FileSystem provider seam', () => {
     let streamed = ''
     for await (const chunk of await fs.streamText(target)) streamed += chunk
     expect(streamed).toBe(await fs.readText(target))
+  })
+
+  it('listDir returns child entry targets without reading file content', async () => {
+    const ctx = new Context()
+    await ctx.plugin(FakeFileSystem)
+    const fs = ctx.fs as FakeFileSystem
+    const entries = await fs.listDir(await fs.resolve('skills'))
+    expect(entries).toEqual([{
+      name: 'alpha.md',
+      type: 'file',
+      target: { targetKey: 'skills/alpha.md', displayPath: 'skills/alpha.md' },
+      size: 2,
+      version: 'v1',
+    }])
   })
 
   it('stat returns undefined for an absent target', async () => {

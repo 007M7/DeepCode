@@ -4,8 +4,8 @@
  * own process group (see `./run.ts` for the plumbing and the agent-tool
  * survey notes), tracks background tasks, and kills everything on dispose.
  *
- * TODO(permissions/sandbox): execution policy does NOT belong here — wrap
- * the `tools/execute` waterfall (see docs/architecture.md § plugin
+ * TODO(permissions/sandbox): execution policy does NOT belong here — use
+ * the `tools/pre-execute` deny/ask gate (see docs/architecture.md § plugin
  * checklist) or implement a sandboxing `BashExecutor`. Reference points:
  * Claude Code wraps commands in sandbox-exec/bubblewrap; Codex applies
  * seatbelt/landlock plus an execpolicy prefix-rule engine.
@@ -17,7 +17,7 @@ import { Context } from 'cordis'
 import z from 'schemastery'
 import { BashExecutor, BashTaskId } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRead, OwnerToken } from '@deepseek-ai/dsh-bash'
-import { runBash } from './run.ts'
+import { DEFAULT_GRACE_MS, runBash } from './run.ts'
 import type { RunInternals, RunningBash } from './run.ts'
 
 export { DEFAULT_GRACE_MS, ENV_OVERRIDES, killGroup, OutputCollector, runBash } from './run.ts'
@@ -33,6 +33,8 @@ export interface Config {
   maxTimeoutMs?: number
   /** Per-stream in-memory output cap; overflow spills to a temp file. */
   maxOutputBytes?: number
+  /** Grace period between the SIGTERM and the SIGKILL escalation on a kill. */
+  graceMs?: number
 }
 
 /** The shape after schemastery applied the defaults (cwd has none). */
@@ -57,7 +59,7 @@ interface TrackedTask extends BashTask {
  * Local-subprocess bash executor. Defaults follow the agent-tool survey
  * consensus: 120s default / 600s max timeout (Claude Code, OpenCode), 64KB
  * in-memory output with full-stream spill files (pi, OpenCode),
- * process-group SIGTERM→SIGKILL kills (OpenCode).
+ * process-group SIGTERM→SIGKILL kills with a 3s grace (OpenCode).
  */
 export class LocalBashExecutor extends BashExecutor {
   static Config: z<Config> = z.object({
@@ -65,11 +67,12 @@ export class LocalBashExecutor extends BashExecutor {
     timeoutMs: z.number().default(120_000),
     maxTimeoutMs: z.number().default(600_000),
     maxOutputBytes: z.number().default(64_000),
+    graceMs: z.number().default(DEFAULT_GRACE_MS),
   })
 
   private tasks = new Map<BashTaskId, TrackedTask>()
   private nextTaskId = 1
-  /** Test seam: timer/spill knobs forwarded to runBash. */
+  /** Test seam: spill knobs forwarded to runBash. */
   internals: RunInternals = {}
 
   /** Validated config (schemastery applied the defaults before construction). */
@@ -83,6 +86,7 @@ export class LocalBashExecutor extends BashExecutor {
     assertPositiveFinite('timeoutMs', this.config.timeoutMs)
     assertPositiveFinite('maxTimeoutMs', this.config.maxTimeoutMs)
     assertPositiveFinite('maxOutputBytes', this.config.maxOutputBytes)
+    assertPositiveFinite('graceMs', this.config.graceMs)
     ctx.effect(() => async () => {
       // Kill every live process group and WAIT for the processes to close so
       // nothing outlives the fiber (HMR safety) — a TERM-trapping child is
@@ -116,6 +120,10 @@ export class LocalBashExecutor extends BashExecutor {
       workdir: request.workdir ?? this.config.cwd ?? process.cwd(),
       timeoutMs,
       ...request.signal ? { signal: request.signal } : {},
+      // Carry stdin/env through verbatim — optional, no config default (absent
+      // means none). env merges AFTER the scrub in run.ts.
+      ...request.stdin !== undefined ? { stdin: request.stdin } : {},
+      ...request.env !== undefined ? { env: request.env } : {},
       // Carry the owner through verbatim (required-but-nullable on the spec):
       // the executor never interprets it — the consumer's access policy does.
       owner: request.owner,
@@ -128,7 +136,10 @@ export class LocalBashExecutor extends BashExecutor {
       cwd: spec.workdir,
       timeoutMs: spec.timeoutMs,
       maxOutputBytes: this.config.maxOutputBytes,
+      graceMs: this.config.graceMs,
       signal: spec.signal,
+      stdin: spec.stdin,
+      env: spec.env,
     }, this.internals).done
     return { ...outcome, timeoutMs: spec.timeoutMs }
   }
@@ -144,7 +155,10 @@ export class LocalBashExecutor extends BashExecutor {
       cwd: spec.workdir,
       timeoutMs: 0,
       maxOutputBytes: this.config.maxOutputBytes,
+      graceMs: this.config.graceMs,
       signal: spec.signal,
+      stdin: spec.stdin,
+      env: spec.env,
     }, this.internals)
 
     const id = BashTaskId(`bash-${this.nextTaskId++}`)

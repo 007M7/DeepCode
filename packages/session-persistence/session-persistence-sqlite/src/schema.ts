@@ -46,9 +46,20 @@ export interface EventRow {
 }
 
 /**
+ * Journal modes the backend will run under. `wal` is the default and the
+ * durability model the persistence ADR records; the rollback-journal modes
+ * (`delete`/`truncate`/`persist`) exist for filesystems where WAL's
+ * shared-memory files do not work (network mounts). `memory`/`off` are
+ * excluded: dropping journal durability silently contradicts what this
+ * backend promises.
+ */
+export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
+
+/**
  * Open the database at `path` and apply the schema + pragmas. `foreign_keys`
- * makes `ON DELETE CASCADE` drop a session's events with its row; `journal_mode
- * = WAL` matches the durability model the ADR records (the row shape maps 1:1
+ * makes `ON DELETE CASCADE` drop a session's events with its row; the
+ * `journal_mode` pragma is set from the plugin's `journalMode` config (`wal`
+ * default — the durability model the ADR records; the row shape maps 1:1
  * onto `SessionEvent`; opencode runs this exact shape on SQLite/WAL).
  *
  * The table-layout version is persisted in SQLite's `PRAGMA user_version` and
@@ -66,10 +77,12 @@ export interface EventRow {
  * makes the version check reject both sibling v3 databases instead of opening
  * one against columns it does not have.
  */
-export function openDatabase(path: string): DatabaseSync {
+export function openDatabase(path: string, journalMode: JournalMode): DatabaseSync {
   const db = new DatabaseSync(path)
   db.exec('PRAGMA foreign_keys = ON')
-  db.exec('PRAGMA journal_mode = WAL')
+  // journalMode is a closed in-code union (validated by the plugin Config), not
+  // user-controlled SQL — safe to interpolate (PRAGMA takes no bound params).
+  db.exec(`PRAGMA journal_mode = ${journalMode.toUpperCase()}`)
   // `PRAGMA user_version` always returns exactly one row { user_version }.
   const { user_version: onDisk } = db.prepare('PRAGMA user_version').get() as { user_version: number }
   if (onDisk !== 0 && onDisk !== SCHEMA_VERSION) {

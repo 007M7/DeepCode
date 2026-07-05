@@ -20,14 +20,11 @@
 
 import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { chmod, mkdir, open, readFile, realpath, rename, rm, stat } from 'node:fs/promises'
-import type { Stats } from 'node:fs'
+import { chmod, mkdir, open, readFile, realpath, readdir, rename, rm, stat } from 'node:fs/promises'
+import type { Dirent, Stats } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { TextDecoder } from 'node:util'
 import { FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
-
-/** Files at or above this size stream their text; smaller files read whole. */
-export const STREAM_MIN_SIZE = 10 * 1024 * 1024
 
 const BINARY_SAMPLE_BYTES = 8192
 
@@ -55,6 +52,10 @@ function errorMessage(error: unknown): string {
 }
 /* v8 ignore stop */
 
+function isPermissionError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && (error.code === 'EACCES' || error.code === 'EPERM')
+}
+
 function throwIfAborted(signal: AbortSignal | undefined, verb: string): void {
   if (signal?.aborted) throw new FsError(`${verb} aborted`, 'FS_ABORTED')
 }
@@ -81,13 +82,11 @@ function versionOf(info: Stats): FsVersion {
 }
 
 /**
- * Test seam: lets specs force the streaming read path (via a small
- * `streamMinSize`) and pin the temp-file name (to prove exclusive-open
- * behavior) without a 10 MB fixture or a name race.
+ * Test seam: lets specs pin the atomic-write temp names (to prove
+ * exclusive-open behavior without a name race) and observe the staged temp
+ * file before it is renamed over the target.
  */
 export interface FsIoInternals {
-  /** Override {@link STREAM_MIN_SIZE} for read routing. */
-  streamMinSize?: number
   /** Override the generated private staging-dir name (relative to the target dir). */
   tempDirName?: (writePath: string) => string
   /** Override the generated temp-file name (relative to the private staging dir). */
@@ -110,6 +109,15 @@ export interface PathInfo {
   mode: number
   type: 'file' | 'directory' | 'other'
   size: number
+}
+
+/** One local directory child with a resolved target and cheap metadata. */
+export interface LocalDirEntry {
+  name: string
+  type: 'file' | 'directory' | 'other'
+  target: LocalTarget
+  version?: FsVersion
+  size?: number
 }
 
 /**
@@ -170,6 +178,68 @@ export async function probe(absolutePath: string): Promise<PathInfo | null> {
     if (!isENOENT(error) && !isENOTDIR(error)) throw error
     return null
   }
+}
+
+// --- Directory listing ---
+
+function listingIoError(displayPath: string, error: unknown): FsError {
+  /* v8 ignore next -- defensive pass-through for races where a child resolver has already produced a structured FsError. */
+  if (error instanceof FsError) return error
+  /* v8 ignore next -- requires the listed target/parent to disappear between successful preflight and listing/child resolution. */
+  if (isENOENT(error) || isENOTDIR(error)) return new FsError(`cannot list "${displayPath}": not found`, 'FS_NOT_FOUND', { cause: error })
+  if (isPermissionError(error)) return new FsError(`cannot list "${displayPath}": permission denied`, 'FS_PERMISSION_DENIED', { cause: error })
+  return new FsError(`cannot list "${displayPath}": ${errorMessage(error)}`, 'FS_IO_ERROR', { cause: error })
+}
+
+async function resolveListedChildTarget(parent: LocalTarget, name: string): Promise<LocalTarget> {
+  const identity = await resolveLocalTarget(parent.targetKey, name)
+  return { displayPath: join(parent.displayPath, name), targetKey: identity.targetKey }
+}
+
+/**
+ * List direct children of a directory in stable name order. Each child includes
+ * a resolved target plus stat metadata when still available; file contents are
+ * never read.
+ */
+export async function listDirectory(target: LocalTarget, signal?: AbortSignal): Promise<LocalDirEntry[]> {
+  throwIfAborted(signal, 'list')
+  let info: PathInfo | null
+  try {
+    info = await probe(target.targetKey)
+  } catch (error: unknown) {
+    throw listingIoError(target.displayPath, error)
+  }
+  if (!info) throw new FsError(`cannot list "${target.displayPath}": not found`, 'FS_NOT_FOUND')
+  if (info.type !== 'directory') throw new FsError(`cannot list "${target.displayPath}": not a directory`, 'FS_NOT_DIRECTORY')
+
+  let entries: Dirent[]
+  try {
+    entries = await readdir(target.targetKey, { withFileTypes: true, encoding: 'utf8' })
+  } catch (error: unknown) {
+    /* v8 ignore next -- requires permission/kernel failure from readdir after a successful directory stat. */
+    throw listingIoError(target.displayPath, error)
+  }
+  throwIfAborted(signal, 'list')
+
+  const result: LocalDirEntry[] = []
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    throwIfAborted(signal, 'list')
+    try {
+      const childTarget = await resolveListedChildTarget(target, entry.name)
+      const childInfo = await probe(childTarget.targetKey)
+      result.push({
+        name: entry.name,
+        type: childInfo?.type ?? 'other',
+        target: childTarget,
+        ...(childInfo ? { version: childInfo.version } : {}),
+        ...(childInfo?.type === 'file' ? { size: childInfo.size } : {}),
+      })
+    } catch (error: unknown) {
+      throw listingIoError(join(target.displayPath, entry.name), error)
+    }
+    throwIfAborted(signal, 'list')
+  }
+  return result
 }
 
 // --- Reading ---
@@ -383,6 +453,26 @@ export async function readForEdit(
 }
 
 /**
+ * Best-effort read of a file's current text for a before/after diff basis, used
+ * by an overwrite. Returns the LF-normalized decoded content, or `null` when the
+ * file is binary or not valid UTF-8 — a write must succeed regardless of the
+ * prior bytes, so an undiffable prior file simply yields no contextual-hunk basis
+ * (the caller treats `null` the same as an absent file: the result renders a
+ * whole-file diff rather than an applied hunk).
+ */
+export async function readTextForDiff(absolutePath: string, signal?: AbortSignal): Promise<string | null> {
+  const buffer = await readFileAbortable(absolutePath, 'read', signal)
+  if (buffer.includes(0)) return null
+  try {
+    return normalizeLineEndings(new TextDecoder('utf-8', { fatal: true }).decode(buffer))
+  } catch (error: unknown) {
+    /* v8 ignore next 2 -- TextDecoder({fatal}) only throws TypeError on invalid bytes; any other throw is an unreachable runtime fault. */
+    if (!(error instanceof TypeError)) throw error
+    return null
+  }
+}
+
+/**
  * Apply a literal replacement to LF-normalized content. Throws
  * `FS_EDIT_NOT_FOUND` on empty `oldString` or zero matches and
  * `FS_AMBIGUOUS_EDIT` on multiple matches when `replaceAll` is false. Returns
@@ -410,4 +500,4 @@ export function applyLiteralEdit(
   return { content: content.split(oldNorm).join(newNorm), replacements }
 }
 
-export { restoreLineEndings }
+export { normalizeLineEndings, restoreLineEndings }

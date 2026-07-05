@@ -1,0 +1,35 @@
+# RFC: Prune the unimplemented subagent seam vocabulary
+
+Status: rejected — the deferred capability vocabulary (`outputSchema`/`structured`, `toolFilter`, `sendMessage`/`resume`) is intentionally reserved surface: the seam advertises the full intended contract ahead of its implementations by design, so providers and consumers grow into a stable shape rather than re-negotiating it per capability. The consumer-evidence analysis below stands as the record of what is currently unimplemented.
+
+## Problem
+
+The [subagent seam](../../implemented/feature/2026-06-21-subagent-capability-seam.md) shipped a two-tier capability design: start-time capability flags checked by the service, and optional runtime methods on `SubagentRun`. Three start-time features and both optional runtime methods have zero implementations and zero callers:
+
+- **`outputSchema`/`structured` and `toolFilter`** (`SubagentCapabilities`, `SubagentStartRequest`, `SubagentResult` in `packages/subagent/subagent/src/types.ts`): every real provider declares `outputSchema: false, toolFilter: false` (`packages/subagent/subagent-spawn/src/index.ts`, `packages/subagent/subagent-fork/src/index.ts`, `packages/subagent/subagent-acp/src/index.ts`); the sole production `ctx.subagents.start` caller (`packages/subagent/tool-subagent/src/index.ts`) builds `{ prompt, parent, signal?, agentOptions? }` and structurally cannot set either; `structured` is produced only by the test mock (`packages/support/subagent-mock`) for its own spec. The service's capability check carries two assert rows whose only exercisers are the rejection tests.
+- **`SubagentRun.sendMessage` / `SubagentRun.resume`** (same file): implemented by NO provider — not even the mock; the spawn spec asserts their *absence*.
+
+The only reason `dsh-subagent` depends on `dsh-tools` at all is `outputSchema`'s `SchemaSpec` type. Three subsequent subagent workstreams (per-session snapshot replay, the fork seed boundary, the ACP backend) landed around this surface without growing a single consumer.
+
+## Proposal
+
+Remove `outputSchema`/`structured`, `toolFilter`, `sendMessage`, and `resume` from the seam; shrink `SubagentCapabilities` to `{ depthLimit }`; drop the two capability-assert rows, the all-false flags on the three providers, the mock's structured branch and its `capabilities`/`structured` config knobs, and the tests that exist to pin the removed surface (the two rejection rows, the spawn absence test, the mock structured specs). Drop the `dsh-tools` peer/dev dependency from `packages/subagent/subagent/package.json`. Update the [subagent.md](../../../core-data-structures/subagent.md) pastes and the type-equiv manifest, and the README rows in `packages/subagent/subagent`, `packages/subagent/subagent-spawn`, `packages/subagent/subagent-fork`, and `packages/support/subagent-mock`. The implementing PR amends the seam RFC's capability catalog per [implemented/AGENTS.md](../../implemented/AGENTS.md).
+
+**Keep** `depthLimit`/`maxDepth` and the capability-check mechanism itself — with eyes open about its current reach. The in-process backend genuinely enforces the cap (`SubagentDepthError` in `packages/subagent/subagent-inprocess/src/index.ts`), but no production request sets `maxDepth` (`tool-subagent` exposes no knob for it), so on the shipped tool path the guard is dormant and recursion is uncapped. The alternative — remove the depth machinery too, on the argument that a dormant guard reads like a safety property while providing none — was considered and rejected: recursion is the seam RFC's named risk, the enforcement is real working code rather than vocabulary awaiting an implementation, and the honest completion is wiring a default cap through `tool-subagent` (a few-line feature) rather than deleting the only existing guard. One live capability row also keeps the two-tier design demonstrated rather than merely remembered.
+
+Adjacent surface examined and deliberately left alone: `SubagentService.getProvider()`/`list()` have test-harness consumers only, but the [prune-dead-seam-methods implementation note](../../implemented/simplification/2026-06-20-prune-dead-seam-methods.md) records precisely this shape being removed from the bash executor and reverted — a test harness IS a consumer for a one-line accessor over an already-tracked map. `SubagentRunEndInfo.lastAssistantMessage` is a recorded keep (the [subagent-observe-enrich RFC](../../implemented/feature/2026-06-30-subagent-observe-enrich.md)'s review dropped `agentType` and kept it deliberately, as the only final-message channel for out-of-process children); its currently-unwired bridge forwarding is a gap to close or a consumer to document, not surface for this RFC to cut.
+
+This is the seam-vocabulary echo of [prune dead methods from the persistence seam](../../implemented/simplification/2026-06-20-prune-dead-seam-methods.md): members every implementation must declare for nobody — weaker even, since here zero implementations exist.
+
+## Why not keep it?
+
+The two-kinds-of-capability design is the seam RFC's headline, and re-adding `outputSchema` later touches several files. But the design survives with `depthLimit` as its live example and the RFCs as its record, and the seam RFC itself concedes the shipped `toolFilter` shape is wrong (real enforcement needs a `tools/pre-execute` deny in the child's context, not schema filtering) — that deny primitive exists on the interception seams, so re-adding against a real implementing provider will pin a better contract than the current speculative one.
+
+## Acceptance criteria
+
+- The removed spellings appear only in this RFC and the amended seam RFCs; `SubagentCapabilities` is `{ depthLimit: boolean }`; the `dsh-tools` dependency edge is gone (`hygiene` green).
+- Depth-enforcement tests are unchanged and green.
+
+## Risks
+
+The subagent lifecycle events carry `lastAssistantMessage` on the end payload — that enrichment lives in the service module, not the seam vocabulary this RFC shrinks, and the observe-enrich RFC records dropping an `agentType` sibling for lacking a consumer: the judgment this RFC extends. The CC hooks bridge, the first outside consumer of those lifecycle events, reads only the event payloads and touches none of the surface removed here; the observe-enrich RFC's deferred control-flow redesign names implementing `resume` as its own future work — exactly the re-add trigger this RFC's pattern anticipates.
