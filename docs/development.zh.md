@@ -67,9 +67,9 @@ vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `v
 
 ## CI 门禁
 
-keyless GitHub 工作流有两个 job：Node 24 主质量 job 运行 `pnpm run check:ci`，Node 26 兼容性 job 运行 `pnpm run check:node-compat`。主调度器并发运行来自 `package.json` 的独立门禁：constraints、typecheck、lint、coverage、snapshot replay、`doc-sync` 成员、module graph 新鲜度、`knip` 和 echo-agent 冒烟测试。
+keyless GitHub 工作流有五个 job：四个 Node 24 lane 分别运行 static gates、coverage、snapshot replay 和 artifact gates，Node 26 兼容性 job 运行 `pnpm run check:node-compat`。各 lane 调度器并发运行来自 `package.json` 的独立门禁：constraints、typecheck、lint、coverage、snapshot replay、`doc-sync` 成员、module graph 新鲜度、`knip` 和 echo-agent 冒烟测试。
 
-`pnpm run build` 等待 typecheck 完成，`publint`、`verify-node-next-types` 和 built-bin 冒烟测试等待 build 输出。单独的真实 API 工作流带密钥运行 `pnpm run test:e2e`，并设置 `DSH_E2E_MAX_WORKERS=8`。
+`pnpm run build` 供给 artifact lane，`publint`、`verify-node-next-types` 和 built-bin 冒烟测试等待 build 输出。单独的真实 API 工作流带密钥运行 `pnpm run test:e2e`，并设置 `DSH_E2E_MAX_WORKERS=12`。
 
 ## 日常命令
 

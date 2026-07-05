@@ -108,5 +108,5 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY_EXTERNAL }}
           DEEPSEEK_BASE_URL: https://api.deepseek.com
-          DSH_E2E_MAX_WORKERS: 8
+          DSH_E2E_MAX_WORKERS: 12
         run: pnpm run test:e2e

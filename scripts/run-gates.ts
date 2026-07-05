@@ -10,7 +10,14 @@ import { availableParallelism } from 'node:os'
 import { join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
-type Mode = 'ci-primary' | 'node-compat' | 'pre-push'
+type Mode =
+  | 'ci-primary'
+  | 'ci-static'
+  | 'ci-coverage'
+  | 'ci-snapshot'
+  | 'ci-artifacts'
+  | 'node-compat'
+  | 'pre-push'
 type GateStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
 
 interface Gate {
@@ -55,11 +62,17 @@ if (results.some(result => result.status === 'failed' || result.status === 'skip
 function parseMode(raw: string | undefined): Mode {
   switch (raw) {
     case 'ci-primary':
+    case 'ci-static':
+    case 'ci-coverage':
+    case 'ci-snapshot':
+    case 'ci-artifacts':
     case 'node-compat':
     case 'pre-push':
       return raw
     default:
-      throw new Error(`run-gates: expected mode ci-primary | node-compat | pre-push, got ${JSON.stringify(raw)}.`)
+      throw new Error(
+        `run-gates: expected mode ci-primary | ci-static | ci-coverage | ci-snapshot | ci-artifacts | node-compat | pre-push, got ${JSON.stringify(raw)}.`,
+      )
   }
 }
 
@@ -109,10 +122,21 @@ function gatesForMode(selected: Mode): Gate[] {
   switch (selected) {
     case 'ci-primary':
       return ciPrimaryGates()
+    case 'ci-static':
+      return ciStaticGates()
+    case 'ci-coverage':
+      return [
+        pnpmScript('coverage', 'test:coverage'),
+      ]
+    case 'ci-snapshot':
+      return [
+        pnpmScript('snapshot', 'test:snapshot'),
+      ]
+    case 'ci-artifacts':
+      return ciArtifactGates()
     case 'node-compat':
       return [
         pnpmScript('typecheck', 'typecheck'),
-        pnpmScript('test', 'test'),
       ]
     case 'pre-push':
       return [
@@ -140,6 +164,32 @@ function ciPrimaryGates(): Gate[] {
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
     pnpmScript('build', 'build', { needs: ['typecheck'] }),
+    pnpmScript('publint', 'publint', { needs: ['build'] }),
+    pnpmScript('node-next-types', 'verify-node-next-types', {
+      label: 'node-next types',
+      needs: ['build'],
+    }),
+    builtBinSmokeGate(),
+  ]
+}
+
+function ciStaticGates(): Gate[] {
+  return [
+    pnpmScript('constraints', 'constraints'),
+    pnpmScript('typecheck', 'typecheck'),
+    pnpmScript('lint', 'lint', {
+      env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
+    }),
+    demoSmokeGate({ needs: ['lint'] }),
+    ...docSyncLeafGates(),
+    pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
+    pnpmScript('knip', 'knip'),
+  ]
+}
+
+function ciArtifactGates(): Gate[] {
+  return [
+    pnpmScript('build', 'build'),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',

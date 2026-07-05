@@ -18,10 +18,30 @@ env:
 jobs:
   node-24:
     runs-on: ubuntu-latest
-    name: node 24
+    name: node 24 / ${{ matrix.lane }}
     env:
-      DSH_GATE_CONCURRENCY: '8'
-      DSH_PUBLINT_CONCURRENCY: '8'
+      DSH_GATE_CONCURRENCY: ${{ matrix.gate_concurrency }}
+      DSH_PUBLINT_CONCURRENCY: ${{ matrix.publint_concurrency }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: static
+            command: pnpm run check:ci:static
+            gate_concurrency: '4'
+            publint_concurrency: '8'
+          - lane: coverage
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            publint_concurrency: '8'
+          - lane: snapshot
+            command: pnpm run check:ci:snapshot
+            gate_concurrency: '1'
+            publint_concurrency: '8'
+          - lane: artifacts
+            command: pnpm run check:ci:artifacts
+            gate_concurrency: '3'
+            publint_concurrency: '8'
     steps:
       - uses: actions/checkout@v6
 
@@ -47,7 +67,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run gates
-        run: pnpm run check:ci
+        run: ${{ matrix.command }}
 
   node-compat:
     runs-on: ubuntu-latest
