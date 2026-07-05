@@ -32,10 +32,10 @@ const SYSTEM = 'You are a coding assistant. Use the write tool to create files, 
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('fs tools with-key smoke', () => {
   it('creates, reads, then edits a file — verified on disk', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-fs-e2e-'))
-    ctx = await fsHarness(workdir)
+    ctx = await fsHarness(workdir, SYSTEM)
     // agentLoop.create prepares a session with no cwd, so the provider default
     // (config.cwd = workdir) is the workspace.
-    const agent = ctx.agentLoop.create(AgentId('fs-e2e'), { model: 'deepseek-v4-flash', systemPrompt: SYSTEM })
+    const agent = ctx.agentLoop.create(AgentId('fs-e2e'), { model: 'deepseek-v4-flash' })
 
     agent.send([{ type: 'text', text:
       'Create a file named note.txt containing exactly the line: status: draft. '
@@ -63,12 +63,12 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('fs tools with-key smoke', () => 
     workdir = configDir
     const sessionDir = await mkdtemp(join(tmpdir(), 'dsh-fs-e2e-session-'))
     try {
-      ctx = await fsHarness(configDir)
+      ctx = await fsHarness(configDir, SYSTEM)
       const handle = ctx.agents.create({
         agentId: AgentId('fs-e2e-cwd'),
         sessionId: SessionId(`fs-e2e-cwd-${Date.now()}`),
         meta: { cwd: sessionDir },
-        agentOptions: { model: 'deepseek-v4-flash', systemPrompt: SYSTEM },
+        agentOptions: { model: 'deepseek-v4-flash' },
       })
       handle.agent.send([{ type: 'text', text:
         'Use the write tool to create a file named where.txt containing exactly the line: here. Tell me when done.' }])

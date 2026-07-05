@@ -23,7 +23,7 @@ An agent was registered in the AgentRegistry and is ready to receive messages.
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:234`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:248`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -35,7 +35,7 @@ An agent was disposed and removed from the registry; its fiber and any in-flight
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:241`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:255`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -47,7 +47,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:380`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:394`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -61,7 +61,7 @@ Serial (awaited in registration order), not a waterfall: a listener mutates the 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:319`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:333`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -73,7 +73,7 @@ Waterfall: decide what happens to ONE drained queued message before it becomes a
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:332`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:346`](../../packages/core/agent/src/types.ts)
 
 ### `agent/queued` — emit
 
@@ -85,7 +85,7 @@ A message entered the agent's inbox (queued or steering). `source` is the resolv
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:259`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:273`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -97,7 +97,7 @@ Waterfall: mutate the fully-assembled GenerateOptions before the model call (hoo
 
 Types: [Agent](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:345`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:359`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -109,7 +109,7 @@ The agent's session lifecycle began, fired once before its first turn. `source` 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:274`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:288`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -121,7 +121,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive lifecycle 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:250`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:264`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step-result` — waterfall
 
@@ -133,7 +133,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:355`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:369`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -145,7 +145,7 @@ Waterfall: override the turn-continuation decision via a typed ContinuationDecis
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:368`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:382`](../../packages/core/agent/src/types.ts)
 
 ## `fs/*`
 
@@ -243,7 +243,27 @@ A subagent run settled — emitted when SubagentRun.result resolves (any stop re
 'subagent/end'(info: SubagentRunEndInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:77`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:98`](../../packages/subagent/subagent/src/index.ts)
+
+### `subagent/provider-added` — emit
+
+A provider became resolvable in the SubagentService registry. Consumers that derive state from a named provider (e.g. the model-facing tool wording in `dsh-tool-subagent`) react HERE instead of assuming load order — the cordis Loader starts sibling plugins concurrently, so "listed earlier in cordis.yml" does not mean "registered earlier".
+
+```ts cordis-catalog
+'subagent/provider-added'(provider: SubagentProvider): void
+```
+
+Source: [`packages/subagent/subagent/src/index.ts:72`](../../packages/subagent/subagent/src/index.ts)
+
+### `subagent/provider-removed` — emit
+
+A provider left the registry (its plugin's fiber was disposed — an unload or an HMR reload). Consumers holding provider-derived state drop it here; a reload re-fires `subagent/provider-added` with the fresh provider. Delivered with per-listener containment: a throwing subscriber is logged, never starves later subscribers, and never disrupts the provider's teardown.
+
+```ts cordis-catalog
+'subagent/provider-removed'(name: string): void
+```
+
+Source: [`packages/subagent/subagent/src/index.ts:83`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/start` — emit
 
@@ -253,29 +273,29 @@ A subagent run started — emitted after the provider is resolved and its capabi
 'subagent/start'(info: SubagentRunInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:70`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:91`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
 
 ### `system-prompt/assemble` — waterfall
 
-Waterfall around prompt assembly — mutate or extend the PromptAssembly (sections + tool schemas) before it is rendered. Bound to the SystemPrompt service; call `next()` to delegate.
+Waterfall around prompt assembly — mutate or extend the PromptAssembly (sections + tools + variables) before it is rendered. Bound to the SystemPrompt service; call `next()` to delegate.
 
 ```ts cordis-catalog
-'system-prompt/assemble'(this: SystemPrompt, assembly: PromptAssembly, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>
+'system-prompt/assemble'(this: SystemPrompt, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:26`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:38`](../../packages/core/system-prompt/src/index.ts)
 
 ### `system-prompt/change` — emit
 
-A section or tool provider was registered or unregistered (the assembly inputs changed).
+A section, tool provider, or variable provider was registered or unregistered (the assembly inputs changed).
 
 ```ts cordis-catalog
 'system-prompt/change'(): void
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:32`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:44`](../../packages/core/system-prompt/src/index.ts)
 
 ## `tools/*`
 
