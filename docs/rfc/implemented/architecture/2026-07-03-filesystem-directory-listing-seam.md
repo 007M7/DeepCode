@@ -1,10 +1,8 @@
-# Add direct directory listing to the filesystem seam
+# RFC: Add direct directory listing to the filesystem seam
 
-## Status
+Status: implemented
 
-Implemented.
-
-## Context
+## Problem
 
 `@deepseek-ai/dsh-fs` is the provider seam for filesystem access, with local and future non-local backends behind the same `ctx.fs` contract. Before this change it could resolve paths, stat targets, read text, stream text, write text, and edit text. That was enough for model-facing file tools, but not for non-model-facing consumers that need to enumerate directories without importing `node:fs`.
 
@@ -36,7 +34,7 @@ Broken or disappeared children may be represented as `type: 'other'` without `ve
 - `FS_IO_ERROR` for other backend I/O failures.
 - `FS_ABORTED` for aborted calls.
 
-## Rejected alternatives
+## Alternatives considered
 
 **Add a model-facing list tool now.** Rejected for this PR. The immediate request is the provider seam, and the user explicitly asked not to change skill loading or other upper layers in this branch. A model-facing tool needs prompt/schema/rendering decisions that should be reviewed separately.
 

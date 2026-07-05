@@ -1,6 +1,6 @@
 # RFC: Drop unconsumed assembled LLM convenience surfaces
 
-Status: implemented (proposed and accepted 2026-06-20)
+Status: implemented
 
 ## Problem
 
@@ -16,27 +16,19 @@ This is the [drop-mutable-session-summary](../../implemented/simplification/2026
 
 `streamBlocks()` drags a dedicated slice of `BlockAssembler` behind it: `flushReady()` and `flushRemaining()` ([packages/llm/llm/src/assembler.ts:138-168](../../../../packages/llm/llm/src/assembler.ts)) plus the `flushed` cursor field exist only to support incremental in-order yield. `generate()` drags `GenerateResult`, `BlockAssembler.result()`, and the `llm/generate` waterfall as a second interception surface over the same underlying stream. The loop's assembler usage is `push()` / `message()` / `usage` / `finish` — not streaming flush or one-shot service assembly.
 
-## Proposal
+## Decision
 
-Make `stream()` the only public LLM call surface:
+`stream()` is the only public LLM call surface. Removed with their JSDoc and doc references: `LlmService.streamBlocks()`; `LlmService.generate()`, the `llm/generate` waterfall event, and `GenerateResult`; `BlockAssembler.flushReady()`/`flushRemaining()` and the `flushed` cursor field; and `BlockAssembler.result()`, which only served the deleted `generate()` path. Adapter tests drive `ctx.llm.stream()` through a small helper that pushes chunks into `BlockAssembler` and returns the assembled message, usage, and finish reason — keeping the [twin-adapter design](../../implemented/architecture/2026-06-13-twin-llm-adapters.md) intact without a public method whose only callers are tests. The assembler invariants that apply to `push()` / `blocks()` / `message()` keep their tests; the flush-API pins went with the API. The `ctx.llm` service-map row in [docs/architecture.md](../../../architecture.md) is `stream()` only, the event taxonomy carries no `llm/generate`, and the [property-based-testing RFC](../../implemented/testing/2026-06-11-property-based-testing.md) names block-assembly invariants without the removed convenience methods.
 
-- Remove `LlmService.streamBlocks()` and its JSDoc.
-- Remove `LlmService.generate()`, the `llm/generate` waterfall event, and `GenerateResult` if no surviving API needs that named result shape.
-- Remove `BlockAssembler.flushReady()`, `BlockAssembler.flushRemaining()`, and the `flushed` cursor field.
-- Remove `BlockAssembler.result()` if it is only a helper for the deleted `generate()` service path and tests.
-- Replace adapter-test use of `ctx.llm.generate()` with a small test helper that calls `ctx.llm.stream()`, pushes chunks into `BlockAssembler`, and returns the assembled message, usage, and finish reason needed by that test. That keeps the [twin-adapter design](../../implemented/architecture/2026-06-13-twin-llm-adapters.md) intact while avoiding a public method whose only callers are tests.
-- Remove or rework the `flushReady`/`flushRemaining`-dependent tests. Keep assembler invariants that still apply to `push()` / `blocks()` / `message()`; delete behavior that only pins the removed flush API.
-- Update every doc/comment reference to `streamBlocks`, `generate`, `GenerateResult`, and `llm/generate` across `docs/`, package READMEs, and source comments. The `ctx.llm` service-map row in [docs/architecture.md](../../../architecture.md) becomes `stream()` only, the event taxonomy drops `llm/generate`, and the [property-based-testing RFC](../../implemented/testing/2026-06-11-property-based-testing.md) names block-assembly invariants without referring to removed convenience methods.
+## Alternatives considered
 
-## Acceptance criteria
+**Keep `generate()` as a test-only convenience** — rejected: adapter tests hand-draining `stream()` through the shared assembler exercise the same streaming path production uses, and a public method whose only callers are tests is exactly the dead-surface shape [the drop-mutable-summary precedent](2026-06-19-drop-mutable-session-summary.md) retired. A future consumer that wants assembled blocks without deltas reintroduces a focused helper with that consumer.
 
-- `streamBlocks`, `generate`, `llm/generate`, and the assembler helpers they alone require are gone; `pnpm run knip` reports no new dead exports.
-- `pnpm run test:coverage` stays at 100% per-file (the deleted methods take their dedicated tests with them; no remaining line goes uncovered).
-- Adapter tests still exercise both real adapters through `stream()` and the shared assembler, not through a test-only public shortcut.
-- The loop behaves identically — verified by unchanged ACP snapshot goldens.
-- `packages/llm/llm/README.md`, [docs/architecture.md](../../../architecture.md), and module docs no longer mention the removed convenience surfaces.
+## Verification
 
-## Risks
+`streamBlocks`, `generate`, `llm/generate`, and the assembler helpers they alone required are gone with no new dead exports; both real adapters are exercised through `stream()` and the shared assembler; the loop behaves identically (ACP snapshot goldens unchanged); and the README, architecture doc, and module docs carry no mention of the removed surfaces.
+
+## Consequences
 
 - **It removes public methods from a core vocabulary package.** A future plugin that wants assembled blocks without deltas would need to call `stream()` and use `BlockAssembler` directly or reintroduce a focused helper with a real consumer. Given the pre-release "foundation over speculative future" stance ([AGENTS.md](../../../../AGENTS.md)), this is the right time to cut test-only public shape.
 - **Adapter tests get a little more explicit.** They lose the ergonomic `generate()` wrapper, but that is useful pressure: tests exercise the same streaming path production uses.

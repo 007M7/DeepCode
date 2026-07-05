@@ -51,8 +51,12 @@ Four tiers, designed up front:
 - **`session/load` replay** — a persisted `todo/write` re-emits the `plan` update when a fresh ACP bridge loads the session.
 - **With-key e2e + snapshot** — a real prompt induces a `todo_write`; the snapshot golden gains the `plan` notification and the log event.
 
-## Alternatives rejected
+## Alternatives considered
 
 - **In-memory `ctx.todos` service** — would reinvent durability, replay, and `session/load` reconstruction the log gives for free.
 - **Per-item delta protocol** — only needed for a shared multi-owner list, which is out of scope; whole-list replace is simpler and matches the references.
 - **Tool in `core/`** — `todo_write` is an extension tool registering on `ctx.tools`, not part of the spine; it lives in its own `packages/todo/` group like other tool families.
+
+## Consequences
+
+The todo list is durable, replayable session state: a persisted `todo/write` re-emits the editor's `plan` update on `session/load`, and the log — not plugin memory — is the single source of truth. Whole-list replace means one tool call per update with last-write-wins; there is no delta protocol to reconcile. The event stays off the surface, so a todo update never perturbs the derived model history — the model sees only its own tool call and result.

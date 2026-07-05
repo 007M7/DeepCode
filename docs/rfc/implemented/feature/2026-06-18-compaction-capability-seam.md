@@ -1,14 +1,14 @@
 # RFC: Compaction as a capability seam (abstract contract + basic backend)
 
-Status: implemented (2026-06-18; retention/seam reform 2026-06-26)
+Status: implemented
 
-## Context
+## Problem
 
 A long-running agent conversation grows without bound. As the event log accumulates turns, the derived message history eventually approaches the model's context window — the model then truncates mid-response (`max-tokens`) or degrades. **Compaction** is the mitigation: replace a run of older history with a concise summary, keeping recent context intact.
 
 The [session surface](../../implemented/architecture/2026-06-18-session-surface.md) was built as the foundation for exactly this — a linked list over the event log with a `surfaceOp: { op: 'replace', start, end }` operation purpose-built to shadow a range of nodes and insert a replacement, with `sourceEventSeqs` recording provenance so the decision replays deterministically. What remained was the plugin that *decides what to compact and produces the summary*.
 
-Two forces shape the design. First, compaction is **swappable**: token counting can be a char/4 heuristic or a real tokenizer, and summarization can be a model call, a template, or a remote service — these vary independently of *when* and *which range* to compact. Second, a later commit (`ce43c25`) closed `SurfaceEventType` to five event types (`user/message`, `assistant/message`, `tool/result`, `context/message`, `steering/message`); only those may carry `surfaceOp`. A bespoke `compaction/*` event therefore **cannot** itself appear on the surface — the compiler rejects `surfaceOp` on it and the invariants plugin rejects it at runtime.
+Two forces shape the design. First, compaction is **swappable**: token counting can be a char/4 heuristic or a real tokenizer, and summarization can be a model call, a template, or a remote service — these vary independently of *when* and *which range* to compact. Second, `SurfaceEventType` is closed to five event types (`user/message`, `assistant/message`, `tool/result`, `context/message`, `steering/message`); only those may carry `surfaceOp`. A bespoke `compaction/*` event therefore **cannot** itself appear on the surface — the compiler rejects `surfaceOp` on it and the invariants plugin rejects it at runtime.
 
 ## Decision
 
@@ -102,6 +102,13 @@ Two failure paths, both documented:
 `compact/end` keeps its `error?` field (mirroring `tool/result`'s self-contained error — one event tells success from failure without correlating a sibling). There is no separate `compact/error` event.
 
 **Core session repair stays compaction-agnostic — deliberately.** `interruptedTurnClosers` is never taught about `compact/*`. Teaching it would force every future `xxx/start … xxx/end` plugin pair to patch a core module — exactly the coupling the capability-seam architecture exists to avoid. Because the log-only orphan is inert, no special repair is needed: generic turn-repair plus the inertness of an un-landed surface mutation is sufficient.
+
+## Alternatives considered
+
+- **The full algorithm as concrete interface methods** (only estimation/summarization abstract) — the earlier draft; rejected because it recouples the contract to one retention strategy. Both core methods are abstract; the `protected` estimation/summarization hooks are the backend's private factoring, not the contract's.
+- **Compaction on the `agent/request` waterfall** — the earlier cut; rejected for the double-derive it forced and for handing the listener context it structurally cannot compact. The dedicated `agent/pre-step` seam makes the layering correct by construction.
+- **A separate `compact/error` event** — rejected: `compact/end` keeps an `error?` field, mirroring `tool/result`'s self-contained error — one event tells success from failure without correlating a sibling.
+- **Teaching core turn-repair about `compact/*`** — rejected: the log-only orphan is inert, and a core module patched for every future `xxx/start … xxx/end` plugin pair is exactly the coupling the capability-seam architecture exists to avoid.
 
 ## Consequences
 

@@ -1,8 +1,8 @@
 # RFC: Event-domain semantics — session is the fact log, agent is the live surface
 
-Status: implemented (accepted 2026-06-30)
+Status: implemented
 
-## Context
+## Problem
 
 The harness extends the agent loop through a Cordis event taxonomy (see [the microkernel event-taxonomy RFC](2026-06-11-microkernel-event-taxonomy.md)). As that taxonomy grew, the line between the three event domains blurred:
 
@@ -33,3 +33,5 @@ This is the foundational change in a stack that adds a Hooks subsystem; it estab
 - The loop marks the step open (`stepOpen = true`) BEFORE appending `step/start`, because `Session.append` pushes the event to the log before notifying `session/event` listeners (validation throws happen earlier, before the push — see [the session append contract](../../../core-data-structures/session.md)). So a throwing `step/start` session-event listener runs with the step already open and the event already in the log: the loop's outer catch then calls `closeStep()`, which appends the balancing `step/end`, and the turn closes balanced with an error (`turn/start → step/start → step/end → turn/end` — verified by the invariants oracle in the regression test). Closing the open step is owed precisely because the marker is set first.
 - The full realization of this is [the simplification RFC "Stop mirroring durable boundaries as agent events"](../simplification/2026-06-20-remove-agent-boundary-mirror-events.md): all four boundary mirrors are removed and every consumer reads boundaries off `session/event`. `agent/steering` (not a boundary mirror) stayed outside that RFC's scope and was removed by its own follow-up, [Remove the `agent/steering` mirror emit](../simplification/2026-07-04-remove-agent-steering-mirror.md) — it mirrored the durable `steering/message`.
 - The cordis events catalog (`docs/cordis-catalog/events.md`) is regenerated to drop the mirror events.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

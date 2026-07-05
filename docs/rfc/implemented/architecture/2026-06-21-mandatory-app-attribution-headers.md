@@ -45,7 +45,9 @@ Wire mapping (`attributionHeaders`; header names lowercase in code - HTTP field 
 
 Endpoint detection is not part of this RFC because no endpoint-specific mapping is accepted here. If OpenRouter support lands later, detection must be explicit: either a dedicated OpenRouter provider package or an explicit `provider: 'openrouter'` / `attributionTarget: 'openrouter'` config, not arbitrary path fragments or model names.
 
-## Acceptance criteria (all landed)
+## Verification
+
+The landed contract:
 
 - `dsh-llm` documents the mandatory `User-Agent` attribution contract for `LlmAdapter` authors (`LlmAdapter` JSDoc, package README, and the adapter-contract section of `docs/core-data-structures/llm-streaming.md`).
 - A shared helper (`attributionHeaders` / `userAgent`) constructs the app identity and the standard `User-Agent` value from package metadata, so adapters do not hand-copy version constants.
@@ -69,7 +71,7 @@ Endpoint detection is not part of this RFC because no endpoint-specific mapping 
 
 **Product-named token (`deepseek-harness-sdk`).** Considered for the `User-Agent` token, since the product name is DeepSeek Harness SDK. `deepseek-harness` won on continuity: it is the identity providers already see from this codebase, it matches the org/repo identity and package scope, and it keeps wire attribution stable while display copy carries the product name.
 
-## Risks / what we give up
+## Consequences
 
 **Providers see that traffic comes from the harness.** That is the point, but it means deployments that previously blended into generic SDK traffic become identifiable. Mitigation: send only static public product data and let forks/white-label deployments pass their own `AppIdentity`.
 

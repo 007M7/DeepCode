@@ -2,7 +2,6 @@
 
 Status: proposed
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
 > **Implementation status:** the multi-session bridge (steps 1, 3, 4) and the bash task-ownership isolation are implemented in `packages/ui/acp` + `packages/bash/tool-bash`. **Per-session *permission* ownership is deferred** — it depends on [the ACP support permission gate](2026-06-14-acp-agent-client-protocol.md) (`TODO(rfc010-permission-gate)`), which is itself deferred; the `agent→sessionId` reverse map the gate will route through is in place. Step 2's per-session disposer scope is now implemented (see [agent lifecycle & ownership seams](../../implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md)): the factory returns a per-agent `AgentHandle` whose `dispose()` stops the loop, awaits quiescence, unregisters the agent, and removes its session, so a bare client disconnect leaves no registered agent or session-store entry. Status stays `proposed` until per-session permission ownership lands.
 
 > **Target-client note:** Zed is the current target ACP client, and its ACP client maintains a `HashMap<SessionId, AcpSession>` plus `pending_sessions` for concurrent `session/load` calls. The competing simplification to return to one live session per connection was rejected after checking that target-client shape; this RFC remains the path for finishing multiplexing and per-session permission ownership. See [the rejected simplification](../../rejected/simplification/2026-06-20-single-session-acp-bridge.md).
@@ -29,6 +28,16 @@ The harness core already supports many agents (`AgentRegistry.list()` and `Agent
 2. Give each session a real per-session disposer scope, NOT `ctx.extend()` — in Cordis `ctx.extend()` only creates a child context/prototype, but `ctx.on()` registered on it is still owned by the current plugin fiber, so disposing it would not remove that session's listeners. Use a genuine child fiber (load a per-session sub-plugin, e.g. `ctx.plugin(...)` returning a fork, or collect each session's `ctx.on` disposers in its session record and call them on teardown). Demux every `agent/*` and `session/event` by id into the right session record. Note the single global `tools/execute` listener stays on the bridge root (it must see all agents) and routes via the reverse map.
 3. Lift the `session/new` guard; keep `session/load` ([from ACP support](2026-06-14-acp-agent-client-protocol.md)) working per session.
 4. Tests for cross-session isolation: two sessions streaming and permission-prompting concurrently never interleave; a cancel/abort in one session leaves the other's stream and pending permission untouched; per-session in-flight-prompt enforcement holds independently; disposing one session leaves the others running.
+
+## Alternatives considered
+
+**A per-session `ctx.extend()` scope** — rejected: in Cordis, `ctx.extend()` only creates a child context/prototype, and `ctx.on()` registered on it is still owned by the current plugin fiber, so disposing it would not remove that session's listeners. A genuine child fiber (or a per-session collection of disposers) is required.
+
+## Acceptance criteria
+
+- N concurrent sessions stream and permission-prompt without interleaving their `session/update` notifications; a cancel in one session leaves every other session's stream, queued prompts, and pending permissions untouched.
+- Disposing one session removes exactly its own listeners; connection teardown reaches quiescence across all sessions.
+- One session's agent cannot read or kill another session's background bash task.
 
 ## Risks
 

@@ -1,16 +1,17 @@
 /**
- * Regenerate the RFC index tables in `docs/rfc/README.md` from the RFC tree
- * (see [rfc-index.ts](./rfc-index.ts) for the layout contract and rendering
- * rules). Rewrites ONLY the marker-delimited regions; the curated prose is
- * untouched. Freshness is asserted by `verify-rfc-classification.ts` (a
- * `doc-sync` member), so a stale committed index fails CI.
+ * Regenerate `docs/rfc/INDEX.md` — the fully generated RFC index — from the
+ * RFC tree (see [rfc-index.ts](./rfc-index.ts) for the layout contract and
+ * rendering rules). The whole file is generated state; the curated prose lives
+ * in `docs/rfc/README.md`. Freshness is asserted by
+ * `verify-rfc-classification.ts` (a `doc-sync` member), so a stale committed
+ * index fails CI.
  *
  * Run: `pnpm run gen-rfc-index`.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { rfcRoot, spliceReadme, walkRfcTree } from './rfc-index.ts'
+import { renderIndex, rfcRoot, walkRfcTree } from './rfc-index.ts'
 
 const { rfcs, errors } = walkRfcTree()
 if (errors.length > 0) {
@@ -19,12 +20,17 @@ if (errors.length > 0) {
   process.exit(1)
 }
 
-const readmePath = resolve(rfcRoot, 'README.md')
-const readme = readFileSync(readmePath, 'utf8')
-const next = spliceReadme(readme, rfcs)
-if (next === readme) {
-  console.log(`gen-rfc-index: docs/rfc/README.md is up to date (${rfcs.length} RFCs).`)
+const indexPath = resolve(rfcRoot, 'INDEX.md')
+const next = renderIndex(rfcs)
+let current: string | undefined
+try {
+  current = readFileSync(indexPath, 'utf8')
+} catch {
+  // Missing INDEX.md is the fresh-generation case, not an error: fall through and write it.
+}
+if (next === current) {
+  console.log(`gen-rfc-index: docs/rfc/INDEX.md is up to date (${rfcs.length} RFCs).`)
 } else {
-  writeFileSync(readmePath, next)
-  console.log(`gen-rfc-index: docs/rfc/README.md regenerated (${rfcs.length} RFCs).`)
+  writeFileSync(indexPath, next)
+  console.log(`gen-rfc-index: docs/rfc/INDEX.md regenerated (${rfcs.length} RFCs).`)
 }

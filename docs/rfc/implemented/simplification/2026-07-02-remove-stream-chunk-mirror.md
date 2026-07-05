@@ -1,6 +1,6 @@
 # RFC: Stop mirroring the token stream as an agent event
 
-Status: implemented (accepted 2026-07-02)
+Status: implemented
 
 ## Problem
 
@@ -36,6 +36,10 @@ Not touched:
 - `agent/steering` — not touched by THIS decision (a control signal, not the token stream). Its durable twin is `steering/message`, and the mirror emit was removed by its own follow-up: [Remove the `agent/steering` mirror emit](2026-07-04-remove-agent-steering-mirror.md).
 - `agent/status`, `agent/error`, `agent/created`/`agent/disposed`, `agent/queued`, `agent/session-start` — lifecycle/control events that are not transcript data and have no durable duplicate.
 
-## What we give up
+## Alternatives considered
+
+**Remove the persistence and keep only a transient live stream** — the inverse cut, [rejected separately](../../rejected/simplification/2026-06-20-assembled-assistant-messages-only.md): high-fidelity replay, partial failed streams, and snapshot replay all depend on the persisted `assistant/chunk` feed. With that settled, the live emit is the redundant half of the pair.
+
+## Consequences
 
 A plugin can no longer observe token deltas from an `Agent`-first event. It subscribes to `session/event` and filters `assistant/chunk` (the `Agent` handle, if needed, is recovered from a session-id→agent map built from `agent/created`/`agent/disposed`, exactly as boundary consumers already do). No production consumer needed the live `Agent` at chunk time; this is the same acceptable trade the boundary-mirror removal made.

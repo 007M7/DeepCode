@@ -1,6 +1,8 @@
-# Documentation tiers, budgets, and the ceiling gate
+# RFC: Documentation tiers, budgets, and the ceiling gate
 
-## Context
+Status: implemented
+
+## Problem
 
 The repo's standing docs accrete. Root `AGENTS.md` reached 8,130 words through 50 commits in two and a half weeks — each PR appending its own lesson, none displacing anything — until the same rule was stated two or three times inside one file (the pushed-branch rewrite ban ~600 words across two sections; the with-key e2e policy ~400 words across two), an incident already recorded in [postmortem 0001](../../../postmortem/0001-acp-default-export-drops-inject.md) was retold inline at ~750 words, and the per-package one-liner map existed in five places. [architecture.md](../../../architecture.md) grew the same way: paragraph walls re-narrating RFCs it already links, plus implementation-status annotations that were stale the week after they were written. The writing rules that forbid this (document current state, never history) predate the drift and sat in the very file violating them — prose rules alone do not hold against accretion pressure. The repo's standing answer to an invariant of this kind is a mechanical check ([quality gates](2026-06-11-quality-gates.md), [doc-sync enforcement](2026-06-11-doc-sync-enforcement.md)).
 
@@ -28,6 +30,5 @@ The repo's standing docs accrete. Root `AGENTS.md` reached 8,130 words through 5
 The first audit cycle under the standard, in rough priority order (evidence gathered in the survey that motivated this RFC):
 
 - Package README trims where generated catalogs or JSDoc are restated or history is narrated: `packages/ui/acp`, `packages/core/tools`, `packages/bash/tool-bash`, `packages/core/session`, `packages/compact/compact-basic`, `packages/session-persistence/session-persistence`.
-- [The web capability seam RFC](../architecture/2026-06-24-web-capability-seam.md) converted from spec-speak to shipped reality (drop the migration plan and test enumeration, "should" → "is").
 - `docs/core-data-structures/core.md`: drop the JSDoc walls from the `Agent`/`GenerateOptions` type-equiv pastes per that page's own stated rule.
 - [Postmortem 0001](../../../postmortem/0001-acp-default-export-drops-inject.md): merge the overlapping Executive summary and Summary sections.
