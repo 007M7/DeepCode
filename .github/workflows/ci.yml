@@ -16,39 +16,12 @@ env:
   PRIMARY_NODE_VERSION: '24'
 
 jobs:
-  quality:
+  node-24:
     runs-on: ubuntu-latest
-    name: quality / ${{ matrix.name }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: constraints
-            command: pnpm run constraints
-          - name: typecheck
-            command: pnpm run typecheck
-          - name: lint
-            command: |
-              # Root typecheck validates the package/vendor reference graph and
-              # refreshes TSC intermediates before type-aware ESLint loads the
-              # project graph.
-              pnpm run typecheck
-              NODE_OPTIONS=--max-old-space-size=8192 pnpm run lint
-          - name: coverage
-            command: pnpm run test:coverage
-          - name: snapshots
-            command: pnpm run test:snapshot
-          - name: demo smoke
-            command: |
-              set -euo pipefail
-              out=$(printf 'echo ci smoke\n' | timeout 60 pnpm run demo:echo 2>&1)
-              echo "$out"
-              echo "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
-              echo "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
-              # The JSONL backend (root ./.sessions, no cwd -> _no-cwd bucket)
-              # writes a per-run session log named main-session-<uuid>.jsonl.
-              ls .sessions/_no-cwd/main-session-*.jsonl >/dev/null
-              rm -rf .sessions
+    name: node 24
+    env:
+      DSH_GATE_CONCURRENCY: '8'
+      DSH_PUBLINT_CONCURRENCY: '8'
     steps:
       - uses: actions/checkout@v6
 
@@ -73,160 +46,14 @@ jobs:
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
 
-      - name: Run ${{ matrix.name }}
-        run: ${{ matrix.command }}
-
-  docs:
-    runs-on: ubuntu-latest
-    name: docs / ${{ matrix.name }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: doc-typecheck
-            command: pnpm run doc-typecheck
-          - name: cordis catalog
-            command: pnpm run verify-cordis-catalog
-          - name: tool catalog
-            command: pnpm run verify-tool-catalog
-          - name: persistence catalog
-            command: pnpm run verify-persistence-catalog
-          - name: doc graphs
-            command: pnpm run verify-doc-graphs
-          - name: markdown wrap
-            command: pnpm run verify-md-wrap
-          - name: markdown links
-            command: pnpm run verify-md-links
-          - name: doc refs
-            command: pnpm run verify-doc-refs
-          - name: package paths
-            command: pnpm run verify-package-paths
-          - name: mermaid
-            command: pnpm run verify-mermaid
-          - name: rfc classification
-            command: pnpm run verify-rfc-classification
-          - name: rfc format
-            command: pnpm run verify-rfc-format
-          - name: type equivalence
-            command: pnpm run verify-type-equiv
-          - name: translation pairing
-            command: pnpm run verify-translation-pairing
-          - name: doc budgets
-            command: pnpm run verify-doc-budgets
-          - name: module graph
-            command: pnpm run verify-module-graph
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-
-      - name: Enable corepack (pnpm)
-        run: corepack enable
-
-      - name: Resolve pnpm store path
-        id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
-
-      - name: Install (immutable)
-        run: pnpm install --frozen-lockfile
-
-      - name: Run ${{ matrix.name }}
-        run: ${{ matrix.command }}
-
-  build:
-    runs-on: ubuntu-latest
-    name: build
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-
-      - name: Enable corepack (pnpm)
-        run: corepack enable
-
-      - name: Resolve pnpm store path
-        id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
-
-      - name: Install (immutable)
-        run: pnpm install --frozen-lockfile
-
-      - name: Build (tsc -b + tsdown bundles)
-        run: pnpm run build
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: build-output
-          path: |
-            packages/*/*/lib
-            vendor/*/lib
-          if-no-files-found: error
-          retention-days: 1
-
-  artifact-gate:
-    runs-on: ubuntu-latest
-    name: artifact / ${{ matrix.name }}
-    needs: build
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: hygiene
-            command: pnpm run hygiene
-          - name: built-bin smoke
-            command: pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-
-      - name: Enable corepack (pnpm)
-        run: corepack enable
-
-      - name: Resolve pnpm store path
-        id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
-
-      - name: Install (immutable)
-        run: pnpm install --frozen-lockfile
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: build-output
-
-      - name: Run ${{ matrix.name }}
-        run: ${{ matrix.command }}
+      - name: Run gates
+        run: pnpm run check:ci
 
   node-compat:
     runs-on: ubuntu-latest
-    name: node ${{ matrix.node }} compatibility
+    name: node 26
+    env:
+      DSH_GATE_CONCURRENCY: '2'
     strategy:
       fail-fast: false
       matrix:
@@ -255,8 +82,5 @@ jobs:
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck (src + tests + examples)
-        run: pnpm run typecheck
-
-      - name: Unit tests
-        run: pnpm run test
+      - name: Run compatibility gates
+        run: pnpm run check:node-compat

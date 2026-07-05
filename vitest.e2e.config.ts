@@ -7,8 +7,9 @@ import { defineConfig } from 'vitest/config'
 //
 // Secrets: tests gate themselves with
 // `describe.skipIf(!process.env.DEEPSEEK_API_KEY)`, so the suite passes
-// (all-skipped) without credentials — CI has none and stays green. Put the
-// key in the environment or in a gitignored `.env` at the repo root:
+// (all-skipped) without credentials. The keyless CI workflow relies on that;
+// the real-API workflow preflights the secret and fails loudly if it is absent.
+// Put the key in the environment or in a gitignored `.env` at the repo root:
 //
 //     DEEPSEEK_API_KEY=sk-…
 //     DEEPSEEK_BASE_URL=https://…   # optional, defaults to the public API

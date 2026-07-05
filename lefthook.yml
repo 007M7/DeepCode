@@ -20,19 +20,6 @@ pre-commit:
       run: scripts/check-vendor-manifest.sh
 
 pre-push:
-  parallel: true
   jobs:
-    - name: test
-      run: pnpm run test
-
-    - name: snapshot
-      run: pnpm run test:snapshot
-
-    - name: hygiene
-      run: pnpm run hygiene
-
-    - name: doc-sync
-      run: pnpm run doc-sync
-
-    - name: module-graph freshness
-      run: pnpm run verify-module-graph
+    - name: full check
+      run: pnpm run check:pre-push
