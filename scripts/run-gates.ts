@@ -13,6 +13,7 @@ import { performance } from 'node:perf_hooks'
 type Mode =
   | 'ci-primary'
   | 'ci-static'
+  | 'ci-lint'
   | 'ci-coverage'
   | 'ci-snapshot'
   | 'ci-artifacts'
@@ -63,6 +64,7 @@ function parseMode(raw: string | undefined): Mode {
   switch (raw) {
     case 'ci-primary':
     case 'ci-static':
+    case 'ci-lint':
     case 'ci-coverage':
     case 'ci-snapshot':
     case 'ci-artifacts':
@@ -71,7 +73,7 @@ function parseMode(raw: string | undefined): Mode {
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-static | ci-coverage | ci-snapshot | ci-artifacts | node-compat | pre-push, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | node-compat | pre-push, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -124,9 +126,13 @@ function gatesForMode(selected: Mode): Gate[] {
       return ciPrimaryGates()
     case 'ci-static':
       return ciStaticGates()
+    case 'ci-lint':
+      return [
+        lintGate(),
+      ]
     case 'ci-coverage':
       return [
-        pnpmScript('coverage', 'test:coverage'),
+        coverageGate(),
       ]
     case 'ci-snapshot':
       return [
@@ -154,10 +160,8 @@ function ciPrimaryGates(): Gate[] {
   return [
     pnpmScript('constraints', 'constraints'),
     pnpmScript('typecheck', 'typecheck'),
-    pnpmScript('lint', 'lint', {
-      env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
-    }),
-    pnpmScript('coverage', 'test:coverage'),
+    lintGate(),
+    coverageGate(),
     pnpmScript('snapshot', 'test:snapshot'),
     demoSmokeGate({ needs: ['lint'] }),
     ...docSyncLeafGates(),
@@ -177,10 +181,7 @@ function ciStaticGates(): Gate[] {
   return [
     pnpmScript('constraints', 'constraints'),
     pnpmScript('typecheck', 'typecheck'),
-    pnpmScript('lint', 'lint', {
-      env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
-    }),
-    demoSmokeGate({ needs: ['lint'] }),
+    demoSmokeGate(),
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
@@ -197,6 +198,33 @@ function ciArtifactGates(): Gate[] {
     }),
     builtBinSmokeGate(),
   ]
+}
+
+function lintGate(): Gate {
+  return pnpmScript('lint', 'lint', {
+    env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
+  })
+}
+
+function coverageGate(): Gate {
+  return pnpmExec('coverage', [
+    'vitest',
+    'run',
+    '--coverage',
+    ...positiveIntArg('DSH_COVERAGE_MAX_WORKERS', '--maxWorkers'),
+  ], {
+    label: 'test:coverage',
+  })
+}
+
+function positiveIntArg(envName: string, flag: string): string[] {
+  const raw = process.env[envName]
+  if (raw === undefined || raw === '') return []
+  const parsed = Number.parseInt(raw, 10)
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || String(parsed) !== raw) {
+    throw new Error(`run-gates: ${envName} must be a positive integer, got ${JSON.stringify(raw)}.`)
+  }
+  return [`${flag}=${raw}`]
 }
 
 function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {

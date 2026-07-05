@@ -67,7 +67,7 @@ These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests withou
 
 ## CI gates
 
-The keyless GitHub workflow has five jobs: four Node 24 lanes run static gates, coverage, snapshot replay, and artifact gates separately, and the Node 26 compatibility job runs `pnpm run check:node-compat`. The lane schedulers fan out independent gates from `package.json`: constraints, typecheck, lint, coverage, snapshot replay, `doc-sync` members, module-graph freshness, `knip`, and the echo-agent smoke test.
+The keyless GitHub workflow has six jobs: five Node 24 lanes run static gates, lint, coverage, snapshot replay, and artifact gates separately, and the Node 26 compatibility job runs `pnpm run check:node-compat`. The lane schedulers fan out independent gates from `package.json`: constraints, typecheck, lint, coverage, snapshot replay, `doc-sync` members, module-graph freshness, `knip`, and the echo-agent smoke test.
 
 `pnpm run build` feeds the artifact lane, and `publint`, `verify-node-next-types`, and built-bin smoke tests wait for build output. The separate real-API workflow runs `pnpm run test:e2e` with a secret and `DSH_E2E_MAX_WORKERS=12`.
 
