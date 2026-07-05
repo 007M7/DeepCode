@@ -41,7 +41,7 @@
 
 - `docs/cordis-catalog/`、`docs/tool-catalog/`、`docs/module-graph.md`——生成文件；生成器目前只输出英文，手写译文在每次重新生成时必然陈旧。计划中的后续工作是让生成器同时输出中文，届时这些文件移出排除清单。
 - `docs/AGENTS.md`——agent 指令，与根 `AGENTS.md` 一样只以英文维护。
-- `docs/i18n/terminology.md`——术语表本身即是双语构造。
+- `docs/i18n/terminology.md` 与 [style-samples.md](style-samples.md)——二者本身即为中英对照文档。
 
 **推进**：新文档不等批次——文件名带日期的文档（`yyyy-mm-dd-*.md`，即 RFC）日期在 manifest 的 `requiredSince` 当天或之后，就必须连同配对一起合入，新增的一切生来即是双语。日期早于 cutoff 的文件按定义属于被豁免的存量——包括 cutoff 前夜创建的文件——而文件名日期按 RFC 惯例即首次提出日期，倒填日期绕过 cutoff 是评审可见的违规，不是漏洞。对于存量文档，manifest 中的 `required` 列表是强制边界，不是目标。目标是范围内的全量双语覆盖。配对按可评审的批次落地（核心入口文档、cookbook、RFC、postmortem……）；每个批次合入后把其文件加进 `required`，门禁只进不退。尚未进入 `required` 的文档是 backlog——在 `--list` 中可见——但任何已存在的配对无论在不在清单里都按完整契约检查。给一篇文档配对是一份承诺：此后对任一侧的每次修改都必须带上另一侧，所以边界的扩张要跟上翻译评审的实际投入节奏，不要抢在前面。
 

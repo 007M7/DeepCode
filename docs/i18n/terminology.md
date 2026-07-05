@@ -25,7 +25,9 @@
 | agent | agent | 首次出现可写：agent（智能体） |
 | agent loop | agent loop | |
 | backlog | backlog | 双语翻译语境指待翻清单 |
-| blob hash | blob hash | git 对象哈希；`git hash-object` 的结果 |
+| blob hash | blob 哈希 | git 对象哈希；`git hash-object` 的结果 |
+| commit hash | 提交哈希 | |
+| hash | 哈希 | 代码与命令中保留英文（如 `git hash-object`、`<hash>` 占位符） |
 | doc-sync | doc-sync | 仓库门禁名，保留英文 |
 | e2e | e2e | |
 | fiber | fiber | 首次出现可写：fiber（插件运行时） |
