@@ -72,7 +72,6 @@ export class AgentLoop extends Service implements AgentFactory {
     agents: z.array(z.object({
       id: z.string().required(),
       model: z.string(),
-      systemPrompt: z.string(),
       resumeSessionId: z.string(),
     })).default([]),
   }) as unknown as z<Config>
@@ -82,25 +81,14 @@ export class AgentLoop extends Service implements AgentFactory {
     // Provide the agent-creation factory to the registry (effect-scoped: the
     // slot is cleared on dispose).
     ctx.effect(() => this.ctx.agents.setFactory(this), 'agentLoop.setFactory()')
-    // The prompt pieces the harness itself owns, registered once. The
-    // harness-identity section states what every agent on this loop IS,
-    // ahead of everything (order −100 — before the deployment's persona);
-    // the persona is the order-0 section resolved per assembly from the
-    // AssembleContext the loop passes (loop.ts assembles with `{ agent }`
-    // each step); `{{model}}`/`{{cwd}}` are the built-in prompt variables
-    // projecting the agent's configured model and its session workspace. A
-    // provider returns undefined when the fact is absent (renderPrompt then
-    // rejects a persona that claims it — fail loud).
-    ctx.systemPrompt.section({
-      name: 'harness:identity',
-      order: -100,
-      text: 'You are an AI agent powered by the DeepSeek Harness SDK.',
-    })
-    ctx.systemPrompt.section({
-      name: 'agent:persona',
-      order: 0,
-      text: context => context.agent?.options.systemPrompt ?? '',
-    })
+    // The prompt variables the shipped loop provides, registered once. The
+    // sections themselves (`harness:identity`, `deployment:persona`) belong to
+    // dsh-system-prompt — they must survive a swapped loop plugin — but
+    // `{{model}}`/`{{cwd}}` are runtime facts of the agents THIS loop drives:
+    // it assembles with `{ agent }` each step (loop.ts), and the variables
+    // project the agent's configured model and its session workspace from that
+    // context. A provider returns undefined when the fact is absent
+    // (renderPrompt then rejects a persona that claims it — fail loud).
     ctx.systemPrompt.variable('model', context => context.agent?.options.model)
     ctx.systemPrompt.variable('cwd', context => context.agent?.session.header.cwd)
     for (const { id, resumeSessionId, ...options } of config.agents) {

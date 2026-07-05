@@ -53,8 +53,10 @@ export interface Config {
    */
   toolName?: string
   /**
-   * Default per-child agent options (model, system prompt) applied to every
-   * spawned child. Omitted fields fall back to the child loop's own defaults.
+   * Default per-child agent options (model) applied to every spawned child.
+   * Omitted fields fall back to the child loop's own defaults. There is no
+   * per-child persona: the deployment persona (the system-prompt plugin's
+   * `persona` config) is a context-wide section every agent shares.
    */
   agentOptions?: AgentOptions
 }
@@ -64,7 +66,6 @@ export const Config: z<Config> = z.object({
   toolName: z.string().default('subagent'),
   agentOptions: z.object({
     model: z.string(),
-    systemPrompt: z.string(),
   }),
 })
 

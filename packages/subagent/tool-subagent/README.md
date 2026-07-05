@@ -14,7 +14,7 @@ The tool description and the `prompt` parameter description are DERIVED from the
 |---|---|
 | `provider` (required) | The `ctx.subagents` provider name to start runs on (`spawn`, `fork`, `acp`, …). |
 | `toolName` | The model-facing tool name to register (default `subagent`). Set a distinct value per load when exposing multiple providers, e.g. `subagent` + `subagent_acp`. |
-| `agentOptions` | Default per-child `{ model?, systemPrompt? }` applied to every spawned child. |
+| `agentOptions` | Default per-child `{ model? }` applied to every spawned child. (No per-child persona: the deployment persona is a context-wide section every agent shares.) |
 
 ## Lifecycle (synchronous collect)
 

@@ -4,10 +4,16 @@
  * collates them through a waterfall that runs once per step, and
  * `renderPrompt` interpolates `{{variable}}` references into the final text.
  *
+ * The harness-owned prompt openers live here too: this plugin registers the
+ * static `harness:identity` section (order −100) and the deployment's
+ * `deployment:persona` section (order 0, from its `persona` config), so they
+ * exist for every agent regardless of which loop plugin drives it.
+ *
  * @module @deepseek-ai/dsh-system-prompt
  */
 
 import { Context, Service } from 'cordis'
+import z from 'schemastery'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 
 declare module 'cordis' {
@@ -55,7 +61,7 @@ export interface PromptSection {
   name: string
   /**
    * Sections are concatenated in ascending order. Convention: `-100` is the
-   * harness identity, `0` the per-agent persona, tool guidance uses 100–199;
+   * harness identity, `0` the deployment persona, tool guidance uses 100–199;
    * other negative orders also render before the persona.
    */
   order: number
@@ -103,6 +109,22 @@ const VARIABLE_NAME = /^[a-z][a-z0-9_]*$/
 
 /** A complete `{{...}}` reference group at the scan position (validated after). */
 const GROUP_AT = /^\{\{([^{}]*)\}\}/
+
+export interface Config {
+  /**
+   * The deployment's persona — the ONE deployment-authored fragment of the
+   * system prompt, rendered as the order-0 `deployment:persona` section
+   * (after the harness identity, before all tool guidance). Every agent in
+   * the context shares it, subagents included. Template, not free-form text:
+   * every complete `{{…}}` group is interpreted strictly against the
+   * registered prompt variables (the shipped agent loop registers `{{model}}`
+   * and `{{cwd}}`), and there is no escape syntax for literal `{{…}}` prose
+   * yet (a deliberate deferral; see the prompt-variables RFC). Defaults to
+   * `''` — the empty section is dropped at render, so a persona-less
+   * deployment opens with the harness identity alone.
+   */
+  persona?: string
+}
 
 /**
  * Renders the text part of an assembly: interpolates `{{variable}}`
@@ -169,15 +191,39 @@ function interpolate(section: AssembledSection, variables: Record<string, string
 /**
  * Registry service (`ctx.systemPrompt`): plugins contribute ordered text
  * sections, tool-schema providers, and named prompt variables; the agent loop
- * calls `assemble(context)` once per step.
+ * calls `assemble(context)` once per step. Registers the harness-owned
+ * `harness:identity` and `deployment:persona` sections itself (see
+ * {@link Config.persona}).
  */
 export class SystemPrompt extends Service {
+  static Config: z<Config> = z.object({
+    persona: z.string().default(''),
+  })
+
   private sections: PromptSection[] = []
   private toolProviders: (() => ToolSchema[])[] = []
   private variableProviders = new Map<string, (context: AssembleContext) => string | undefined>()
 
-  constructor(ctx: Context) {
+  constructor(ctx: Context, public config: Config) {
     super(ctx, 'systemPrompt')
+    // The harness-owned openers. They live HERE (not on the loop plugin) so a
+    // deployment that swaps in a different loop keeps them: the identity is a
+    // harness fact stated ahead of everything, and the persona is the
+    // deployment's config, one section of the full prompt, never the whole.
+    // An empty persona still RESERVES the section name (one owner — a plugin
+    // re-registering it throws); renderPrompt drops the empty text.
+    this.section({
+      name: 'harness:identity',
+      order: -100,
+      text: 'You are an AI agent powered by the DeepSeek Harness SDK.',
+    })
+    this.section({
+      name: 'deployment:persona',
+      order: 0,
+      // The schema already defaulted an omitted persona to ''; the ?? only
+      // narrows the optional-input TYPE, it never supplies a different value.
+      text: config.persona ?? '',
+    })
   }
 
   /**

@@ -276,10 +276,11 @@ describe('bash tool', () => {
     await ctx.plugin(LocalBashExecutor, {})
     const fiber = await ctx.plugin(ToolBash)
     expect(ctx.tools.schemas()).toHaveLength(3)
-    expect((await ctx.systemPrompt.assemble()).sections.map(s => s.name)).toEqual(['tool:bash'])
+    expect((await ctx.systemPrompt.assemble()).sections.map(s => s.name)).toEqual(['harness:identity', 'deployment:persona', 'tool:bash'])
     await fiber.dispose()
     expect(ctx.tools.schemas()).toHaveLength(0)
-    expect((await ctx.systemPrompt.assemble()).sections).toHaveLength(0)
+    // Only the system-prompt plugin's own built-in sections remain.
+    expect((await ctx.systemPrompt.assemble()).sections.map(s => s.name)).toEqual(['harness:identity', 'deployment:persona'])
   })
 
   it('tools depend on the executor: no registration without ctx.bash', async () => {

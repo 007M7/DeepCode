@@ -2,22 +2,64 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import SystemPrompt, { AssembleContext, PromptAssembly, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 
+/**
+ * Every assembly carries the plugin's own built-ins — `harness:identity`
+ * (order −100) and `deployment:persona` (order 0, from config). Tests about
+ * registry MECHANICS strip them with {@link contributed} to stay focused on
+ * their own sections; the built-ins' behavior is pinned by its own describe.
+ */
+const BUILT_IN = ['harness:identity', 'deployment:persona']
+const IDENTITY = 'You are an AI agent powered by the DeepSeek Harness SDK.'
+function contributed(assembly: PromptAssembly): PromptAssembly['sections'] {
+  return assembly.sections.filter(section => !BUILT_IN.includes(section.name))
+}
+
 describe('SystemPrompt', () => {
+  describe('built-in sections', () => {
+    it('registers the harness identity and the configured deployment persona', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt, { persona: 'You are DeepSeek Harness SDK.' })
+
+      const assembly = await ctx.systemPrompt.assemble()
+      expect(assembly.sections.map(s => [s.name, s.order])).toEqual([
+        ['harness:identity', -100],
+        ['deployment:persona', 0],
+      ])
+      expect(renderPrompt(assembly)).toBe(`${IDENTITY}\n\nYou are DeepSeek Harness SDK.`)
+      // The names are reserved by the plugin — one owner per section.
+      expect(() => ctx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: 'imposter' }))
+        .toThrow('prompt section "deployment:persona" is already registered')
+    })
+
+    it('renders no persona section for a persona-less deployment (empty default)', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      expect(renderPrompt(await ctx.systemPrompt.assemble())).toBe(IDENTITY)
+    })
+
+    it('tolerates a schema-bypassing direct construction (persona omitted)', async () => {
+      // ctx.plugin validates + defaults the config first; a direct construction
+      // skips the schema, so the ctor's `?? ''` narrowing is what fires.
+      const ctx = new Context()
+      const service = new SystemPrompt(ctx, {})
+      expect(renderPrompt(await service.assemble())).toBe(IDENTITY)
+    })
+  })
+
   it('assembles sections in order with context-resolved text and collected tools', async () => {
     const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(SystemPrompt, { persona: 'You are DeepSeek Harness SDK.' })
 
-    ctx.systemPrompt.section({ name: 'persona', order: 0, text: 'You are DeepSeek Harness SDK.' })
     ctx.systemPrompt.section({ name: 'cwd', order: 20, text: () => 'cwd: /tmp' })
     ctx.systemPrompt.section({ name: 'rules', order: 10, text: 'Be precise.' })
     ctx.systemPrompt.tools(() => [{ name: 'echo', description: 'echo back', parameters: {} }])
 
     const assembly = await ctx.systemPrompt.assemble()
-    expect(assembly.sections.map(s => s.name)).toEqual(['persona', 'rules', 'cwd'])
-    expect(assembly.sections.map(s => s.text)).toEqual(['You are DeepSeek Harness SDK.', 'Be precise.', 'cwd: /tmp'])
+    expect(assembly.sections.map(s => s.name)).toEqual(['harness:identity', 'deployment:persona', 'rules', 'cwd'])
+    expect(assembly.sections.map(s => s.text)).toEqual([IDENTITY, 'You are DeepSeek Harness SDK.', 'Be precise.', 'cwd: /tmp'])
     expect(assembly.tools).toEqual([{ name: 'echo', description: 'echo back', parameters: {} }])
     expect(assembly.variables).toEqual({})
-    expect(renderPrompt(assembly)).toBe('You are DeepSeek Harness SDK.\n\nBe precise.\n\ncwd: /tmp')
+    expect(renderPrompt(assembly)).toBe(`${IDENTITY}\n\nYou are DeepSeek Harness SDK.\n\nBe precise.\n\ncwd: /tmp`)
   })
 
   it('resolves section text providers against the assemble context, at each assemble call', async () => {
@@ -32,8 +74,8 @@ describe('SystemPrompt', () => {
       text: (context: AssembleContext) => `call ${++calls} for ${(context as { who?: string }).who ?? 'nobody'}`,
     })
 
-    expect((await ctx.systemPrompt.assemble({ who: 'alice' } as AssembleContext)).sections[0]!.text).toBe('call 1 for alice')
-    expect((await ctx.systemPrompt.assemble()).sections[0]!.text).toBe('call 2 for nobody')
+    expect(contributed(await ctx.systemPrompt.assemble({ who: 'alice' } as AssembleContext))[0]!.text).toBe('call 1 for alice')
+    expect(contributed(await ctx.systemPrompt.assemble())[0]!.text).toBe('call 2 for nobody')
   })
 
   it('removes contributions when the contributing fiber is disposed (HMR safety)', async () => {
@@ -47,11 +89,13 @@ describe('SystemPrompt', () => {
     }, { inject: ['systemPrompt'] }))
 
     const before = await ctx.systemPrompt.assemble()
-    expect(before.sections).toHaveLength(1)
+    expect(contributed(before)).toHaveLength(1)
     expect(before.variables).toEqual({ scoped_var: 'v' })
     await fiber.dispose()
     const assembly = await ctx.systemPrompt.assemble()
-    expect(assembly.sections).toHaveLength(0)
+    expect(contributed(assembly)).toHaveLength(0)
+    // The built-ins belong to the service fiber, so they survive the plugin's disposal.
+    expect(assembly.sections.map(s => s.name)).toEqual(BUILT_IN)
     expect(assembly.tools).toHaveLength(0)
     expect(assembly.variables).toEqual({})
   })
@@ -64,7 +108,7 @@ describe('SystemPrompt', () => {
       .toThrow('prompt section "dup" is already registered')
     // The failed registration leaked nothing; the original stays intact.
     const assembly = await ctx.systemPrompt.assemble()
-    expect(assembly.sections.map(s => s.text)).toEqual(['first'])
+    expect(contributed(assembly).map(s => s.text)).toEqual(['first'])
   })
 
   it('rolls back a section when a system-prompt/change listener throws (P1-1)', async () => {
@@ -80,12 +124,12 @@ describe('SystemPrompt', () => {
     })
 
     expect(() => ctx.systemPrompt.section({ name: 'p', order: 0, text: 'persona' })).toThrow('boom change listener')
-    expect((await ctx.systemPrompt.assemble()).sections).toHaveLength(0) // nothing leaked
+    expect(contributed(await ctx.systemPrompt.assemble())).toHaveLength(0) // nothing leaked
 
     // Subsequent listener-free register contributes exactly once.
     off()
     ctx.systemPrompt.section({ name: 'p', order: 0, text: 'persona' })
-    expect((await ctx.systemPrompt.assemble()).sections.map(s => s.name)).toEqual(['p'])
+    expect(contributed(await ctx.systemPrompt.assemble()).map(s => s.name)).toEqual(['p'])
   })
 
   it('rolls back a tool provider when a system-prompt/change listener throws (P1-1)', async () => {
@@ -143,8 +187,8 @@ describe('SystemPrompt', () => {
 
     const passed: AssembleContext = {}
     const assembly = await ctx.systemPrompt.assemble(passed)
-    expect(seen).toEqual([['base', 'from-a']])
-    expect(assembly.sections.map(s => s.name)).toEqual(['base', 'from-a'])
+    expect(seen).toEqual([['harness:identity', 'deployment:persona', 'base', 'from-a']])
+    expect(assembly.sections.map(s => s.name)).toEqual(['harness:identity', 'deployment:persona', 'base', 'from-a'])
     expect(contexts[0]).toBe(passed) // the caller's context reaches listeners
   })
 
@@ -175,8 +219,8 @@ describe('SystemPrompt', () => {
     firstParameters.properties['leak'] = { type: 'string' }
 
     const second = await ctx.systemPrompt.assemble()
-    expect(second.sections.map(section => section.name)).toEqual(['base'])
-    expect(second.sections.map(section => section.text)).toEqual(['base'])
+    expect(second.sections.map(section => section.name)).toEqual(['harness:identity', 'deployment:persona', 'base'])
+    expect(second.sections[0]!.text).toBe(IDENTITY)
     expect(second.tools).toEqual([{ name: 't', description: 'tool', parameters: { type: 'object', properties: {} } }])
   })
 
@@ -226,10 +270,10 @@ describe('SystemPrompt', () => {
     await ctx.plugin(SystemPrompt)
 
     const dispose = ctx.systemPrompt.section({ name: 'direct', order: 0, text: 'direct section' })
-    expect((await ctx.systemPrompt.assemble()).sections).toHaveLength(1)
+    expect(contributed(await ctx.systemPrompt.assemble())).toHaveLength(1)
 
     dispose()
-    expect((await ctx.systemPrompt.assemble()).sections).toHaveLength(0)
+    expect(contributed(await ctx.systemPrompt.assemble())).toHaveLength(0)
   })
 
   it('removes tool provider when returned disposer is called directly', async () => {
@@ -274,14 +318,13 @@ describe('SystemPrompt', () => {
       expect((await ctx.systemPrompt.assemble()).variables).toEqual({ model: 'm1' })
     })
 
-    it('interpolates {{name}} references in section text at render', async () => {
+    it('interpolates {{name}} references in section text at render — the persona included', async () => {
       const ctx = new Context()
-      await ctx.plugin(SystemPrompt)
-      ctx.systemPrompt.section({ name: 'persona', order: 0, text: 'You run on {{model}} in {{cwd}}.' })
+      await ctx.plugin(SystemPrompt, { persona: 'You run on {{model}} in {{cwd}}.' })
       ctx.systemPrompt.variable('model', () => 'deepseek-v4')
       ctx.systemPrompt.variable('cwd', () => '/work')
 
-      expect(renderPrompt(await ctx.systemPrompt.assemble())).toBe('You run on deepseek-v4 in /work.')
+      expect(renderPrompt(await ctx.systemPrompt.assemble())).toBe(`${IDENTITY}\n\nYou run on deepseek-v4 in /work.`)
     })
 
     it('lets a waterfall listener add or override variables before render', async () => {
@@ -292,7 +335,7 @@ describe('SystemPrompt', () => {
         assembly.variables['extra'] = 'from-waterfall'
         return next()
       })
-      expect(renderPrompt(await ctx.systemPrompt.assemble())).toBe('from-waterfall')
+      expect(renderPrompt(await ctx.systemPrompt.assemble())).toBe(`${IDENTITY}\n\nfrom-waterfall`)
     })
 
     it('throws on a reference to an unregistered variable, listing what exists', async () => {
@@ -360,7 +403,7 @@ describe('SystemPrompt', () => {
       await ctx.plugin(SystemPrompt)
       ctx.systemPrompt.section({ name: 's', order: 0, text: '{{constructor}}' })
       ctx.systemPrompt.variable('constructor', () => 'own-value')
-      expect(renderPrompt(await ctx.systemPrompt.assemble())).toBe('own-value')
+      expect(renderPrompt(await ctx.systemPrompt.assemble())).toBe(`${IDENTITY}\n\nown-value`)
     })
 
     it('never re-scans substituted values (a value containing {{sneaky}} stays literal)', () => {

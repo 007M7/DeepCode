@@ -60,9 +60,8 @@ declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {
     /**
      * The agent this assembly is for. The agent loop passes it on every
-     * per-step `assemble({ agent })`; section text and variable providers
-     * project per-agent facts from it (`options.systemPrompt` → the persona
-     * section, `options.model` → `{{model}}`, `session.header.cwd` →
+     * per-step `assemble({ agent })`; variable providers project per-agent
+     * facts from it (`options.model` → `{{model}}`, `session.header.cwd` →
      * `{{cwd}}`). Optional because a bare `assemble()` (tests, diagnostics)
      * has no agent — providers must tolerate its absence.
      */
@@ -71,23 +70,14 @@ declare module '@deepseek-ai/dsh-system-prompt' {
 }
 
 /**
- * Options an agent is created with.
+ * Options an agent is created with. The persona is NOT here — it is the
+ * deployment's `persona` config on the dsh-system-prompt plugin, shared by
+ * every agent in the context.
  * Merge-extensible: plugins declare extra fields via declaration merging.
  */
 export interface AgentOptions {
   /** Model name (must have a registered adapter at call time). */
   model?: string
-  /**
-   * The agent's persona: a deployment-authored prompt-TEMPLATE fragment,
-   * rendered as the order-0 section of the assembled system prompt (before
-   * all tool guidance). It may reference registered `{{variables}}` (e.g.
-   * `{{model}}`, `{{cwd}}`); it is one section of the full prompt, never the
-   * whole. Template, not free-form text: every complete `{{…}}` group IS
-   * interpreted, strictly — an unknown or malformed reference fails the turn
-   * loudly — and there is no escape syntax for literal `{{…}}` prose yet (a
-   * deliberate deferral; see the prompt-variables RFC).
-   */
-  systemPrompt?: string
 }
 
 export interface SendOptions {

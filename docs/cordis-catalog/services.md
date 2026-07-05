@@ -180,7 +180,7 @@ Source: [`packages/subagent/subagent/src/index.ts:142`](../../packages/subagent/
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 
-Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, and named prompt variables; the agent loop calls `assemble(context)` once per step.
+Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, and named prompt variables; the agent loop calls `assemble(context)` once per step. Registers the harness-owned `harness:identity` and `deployment:persona` sections itself (see Config.persona).
 
 ```ts cordis-catalog
 section(section: PromptSection): () => void
@@ -189,7 +189,7 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
 assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:174`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:198`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

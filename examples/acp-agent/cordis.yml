@@ -38,13 +38,14 @@
   config:
     model: deepseek-v4-flash
     persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
-    # The persona: identity + behavior only. Tool guidance lives with each tool
-    # plugin (descriptions + prompt sections); {{model}} and {{cwd}} are prompt
-    # variables the agent loop resolves per session (every ACP session carries
-    # the client's cwd, so the persona can state the workspace).
-    systemPrompt: |
-      You are a coding assistant powered by the {{model}} model, driven over
-      the Agent Client Protocol. Your working directory is {{cwd}}.
+    # The persona: identity + behavior only, nothing about transports or
+    # tooling — tool guidance lives with each tool plugin (descriptions +
+    # prompt sections). {{model}} and {{cwd}} are prompt variables the agent
+    # loop resolves per session (every ACP session carries the client's cwd,
+    # so the persona can state the workspace).
+    persona: |
+      You are a coding assistant powered by the {{model}} model. Your working
+      directory is {{cwd}}.
 
       Verify your work by running the code or tests. Keep answers brief and
       factual.

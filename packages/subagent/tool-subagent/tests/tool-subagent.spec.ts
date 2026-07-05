@@ -149,10 +149,10 @@ describe('dsh-tool-subagent', () => {
         }
       },
     })
-    await ctx.plugin(tool, { provider: 'capture', agentOptions: { model: 'child-model', systemPrompt: 'be terse' } })
+    await ctx.plugin(tool, { provider: 'capture', agentOptions: { model: 'child-model' } })
 
     await callSubagent(ctx, { description: 'd', prompt: 'p' })
-    expect(seen?.agentOptions).toEqual({ model: 'child-model', systemPrompt: 'be terse' })
+    expect(seen?.agentOptions).toEqual({ model: 'child-model' })
   })
 
   it('defaults toolName and omits agentOptions when apply() is called directly (schema bypass)', async () => {

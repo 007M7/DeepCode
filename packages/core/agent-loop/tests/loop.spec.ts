@@ -8,11 +8,11 @@ import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from './mock-adapter.ts'
 
-async function harness(adapter: MockAdapter) {
+async function harness(adapter: MockAdapter, persona = '') {
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(SystemPrompt, { persona })
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
@@ -143,7 +143,9 @@ describe('agent loop', () => {
 
   it('renders harness identity, then the persona, then tool guidance — with {{variables}} resolved', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
-    const ctx = await harness(adapter)
+    // The persona is a TEMPLATE: {{model}} is the loop-registered variable
+    // projecting this agent's configured model, so the model knows its own name.
+    const ctx = await harness(adapter, 'You are a test agent on {{model}}.')
     ctx.systemPrompt.section({ name: 'tool:noop', order: 100, text: 'Use the noop tool wisely.' })
     ctx.tools.register(defineTool({
       name: 'noop',
@@ -153,9 +155,7 @@ describe('agent loop', () => {
         return []
       },
     }))
-    // The persona is a TEMPLATE: {{model}} is the loop-registered variable
-    // projecting this agent's configured model, so the model knows its own name.
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock', systemPrompt: 'You are a test agent on {{model}}.' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
@@ -167,12 +167,12 @@ describe('agent loop', () => {
 
   it('resolves {{cwd}} from the agent session workspace (factory create with meta.cwd)', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
-    const ctx = await harness(adapter)
+    const ctx = await harness(adapter, 'Working in {{cwd}}.')
     const handle = ctx.agents.create({
       agentId: AgentId('a-cwd'),
       sessionId: SessionId('s-cwd'),
       meta: { cwd: '/work/space' },
-      agentOptions: { model: 'mock', systemPrompt: 'Working in {{cwd}}.' },
+      agentOptions: { model: 'mock' },
     })
 
     const agent = handle.agent as ReactLoopAgent
@@ -189,10 +189,10 @@ describe('agent loop', () => {
     // report idle status): a rescue listener supplies the variable and the
     // follow-up prompt reaches the model.
     const adapter = new MockAdapter([textResponse('ok after rescue')])
-    const ctx = await harness(adapter)
+    const ctx = await harness(adapter, 'In {{cwd}}.')
     const errors: Error[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock', systemPrompt: 'In {{cwd}}.' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
@@ -216,6 +216,22 @@ describe('agent loop', () => {
     const turnEnds = agent.session.events.filter(e => e.type === 'turn/end')
     expect(turnEnds).toHaveLength(2)
     expect(turnEnds[1]?.type === 'turn/end' && turnEnds[1].data.reason.kind).toBe('completed')
+  })
+
+  it('omits the system field when a system-prompt/assemble veto empties the assembly', async () => {
+    // The documented escape valve: a deployment that must drop the harness
+    // openers short-circuits the assemble waterfall; the request then carries
+    // NO system field at all (not an empty string).
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    ctx.on('system-prompt/assemble', async () => ({ sections: [], tools: [], variables: {} }))
+    const agent = ctx.agentLoop.create(AgentId('a-no-system'), { model: 'mock' })
+
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect('system' in adapter.requests[0]!).toBe(false)
   })
 
   it('records raw chunks for replay as assistant/chunk session events', async () => {
@@ -853,7 +869,7 @@ describe('agent loop', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, {
-      agents: [{ id: AgentId('config-agent'), model: 'mock', systemPrompt: 'Config prompt' }],
+      agents: [{ id: AgentId('config-agent'), model: 'mock' }],
     })
     ctx.llm.registerAdapter(['mock'], adapter)
 

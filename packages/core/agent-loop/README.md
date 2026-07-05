@@ -28,12 +28,11 @@ interface Config {
   agents: Array<{
     id: string                 // required
     model?: string
-    systemPrompt?: string      // the agent's persona TEMPLATE (may reference {{model}}/{{cwd}})
   }>
 }
 ```
 
-Agents listed in config are auto-created at startup. The plugin also registers the harness-owned prompt pieces on `ctx.systemPrompt`: the `harness:identity` section (order −100 — every agent's prompt opens by stating it is powered by the DeepSeek Harness SDK), the `agent:persona` section (order 0 — `AgentOptions.systemPrompt` renders after it, before all tool guidance), and the built-in `model`/`cwd` prompt variables, resolved per step from the `assemble({ agent })` context.
+Agents listed in config are auto-created at startup. (There is no per-agent persona: the deployment persona is `dsh-system-prompt`'s own `persona` config, shared by every agent in the context.) The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from the `assemble({ agent })` context — runtime facts of the agents THIS loop drives, unlike the `harness:identity`/`deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
 
 ### Classes
 

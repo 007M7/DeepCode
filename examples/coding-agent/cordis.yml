@@ -46,11 +46,12 @@
     resumeSessionId: !!js process.env.RESUME_SESSION_ID
     persistenceRoot: './.sessions'
     welcome: 'agent REPL ready. Give it a coding task.'
-    # The persona: identity + behavior only. Tool guidance lives with each tool
-    # plugin (descriptions + prompt sections); {{model}} is the prompt variable
-    # the agent loop resolves from this agent's configured model.
-    systemPrompt: |
-      You are coding-agent, a CLI coding assistant powered by the {{model}} model.
+    # The persona: identity + behavior only, nothing about transports or
+    # tooling — tool guidance lives with each tool plugin (descriptions +
+    # prompt sections). {{model}} is the prompt variable the agent loop
+    # resolves from this agent's configured model.
+    persona: |
+      You are coding-agent, a coding assistant powered by the {{model}} model.
 
       Verify your work by running the code or tests. Keep answers brief and
       factual.
