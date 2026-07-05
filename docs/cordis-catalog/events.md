@@ -189,7 +189,7 @@ Source: [`packages/fs/fs/src/index.ts:109`](../../packages/fs/fs/src/index.ts)
 
 ### `llm/stream` — waterfall
 
-Waterfall around every streaming model call (retry, caching, routing). Bound to the LlmService; call `next()` to reach the resolved adapter's stream, or yield your own chunks to short-circuit.
+Waterfall around every streaming model call (retry, replay, routing). Bound to the LlmService; call `next()` to reach the resolved adapter's stream, or yield your own chunks to short-circuit.
 
 ```ts cordis-catalog
 'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
@@ -197,7 +197,7 @@ Waterfall around every streaming model call (retry, caching, routing). Bound to 
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:35`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:39`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 

@@ -27,6 +27,8 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 
 > Type definitions on this page are pasted **verbatim** from source and drift-checked by `pnpm run verify-type-equiv` (see [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)). Inline JSDoc is omitted for readability; follow the source link for the full contracts.
 
+FIXME(catalog-verbs): the drift gate covers only the nouns (the pasted type shapes); every method surface on these pages is hand-written prose. core-data-structures should probably also generate the *verbs* — the public methods of the cataloged classes — so a signature change cannot silently outdate the catalog.
+
 ## The `…Map → derived-union` pattern
 
 Almost every extensible sum type in the harness follows one shape: an interface keyed by a discriminant tag (the `…Map`), from which the union is derived with `keyof`. Plugins add variants by **declaration merging** — no edit to the owning package.
@@ -182,6 +184,21 @@ interface ToolSchema {
 ```
 
 The model-facing `ToolSchema` is the wire shape; the registered `ToolDefinition` that produces it (schema + `execute`) is on [tools.md](tools.md).
+
+### The request envelope: `LlmCallConfig` and the logged header
+
+Requests are built by the loop, not shaped per call: the non-content half of a request — the `EpochHeader`: this call configuration plus the rendered system prompt and assembled tool schemas — is logged session state (`request/header` snapshot and delta events, [session.md](session.md#the-request-header-events-requestheader-and-requestheader-delta)), so every conversation request is a pure function of the session log ([reconstructability RFC](../rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)). The `agent/request` waterfall receives a frozen `LlmCallConfig` seed and a listener returns a replacement to switch model or sampling — the loop logs whatever the request actually uses. Loop-built requests arrive at `llm/stream` deep-frozen; mutation throws.
+
+FIXME(call-config-shape): revisit the exact definition of this type — which fields are genuinely epoch-level for cache purposes (`model` certainly; the sampling scalars sit here out of caution), and where provider-specific extras (reasoning options, extra body params) belong when an adapter needs them.
+
+```ts type-equiv
+interface LlmCallConfig {
+  model: string
+  temperature?: number
+  maxTokens?: number
+  stop?: string[]
+}
+```
 
 ## Sessions
 
