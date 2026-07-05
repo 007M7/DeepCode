@@ -153,6 +153,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Tagged render-intent union for tool-call presentation](implemented/architecture/2026-07-02-tool-render-intent-union.md) | 2026-07-02 |
 | [Add direct directory listing to the filesystem seam](implemented/architecture/2026-07-03-filesystem-directory-listing-seam.md) | 2026-07-03 |
 | [Prompt variables and tool-guidance ownership](implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md) | 2026-07-05 |
+| [Subagent provider-lifecycle events: `subagent/provider-added` / `subagent/provider-removed`](implemented/architecture/2026-07-05-subagent-provider-lifecycle-events.md) | 2026-07-05 |
 
 ### Process
 
