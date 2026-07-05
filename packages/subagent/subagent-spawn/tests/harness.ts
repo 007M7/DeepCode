@@ -31,7 +31,7 @@ export async function spawnHarness(workdir: string): Promise<Context> {
   await ctx.plugin(LocalBashExecutor, { cwd: workdir, timeoutMs: 30_000 })
   await ctx.plugin(ToolBash)
   await ctx.plugin(SubagentService)
-  await ctx.plugin(Spawn, { providerName: 'spawn' })
+  await ctx.plugin(Spawn, { providerName: 'spawn', structuredNudgeRetries: 1 })
   // The model-facing subagent tool, bound to the spawn backend.
   await ctx.plugin(ToolSubagent, { provider: 'spawn' })
   return ctx

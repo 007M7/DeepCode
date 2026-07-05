@@ -37,7 +37,7 @@ async function setup(script: Script) {
   await ctx.plugin(Invariants)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
-  await ctx.plugin(fork, { providerName: 'fork' })
+  await ctx.plugin(fork, { providerName: 'fork', structuredNudgeRetries: 1 })
   ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
   const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
   return { ctx, parent }
@@ -161,16 +161,20 @@ describe('dsh-subagent-fork', () => {
     await run.dispose()
   })
 
-  it('advertises depthLimit but not outputSchema/toolFilter', async () => {
+  it('advertises depthLimit and outputSchema but not toolFilter', async () => {
     const { ctx } = await setup([])
-    expect(ctx.subagents.getProvider('fork')!.capabilities).toEqual({ outputSchema: false, depthLimit: true, toolFilter: false })
+    expect(ctx.subagents.getProvider('fork')!.capabilities).toEqual({ outputSchema: true, depthLimit: true, toolFilter: false })
   })
 
   it('unregisters the provider when its fiber is disposed (HMR safety)', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
     await ctx.plugin(AgentRegistry)
-    const fiber = await ctx.plugin(fork, { providerName: 'fork' })
+    // The backend injects 'tools' for the structured runtime, so the registry
+    // (and its systemPrompt dependency) must be live for the fiber to activate.
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    const fiber = await ctx.plugin(fork, { providerName: 'fork', structuredNudgeRetries: 1 })
     expect(ctx.subagents.list()).toEqual(['fork'])
     await fiber.dispose()
     expect(ctx.subagents.list()).toEqual([])
@@ -179,12 +183,12 @@ describe('dsh-subagent-fork', () => {
   it('has the namespace-plugin export shape (no stray default)', () => {
     expect('default' in fork).toBe(false)
     expect(fork.name).toBe('subagent-fork')
-    expect(fork.inject).toEqual(['subagents', 'agents'])
+    expect(fork.inject).toEqual(['subagents', 'agents', 'tools'])
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(fork) as Record<string, unknown>
     expect(unwrapped).toBe(fork)
     expect(unwrapped.name).toBe('subagent-fork')
-    expect(unwrapped.inject).toEqual(['subagents', 'agents'])
+    expect(unwrapped.inject).toEqual(['subagents', 'agents', 'tools'])
     expect(typeof unwrapped.apply).toBe('function')
   })
 })

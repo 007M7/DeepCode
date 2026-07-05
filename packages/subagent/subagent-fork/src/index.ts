@@ -25,19 +25,25 @@ import z from 'schemastery'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
-import { startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
+import { acquireStructuredRuntime, startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
 
 export const name = 'subagent-fork'
-export const inject = ['subagents', 'agents']
+export const inject = ['subagents', 'agents', 'tools']
 
-/** Config: the registry name to register the provider under. */
+/** Config: the registry name to register the provider under, plus structured-run tuning. */
 export interface Config {
   /** Provider name on `ctx.subagents` (default `fork`). */
   providerName: string
+  /**
+   * How many times a structured run re-prompts a child that finished cleanly
+   * without calling `structured_output` before giving up (default 1).
+   */
+  structuredNudgeRetries: number
 }
 
 export const Config: z<Config> = z.object({
   providerName: z.string().default('fork'),
+  structuredNudgeRetries: z.natural().default(1),
 })
 
 /**
@@ -57,18 +63,24 @@ export function completedTurnPrefix(parent: Agent): SessionEvent[] {
 }
 
 /**
- * The fork provider. Supports `depthLimit`; NOT `outputSchema`/`toolFilter` this
- * cut (the service rejects a request needing either before `start` runs).
+ * The fork provider. Supports `depthLimit` and `outputSchema` (via the shared
+ * in-process structured runtime); NOT `toolFilter` this cut (the service
+ * rejects a request needing it before `start` runs).
  */
 class ForkProvider implements SubagentProvider {
-  readonly capabilities: SubagentCapabilities = { outputSchema: false, depthLimit: true, toolFilter: false }
+  readonly capabilities: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: false }
 
-  constructor(readonly name: string, private readonly ctx: Context) {}
+  constructor(
+    readonly name: string,
+    private readonly ctx: Context,
+    private readonly structuredNudgeRetries: number,
+  ) {}
 
   start(request: SubagentStartRequest) {
     const seed = completedTurnPrefix(request.parent)
     return startInProcessRun(this.ctx, request, {
       providerName: this.name,
+      structuredNudgeRetries: this.structuredNudgeRetries,
       // Only pass a seed when there's a completed turn to inherit; an empty seed
       // is equivalent to a fresh child, so omit it to keep the session unseeded.
       ...seed.length > 0 ? { seed } : {},
@@ -77,5 +89,12 @@ class ForkProvider implements SubagentProvider {
 }
 
 export function apply(ctx: Context, config: Config): void {
-  ctx.subagents.registerProvider(new ForkProvider(config.providerName, ctx))
+  // Hold the structured runtime for the plugin's lifetime (see the spawn
+  // backend — same two-level lifetime: backends for availability, runs for
+  // mid-run survival across a backend unload).
+  ctx.effect(() => {
+    const acquisition = acquireStructuredRuntime(ctx)
+    return () => { acquisition.release() }
+  }, 'subagent-fork structured runtime')
+  ctx.subagents.registerProvider(new ForkProvider(config.providerName, ctx, config.structuredNudgeRetries))
 }

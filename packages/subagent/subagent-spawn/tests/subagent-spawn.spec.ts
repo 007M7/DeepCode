@@ -34,7 +34,7 @@ async function setup(script: Script) {
   await ctx.plugin(Invariants)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
-  await ctx.plugin(spawn, { providerName: 'spawn' })
+  await ctx.plugin(spawn, { providerName: 'spawn', structuredNudgeRetries: 1 })
   ctx.llm.registerAdapter(['mock'], adapter)
   const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
   return { ctx, parent, adapter }
@@ -241,17 +241,21 @@ describe('dsh-subagent-spawn', () => {
     await parentHandle.dispose()
   })
 
-  it('advertises depthLimit but not outputSchema/toolFilter', async () => {
+  it('advertises depthLimit and outputSchema but not toolFilter', async () => {
     const { ctx } = await setup([])
     const provider = ctx.subagents.getProvider('spawn')!
-    expect(provider.capabilities).toEqual({ outputSchema: false, depthLimit: true, toolFilter: false })
+    expect(provider.capabilities).toEqual({ outputSchema: true, depthLimit: true, toolFilter: false })
   })
 
   it('unregisters the provider when its fiber is disposed (HMR safety)', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
     await ctx.plugin(AgentRegistry)
-    const fiber = await ctx.plugin(spawn, { providerName: 'spawn' })
+    // The backend injects 'tools' for the structured runtime, so the registry
+    // (and its systemPrompt dependency) must be live for the fiber to activate.
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    const fiber = await ctx.plugin(spawn, { providerName: 'spawn', structuredNudgeRetries: 1 })
     expect(ctx.subagents.list()).toEqual(['spawn'])
     await fiber.dispose()
     expect(ctx.subagents.list()).toEqual([])
@@ -260,12 +264,12 @@ describe('dsh-subagent-spawn', () => {
   it('has the namespace-plugin export shape (no stray default)', () => {
     expect('default' in spawn).toBe(false)
     expect(spawn.name).toBe('subagent-spawn')
-    expect(spawn.inject).toEqual(['subagents', 'agents'])
+    expect(spawn.inject).toEqual(['subagents', 'agents', 'tools'])
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(spawn) as Record<string, unknown>
     expect(unwrapped).toBe(spawn)
     expect(unwrapped.name).toBe('subagent-spawn')
-    expect(unwrapped.inject).toEqual(['subagents', 'agents'])
+    expect(unwrapped.inject).toEqual(['subagents', 'agents', 'tools'])
     expect(typeof unwrapped.apply).toBe('function')
   })
 })

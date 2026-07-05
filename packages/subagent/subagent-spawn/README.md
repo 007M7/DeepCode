@@ -6,14 +6,15 @@ The run mechanics live in the shared [`@deepseek-ai/dsh-subagent-inprocess`](../
 
 ## What it does
 
-`start(request)` delegates to `startInProcessRun(ctx, request, { providerName })` with no seed: a fresh child agent with the parent's `cwd`/`parentSession` lineage and (by default) the parent's model. See the [driver README](../subagent-inprocess/README.md) for the full lifecycle (depth check, one-shot drive, result read, dispose).
+`start(request)` delegates to `startInProcessRun(ctx, request, { providerName, structuredNudgeRetries })` with no seed: a fresh child agent with the parent's `cwd`/`parentSession` lineage and (by default) the parent's model. See the [driver README](../subagent-inprocess/README.md) for the full lifecycle (depth check, one-shot drive, result read, dispose).
 
 ## Capabilities
 
-`{ outputSchema: false, depthLimit: true, toolFilter: false }`. It constructs the child, so it enforces a recursion cap; structured output and tool-scoping are deferred (the service rejects a request needing either before `start` runs).
+`{ outputSchema: true, depthLimit: true, toolFilter: false }`. It constructs the child, so it enforces a recursion cap, and it supports structured output via the driver's shared [structured runtime](../subagent-inprocess/README.md) (the backend acquires it for its plugin lifetime; each structured run holds its own acquisition until it settles). Tool-scoping is deferred (the service rejects a request needing it before `start` runs).
 
 ## Config
 
 | Key | Meaning |
 |---|---|
 | `providerName` | Registry name on `ctx.subagents` (default `spawn`). |
+| `structuredNudgeRetries` | How many times a structured run re-prompts a child that finished cleanly without calling `structured_output` (default 1). |

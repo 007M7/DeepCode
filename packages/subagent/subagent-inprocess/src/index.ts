@@ -18,7 +18,22 @@ import type { Context } from 'cordis'
 import { AgentId, type Agent, type AgentHandle, type AgentOptions } from '@deepseek-ai/dsh-agent'
 import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { assertSupportedOutputSchema } from '@deepseek-ai/dsh-tools'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
+import {
+  acquireStructuredRuntime,
+  STRUCTURED_OUTPUT_INSTRUCTION,
+  STRUCTURED_OUTPUT_NUDGE,
+  type StructuredAcquisition,
+} from './structured.ts'
+
+export {
+  acquireStructuredRuntime,
+  STRUCTURED_OUTPUT_TOOL,
+  STRUCTURED_OUTPUT_INSTRUCTION,
+  STRUCTURED_OUTPUT_NUDGE,
+  type StructuredAcquisition,
+} from './structured.ts'
 
 declare module '@deepseek-ai/dsh-agent' {
   interface AgentOptions {
@@ -76,6 +91,13 @@ export interface InProcessRunOptions {
    * parent's log (FORK), or `undefined` for a fresh child (SPAWN).
    */
   readonly seed?: SessionEvent[]
+  /**
+   * How many times a structured run re-prompts a child that finished a turn
+   * cleanly WITHOUT calling `structured_output` (see the structured module).
+   * REQUIRED, resolved from the backend's validated Config — per the explicit-
+   * defaulting rule, the driver never fills it with a hidden fallback.
+   */
+  readonly structuredNudgeRetries: number
 }
 
 /**
@@ -98,6 +120,10 @@ export function startInProcessRun(
   if (request.maxDepth !== undefined && childDepth > request.maxDepth) {
     throw new SubagentDepthError(childDepth, request.maxDepth)
   }
+  // Assert the schema subset BEFORE any child exists (the service has already
+  // capability-gated; this rejects a schema outside the enforced subset loud).
+  const schema = request.outputSchema
+  if (schema !== undefined) assertSupportedOutputSchema(schema)
 
   const childId = AgentId(randomUUID())
   // The child's OWN events begin after the seed (fork seeds the parent's
@@ -109,12 +135,23 @@ export function startInProcessRun(
   // Inherit the parent's model by default (a child with no model cannot run);
   // an explicit `request.agentOptions.model` overrides it. The parent's
   // systemPrompt is NOT inherited — a fresh child is a clean specialist unless
-  // the caller supplies one.
+  // the caller supplies one. A structured run appends the structured_output
+  // instruction after whatever prompt the caller supplied.
+  const callerPrompt = request.agentOptions?.systemPrompt
+  const systemPrompt = schema === undefined
+    ? callerPrompt
+    : [callerPrompt, STRUCTURED_OUTPUT_INSTRUCTION].filter(text => text !== undefined && text.length > 0).join('\n\n')
   const agentOptions: AgentOptions = {
     ...request.parent.options.model !== undefined ? { model: request.parent.options.model } : {},
     ...request.agentOptions,
+    ...systemPrompt !== undefined ? { systemPrompt } : {},
     subagentDepth: childDepth,
   }
+
+  // The structured runtime is held for the WHOLE run (acquired before the child
+  // exists, released when the result settles), so a backend hot-reload mid-run
+  // cannot unregister the capture tool out from under this live child.
+  const structured: StructuredAcquisition | undefined = schema !== undefined ? acquireStructuredRuntime(ctx) : undefined
 
   const handle: AgentHandle = ctx.agents.create({
     agentId: childId,
@@ -130,6 +167,7 @@ export function startInProcessRun(
     agentOptions,
   })
   const child = handle.agent
+  if (structured && schema !== undefined) structured.attach(child, schema)
 
   // Bridge the request's abort signal to the child (the consumer also bridges
   // its own exec.signal, but a backend-level bridge keeps the contract local).
@@ -154,9 +192,30 @@ export function startInProcessRun(
       if (request.signal?.aborted) return { output: [], stopReason: 'aborted' }
       child.send(request.prompt)
       await child.whenIdle()
-      return readResult(child, seedLength, cancelled)
+      if (structured) {
+        // Nudge loop: a child that finished a turn CLEANLY without calling
+        // structured_output gets re-prompted, up to the backend-configured
+        // retry count. An errored/aborted turn is not nudged — its failure is
+        // the honest result. (This also covers a cancel: a cancelled turn ends
+        // `aborted`, and a pre-turn cancel leaves no `turn/end` at all, so
+        // neither reads `completed`.)
+        let nudges = options.structuredNudgeRetries
+        while (
+          structured.captured(child) === undefined && nudges > 0
+          && lastOwnTurnEnd(child, seedLength)?.data.reason.kind === 'completed'
+        ) {
+          nudges -= 1
+          child.send([{ type: 'text', text: STRUCTURED_OUTPUT_NUDGE }])
+          await child.whenIdle()
+        }
+      }
+      return readResult(child, seedLength, cancelled, structured ? { captured: structured.captured(child) } : undefined)
     } finally {
       request.signal?.removeEventListener('abort', onAbort)
+      if (structured) {
+        structured.detach(child)
+        structured.release()
+      }
     }
   })()
 
@@ -173,6 +232,12 @@ export function startInProcessRun(
   }
 }
 
+/** The child's OWN last `turn/end` event (events at or after `seedLength`), if any. */
+function lastOwnTurnEnd(child: Agent, seedLength: number): SessionEvent<'turn/end'> | undefined {
+  return child.session.events.slice(seedLength)
+    .findLast((e): e is SessionEvent<'turn/end'> => e.type === 'turn/end')
+}
+
 /**
  * Read a settled child's terminal result from its session log, scoped to the
  * child's OWN events (everything at or after `seedLength` — fork seeds the
@@ -184,12 +249,29 @@ export function startInProcessRun(
  * logged (a cancel landed in the pre-turn window, before any turn ran), the
  * run settles `aborted` per the {@link SubagentRun.cancel} contract rather than
  * the generic no-turn `error`.
+ *
+ * A structured run (`structured` present) additionally reports the captured
+ * value on {@link SubagentResult.structured}. A structured child that finished
+ * CLEANLY without ever capturing (the nudges ran out) settles `error` — a clean
+ * finish without the demanded structured result is a failure, not a success
+ * with a missing field; a non-`completed` reason keeps its own honest mapping.
  */
-function readResult(child: Agent, seedLength: number, cancelled: boolean): SubagentResult {
+function readResult(
+  child: Agent,
+  seedLength: number,
+  cancelled: boolean,
+  structured?: { captured?: { value: unknown } | undefined },
+): SubagentResult {
   const own = child.session.events.slice(seedLength)
   const lastMessage = own.findLast((e): e is SessionEvent<'assistant/message'> => e.type === 'assistant/message')
   const lastEnd = own.findLast((e): e is SessionEvent<'turn/end'> => e.type === 'turn/end')
   const output: ContentBlock[] = lastMessage ? structuredClone(lastMessage.data.content) : []
-  if (lastEnd === undefined && cancelled) return { output, stopReason: 'aborted' }
-  return { output, stopReason: toStopReason(lastEnd?.data.reason) }
+  const stopReason: SubagentStopReason = lastEnd === undefined && cancelled
+    ? 'aborted'
+    : toStopReason(lastEnd?.data.reason)
+  if (structured) {
+    if (structured.captured) return { output, structured: structured.captured.value, stopReason }
+    if (stopReason === 'completed') return { output, stopReason: 'error' }
+  }
+  return { output, stopReason }
 }

@@ -104,6 +104,7 @@ graph TD
   subagent-inprocess --> llm
   subagent-inprocess --> session
   subagent-inprocess --> subagent
+  subagent-inprocess --> tools
   subagent-mock --> agent
   subagent-mock --> llm
   subagent-mock --> subagent
@@ -169,7 +170,7 @@ graph TD
 | `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `system-prompt`, `tool-bash`, `tools` |
 | `hooks-claude` | `agent`, `hook-protocol`, `llm`, `session`, `subagent`, `tools` |
 | `subagent-acp` | `agent`, `llm`, `subagent` |
-| `subagent-inprocess` | `agent`, `llm`, `session`, `subagent` |
+| `subagent-inprocess` | `agent`, `llm`, `session`, `subagent`, `tools` |
 | `subagent-mock` | `agent`, `llm`, `subagent` |
 | `tool-subagent` | `agent`, `llm`, `subagent`, `tools` |
 | `acp-agent` | `acp`, `agent-core`, `app-boot`, `session-persistence-jsonl` |
