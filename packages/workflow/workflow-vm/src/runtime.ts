@@ -265,8 +265,9 @@ export class WorkflowExecution {
       // their rejections from going unhandled.)
       if (this.cancelReason === undefined) this.cancel('workflow settled')
       // drive() settling means nothing is left to abandon — including the
-      // timer the self-cancel above just armed.
-      if (this.abandonTimer !== undefined) clearTimeout(this.abandonTimer)
+      // timer the self-cancel above just armed (cancel() always arms it, so
+      // it is never undefined here; clearTimeout tolerates undefined anyway).
+      clearTimeout(this.abandonTimer)
     }
   }
 
