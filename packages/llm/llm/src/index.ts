@@ -16,6 +16,8 @@ export * from './never.ts'
 export * from './error.ts'
 export * from './types.ts'
 export { BlockAssembler } from './assembler.ts'
+export { callConfigEquals, deepFreeze } from './call-config.ts'
+export type { LlmCallConfig } from './call-config.ts'
 
 declare module 'cordis' {
   interface Context {
