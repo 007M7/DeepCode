@@ -1,8 +1,8 @@
 # RFC: Drop the mutable session summary
 
-Status: implemented (proposed and accepted 2026-06-19)
+Status: implemented
 
-## Context
+## Problem
 
 The [session-persistence seam](../architecture/2026-06-14-session-persistence.md) split a session's out-of-log metadata into two types owned by `dsh-session`: an immutable `SessionHeader` (`version`, `id`, `createdAt`, `cwd?`, `parentSession?`) written once at creation, and a mutable `SessionSummary` (`updatedAt`, `title?`, `firstPrompt?`) "updateable without touching the append-only log". Their union was `SessionMeta = SessionHeader & SessionSummary`, and the abstract `SessionPersistence` service carried a seventh method — `update(id, summary)` — for rewriting the summary. Each backend implemented the mutable store its own way: JSONL wrote a separate atomic `.summary.json` **sidecar** beside the log (temp-write + rename, best-effort), SQLite kept `updated_at`/`title`/`first_prompt` **columns** bumped inside the append transaction.
 
@@ -26,6 +26,8 @@ This is recorded as a decision because it is **durable** (it narrows a public se
 
 This is unreleased software (see [root AGENTS.md](../../../../AGENTS.md) § "Pre-release stance: foundation over blast radius"), so there are no on-disk databases or logs to preserve. SQLite does not migrate a v1 database: the `openDatabase` guard now rejects any non-current on-disk `user_version` (`onDisk !== 0 && onDisk !== SCHEMA_VERSION`) — older *or* newer — so a stale v1 DB is cleanly rejected rather than half-read against the new column set. A fresh database stamps the current version; that is the only path that needs to work.
 
-## What we gave up
+## Consequences
 
 A future session picker now has to derive its preview/ordering from the log (or reintroduce a typed field) rather than reading a ready-made summary row. That is the correct cost: a cache for a feature that does not exist is dead weight that every backend pays to maintain and every contract test pays to assert. The principle — **a passing test pins current behavior, not necessarily correct behavior; behavior can be an artifact of a past compromise** — is now recorded as a standalone convention in [root AGENTS.md](../../../../AGENTS.md), with this change as its worked example.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

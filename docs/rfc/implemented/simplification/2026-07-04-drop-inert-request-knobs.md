@@ -1,6 +1,6 @@
 # RFC: Drop `GenerateOptions.prefill` and `ToolSchema.strict` — request knobs with no working end-to-end path
 
-Status: implemented (proposed and accepted 2026-07-04)
+Status: implemented
 
 ## Problem
 
@@ -18,16 +18,16 @@ Both knobs were adapter-symmetric, so removal shed them from both twins together
 
 This RFC deliberately does NOT touch `temperature`, `stop`, or `maxTokens`: those are honored end-to-end by both adapters and are the natural first targets of a request-mutating hook plugin on `agent/request`.
 
-## Why not keep them?
+## Alternatives considered
+
+### Why not keep them?
 
 "An explicit UNSUPPORTED throw is honest contract behavior" — but a knob whose only implementation across both twins is rejection promises nothing, and deleting it upgrades the failure mode: an accidental setter becomes a compile error instead of a runtime throw. "Strict schema adherence is an officially documented provider feature with complete plumbing" — but a knob is not product surface until a shipped tool sets it AND an endpoint honors it; today neither is true. Each returns with its first real producer: `prefill` together with an adapter that implements chat-prefix completion (and a stated policy for adapters that do not), `strict` together with a tool that wants it and a beta-endpoint story.
 
-## Acceptance criteria
+## Verification
 
-- `rg prefill` returns only RFC records (this one and the [content-block vocabulary RFC](../architecture/2026-06-11-content-block-vocabulary.md)'s producer-gated consequence); a tool-schema-scoped `rg strict` returns only this RFC, the surviving pi-ai scrub, and unrelated prose such as `strictEqual`.
-- Both adapters compile and their contract tests pass without the guards; the pi-ai fixup still scrubs the library's strict default (wire parity pinned by its serializer tests).
-- Doc pastes and the type-equiv manifest in sync; `pnpm run doc-sync` green.
+`rg prefill` returns only RFC records (this one and the [content-block vocabulary RFC](../architecture/2026-06-11-content-block-vocabulary.md)'s producer-gated consequence); a tool-schema-scoped `rg strict` returns only this RFC, the surviving pi-ai scrub, and unrelated prose such as `strictEqual`. Both adapters' contract tests pass without the guards, and the pi-ai fixup still scrubs the library's strict default — wire parity pinned by its serializer tests.
 
-## Risks
+## Consequences
 
-The shipped hook bridges set no request fields at all, and a request-mutating plugin (an `agent/request` waterfall listener) would reach for `temperature`/`stop` (kept, working), not a field adapters reject. If chat-prefix completion or strict mode become product features, the re-add lands with the adapter/endpoint work, where the contract can say what actually happens rather than "everyone throws".
+The shipped hook bridges set no request fields at all, and a request-mutating plugin (an `agent/request` waterfall listener) reaches for `temperature`/`stop` (kept, working), not a field adapters reject. If chat-prefix completion or strict mode become product features, the re-add lands with the adapter/endpoint work, where the contract can say what actually happens rather than "everyone throws".

@@ -44,3 +44,5 @@ The matrix therefore covers every hook point that has a DETERMINISTIC, OBSERVABL
 - The block scenarios are keyless (no model turn); the rest replay keyless from recorded fixtures. `pnpm run test:snapshot:record` regenerates the recorded fixtures from the live API and self-skips without a key like every recorded scenario.
 - The prove-red discipline holds: tampering a hook config's output (e.g. changing a deny reason) turns its scenario red on replay — the hook process runs FOR REAL during replay (only the model is replayed), so the golden guards the actual hook→seam→loop path, not a mock of it.
 - The `acp-agent` demo now loads a Codex bridge it will usually no-op (no `codex-hooks.json` in a typical project), which is the intended fail-soft behavior, not a cost.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

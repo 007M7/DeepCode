@@ -1,6 +1,6 @@
 # RFC: Shared persistence write coordinator
 
-Status: implemented (proposed and accepted 2026-06-18, implemented 2026-06-20)
+Status: implemented
 
 ## Problem
 
@@ -32,6 +32,11 @@ The single design choice that keeps the seam clean: the crash-repair "where is t
 
 The shared `runPersistenceContract` (public-API contract) keeps running for every backend. A new `runCoordinatorContract` (`tests/coordinator-contract.ts`) holds the write-path orchestration — adoption, HMR, collision, dispose-drain, crash-tail repair — and runs once per backend through a `CoordinatorFixture` (an in-memory reference + jsonl + sqlite). The per-backend specs shrank to storage mechanics only (JSONL: path safety, fsync rollback, bucket listing; SQLite: schema version, `scanRows`, transaction rollback). A through-coordinator torn-tail→load→`commitRepair` test per real backend (via a `corruptTail` fixture hook) keeps the coordinator's torn-marker repair branch covered under the 100% per-file gate — the contract crash test only produces synthetic closers, never a torn marker, so it could not reach that branch.
 
-## Risks and what we gave up
+## Alternatives considered
+
+- **A base class the backends extend** — rejected for composition: a backend exposes only the hooks, cannot reach the coordinator's private orchestration state, and a third-party backend may still implement the abstract service directly without the coordinator at all.
+- **A wider hook surface** — each candidate hook folded away: there is no separate `materialize` hook (the materialize-write must commit atomically with the first event batch inside `appendBatch`), no separate create-collision probe (it is `loadStored(id) !== undefined`), and no coordinator pass-through for `list()` (listing needs none of the orchestration).
+
+## Consequences
 
 The pre-extraction duplication was verbose but explicit — each backend read top-to-bottom. The coordinator adds one indirection (the hook seam) and one new concept (the opaque torn marker). This clears the bar because the centralized logic is the correctness-heavy part that was already being fixed twice, and the hook set is narrow (six methods, no inheritance). The hook surface was deliberately held to the minimum: the create-collision probe is NOT a separate hook — it folds into `loadStored(id) !== undefined`; there is no separate `materialize` hook (folded into `appendBatch` for atomicity); `list()` stays a backend method with no coordinator pass-through (listing needs none of the orchestration). The net effect is a reduction: one orchestration copy instead of two, the backends shrank by ~1200 lines of duplicated churn, and a future backend implements a handful of small primitives instead of copying the entire `session/event` → buffer → flush machinery.

@@ -1,10 +1,8 @@
 # RFC: Custom typed tool-schema DSL instead of schemastery
 
-Status: implemented (accepted 2026-06-11)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 Tool parameters must reach the model as standard JSON Schema (the wire format), and tool authors deserve typed `execute(args)` without casts. The repo already vendors schemastery (used for plugin Config), so reusing it was the obvious candidate. The user also explicitly preferred per-property `required: true` booleans over JSON Schema's separate `required` array.
 
@@ -12,7 +10,9 @@ Tool parameters must reach the model as standard JSON Schema (the wire format), 
 
 A small custom DSL in dsh-tools: `SchemaSpec` (per-property specs with `required: true` booleans), type-level `InferArgs<S>` mapping a spec to the argument type (required keys non-optional, others genuinely optional via `?`), a runtime `schemaSpecToJsonSchema()` converter, and `defineTool()` tying them together. Raw JSON-Schema `ToolDefinition`s remain accepted by `ToolRegistry.register()` — that's how MCP-sourced tools arrive.
 
-Schemastery was evaluated and rejected for this use: it targets validation / transformation against StandardSchema, not JSON Schema *generation*, so it would add indirection without producing the wire format cleanly.
+## Alternatives considered
+
+**Schemastery** (already vendored, used for plugin Config) was evaluated and rejected for this use: it targets validation / transformation against StandardSchema, not JSON Schema *generation*, so it would add indirection without producing the wire format cleanly.
 
 ## Consequences
 

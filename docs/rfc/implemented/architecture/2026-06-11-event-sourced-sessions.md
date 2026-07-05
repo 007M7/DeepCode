@@ -1,12 +1,10 @@
 # RFC: Event-sourced sessions with derived message history
 
-Status: implemented (accepted 2026-06-11)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
+## Problem
 
-## Context
-
-The MVP requires strict event-based tracing with fully replayable sessions (严格的基于事件的trace、logging系统，session完全可回放). Two models were considered: a mutable message array with events fired as notifications (simpler, but state and log can diverge), or event-sourcing where the log IS the state.
+The MVP requires strict event-based tracing with fully replayable sessions (严格的基于事件的trace、logging系统，session完全可回放).
 
 ## Decision
 
@@ -16,9 +14,13 @@ Appends are synchronous (the hot path never blocks on I/O); `session/event` is a
 
 Ordering contract: the loop appends to the session *before* emitting the corresponding Cordis event, and the `agent/step-result` waterfall runs before the `assistant/message` append so the log records what tool dispatch actually used (post-review fix; regression-tested).
 
+## Alternatives considered
+
+**A mutable message array with events fired as notifications** — simpler, but state and log can diverge; with event-sourcing the log IS the state, so divergence is structurally impossible.
+
 ## Consequences
 
 - Replay, trace, and telemetry are structurally guaranteed, not bolted on.
 - Persistence stays a plugin concern; the in-memory store ships in dsh-session.
-- The event vocabulary is merge-extensible (plugins add e.g. compaction events); it carries a TODO(review) marker until the first persistence plugin and real adapter exercise it.
+- The event vocabulary is merge-extensible (plugins add e.g. compaction events); [session persistence](2026-06-14-session-persistence.md) froze its shape once the log became durable.
 - Derivation cost grows with log length — compaction (future plugin) is the intended mitigation, not log mutation.

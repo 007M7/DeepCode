@@ -23,3 +23,5 @@ For now, ACP starts fresh sessions only. `initialize` advertises `loadSession: f
 ## What we give up
 
 An editor cannot reopen a prior persisted session through ACP. That is a real product feature, but the current implementation is ahead of the UX and ties the bridge to token-level log replay. Keeping persistence while dropping editor load narrows the bridge to the workflow it can currently present cleanly.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->
