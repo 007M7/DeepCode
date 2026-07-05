@@ -107,9 +107,9 @@ export function startInProcessRun(
   const seedLength = options.seed?.length ?? 0
   const parentHeader = request.parent.session.header
   // Inherit the parent's model by default (a child with no model cannot run);
-  // an explicit `request.agentOptions.model` overrides it. The parent's
-  // systemPrompt is NOT inherited — a fresh child is a clean specialist unless
-  // the caller supplies one.
+  // an explicit `request.agentOptions.model` overrides it. The persona needs
+  // no inheritance: the deployment persona is a context-wide prompt section,
+  // so parent and child render the same one.
   const agentOptions: AgentOptions = {
     ...request.parent.options.model !== undefined ? { model: request.parent.options.model } : {},
     ...request.agentOptions,

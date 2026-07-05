@@ -15,7 +15,7 @@ The default distribution is a composition, not a hierarchy. `packages/core/` is 
 | ctx key | Package | Role |
 |---|---|---|
 | `ctx.sessions` | `dsh-session` | in-memory event-sourced sessions |
-| `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections plus tool schemas |
+| `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and prompt variables |
 | `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
 | `ctx.agents` | `dsh-agent` | live agent registry, public `Agent` handle, `agent/*` vocabulary |
 | `ctx.agentLoop` | `dsh-agent-loop` | shipped `ReactLoopAgent` driver |
@@ -87,6 +87,8 @@ forever:
     'turn/end'
     checkpoint persistence and notify idle/running status
 ```
+
+Prompt assembly is single-path: `renderPrompt(assemble({ agent }))` IS the system prompt sent to the model. Plugins contribute ordered sections (static or computed from the per-call `AssembleContext`), tool schemas, and named variables interpolated as `{{name}}` at render — strictly, so an unknown or valueless reference fails the turn instead of shipping a hole. `dsh-system-prompt` itself owns the openers — the static `harness:identity` section (order −100) and the deployment's persona (order 0, from its `persona` config, shared by every agent in the context) — while the shipped loop registers the `model`/`cwd` variables; prompt-fact ownership is pinned by the [prompt-variables RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
 
 Post-tool context lands after all tool results so tool-call/result adjacency stays stable. Steering drains between steps; leftover steering after a turn is re-queued as ordinary input.
 

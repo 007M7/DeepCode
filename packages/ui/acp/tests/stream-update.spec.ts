@@ -818,7 +818,5 @@ describe('agentOptions', () => {
   it('includes only the fields present in config', () => {
     expect(agentOptions({})).toEqual({})
     expect(agentOptions({ model: 'm' })).toEqual({ model: 'm' })
-    expect(agentOptions({ systemPrompt: 'sp' })).toEqual({ systemPrompt: 'sp' })
-    expect(agentOptions({ model: 'm', systemPrompt: 'sp' })).toEqual({ model: 'm', systemPrompt: 'sp' })
   })
 })

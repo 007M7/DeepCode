@@ -153,6 +153,8 @@ export interface BridgeHarness {
 export async function makeBridgeHarness(options: {
   script?: (StreamChunk[] | 'hang')[]
   config?: Partial<AcpConfig>
+  /** Deployment persona for the tree (the system-prompt plugin's config). */
+  persona?: string
   storageDir: string
   /**
    * Plug the REAL `dsh-bash-local` executor + `dsh-tool-bash` tools (instead of
@@ -183,7 +185,7 @@ export async function makeBridgeHarness(options: {
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(SystemPrompt, { persona: options.persona ?? '' })
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })

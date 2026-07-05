@@ -28,12 +28,11 @@ interface Config {
   agents: Array<{
     id: string                 // required
     model?: string
-    systemPrompt?: string
   }>
 }
 ```
 
-Agents listed in config are auto-created at startup.
+Agents listed in config are auto-created at startup. (There is no per-agent persona: the deployment persona is `dsh-system-prompt`'s own `persona` config, shared by every agent in the context.) The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from the `assemble({ agent })` context — runtime facts of the agents THIS loop drives, unlike the `harness:identity`/`deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
 
 ### Classes
 
@@ -55,7 +54,7 @@ forever:
     if every prompt blocked: 'turn/end'(rejected), no step  ⟵ zero-step turn
     STEP loop:
       drain steering
-      assembly = systemPrompt.assemble()
+      assembly = systemPrompt.assemble({agent})  ⟵ renderPrompt(assembly) IS the full prompt
       await serial agent/pre-step        ⟵ surface mutation (compaction) outside the step
       session('step/start')
       request = waterfall agent/request
