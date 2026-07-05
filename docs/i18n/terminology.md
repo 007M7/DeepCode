@@ -92,7 +92,7 @@
 | language switcher | 语言切换行 | i18n 机制词：双语配对文件顶部的互链行 |
 | memory | memory / 记忆 / 内存 | 按上下文区分：agent memory 译为“记忆”；resource/memory usage 译为“内存” |
 | message | 消息 | |
-| mock | 模拟 | 如「模拟接口」「模拟模型」；指测试替身 |
+| mock | mock | 保留英文；指测试替身 |
 | mod | 模组 | 区别于 module（模块）；plugin 译作「插件」 |
 | model provider | 模型提供方 | |
 | module | 模块 | |
