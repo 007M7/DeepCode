@@ -104,7 +104,8 @@ interface LoadOptions extends DiscoverOptions {
 
 interface NestedLoadOptions extends LoadOptions {
   touchedPath: string
-  loadedPaths: Set<string>
+  loadedDisplayPaths: Set<string>
+  pendingDisplayPaths: Set<string>
 }
 
 function resolveConfig(config: Config): ResolvedConfig {
@@ -290,7 +291,7 @@ async function discoverNestedInstructionFiles(options: NestedLoadOptions, fileSy
   const files: DiscoveredInstructionFile[] = []
   for (const dir of descendantDirsBetween(cwd, options.touchedPath)) {
     const file = await firstExistingInstructionFile(dir, projectRoot, config.enableClaudeFallback, fileSystem)
-    if (file !== undefined && !options.loadedPaths.has(file.absolutePath)) files.push(file)
+    if (file !== undefined && !options.loadedDisplayPaths.has(file.displayPath)) files.push(file)
   }
   return files
 }
@@ -354,12 +355,16 @@ async function loadNestedInstructions(
     if (content !== undefined) loaded.push({ absolutePath: file.absolutePath, displayPath: file.displayPath, content })
   }
   if (loaded.length === 0) return undefined
-  for (const file of loaded) options.loadedPaths.add(file.absolutePath)
+  for (const file of loaded) options.pendingDisplayPaths.add(file.displayPath)
   return renderProjectInstructions(loaded, { maxBytes: config.baselineMaxBytes })
 }
 
+function escapeInstructionContent(content: string): string {
+  return content.replaceAll(WORKSPACE_CONTEXT_CLOSE, '<\\/workspace-context>')
+}
+
 function sectionText(file: LoadedInstructionFile): string {
-  return `## ${file.displayPath}\n\n${file.content}`
+  return `## ${file.displayPath}\n\n${escapeInstructionContent(file.content)}`
 }
 
 function markerText(maxBytes: number, omitted: InstructionFile[], truncated: TruncatedInstruction[]): string {
@@ -490,24 +495,74 @@ function filePathFromExecution(exec: ToolExecution): string | undefined {
   return filePath.length > 0 ? filePath : undefined
 }
 
+function isProjectInstructionContextSource(source: unknown): source is typeof PLUGIN_SOURCE {
+  return typeof source === 'object' && source !== null
+    && 'kind' in source && source.kind === 'plugin'
+    && 'plugin' in source && source.plugin === name
+}
+
+function instructionDisplayPathsFromText(text: string): string[] {
+  const paths: string[] = []
+  for (const match of text.matchAll(/^## ([^\n]+)$/gm)) {
+    const displayPath = match[1]
+    if (displayPath !== undefined) paths.push(displayPath)
+  }
+  return paths
+}
+
+function instructionDisplayPathsFromContextContent(content: readonly { type: string; text?: string }[]): Set<string> {
+  const paths = new Set<string>()
+  for (const block of content) {
+    if (block.type !== 'text' || block.text === undefined) continue
+    for (const displayPath of instructionDisplayPathsFromText(block.text)) paths.add(displayPath)
+  }
+  return paths
+}
+
+function visibleNestedInstructionDisplayPaths(agent: Agent): Set<string> {
+  const paths = new Set<string>()
+  for (const node of agent.session.surface.nodes) {
+    const event = agent.session.events[node.seq]
+    if (event?.type !== 'context/message' || !isProjectInstructionContextSource(event.data.source)) continue
+    for (const displayPath of instructionDisplayPathsFromContextContent(event.data.content)) paths.add(displayPath)
+  }
+  return paths
+}
+
+function loggedNestedInstructionDisplayPaths(agent: Agent): Set<string> {
+  const paths = new Set<string>()
+  for (const event of agent.session.events) {
+    if (event.type !== 'context/message' || !isProjectInstructionContextSource(event.data.source)) continue
+    for (const displayPath of instructionDisplayPathsFromContextContent(event.data.content)) paths.add(displayPath)
+  }
+  return paths
+}
+
+function loadedNestedInstructionDisplayPaths(agent: Agent, pendingDisplayPaths: Set<string>): Set<string> {
+  const visible = visibleNestedInstructionDisplayPaths(agent)
+  for (const displayPath of loggedNestedInstructionDisplayPaths(agent)) pendingDisplayPaths.delete(displayPath)
+  return new Set([...visible, ...pendingDisplayPaths])
+}
+
 async function dynamicInstructionContext(
   agent: Agent | undefined,
   exec: ToolExecution,
   result: ToolExecutionResult,
   resolved: ResolvedConfig,
   cache: InstructionContentCache,
-  loadedNestedPaths: WeakMap<object, Set<string>>,
+  pendingNestedDisplayPaths: WeakMap<object, Set<string>>,
   fileSystem: FileSystem,
 ): Promise<HookContext | undefined> {
   if (agent === undefined || result.isError) return undefined
   const touchedPath = filePathFromExecution(exec)
   if (touchedPath === undefined) return undefined
   const session = agent.session
-  let loadedPaths = loadedNestedPaths.get(session)
-  if (loadedPaths === undefined) {
-    loadedPaths = new Set()
-    loadedNestedPaths.set(session, loadedPaths)
+  let pendingDisplayPaths = pendingNestedDisplayPaths.get(session)
+  if (pendingDisplayPaths === undefined) {
+    pendingDisplayPaths = new Set()
+    pendingNestedDisplayPaths.set(session, pendingDisplayPaths)
   }
+  const loadedDisplayPaths = loadedNestedInstructionDisplayPaths(agent, pendingDisplayPaths)
   /* v8 ignore next -- stdio compatibility fallback; normal agents carry an absolute session cwd. */
   const cwd = session.header.cwd ?? process.cwd()
   const instructions = await loadNestedInstructions({
@@ -517,7 +572,8 @@ async function dynamicInstructionContext(
     baselineMaxBytes: resolved.baselineMaxBytes,
     enableClaudeFallback: resolved.enableClaudeFallback,
     touchedPath,
-    loadedPaths,
+    loadedDisplayPaths,
+    pendingDisplayPaths,
     cache,
   }, fileSystem)
   if (instructions === undefined || instructions.text.length === 0) return undefined
@@ -527,7 +583,7 @@ async function dynamicInstructionContext(
 export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
   const cache: InstructionContentCache = new Map()
-  const loadedNestedPaths = new WeakMap<object, Set<string>>()
+  const pendingNestedDisplayPaths = new WeakMap<object, Set<string>>()
   ctx.on('agent/request', async (agent: Agent, _turn: number, _step: number, request: GenerateOptions, next) => {
     if (resolved.baselineMaxBytes <= 0 || !Number.isFinite(resolved.baselineMaxBytes)) return next()
     /* v8 ignore next -- stdio compatibility fallback; tests avoid process.chdir() because cwd is process-global. */
@@ -548,7 +604,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.on('tools/post-execute', async (exec: ToolExecution, result: ToolExecutionResult, next): Promise<PostToolDecision> => {
     const downstream = await next()
     if (downstream.kind === 'block') return downstream
-    const context = await dynamicInstructionContext(exec.agent, exec, result, resolved, cache, loadedNestedPaths, ctx.fs)
+    const context = await dynamicInstructionContext(exec.agent, exec, result, resolved, cache, pendingNestedDisplayPaths, ctx.fs)
     if (context === undefined) return downstream
     return {
       kind: 'accept',

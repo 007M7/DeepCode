@@ -42,7 +42,7 @@ If the user launches from the repository root, only the root directory is in the
 
 ### Nested discovery after file tools
 
-The plugin observes successful `read`, `write`, and `edit` calls through `tools/post-execute`. For a touched file under the session cwd, it checks the directory chain from just below the session cwd through the touched file's parent directory, using the same file-name precedence as baseline discovery. Newly discovered nested files are attached as `additionalContext` so the loop records them after the tool result as durable `context/message` events for the next request. A per-session loaded-path set suppresses duplicate nested injections even if file content is evicted from the content cache.
+The plugin observes successful `read`, `write`, and `edit` calls through `tools/post-execute`. For a touched file under the session cwd, it checks the directory chain from just below the session cwd through the touched file's parent directory, using the same file-name precedence as baseline discovery. Newly discovered nested files are attached as `additionalContext` so the loop records them after the tool result as durable `context/message` events for the next request. Visible session context suppresses duplicate nested injections even if file content is evicted from the content cache; compaction that replaces a nested context message out of the visible surface allows a later structured file touch to re-load the applicable instruction file.
 
 Shell commands are not a trigger. `dsh-bash-local` runs each command in a fresh shell and does not persist shell cwd, and parsing `cd subdir && cat file` reliably would require shell semantics the harness does not own. If bash-driven path discovery becomes necessary, it should be a separate design over an explicit path-reporting contract rather than a heuristic bolted onto this plugin.
 
@@ -51,6 +51,8 @@ Shell commands are not a trigger. `dsh-bash-local` runs each command in a fresh 
 Baseline instructions are rendered as full text, not summarized. These files are already hand-authored summaries of durable guidance; asking a model to summarize them before every use risks deleting exactly the edge-case rules they exist to preserve. The only compression mechanism is deterministic byte budgeting and truncation.
 
 The plugin injects baseline instructions through the `agent/request` waterfall by prepending a synthetic workspace-context message to `GenerateOptions.messages`. It deliberately does not register a global `ctx.systemPrompt.section()` because that service has no per-agent/cwd dimension. It also deliberately does not append to `GenerateOptions.system`: repository files are workspace-provided context, and in cloned or third-party repositories they may be attacker-controlled. They should guide the model, but they must not be represented as top-authority system instructions.
+
+Because `agent/request` currently has no request-kind marker, baseline injection also applies to maintenance model calls such as compaction summarization. The implementation should not sniff the summarization prompt text to special-case this; a future request marker should let prompt-context plugins opt out of non-user-facing calls explicitly.
 
 The rendered block uses an explicit envelope that says the content came from local instruction files, is lower authority than system/developer/direct user instructions, and must not override safety, permission, or secret-handling rules. The direct user prompt remains later in the message list, so normal conversational precedence still lets the user override repo guidance.
 
@@ -92,7 +94,7 @@ The implementation should not cache a rendered block for the lifetime of the pro
 
 ### Source and role
 
-Project instruction files enter the model as synthetic workspace context, not as provider system text. Baseline files are recomputed from disk for each request and are not durable session events, so changing a baseline instruction file affects future requests without rewriting the event log. Nested files discovered after file-tool touches are durable `context/message` events because they describe path-specific context the agent learned during the session; replay and resume should preserve that fact. Tests therefore need both request-shape coverage for baseline injection and tool-execution coverage for nested `additionalContext`.
+Project instruction files enter the model as synthetic workspace context, not as provider system text. Baseline files are recomputed from disk for each request and are not durable session events, so changing a baseline instruction file affects future requests without rewriting the event log. Nested files discovered after file-tool touches are durable `context/message` events because they describe path-specific context the agent learned during the session; replay and resume should preserve that fact. Duplicate suppression should derive from the visible session surface, not only from live in-memory state: resumed sessions must not re-inject still-visible nested context, while compaction that replaces a nested context message out of the surface should allow a later structured file touch to re-load the applicable nested instructions. Tests therefore need both request-shape coverage for baseline injection and tool-execution coverage for nested `additionalContext`.
 
 ## Alternatives considered
 
