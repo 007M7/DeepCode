@@ -12,9 +12,11 @@ import * as stdioAgent from '../src/index.ts'
  * agent; `persistenceRoot`/`welcome`/`resumeSessionId` route to their backends.
  *
  * `hmr` is NOT part of this plugin (it is a leaf entry — a Loader-only dev
- * plugin the in-process tier cannot import); the REAL Loader-path guard (export
- * shape, `unwrapExports`, the whole subprocess tree incl. `hmr`) is the keyless
- * echo smoke in `examples/echo-agent`. Here we assert the composition + config
+ * plugin the in-process tier cannot import); the keyless echo smoke in
+ * `examples/echo-agent` proves the whole subprocess tree (incl. `hmr`) boots
+ * through the real Loader, while the export SHAPE is pinned by this suite's
+ * explicit `unwrapExports` assertion (an inject-less app would boot past a
+ * stray default rather than crash). Here we assert the composition + config
  * forwarding the unit tier can reach.
  */
 async function mount(config: stdioAgent.Config): Promise<Context> {

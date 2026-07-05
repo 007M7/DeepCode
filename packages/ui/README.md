@@ -8,8 +8,9 @@ Integrations that expose the agent to an external editor or client. These are **
 | `tool-ask-user/` | Model-facing `ask_user_question` tool over `ctx.userInteraction` | (registers on `ctx.tools`) |
 | `stdio-agent/` | Terminal stdio chat APP: the agent-core spine + console logger + readline UI + a pre-created `main` agent, with a `bin` | (composition + `bin`) |
 | `acp-agent/` | ACP server APP: the agent-core spine + JSONL persistence + the `acp` bridge (no stdout logger), with a `bin` | (composition + `bin`) |
+| `app-boot/` | Shared boot glue for the two app bins: `.env` loading, fail-loud Loader guards, snapshot-aware config resolution, the settle-the-tree boot sequence | (library for the bins) |
 
-A UI integration is a client-driver plugin, not a loop change and not a capability seam: it consumes the existing `agent/*` event taxonomy and the `dsh-agent` factory. The readline `ui-stdio` plugin is the unstructured analogue but lives in `support/` because it exists chiefly for the examples and the coverage gate — `ui/` is reserved for surfaces shipped as product.
+A UI integration is a client-driver plugin, not a loop change and not a capability seam: it consumes the existing `agent/*` event taxonomy and the `dsh-agent` factory. The readline UI is the unstructured analogue of the `acp` bridge and lives INSIDE the stdio app (the `stdio-chat` module of [`stdio-agent/`](stdio-agent/README.md)): it is scaffolding for that one front door, not an independently swappable integration, so it carries no package boundary of its own.
 
 `tool-ask-user` lives here because it is a model-facing product affordance that depends on a UI/provider seam; it is not part of the providerless core spine.
 

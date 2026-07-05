@@ -39,12 +39,10 @@ const acpBin = join(repoRoot, 'packages/ui/acp-agent/lib/bin.js')
 
 const dshPackages = [
   'core/agent-core', 'core/agent', 'core/session', 'core/system-prompt',
-  'core/tools', 'core/user-interaction', 'core/agent-loop', 'llm/llm',
-  'llm/llm-deepseek', 'bash/bash', 'bash/bash-local', 'bash/tool-bash',
-  'support/invariants',
+  'core/tools', 'core/agent-loop', 'llm/llm', 'llm/llm-deepseek', 'bash/bash',
+  'bash/bash-local', 'bash/tool-bash', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence',
   'session-persistence/session-persistence-jsonl', 'ui/acp', 'ui/acp-agent',
-  'ui/tool-ask-user',
 ]
 const vendorPackages = [
   'cordis', 'loader', 'include', 'timer', 'hmr', 'logger-console',

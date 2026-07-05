@@ -6,7 +6,7 @@ Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/t
 
 ## `SessionEventMap` — the event vocabulary
 
-The append-only event types. Merge-extensible: a plugin declares extra event types via declaration merging — e.g. the [compaction seam](compaction.md) adds `compact/start` / `compact/summary` / `compact/end`.
+The append-only event types. Merge-extensible: a plugin declares extra event types via declaration merging — e.g. the [compaction seam](compaction.md) adds `compact/start` / `compact/summary` / `compact/end`, and `@deepseek-ai/dsh-hook-protocol` adds log-only `hook/invoked` / `hook/result` provenance for a hook bridge. Like `compact/*`, these are NOT `SurfaceEventType`s (no `surfaceOp`). The generated [persistence log event catalog](../persistence-catalog/log-events.md) enumerates every member — core and merged — with its payload, surface badge, and declaration site.
 
 ```ts type-equiv
 interface SessionEventMap {
@@ -16,6 +16,17 @@ interface SessionEventMap {
   'step/end': { turn: number; step: number }
   /** A user-visible prompt (queued message drained at turn start). */
   'user/message': { content: ContentBlock[]; source: MessageSource }
+  /**
+   * A queued prompt an `agent/prompt-submit` listener VETOED — the durable
+   * record of a blocked prompt and why. Appended in place of the `user/message`
+   * the prompt would have become, so the block survives replay even in a MIXED
+   * batch where another queued prompt is allowed (there the turn does not end
+   * `rejected`, so the boundary reason alone would not preserve it). `content`
+   * is the original prompt the listener rejected; `reason` is the veto text
+   * ({@link PromptDecision} `block.reason`). NOT a {@link SurfaceEventType}: a
+   * blocked prompt produces no LLM message and never reaches `deriveMessages()`.
+   */
+  'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
   /**
    * In-session context injection (file-change notices, subdir AGENTS.md,
    * skill content, cron notifications, …). Rendered into the derived history
@@ -32,7 +43,7 @@ interface SessionEventMap {
    */
   'assistant/message': { turn: number; step: number; content: ContentBlock[]; usage?: TokenUsage }
   'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
-  'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string } }
+  'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string }; meta?: unknown }
   /** Steering content injected between steps of a running turn. */
   'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
   /**
@@ -153,7 +164,6 @@ Everything else (`turn/*`, `step/*`) is structural and does not project into a m
 ```ts type-equiv
 interface TurnTriggerMap {
   message: { kind: 'message'; source: MessageSource }
-  continuation: { kind: 'continuation' }
   /**
    * An out-of-band context injection (`agent.inject()`) made while the agent
    * was idle. The loop wraps the injected `context/message` in a one-shot turn
@@ -182,6 +192,16 @@ interface TurnEndReasonMap {
   disposed: { kind: 'disposed' }
   'max-tokens': { kind: 'max-tokens' }
   /**
+   * The turn's entire prompt batch was BLOCKED before any step ran — every
+   * drained queued message was vetoed by an `agent/prompt-submit` listener (a
+   * hook). The turn still opened (so the boundary stays balanced and the block
+   * is a durable in-turn fact), but ran zero steps. `reason` carries the block
+   * message from the vetoing decision. Distinct from `aborted` (a user-driven
+   * cancel) and `error` (a failure): the prompt was rejected by policy, not
+   * interrupted or broken. A UI renders it as "prompt blocked by hook".
+   */
+  rejected: { kind: 'rejected'; reason: string }
+  /**
    * The turn never ended on its own: the process crashed mid-turn and a
    * persistence backend later closed the orphaned (open) turn on reload so the
    * log stays balanced. SYNTHESIZED by the backend's crash-recovery repair — no
@@ -195,11 +215,17 @@ interface TurnEndReasonMap {
 }
 ```
 
-`max-tokens` mirrors the model-call `FinishReason` of the same name: any `max-tokens` step in a turn makes the whole turn end `max-tokens` (the cut-short fact wins over a later continuation), so a consumer can tell a clean stop from a truncated one. `interrupted` is the one reason no loop emits — it is synthesized by crash recovery (see [persistence.md](persistence.md)). Both maps are merge-extensible.
+`max-tokens` mirrors the model-call `FinishReason` of the same name: any `max-tokens` step in a turn makes the whole turn end `max-tokens` rather than `completed` (the cut-short fact wins over a later continuation), so a consumer can tell a clean stop from a truncated one — but only over `completed`: the `disposed`/`aborted`/`error` outcomes take precedence. `rejected` is a zero-step turn whose whole prompt batch an `agent/prompt-submit` hook blocked (the ACP bridge maps it to `cancelled`). `interrupted` is the one reason no loop emits — it is synthesized by crash recovery (see [persistence.md](persistence.md)). Both maps are merge-extensible.
 
 ## The turn-enclosure invariant
 
 Every session event lives **inside** a turn (between a `turn/start` and its `turn/end`). The loop appends queued `user/message` events *after* `turn/start`, and an idle `agent.inject()` wraps its `context/message` in a one-shot `injection` turn. This makes the turn the single durability/replay boundary: a backend can treat anything after the last `turn/end` as an interrupted-crash tail without risking the loss of legitimately-recorded between-turn context. The `dsh-invariants` plugin enforces it in dev (a message event outside an open turn throws). See [the turn-enclosure invariant RFC](../rfc/implemented/architecture/2026-06-15-turn-enclosure-invariant.md).
+
+## Plugin-contributed log-only events
+
+A plugin may declaration-merge extra `SessionEventMap` types. These are **log-only**: NOT `SurfaceEventType`s (they carry no `surfaceOp` and contribute nothing to derived history), but, like every event, they must sit inside an open turn. The full per-event enumeration — core and plugin-contributed alike, with payloads and provenance — is the generated [persistence log event catalog](../persistence-catalog/log-events.md); the compaction seam's `compact/*` semantics are discussed on [compaction.md](compaction.md).
+
+The hook bridges' `hook/invoked` / `hook/result` provenance pairs (from `@deepseek-ai/dsh-hook-protocol`) correlate by `handlerId`. The mid-turn hook points (`PreToolUse`/`PostToolUse`/`UserPromptSubmit`/`Stop`) fire inside the loop's open turn, so their `hook/*` records are turn-enclosed by construction. `SessionStart` gets no `hook/*` record — its injected `context/message` is the durable evidence — because it has no open turn to enclose one (see [the hook-bridges RFC](../rfc/implemented/feature/2026-06-30-hook-bridges.md)).
 
 ## Durability contract
 

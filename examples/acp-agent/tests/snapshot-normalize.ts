@@ -8,7 +8,8 @@
  * Scrubbed: `randomUUID()` session ids → `{{sessionId}}`; the temp `mkdtemp`
  * cwd → `{{cwd}}` (it appears in terminal-card `_meta` and the log header);
  * JSON-RPC request `id` → a stable per-transcript sequence; the log's per-event
- * `time` (epoch ms) and header `createdAt` → 0. NOT scrubbed: the log's `seq`
+ * `time` (epoch ms) and header `createdAt` → 0; a `hook/result` event's
+ * `durationMs` (wall-clock hook runtime) → 0. NOT scrubbed: the log's `seq`
  * (deterministic — `seq = log.length`, part of the event-log contract).
  *
  * See docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
@@ -97,6 +98,13 @@ export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): stri
     } else if ('time' in record) {
       // Event line: zero the epoch-ms timestamp; keep seq (deterministic).
       record.time = 0
+      // A hook/result carries the hook's wall-clock runtime (`data.durationMs`),
+      // which is run-to-run noise like `time` — zero it so the golden reflects
+      // the hook's decision/exit, not how long the shell took.
+      if (record.type === 'hook/result' && record.data !== null && typeof record.data === 'object') {
+        const data = record.data as Record<string, unknown>
+        if ('durationMs' in data) data.durationMs = 0
+      }
     }
     return scrubValue(record, ctx) as Record<string, unknown>
   })

@@ -1,6 +1,6 @@
 /**
  * Doc-sync gate: enforce the repo's "Markdown is not hard-wrapped" convention
- * (AGENTS.md § Type Safety and Documentation) — prose paragraphs are written as
+ * (docs/AGENTS.md § Writing rules) — prose paragraphs are written as
  * one physical line per paragraph and the editor soft-wraps. A hard-wrapped
  * paragraph (a one-word edit reflows and re-diffs the whole block) is a defect
  * this script catches before review.
@@ -36,7 +36,7 @@ import type { Nodes } from 'mdast'
 const root = resolve(import.meta.dirname, '..')
 
 /** Files to check: doc-typecheck's scope plus the AGENTS.md pair. */
-const PATTERNS = ['README.md', 'docs/**/*.md', 'packages/*/*.md', 'packages/*/*/*.md', 'AGENTS.md', 'packages/AGENTS.md']
+const PATTERNS = ['README.md', 'README.zh.md', 'docs/**/*.md', 'packages/*/*.md', 'packages/*/*/*.md', 'AGENTS.md', 'packages/AGENTS.md']
 
 /** A located hard-wrap: a prose paragraph spanning more than one source line. */
 interface Violation {

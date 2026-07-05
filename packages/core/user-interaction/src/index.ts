@@ -74,7 +74,12 @@ export class UserInteractionService extends Service {
     super(ctx, 'userInteraction')
   }
 
-  /** Register the UI provider. Only one provider may be active in a context. */
+  /**
+   * Register the UI provider. Only one provider may be active in a context.
+   *
+   * @param provider UI-side implementation that collects answers.
+   * @returns Disposer that unregisters this provider.
+   */
   registerProvider(provider: UserInteractionProvider): () => void {
     const dispose = this.ctx.effect(function* (this: UserInteractionService) {
       if (this.provider !== undefined) {
@@ -88,7 +93,12 @@ export class UserInteractionService extends Service {
     return () => void dispose()
   }
 
-  /** Ask the active UI provider and wait for the user's answer. */
+  /**
+   * Ask the active UI provider and wait for the user's answer.
+   *
+   * @param request Question, options, owner agent, and abort signal.
+   * @returns The answer chosen or typed by the human.
+   */
   async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer> {
     if (request.signal?.aborted) {
       throw new UserInteractionError('ask_user_question was aborted before the user answered', 'ASK_ABORTED')

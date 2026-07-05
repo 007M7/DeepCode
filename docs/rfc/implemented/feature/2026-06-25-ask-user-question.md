@@ -20,7 +20,7 @@ Optionless questions are always free-form, even if a caller passes `allowCustom:
 
 ## UI mappings
 
-`dsh-ui-stdio` renders the question in readline, sorts recommended options first, shows each option's `description` on the next line, accepts the recommended option on an empty answer, and rejects pending questions on abort, provider disposal, or stdin EOF. The stdio provider serializes multiple simultaneous questions with an internal queue so only one prompt owns stdin at a time.
+`dsh-stdio-agent`'s in-package readline module renders the question, sorts recommended options first, shows each option's `description` on the next line, accepts the recommended option on an empty answer, and rejects pending questions on abort, provider disposal, or stdin EOF. The stdio provider serializes multiple simultaneous questions with an internal queue so only one prompt owns stdin at a time.
 
 `dsh-acp` provides the same seam for ACP sessions. It routes an ask request from the calling `Agent` through the bridge's `agent→sessionId` reverse map and calls ACP `unstable_createElicitation` with a session-scoped form. Option choices become a `choice` single-select field with the recommended option as the schema default; free-form answers use `answer` for optionless questions and `custom_answer` when options plus custom input are allowed. ACP `decline`/`cancel`, a missing answer, a missing session, and a client without elicitation support all become structured `UserInteractionError`s.
 
@@ -36,4 +36,4 @@ The feature gives the model a powerful pause primitive, so prompt guidance matte
 
 ## Test plan
 
-Unit coverage pins provider registration/disposal, duplicate-provider rejection, abort-before-provider, structured tool errors through `ctx.tools.execute()`, option labels/values, and the model schema including the removal of `desc`. `dsh-ui-stdio` tests cover recommended-first display, descriptions, queued questions, EOF/abort cleanup, and optionless free-form input even with `allowCustom: false`. ACP bridge tests drive a real in-memory ACP connection with the real `ask_user_question` tool and verify both selected-option and optionless free-form elicitation paths continue the agent loop.
+Unit coverage pins provider registration/disposal, duplicate-provider rejection, abort-before-provider, structured tool errors through `ctx.tools.execute()`, option labels/values, and the model schema including the removal of `desc`. `dsh-stdio-agent` tests cover recommended-first display, descriptions, queued questions, EOF/abort cleanup, and optionless free-form input even with `allowCustom: false`. ACP bridge tests drive a real in-memory ACP connection with the real `ask_user_question` tool and verify both selected-option and optionless free-form elicitation paths continue the agent loop.

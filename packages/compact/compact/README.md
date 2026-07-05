@@ -7,7 +7,7 @@ This package is the interface tier of the compaction capability, split so each c
 | Package | Role |
 |---|---|
 | `@deepseek-ai/dsh-compact` (this) | the interface: abstract service + `compact/*` events + `CompactionResult` |
-| `@deepseek-ai/dsh-compact-basic` (deferred) | a backend: char/4 estimation + token-budget retention + `llm.stream()` summarization |
+| `@deepseek-ai/dsh-compact-basic` (deferred) | a backend: chars-per-token estimation (`charsPerToken`, default 4) + token-budget retention + `llm.stream()` summarization |
 | `@deepseek-ai/dsh-tool-compact` (deferred) | the model-facing `/compact` tool over `ctx.compact` |
 
 Unlike the bash seam, this interface depends on `@deepseek-ai/dsh-session` and `@deepseek-ai/dsh-llm` — the contract's verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary, so they cannot be expressed without naming those packages. That deviation from the "interface depends only on cordis" guidance is intentional and recorded in the [compaction capability-seam RFC](../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md).
@@ -43,13 +43,7 @@ Compaction is serialized via a log-recorded lock: `compactRegion` refuses to sta
 
 ## Events
 
-The `compact/*` events extend `SessionEventMap` (merge-extensible) via declaration merging — they are session events, not cordis `Events`:
-
-| Event | Payload | On surface? |
-|---|---|---|
-| `compact/start` | `{ turn }` | no (log-only) |
-| `compact/summary` | `{ summary, shadowedRange, shadowedSeqs, shadowedTokenCount }` | no (log-only) |
-| `compact/end` | `{ turn, error? }` | no (log-only) |
+The `compact/*` events extend `SessionEventMap` (merge-extensible) via declaration merging — they are session events, not cordis `Events`, and all three are log-only (no `surfaceOp`). Per-event payloads and semantics are in the generated [persistence log event catalog](../../../docs/persistence-catalog/log-events.md).
 
 ## Implementing a backend
 

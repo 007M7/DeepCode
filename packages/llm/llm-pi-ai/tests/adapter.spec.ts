@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, LlmError } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { buildModel, PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { assemble } from './assemble.ts'
@@ -11,6 +11,8 @@ import { assemble } from './assemble.ts'
 interface MockServer {
   url: string
   requests: unknown[]
+  /** Header bags of received requests, in order (parallel to `requests`). */
+  headers: IncomingMessage['headers'][]
   close(): Promise<void>
 }
 
@@ -22,11 +24,13 @@ afterEach(async () => {
 
 async function mockServer(script: { status?: number; events?: string[]; body?: string }[]): Promise<MockServer> {
   const requests: unknown[] = []
+  const headers: IncomingMessage['headers'][] = []
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     let body = ''
     request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
     request.on('end', () => {
       requests.push(JSON.parse(body))
+      headers.push(request.headers)
       const behavior = script.shift() ?? { status: 500, body: 'script exhausted' }
       if (behavior.status !== undefined && behavior.status !== 200) {
         response.writeHead(behavior.status, { 'content-type': 'application/json' })
@@ -45,6 +49,7 @@ async function mockServer(script: { status?: number; events?: string[]; body?: s
   return {
     url: `http://127.0.0.1:${address.port}`,
     requests,
+    headers,
     close: () => new Promise(resolve => server.close(() => { resolve() })),
   }
 }
@@ -91,6 +96,14 @@ describe('PiAiAdapter against a mock server', () => {
     expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
     expect(result.finish).toEqual({ kind: 'stop' })
     expect(result.usage).toMatchObject({ inputTokens: 3, outputTokens: 1 })
+
+    // Attribution reaches the wire through pi-ai's headers hook: the exact
+    // shared User-Agent, and no provider-specific headers under the
+    // User-Agent-only contract.
+    expect(server.headers[0]?.['user-agent']).toBe(userAgent())
+    expect(server.headers[0]).not.toHaveProperty('http-referer')
+    expect(server.headers[0]).not.toHaveProperty('x-openrouter-title')
+    expect(server.headers[0]).not.toHaveProperty('x-openrouter-categories')
   })
 
   it('streams tool calls with re-stringified arguments', async () => {
@@ -149,26 +162,26 @@ describe('PiAiAdapter against a mock server', () => {
     expect(server.requests[0]).toMatchObject({ stop: ['END'] })
   })
 
-  it('preserves per-tool strict exactly through onPayload', async () => {
+  it('scrubs pi-ai\'s own per-tool strict default through onPayload', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url)
     await assemble(ctx,{
       model: 'deepseek-v4-flash',
       messages: [],
       tools: [
-        { name: 'strict_true', description: 'true', parameters: {}, strict: true },
-        { name: 'strict_false', description: 'false', parameters: {}, strict: false },
-        { name: 'strict_omitted', description: 'omitted', parameters: {} },
+        { name: 'alpha', description: 'a', parameters: {} },
+        { name: 'beta', description: 'b', parameters: {} },
       ],
     })
 
+    // pi-ai stamps `strict` on every serialized tool function; the harness
+    // contract has none and the hand-rolled twin sends no such field, so the
+    // payload fixup must have deleted it from every tool.
     const request = server.requests[0] as { tools: { function: { name: string; strict?: boolean } }[] }
-    expect(request.tools.map(tool => [tool.function.name, tool.function.strict])).toEqual([
-      ['strict_true', true],
-      ['strict_false', false],
-      ['strict_omitted', undefined],
-    ])
-    expect('strict' in request.tools[2]!.function).toBe(false)
+    expect(request.tools.map(tool => tool.function.name)).toEqual(['alpha', 'beta'])
+    for (const tool of request.tools) {
+      expect('strict' in tool.function).toBe(false)
+    }
   })
 
   it('preserves raw replayed tool-call arguments in the provider payload', async () => {
@@ -207,15 +220,6 @@ describe('PiAiAdapter against a mock server', () => {
     const ctx = await harness(server.url)
     const result = await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
     expect(result.finish).toMatchObject({ kind: 'error', code })
-  })
-
-  it('rejects prefill with UNSUPPORTED', async () => {
-    const ctx = await harness('http://127.0.0.1:1')
-    await expect(assemble(ctx,{
-      model: 'deepseek-v4-flash',
-      messages: [],
-      prefill: [{ type: 'text', text: 'Sure' }],
-    })).rejects.toThrow(LlmError)
   })
 
   it('registers/unregisters models on the llm service (HMR safety)', async () => {

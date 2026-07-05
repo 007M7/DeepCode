@@ -9,8 +9,8 @@ import { afterEach, describe, expect, it } from 'vitest'
  * Keyless Loader-path smoke for examples/coding-agent: boot the REAL example
  * through the `@deepseek-ai/dsh-stdio-agent` bin against its `cordis.yml` (the
  * cordis Loader, `unwrapExports`, the full plugin tree incl. the
- * `@deepseek-ai/dsh-agent-core` bundle and the extracted
- * `@deepseek-ai/dsh-ui-stdio`), then close stdin with no prompt and assert the
+ * `@deepseek-ai/dsh-agent-core` bundle and the app's in-package readline UI
+ * module), then close stdin with no prompt and assert the
  * ready banner + a clean exit.
  *
  * No prompt is ever sent, so the model is NEVER called — this is why it runs
@@ -18,13 +18,14 @@ import { afterEach, describe, expect, it } from 'vitest'
  * `apply()` only requires a key to be PRESENT (it does not validate it and only
  * uses it when a stream actually starts), so a dummy key lets the tree boot
  * while the absence of any prompt guarantees no network call. The value is the
- * real-Loader-path guard for the app + bundle + UI plugin export shapes (a broken
- * `export default` that drops `inject`/`Config` would crash here — see postmortem
- * 0001), complementing coding-agent's with-key e2e suites which prove the real
+ * real-Loader-path guard that the composed tree boots (see postmortem 0001;
+ * the app carries no `inject`, so its export SHAPE is pinned by the stdio-agent
+ * unit suite's unwrap assertion, not by a crash here),
+ * complementing coding-agent's with-key e2e suites which prove the real
  * product.
  */
 
-// The dsh-stdio-agent bin (the demo:coding entry) and this example's cordis.yml.
+// The dsh-stdio-agent bin (the demo:repl entry) and this example's cordis.yml.
 // The bin resolves its config-path arg from CWD; the test spawns from a temp
 // cwd, so we pass the example config's ABSOLUTE path.
 const binScript = fileURLToPath(new URL('../../../packages/ui/stdio-agent/src/bin.ts', import.meta.url))
@@ -51,7 +52,7 @@ async function bootAndEof(): Promise<{ stdout: string; code: number }> {
   return new Promise((resolve, reject) => {
     const proc = spawn(
       process.execPath,
-      // --expose-internals: cordis.yml loads the HMR plugin (mirrors demo:coding).
+      // --expose-internals: cordis.yml loads the HMR plugin (mirrors demo:repl).
       ['--expose-internals', '--import', tsxLoader, binScript, configPath],
       {
         cwd,
@@ -94,6 +95,6 @@ describe('coding-agent keyless smoke (real cordis.yml via the Loader)', () => {
   it('boots the full plugin tree, prints its banner, and exits cleanly on EOF', async () => {
     const { stdout, code } = await bootAndEof()
     expect(code).toBe(0)
-    expect(stdout).toContain('coding-agent ready.')
+    expect(stdout).toContain('agent REPL ready.')
   }, 15_000)
 })

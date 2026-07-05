@@ -20,7 +20,7 @@ A swappable capability is **three packages**:
 
 Implementation and consumer then evolve independently: a sandboxed executor replaces `dsh-bash-local` without touching a tool schema.
 
-Alternatives considered: **one combined package** — rejected because it recouples the three rates of change the split exists to separate (the whole point). **`@cordisjs/plugin-capability`** — a different axis entirely: it is a permission/capability-*security* service (named permissions with inheritance, tested against a session via `ctx.capability.test`), a candidate for the deferred permissions/sandbox work on the `tools/execute` veto seam, NOT a mechanism for swapping implementations. Confusing the two ("capability") is the trap this RFC names.
+Alternatives considered: **one combined package** — rejected because it recouples the three rates of change the split exists to separate (the whole point). **`@cordisjs/plugin-capability`** — a different axis entirely: it is a permission/capability-*security* service (named permissions with inheritance, tested against a session via `ctx.capability.test`), a candidate for the deferred permissions/sandbox work on the `tools/pre-execute` deny/ask seam, NOT a mechanism for swapping implementations. Confusing the two ("capability") is the trap this RFC names.
 
 The split is not mandatory when the parts are genuinely one concern: the LLM seam folds interface + consumer into `dsh-llm` (the consumer is the loop itself, not a swappable schema surface) with adapters as the implementation packages. Don't split preemptively — a capability with one conceivable implementation and one consumer stays one package until a second appears.
 

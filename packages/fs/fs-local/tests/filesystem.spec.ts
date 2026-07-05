@@ -7,7 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtemp, readFile, rm, stat, symlink, writeFile, unlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from 'cordis'
@@ -118,6 +118,50 @@ describe('readText / streamText', () => {
   })
 })
 
+describe('listDir', () => {
+  it('lists files and directories in stable name order with resolved child targets', async () => {
+    await mkdir(join(dir, 'skills', 'dir-skill'), { recursive: true })
+    await writeFile(join(dir, 'skills', 'zeta.md'), 'zeta')
+    await writeFile(join(dir, 'skills', 'alpha.md'), 'alpha')
+    await symlink(join(dir, 'skills', 'missing-target'), join(dir, 'skills', 'broken-link'))
+
+    const entries = await fs.listDir(await fs.resolve('skills'))
+    expect(entries.map(entry => [entry.name, entry.type])).toEqual([
+      ['alpha.md', 'file'],
+      ['broken-link', 'other'],
+      ['dir-skill', 'directory'],
+      ['zeta.md', 'file'],
+    ])
+    expect(entries.map(entry => entry.target.displayPath)).toEqual([
+      join(dir, 'skills', 'alpha.md'),
+      join(dir, 'skills', 'broken-link'),
+      join(dir, 'skills', 'dir-skill'),
+      join(dir, 'skills', 'zeta.md'),
+    ])
+    const materializedEntries = entries.filter(entry => entry.version !== undefined)
+    expect(materializedEntries.map(entry => entry.target.targetKey))
+      .toEqual(await Promise.all(materializedEntries.map(entry => realpath(entry.target.displayPath))))
+    expect(entries.find(entry => entry.name === 'alpha.md')?.size).toBe(5)
+    expect(typeof entries.find(entry => entry.name === 'alpha.md')?.version).toBe('string')
+    expect(entries.find(entry => entry.name === 'broken-link')?.version).toBeUndefined()
+    expect(entries.find(entry => entry.name === 'dir-skill')?.size).toBeUndefined()
+  })
+
+  it('reports a missing directory as FS_NOT_FOUND', async () => {
+    await expect(fs.listDir(await fs.resolve('missing'))).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
+  })
+
+  it('reports a file target as FS_NOT_DIRECTORY', async () => {
+    await writeFile(join(dir, 'a.txt'), 'text')
+    await expect(fs.listDir(await fs.resolve('a.txt'))).rejects.toMatchObject({ code: 'FS_NOT_DIRECTORY' })
+  })
+
+  it('honors a pre-aborted signal', async () => {
+    await mkdir(join(dir, 'skills'), { recursive: true })
+    await expect(fs.listDir(await fs.resolve('skills'), AbortSignal.abort())).rejects.toMatchObject({ code: 'FS_ABORTED' })
+  })
+})
+
 describe('writeText', () => {
   it('createIfAbsent creates a new file', async () => {
     const target = await fs.resolve('new.txt')
@@ -188,6 +232,53 @@ describe('writeText', () => {
     await expect(fs.writeText(target, 'x')).rejects.toMatchObject({ code: 'FS_NOT_REGULAR_FILE' })
   })
 
+  it('a create reports before:null and after = the written content (no prior file)', async () => {
+    const target = await fs.resolve('new.txt')
+    const outcome = await fs.writeText(target, 'fresh')
+    expect(outcome.before).toBeNull()
+    expect(outcome.after).toBe('fresh')
+  })
+
+  it('an overwrite reports before = the OLD content and after = the new content', async () => {
+    await writeFile(join(dir, 'a.txt'), 'old body')
+    const target = await fs.resolve('a.txt')
+    const outcome = await fs.writeText(target, 'new body')
+    expect(outcome.before).toBe('old body')
+    expect(outcome.after).toBe('new body')
+  })
+
+  it('an overwrite returns LF-normalized before AND after (a CRLF rewrite is not every-line-changed)', async () => {
+    // The applied-hunk diff bases on `before`/`after`; if `after` kept CRLF while
+    // `before` is LF-normalized, a CRLF rewrite would read as every line changed.
+    // Both sides are LF so only the genuinely-changed line diffs.
+    await writeFile(join(dir, 'a.txt'), 'a\r\nb\r\nc\r\n')
+    const target = await fs.resolve('a.txt')
+    const outcome = await fs.writeText(target, 'a\r\nB\r\nc\r\n')
+    expect(outcome.before).toBe('a\nb\nc\n')
+    expect(outcome.after).toBe('a\nB\nc\n')
+  })
+
+  it('an overwrite of a BINARY prior file reports before:null (undiffable), still succeeds', async () => {
+    await writeFile(join(dir, 'a.bin'), Buffer.from([0x00, 0x01, 0x02]))
+    const target = await fs.resolve('a.bin')
+    const outcome = await fs.writeText(target, 'now text')
+    expect(outcome.operation).toBe('update')
+    expect(outcome.before).toBeNull()
+    expect(outcome.after).toBe('now text')
+  })
+
+  it('an overwrite of an INVALID-UTF-8 (non-NUL) prior file reports before:null, still succeeds', async () => {
+    // 0xff is never valid UTF-8 but is not a NUL, so it exercises the decoder's
+    // fatal-throw path (not the NUL-scan short-circuit): an undiffable prior file
+    // still yields a successful write with no before-content basis.
+    await writeFile(join(dir, 'a.bin'), Buffer.from([0x68, 0xff, 0x69]))
+    const target = await fs.resolve('a.bin')
+    const outcome = await fs.writeText(target, 'now valid')
+    expect(outcome.operation).toBe('update')
+    expect(outcome.before).toBeNull()
+    expect(outcome.after).toBe('now valid')
+  })
+
   it('releases per-target mutation locks after success and failure', async () => {
     const target = await fs.resolve('a.txt')
     await fs.writeText(target, 'created', { kind: 'createIfAbsent' })
@@ -238,8 +329,19 @@ describe('editText', () => {
     await writeFile(join(dir, 'a.txt'), 'hello world')
     const target = await fs.resolve('a.txt')
     const outcome = await fs.editText(target, { oldString: 'world', newString: 'there', replaceAll: false }, { version: await versionOf(target) })
-    expect(outcome.replacements).toBe(1)
+    expect(outcome.after).toBe('hello there')
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hello there')
+  })
+
+  it('reports before/after content (the applied-hunk basis), LF-normalized', async () => {
+    await writeFile(join(dir, 'a.txt'), 'a\r\nOLD\r\nb\r\n')
+    const target = await fs.resolve('a.txt')
+    const outcome = await fs.editText(target, { oldString: 'OLD', newString: 'NEW', replaceAll: false })
+    expect(outcome.before).toBe('a\nOLD\nb\n')
+    expect(outcome.after).toBe('a\nNEW\nb\n')
+    // The written file keeps the original CRLF endings (before/after are the
+    // LF-normalized diff basis, not the on-disk bytes).
+    expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('a\r\nNEW\r\nb\r\n')
   })
 
   it('checks the stale version BEFORE literal matching', async () => {
@@ -257,7 +359,7 @@ describe('editText', () => {
     const target = await fs.resolve('a.txt')
     // No version guard: any current content is edited, regardless of version.
     const outcome = await fs.editText(target, { oldString: 'world', newString: 'there', replaceAll: false })
-    expect(outcome.replacements).toBe(1)
+    expect(outcome.after).toBe('hello there')
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hello there')
   })
 
@@ -303,7 +405,7 @@ describe('editText', () => {
     await writeFile(join(dir, 'a.txt'), 'a a a')
     const target = await fs.resolve('a.txt')
     const outcome = await fs.editText(target, { oldString: 'a', newString: 'b', replaceAll: true }, { version: await versionOf(target) })
-    expect(outcome.replacements).toBe(3)
+    expect(outcome.after).toBe('b b b')
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('b b b')
   })
 
@@ -349,7 +451,7 @@ describe('editText', () => {
     // The version the first edit returned is a valid guard for a second edit —
     // no intervening re-stat needed.
     const second = await fs.editText(target, { oldString: 'two', newString: 'TWO', replaceAll: false }, { version: first.version })
-    expect(second.replacements).toBe(1)
+    expect(second.after).toBe('ONE TWO')
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('ONE TWO')
   })
 

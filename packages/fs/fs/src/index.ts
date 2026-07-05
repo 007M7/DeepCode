@@ -59,6 +59,7 @@
 
 import { Context, Service } from 'cordis'
 import type {
+  FsDirEntry,
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
@@ -76,6 +77,7 @@ export {
 export type {
   FsEditOutcome,
   FsEditRequest,
+  FsDirEntry,
   FsErrorCode,
   FsInfo,
   FsTarget,
@@ -100,6 +102,8 @@ declare module 'cordis' {
      * chain. The slot is first-wins: the first non-`next()` decider (registration
      * order, or `prepend`) occupies it; a second decider is a misconfiguration,
      * not layering. `actor` is the opaque tool-execution context, never read here.
+     * @param target - the resolved target about to be written.
+     * @param actor - the opaque tool-execution context the decider keys off.
      * @mode waterfall
      */
     'fs/write-intent'(target: FsTarget, actor: object | undefined, next: () => FsWriteIntent | undefined | Promise<FsWriteIntent | undefined>): Promise<FsWriteIntent | undefined>
@@ -112,6 +116,8 @@ declare module 'cordis' {
      * `{ version: vObserved }`, or throws `FS_NOT_OBSERVED` if the actor is unset
      * or has not observed the target. Does NOT call `next()`: one decision,
      * first-wins (see {@link Events.'fs/write-intent'}).
+     * @param target - the resolved target about to be edited.
+     * @param actor - the opaque tool-execution context the decider keys off.
      * @mode waterfall
      */
     'fs/edit-intent'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
@@ -124,6 +130,9 @@ declare module 'cordis' {
      * await listener promises — async or fallible audit/telemetry does not
      * belong here. No listener ⇒ nothing recorded. `actor` is the opaque
      * tool-execution context.
+     * @param target - the target that was read/written/edited.
+     * @param version - the version the actor now holds as its observation.
+     * @param actor - the observing tool-execution context; undefined records nothing useful.
      * @mode emit
      */
     'fs/observed'(target: FsTarget, version: FsVersion, actor: object | undefined): void
@@ -131,7 +140,7 @@ declare module 'cordis' {
 }
 
 /**
- * Abstract filesystem provider service. Subclass, implement the six text-storage
+ * Abstract filesystem provider service. Subclass, implement the seven storage
  * primitives, and load the subclass as a plugin — it registers as `ctx.fs` (one
  * implementation per context; loading a second throws, cordis' standard
  * duplicate-service behavior).
@@ -145,6 +154,11 @@ declare module 'cordis' {
  * - {@link readText}/{@link streamText} read the whole regular text file (the
  *   stream for large files); both own regular-file checks, UTF-8 decoding,
  *   binary/NUL rejection, and `FS_NOT_TEXT`.
+ * - {@link listDir} returns direct children of a directory in stable name order
+ *   with resolved child targets and cheap metadata only. It never reads file
+ *   contents. Missing targets throw `FS_NOT_FOUND`, non-directories throw
+ *   `FS_NOT_DIRECTORY`, permission failures throw `FS_PERMISSION_DENIED`, and
+ *   other backend I/O failures throw `FS_IO_ERROR`.
  * - {@link writeText} is atomic temp-file + rename. `expected` is OPTIONAL:
  *   omit it for an unconditional create-or-overwrite (the bare-provider default),
  *   or supply a {@link FsWriteIntent} to guard the write.
@@ -173,13 +187,26 @@ export abstract class FileSystem extends Service {
    * caller's per-session workspace (`exec.agent.session.header.cwd`) without the
    * provider depending on `dsh-agent`/`dsh-session`. Mirrors how `dsh-tool-bash`
    * defaults a bash `workdir` to the session cwd.
+   * @param path - the path to resolve; relative paths resolve against `opts.cwd`.
+   * @param opts - `cwd` overrides the backend's default base for relative paths.
+   * @returns the stable target; the same file yields the same `targetKey`.
    */
   abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>
 
-  /** Return target metadata, or `undefined` when the target does not exist. */
+  /**
+   * Return target metadata, or `undefined` when the target does not exist.
+   * @param target - the resolved target to stat.
+   * @param signal - aborts the metadata round-trip.
+   * @returns metadata only, never content; undefined for an absent target.
+   */
   abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>
 
-  /** Read the whole regular text file as a single decoded string. */
+  /**
+   * Read the whole regular text file as a single decoded string.
+   * @param target - the resolved target to read.
+   * @param signal - aborts the read.
+   * @returns the full decoded UTF-8 content.
+   */
   abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
 
   /**
@@ -187,14 +214,31 @@ export abstract class FileSystem extends Service {
    * semantics as {@link readText}, for large files). The backend owns
    * cross-chunk UTF-8 decoding and binary rejection so the policy layer never
    * touches raw bytes.
+   * @param target - the resolved target to read.
+   * @param signal - aborts the stream, including between chunks.
+   * @returns the chunk iterable, decoded and validated like {@link readText}.
    */
   abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
+
+  /**
+   * List direct children of a directory in stable name order. Returns resolved
+   * child targets plus cheap metadata only; never reads file contents.
+   * @param target - the resolved directory target.
+   * @param signal - aborts the listing.
+   * @returns one entry per direct child, in stable name order.
+   */
+  abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>
 
   /**
    * Create or fully replace a UTF-8 text file atomically. `expected` is the
    * create-vs-replace decision and stale guard when supplied; OMITTING it is an
    * unconditional create-or-overwrite (the bare provider — no version guard, no
    * read-first requirement). Atomic either way.
+   * @param target - the resolved target to write.
+   * @param content - the full new file content.
+   * @param expected - the write intent guarding the write; omit for unconditional.
+   * @param signal - aborts before the atomic rename takes effect.
+   * @returns the outcome, including the version the write produced.
    */
   abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>
 
@@ -204,6 +248,11 @@ export abstract class FileSystem extends Service {
    * matching; OMITTING it edits the current content unconditionally (no version
    * guard). Either way applies the replacement and writes atomically — one
    * mutation critical section — and a missing target reports `FS_STALE_VERSION`.
+   * @param target - the resolved target to edit.
+   * @param edit - the literal search/replace request.
+   * @param expected - the version guard; omit for an unconditional edit.
+   * @param signal - aborts before the atomic rename takes effect.
+   * @returns the outcome, including the version the edit produced.
    */
   abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
 }

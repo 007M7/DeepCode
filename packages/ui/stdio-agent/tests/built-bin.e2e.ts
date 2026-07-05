@@ -34,9 +34,8 @@ const stdioBin = join(repoRoot, 'packages/ui/stdio-agent/lib/bin.js')
 // to the built `lib/` (package.json `main`), exactly as an installed dep would.
 const dshPackages = [
   'core/agent-core', 'core/agent', 'core/session', 'core/system-prompt',
-  'core/tools', 'core/user-interaction', 'ui/tool-ask-user',
-  'core/agent-loop', 'llm/llm', 'bash/bash', 'bash/bash-local',
-  'bash/tool-bash', 'support/invariants', 'support/ui-stdio',
+  'core/tools', 'core/agent-loop', 'llm/llm', 'bash/bash', 'bash/bash-local',
+  'bash/tool-bash', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence',
   'session-persistence/session-persistence-jsonl', 'ui/stdio-agent',
 ]
