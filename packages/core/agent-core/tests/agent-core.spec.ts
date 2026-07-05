@@ -43,6 +43,27 @@ async function mount(config?: agentCore.Config): Promise<Context> {
   }
 }
 
+async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
+  const oldDshHome = process.env.DSH_HOME
+  const oldAgentsHome = process.env.DSH_AGENTS_HOME
+  process.env.DSH_HOME = await mkdtemp(join(tmpdir(), 'dsh-agent-core-home-'))
+  process.env.DSH_AGENTS_HOME = await mkdtemp(join(tmpdir(), 'dsh-agent-core-agents-'))
+  try {
+    return await run()
+  } finally {
+    if (oldDshHome === undefined) {
+      delete process.env.DSH_HOME
+    } else {
+      process.env.DSH_HOME = oldDshHome
+    }
+    if (oldAgentsHome === undefined) {
+      delete process.env.DSH_AGENTS_HOME
+    } else {
+      process.env.DSH_AGENTS_HOME = oldAgentsHome
+    }
+  }
+}
+
 describe('dsh-agent-core bundle', () => {
   it('brings up the full providerless spine', async () => {
     const ctx = await mount()
@@ -98,6 +119,20 @@ describe('dsh-agent-core bundle', () => {
     })
     expect(await ctx.skills.list()).toEqual([])
     await ctx.fiber.dispose()
+  })
+
+  it('uses the default skill config when apply is called directly without skills', async () => {
+    await withIsolatedSkillHomes(async () => {
+      const ctx = new Context()
+      agentCore.apply(ctx, { agents: [] })
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(ctx.skills).toBeDefined()
+      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(expect.arrayContaining([
+        'dsh-plugin-creator',
+        'dsh-skill-creator',
+      ]))
+      await ctx.fiber.dispose()
+    })
   })
 
   it('re-exports the loop config schema as its own', () => {

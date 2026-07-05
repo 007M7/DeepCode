@@ -36,6 +36,28 @@ async function isolatedSkillsConfig(): Promise<NonNullable<stdioAgent.Config['sk
   return { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false }
 }
 
+async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
+  const oldDshHome = process.env.DSH_HOME
+  const oldAgentsHome = process.env.DSH_AGENTS_HOME
+  const home = await mkdtemp(join(tmpdir(), 'dsh-stdio-agent-default-skills-'))
+  process.env.DSH_HOME = join(home, '.dsh')
+  process.env.DSH_AGENTS_HOME = join(home, '.agents')
+  try {
+    return await run()
+  } finally {
+    if (oldDshHome === undefined) {
+      delete process.env.DSH_HOME
+    } else {
+      process.env.DSH_HOME = oldDshHome
+    }
+    if (oldAgentsHome === undefined) {
+      delete process.env.DSH_AGENTS_HOME
+    } else {
+      process.env.DSH_AGENTS_HOME = oldAgentsHome
+    }
+  }
+}
+
 describe('dsh-stdio-agent app', () => {
   it('composes the spine + front-door cluster and pre-creates the main agent', async () => {
     const ctx = await mount({ model: 'mock', systemPrompt: 'hi', persistenceRoot: '/tmp/dsh-stdio-agent-spec', skills: await isolatedSkillsConfig() })
@@ -61,6 +83,20 @@ describe('dsh-stdio-agent app', () => {
     expect(ctx.get('sessionPersistence')).toBeDefined()
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
     await ctx.fiber.dispose()
+  })
+
+  it('uses default skill config when apply is called directly without skills', async () => {
+    await withIsolatedSkillHomes(async () => {
+      const ctx = new Context()
+      stdioAgent.apply(ctx, { model: 'mock', systemPrompt: 'hi' })
+      await new Promise(resolve => setTimeout(resolve, 80))
+      expect(ctx.skills).toBeDefined()
+      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(expect.arrayContaining([
+        'dsh-plugin-creator',
+        'dsh-skill-creator',
+      ]))
+      await ctx.fiber.dispose()
+    })
   })
 
   it('forwards resumeSessionId onto the pre-created agent when set', async () => {

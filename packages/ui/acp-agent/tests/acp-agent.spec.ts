@@ -30,6 +30,28 @@ async function isolatedSkillsConfig(): Promise<NonNullable<acpAgent.Config['skil
   return { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false }
 }
 
+async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
+  const oldDshHome = process.env.DSH_HOME
+  const oldAgentsHome = process.env.DSH_AGENTS_HOME
+  const home = await mkdtemp(join(tmpdir(), 'dsh-acp-agent-default-skills-'))
+  process.env.DSH_HOME = join(home, '.dsh')
+  process.env.DSH_AGENTS_HOME = join(home, '.agents')
+  try {
+    return await run()
+  } finally {
+    if (oldDshHome === undefined) {
+      delete process.env.DSH_HOME
+    } else {
+      process.env.DSH_HOME = oldDshHome
+    }
+    if (oldAgentsHome === undefined) {
+      delete process.env.DSH_AGENTS_HOME
+    } else {
+      process.env.DSH_AGENTS_HOME = oldAgentsHome
+    }
+  }
+}
+
 describe('dsh-acp-agent composition', () => {
   it('brings up the spine + persistence + the ACP bridge', async () => {
     const ctx = await mount({ model: 'mock', systemPrompt: 'hi', persistenceRoot: '/tmp/dsh-acp-agent-test', skills: await isolatedSkillsConfig() })
@@ -52,6 +74,20 @@ describe('dsh-acp-agent composition', () => {
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(ctx.get('sessionPersistence')).toBeDefined()
     await ctx.fiber.dispose()
+  })
+
+  it('uses default skill config when apply is called directly without skills', async () => {
+    await withIsolatedSkillHomes(async () => {
+      const ctx = new Context()
+      acpAgent.apply(ctx, { model: 'mock', systemPrompt: 'hi' })
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(ctx.skills).toBeDefined()
+      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(expect.arrayContaining([
+        'dsh-plugin-creator',
+        'dsh-skill-creator',
+      ]))
+      await ctx.fiber.dispose()
+    })
   })
 
   it('forwards skill config into agent-core', async () => {

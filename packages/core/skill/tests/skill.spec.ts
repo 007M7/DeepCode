@@ -24,6 +24,7 @@ async function writeFlatSkill(root: string, name: string, description: string, b
 class TestFileSystem extends FileSystem {
   listDirCalls = 0
   failResolvePaths = new Set<string>()
+  failStatPaths = new Set<string>()
 
   override async resolve(path: string): Promise<FsTarget> {
     if (this.failResolvePaths.has(path)) throw new Error('resolve failed')
@@ -31,6 +32,7 @@ class TestFileSystem extends FileSystem {
   }
 
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
+    if (this.failStatPaths.has(target.displayPath)) throw new Error('stat failed')
     try {
       const fs = await import('node:fs/promises')
       const info = await fs.stat(target.displayPath)
@@ -429,6 +431,7 @@ describe('SkillService', () => {
     const root = join(home, '.dsh/skills')
     await writeFlatSkill(root, 'text-skill', 'Text skill', 'Text body.')
     await writeFlatSkill(root, 'resolve-fail', 'Resolve fail', 'Resolve body.')
+    await writeFlatSkill(root, 'stat-fail', 'Stat fail', 'Stat body.')
     await mkdir(join(root, 'empty-dir'), { recursive: true })
     await mkdir(join(root, 'directory-skill/SKILL.md'), { recursive: true })
     await writeFile(join(root, 'binary-skill.md'), Buffer.concat([
@@ -441,6 +444,7 @@ describe('SkillService', () => {
     await ctx.plugin(TestFileSystem)
     const fs = ctx.fs as TestFileSystem
     fs.failResolvePaths.add(join(root, 'resolve-fail.md'))
+    fs.failStatPaths.add(join(root, 'stat-fail.md'))
     await ctx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false })
 
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['text-skill'])
