@@ -79,8 +79,8 @@ Implementations MUST honor:
 - **Blocking**: no compaction begins while another is in progress for the same session. The recommended mechanism is the log-recorded lock — append `compact/start` before the slow work and `compact/end` after (even on failure) — so the lock is visible to replay and crash recovery.
 
 ```ts cordis-catalog
-abstract compactIfNeeded( agent: CompactAgentContext, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal, ): Promise<CompactionResult | null>
-abstract compactRegion( session: Session, start: number, end: number, agent: CompactAgentContext, turn: number, step: number, signal?: AbortSignal, ): Promise<CompactionResult>
+abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, signal: AbortSignal, ): Promise<CompactionResult | null>
+abstract compactRegion( session: Session, start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 
 Source: [`packages/compact/compact/src/index.ts:63`](../../packages/compact/compact/src/index.ts)

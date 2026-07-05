@@ -980,7 +980,7 @@ function compactIfNeeded(
   model: string,
   signal: AbortSignal,
 ) {
-  return svc.compactIfNeeded(stubAgent(session, model), 1, 1, fullSystemPrompt, signal)
+  return svc.compactIfNeeded(stubAgent(session, model), fullSystemPrompt, signal)
 }
 
 function compactRegion(
@@ -991,11 +991,11 @@ function compactRegion(
   model: string,
   signal?: AbortSignal,
 ) {
-  return svc.compactRegion(session, start, end, stubAgent(session, model), 1, 1, signal)
+  return svc.compactRegion(session, start, end, stubAgent(session, model), signal)
 }
 
 function summarize(svc: BasicCompactService, text: string, model: string) {
-  return svc.summarize(text, stubAgent(new Session(SessionId('summary')), model), 1, 1)
+  return svc.summarize(text, stubAgent(new Session(SessionId('summary')), model))
 }
 
 describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
@@ -1231,15 +1231,20 @@ describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => 
     expect(session.events.some(e => e.type === 'compact/start')).toBe(false)
   })
 
-  it('routes summarization through agent/request so router agents can choose the model', async () => {
+  it('summarization is interceptable at llm/stream (model routing for direct calls)', async () => {
     const { ctx, adapter } = await ctxWithModel('ROUTED SUMMARY', 'routed-model')
-    ctx.on('agent/request', async (_agent, _turn, _step, options, next) => {
+    // The summarize call is a direct one-shot model call, not a loop step: it
+    // does not run agent/request (that seam shapes the loop's conversation
+    // requests). llm/stream is its interception surface, and a hand-built
+    // request is not frozen, so mutate-then-next model routing works — the
+    // adapter resolves AFTER the waterfall, so the rewrite picks the adapter.
+    ctx.on('llm/stream', (options, next) => {
       options.model = 'routed-model'
       return next()
     })
     void new BasicCompactService(ctx, cfg({ contextWindow: 200, thresholdRatio: 0.5, retainTokens: 20 }))
     const session = multiTurnSession(5, 1)
-    const agent = stubAgent(session)
+    const agent = stubAgent(session, 'agent-model')
 
     await ctx.serial('agent/pre-step', agent, 1, 1, '', SIGNAL)
 
