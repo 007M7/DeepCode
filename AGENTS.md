@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This is the monorepo of the DeepSeek Harness group; it hosts **DeepSeek Code**, DeepSeek's coding agent product. The codebase is built on the vendored Cordis framework, microkernel-style: **everything is a plugin**. Read [docs/architecture.md](docs/architecture.md) before changing anything under `packages/` — the service map, event taxonomy, loop lifecycle, and extension seams. The documentation standard is [docs/AGENTS.md](docs/AGENTS.md).
+This is the monorepo of the DeepSeek Harness group; it hosts **DeepSeek Harness SDK**, a plugin-based SDK for building agent harnesses. The codebase is built on the vendored Cordis framework, microkernel-style: **everything is a plugin**. Read [docs/architecture.md](docs/architecture.md) before changing anything under `packages/` — the service map, event taxonomy, loop lifecycle, and extension seams. The documentation standard is [docs/AGENTS.md](docs/AGENTS.md).
 
 ## Pre-release stance: foundation over blast radius
 

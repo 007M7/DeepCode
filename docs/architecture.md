@@ -1,6 +1,6 @@
 # DeepSeek Harness Architecture
 
-DeepSeek Harness is the plugin runtime behind **DeepSeek Code**. The governing idea is small and strict: the harness core owns the vocabulary and the turn driver, and every product capability is a Cordis plugin attached through a typed service or event seam. Model adapters, tools, persistence, filesystem access, hooks, UI bridges, compaction, and subagents all enter the system the same way.
+DeepSeek Harness SDK is the plugin runtime for building agent harnesses. The governing idea is small and strict: the harness core owns the vocabulary and the turn driver, and every product capability is a Cordis plugin attached through a typed service or event seam. Model adapters, tools, persistence, filesystem access, hooks, UI bridges, compaction, and subagents all enter the system the same way.
 
 Read this page as the system map before changing `packages/`. It describes behavior: what services exist, how a turn moves through the loop, where plugins extend it, and which invariants keep replay and hot reload sane. Literal type shapes live in [core-data-structures/](core-data-structures/core.md), exact event and service signatures live in the generated [events](cordis-catalog/events.md) and [services](cordis-catalog/services.md) catalogs, visual relationship maps live in the [documentation graph index](graph-atlas.md), and package-level contracts live in the package READMEs from the [package map](../packages/README.md).
 
