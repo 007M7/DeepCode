@@ -95,6 +95,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [dsh-hook-protocol — the shared Claude Code / Codex hook wire-protocol core](implemented/feature/2026-06-30-hook-protocol-lib.md) | 2026-06-30 |
 | [Interception seams — the typed-Decision surface a hook programs against](implemented/feature/2026-06-30-interception-seams.md) | 2026-06-30 |
 | [Subagent lifecycle enrichment — lastAssistantMessage (observe-only)](implemented/feature/2026-06-30-subagent-observe-enrich.md) | 2026-06-30 |
+| [Skill system — progressive disclosure instructions for agents](implemented/feature/2026-07-05-skill-system.md) | 2026-07-05 |
 
 ### Simplification
 

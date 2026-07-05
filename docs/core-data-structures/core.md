@@ -21,6 +21,7 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | [tools.md](tools.md) | `ToolDefinition` full fields, the schema DSL, `ToolExecution`/`ToolResult`, tool-presentation UI types, the `tools/pre-execute`/`tools/post-execute` pipeline |
 | [bash.md](bash.md) | the bash executor seam: `BashExecRequest`/`Spec`, `BashRunResult`, background `BashTask`s |
 | [filesystem.md](filesystem.md) | the filesystem seam: `FsTarget`, read/write/edit outcomes, observed-file state, `FsErrorCode` |
+| [skills.md](skills.md) | the skill service: discovery priority, `SkillSummary`/`SkillDefinition`, prompt listing, model-facing `skill` loading |
 | [compaction.md](compaction.md) | the compaction seam: the `compact/*` session events, `CompactionResult`, the `CompactService` interface |
 | [subagent.md](subagent.md) | the subagent seam: the named-provider registry, `SubagentStartRequest`/`Result`/`Run`, the start-time-vs-runtime capability split |
 | [web.md](web.md) | the web access seam: `WebSearchRequest`/`Result`, `WebFetchRequest`/`Result`, `WebFetchBody`, provider/capability status, `WebError` |

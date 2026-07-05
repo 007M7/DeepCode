@@ -25,31 +25,46 @@ export function isSkillName(name: string): boolean {
   return SKILL_NAME.test(name)
 }
 
+/** Origin bucket for a discovered skill. The value is prompt-visible metadata, not part of precedence by itself. */
 export type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | 'user-agents' | 'extra' | 'system'
 
+/** Model-visible skill metadata returned by `ctx.skills.list()` and rendered into the request prompt. */
 export interface SkillSummary {
+  /** Kebab-case identifier used with the `skill` tool. */
   name: string
+  /** Short routing description shown to the model. */
   description: string
+  /** Optional extra routing guidance shown to the model. */
   whenToUse?: string
+  /** Whether the skill is hidden from model listings while remaining loadable by trusted callers. */
   disableModelInvocation?: boolean
+  /** Base directory for resolving skill-relative references. */
   directory: string
+  /** Discovery source that produced this winning skill. */
   source: SkillSource
 }
 
+/** Complete parsed skill definition, including the body loaded by `ctx.skills.get()`. */
 export interface SkillDefinition extends SkillSummary {
+  /** Markdown instruction body after frontmatter removal. */
   content: string
+  /** Absolute file path when the skill came from disk; runtime skills may omit it. */
   path?: string
+  /** Parsed optional metadata object from frontmatter. */
   metadata?: Record<string, unknown>
 }
 
+/** Runtime skill contribution accepted by `ctx.skills.register()`. */
 export type SkillRegistration = Omit<SkillDefinition, 'disableModelInvocation'> & {
   disableModelInvocation?: boolean
 }
 
+/** Workspace selector used for cwd-sensitive project-root discovery. */
 export interface SkillLookupOptions {
   cwd?: string | undefined
 }
 
+/** Skill plugin configuration. */
 export interface Config {
   /** DeepSeek Harness config root. Defaults to `$DSH_HOME` or `~/.dsh`. */
   dshHome?: string
