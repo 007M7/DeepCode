@@ -67,7 +67,7 @@ Endpoint detection is not part of this RFC because no endpoint-specific mapping 
 
 **Config-only opt-in attribution.** Rejected. A default-off setting is exactly how adapters keep drifting. The policy is mandatory default attribution with overrideable public values, not optional attribution.
 
-**Product-named token (`deepseek-code`).** Considered for the `User-Agent` token, since the product's name is DeepSeek Code. `deepseek-harness` won on continuity: it is the identity providers already see from this codebase, it matches the org/repo and planned SDK-repo naming, and a public rename can change the product token deliberately later.
+**Product-named token (`deepseek-harness-sdk`).** Considered for the `User-Agent` token, since the product name is DeepSeek Harness SDK. `deepseek-harness` won on continuity: it is the identity providers already see from this codebase, it matches the org/repo identity and package scope, and it keeps wire attribution stable while display copy carries the product name.
 
 ## Risks / what we give up
 

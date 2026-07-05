@@ -15,6 +15,6 @@ pnpm run demo:repl     # REPL agent demo (needs DEEPSEEK_API_KEY)
 pnpm run demo:acp      # ACP server agent demo (needs DEEPSEEK_API_KEY)
 ```
 
-面向人类读者：先读[开发指南](docs/development.md)了解本地环境搭建、钩子、环境变量与质量门禁，动手改 package 之前再读[架构设计](docs/architecture.md)。局部上下文见 [packages/](packages/) 与 [vendor/](vendor/)。
+面向人类读者：先读[开发指南](docs/development.md)了解本地环境搭建、钩子、环境变量与质量门禁，动手改 package 之前再读[架构设计](docs/architecture.md)和[文档关系图索引](docs/graph-atlas.md)。局部上下文见 [packages/](packages/) 与 [vendor/](vendor/)。
 
 面向 agent：遵循 [AGENTS.md](AGENTS.md)。

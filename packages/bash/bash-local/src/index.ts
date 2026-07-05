@@ -5,8 +5,9 @@
  * survey notes), tracks background tasks, and kills everything on dispose.
  *
  * TODO(permissions/sandbox): execution policy does NOT belong here — use
- * the `tools/pre-execute` deny/ask gate (see docs/architecture.md § plugin
- * checklist) or implement a sandboxing `BashExecutor`. Reference points:
+ * the `tools/pre-execute` deny/ask gate (see docs/architecture.md
+ * § Extending The Harness) or implement a sandboxing `BashExecutor`.
+ * Reference points:
  * Claude Code wraps commands in sandbox-exec/bubblewrap; Codex applies
  * seatbelt/landlock plus an execpolicy prefix-rule engine.
  *
