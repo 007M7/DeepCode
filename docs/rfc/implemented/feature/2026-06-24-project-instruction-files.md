@@ -1,4 +1,4 @@
-# RFC: Project instruction files (`AGENTS.md` with `CLAUDE.md` fallback)
+# RFC: Project instruction files (configurable `AGENTS.md`/`CLAUDE.md` candidates)
 
 Status: implemented
 
@@ -20,13 +20,13 @@ This RFC ships baseline loading plus structured file-tool nested loading. The ba
 
 ### File names and precedence
 
-The native file name is `AGENTS.md`. `CLAUDE.md` is a compatibility fallback, not a parallel default. In any one directory, load at most one instruction file: `AGENTS.md` wins; if absent, `CLAUDE.md` may load. This mirrors opencode's conflict-avoidance policy rather than Reasonix's "load everything" policy, because a repo carrying both names is likely in transition and the two files can duplicate or contradict each other.
+The native file name is `AGENTS.md`. `CLAUDE.md` is a compatibility fallback, not a parallel default. The default per-directory candidate list is `['AGENTS.md', 'CLAUDE.md']`; in any one directory, the plugin loads at most one instruction file by checking that list in order. With defaults, `AGENTS.md` wins; if absent, `CLAUDE.md` may load. This mirrors opencode's conflict-avoidance policy rather than Reasonix's "load everything" policy, because a repo carrying both names is likely in transition and the two files can duplicate or contradict each other.
 
-The first cut intentionally does not load lowercase variants (`agents.md`, `claude.md`), local/personal variants (`AGENTS.local.md`, `CLAUDE.local.md`), `.claude/CLAUDE.md`, or `.claude/rules/*.md`. Those are valid future extensions, but the first shipped contract should be small and predictable: one cross-tool user-global file, plus one instruction candidate per directory on the applicable path.
+Apps may override `instructionFileCandidates` to customize project and nested per-directory discovery. `AGENTS.md` is intentionally part of that candidate list rather than a hidden hard-coded priority, so a product may opt into names such as `CLAUDE.local.md` or use a narrower project contract. Candidate entries are same-directory file names only; empty entries, `.`/`..`, and entries containing `/` or `\` are ignored. The first shipped default remains small and predictable: one cross-tool user-global file, plus one instruction candidate per directory on the applicable path. Lowercase variants (`agents.md`, `claude.md`), local/personal variants (`AGENTS.local.md`, `CLAUDE.local.md`), `.claude/CLAUDE.md`, and `.claude/rules/*.md` are not loaded by default; simple same-directory names can be configured, while nested rule directories and import-like semantics remain deferred.
 
 ### User-global instructions
 
-User-global harness instructions live at `$DSH_HOME/AGENTS.md`, where `$DSH_HOME` defaults to `~/.dsh` when unset. This mirrors Codex's `~/.codex` and Claude Code's `~/.claude` convention without inventing a repo-local home. The user-global file loads before project files so project-specific instructions appear later and can override broad preferences in the model-readable order.
+User-global harness instructions live at `$DSH_HOME/AGENTS.md`, where `$DSH_HOME` defaults to `~/.dsh` when unset. This mirrors Codex's `~/.codex` and Claude Code's `~/.claude` convention without inventing a repo-local home. The user-global file name is fixed because `$DSH_HOME` is the harness-level data/config location; `instructionFileCandidates` only customizes per-directory project and nested discovery. The user-global file loads before project files so project-specific instructions appear later and can override broad preferences in the model-readable order.
 
 `$DSH_HOME` is a filesystem location only; this RFC does not introduce a broader config service. The default `.dsh` directory name and tilde expansion live in the small `dsh-paths` utility package so future features can share the same convention without depending on this prompt plugin. If a future config package owns the harness data directory, it should preserve this default and consume or supersede that helper deliberately.
 
@@ -34,7 +34,7 @@ User-global harness instructions live at `$DSH_HOME/AGENTS.md`, where `$DSH_HOME
 
 For each agent request, the plugin derives the applicable working directory from `agent.session.header.cwd`. If the session has no cwd, it may fall back to `process.cwd()`, but that fallback is only meaningful for single-session local/stdio runs; ACP-created or ACP-resumed sessions are expected to carry an absolute persisted cwd, because the server launch directory is not the client's workspace.
 
-The plugin finds the project root by walking upward from that cwd until it finds a `.git` marker. The marker may be either a directory or a file, so linked worktrees and submodules work. If no `.git` marker is found, the project root is the cwd itself. The plugin then considers the ancestor chain from project root to cwd, inclusive, and in each directory loads `AGENTS.md` or, when absent, `CLAUDE.md`.
+The plugin finds the project root by walking upward from that cwd until it finds a `.git` marker. The marker may be either a directory or a file, so linked worktrees and submodules work. If no `.git` marker is found, the project root is the cwd itself. The plugin then considers the ancestor chain from project root to cwd, inclusive, and in each directory loads the first existing `instructionFileCandidates` entry.
 
 Example: if the session cwd is `/repo/packages/app`, and `/repo/.git` exists, the baseline search order is `/repo`, `/repo/packages`, `/repo/packages/app`. If `/repo/AGENTS.md`, `/repo/packages/CLAUDE.md`, and `/repo/packages/app/AGENTS.md` exist, the rendered order is user-global first, then `/repo/AGENTS.md`, then `/repo/packages/CLAUDE.md`, then `/repo/packages/app/AGENTS.md`. Later entries are more specific, so the rendered text states that deeper files override parent files and direct user/developer/system instructions override all instruction files.
 
@@ -42,7 +42,7 @@ If the user launches from the repository root, only the root directory is in the
 
 ### Nested discovery after file tools
 
-The plugin observes successful `read`, `write`, and `edit` calls through `tools/post-execute`. For a touched file under the session cwd, it checks the directory chain from just below the session cwd through the touched file's parent directory, using the same file-name precedence as baseline discovery. Newly discovered nested files are attached as `additionalContext` so the loop records them after the tool result as durable `context/message` events for the next request. Visible session context suppresses duplicate nested injections even if file content is evicted from the content cache; compaction that replaces a nested context message out of the visible surface allows a later structured file touch to re-load the applicable instruction file.
+The plugin observes successful `read`, `write`, and `edit` calls through `tools/post-execute`. For a touched file under the session cwd, it checks the directory chain from just below the session cwd through the touched file's parent directory, using the same configured candidate precedence as baseline discovery. Newly discovered nested files are attached as `additionalContext` so the loop records them after the tool result as durable `context/message` events for the next request. Visible session context suppresses duplicate nested injections even if file content is evicted from the content cache; compaction that replaces a nested context message out of the visible surface allows a later structured file touch to re-load the applicable instruction file.
 
 Shell commands are not a trigger. `dsh-bash-local` runs each command in a fresh shell and does not persist shell cwd, and parsing `cd subdir && cat file` reliably would require shell semantics the harness does not own. If bash-driven path discovery becomes necessary, it should be a separate design over an explicit path-reporting contract rather than a heuristic bolted onto this plugin.
 
@@ -116,13 +116,13 @@ Summarize instruction files before injection. This saves tokens but makes the in
 
 ## Plan
 
-1. Add `packages/prompt/project-instructions` with config for `dshHome`, `projectRootMarkers` (default `['.git']`), `baselineMaxBytes` (default `65536`), and `enableClaudeFallback` (default `true`). Include pure discovery/rendering helpers so the filesystem rules can be tested without Cordis.
+1. Add `packages/prompt/project-instructions` with config for `dshHome`, `projectRootMarkers` (default `['.git']`), `baselineMaxBytes` (default `65536`), and `instructionFileCandidates` (default `['AGENTS.md', 'CLAUDE.md']`). Include pure discovery/rendering helpers so the filesystem rules can be tested without Cordis.
 
 2. Implement baseline `agent/request` injection in `dsh-project-instructions`. The listener computes the instruction block for `agent.session.header.cwd` or the stdio-only `process.cwd()` fallback, prepends one synthetic workspace-context message to the request messages, and returns the request through `next()`. It must never mutate shared global prompt sections or the provider system field. Implement nested `tools/post-execute` injection for successful structured file-tool touches, folding the new context onto any downstream `additionalContext`.
 
 3. Load the plugin from `@deepseek-ai/dsh-agent-core` so both app packages receive it by default, and expose `projectInstructions` config through `agent-core`, `stdio-agent`, and `acp-agent`. Update `packages/README.md` and `docs/architecture.md` as part of the implementation. No generated Cordis catalog update is expected because the implementation adds no event or service.
 
-4. Add tests: pure discovery order, `AGENTS.md` over `CLAUDE.md`, `$DSH_HOME` defaulting to `~/.dsh`, `.git` file and directory markers, no project-root overrun, no recursive startup scan, full-text rendering, budget truncation naming omitted/truncated paths, per-request discovery of new baseline files, content cache invalidation by signature, per-agent no-leak behavior with two agents in different cwd values, dynamic nested loading through the real file tools, duplicate suppression, and HMR/dispose cleanup.
+4. Add tests: pure discovery order, default `AGENTS.md` over `CLAUDE.md`, configurable candidate order, `$DSH_HOME` defaulting to `~/.dsh`, `.git` file and directory markers, no project-root overrun, no recursive startup scan, full-text rendering, budget truncation naming omitted/truncated paths, per-request discovery of new baseline files, content cache invalidation by signature, per-agent no-leak behavior with two agents in different cwd values, dynamic nested loading through the real file tools, duplicate suppression, and HMR/dispose cleanup.
 
 5. Add request-shape coverage that proves the synthetic workspace-context message is present and lower in authority than the system field. Add a with-key e2e smoke test because the baseline change affects real model behavior but is not observable in replay snapshots. Snapshot coverage is not required for this phase unless the implementation also changes editor-visible transcript output.
 
@@ -130,7 +130,7 @@ Summarize instruction files before injection. This saves tokens but makes the in
 
 Prompt growth is the main operational risk. Full-text loading is deliberate, but a large root `AGENTS.md` can consume context. The byte budget and explicit omitted/truncated file list make the behavior bounded and visible. The default should be generous enough for real project guidance but small enough to avoid surprising model-call cost.
 
-Instruction conflicts are unavoidable when users keep both `AGENTS.md` and `CLAUDE.md`. The fallback rule keeps the conflict local and predictable: a native `AGENTS.md` suppresses `CLAUDE.md` in the same directory, while a directory with only `CLAUDE.md` still works.
+Instruction conflicts are unavoidable when users keep multiple configured instruction filenames in one directory. The first-existing candidate rule keeps the conflict local and predictable: with the default list, a native `AGENTS.md` suppresses `CLAUDE.md` in the same directory, while a directory with only `CLAUDE.md` still works.
 
 Repository instructions are not necessarily trusted. The fenced workspace-context role, lower-authority wording, and refusal to put repo text in the provider system field reduce the risk, but they do not make prompt injection disappear. Future permission/sandbox work should continue to treat repo content as untrusted input.
 
@@ -142,4 +142,4 @@ Multi-session isolation is load-bearing. Any implementation that stores the rend
 
 Bash-driven nested instruction loading is deferred. `dsh-tool-bash` should not be the first path-reporting consumer: parsing arbitrary shell commands for touched paths is brittle and would create false positives. If the product later needs bash-derived context, it should add an explicit path-reporting contract to the real execution surface and cover the resulting editor-visible context with snapshots.
 
-Lowercase file names, `.claude/CLAUDE.md`, `.claude/rules/*.md`, local/private variants, import directives such as Reasonix/Claude-style `@path`, ACP `additionalDirectories`, file watching for changed instruction files, first-load trust acknowledgements, and model-generated summaries are also deferred. Each adds real semantics beyond the minimal compatibility contract and should land only after the native/fallback baseline proves itself.
+Lowercase file names by default, `.claude/CLAUDE.md`, `.claude/rules/*.md`, import directives such as Reasonix/Claude-style `@path`, ACP `additionalDirectories`, file watching for changed instruction files, first-load trust acknowledgements, and model-generated summaries are also deferred. Each adds real semantics beyond the minimal compatibility contract and should land only after the native/fallback baseline proves itself. Same-directory local/private variants can be opted into by setting `instructionFileCandidates`, but they are not part of the product default.

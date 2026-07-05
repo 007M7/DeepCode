@@ -132,7 +132,7 @@ function appendAdditionalContext(agent: Agent, result: { additionalContext?: Hoo
 }
 
 describe('project instruction discovery', () => {
-  it('loads user-global first, then root-to-cwd project instructions with AGENTS.md winning over CLAUDE.md', async () => {
+  it('loads user-global first, then root-to-cwd project instructions using the default candidate order', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -144,11 +144,7 @@ describe('project instruction discovery', () => {
       await write(join(root, 'packages/CLAUDE.md'), 'package claude')
       await write(join(cwd, 'AGENTS.md'), 'app agents')
 
-      const files = await discoverBaselineInstructionFiles({
-        cwd,
-        dshHome: home,
-        enableClaudeFallback: true,
-      })
+      const files = await discoverBaselineInstructionFiles({ cwd, dshHome: home })
 
       expect(files.map(file => file.displayPath)).toEqual([
         '$DSH_HOME/AGENTS.md',
@@ -268,16 +264,63 @@ describe('project instruction discovery', () => {
     }
   })
 
-  it('does not load CLAUDE.md when Claude fallback is disabled', async () => {
+  it('honors configured instruction candidates that exclude CLAUDE.md', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
       await mkdir(join(root, '.git'), { recursive: true })
       await write(join(root, 'CLAUDE.md'), 'claude only')
 
-      const files = await discoverBaselineInstructionFiles({ cwd: root, dshHome: home, enableClaudeFallback: false })
+      const files = await discoverBaselineInstructionFiles({
+        cwd: root,
+        dshHome: home,
+        instructionFileCandidates: ['AGENTS.md'],
+      })
 
       expect(files).toEqual([])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('uses the configured instruction candidate order without hard-coding AGENTS.md priority', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'native rule')
+      await write(join(root, 'CLAUDE.local.md'), 'local claude rule')
+      await write(join(root, 'CLAUDE.md'), 'claude rule')
+
+      const files = await discoverBaselineInstructionFiles({
+        cwd: root,
+        dshHome: home,
+        instructionFileCandidates: ['CLAUDE.local.md', 'AGENTS.md', 'CLAUDE.md'],
+      })
+
+      expect(files.map(file => file.displayPath)).toEqual(['CLAUDE.local.md'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('ignores configured instruction candidates that are not same-directory file names', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'native rule')
+      await write(join(root, '.claude/CLAUDE.md'), 'nested claude rule')
+
+      const files = await discoverBaselineInstructionFiles({
+        cwd: root,
+        dshHome: home,
+        instructionFileCandidates: ['', '.', '..', '.claude/CLAUDE.md', 'nested\\CLAUDE.md', 'AGENTS.md'],
+      })
+
+      expect(files.map(file => file.displayPath)).toEqual(['AGENTS.md'])
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -930,6 +973,36 @@ describe('dynamic nested project instruction injection', () => {
       expect(text).toContain('<workspace-context source="project-instruction-files">')
       expect(text).toContain('## pkg/AGENTS.md\n\nnested package rule')
       expect(text).not.toContain('baseline root rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('uses configured instruction candidates for nested discovery', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'native package rule')
+      await write(join(root, 'pkg/CLAUDE.local.md'), 'local package rule')
+      await write(join(root, 'pkg/deep/file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndProjectInstructions(ctx, {
+        dshHome: home,
+        instructionFileCandidates: ['CLAUDE.local.md', 'AGENTS.md', 'CLAUDE.md'],
+      })
+
+      const result = await ctx.tools.execute({
+        callId: CallId('read-configured-nested-candidate'),
+        name: 'read',
+        arguments: { file_path: 'pkg/deep/file.txt' },
+        agent: stubAgent(root),
+      })
+
+      const text = blocksText(result.additionalContext?.content)
+      expect(text).toContain('## pkg/CLAUDE.local.md\n\nlocal package rule')
+      expect(text).not.toContain('native package rule')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })

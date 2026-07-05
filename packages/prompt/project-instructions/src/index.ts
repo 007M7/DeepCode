@@ -1,7 +1,7 @@
 /**
- * Project instruction file loader: discovers `AGENTS.md` with `CLAUDE.md`
- * fallback on the per-session workspace path, reads them through `ctx.fs`, and
- * injects them as fenced workspace context for each model request.
+ * Project instruction file loader: discovers the configured per-directory
+ * instruction candidate list, reads matches through `ctx.fs`, and injects them
+ * as fenced workspace context for each model request.
  *
  * @module @deepseek-ai/dsh-project-instructions
  */
@@ -21,6 +21,8 @@ export const inject = ['fs']
 
 const DEFAULT_BASELINE_MAX_BYTES = 64 * 1024
 const DEFAULT_PROJECT_ROOT_MARKERS = ['.git'] as const
+const DEFAULT_INSTRUCTION_FILE_CANDIDATES = ['AGENTS.md', 'CLAUDE.md'] as const
+const RESERVED_PATH_SEGMENTS = new Set(['', '.', '..'])
 const WORKSPACE_CONTEXT_OPEN = '<workspace-context source="project-instruction-files">'
 const WORKSPACE_CONTEXT_CLOSE = '</workspace-context>'
 const INSTRUCTION_FILE_MARKER_OPEN = '<!-- project-instruction-files:path='
@@ -38,14 +40,14 @@ export interface Config {
   dshHome?: string
   projectRootMarkers?: string[]
   baselineMaxBytes?: number
-  enableClaudeFallback?: boolean
+  instructionFileCandidates?: string[]
 }
 
 export const Config: z<Config> = z.object({
   dshHome: z.string(),
   projectRootMarkers: z.array(z.string()).default([...DEFAULT_PROJECT_ROOT_MARKERS]),
   baselineMaxBytes: z.number().default(DEFAULT_BASELINE_MAX_BYTES),
-  enableClaudeFallback: z.boolean().default(true),
+  instructionFileCandidates: z.array(z.string()).default([...DEFAULT_INSTRUCTION_FILE_CANDIDATES]),
 })
 
 export interface InstructionFile {
@@ -78,7 +80,7 @@ interface ResolvedConfig {
   dshHome: string
   projectRootMarkers: string[]
   baselineMaxBytes: number
-  enableClaudeFallback: boolean
+  instructionFileCandidates: string[]
 }
 
 interface FileSignature {
@@ -96,7 +98,7 @@ interface DiscoverOptions {
   cwd: string
   dshHome?: string
   projectRootMarkers?: string[]
-  enableClaudeFallback?: boolean
+  instructionFileCandidates?: string[]
 }
 
 interface LoadOptions extends DiscoverOptions {
@@ -117,8 +119,14 @@ function resolveConfig(config: Config): ResolvedConfig {
     dshHome: resolveDshHome(config.dshHome),
     projectRootMarkers: config.projectRootMarkers ?? [...DEFAULT_PROJECT_ROOT_MARKERS],
     baselineMaxBytes: config.baselineMaxBytes ?? DEFAULT_BASELINE_MAX_BYTES,
-    enableClaudeFallback: config.enableClaudeFallback ?? true,
+    instructionFileCandidates: resolveInstructionFileCandidates(config.instructionFileCandidates),
   }
+}
+
+function resolveInstructionFileCandidates(candidates: string[] | undefined): string[] {
+  return (candidates ?? [...DEFAULT_INSTRUCTION_FILE_CANDIDATES]).filter(candidate => (
+    !RESERVED_PATH_SEGMENTS.has(candidate) && !/[\\/]/.test(candidate)
+  ))
 }
 
 function byteLength(value: string): number {
@@ -222,30 +230,20 @@ function descendantDirsBetween(root: string, touchedPath: string): string[] {
 async function firstExistingInstructionFile(
   dir: string,
   root: string,
-  enableClaudeFallback: boolean,
+  instructionFileCandidates: readonly string[],
   fileSystem?: FileSystem,
 ): Promise<DiscoveredInstructionFile | undefined> {
-  const agentsPath = join(dir, 'AGENTS.md')
-  const agentsSignature = await statFile(agentsPath, fileSystem)
-  if (agentsSignature !== undefined) {
-    const { target, ...signature } = agentsSignature
-    return {
-      absolutePath: agentsPath,
-      displayPath: relativeDisplay(root, agentsPath),
-      signature,
-      ...target === undefined ? {} : { target },
-    }
-  }
-  if (!enableClaudeFallback) return undefined
-  const claudePath = join(dir, 'CLAUDE.md')
-  const claudeSignature = await statFile(claudePath, fileSystem)
-  if (claudeSignature !== undefined) {
-    const { target, ...signature } = claudeSignature
-    return {
-      absolutePath: claudePath,
-      displayPath: relativeDisplay(root, claudePath),
-      signature,
-      ...target === undefined ? {} : { target },
+  for (const candidate of instructionFileCandidates) {
+    const path = join(dir, candidate)
+    const fileSignature = await statFile(path, fileSystem)
+    if (fileSignature !== undefined) {
+      const { target, ...signature } = fileSignature
+      return {
+        absolutePath: path,
+        displayPath: relativeDisplay(root, path),
+        signature,
+        ...target === undefined ? {} : { target },
+      }
     }
   }
   return undefined
@@ -282,7 +280,7 @@ async function discoverInstructionFiles(options: DiscoverOptions, fileSystem?: F
   const cwd = resolve(options.cwd)
   const projectRoot = await findProjectRoot(cwd, config.projectRootMarkers, fileSystem)
   for (const dir of ancestorChain(projectRoot, cwd)) {
-    const file = await firstExistingInstructionFile(dir, projectRoot, config.enableClaudeFallback, fileSystem)
+    const file = await firstExistingInstructionFile(dir, projectRoot, config.instructionFileCandidates, fileSystem)
     if (file !== undefined) addFile(file)
   }
   return files
@@ -294,7 +292,7 @@ async function discoverNestedInstructionFiles(options: NestedLoadOptions, fileSy
   const projectRoot = await findProjectRoot(cwd, config.projectRootMarkers, fileSystem)
   const files: DiscoveredInstructionFile[] = []
   for (const dir of descendantDirsBetween(cwd, options.touchedPath)) {
-    const file = await firstExistingInstructionFile(dir, projectRoot, config.enableClaudeFallback, fileSystem)
+    const file = await firstExistingInstructionFile(dir, projectRoot, config.instructionFileCandidates, fileSystem)
     if (file !== undefined && !options.loadedDisplayPaths.has(file.displayPath)) files.push(file)
   }
   return files
@@ -580,7 +578,7 @@ async function dynamicInstructionContext(
     dshHome: resolved.dshHome,
     projectRootMarkers: resolved.projectRootMarkers,
     baselineMaxBytes: resolved.baselineMaxBytes,
-    enableClaudeFallback: resolved.enableClaudeFallback,
+    instructionFileCandidates: resolved.instructionFileCandidates,
     touchedPath,
     loadedDisplayPaths,
     pendingDisplayPaths,
@@ -603,7 +601,7 @@ export function apply(ctx: Context, config: Config): void {
       dshHome: resolved.dshHome,
       projectRootMarkers: resolved.projectRootMarkers,
       baselineMaxBytes: resolved.baselineMaxBytes,
-      enableClaudeFallback: resolved.enableClaudeFallback,
+      instructionFileCandidates: resolved.instructionFileCandidates,
       cache,
     }, ctx.fs)
     if (instructions !== undefined) {

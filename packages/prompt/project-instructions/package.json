@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-project-instructions",
-  "description": "Project instruction file loader for AGENTS.md with CLAUDE.md fallback",
+  "description": "Project instruction file loader with configurable instruction candidates",
   "version": "0.0.1",
   "private": true,
   "type": "module",

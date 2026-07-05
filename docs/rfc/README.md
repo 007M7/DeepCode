@@ -90,7 +90,7 @@ Do NOT write one for a mechanical or local choice (a variable name, a one-file r
 | [Compaction as a capability seam (abstract contract + basic backend)](implemented/feature/2026-06-18-compaction-capability-seam.md) | 2026-06-18 |
 | [Subagent capability seam](implemented/feature/2026-06-21-subagent-capability-seam.md) | 2026-06-21 |
 | [ACP subagent backend (out-of-process delegation)](implemented/feature/2026-06-22-acp-subagent-backend.md) | 2026-06-22 |
-| [Project instruction files (`AGENTS.md` with `CLAUDE.md` fallback)](implemented/feature/2026-06-24-project-instruction-files.md) | 2026-06-24 |
+| [Project instruction files (configurable `AGENTS.md`/`CLAUDE.md` candidates)](implemented/feature/2026-06-24-project-instruction-files.md) | 2026-06-24 |
 | [The `todo_write` tool — model task list as event-sourced session state](implemented/feature/2026-06-29-todo-write-tool.md) | 2026-06-29 |
 | [dsh-hooks-claude + dsh-hooks-codex — the Claude Code / Codex hook bridges](implemented/feature/2026-06-30-hook-bridges.md) | 2026-06-30 |
 | [dsh-hook-protocol — the shared Claude Code / Codex hook wire-protocol core](implemented/feature/2026-06-30-hook-protocol-lib.md) | 2026-06-30 |
