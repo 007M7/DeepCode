@@ -116,11 +116,24 @@ return 2`
     expect(error.message).toContain('proxies cannot cross')
   })
 
-  it('a meta expression THROWING a hostile value maps to META_INVALID — rendering runs no realm code', () => {
+  it('a meta expression THROWING a hostile value maps to META_INVALID — rendering stays realm-side', () => {
+    // bad() rethrows anything that is not a WorkflowError, so a hostile value
+    // escaping the realm-side renderer raw would fail this test.
     const error = bad('export const meta = { name: (() => { throw { get stack() { throw new Error("boom") }, toString() { throw new Error("boom") } } })(), description: "d" }\nreturn 1')
     expect(error.code).toBe('META_INVALID')
     expect(error.message).toContain('pure literal')
-    expect(error.message).toContain('[object Object]')
+    expect(error.message).toContain('[unrenderable thrown value]')
+  })
+
+  it('a spinning meta expression (even inside a thrown stack getter) dies by the eval timeout', () => {
+    try {
+      extractMeta('export const meta = { name: (() => { while (true) {} })(), description: "d" }', 50)
+      throw new Error('expected the extraction to time out')
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(WorkflowError)
+      expect((error as WorkflowError).code).toBe('META_INVALID')
+      expect((error as WorkflowError).message.toLowerCase()).toContain('timed out')
+    }
   })
 
   it('rejects shape violations with EVERY violation listed (META_INVALID)', () => {

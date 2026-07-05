@@ -589,24 +589,24 @@ describe('dsh-workflow-vm', () => {
       expect(result.error).toBe('[object Object]')
     })
 
-    it('hostile thrown values render contained: result NEVER rejects, no unhandled rejection', async () => {
+    it('hostile thrown values render realm-side: result NEVER rejects, no unhandled rejection', async () => {
       const unhandled: unknown[] = []
       const onUnhandled = (reason: unknown): void => { unhandled.push(reason) }
       process.on('unhandledRejection', onUnhandled)
       try {
         const { ctx, parent } = await setup()
-        // Each thrown value would run realm code (or throw) under a plain
-        // property read or String(); rendering must stay total — the only
-        // permitted realm call is the CONTAINED stack getter.
+        // Each thrown value runs code (or throws) when rendered — the realm
+        // wrapper renders it INSIDE script execution, and the host catch only
+        // ever descriptor-reads the pre-rendered string.
         const cases: [string, string][] = [
           ["throw { get stack() { throw new Error('stack getter threw') } }", '[object Object]'],
           ["throw { get stack() { throw new Error('x') }, message: 'getter threw, message renders' }", 'getter threw, message renders'],
-          ["throw { get message() { throw new Error('message getter ran') } }", '[object Object]'],
+          ["throw { get message() { throw new Error('message getter threw') } }", '[object Object]'],
           ["throw { stack: 'custom data stack' }", 'custom data stack'],
           ["throw (() => { const o = { message: 'setter-only stack' }; Object.defineProperty(o, 'stack', { set() {} }); return o })()", 'setter-only stack'],
-          ["throw new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('trap ran') } })", '[thrown proxy]'],
-          ["throw { [Symbol.toPrimitive]() { throw new Error('toPrimitive ran') } }", '[object Object]'],
-          ['throw () => 1', '[thrown function]'],
+          ["throw new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('gopd trap threw') } })", '[object Object]'],
+          ["throw { [Symbol.toPrimitive]() { throw new Error('toPrimitive threw') } }", '[unrenderable thrown value]'],
+          ['throw () => 1', '() => 1'],
           ['throw null', 'null'],
         ]
         for (const [body, rendered] of cases) {
@@ -620,6 +620,27 @@ describe('dsh-workflow-vm', () => {
       } finally {
         process.off('unhandledRejection', onUnhandled)
       }
+    })
+
+    it('a synchronous spin hidden in a thrown stack getter dies by the vm timeout, not on the host', async () => {
+      const { ctx, parent } = await setup({ config: { provider: 'stub', syncTimeoutMs: 50 } })
+      // The realm-side renderer reads e.stack INSIDE the timed sync slice, so
+      // the spin is killed exactly like a plain `while (true) {}` body.
+      const result = await run(ctx, parent, script('throw { get stack() { while (true) {} } }'))
+      expect(result.stopReason).toBe('error')
+      expect(result.error?.toLowerCase()).toContain('timed out')
+    })
+
+    it('a hostile thenable rejection that bypasses the realm wrapper renders host-side, data-only', async () => {
+      const { ctx, parent } = await setup()
+      // Returning a thenable makes the host unwrap it AFTER the script
+      // settled — its rejection value skips the realm catch entirely and hits
+      // drive()'s catch raw. The proxy must be labelled, its traps never run.
+      const result = await run(ctx, parent, script(`
+        return { then(_resolve, reject) { reject(new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('trap ran') } })) } }
+      `))
+      expect(result.stopReason).toBe('error')
+      expect(result.error).toBe('[thrown proxy]')
     })
 
     it('falls back to the message for an Error whose stack was stripped', async () => {

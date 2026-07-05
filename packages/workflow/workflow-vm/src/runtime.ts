@@ -41,7 +41,7 @@ import type {
   WorkflowMeta,
   WorkflowResult,
 } from '@deepseek-ai/dsh-workflow'
-import { materializeFromRealm, MaterializeError, describeThrown } from './realm.ts'
+import { materializeFromRealm, MaterializeError, describeThrown, thrownRendering, REALM_THROWN_RENDERER_SOURCE } from './realm.ts'
 
 /** The per-run knobs the engine resolves from its Config. */
 export interface ExecutionLimits {
@@ -137,13 +137,19 @@ export class WorkflowExecution {
   ) {
     // Compile FIRST: a body syntax error must throw out of the constructor
     // (the engine maps it to SCRIPT_PARSE) before any realm state exists.
+    // The body is wrapped in a realm-side catch that pre-renders any thrown
+    // value to a string (see REALM_THROWN_RENDERER_SOURCE) — rendering happens
+    // inside the realm's own execution window, never on a host catch path.
     // lineOffset compensates for the wrapper line, so stack traces carry the
     // script's own line numbers (the meta statement was blanked, not removed).
     try {
-      this.compiled = new vm.Script(`(async () => {\n${body}\n})()`, {
-        filename: `workflow:${meta.name}`,
-        lineOffset: -1,
-      })
+      this.compiled = new vm.Script(
+        `(async () => { try {\n${body}\n} catch (e) { throw (${REALM_THROWN_RENDERER_SOURCE})(e) } })()`,
+        {
+          filename: `workflow:${meta.name}`,
+          lineOffset: -1,
+        },
+      )
     } catch (error: unknown) {
       throw new WorkflowError(`workflow script does not parse: ${String(error)}`, 'SCRIPT_PARSE', { cause: error })
     }
@@ -225,10 +231,13 @@ export class WorkflowExecution {
       if (error instanceof WorkflowError && error.code === 'CANCELLED') {
         return { value: null, stopReason: 'cancelled', error: error.message, agentsStarted: this.started }
       }
-      // describeThrown is total and trap-free: a hostile thrown value (a
-      // throwing accessor, a proxy) cannot make this catch throw — drive()
-      // resolving is the `result` never-rejects seam contract.
-      return { value: null, stopReason: 'error', error: describeThrown(error), agentsStarted: this.started }
+      // Ordinary script failures arrive pre-rendered by the realm-side catch
+      // (thrownRendering); host-thrown errors (a vm timeout, a WorkflowError)
+      // and adversarial values that bypassed the wrapper (e.g. a hostile
+      // thenable rejection) render via the total, host-code-only
+      // describeThrown. Neither path can throw — drive() resolving is the
+      // `result` never-rejects seam contract.
+      return { value: null, stopReason: 'error', error: thrownRendering(error) ?? describeThrown(error), agentsStarted: this.started }
     } finally {
       // Reap strays: a script that fired agent() calls without awaiting them
       // leaves live children behind after settlement — abort them all. (The

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as vm from 'node:vm'
-import { materializeFromRealm, MaterializeError } from '../src/realm.ts'
+import { materializeFromRealm, MaterializeError, describeThrown, thrownRendering } from '../src/realm.ts'
 
 /** Evaluate an expression inside a fresh vm realm and hand back the raw realm value. */
 function inRealm(expression: string): unknown {
@@ -131,5 +131,48 @@ describe('materializeFromRealm', () => {
     expect(materializeFromRealm(3)).toBe(3)
     expect(materializeFromRealm(false)).toBe(false)
     expect(materializeFromRealm(null)).toBeNull()
+  })
+})
+
+describe('describeThrown (host-side thrown-value rendering)', () => {
+  it('renders a HOST Error via its identity-verified native stack getter', () => {
+    const error = new Error('host failure')
+    const rendered = describeThrown(error)
+    expect(rendered).toContain('host failure')
+    expect(rendered).toContain('at ') // a real stack, not just the message
+  })
+
+  it('never invokes a REALM error stack getter (identity mismatch) — message renders instead', () => {
+    const realmError: unknown = vm.runInNewContext('(() => { try { throw new Error("realm failure") } catch (e) { return e } })()')
+    expect(describeThrown(realmError)).toBe('realm failure')
+  })
+
+  it('reads a data-property stack directly and falls through a setter-only accessor', () => {
+    expect(describeThrown({ stack: 'data stack' })).toBe('data stack')
+    const setterOnly = { message: 'via message' }
+    Object.defineProperty(setterOnly, 'stack', { set() { /* swallow */ } })
+    expect(describeThrown(setterOnly)).toBe('via message')
+  })
+
+  it('labels proxies and functions without touching them; primitives stringify', () => {
+    expect(describeThrown(new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('trap ran') } }))).toBe('[thrown proxy]')
+    expect(describeThrown(() => 1)).toBe('[thrown function]')
+    expect(describeThrown('plain')).toBe('plain')
+    expect(describeThrown(42)).toBe('42')
+    expect(describeThrown(undefined)).toBe('undefined')
+    expect(describeThrown(null)).toBe('null')
+    expect(describeThrown({ code: 42 })).toBe('[object Object]')
+  })
+})
+
+describe('thrownRendering (the realm-catch wrapper reader)', () => {
+  it('extracts the pre-rendered string from a wrapper and nothing else', () => {
+    expect(thrownRendering({ __wfThrown: 'rendered text' })).toBe('rendered text')
+    expect(thrownRendering({ __wfThrown: 42 })).toBeUndefined()
+    expect(thrownRendering({ other: 'x' })).toBeUndefined()
+    expect(thrownRendering(new Error('plain'))).toBeUndefined()
+    expect(thrownRendering('string')).toBeUndefined()
+    expect(thrownRendering(null)).toBeUndefined()
+    expect(thrownRendering(new Proxy({ __wfThrown: 'forged' }, { getOwnPropertyDescriptor() { throw new Error('trap ran') } }))).toBeUndefined()
   })
 })

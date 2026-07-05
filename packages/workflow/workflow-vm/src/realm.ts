@@ -27,10 +27,16 @@
  * chain, so the engine rebuilds inbound values INSIDE the realm via the
  * context's own `JSON.parse` (see the runtime).
  *
- * {@link describeThrown} is the same discipline for the one place realm
- * values reach the host WITHOUT materialization: rendering a thrown value
- * for a failure report. It never throws; the only realm code it can invoke
- * is a stack getter, contained (see its doc).
+ * {@link REALM_THROWN_RENDERER_SOURCE}, {@link thrownRendering}, and
+ * {@link describeThrown} are the same discipline for the one place realm
+ * values reach the host WITHOUT materialization: a thrown value crossing into
+ * a host catch block. The renderer runs INSIDE the realm's own execution
+ * window (compiled into the script wrapper), so reading a hostile
+ * accessor/`toString` there is subject to the vm sync-slice timeout exactly
+ * like any other script code; the host side only descriptor-reads the
+ * pre-rendered string, or falls back to {@link describeThrown}, which invokes
+ * no getter whose function identity is not the host realm's own native stack
+ * getter.
  *
  * @module @deepseek-ai/dsh-workflow-vm/realm
  */
@@ -46,22 +52,66 @@ export class MaterializeError extends Error {
 }
 
 /**
- * Render a value THROWN by realm code (a script failure, a meta-literal
- * evaluation failure) as text, without ever throwing itself — the callers sit
- * in catch blocks whose totality is a seam contract (`WorkflowRun.result`
- * never rejects). Plain property reads and `String(value)` are hostile-value
- * hazards (`{ get stack() { throw ... } }`, a throwing
- * `toString`/`Symbol.toPrimitive`), so: proxies render as a fixed label
- * (trap-free `isProxy`, before any inspection); `message` is read as an OWN
- * DATA descriptor only; everything else object-shaped renders as
- * `[object Object]` without being touched; only primitives (which cannot
- * carry code) reach `String()`. The one exception is the `stack` getter —
- * modern V8 makes `stack` an own ACCESSOR on genuine `Error`s, so it is
- * invoked (that is how real stacks, with the script's own line numbers via
- * the compile lineOffset, are obtained) but CONTAINED: a hostile getter's
- * throw is swallowed and rendering falls back to message. Detection is
- * structural, not `instanceof` — a realm Error is not an instance of the host
- * class.
+ * Realm-SOURCE text (an arrow-function expression) the engine compiles into
+ * its script wrappers: `throw (RENDERER)(e)` inside a catch around the whole
+ * body/literal. It renders the thrown value to a string INSIDE the realm's
+ * own execution window — a hostile `stack`/`message` accessor or `toString`
+ * invoked here is subject to the vm sync-slice timeout like any other script
+ * code (and post-await it is the engine's accepted spin limitation, identical
+ * to a script reading `e.stack` in its own catch). Host `WorkflowError`s
+ * thrown by hooks pass through unwrapped (duck-checked by name — a realm
+ * forgery fails the host's `instanceof` and merely renders data-only);
+ * everything else becomes `{ __wfThrown: <string> }`, whose only consumer is
+ * {@link thrownRendering}. Every read is individually contained, so the
+ * renderer itself never throws.
+ */
+export const REALM_THROWN_RENDERER_SOURCE = `(e) => {
+  try { if (e && e.name === 'WorkflowError') return e } catch { /* hostile name getter: fall through to rendering */ }
+  const rendered = (() => {
+    try { if (e && typeof e.stack === 'string' && e.stack.length > 0) return e.stack } catch { /* hostile stack getter */ }
+    try { if (e && typeof e.message === 'string') return e.message } catch { /* hostile message getter */ }
+    try { return String(e) } catch { /* hostile toString/Symbol.toPrimitive */ }
+    return '[unrenderable thrown value]'
+  })()
+  return { __wfThrown: rendered }
+}`
+
+/**
+ * The pre-rendered failure text carried by a realm-catch wrapper object
+ * (`{ __wfThrown: string }` from {@link REALM_THROWN_RENDERER_SOURCE}), or
+ * `undefined` when `error` is not such a wrapper. Descriptor-read and
+ * proxy-guarded: never invokes user code.
+ * @param error - the value a host catch received from script execution.
+ * @returns the realm-rendered string, or `undefined` to fall back to
+ *   {@link describeThrown}.
+ */
+export function thrownRendering(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null || types.isProxy(error)) return undefined
+  const value = ownDataProperty(error, '__wfThrown')
+  return typeof value === 'string' ? value : undefined
+}
+
+/**
+ * The host realm's own native `stack` getter (modern V8 makes `stack` an own
+ * ACCESSOR on Errors); `undefined` where it is a data property. Typed through
+ * a structural view of the descriptor — it is only ever identity-compared or
+ * `.call`ed on an explicit receiver, never invoked unbound.
+ */
+const HOST_STACK_GETTER: unknown = (Object.getOwnPropertyDescriptor(new Error(), 'stack') as { get?: unknown } | undefined)?.get
+
+/**
+ * Render a thrown value HOST-SIDE without ever throwing and without running
+ * any code the host does not own: proxies become a fixed label (trap-free
+ * `isProxy` before any inspection); `stack` is read as an own data descriptor,
+ * or through its getter ONLY when that getter's function identity is the host
+ * realm's own native stack getter (an unforgeable check — realm code cannot
+ * hold that identity, and the host realm's `prepareStackTrace` is the host's
+ * own trust domain); `message` is an own-data read; anything else
+ * object-shaped renders as `[object Object]` untouched; only primitives
+ * (which cannot carry code) reach `String()`. Used for host-thrown errors
+ * (vm timeouts, `WorkflowError`s) and as the fallback for adversarial values
+ * that bypassed the realm-side renderer (e.g. a hostile thenable rejection);
+ * ordinary script failures arrive pre-rendered via {@link thrownRendering}.
  * @param error - the thrown value, of any shape and any realm.
  * @returns human-readable text for the failure report; prefers the stack.
  */
@@ -86,24 +136,18 @@ export function describeThrown(error: unknown): string {
 }
 
 /**
- * Read `error.stack`, tolerating both descriptor shapes: an own DATA property
- * (older V8, plain objects) and the modern own ACCESSOR pair (the Error Stack
- * Accessor proposal). Invoking the getter is the only way to obtain a real
- * stack; on a hostile object that getter is user code, so the call is
- * contained — a throw yields `undefined` (the caller falls back to message),
- * and a synchronous spin is the engine's already-accepted post-await
- * limitation (a script can spin directly just the same).
+ * Read `error.stack` without running foreign code: an own DATA descriptor is
+ * read directly; an accessor is invoked only on function identity with
+ * {@link HOST_STACK_GETTER} (never a realm or user function). The native
+ * getter returns `undefined` on a non-Error receiver rather than throwing.
  */
 function readStack(error: object): unknown {
   const descriptor = Object.getOwnPropertyDescriptor(error, 'stack')
   if (descriptor === undefined) return undefined
   if ('value' in descriptor) return descriptor.value
   if (typeof descriptor.get !== 'function') return undefined
-  try {
-    return descriptor.get.call(error)
-  } catch {
-    return undefined // a hostile stack getter threw; message/fallback renders instead
-  }
+  if (descriptor.get !== HOST_STACK_GETTER) return undefined
+  return descriptor.get.call(error)
 }
 
 /** An own DATA property's value (`undefined` for absent or accessor); never invokes user code on a non-proxy object. */
