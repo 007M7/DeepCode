@@ -124,7 +124,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:78`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:80`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 
@@ -163,7 +163,7 @@ get(id: SessionId): Session | undefined
 list(): Session[]
 ```
 
-Source: [`packages/core/session/src/index.ts:327`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:328`](../../packages/core/session/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 

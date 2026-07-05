@@ -197,7 +197,7 @@ Waterfall around every streaming model call (retry, caching, routing). Bound to 
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:33`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:35`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 
@@ -209,7 +209,7 @@ A session was created in the store.
 'session/created'(session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:36`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:37`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
@@ -221,7 +221,7 @@ An event was appended to a session log (sync, fire-and-forget). This is the per-
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:44`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:45`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -231,7 +231,7 @@ Awaited durability checkpoint. The agent loop awaits `ctx.parallel('session/flus
 'session/flush'(session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:54`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:55`](../../packages/core/session/src/index.ts)
 
 ## `subagent/*`
 

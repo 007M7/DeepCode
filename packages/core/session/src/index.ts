@@ -21,6 +21,7 @@ export { interruptedTurnClosers } from './repair.ts'
 export type { SurfaceNode } from './surface.ts'
 export { isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { isToolPairingBalanced } from './tool-pairing.ts'
+export { applyHeaderDelta, canonicalHeader, diffHeader, foldRequestHeader } from './request-header.ts'
 
 declare module 'cordis' {
   interface Context {
