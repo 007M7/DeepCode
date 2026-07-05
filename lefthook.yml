@@ -75,6 +75,9 @@ pre-push:
     - name: rfc classification
       run: pnpm run verify-rfc-classification
 
+    - name: rfc format
+      run: pnpm run verify-rfc-format
+
     - name: type equivalence
       run: pnpm run verify-type-equiv
 
