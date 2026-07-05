@@ -636,6 +636,22 @@ describe('dsh-workflow-vm', () => {
       expect(result.error).toBe('stackless failure')
     })
 
+    it('cancel() in the same frame as start(): the awaited slot tick cannot start a child', async () => {
+      const { ctx, parent, provider } = await setup({ manual: true })
+      // agent() enters during start()'s synchronous slice and suspends on the
+      // acquireSlot await (one microtask tick even with a free slot); the
+      // synchronous cancel below lands in that tick. Without the post-acquire
+      // re-check the continuation would start a child carrying an ALREADY-
+      // aborted signal — which the stub provider (subscribing only to future
+      // abort events, like a real backend) would never settle, leaking it.
+      const handle = ctx.workflows.start({ script: script("return await agent('never')"), parent })
+      handle.cancel('immediately after start')
+      const result = await handle.result
+      expect(result.stopReason).toBe('cancelled')
+      expect(provider.runs.length).toBe(0)
+      await handle.dispose()
+    })
+
     it('a waiter resumed by a release RACING a cancel still dies at the post-acquire check', async () => {
       const { ctx, parent, provider } = await setup({ manual: true, config: { provider: 'stub', maxConcurrentAgents: 1 } })
       const handle = ctx.workflows.start({
@@ -643,8 +659,10 @@ describe('dsh-workflow-vm', () => {
         parent,
       })
       await vi.waitFor(() => { expect(provider.runs.length).toBe(1) })
-      // Same synchronous block: the release resolves b's waiter, then the
-      // cancel lands BEFORE b's continuation runs — b must not start a child.
+      // Same synchronous block: b is still a QUEUED waiter when the cancel
+      // lands, so cancel() rejects it outright; together with the immediate-
+      // cancel test above (the resumed-waiter tick), no post-cancel path can
+      // reach subagents.start.
       provider.runs[0]!.settle(text('a-done'))
       handle.cancel('raced')
       const result = await handle.result

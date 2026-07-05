@@ -375,10 +375,12 @@ export class WorkflowExecution {
 
     await this.acquireSlot()
     try {
-      // No cancelled re-check here: a cancel cannot interleave between a
-      // waiter's resolution and this continuation (single-threaded, no await
-      // between them), and a child started moments after a cancel still dies
-      // via the shared abort signal — the CANCELLED mapping below covers it.
+      // Re-check after the acquire: the await yields at least one microtask
+      // tick even when a slot is free, and a queued waiter resumes a tick
+      // after its release — a cancel() landing in either window must not
+      // start a child (it would carry an ALREADY-aborted signal, which a
+      // provider subscribing only to future abort events would never see).
+      if (this.isCancelled()) throw this.cancelledError()
       let run
       try {
         run = this.ctx.subagents.start(this.limits.provider, {
