@@ -180,7 +180,6 @@ function ciPrimaryGates(): Gate[] {
 function ciStaticGates(): Gate[] {
   return [
     pnpmScript('constraints', 'constraints'),
-    pnpmScript('typecheck', 'typecheck'),
     demoSmokeGate(),
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),

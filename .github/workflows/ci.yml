@@ -29,7 +29,7 @@ jobs:
         include:
           - lane: static
             command: pnpm run check:ci:static
-            gate_concurrency: '4'
+            gate_concurrency: '8'
             publint_concurrency: '8'
             coverage_max_workers: ''
           - lane: lint
