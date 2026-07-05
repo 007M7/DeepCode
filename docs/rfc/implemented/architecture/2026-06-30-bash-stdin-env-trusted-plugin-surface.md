@@ -1,10 +1,8 @@
 # RFC: stdin + extra env on the bash seam
 
-Status: implemented (accepted 2026-06-30)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 The hooks subsystem runs external hook commands the way Claude Code and Codex do: a hook is a shell command that receives its event payload as **JSON on stdin** and reads context from a handful of **environment variables** (`CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, `PLUGIN_ROOT`, …). The harness already has a perfectly good command runner behind the `ctx.bash` capability seam ([dsh-bash](../../../../packages/bash/bash) → [dsh-bash-local](../../../../packages/bash/bash-local)), with process-group kills, output truncation/spill, and a credential scrub. Reusing it for hook execution means a hook bridge does not re-implement subprocess plumbing — but the seam had no way to write stdin or set extra env. This RFC adds those two inputs.
 
@@ -24,7 +22,7 @@ Three deliberate choices:
 
 `dsh-bash-local` spawns stdin as a `'pipe'` (writing the supplied bytes, then closing) ONLY when a caller set `stdin`; with none supplied it uses `'ignore'` — fd 0 → `/dev/null` — the exact pre-seam default. This distinction is observable and deliberate: a closed empty pipe and `/dev/null` are NOT the same file type (node's spawn pipe is an `AF_UNIX` socket, so `test -c /dev/stdin` holds for `/dev/null` but not for an empty pipe), so the no-stdin path — every model-driven call — must keep `/dev/null` rather than regress to an always-open pipe. Each branch's `stdio` tuple is a literal, which preserves the typed `spawn` overload that guarantees non-null `stdout`/`stderr`. When stdin IS written, a child that exits without reading makes the write fail EPIPE; that error is swallowed (the command's outcome rides on its exit code/output, not the write) so it never crashes the host or rejects `done`.
 
-## Scope: configurable scrub pattern is NOT included
+## Alternatives considered
 
 An earlier sketch of this work also proposed making `SENSITIVE_ENV_PATTERN` configurable. Validating against the code, that is **speculative and already subsumed**: `run.ts` documents a configurable whitelist as future work, and the new explicit `env` field — merged after the scrub — already gives a caller full control, including over credential-shaped vars. There is no current caller that needs to *broaden* the ambient scrub (the hazard runs the other way). Adding a config knob now would be a speculative surface with no consumer. If a real workflow ever needs to forward a specific ambient credential, the explicit `env` field is the supported path; a configurable scrub can be reconsidered then.
 

@@ -2,7 +2,7 @@
  * Doc-sync gate: verify that doc references written in TypeScript COMMENTS
  * resolve to a file that exists. Source comments cite docs by root-relative
  * prose path — `see docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md`,
- * `docs/architecture.md § plugin checklist`. `verify-md-links` parses Markdown
+ * `docs/architecture.md § Where New Behavior Goes`. `verify-md-links` parses Markdown
  * link AST and never sees these, so a doc rename or move could silently orphan
  * a `.ts` comment that points at it. The RFC classification reorg
  * ([the classification RFC](../docs/rfc/implemented/process/2026-06-20-rfc-classification.md))
@@ -12,7 +12,7 @@
  * Detection is a token scan, NOT an AST walk: doc refs live in free prose inside
  * comments, not in a structured form. We match `docs/<path>.md` tokens and
  * REQUIRE the `.md` extension, so extensionless prose (`docs/postmortem/0001`,
- * `docs/architecture.md § plugin checklist` — the section suffix is outside the
+ * `docs/architecture.md § Where New Behavior Goes` — the section suffix is outside the
  * token) is left alone rather than misread as a path. Each token is resolved
  * ROOT-RELATIVE (the way the comments are written) and must exist on disk. This
  * is checker, not fixer: it reports and never rewrites.
@@ -43,7 +43,7 @@ const isExcluded = (p: string): boolean =>
  * Match a `docs/…​.md` reference token. The `.md` extension is required so a
  * bare `docs/postmortem/0001` (no extension) does not register as a path. The
  * character class stops at whitespace, backticks, parens, and the section sign,
- * so trailing prose (`… .md § plugin checklist`) is not swallowed into the path.
+ * so trailing prose (`… .md § Where New Behavior Goes`) is not swallowed into the path.
  */
 const DOC_REF = /\bdocs\/[A-Za-z0-9._/-]+\.md/g
 

@@ -22,6 +22,7 @@ const NO_CAPS: SubagentCapabilities = { outputSchema: false, depthLimit: false, 
 /** A scripted provider whose run settles immediately with a fixed result. */
 class StubProvider implements SubagentProvider {
   startCount = 0
+  readonly inheritsParentContext = false
   constructor(
     readonly name: string,
     readonly capabilities: SubagentCapabilities = ALL_CAPS,
@@ -44,6 +45,59 @@ function baseRequest(overrides: Partial<SubagentStartRequest> = {}): SubagentSta
 }
 
 describe('SubagentService', () => {
+  it('announces provider lifecycle: added on register, removed on dispose', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const added: string[] = []
+    const removed: string[] = []
+    ctx.on('subagent/provider-added', provider => void added.push(provider.name))
+    ctx.on('subagent/provider-removed', name => void removed.push(name))
+
+    const dispose = ctx.subagents.registerProvider(new StubProvider('alpha'))
+    expect(added).toEqual(['alpha'])
+    expect(removed).toEqual([])
+
+    dispose()
+    expect(removed).toEqual(['alpha'])
+  })
+
+  it('rolls back the registration when a provider-added listener throws', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    let threw = false
+    const off = ctx.on('subagent/provider-added', () => {
+      if (!threw) { threw = true; throw new Error('boom added listener') }
+    })
+
+    expect(() => ctx.subagents.registerProvider(new StubProvider('alpha'))).toThrow('boom added listener')
+    expect(ctx.subagents.getProvider('alpha')).toBeUndefined() // nothing leaked
+
+    off()
+    ctx.subagents.registerProvider(new StubProvider('alpha'))
+    expect(ctx.subagents.getProvider('alpha')).toBeDefined()
+  })
+
+  it('contains a throwing provider-removed listener: later mirrors still hear it, teardown completes', async () => {
+    // provider-removed fires inside the registration's DISPOSER, so a
+    // propagating listener would disrupt the backend's teardown; and cordis
+    // emit halts on the first throw, so an uncontained one would starve every
+    // mirror registered after it (a stale model-facing tool). Both are
+    // prevented by per-listener containment.
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => void warnings.push(String(message))) as typeof ctx.logger.warn
+    ctx.on('subagent/provider-removed', () => { throw new Error('boom removed listener') })
+    const heard: string[] = []
+    ctx.on('subagent/provider-removed', name => void heard.push(name))
+
+    const dispose = ctx.subagents.registerProvider(new StubProvider('alpha'))
+    expect(() => { dispose() }).not.toThrow()
+    expect(heard).toEqual(['alpha']) // the listener AFTER the thrower still ran
+    expect(ctx.subagents.getProvider('alpha')).toBeUndefined() // teardown reached quiescence
+    expect(warnings.some(w => w.includes('boom removed listener'))).toBe(true)
+  })
+
   it('registers a provider and starts a run on it by name', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
@@ -234,6 +288,7 @@ describe('SubagentService', () => {
     ctx.subagents.registerProvider({
       name: 'rej',
       capabilities: NO_CAPS,
+      inheritsParentContext: false,
       start: () => ({
         id: AgentId('rej-child'),
         result: Promise.reject(new Error('infra fault')),
@@ -267,6 +322,7 @@ describe('SubagentService', () => {
     ctx.subagents.registerProvider({
       name: 'unclone',
       capabilities: NO_CAPS,
+      inheritsParentContext: false,
       start: () => ({
         id: AgentId('unclone-child'),
         result: Promise.resolve({ output: uncloneable, stopReason: 'completed' } as SubagentResult),
@@ -296,6 +352,7 @@ describe('SubagentService', () => {
     ctx.subagents.registerProvider({
       name: 'rejecter',
       capabilities: NO_CAPS,
+      inheritsParentContext: false,
       start: () => ({
         id: AgentId('rej-child'),
         result: Promise.reject(new Error('infra fault')),

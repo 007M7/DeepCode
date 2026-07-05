@@ -49,10 +49,10 @@ jobs:
 
       # Doc-sync gates (doc-sync-enforcement RFC). doc-typecheck compiles the
       # fenced ts blocks against the root project-reference graph. The cordis
-      # catalog freshness check, type-equiv check, and markdown wrap/link checks
-      # only read source. Same `doc-sync` script the pre-push hook runs
+      # catalog freshness check, type-equiv check, Mermaid syntax check, and
+      # markdown wrap/link checks only read source. Same `doc-sync` script the pre-push hook runs
       # (quality-gates RFC: one source of truth).
-      - name: Doc-sync gates (doc code blocks + cordis catalog + type-equiv + markdown wrap/links)
+      - name: Doc-sync gates (doc code blocks + catalogs + mermaid + markdown)
         run: pnpm run doc-sync
 
       # Module-graph freshness: regenerate docs/module-graph.md from the

@@ -61,6 +61,27 @@ declare module 'cordis' {
 
   interface Events {
     /**
+     * A provider became resolvable in the {@link SubagentService} registry.
+     * Consumers that derive state from a named provider (e.g. the model-facing
+     * tool wording in `dsh-tool-subagent`) react HERE instead of assuming load
+     * order — the cordis Loader starts sibling plugins concurrently, so
+     * "listed earlier in cordis.yml" does not mean "registered earlier".
+     * @param provider - the provider that just registered, live in the registry.
+     * @mode emit
+     */
+    'subagent/provider-added'(provider: SubagentProvider): void
+    /**
+     * A provider left the registry (its plugin's fiber was disposed — an
+     * unload or an HMR reload). Consumers holding provider-derived state drop
+     * it here; a reload re-fires `subagent/provider-added` with the fresh
+     * provider. Delivered with per-listener containment: a throwing
+     * subscriber is logged, never starves later subscribers, and never
+     * disrupts the provider's teardown.
+     * @param name - the registry name that no longer resolves.
+     * @mode emit
+     */
+    'subagent/provider-removed'(name: string): void
+    /**
      * A subagent run started — emitted after the provider is resolved and its
      * capabilities validated, as the child run begins. Paired with
      * {@link Events['subagent/end']}.
@@ -130,7 +151,9 @@ export class SubagentService extends Service {
   /**
    * Register a provider under its `provider.name`. Throws {@link SubagentError}
    * (`DUPLICATE_PROVIDER`) if the name is already taken. Effect-scoped: disposed
-   * with the calling fiber (HMR-safe).
+   * with the calling fiber (HMR-safe). Emits `subagent/provider-added` after
+   * the registration and `subagent/provider-removed` on unregistration, so
+   * consumers can mirror provider lifecycle instead of assuming load order.
    * @param provider - the provider; its `name` is the registry key.
    * @returns the disposer that unregisters the provider.
    */
@@ -140,9 +163,17 @@ export class SubagentService extends Service {
         throw new SubagentError(`a subagent provider named "${provider.name}" is already registered`, 'DUPLICATE_PROVIDER')
       }
       this.providers.set(provider.name, provider)
+      // Yield the rollback BEFORE emitting `subagent/provider-added`: a
+      // throwing added-listener then unregisters the provider (and announces
+      // the removal) instead of leaking it into the registry. The removal
+      // announcement itself is contained PER LISTENER ({@link emitLifecycle}):
+      // it runs inside this disposer, where a propagating subscriber would
+      // disrupt the backend fiber's teardown and starve later mirrors.
       yield () => {
         this.providers.delete(provider.name)
+        this.emitLifecycle('subagent/provider-removed', provider.name)
       }
+      this.ctx.emit('subagent/provider-added', provider)
     }.bind(this), 'subagents.registerProvider()')
     // ctx.effect's disposer returns Promise<void>; our disposer API is
     // synchronous fire-and-forget — discard the (always-resolved) promise.
@@ -239,10 +270,22 @@ export class SubagentService extends Service {
    * on the first throw — so this resolves the listener callbacks via
    * `ctx.events.dispatch` and contains each call, the same guarantee
    * `BashExecutor.notifyTaskDone` gives its own listener set.
+   *
+   * `subagent/provider-removed` routes through here too: it fires inside the
+   * provider registration's DISPOSER, where a propagating listener would
+   * disrupt the backend fiber's teardown (dispose must reach quiescence) and a
+   * starved later listener would leave a mirror consumer (`dsh-tool-subagent`)
+   * holding a tool for a provider that no longer exists. `subagent/provider-added`
+   * deliberately does NOT: it fires at registration time, where a throwing
+   * listener unwinds the yielded rollback — the same fail-loud register-time
+   * semantics as the system-prompt registries.
    */
+  private emitLifecycle(name: 'subagent/start', info: SubagentRunInfo): void
+  private emitLifecycle(name: 'subagent/end', info: SubagentRunEndInfo): void
+  private emitLifecycle(name: 'subagent/provider-removed', info: string): void
   private emitLifecycle(
-    name: 'subagent/start' | 'subagent/end',
-    info: SubagentRunInfo | SubagentRunEndInfo,
+    name: 'subagent/start' | 'subagent/end' | 'subagent/provider-removed',
+    info: SubagentRunInfo | SubagentRunEndInfo | string,
   ): void {
     for (const callback of this.ctx.events.dispatch('emit', [name, info])) {
       try {

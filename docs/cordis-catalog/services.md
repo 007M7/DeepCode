@@ -176,19 +176,20 @@ list(): string[]
 start(name: string, request: SubagentStartRequest): SubagentRun
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:123`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:144`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 
-Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections and tool-schema providers; the agent loop calls `assemble()` once per step.
+Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, and named prompt variables; the agent loop calls `assemble(context)` once per step. Registers the harness-owned `harness:identity` and `deployment:persona` sections itself (see Config.persona).
 
 ```ts cordis-catalog
 section(section: PromptSection): () => void
 tools(provider: () => ToolSchema[]): () => void
-assemble(): Promise<PromptAssembly>
+variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void
+assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:73`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:198`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

@@ -17,6 +17,10 @@
  * the args — presentation must be a pure function of `args`, so it cannot ask
  * the engine to parse.
  *
+ * Usage policy ships with the tool as a `tool:<toolName>` system-prompt
+ * section (explicit-ask-only guidance) — tool guidance lives in tool plugins,
+ * never in the deployment persona.
+ *
  * @module @deepseek-ai/dsh-tool-workflow
  */
 
@@ -26,9 +30,11 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { WorkflowResult, WorkflowRun } from '@deepseek-ai/dsh-workflow'
+// Declaration merge only: makes ctx.systemPrompt visible for the section registration.
+import type {} from '@deepseek-ai/dsh-system-prompt'
 
 export const name = 'tool-workflow'
-export const inject = ['tools', 'workflows']
+export const inject = ['tools', 'workflows', 'systemPrompt']
 
 /** Config: the model-facing tool name plus result rendering caps. */
 export interface Config {
@@ -115,8 +121,16 @@ function renderResult(run: WorkflowRun, result: WorkflowResult, maxChars: number
 
 export function apply(ctx: Context, config: Config): void {
   const maxResultChars = config.maxResultChars ?? 50_000
+  const toolName = config.toolName ?? 'workflow'
+  // Usage policy ships with the tool (the master convention: tool guidance
+  // lives in tool plugins as prompt sections, not in the deployment persona).
+  ctx.systemPrompt.section({
+    name: `tool:${toolName}`,
+    order: 115,
+    text: `Use the ${toolName} tool ONLY when the user explicitly asks for a workflow or for large multi-agent orchestration: you write a JavaScript script (the tool description documents the exact format) that fans work out across many subagents with phases and structured results. For one or two delegations, prefer plain subagent calls.`,
+  })
   ctx.tools.register(defineTool({
-    name: config.toolName ?? 'workflow',
+    name: toolName,
     description: DESCRIPTION,
     parameters: {
       script: {

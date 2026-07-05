@@ -1,18 +1,21 @@
 # RFC: Provider-neutral content-block vocabulary owned by dsh-llm
 
-Status: implemented (accepted 2026-06-11)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
+## Problem
 
-## Context
-
-The harness needs one internal language for messages that the loop, session log, and all plugins speak. Options: mirror the DeepSeek/OpenAI chat-completions shape (zero mapping for the first provider, awkward for rich content), adopt Anthropic's Messages block structure verbatim (battle-tested, but our canonical types would mirror a third-party API we don't target first), or own a vocabulary.
+The harness needs one internal language for messages that the loop, session log, and all plugins speak.
 
 ## Decision
 
-Own it: messages are arrays of typed content blocks (`text`, `reasoning`, `tool-call`, `tool-result`), with the union derived from the merge-extensible `ContentBlockMap` so plugins add block types via declaration merging. The same merge-extensible-map pattern types every "stringly" field (`MessageSource`, `FinishReason`, `TurnTrigger`, `TurnEndReason`). Streaming is a raw chunk protocol; `BlockAssembler` is the single shared assembly implementation. Adapters translate to provider wire formats — mapping cost lives in adapters, where it belongs.
+Own the vocabulary: messages are arrays of typed content blocks (`text`, `reasoning`, `tool-call`, `tool-result`), with the union derived from the merge-extensible `ContentBlockMap` so plugins add block types via declaration merging. The same merge-extensible-map pattern types every "stringly" field (`MessageSource`, `FinishReason`, `TurnTrigger`, `TurnEndReason`). Streaming is a raw chunk protocol; `BlockAssembler` is the single shared assembly implementation. Adapters translate to provider wire formats — mapping cost lives in adapters, where it belongs.
 
 In-session context injection (`context/message`, `steering/message`) renders as tagged user-role envelopes (the system-reminder pattern) rather than a new role, so adapters carry zero burden. Live-adapter review has since validated the tagged-envelope rendering against current DeepSeek behavior; a future provider-specific mismatch should be handled in that adapter rather than by adding a new role to the canonical content vocabulary.
+
+## Alternatives considered
+
+- **Mirror the DeepSeek/OpenAI chat-completions shape** — zero mapping cost for the first provider, but awkward for rich content (reasoning, tool results as structured blocks).
+- **Adopt Anthropic's Messages block structure verbatim** — battle-tested, but the canonical types would mirror a third-party API the harness does not target first.
 
 ## Consequences
 

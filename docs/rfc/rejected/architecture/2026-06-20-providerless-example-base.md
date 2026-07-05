@@ -25,3 +25,5 @@ The shared base should contain only provider-neutral services and tools: `llm`, 
 ## What we give up
 
 Real demos lose one layer of convenience: each must opt into the adapter. That is the right default for examples, because adapter choice is the variable part and providerless wiring is the shared product core.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

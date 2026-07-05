@@ -31,6 +31,8 @@ interface ControlledRun {
  */
 class StubProvider implements SubagentProvider {
   readonly capabilities: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true }
+  // Context contract: stub children start fresh, mirroring the spawn backend.
+  readonly inheritsParentContext = false
   readonly runs: ControlledRun[] = []
 
   constructor(
@@ -460,6 +462,7 @@ describe('dsh-workflow-vm', () => {
       const provider: SubagentProvider = {
         name: 'rejecting',
         capabilities: { outputSchema: true, depthLimit: true, toolFilter: true },
+        inheritsParentContext: false,
         start: () => ({
           id: AgentId('reject-child'),
           result: Promise.reject(new Error('backend exploded')),

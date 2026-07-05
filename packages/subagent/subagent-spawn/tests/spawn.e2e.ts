@@ -29,11 +29,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('spawn backend with-key smoke', (
   it('a parent delegates to a child that writes a file on disk', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-subagent-spawn-e2e-'))
     ctx = await spawnHarness(workdir)
-    const parent = ctx.agentLoop.create(AgentId('e2e-parent'), {
-      model: 'deepseek-v4-flash',
-      systemPrompt: 'You are an orchestrator. To do file work, delegate to a subagent with the `subagent` tool — '
-        + 'give it a complete, standalone instruction. Report only when done.',
-    })
+    const parent = ctx.agentLoop.create(AgentId('e2e-parent'), { model: 'deepseek-v4-flash' })
 
     parent.send([{ type: 'text', text:
       'Use the subagent tool to delegate this exact task: "Use the bash tool to write the text '

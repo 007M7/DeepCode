@@ -27,4 +27,4 @@ Design surveyed against the bash tools of Claude Code, OpenCode, Codex, and pi; 
 
 ## Sandboxing
 
-`TODO(permissions/sandbox)`: execution policy does NOT belong in this package. Use the `tools/pre-execute` deny/ask gate or implement a sandboxing `BashExecutor` — see docs/architecture.md § plugin checklist. Reference points: Claude Code wraps commands in sandbox-exec/bubblewrap; Codex applies seatbelt/landlock plus an execpolicy prefix-rule engine.
+`TODO(permissions/sandbox)`: execution policy does NOT belong in this package. Use the `tools/pre-execute` deny/ask gate or implement a sandboxing `BashExecutor` — see docs/architecture.md § Extending The Harness. Reference points: Claude Code wraps commands in sandbox-exec/bubblewrap; Codex applies seatbelt/landlock plus an execpolicy prefix-rule engine.

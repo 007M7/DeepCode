@@ -22,7 +22,6 @@ import { assertSupportedOutputSchema } from '@deepseek-ai/dsh-tools'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
 import {
   acquireStructuredRuntime,
-  STRUCTURED_OUTPUT_INSTRUCTION,
   STRUCTURED_OUTPUT_NUDGE,
   type StructuredAcquisition,
 } from './structured.ts'
@@ -133,18 +132,14 @@ export function startInProcessRun(
   const seedLength = options.seed?.length ?? 0
   const parentHeader = request.parent.session.header
   // Inherit the parent's model by default (a child with no model cannot run);
-  // an explicit `request.agentOptions.model` overrides it. The parent's
-  // systemPrompt is NOT inherited — a fresh child is a clean specialist unless
-  // the caller supplies one. A structured run appends the structured_output
-  // instruction after whatever prompt the caller supplied.
-  const callerPrompt = request.agentOptions?.systemPrompt
-  const systemPrompt = schema === undefined
-    ? callerPrompt
-    : [callerPrompt, STRUCTURED_OUTPUT_INSTRUCTION].filter(text => text !== undefined && text.length > 0).join('\n\n')
+  // an explicit `request.agentOptions.model` overrides it. The persona needs
+  // no inheritance: the deployment persona is a context-wide prompt section,
+  // so parent and child render the same one. A structured run's
+  // structured_output instruction is NOT prompt state either — the structured
+  // runtime's final-request listener appends it per request (see structured.ts).
   const agentOptions: AgentOptions = {
     ...request.parent.options.model !== undefined ? { model: request.parent.options.model } : {},
     ...request.agentOptions,
-    ...systemPrompt !== undefined ? { systemPrompt } : {},
     subagentDepth: childDepth,
   }
 

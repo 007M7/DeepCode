@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-acp
 
-The **Agent Client Protocol (ACP)** bridge: exposes the DeepSeek Harness coding agent as an ACP server over JSON-RPC stdio, so editors (Zed and other ACP clients) can drive it — streaming render, tool-call display, and resumable sessions. Zed is the current target client: baseline ACP behavior should remain reasonable for other clients, but bridge capabilities and compatibility decisions are evaluated against Zed first. **N concurrent sessions per connection** (see [ACP multi-session](../../../docs/rfc/proposed/feature/2026-06-14-acp-multi-session.md)): each maps to its own `ReactLoopAgent`, and every event is demuxed strictly by session id so two sessions streaming at once never interleave.
+The **Agent Client Protocol (ACP)** bridge: exposes DeepSeek Harness SDK agents as an ACP server over JSON-RPC stdio, so editors (Zed and other ACP clients) can drive them — streaming render, tool-call display, and resumable sessions. Zed is the current target client: baseline ACP behavior should remain reasonable for other clients, but bridge capabilities and compatibility decisions are evaluated against Zed first. **N concurrent sessions per connection** (see [ACP multi-session](../../../docs/rfc/proposed/feature/2026-06-14-acp-multi-session.md)): each maps to its own `ReactLoopAgent`, and every event is demuxed strictly by session id so two sessions streaming at once never interleave.
 
 It is a **client-driver / UI plugin**, the structured analogue of the readline `stdio-chat` plugin — NOT a loop change and NOT a [capability seam](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md). It consumes the existing `agent/*` event taxonomy, the `dsh-agent` create/resume factory, and `dsh-session-persistence`.
 
@@ -15,7 +15,8 @@ It is a **client-driver / UI plugin**, the structured analogue of the readline `
 | Key | Default | Meaning |
 |---|---|---|
 | `model` | — | Model name for created agents (must have a registered adapter). |
-| `systemPrompt` | — | Per-agent system prompt. |
+
+(No persona key: the deployment persona is `dsh-system-prompt`'s own `persona` config — a context-wide section, so ACP-created agents render it without the bridge carrying prompt text.)
 
 The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 'deepseek-harness-acp', version: '0.0.1' }`) — branding is a literal at the `initialize` site, not config.
 

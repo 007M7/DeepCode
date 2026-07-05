@@ -4,7 +4,7 @@ The model-facing **`workflow` tool**: run a JavaScript orchestration script that
 
 ## What the model sees
 
-Two parameters: `script` (required — the full `export const meta = {...}` + body text; the tool DESCRIPTION carries the complete authoring contract: hooks, semantics, determinism bans, the supported schema subset) and `args` (optional JSON object exposed to the script as the `args` global; a bare list is wrapped as a field, a deliberate deviation from Claude Code's any-JSON `args` so the wire schema stays honest).
+Two parameters: `script` (required — the full `export const meta = {...}` + body text; the tool DESCRIPTION carries the complete authoring contract: hooks, semantics, determinism bans, the supported schema subset) and `args` (optional JSON object exposed to the script as the `args` global; a bare list is wrapped as a field, a deliberate deviation from Claude Code's any-JSON `args` so the wire schema stays honest). The plugin also contributes a `tool:<toolName>` system-prompt section carrying the usage policy — use the tool only on an explicit user ask for a workflow / large orchestration; prefer plain subagent calls for one or two delegations — per the convention that tool guidance ships with the tool plugin, never in the deployment persona.
 
 ## Lifecycle
 

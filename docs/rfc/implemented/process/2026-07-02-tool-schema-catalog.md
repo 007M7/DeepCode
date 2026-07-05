@@ -1,8 +1,8 @@
 # RFC: Generated tool-schema catalog (boot-and-harvest)
 
-Status: implemented (accepted 2026-07-02)
+Status: implemented
 
-## Context
+## Problem
 
 A reader — a plugin author, a prompt engineer, someone auditing what the agent can do — has no single place that lists the model-facing tools the harness ships. The `name` / `description` / JSON-Schema `parameters` a tool contributes are what the model actually receives (via `ctx.systemPrompt.tools()` off `ctx.tools.schemas()`), but they are scattered across each `defineTool` call in each `packages/*/tool-*` package, buried in string concatenation and runtime spreads. The cordis [events](../../../cordis-catalog/events.md) & [services](../../../cordis-catalog/services.md) catalogs ([their RFC](2026-06-20-generated-cordis-catalog.md)) document the *wiring* a plugin works against and the [core-data-structures catalog](../../../core-data-structures/core.md) documents the *vocabulary* those signatures move — but neither documents the *tools* the agent is offered. This RFC adds that third reference surface, `docs/tool-catalog/tools.md`, and a freshness gate so it cannot drift.
 
@@ -38,6 +38,12 @@ The unit is the PACKAGE, not the deployed tool instance. A package's registered 
 ### A plain `json` fence
 
 Schema blocks use ` ```json `, not a bespoke `ts`-family fence. `doc-typecheck` only extracts `ts*` fences, so a JSON block is invisible to it — no `BlockKind` wiring is needed (unlike the cordis catalog's `ts cordis-catalog` fence, which had to be allowlisted so a bare signature fragment isn't compiled).
+
+## Alternatives considered
+
+- **A pure TypeScript-AST pass, like the cordis catalog** — tool schemas are not statically knowable (the crux above): runtime spreads, string concatenation, config-chosen names, and raw `ctx.tools.register()` registrations all make an AST-derived doc lie.
+- **Inferring each package's boot recipe from its injects** — the "too clever" path [the discover-package-inventory proposal](../../proposed/process/2026-06-20-discover-package-inventory.md) warns against; the recipe stays hand-written policy while the inventory is discovered and completeness-guarded.
+- **A bespoke `ts`-family fence for schema blocks** — unnecessary: a plain ` ```json ` fence is invisible to `doc-typecheck`, so no `BlockKind` allowlisting is needed.
 
 ## Consequences
 

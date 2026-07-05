@@ -1,10 +1,8 @@
 # RFC: Real-API e2e in CI against the external DeepSeek API
 
-Status: implemented (accepted 2026-06-19)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 The harness leans hard on real-API tests by policy: [docs/testing.md](../../../testing.md) argues that a no-key suite proves the plumbing but not the product, and the [ACP inject postmortem](../../../postmortem/0001-acp-default-export-drops-inject.md) is the standing proof — 178 keyless tests stayed green while a real editor session crashed instantly. The real-API e2e suite (`pnpm run test:e2e`, the `*.e2e.ts` files) exists precisely to close that gap: it drives the agent against the live DeepSeek API — real model calls, real bash tools, multi-turn, resume, ACP-over-stdio.
 
@@ -85,6 +83,11 @@ What gets worse is the *surrounding* model, and these are the things to address 
 - **Settle the secret behind controls.** Confirm Settings → Actions → *"Send secrets to workflows from fork pull requests"* stays **off** (the one setting that would actually break the fork boundary), and consider moving the key into a GitHub **Environment** with required reviewers so even merged code uses it only under controlled conditions and rotation has a single home.
 
 None of these require changing the workflow to go public; they are operational steps plus the already-added `pull_request_target` guard comment.
+
+## Alternatives considered
+
+- **A secret-consuming job inside ci.yml** — rejected: it would couple the keyless, forkable, always-green gate to credential availability and a different trigger/concurrency policy; different lifecycles, different files.
+- **Omitting the `pull_request` trigger** (the smaller key-exposure surface) — rejected for the pre-merge signal; the Security section carries the accepted exposure analysis.
 
 ## Consequences
 

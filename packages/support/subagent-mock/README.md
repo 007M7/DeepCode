@@ -14,6 +14,7 @@ Load it as a plugin (functional shape: `name`/`inject`/`Config`/`apply`, no defa
 | `reply` | `mock subagent reply` | The scripted child's final answer text. |
 | `stopReason` | `completed` | The stop reason `result` settles with. |
 | `capabilities` | all `true` | Which start-time capabilities (`outputSchema`/`depthLimit`/`toolFilter`) the provider advertises. |
+| `inheritsParentContext` | `false` | The context contract to declare; `true` exercises the fork-shaped tool wording in consumer tests. |
 | `structured` | `{ reply }` | Structured value surfaced when a request carries an `outputSchema` and the capability is on. |
 
 A `cancel()` issued before `result` settles flips the stop reason to `aborted`, so the cancellation path is observable.

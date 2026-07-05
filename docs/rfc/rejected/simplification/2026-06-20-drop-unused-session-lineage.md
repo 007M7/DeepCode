@@ -25,3 +25,5 @@ If lineage returns, decide then whether it belongs in the immutable header, a se
 ## What we give up
 
 The codebase loses a ready-made lineage hook for future fork/sub-agent UX. That is intentional. The field is easy to reintroduce when the feature exists, and the unreleased stance lets the format change without migrations.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

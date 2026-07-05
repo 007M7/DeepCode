@@ -11,7 +11,10 @@
  * `prepend: true` listener that post-processes `await next()` — FINAL-REQUEST
  * enforcement: whatever downstream listeners mutated or replaced, the request
  * that hits the wire never carries `structured_output` for an agent without a
- * structured run, and always carries the run's OWN schema for one that has it.
+ * structured run, and for one that has it always carries the run's OWN schema
+ * plus the {@link STRUCTURED_OUTPUT_INSTRUCTION} appended to its `system`
+ * text (the demand travels with the tool — `AgentOptions` has no per-agent
+ * prompt field to carry it).
  * (Cooperative mutate-then-`next()` would not survive a downstream listener
  * returning a replacement request — see the waterfall composition caveat in
  * docs/architecture.md.)
@@ -42,7 +45,13 @@ import { ToolArgsError, validateStructuredValue, type StructuredOutputSchema } f
 /** The model-facing tool name a structured child must call to finish. */
 export const STRUCTURED_OUTPUT_TOOL = 'structured_output'
 
-/** The per-child instruction appended to a structured child's system prompt. */
+/**
+ * The instruction the request listener appends to a structured child's
+ * `system` on every request. Per-request wire state, NOT agent prompt state:
+ * `AgentOptions` has no prompt field (the persona is deployment config on the
+ * system-prompt plugin), so the same final-request enforcement that injects
+ * the schema'd tool carries the instruction that demands calling it.
+ */
 export const STRUCTURED_OUTPUT_INSTRUCTION
   = 'When you have your final answer, you MUST report it by calling the '
     + `\`${STRUCTURED_OUTPUT_TOOL}\` tool with arguments matching its parameter schema exactly. `
@@ -172,6 +181,12 @@ function registerRuntime(root: Context, runtime: StructuredRuntime): void {
         parameters: state.schema as unknown as Record<string, unknown>,
       }
       final.tools = [...(final.tools ?? []).filter(tool => tool.name !== STRUCTURED_OUTPUT_TOOL), schemaEntry]
+      // The demand travels WITH the tool: the instruction is appended to the
+      // final request's system text (the loop always assembles one; a bare
+      // direct dispatch may carry none).
+      final.system = final.system === undefined
+        ? STRUCTURED_OUTPUT_INSTRUCTION
+        : `${final.system}\n\n${STRUCTURED_OUTPUT_INSTRUCTION}`
       return final
     }
     // No structured run: strip the placeholder if present; leave an absent

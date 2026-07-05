@@ -10,7 +10,7 @@ Every fact has exactly one home — the tier whose job it is — and every other
 |---|---|---|
 | Root `AGENTS.md` | Standing orders: rules an agent needs in context in every session, one to three lines each, linking its home | Stories, worked examples, situational procedures, anything restated from a linked home |
 | Subtree `AGENTS.md` (`packages/`, `examples/`, `docs/`) | Orders specific to that subtree | Repo-wide rules the root file already carries |
-| [architecture.md](architecture.md) | The system map: layering, services, the loop, extension seams — read before changing `packages/` | Type shapes (→ core-data-structures), per-package detail (→ package READMEs), decision rationale (→ RFCs), implementation-status annotations |
+| [architecture.md](architecture.md) | The system map: services, the loop, extension seams — read before changing `packages/` | Type shapes (→ core-data-structures), per-package detail (→ package READMEs), decision rationale (→ RFCs), implementation-status annotations |
 | [core-data-structures/](core-data-structures/core.md) | The type catalog: literal shapes and semantics of the spine and seam vocabulary | Behavior narration (→ architecture.md) |
 | [rfc/](rfc/README.md) | Decision records: the why and the what-was-given-up; `implemented/` RFCs describe shipped reality in present tense | Migration plans, test checklists, and spec-speak ("should…") once the decision has shipped |
 | [postmortem/](postmortem/README.md) | Incident stories — the only tier where war-story narrative belongs | — |

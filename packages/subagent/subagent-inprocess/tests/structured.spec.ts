@@ -187,23 +187,37 @@ describe('in-process structured output', () => {
     expect(ctx.agents.get(AgentId('parent'))).toBeDefined()
   })
 
-  it('appends the structured instruction to the child system prompt (caller prompt preserved)', async () => {
-    const { ctx, parent } = await setup([toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 1 })])
-    const run = ctx.subagents.start('spawn', structuredRequest(parent, {
-      agentOptions: { systemPrompt: 'You are a counter.' },
-    }))
+  it('appends the structured instruction to the child REQUEST\'s system text (base prompt preserved)', async () => {
+    const { ctx, parent, adapter } = await setup([toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 1 })])
+    // A context-wide section stands in for the deployment persona: the
+    // instruction must APPEND to whatever the prompt pipeline assembled, not
+    // replace it (AgentOptions has no prompt field — the instruction is
+    // per-request wire state added by the final-request listener).
+    ctx.systemPrompt.section({ name: 'test:persona', order: 10, text: 'You are a counter.' })
+    const run = ctx.subagents.start('spawn', structuredRequest(parent))
     await run.result
-    const child = ctx.agents.get(run.id)!
-    expect(child.options.systemPrompt).toBe(`You are a counter.\n\n${STRUCTURED_OUTPUT_INSTRUCTION}`)
+    const childRequest = adapter.requests.at(-1)!
+    expect(childRequest.system).toContain('You are a counter.')
+    expect(childRequest.system!.endsWith(STRUCTURED_OUTPUT_INSTRUCTION)).toBe(true)
+    expect(childRequest.system!.indexOf(STRUCTURED_OUTPUT_INSTRUCTION)).toBeGreaterThan(0)
     await run.dispose()
   })
 
-  it('a structured child WITHOUT a caller prompt gets exactly the instruction', async () => {
-    const { ctx, parent } = await setup([toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 1 })])
+  it('the instruction rides ONLY structured requests: appended for the child, absent for a plain agent', async () => {
+    const { ctx, parent, adapter } = await setup([
+      textResponse('parent answer'),
+      toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 1 }),
+    ])
+    parent.send([{ type: 'text', text: 'hello' }])
+    await parent.whenIdle()
+    expect(adapter.requests[0]!.system ?? '').not.toContain(STRUCTURED_OUTPUT_INSTRUCTION)
     const run = ctx.subagents.start('spawn', structuredRequest(parent))
     await run.result
-    const child = ctx.agents.get(run.id)!
-    expect(child.options.systemPrompt).toBe(STRUCTURED_OUTPUT_INSTRUCTION)
+    // The loop always assembles a base prompt (the harness identity section),
+    // so the instruction APPENDS — never replaces.
+    const childSystem = adapter.requests.at(-1)!.system!
+    expect(childSystem.endsWith(STRUCTURED_OUTPUT_INSTRUCTION)).toBe(true)
+    expect(childSystem.length).toBeGreaterThan(STRUCTURED_OUTPUT_INSTRUCTION.length)
     await run.dispose()
   })
 
@@ -314,6 +328,8 @@ describe('in-process structured output', () => {
       const bare2: GenerateOptions = { model: 'mock', messages: [] }
       const shaped = await ctx.waterfall('agent/request', parent, 1, 1, bare2, () => Promise.resolve(bare2))
       expect(shaped.tools!.map(tool => tool.name)).toEqual([STRUCTURED_OUTPUT_TOOL])
+      // A bare request carries no system text: the instruction IS the system.
+      expect(shaped.system).toBe(STRUCTURED_OUTPUT_INSTRUCTION)
       acquisition.detach(parent)
       acquisition.release()
     })

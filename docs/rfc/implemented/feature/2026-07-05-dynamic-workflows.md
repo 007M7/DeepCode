@@ -1,14 +1,12 @@
 # RFC: Dynamic workflows — a script-driven multi-agent orchestration seam
 
-- **Status**: implemented
-- **Class**: feature
-- **First proposed**: 2026-07-05
+Status: implemented
 
 ## Problem
 
 The harness can delegate ONE task to ONE child (`dsh-tool-subagent`), but work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — forces the model to orchestrate turn by turn: every intermediate result lands in the parent context, the plan lives nowhere durable, and coordination costs a model round-trip per step. Claude Code ships this capability as [dynamic workflows](https://code.claude.com/docs/en/workflows): the model writes a JavaScript orchestration script, a runtime executes it, and the script — not the conversation — holds the loop, the branching, and the intermediate results.
 
-## Proposal
+## Decision
 
 A workflow capability family at `packages/workflow/` in the bash seam shape (interface / implementation / consumer), plus the structured-output foundation it needs on the subagent seam.
 
@@ -38,15 +36,7 @@ A `workflow` tool mirroring `dsh-tool-subagent`'s synchronous shape: start, awai
 
 ### The foundation: structured output on the subagent seam
 
-`agent({schema})` needs `SubagentStartRequest.outputSchema` to actually work; it was vocabulary without an implementation (`outputSchema: false` everywhere). Implemented in `dsh-subagent-inprocess` for both in-process backends: a globally registered `structured_output` capture tool whose per-child schema is enforced by a `prepend: true` `agent/request` listener doing FINAL-REQUEST enforcement (post-processing `await next()` — cooperative mutation would not survive a downstream listener returning a replacement request), a `prepend: true` `agent/turn-continuation` veto after capture (no wasted extra model step, and an earlier-registered force-continue listener cannot short-circuit it), validation-retry in-turn via `ToolArgsError`, and a clean-finish nudge loop (`structuredNudgeRetries`). Lifetime is refcounted by backends (plugin lifetime) AND live runs (start → settle). The seam's `outputSchema` type became the raw JSON-Schema SUBSET (`StructuredOutputSchema` in dsh-tools: single-string `type`, `properties`/`required`/`additionalProperties`, `items`, scalar `enum`/`const`; anything unenforced is rejected loud) — the schema travels verbatim to the model as the forced tool's parameters, so the wire format, not the author DSL, is the right vocabulary.
-
-## What was rejected
-
-- **Hostile-value containment in the host** (trap-free proxy rejection, accessor-never-invoked descriptor walks, realm-side pre-rendering of thrown values, realm-built promises/arrays/error clones with structural fatal recognition): an earlier revision built all of it, and review showed the cost was real while the threat model was not — every one of those defenses guards against an author the premise already trusts, who retains an accepted unkillable event-loop spin regardless. Removed in favor of the plain boundary above; the hardened engine deletes such machinery anyway (serialization by construction).
-- **Background execution as the default** (CC's shape): deferred; foreground-synchronous matches `dsh-tool-subagent`'s cut, and background semantics should be designed ONCE across bash/subagent/workflow rather than per-tool.
-- **Workflow-layer JSON parsing for `agent({schema})`**: duplicating a seam concern at one consumer while the seam's capability flag stayed dishonestly `false`.
-- **Meta as tool parameters instead of `export const meta`**: zero parsing, but scripts stop being self-contained artifacts and CC-authored scripts stop being drop-in.
-- **`SchemaSpec` as the outputSchema type**: the author-facing DSL cannot express what arrives as data and cannot be validated against without conversion loss.
+`agent({schema})` needs `SubagentStartRequest.outputSchema` to actually work; it was vocabulary without an implementation (`outputSchema: false` everywhere). Implemented in `dsh-subagent-inprocess` for both in-process backends: a globally registered `structured_output` capture tool whose per-child schema is enforced by a `prepend: true` `agent/request` listener doing FINAL-REQUEST enforcement (post-processing `await next()` — cooperative mutation would not survive a downstream listener returning a replacement request; the listener also appends the calling instruction to the request's `system` text, since `AgentOptions` carries no per-agent prompt field), a `prepend: true` `agent/turn-continuation` veto after capture (no wasted extra model step, and an earlier-registered force-continue listener cannot short-circuit it), validation-retry in-turn via `ToolArgsError`, and a clean-finish nudge loop (`structuredNudgeRetries`). Lifetime is refcounted by backends (plugin lifetime) AND live runs (start → settle). The seam's `outputSchema` type became the raw JSON-Schema SUBSET (`StructuredOutputSchema` in dsh-tools: single-string `type`, `properties`/`required`/`additionalProperties`, `items`, scalar `enum`/`const`; anything unenforced is rejected loud) — the schema travels verbatim to the model as the forced tool's parameters, so the wire format, not the author DSL, is the right vocabulary.
 
 ## Deferred (documented non-goals of this cut)
 
@@ -54,6 +44,19 @@ A `workflow` tool mirroring `dsh-tool-subagent`'s synchronous shape: start, awai
 - **Journaling + resume** (`resumeFromRunId`, cached agent() prefixes) — the determinism bans already keep scripts resume-compatible.
 - **Saved/bundled workflows** (a `.deepseek/workflows/` registry, slash-command surface) and **script persistence to a run directory** (the tool-call event already records the script durably).
 - **Nested `workflow()`**, **token `budget`**, and the `effort`/`isolation`/`agentType` agent options (each rejects loud with a message naming it deferred).
+- **An overall run wall-clock timeout** — cancellation always frees the caller (result settles within the grace), so a cap on total run time is a policy knob for the background redesign, not a correctness need here.
 - **Engine hardening**: a worker-thread or isolated-vm engine behind the same seam (kills synchronous spins; adds memory limits).
 - **ACP progress UI** over the `workflow/*` events (a `/workflows`-style view); the events exist for it.
 - **ACP-backend structured output** and **`toolFilter`** (both still capability-gated `false`).
+
+## Alternatives considered
+
+- **Hostile-value containment in the host** (trap-free proxy rejection, accessor-never-invoked descriptor walks, realm-side pre-rendering of thrown values, realm-built promises/arrays/error clones with structural fatal recognition): an earlier revision built all of it, and review showed the cost was real while the threat model was not — every one of those defenses guards against an author the premise already trusts, who retains an accepted unkillable event-loop spin regardless. Removed in favor of the plain boundary above; the hardened engine deletes such machinery anyway (serialization by construction).
+- **Background execution as the default** (CC's shape): deferred; foreground-synchronous matches `dsh-tool-subagent`'s cut, and background semantics should be designed ONCE across bash/subagent/workflow rather than per-tool.
+- **Workflow-layer JSON parsing for `agent({schema})`**: duplicating a seam concern at one consumer while the seam's capability flag stayed dishonestly `false`.
+- **Meta as tool parameters instead of `export const meta`**: zero parsing, but scripts stop being self-contained artifacts and CC-authored scripts stop being drop-in.
+- **`SchemaSpec` as the outputSchema type**: the author-facing DSL cannot express what arrives as data and cannot be validated against without conversion loss.
+
+## Consequences
+
+The harness gains CC-compatible script orchestration: fan-out plans live in a rerunnable artifact instead of the parent context, and the structured-output half of the subagent seam is now real (the vocabulary stopped lying about `outputSchema`). What it cost, all bounded by the trust premise: the in-process engine blocks its caller for a script's initial synchronous slice, cannot kill a synchronous spin past that slice, and does not isolate host values from the script — acceptable because scripts share the model's trust level, and each limitation names its exit (the engine swap behind the seam). The fatal-vs-null strictness divergence from CC means a CC-authored script that RELIES on option typos dissolving to `null` behaves differently here — judged worth it to keep the repo's no-accepted-then-ignored rule. Consumers must hold the run handle for control (`cancel`/`dispose`); observers get data snapshots only, so no listener can extend a run's lifetime or corrupt another's view.

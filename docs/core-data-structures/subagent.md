@@ -75,12 +75,13 @@ interface SubagentRun {
 
 ## The provider seam: `SubagentProvider`
 
-One transport for running a child agent. Implementations register under a unique name via `SubagentService.registerProvider`; multiple coexist in one context. The service validates every requested start-time capability before calling `start`, so an implementation may assume e.g. `request.maxDepth` is honorable when present.
+One transport for running a child agent. Implementations register under a unique name via `SubagentService.registerProvider`; multiple coexist in one context. The service validates every requested start-time capability before calling `start`, so an implementation may assume e.g. `request.maxDepth` is honorable when present. `inheritsParentContext` is a DESCRIPTIVE fact beside the capabilities (nothing validates against it): whether a child sees the parent conversation (`fork`: true, `spawn`/`acp`: false) — the model-facing consumer derives truthful tool wording from it.
 
 ```ts type-equiv
 interface SubagentProvider {
   readonly name: string
   readonly capabilities: SubagentCapabilities
+  readonly inheritsParentContext: boolean
   start(request: SubagentStartRequest): SubagentRun
 }
 ```

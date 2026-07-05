@@ -21,6 +21,6 @@ await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
 
 ## `cwd` is not a sandbox
 
-`config.cwd` is a resolution default, not a containment boundary — absolute paths and `..` escape it. Enforce containment with a stricter `ctx.fs` backend or a permission plugin on the `tools/execute` waterfall. See [the filesystem capability-seam RFC's Risks section](../../../docs/rfc/implemented/architecture/2026-06-17-filesystem-capability-seam.md#risks).
+`config.cwd` is a resolution default, not a containment boundary — absolute paths and `..` escape it. Enforce containment with a stricter `ctx.fs` backend or a permission plugin on the `tools/execute` waterfall. See [the filesystem capability-seam RFC's Consequences section](../../../docs/rfc/implemented/architecture/2026-06-17-filesystem-capability-seam.md#consequences).
 
 The raw I/O lives in `src/fsio.ts` (Cordis-free, independently unit-tested); `src/index.ts` is the thin service wiring.

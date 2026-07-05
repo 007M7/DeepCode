@@ -1,10 +1,8 @@
 # RFC: dsh-hooks-claude + dsh-hooks-codex — the Claude Code / Codex hook bridges
 
-Status: implemented (accepted 2026-06-30)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 The harness's extension surface is its typed interception seams ([the interception-seams RFC](2026-06-30-interception-seams.md)): a "native hook" is just an ordinary cordis plugin subscribing to `agent/session-start`, `agent/prompt-submit`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation`, `subagent/start`, `subagent/end`. But users arrive with **existing** Claude Code (CC) and Codex hook configs — a `hooks.json` (or a settings file's `hooks` key) full of shell-command hooks — and want those to run unmodified. This RFC introduces the two **bridge plugins** that translate that external shell-hook protocol onto the typed seams, built on the shared wire-protocol library ([the hook-protocol-lib RFC](2026-06-30-hook-protocol-lib.md)).
 
@@ -60,9 +58,9 @@ Two different cwds, kept distinct on purpose. The hooks **themselves** run in th
 - **Config discovery.** The path is explicit in `cordis.yml` and process-level (see above); the full multi-layer CC/Codex precedence walk, per-session project-local discovery, and the trust/hash model are not reimplemented (`TODO(per-session-hook-config)`).
 - **Session-start / subagent-start context is best-effort, not gated (`TODO(session-start-gating)`).** `agent/session-start` is a synchronous emit and the bridge runs its hook on a detached `.then`, so the injected `additionalContext` is not guaranteed to land before the first turn reaches the model — a slow hook can miss the first request (the context then arrives as a later injection). `subagent/start` is sharper: an in-process provider may have already queued the child's prompt before the listener runs, and a short-lived child can finish before the detached inject fires. Making startup context a gated/awaited primitive is a loop-level change deferred to the interception seams; today the contract is "injected as soon as the hook resolves", not "before the first request". The bridge tests do NOT wait on the injection where they assert the guaranteed-timing behavior, so they document the real (best-effort) timing rather than masking it.
 
-### Multiple hooks on one point run serially, not concurrently
+## Alternatives considered
 
-The reference engines run a point's matched hooks concurrently and fold the results. These bridges run them **serially** (`await` per hook inside the match loop) and fold with the same most-restrictive merge. Serial is deliberate: it keeps each hook's `hook/invoked`/`hook/result` pair adjacent and in a deterministic order in the session log, and the fold is order-independent for the decision (`deny > ask > allow`) so the outcome matches. The cost is latency (hook *N* waits for hook *N−1*) and that per-hook timeouts are not overlapped — acceptable for the hook counts real configs use; revisit if a config ever fans out enough for the wall-clock to matter.
+**Concurrent per-point hook execution.** The reference engines run a point's matched hooks concurrently and fold the results. These bridges run them **serially** (`await` per hook inside the match loop) and fold with the same most-restrictive merge. Serial is deliberate: it keeps each hook's `hook/invoked`/`hook/result` pair adjacent and in a deterministic order in the session log, and the fold is order-independent for the decision (`deny > ask > allow`) so the outcome matches. The cost is latency (hook *N* waits for hook *N−1*) and that per-hook timeouts are not overlapped — acceptable for the hook counts real configs use; revisit if a config ever fans out enough for the wall-clock to matter.
 
 ## Consequences
 

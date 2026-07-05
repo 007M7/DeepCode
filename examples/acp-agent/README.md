@@ -1,6 +1,6 @@
 # acp-agent example
 
-The DeepSeek Harness agent demo exposed as an **Agent Client Protocol (ACP)** server over JSON-RPC stdio — drive it from Zed or any other ACP client.
+The DeepSeek Harness SDK agent demo exposed as an **Agent Client Protocol (ACP)** server over JSON-RPC stdio — drive it from Zed or any other ACP client.
 
 ```sh
 pnpm run demo:acp          # needs DEEPSEEK_API_KEY (repo-root .env or env)

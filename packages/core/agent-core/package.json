@@ -44,5 +44,8 @@
     "@deepseek-ai/dsh-tool-bash": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "cordis": "^4.0.0-rc.6"
+  },
+  "dependencies": {
+    "schemastery": "^3.18.0"
   }
 }

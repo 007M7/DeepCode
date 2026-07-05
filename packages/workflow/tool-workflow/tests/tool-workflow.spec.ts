@@ -217,7 +217,7 @@ describe('dsh-tool-workflow', () => {
   it('has the namespace-plugin export shape (no stray default)', () => {
     expect('default' in toolWorkflow).toBe(false)
     expect(toolWorkflow.name).toBe('tool-workflow')
-    expect(toolWorkflow.inject).toEqual(['tools', 'workflows'])
+    expect(toolWorkflow.inject).toEqual(['tools', 'workflows', 'systemPrompt'])
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(toolWorkflow) as Record<string, unknown>
     expect(unwrapped).toBe(toolWorkflow)

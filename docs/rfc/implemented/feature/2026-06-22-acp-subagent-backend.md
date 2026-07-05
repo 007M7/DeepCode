@@ -12,7 +12,7 @@ The subagent seam ([the seam RFC](2026-06-21-subagent-capability-seam.md)) was b
 
 ### Fresh process per run
 
-Each `start` spawns a new child, runs exactly one ACP session (`initialize` → `newSession` → `prompt`), and `dispose` kills the subprocess and awaits its exit. This is the simplest lifecycle and mirrors the in-process one-child-per-run shape. Persistent-process pooling (reuse a warm child across runs) is a performance optimization deferred to future work — it adds session-lifecycle and crash-recovery complexity the first cut does not need.
+Each `start` spawns a new child, runs exactly one ACP session (`initialize` → `newSession` → `prompt`), and `dispose` kills the subprocess and awaits its exit. This is the simplest lifecycle and mirrors the in-process one-child-per-run shape.
 
 ### Minimal client stub
 
@@ -26,10 +26,6 @@ The provider's `capabilities` are all `false`. An out-of-process child cannot ho
 
 ACP `StopReason` → harness `SubagentStopReason`: `end_turn`→`completed`, `max_tokens`→`max-tokens`, `refusal`→`refusal`, `cancelled`→`aborted`, `max_turn_requests`→`error` (no clean equivalent — the task did not finish), unknown→`error`. A spawn/transport/RPC failure resolves `error` (or `aborted` if a cancel was requested); `result` never rejects on a child-level failure, per the seam contract.
 
-### SDK version: stayed on 0.25.1
-
-The plan proposed bumping `@agentclientprotocol/sdk` 0.25.1 → 0.28.x for the new fluent `acp.client()` / `ActiveSession.nextUpdate()` API. Validating that against the code (the AGENTS.md "RFC is a proposal, not golden truth" discipline) reversed the decision: the backend only needs `ClientSideConnection` + `ndJsonStream` + `PROTOCOL_VERSION` + the `Client`/`Agent`/`StopReason` types, **all present and non-deprecated in 0.25.1**. The fluent API and `unstable_forkSession` that motivated the bump are never used here, so the "cleaner client code" benefit did not materialize. Worse, 0.28.x **deprecates both** `ClientSideConnection` AND `AgentSideConnection` (it wants all callers on the fluent builders), which turns the `no-deprecated` lint red across the entire existing ACP layer — 33 usages including the server bridge this PR has no business rewriting. That cross-cutting connection-API migration is its own PR, not baggage for "add an ACP subagent backend". So the bump was reverted and the backend is written against 0.25.1 (the plan's own fallback clause: "if the bump proves disruptive, fall back to `ClientSideConnection` (0.25.1), which is sufficient"). Migrating the whole ACP layer to the fluent API on a later 0.28.x bump is a worthwhile standalone follow-up.
-
 ### Security: scrubbed child environment
 
 The child is a separate process, so it inherits an environment. Credential-shaped ambient vars (`/KEY|SECRET|TOKEN/i`) are NOT forwarded by default — the parent harness's own secrets must not leak into a spawned process implicitly (the same policy the bash executor applies). The child's OWN credentials (it needs a model key) are supplied EXPLICITLY via `config.env`, layered AFTER the scrub, so an intended `DEEPSEEK_API_KEY` survives while an incidental `AWS_SECRET_ACCESS_KEY` does not. Child stderr is inherited to the parent's stderr (diagnostics surface naturally); a spawn-level `error` event (e.g. ENOENT for a bad command) is captured and raced against the ACP drive, so a bad command settles `error` instead of crashing the parent with an unhandled error.
@@ -40,7 +36,21 @@ Designed at every tier the backend touches, per the root AGENTS.md rule that a n
 
 - **Keyless unit/integration** (`subagent-acp.spec.ts`): spawns a scripted mock ACP server subprocess (`tests/mock-acp-server.ts`) and drives it through the real backend over real ACP stdio. Covers: the prompt round-trip + output accumulation; every StopReason mapping; cancellation via `run.cancel()` and via the request signal; the already-aborted-before-start case; the cancel-races-ahead-of-newSession case; a torn-pipe-after-cancel (child crashes on cancel) settling `aborted`; permission auto-answer under both policies (including the allow-policy-no-allow-option fallback); a non-message update consumed but not accumulated; a nonexistent-command spawn failure settling `error`; HMR provider cleanup; and the namespace export shape. 100% per-file coverage.
 - **With-key e2e** (`subagent-acp.e2e.ts`): the harness drives ITSELF — the backend spawns the real `acp-agent` example process and a real model in that child answers a prompt (PONG) and does real file work (writes `proof.txt`, verified on disk). Self-skips without `DEEPSEEK_API_KEY`. This is the "talk to our own process" smoke and the out-of-process analogue of the in-process spawn e2e.
-- **Snapshot**: deferred as `TODO(acp-subagent-replay)`. An ACP child is a distinct replay shape — each child is its own PROCESS with its own single-agent replay (booted under `DSH_SNAPSHOT=replay` with its own sessions-root + fixture), unlike the in-process per-session keying that [PR2.5](../testing/2026-06-22-subagent-snapshot-replay.md) added. The keyless mock-server tests give deterministic coverage of the backend in the meantime; the snapshot follow-up would record the parent driving a real-but-replayed ACP child.
+- **Snapshot**: deferred as `TODO(acp-subagent-replay)`. An ACP child is a distinct replay shape — each child is its own PROCESS with its own single-agent replay (booted under `DSH_SNAPSHOT=replay` with its own sessions-root + fixture), unlike the in-process per-session keying that [the per-session replay RFC](../testing/2026-06-22-subagent-snapshot-replay.md) added. The keyless mock-server tests give deterministic coverage of the backend in the meantime; the snapshot follow-up would record the parent driving a real-but-replayed ACP child.
+
+## Alternatives considered
+
+### Why not the 0.28.x SDK bump?
+
+The plan proposed bumping `@agentclientprotocol/sdk` 0.25.1 → 0.28.x for the new fluent `acp.client()` / `ActiveSession.nextUpdate()` API. Validating that against the code (the AGENTS.md "RFC is a proposal, not golden truth" discipline) reversed the decision: the backend only needs `ClientSideConnection` + `ndJsonStream` + `PROTOCOL_VERSION` + the `Client`/`Agent`/`StopReason` types, **all present and non-deprecated in 0.25.1**. The fluent API and `unstable_forkSession` that motivated the bump are never used here, so the "cleaner client code" benefit did not materialize. Worse, 0.28.x **deprecates both** `ClientSideConnection` AND `AgentSideConnection` (it wants all callers on the fluent builders), which turns the `no-deprecated` lint red across the entire existing ACP layer — 33 usages including the server bridge this backend has no business rewriting. That cross-cutting connection-API migration is its own change, not baggage for "add an ACP subagent backend". So the bump was reverted and the backend is written against 0.25.1 (the plan's own fallback clause: "if the bump proves disruptive, fall back to `ClientSideConnection` (0.25.1), which is sufficient"). Migrating the whole ACP layer to the fluent API on a later 0.28.x bump is a worthwhile standalone follow-up.
+
+### Why not a persistent child process?
+
+Persistent-process pooling (reuse a warm child across runs) is a performance optimization deferred to future work — it adds session-lifecycle and crash-recovery complexity the first cut does not need; each `start` spawning a fresh child mirrors the in-process one-child-per-run shape.
+
+## Consequences
+
+Every run pays a fresh subprocess (spawn + `initialize` + `newSession`). The parent surfaces only the child's final answer: `session/update` thoughts and tool-call cards are consumed and dropped, and permission prompts never reach a human — the configured policy answers them. The child's environment is credential-scrubbed by default, so its own model key is supplied explicitly via `config.env`.
 
 ## Future providers
 
