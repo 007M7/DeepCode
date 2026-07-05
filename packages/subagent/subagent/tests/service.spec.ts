@@ -77,6 +77,27 @@ describe('SubagentService', () => {
     expect(ctx.subagents.getProvider('alpha')).toBeDefined()
   })
 
+  it('contains a throwing provider-removed listener: later mirrors still hear it, teardown completes', async () => {
+    // provider-removed fires inside the registration's DISPOSER, so a
+    // propagating listener would disrupt the backend's teardown; and cordis
+    // emit halts on the first throw, so an uncontained one would starve every
+    // mirror registered after it (a stale model-facing tool). Both are
+    // prevented by per-listener containment.
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => void warnings.push(String(message))) as typeof ctx.logger.warn
+    ctx.on('subagent/provider-removed', () => { throw new Error('boom removed listener') })
+    const heard: string[] = []
+    ctx.on('subagent/provider-removed', name => void heard.push(name))
+
+    const dispose = ctx.subagents.registerProvider(new StubProvider('alpha'))
+    expect(() => { dispose() }).not.toThrow()
+    expect(heard).toEqual(['alpha']) // the listener AFTER the thrower still ran
+    expect(ctx.subagents.getProvider('alpha')).toBeUndefined() // teardown reached quiescence
+    expect(warnings.some(w => w.includes('boom removed listener'))).toBe(true)
+  })
+
   it('registers a provider and starts a run on it by name', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)

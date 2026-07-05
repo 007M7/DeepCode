@@ -218,6 +218,32 @@ describe('agent loop', () => {
     expect(turnEnds[1]?.type === 'turn/end' && turnEnds[1].data.reason.kind).toBe('completed')
   })
 
+  it('supports the model-via-agent/request path with a {{model}} persona: the supplier states it via the assemble waterfall', async () => {
+    // AgentOptions.model unset: the model arrives in the agent/request
+    // waterfall (the loop's documented fallback — see runStep's no-model
+    // error). {{model}} renders BEFORE that waterfall, so the SAME plugin
+    // states the fact early on system-prompt/assemble — the owner of a
+    // late-bound fact owns stating it wherever it is claimed.
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter, 'You run on {{model}}.')
+    ctx.on('system-prompt/assemble', async (assembly, _context, next) => {
+      assembly.variables['model'] = 'mock'
+      return next()
+    })
+    ctx.on('agent/request', async (_agent, _turn, _step, options, next) => {
+      options.model = 'mock'
+      return next()
+    })
+    const agent = ctx.agentLoop.create(AgentId('a-late-model'), {})
+
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]!.model).toBe('mock')
+    expect(adapter.requests[0]!.system).toBe('You are an AI agent powered by the DeepSeek Harness SDK.\n\nYou run on mock.')
+  })
+
   it('omits the system field when a system-prompt/assemble veto empties the assembly', async () => {
     // The documented escape valve: a deployment that must drop the harness
     // openers short-circuits the assemble waterfall; the request then carries

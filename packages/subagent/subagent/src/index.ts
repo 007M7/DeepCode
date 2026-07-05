@@ -74,7 +74,9 @@ declare module 'cordis' {
      * A provider left the registry (its plugin's fiber was disposed — an
      * unload or an HMR reload). Consumers holding provider-derived state drop
      * it here; a reload re-fires `subagent/provider-added` with the fresh
-     * provider.
+     * provider. Delivered with per-listener containment: a throwing
+     * subscriber is logged, never starves later subscribers, and never
+     * disrupts the provider's teardown.
      * @param name - the registry name that no longer resolves.
      * @mode emit
      */
@@ -163,10 +165,13 @@ export class SubagentService extends Service {
       this.providers.set(provider.name, provider)
       // Yield the rollback BEFORE emitting `subagent/provider-added`: a
       // throwing added-listener then unregisters the provider (and announces
-      // the removal) instead of leaking it into the registry.
+      // the removal) instead of leaking it into the registry. The removal
+      // announcement itself is contained PER LISTENER ({@link emitLifecycle}):
+      // it runs inside this disposer, where a propagating subscriber would
+      // disrupt the backend fiber's teardown and starve later mirrors.
       yield () => {
         this.providers.delete(provider.name)
-        this.ctx.emit('subagent/provider-removed', provider.name)
+        this.emitLifecycle('subagent/provider-removed', provider.name)
       }
       this.ctx.emit('subagent/provider-added', provider)
     }.bind(this), 'subagents.registerProvider()')
@@ -265,10 +270,22 @@ export class SubagentService extends Service {
    * on the first throw — so this resolves the listener callbacks via
    * `ctx.events.dispatch` and contains each call, the same guarantee
    * `BashExecutor.notifyTaskDone` gives its own listener set.
+   *
+   * `subagent/provider-removed` routes through here too: it fires inside the
+   * provider registration's DISPOSER, where a propagating listener would
+   * disrupt the backend fiber's teardown (dispose must reach quiescence) and a
+   * starved later listener would leave a mirror consumer (`dsh-tool-subagent`)
+   * holding a tool for a provider that no longer exists. `subagent/provider-added`
+   * deliberately does NOT: it fires at registration time, where a throwing
+   * listener unwinds the yielded rollback — the same fail-loud register-time
+   * semantics as the system-prompt registries.
    */
+  private emitLifecycle(name: 'subagent/start', info: SubagentRunInfo): void
+  private emitLifecycle(name: 'subagent/end', info: SubagentRunEndInfo): void
+  private emitLifecycle(name: 'subagent/provider-removed', info: string): void
   private emitLifecycle(
-    name: 'subagent/start' | 'subagent/end',
-    info: SubagentRunInfo | SubagentRunEndInfo,
+    name: 'subagent/start' | 'subagent/end' | 'subagent/provider-removed',
+    info: SubagentRunInfo | SubagentRunEndInfo | string,
   ): void {
     for (const callback of this.ctx.events.dispatch('emit', [name, info])) {
       try {

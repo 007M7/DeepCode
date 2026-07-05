@@ -243,7 +243,7 @@ A subagent run settled — emitted when SubagentRun.result resolves (any stop re
 'subagent/end'(info: SubagentRunEndInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:96`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:98`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-added` — emit
 
@@ -257,13 +257,13 @@ Source: [`packages/subagent/subagent/src/index.ts:72`](../../packages/subagent/s
 
 ### `subagent/provider-removed` — emit
 
-A provider left the registry (its plugin's fiber was disposed — an unload or an HMR reload). Consumers holding provider-derived state drop it here; a reload re-fires `subagent/provider-added` with the fresh provider.
+A provider left the registry (its plugin's fiber was disposed — an unload or an HMR reload). Consumers holding provider-derived state drop it here; a reload re-fires `subagent/provider-added` with the fresh provider. Delivered with per-listener containment: a throwing subscriber is logged, never starves later subscribers, and never disrupts the provider's teardown.
 
 ```ts cordis-catalog
 'subagent/provider-removed'(name: string): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:81`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:83`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/start` — emit
 
@@ -273,7 +273,7 @@ A subagent run started — emitted after the provider is resolved and its capabi
 'subagent/start'(info: SubagentRunInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:89`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:91`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
 
