@@ -367,6 +367,12 @@ describe('streamWholeText', () => {
   })
 })
 
+// Windows drives only the read-only attribute through `chmod` and reports
+// synthetic `stat` mode bits, so mode assertions are POSIX-only; on Windows
+// write-in-progress privacy comes from the destination directory's inherited
+// DACL (docs/rfc/implemented/architecture/2026-07-05-windows-fs-permissions.md).
+const posixModes = process.platform !== 'win32'
+
 describe('writeFileAtomic — temp-file safety', () => {
   it('writes through a private staging dir and owner-only temp file', async () => {
     const file = join(dir, 'a.txt')
@@ -374,17 +380,22 @@ describe('writeFileAtomic — temp-file safety', () => {
     await writeFileAtomic(file, 'hello', 0o640, undefined, {
       inspectTemp: async ({ stagingDir, tempPath }) => {
         inspected = true
-        expect((await stat(stagingDir)).mode & 0o777).toBe(0o700)
-        expect((await stat(tempPath)).mode & 0o777).toBe(0o600)
+        const [staging, temp] = await Promise.all([stat(stagingDir), stat(tempPath)])
+        expect(staging.isDirectory()).toBe(true)
+        expect(temp.isFile()).toBe(true)
+        if (posixModes) {
+          expect(staging.mode & 0o777).toBe(0o700)
+          expect(temp.mode & 0o777).toBe(0o600)
+        }
       },
     })
     expect(inspected).toBe(true)
     expect(await readFile(file, 'utf8')).toBe('hello')
-    expect((await stat(file)).mode & 0o777).toBe(0o640)
+    if (posixModes) expect((await stat(file)).mode & 0o777).toBe(0o640)
     expect((await readdir(dir)).filter(n => n.includes('.tmp'))).toEqual([])
   })
 
-  it('creates new files owner-only by default', async () => {
+  it.skipIf(!posixModes)('creates new files owner-only by default', async () => {
     const file = join(dir, 'a.txt')
     await writeFileAtomic(file, 'hello', undefined, undefined)
     expect((await stat(file)).mode & 0o777).toBe(0o600)

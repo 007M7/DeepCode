@@ -408,9 +408,11 @@ async function removeStagingDirOrThrow(stagingDir: string, originalError: unknow
 
 /**
  * Atomically replace a file through a private, synced staging file in the same directory.
+ * POSIX protects the staging directory and file with `0o700` and `0o600`; Windows
+ * inherits the destination directory's DACL because Node mode bits are synthetic there.
  * @param absolutePath - destination; missing parent directories are created.
  * @param content - the full UTF-8 text to write.
- * @param mode - final mode, or `0o600` when omitted.
+ * @param mode - final POSIX mode, or `0o600` when omitted; inert on Windows.
  * @param signal - cancellation checked before the final rename.
  * @param internals - test seam for pinning temp names and observing the staged file.
  */
