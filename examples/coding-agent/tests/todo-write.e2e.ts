@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
 import { AgentId } from '@deepseek-ai/dsh-agent'
@@ -10,15 +13,19 @@ import { codingHarness, TODO_SYSTEM_PROMPT, waitForIdle } from './harness.ts'
  */
 
 let ctx: Context | undefined
+let workdir: string | undefined
 
 afterEach(async () => {
   await ctx?.fiber.dispose()
   ctx = undefined
+  if (workdir !== undefined) await rm(workdir, { recursive: true, force: true })
+  workdir = undefined
 })
 
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('todo_write: real model records a plan', () => {
   it('appends a todo/write event with the model-produced task list', async () => {
-    ctx = await codingHarness(process.cwd(), { persona: TODO_SYSTEM_PROMPT })
+    workdir = await mkdtemp(join(tmpdir(), 'dsh-todo-write-e2e-'))
+    ctx = await codingHarness(workdir, { persona: TODO_SYSTEM_PROMPT })
     const agent = ctx.agentLoop.create(AgentId('e2e-todo'), { model: 'deepseek-v4-flash' })
 
     agent.send([{ type: 'text', text:

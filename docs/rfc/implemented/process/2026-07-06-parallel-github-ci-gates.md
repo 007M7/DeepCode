@@ -14,14 +14,14 @@ The hard part is the artifact boundary. `publint`, `verify-node-next-types`, and
 
 Build output is produced once by a `build` job and uploaded as a short-retention artifact. Artifact consumers run behind that boundary: the `artifact-gate` matrix downloads the built package tree and runs `pnpm run hygiene` plus the built-bin smoke tests. Node-version compatibility stays explicit but narrower: the Node 26 lane runs typecheck and unit tests, while the full quality/documentation/artifact surface runs on the package engine floor.
 
-Both CI workflows cache the pnpm store after enabling Corepack. The real-API e2e workflow keeps its serial test execution because the e2e config deliberately disables file parallelism for API-quota stability; its speedup is dependency-cache reuse, not concurrent model calls.
+Both CI workflows cache the pnpm store after enabling Corepack. The real-API e2e workflow also uses the shared `vitest.e2e.config.ts` bounded file pool (`DSH_E2E_MAX_WORKERS=4` in CI), so its speedup comes from dependency-cache reuse plus lower-level test-file fan-out instead of a separate GitHub job split.
 
 ## Alternatives considered
 
 - **Keep the full serial chain in a Node matrix** - simplest to reason about, but it duplicates repo-wide gates that do not produce Node-version-specific signal and leaves every PR waiting for the sum of all gates.
 - **Run every gate independently with no build artifact handoff** - maximizes fan-out, but the publication and built-bin checks are defined over built `lib/` outputs and would either fail, skip, or rebuild the same tree in several jobs.
 - **Build inside every artifact-dependent job** - preserves correctness but shifts the bottleneck from the serial chain to repeated `tsc -b` and bundling work.
-- **Parallelize real-API e2e files** - rejected because the e2e suite's Vitest config uses `fileParallelism: false` to stay within shared API-key quota and avoid rate-limit flakes.
+- **Use unbounded real-API e2e parallelism** - rejected because the suite includes many live model/tool scenarios; the worker pool needs an explicit `DSH_E2E_MAX_WORKERS` cap so CI and local runs can fan out without hiding quota or resource problems behind flaky rate-limit failures.
 
 ## Consequences
 

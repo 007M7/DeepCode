@@ -62,7 +62,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
         maxTokens: 2048,
         compactionRetries: 1,
       },
-      persistenceRoot: './.sessions',
+      persistenceRoot: join(workdir, '.sessions'),
     })
     const agent = ctx.agentLoop.create(AgentId('e2e-compaction'), { model: 'deepseek-v4-flash' })
 
