@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as vm from 'node:vm'
-import { materializeFromRealm, MaterializeError, describeThrown, thrownRendering } from '../src/realm.ts'
+import { materializeFromRealm, MaterializeError, renderThrown } from '../src/realm.ts'
 
 /** Evaluate an expression inside a fresh vm realm and hand back the raw realm value. */
 function inRealm(expression: string): unknown {
@@ -35,17 +35,21 @@ describe('materializeFromRealm', () => {
     expect(rejection(inRealm('{ a: undefined }'))).toContain('value.a')
   })
 
-  it('never invokes accessors: a counting getter is rejected, not read', () => {
+  it('invokes getters ordinarily — the getter RESULT is what crosses (trust premise)', () => {
     const counter = inRealm(`
       (() => {
         globalThis.reads = 0
-        return { get x() { globalThis.reads += 1; return 1 } }
+        return { get x() { globalThis.reads += 1; return globalThis.reads } }
       })()
     `)
-    expect(rejection(counter)).toContain('accessor properties cannot cross')
-    // The getter body never ran — descriptor inspection only.
-    expect((counter as { x?: unknown }).x).toBe(1) // sanity: reading DOES run it…
-    expect(rejection(counter)).toContain('accessor') // …but materialization still never did
+    expect(materializeFromRealm(counter)).toEqual({ x: 1 })
+  })
+
+  it('a getter that THROWS surfaces as a MaterializeError carrying the rendered failure', () => {
+    const hostile = inRealm("{ get x() { throw new Error('read failed') } }")
+    const message = rejection(hostile)
+    expect(message).toContain('reading the value threw')
+    expect(message).toContain('read failed')
   })
 
   it('a "__proto__" key becomes an OWN data property of the copy, never a prototype mutation', () => {
@@ -81,39 +85,18 @@ describe('materializeFromRealm', () => {
     expect(materializeFromRealm(inRealm('Object.assign(Object.create(null), { a: 1 })'))).toEqual({ a: 1 })
   })
 
-  it('rejects proxies (root, nested, revoked, host-realm) WITHOUT running any trap', () => {
-    const trapped = inRealm(`new Proxy({ a: 1 }, {
-      ownKeys() { throw new Error('trap ran') },
-      getOwnPropertyDescriptor() { throw new Error('trap ran') },
-      getPrototypeOf() { throw new Error('trap ran') },
-    })`)
-    // A trap firing would surface 'trap ran' (a non-MaterializeError) instead.
-    expect(rejection(trapped)).toContain('proxies cannot cross')
-    expect(rejection(inRealm('{ nested: new Proxy([], {}) }'))).toContain('value.nested')
-    const revoked = inRealm('(() => { const r = Proxy.revocable({}, {}); r.revoke(); return r.proxy })()')
-    expect(rejection(revoked)).toContain('proxies cannot cross')
-    expect(rejection(new Proxy({}, {}))).toContain('proxies cannot cross')
-  })
-
-  it('rejects an object whose PROTOTYPE is a proxy without dereferencing through it', () => {
-    const value = inRealm(`Object.create(new Proxy({}, {
-      getPrototypeOf() { throw new Error('trap ran') },
-    }))`)
-    expect(rejection(value)).toContain('exotic prototype')
-  })
-
   it('rejects cycles and accepts the same object reused as a sibling (a DAG)', () => {
     expect(rejection(inRealm('(() => { const o = {}; o.self = o; return o })()'))).toContain('circular')
     const dag = inRealm('(() => { const leaf = { v: 1 }; return { a: leaf, b: leaf } })()')
     expect(materializeFromRealm(dag)).toEqual({ a: { v: 1 }, b: { v: 1 } })
   })
 
-  it('rejects sparse arrays, accessor elements, and non-index array properties', () => {
+  it('rejects sparse arrays and non-index array properties; an array getter element materializes its value', () => {
     expect(rejection(inRealm('[1, , 3]'))).toContain('sparse')
-    expect(rejection(inRealm('(() => { const a = [1]; Object.defineProperty(a, 0, { get: () => 1 }); return a })()')))
-      .toContain('accessor')
     expect(rejection(inRealm('(() => { const a = [1]; a.total = 3; return a })()')))
       .toContain('non-index')
+    expect(materializeFromRealm(inRealm('(() => { const a = [1]; Object.defineProperty(a, 0, { get: () => 7, enumerable: true }); return a })()')))
+      .toEqual([7])
   })
 
   it('skips non-enumerable own properties (matching JSON.stringify exactly)', () => {
@@ -134,45 +117,29 @@ describe('materializeFromRealm', () => {
   })
 })
 
-describe('describeThrown (host-side thrown-value rendering)', () => {
-  it('renders a HOST Error via its identity-verified native stack getter', () => {
-    const error = new Error('host failure')
-    const rendered = describeThrown(error)
-    expect(rendered).toContain('host failure')
-    expect(rendered).toContain('at ') // a real stack, not just the message
-  })
-
-  it('never invokes a REALM error stack getter (identity mismatch) — message renders instead', () => {
+describe('renderThrown', () => {
+  it('prefers the stack, for host and realm errors alike', () => {
+    const host = renderThrown(new Error('host failure'))
+    expect(host).toContain('host failure')
+    expect(host).toContain('at ') // a real stack, not just the message
     const realmError: unknown = vm.runInNewContext('(() => { try { throw new Error("realm failure") } catch (e) { return e } })()')
-    expect(describeThrown(realmError)).toBe('realm failure')
+    expect(renderThrown(realmError)).toContain('realm failure')
   })
 
-  it('reads a data-property stack directly and falls through a setter-only accessor', () => {
-    expect(describeThrown({ stack: 'data stack' })).toBe('data stack')
-    const setterOnly = { message: 'via message' }
-    Object.defineProperty(setterOnly, 'stack', { set() { /* swallow */ } })
-    expect(describeThrown(setterOnly)).toBe('via message')
+  it('falls back from stack to message to String()', () => {
+    expect(renderThrown({ stack: 'custom data stack' })).toBe('custom data stack')
+    const stackless = new Error('stackless failure')
+    delete stackless.stack
+    expect(renderThrown(stackless)).toBe('stackless failure')
+    expect(renderThrown({ code: 42 })).toBe('[object Object]')
+    expect(renderThrown('plain')).toBe('plain')
+    expect(renderThrown(42)).toBe('42')
+    expect(renderThrown(undefined)).toBe('undefined')
+    expect(renderThrown(null)).toBe('null')
   })
 
-  it('labels proxies and functions without touching them; primitives stringify', () => {
-    expect(describeThrown(new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('trap ran') } }))).toBe('[thrown proxy]')
-    expect(describeThrown(() => 1)).toBe('[thrown function]')
-    expect(describeThrown('plain')).toBe('plain')
-    expect(describeThrown(42)).toBe('42')
-    expect(describeThrown(undefined)).toBe('undefined')
-    expect(describeThrown(null)).toBe('null')
-    expect(describeThrown({ code: 42 })).toBe('[object Object]')
-  })
-})
-
-describe('thrownRendering (the realm-catch wrapper reader)', () => {
-  it('extracts the pre-rendered string from a wrapper and nothing else', () => {
-    expect(thrownRendering({ __wfThrown: 'rendered text' })).toBe('rendered text')
-    expect(thrownRendering({ __wfThrown: 42 })).toBeUndefined()
-    expect(thrownRendering({ other: 'x' })).toBeUndefined()
-    expect(thrownRendering(new Error('plain'))).toBeUndefined()
-    expect(thrownRendering('string')).toBeUndefined()
-    expect(thrownRendering(null)).toBeUndefined()
-    expect(thrownRendering(new Proxy({ __wfThrown: 'forged' }, { getOwnPropertyDescriptor() { throw new Error('trap ran') } }))).toBeUndefined()
+  it('is total: a value whose accessors/toString throw renders as a fixed label', () => {
+    expect(renderThrown({ get stack() { throw new Error('nope') } })).toBe('[unrenderable thrown value]')
+    expect(renderThrown({ [Symbol.toPrimitive]() { throw new Error('nope') } })).toBe('[unrenderable thrown value]')
   })
 })

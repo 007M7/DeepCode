@@ -4,25 +4,33 @@
  * body in a fresh in-process vm context with the workflow hooks injected, and
  * fans `agent()` calls out to `ctx.subagents`.
  *
- * Engine limitations, documented as the accepted cost of the in-process
- * mechanism (the interface/implementation seam exists precisely so a
- * worker-thread or isolated-vm engine can swap in if these ever matter):
+ * TRUST PREMISE: scripts are MODEL-WRITTEN — the same trust level as the
+ * model's existing bash access — so this engine defends against BUGGY
+ * scripts, never hostile ones. vm is NOT a security boundary and no attempt
+ * is made to contain adversarial values (see ./realm.ts); genuine sandboxing
+ * is an engine swap behind the seam (worker-thread/isolated-vm), not
+ * incremental host-side defenses here.
  *
- * - vm is NOT a security boundary. Scripts are model-written — the same trust
- *   level as the model's bash access — and the realm-boundary materialization
- *   is correctness containment, not a sandbox.
- * - The vm `timeout` covers only the initial SYNCHRONOUS slice of the script;
- *   realm code that runs past that slice — an await continuation, a
- *   thenable's `then` invoked by promise resolution (including one the script
- *   RETURNS: a returned thenable resolves per JavaScript semantics before
- *   materialization, which is what makes an un-awaited `return agent('x')`
- *   work) — is beyond the timeout, so a pathological synchronous spin there
- *   cannot be killed in-process. `dispose()` waits a bounded grace for the
- *   script to settle AND its children (stray `agent()` calls included) to
- *   finish disposing, then ABANDONS whatever is left: pending hook promises
- *   are already rejected and the script's settlement is contained (no
- *   unhandled rejection), but an abandoned synchronous spin would still
- *   occupy the event loop.
+ * Engine limitations, documented as the accepted cost of the in-process
+ * mechanism:
+ *
+ * - `start()` runs the script's initial SYNCHRONOUS slice inline, so the
+ *   CALLER blocks on the host event loop until the script's first await (or
+ *   the vm `timeout` kills the slice); the meta-literal evaluation has its
+ *   own timeout budget on the same call.
+ * - The vm `timeout` covers only that initial slice; realm code running past
+ *   it — an await continuation, a thenable's `then` invoked by promise
+ *   resolution (including one the script RETURNS: a returned thenable
+ *   resolves per JavaScript semantics before materialization, which is what
+ *   makes an un-awaited `return agent('x')` work) — is beyond the timeout, so
+ *   a synchronous spin there cannot be killed in-process, and neither can
+ *   script code the host invokes while rendering a failure (a getter on a
+ *   thrown value). `dispose()` waits a bounded grace for the script to settle
+ *   AND its children (stray `agent()` calls included) to finish disposing,
+ *   then ABANDONS whatever is left: pending hook promises are already
+ *   rejected and the script's settlement is contained (no unhandled
+ *   rejection), but an abandoned synchronous spin would still occupy the
+ *   event loop.
  *
  * Plugin export shape: a default-exported {@link WorkflowService} subclass
  * (the class-based service form, like `dsh-bash-local`).
@@ -55,7 +63,11 @@ export interface Config {
   maxItemsPerCall?: number
   /** vm timeout for the script's initial synchronous slice AND the meta-literal evaluation (default 5000 ms). */
   syncTimeoutMs?: number
-  /** How long `dispose()` waits for a cancelled script to settle before abandoning it (default 5000 ms). */
+  /**
+   * How long after a cancellation an unsettled script may keep running before
+   * it is abandoned and `result` force-settles `cancelled` (default 5000 ms);
+   * also bounds `dispose()`.
+   */
   disposeGraceMs?: number
 }
 
@@ -110,6 +122,7 @@ export class VmWorkflowEngine extends WorkflowService {
       maxTotalAgents: this.config.maxTotalAgents,
       maxItemsPerCall: this.config.maxItemsPerCall,
       syncTimeoutMs: this.config.syncTimeoutMs,
+      disposeGraceMs: this.config.disposeGraceMs,
     }
     const execution = new WorkflowExecution(
       this.ctx,
@@ -149,9 +162,11 @@ export class VmWorkflowEngine extends WorkflowService {
       },
       dispose: (): Promise<void> => {
         // Idempotent: cancel, then wait min(settle + child quiescence, grace).
-        // `result` and `quiesce()` never reject, so the race needs no
-        // rejection handling; a script or child still unsettled past the grace
-        // is abandoned per the module contract.
+        // The cancel itself bounds `result` (the execution abandons a script
+        // still unsettled `disposeGraceMs` later), so this outer race exists
+        // for CHILD quiescence: a slow-disposing child must not hold dispose
+        // past the grace. `result` and `quiesce()` never reject, so the race
+        // needs no rejection handling.
         disposed ??= (async () => {
           execution.cancel('workflow disposed')
           await Promise.race([

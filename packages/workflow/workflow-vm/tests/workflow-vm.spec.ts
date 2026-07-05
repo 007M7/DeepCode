@@ -289,22 +289,13 @@ describe('dsh-workflow-vm', () => {
           () => agent('fine'),
           () => 'plain value',
           () => { throw 'string throw' },
-          () => { throw new Proxy({ name: 'WorkflowError', fatal: true }, {}) },
-          () => { throw { name: 'WorkflowError', fatal: 'forged-but-not-true' } },
+          () => { throw { name: 'WorkflowError', fatal: true, message: 'forged fatal' } },
         ])
       `))
-      // The last three probe the fatal-clone recognition: a non-object, a
-      // proxy (never inspected), and a shape miss are all ordinary nulls.
-      expect(result.value).toEqual([null, 'stub reply', 'plain value', null, null, null])
-    })
-
-    it('a script forging a fatal clone kills only its own run (self-sabotage, not a bypass)', async () => {
-      const { ctx, parent } = await setup()
-      const result = await run(ctx, parent, script(`
-        return await parallel([() => { throw { name: 'WorkflowError', fatal: true, message: 'forged fatal' } }])
-      `))
-      expect(result.stopReason).toBe('error')
-      expect(result.error).toContain('forged fatal')
+      // The last entry probes fatality: it is recognized by host instanceof,
+      // which a script-built object can never pass — a WorkflowError-SHAPED
+      // throw is an ordinary null, and real fatality cannot be forged.
+      expect(result.value).toEqual([null, 'stub reply', 'plain value', null, null])
     })
 
     it('FATAL errors propagate through parallel AND pipeline instead of dissolving into null', async () => {
@@ -386,11 +377,12 @@ describe('dsh-workflow-vm', () => {
       expect((await run(ctx, parent, script("return await agent('p', { effort: 'high' })"))).error).toContain('"effort" is deferred')
     })
 
-    it('rejects options that are not plain JSON data (an accessor smuggled into opts)', async () => {
+    it('rejects options whose property reads throw (materialization is loud, not silent)', async () => {
       const { ctx, parent } = await setup()
-      const result = await run(ctx, parent, script("return await agent('p', { get label() { return 'x' } })"))
+      const result = await run(ctx, parent, script("return await agent('p', { get label() { throw new Error('read failed') } })"))
       expect(result.stopReason).toBe('error')
       expect(result.error).toContain('options must be plain JSON data')
+      expect(result.error).toContain('read failed')
     })
 
     it('validates phase() and log() arguments loudly', async () => {
@@ -416,7 +408,7 @@ describe('dsh-workflow-vm', () => {
     })
   })
 
-  describe('determinism bans and realm isolation', () => {
+  describe('determinism bans and the value boundary', () => {
     it('Date.now, Math.random, and argless new Date throw; parameterized Date stays usable', async () => {
       const { ctx, parent } = await setup()
       expect((await run(ctx, parent, script('return Date.now()'))).error).toContain('Date.now() is not available')
@@ -426,18 +418,16 @@ describe('dsh-workflow-vm', () => {
       expect(ok.value).toBe(0)
     })
 
-    it('args cross into the realm as data: mutating them (or their prototype chain) cannot reach host intrinsics', async () => {
+    it('args are cloned at start: a script scribbling on them cannot mutate the caller\'s object', async () => {
       const { ctx, parent } = await setup()
       const hostArgs = { files: ['a.ts'], nested: { deep: [1, 2] } }
       const result = await run(ctx, parent, script(`
         args.files.push('b.ts')
-        Object.getPrototypeOf(args).polluted = 'realm-only'
         return { count: args.files.length, deep: args.nested.deep[1] }
       `), hostArgs)
       expect(result.value).toEqual({ count: 2, deep: 2 })
-      // The host copy is untouched, and the HOST Object.prototype was never reachable.
+      // The caller's object is untouched (the engine cloned args host-side).
       expect(hostArgs.files).toEqual(['a.ts'])
-      expect(({} as Record<string, unknown>).polluted).toBeUndefined()
     })
 
     it('scalar/null args pass through directly; absent args leave the global undefined', async () => {
@@ -447,51 +437,24 @@ describe('dsh-workflow-vm', () => {
       expect((await run(ctx, parent, script('return typeof args'))).value).toBe('undefined')
     })
 
-    it('hook promises are REALM promises: instanceof holds in-script, host Promise.prototype stays unreachable', async () => {
-      const { ctx, parent } = await setup()
-      const result = await run(ctx, parent, script(`
-        const p = agent('x')
-        const par = parallel([() => 'v'])
-        const pipe = pipeline([1], (n) => n)
-        Object.getPrototypeOf(p).wfLeakProbe = 'realm-only'
-        return {
-          agentIsRealmPromise: p instanceof Promise,
-          parallelIsRealmPromise: par instanceof Promise,
-          pipelineIsRealmPromise: pipe instanceof Promise,
-          value: await p,
-        }
-      `))
-      expect(result.stopReason).toBe('completed')
-      expect(result.value).toEqual({
-        agentIsRealmPromise: true,
-        parallelIsRealmPromise: true,
-        pipelineIsRealmPromise: true,
-        value: 'stub reply',
-      })
-      expect((Promise.prototype as unknown as Record<string, unknown>).wfLeakProbe).toBeUndefined()
-      delete (Promise.prototype as unknown as Record<string, unknown>).wfLeakProbe
-    })
-
-    it('hook failures cross the boundary as realm-built WorkflowError clones', async () => {
+    it('hook failures reach the script as HOST WorkflowErrors: fields readable, in-realm instanceof Error is false', async () => {
       const { ctx, parent } = await setup()
       const result = await run(ctx, parent, script(`
         try {
           await agent('p', { bogus: true })
           return 'unreachable'
         } catch (e) {
-          Object.getPrototypeOf(Object.getPrototypeOf(e)).wfErrLeakProbe = 'realm-only'
+          // The documented consequence of the trust premise: hook errors are
+          // host objects, so realm instanceof is false — read the fields.
           return { isRealmError: e instanceof Error, name: e.name, code: e.code, fatal: e.fatal, message: e.message }
         }
       `))
       expect(result.stopReason).toBe('completed')
-      expect(result.value).toMatchObject({ isRealmError: true, name: 'WorkflowError', code: 'UNSUPPORTED_OPTION', fatal: true })
+      expect(result.value).toMatchObject({ isRealmError: false, name: 'WorkflowError', code: 'UNSUPPORTED_OPTION', fatal: true })
       expect((result.value as { message: string }).message).toContain('"bogus" is not recognized')
-      // The script mutated its error's prototype CHAIN — host intrinsics untouched.
-      expect((Object.prototype as unknown as Record<string, unknown>).wfErrLeakProbe).toBeUndefined()
-      expect((Error.prototype as unknown as Record<string, unknown>).wfErrLeakProbe).toBeUndefined()
     })
 
-    it('a non-WorkflowError host failure (a rejecting provider result) crosses as a generic realm clone', async () => {
+    it('a non-WorkflowError host failure (a rejecting provider result) reaches the script raw', async () => {
       const ctx = new Context()
       await ctx.plugin(SubagentService)
       const provider: SubagentProvider = {
@@ -507,68 +470,34 @@ describe('dsh-workflow-vm', () => {
       ctx.subagents.registerProvider(provider)
       await ctx.plugin(VmWorkflowEngine, { provider: 'rejecting' })
       const result = await run(ctx, fakeParent(), script(`
-        try { await agent('p'); return 'unreachable' } catch (e) { return { isRealmError: e instanceof Error, name: e.name, message: e.message } }
+        try { await agent('p'); return 'unreachable' } catch (e) { return { name: e.name, message: e.message } }
       `))
-      expect(result.value).toMatchObject({ isRealmError: true, name: 'Error' })
+      expect(result.value).toMatchObject({ name: 'Error' })
       expect((result.value as { message: string }).message).toContain('backend exploded')
     })
 
-    it('phase()/log() synchronous throws cross as realm clones too', async () => {
+    it('phase()/log() throw host WorkflowErrors synchronously on misuse', async () => {
       const { ctx, parent } = await setup()
       const result = await run(ctx, parent, script(`
         try { phase(3) } catch (e) {
-          if (!(e instanceof Error) || e.name !== 'WorkflowError') throw e
+          if (e.name !== 'WorkflowError') throw e
         }
         try { log(3) } catch (e) {
-          return { isRealmError: e instanceof Error, name: e.name, message: e.message }
+          return { name: e.name, message: e.message }
         }
       `))
-      expect(result.value).toMatchObject({ isRealmError: true, name: 'WorkflowError' })
+      expect(result.value).toMatchObject({ name: 'WorkflowError' })
       expect((result.value as { message: string }).message).toContain('log() requires')
     })
 
-    it('parallel/pipeline resolve to REALM arrays: instanceof holds in-script, host intrinsics stay unreachable', async () => {
+    it('a returned value whose property reads throw fails loud as RESULT_UNSERIALIZABLE', async () => {
       const { ctx, parent } = await setup()
       const result = await run(ctx, parent, script(`
-        const fromParallel = await parallel([() => agent('a'), () => 'plain'])
-        const fromPipeline = await pipeline([1], (prev) => prev + 1)
-        Object.getPrototypeOf(fromParallel).polluted = 'realm-only'
-        return {
-          parallelIsRealmArray: fromParallel instanceof Array,
-          pipelineIsRealmArray: fromPipeline instanceof Array,
-          values: [fromParallel[1], fromPipeline[0]],
-        }
-      `))
-      expect(result.stopReason).toBe('completed')
-      expect(result.value).toEqual({
-        parallelIsRealmArray: true,
-        pipelineIsRealmArray: true,
-        values: ['plain', 2],
-      })
-      // The script's prototype mutation stayed realm-side: the HOST
-      // Array.prototype was never reachable through a combinator result.
-      expect(([] as unknown as Record<string, unknown>).polluted).toBeUndefined()
-    })
-
-    it('a returned proxy is rejected as RESULT_UNSERIALIZABLE without running its traps', async () => {
-      const { ctx, parent } = await setup()
-      const result = await run(ctx, parent, script(`
-        return new Proxy({ a: 1 }, { ownKeys() { throw new Error('trap ran') } })
+        return { get a() { throw new Error('read failed') } }
       `))
       expect(result.stopReason).toBe('error')
       expect(result.error).toContain('not plain JSON data')
-      expect(result.error).toContain('proxies cannot cross')
-      expect(result.error).not.toContain('trap ran')
-    })
-
-    it('agent() options passed as a proxy are rejected loudly, traps never invoked', async () => {
-      const { ctx, parent } = await setup()
-      const result = await run(ctx, parent, script(`
-        return await agent('p', new Proxy({}, { ownKeys() { throw new Error('trap ran') } }))
-      `))
-      expect(result.stopReason).toBe('error')
-      expect(result.error).toContain('options must be plain JSON data')
-      expect(result.error).not.toContain('trap ran')
+      expect(result.error).toContain('read failed')
     })
 
     it('a non-JSON return value fails loud as RESULT_UNSERIALIZABLE', async () => {
@@ -696,60 +625,6 @@ describe('dsh-workflow-vm', () => {
       expect(result.error).toBe('[object Object]')
     })
 
-    it('hostile thrown values render realm-side: result NEVER rejects, no unhandled rejection', async () => {
-      const unhandled: unknown[] = []
-      const onUnhandled = (reason: unknown): void => { unhandled.push(reason) }
-      process.on('unhandledRejection', onUnhandled)
-      try {
-        const { ctx, parent } = await setup()
-        // Each thrown value runs code (or throws) when rendered — the realm
-        // wrapper renders it INSIDE script execution, and the host catch only
-        // ever descriptor-reads the pre-rendered string.
-        const cases: [string, string][] = [
-          ["throw { get stack() { throw new Error('stack getter threw') } }", '[object Object]'],
-          ["throw { get stack() { throw new Error('x') }, message: 'getter threw, message renders' }", 'getter threw, message renders'],
-          ["throw { get message() { throw new Error('message getter threw') } }", '[object Object]'],
-          ["throw { stack: 'custom data stack' }", 'custom data stack'],
-          ["throw (() => { const o = { message: 'setter-only stack' }; Object.defineProperty(o, 'stack', { set() {} }); return o })()", 'setter-only stack'],
-          ["throw new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('gopd trap threw') } })", '[object Object]'],
-          ["throw { [Symbol.toPrimitive]() { throw new Error('toPrimitive threw') } }", '[unrenderable thrown value]'],
-          ['throw () => 1', '() => 1'],
-          ['throw null', 'null'],
-        ]
-        for (const [body, rendered] of cases) {
-          const result = await run(ctx, parent, script(body))
-          expect(result.stopReason).toBe('error')
-          expect(result.error).toBe(rendered)
-        }
-        // Let any stray rejection reach the process hook before asserting.
-        await new Promise(resolve => setTimeout(resolve, 20))
-        expect(unhandled).toEqual([])
-      } finally {
-        process.off('unhandledRejection', onUnhandled)
-      }
-    })
-
-    it('a synchronous spin hidden in a thrown stack getter dies by the vm timeout, not on the host', async () => {
-      const { ctx, parent } = await setup({ config: { provider: 'stub', syncTimeoutMs: 50 } })
-      // The realm-side renderer reads e.stack INSIDE the timed sync slice, so
-      // the spin is killed exactly like a plain `while (true) {}` body.
-      const result = await run(ctx, parent, script('throw { get stack() { while (true) {} } }'))
-      expect(result.stopReason).toBe('error')
-      expect(result.error?.toLowerCase()).toContain('timed out')
-    })
-
-    it('a hostile thenable rejection that bypasses the realm wrapper renders host-side, data-only', async () => {
-      const { ctx, parent } = await setup()
-      // Returning a thenable makes the host unwrap it AFTER the script
-      // settled — its rejection value skips the realm catch entirely and hits
-      // drive()'s catch raw. The proxy must be labelled, its traps never run.
-      const result = await run(ctx, parent, script(`
-        return { then(_resolve, reject) { reject(new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('trap ran') } })) } }
-      `))
-      expect(result.stopReason).toBe('error')
-      expect(result.error).toBe('[thrown proxy]')
-    })
-
     it('falls back to the message for an Error whose stack was stripped', async () => {
       const { ctx, parent } = await setup()
       const result = await run(ctx, parent, script(`
@@ -803,18 +678,43 @@ describe('dsh-workflow-vm', () => {
       }
     })
 
-    it('dispose() abandons a stuck script after the grace instead of hanging (result stays pending)', async () => {
+    it('cancel() force-settles the result of a script parked on a promise no hook owns', async () => {
       const { ctx, parent } = await setup({ config: { provider: 'stub', disposeGraceMs: 30 } })
       const handle = ctx.workflows.start({
-        // No hooks involved: an unsettleable await the engine cannot reject.
+        // No hooks involved: an unsettleable await cancellation cannot reject
+        // — the abandon grace is the only thing that can settle this run.
+        script: script("await new Promise(() => {})\nreturn 'unreachable'"),
+        parent,
+      })
+      handle.cancel('user aborted')
+      const result = await handle.result
+      expect(result.stopReason).toBe('cancelled')
+      expect(result.error).toContain('user aborted')
+      await handle.dispose()
+    })
+
+    it('a never-settling returned thenable is abandoned the same way', async () => {
+      const { ctx, parent } = await setup({ config: { provider: 'stub', disposeGraceMs: 30 } })
+      const handle = ctx.workflows.start({ script: script('return { then() {} }'), parent })
+      handle.cancel()
+      expect((await handle.result).stopReason).toBe('cancelled')
+      await handle.dispose()
+    })
+
+    it('dispose() abandons a stuck script after the grace instead of hanging (result settles cancelled)', async () => {
+      const { ctx, parent } = await setup({ config: { provider: 'stub', disposeGraceMs: 30 } })
+      const handle = ctx.workflows.start({
         script: script("await new Promise(() => {})\nreturn 'unreachable'"),
         parent,
       })
       const before = Date.now()
       await handle.dispose()
       expect(Date.now() - before).toBeLessThan(1000)
-      const settled = await Promise.race([handle.result.then(() => 'settled'), Promise.resolve('pending')])
-      expect(settled).toBe('pending')
+      // The abandon that freed dispose() also settled result — a consumer
+      // still awaiting it (the tool does, before its disposing finally) is
+      // released rather than wedged forever.
+      const result = await handle.result
+      expect(result.stopReason).toBe('cancelled')
     })
 
     it('dispose() is idempotent and settles cleanly after a completed run', async () => {

@@ -9,6 +9,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { WorkflowRunId, WorkflowService } from '@deepseek-ai/dsh-workflow'
 import type { WorkflowResult, WorkflowRun, WorkflowStartRequest } from '@deepseek-ai/dsh-workflow'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import SubagentService from '@deepseek-ai/dsh-subagent'
+import VmWorkflowEngine from '@deepseek-ai/dsh-workflow-vm'
 import * as toolWorkflow from '../src/index.ts'
 
 /** A controllable engine standing in behind ctx.workflows (the tool's only seam). */
@@ -220,5 +222,34 @@ describe('dsh-tool-workflow', () => {
     const unwrapped = loader.unwrapExports(toolWorkflow) as Record<string, unknown>
     expect(unwrapped).toBe(toolWorkflow)
     expect(typeof unwrapped.apply).toBe('function')
+  })
+
+  describe('composition with the REAL vm engine (the mock above must stay honest)', () => {
+    it('an abort releases the tool even when the script parks on a promise no hook owns', async () => {
+      // Regression for the review-found turn wedge: the tool awaits
+      // run.result BEFORE its disposing finally, the registry and the loop
+      // await the tool — so if cancellation could not settle result (a script
+      // parked on `await new Promise(() => {})`), an aborted turn stayed
+      // wedged forever. The seam now guarantees result settles within the
+      // grace of cancel(); this drives that guarantee through the real
+      // registry + real tool + real engine.
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRegistry)
+      await ctx.plugin(SubagentService)
+      await ctx.plugin(VmWorkflowEngine, { disposeGraceMs: 30 })
+      await ctx.plugin(toolWorkflow, {})
+      const parent = { id: AgentId('caller'), options: {} } as unknown as Agent
+      const controller = new AbortController()
+      const pending = execute(ctx, {
+        script: "export const meta = { name: 'stuck', description: 'parks forever' }\nawait new Promise(() => {})\nreturn 1",
+      }, { agent: parent, signal: controller.signal })
+      // Give the run a beat to start (past its synchronous slice), then abort.
+      await new Promise(resolve => setTimeout(resolve, 20))
+      controller.abort('user abort')
+      const result = await pending
+      expect(result.isError).toBe(true)
+      expect((result.content[0] as { text: string }).text).toContain('cancelled')
+    })
   })
 })

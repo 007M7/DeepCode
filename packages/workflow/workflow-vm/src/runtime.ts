@@ -4,30 +4,27 @@
  * concurrency semaphore and caps, cancellation, and the drive loop that turns
  * a script settlement into a {@link WorkflowResult}.
  *
- * Realm discipline (see also ./realm.ts): values ENTERING the host from the
- * script (hook options, schemas, the return value) are materialized via
- * descriptor walks; values ENTERING the realm from the host (`args`, agent()
- * results) are rebuilt INSIDE the realm through the context's own
- * `JSON.parse`, so the script never holds an object whose prototype chain
- * reaches host intrinsics. The same rule covers every other value a hook
- * hands the script: the promises `agent`/`parallel`/`pipeline` return are
- * realm promises (the realm's own `Promise.resolve` over the host promise),
- * the arrays the combinators resolve to are realm-built (their ELEMENTS are
- * realm values already — only the container needs rebuilding), and a hook
- * failure — rejection or synchronous `phase`/`log` throw — crosses as a
- * realm-built clone carrying name/code/message/fatal. Realm functions
- * (pipeline stages, parallel thunks) are called, not materialized — their
- * values stay realm-side.
+ * Value boundary (the trust premise lives in ./realm.ts): values ENTERING the
+ * host from the script (hook options, schemas, the return value) are
+ * materialized by `materializeFromRealm` — a plain walk that rejects loud
+ * everything JSON cannot carry. Values ENTERING the realm (`args`, `agent()`
+ * results, hook promises and their failures, combinator arrays) are handed
+ * over DIRECTLY as host values: the script is model-written and trusted, so
+ * host prototypes are not a leak. `args` is host-side `structuredClone`d once
+ * at start so a script scribbling on it cannot mutate the caller's object —
+ * that is a benign-bug guard, not isolation. Realm functions (pipeline
+ * stages, parallel thunks) are called, not materialized — their values stay
+ * realm-side until they cross through a hook or the final return.
  *
  * Failure discipline: fatal {@link WorkflowError}s (bad hook arguments,
  * unsupported options/schemas, tripped caps, seam start failures,
- * cancellation) ALWAYS propagate through `parallel`/`pipeline` — they cross
- * the realm boundary as fatal clones, recognized structurally — and the
- * per-item `null` is reserved for child-run failures and ordinary in-stage
- * script errors. Every hook-returned promise gets a no-op rejection consumer
- * attached, so a script that drops a promise (fires an `agent()` without
- * awaiting it) cannot surface an unhandled rejection when cancellation
- * rejects it — the app boot layer exits the process on unhandled rejections.
+ * cancellation) ALWAYS propagate through `parallel`/`pipeline` — recognized
+ * by host `instanceof`, which a script cannot forge — and the per-item `null`
+ * is reserved for child-run failures and ordinary in-stage script errors.
+ * Every hook-returned promise gets a no-op rejection consumer attached, so a
+ * script that drops a promise (fires an `agent()` without awaiting it) cannot
+ * surface an unhandled rejection when cancellation rejects it — the app boot
+ * layer exits the process on unhandled rejections.
  *
  * @module @deepseek-ai/dsh-workflow-vm/runtime
  */
@@ -39,14 +36,14 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { assertSupportedOutputSchema, OutputSchemaError } from '@deepseek-ai/dsh-tools'
 import type { StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
-import { WorkflowError } from '@deepseek-ai/dsh-workflow'
+import { isFatalWorkflowError, WorkflowError } from '@deepseek-ai/dsh-workflow'
 import type {
   WorkflowAgentEndInfo,
   WorkflowAgentInfo,
   WorkflowMeta,
   WorkflowResult,
 } from '@deepseek-ai/dsh-workflow'
-import { materializeFromRealm, MaterializeError, describeThrown, thrownRendering, isFatalWorkflowErrorClone, REALM_THROWN_RENDERER_SOURCE } from './realm.ts'
+import { materializeFromRealm, MaterializeError, renderThrown } from './realm.ts'
 
 /** The per-run knobs the engine resolves from its Config. */
 export interface ExecutionLimits {
@@ -60,6 +57,8 @@ export interface ExecutionLimits {
   maxItemsPerCall: number
   /** vm timeout for the script's initial synchronous slice. */
   syncTimeoutMs: number
+  /** How long after `cancel()` a still-unsettled script is abandoned (result force-settles `cancelled`). */
+  disposeGraceMs: number
 }
 
 /** The engine-side observers the execution reports progress through. */
@@ -124,13 +123,24 @@ export class WorkflowExecution {
   private readonly controller = new AbortController()
   private currentPhase: string | undefined
   private readonly context: vm.Context
-  private readonly realmJsonParse: (text: string) => unknown
-  private readonly realmArrayFrom: (items: unknown[]) => unknown[]
-  private readonly realmPromiseResolve: (value: unknown) => Promise<unknown>
-  private readonly realmErrorClone: (name: string, code: string | undefined, message: string, fatal: boolean) => unknown
   private readonly compiled: vm.Script
   /** Every live `agent()` call promise — awaited or stray — for {@link quiesce}. */
   private readonly inFlightAgents = new Set<Promise<unknown>>()
+  /** Fires {@link abandoned}; assigned by the promise executor at field initialization. */
+  private declareAbandoned!: () => void
+  private abandonTimer: NodeJS.Timeout | undefined
+  /**
+   * Rejects `disposeGraceMs` after {@link cancel} if the script has not
+   * settled by then. `drive()` races the script against it, so `result`
+   * ALWAYS settles within the grace of a cancellation — even when the script
+   * is parked on a promise no hook owns (`await new Promise(() => {})`), which
+   * cancellation cannot reject. Without this, a consumer awaiting `result`
+   * before disposing (the tool's shape) would hang forever on such a script,
+   * wedging its caller past any abort.
+   */
+  private readonly abandoned = new Promise<never>((_, reject) => {
+    this.declareAbandoned = () => { reject(new WorkflowError('workflow script abandoned after the cancellation grace', 'CANCELLED')) }
+  })
 
   constructor(
     private readonly ctx: Context,
@@ -144,61 +154,34 @@ export class WorkflowExecution {
   ) {
     // Compile FIRST: a body syntax error must throw out of the constructor
     // (the engine maps it to SCRIPT_PARSE) before any realm state exists.
-    // The body is wrapped in a realm-side catch that pre-renders any thrown
-    // value to a string (see REALM_THROWN_RENDERER_SOURCE) — rendering happens
-    // inside the realm's own execution window, never on a host catch path.
     // lineOffset compensates for the wrapper line, so stack traces carry the
     // script's own line numbers (the meta statement was blanked, not removed).
     try {
-      this.compiled = new vm.Script(
-        `(async () => { try {\n${body}\n} catch (e) { throw (${REALM_THROWN_RENDERER_SOURCE})(e) } })()`,
-        {
-          filename: `workflow:${meta.name}`,
-          lineOffset: -1,
-        },
-      )
+      this.compiled = new vm.Script(`(async () => {\n${body}\n})()`, {
+        filename: `workflow:${meta.name}`,
+        lineOffset: -1,
+      })
     } catch (error: unknown) {
       throw new WorkflowError(`workflow script does not parse: ${String(error)}`, 'SCRIPT_PARSE', { cause: error })
     }
 
     this.context = vm.createContext({}, { name: `workflow:${meta.name}` })
     vm.runInContext(DETERMINISM_PRELUDE, this.context)
-    // The realm's own JSON.parse — the host→realm rebuild channel.
-    const realmJson = vm.runInContext('JSON', this.context) as { parse(text: string): unknown }
-    this.realmJsonParse = (text: string) => realmJson.parse(text)
-    // The realm's own Array.from / Promise.resolve / an error factory, bound
-    // NOW so a script reassigning its globals later cannot swap them:
-    // combinator results must be realm arrays, hook promises realm promises,
-    // and hook failures realm-built clones.
-    this.realmArrayFrom = vm.runInContext('Array.from.bind(Array)', this.context) as (items: unknown[]) => unknown[]
-    this.realmPromiseResolve = vm.runInContext('Promise.resolve.bind(Promise)', this.context) as (value: unknown) => Promise<unknown>
-    this.realmErrorClone = vm.runInContext(`(name, code, message, fatal) => {
-      const error = new Error(message)
-      error.name = name
-      if (code !== undefined) error.code = code
-      error.fatal = fatal
-      return error
-    }`, this.context) as (name: string, code: string | undefined, message: string, fatal: boolean) => unknown
+    // A run that settles without ever being abandoned leaves `abandoned`
+    // permanently pending or rejecting into the void — consume it so a late
+    // grace timer cannot surface an unhandled rejection.
+    void this.contain(this.abandoned)
 
     const globals: Record<string, unknown> = {
-      agent: (prompt: unknown, opts?: unknown) => this.realmFacing(this.track(this.agent(prompt, opts))),
-      parallel: (thunks: unknown) => this.realmFacing(this.parallel(thunks)),
-      pipeline: (items: unknown, ...stages: unknown[]) => this.realmFacing(this.pipeline(items, stages)),
-      phase: (title: unknown) => {
-        try {
-          this.phase(title)
-        } catch (error: unknown) {
-          throw this.toRealmError(error)
-        }
-      },
-      log: (message: unknown) => {
-        try {
-          this.log(message)
-        } catch (error: unknown) {
-          throw this.toRealmError(error)
-        }
-      },
-      args: this.toRealm(args),
+      agent: (prompt: unknown, opts?: unknown) => this.contain(this.track(this.agent(prompt, opts))),
+      parallel: (thunks: unknown) => this.contain(this.parallel(thunks)),
+      pipeline: (items: unknown, ...stages: unknown[]) => this.contain(this.pipeline(items, stages)),
+      phase: (title: unknown) => { this.phase(title) },
+      log: (message: unknown) => { this.log(message) },
+      // Host-side clone: a script scribbling on args must not mutate the
+      // caller's object (a benign-bug guard; args is plain JSON by the seam
+      // contract, so structuredClone is total here and throws loud otherwise).
+      args: args === undefined ? undefined : structuredClone(args),
     }
     for (const [key, value] of Object.entries(globals)) {
       // Data properties on the contextified global; frozen shape not required —
@@ -226,7 +209,10 @@ export class WorkflowExecution {
   /**
    * Cancel the run: children abort (the shared signal), waiting `agent()`
    * slots reject, and every future hook call throws `CANCELLED` — the script
-   * dies at its next await. Idempotent; the first reason wins.
+   * dies at its next await. A script that STILL has not settled after
+   * `disposeGraceMs` (parked on a promise no hook owns) is abandoned so
+   * `result` settles regardless (see {@link abandoned}). Idempotent; the
+   * first reason wins.
    */
   cancel(reason?: string): void {
     if (this.cancelReason !== undefined) return
@@ -234,14 +220,18 @@ export class WorkflowExecution {
     this.cancelError = new WorkflowError(`workflow run cancelled: ${this.cancelReason}`, 'CANCELLED')
     this.controller.abort(this.cancelReason)
     for (const waiter of this.slotWaiters.splice(0)) waiter.reject(this.cancelledError())
+    this.abandonTimer = setTimeout(() => { this.declareAbandoned() }, this.limits.disposeGraceMs)
+    // unref'd: an armed grace timer must never hold the process open.
+    this.abandonTimer.unref()
   }
 
   /**
    * Run the script to settlement. Resolves — never rejects — with the run's
    * {@link WorkflowResult}: the materialized return value on `completed`, the
    * failure message on `error`, and `cancelled` when the script died of
-   * cancellation. After settlement, any stray children a script fired without
-   * awaiting are aborted (their `agent()` wrappers dispose them).
+   * cancellation (or outlived its post-cancel grace and was abandoned — see
+   * {@link abandoned}). After settlement, any stray children a script fired
+   * without awaiting are aborted (their `agent()` wrappers dispose them).
    */
   async drive(): Promise<WorkflowResult> {
     try {
@@ -249,7 +239,9 @@ export class WorkflowExecution {
       // the script must not execute at all, let alone report `completed`.
       if (this.isCancelled()) throw this.cancelledError()
       const scriptPromise = this.compiled.runInContext(this.context, { timeout: this.limits.syncTimeoutMs }) as Promise<unknown>
-      const raw: unknown = await this.contain(Promise.resolve(scriptPromise))
+      // The race is the result-settles-after-cancel guarantee: a parked
+      // script loses to the abandon channel once the grace expires.
+      const raw: unknown = await Promise.race([this.contain(Promise.resolve(scriptPromise)), this.abandoned])
       // Cancelled while the body ran: a script that settled without touching
       // another hook (or without any) must still report `cancelled` — the
       // holder asked for cancellation and `completed` would be a lie.
@@ -258,25 +250,23 @@ export class WorkflowExecution {
       return { value, stopReason: 'completed', agentsStarted: this.started }
     } catch (error: unknown) {
       // Any failure after cancel() reports `cancelled` with the canonical
-      // reason — the reject path mirrors the resolve path's post-settle
-      // check, and a hook CANCELLED failure crosses the realm boundary as a
-      // clone that deliberately fails the host `instanceof`.
+      // reason — the reject path mirrors the resolve path's post-settle check.
       if (this.isCancelled()) {
         return { value: null, stopReason: 'cancelled', error: this.cancelledError().message, agentsStarted: this.started }
       }
-      // Ordinary script failures arrive pre-rendered by the realm-side catch
-      // (thrownRendering); host-thrown errors (a vm timeout, a WorkflowError)
-      // and adversarial values that bypassed the wrapper (e.g. a hostile
-      // thenable rejection) render via the total, host-code-only
-      // describeThrown. Neither path can throw — drive() resolving is the
-      // `result` never-rejects seam contract.
-      return { value: null, stopReason: 'error', error: thrownRendering(error) ?? describeThrown(error), agentsStarted: this.started }
+      // renderThrown is total (host- and realm-thrown values alike), so this
+      // arm cannot throw — drive() resolving is the `result` never-rejects
+      // seam contract.
+      return { value: null, stopReason: 'error', error: renderThrown(error), agentsStarted: this.started }
     } finally {
       // Reap strays: a script that fired agent() calls without awaiting them
       // leaves live children behind after settlement — abort them all. (The
       // per-call wrappers dispose each child; the contain() consumer keeps
       // their rejections from going unhandled.)
       if (this.cancelReason === undefined) this.cancel('workflow settled')
+      // drive() settling means nothing is left to abandon — including the
+      // timer the self-cancel above just armed.
+      if (this.abandonTimer !== undefined) clearTimeout(this.abandonTimer)
     }
   }
 
@@ -289,37 +279,6 @@ export class WorkflowExecution {
   private contain<T>(promise: Promise<T>): Promise<T> {
     promise.catch(() => { /* consumed: see method contract — a dropped hook promise must not surface an unhandled rejection */ })
     return promise
-  }
-
-  /**
-   * Hand a hook's host promise to the script as a REALM promise (the realm's
-   * own `Promise.resolve` assimilates it) whose failure reason is a
-   * realm-built clone — the script must never hold host prototypes, and both
-   * the promise object and a caught rejection would otherwise expose them
-   * (module doc). The realm promise gets the same no-op rejection consumer as
-   * {@link contain}, since the script may drop it; the intermediate host
-   * promises are handled by the assimilation chain itself.
-   */
-  private realmFacing(hostPromise: Promise<unknown>): Promise<unknown> {
-    const translated = hostPromise.catch((error: unknown) => {
-      throw this.toRealmError(error)
-    })
-    const realmPromise = this.realmPromiseResolve(translated)
-    realmPromise.catch(() => { /* consumed: a script-dropped realm promise must not surface an unhandled rejection (see contain) */ })
-    return realmPromise
-  }
-
-  /**
-   * Rebuild a host failure as a realm-built error clone: a `WorkflowError`
-   * keeps its name/code/message/fatal (the combinators recognize the shape
-   * via {@link isFatalWorkflowErrorClone}); anything else becomes a generic
-   * realm `Error` carrying its {@link describeThrown} rendering.
-   */
-  private toRealmError(error: unknown): unknown {
-    if (error instanceof WorkflowError) {
-      return this.realmErrorClone('WorkflowError', error.code, error.message, error.fatal)
-    }
-    return this.realmErrorClone('Error', undefined, describeThrown(error), false)
   }
 
   /**
@@ -352,14 +311,6 @@ export class WorkflowExecution {
     // === true; the fallback guards the type, not a reachable path.
     /* v8 ignore next */
     return this.cancelError ?? new WorkflowError('workflow run cancelled', 'CANCELLED')
-  }
-
-  /** Rebuild a host value inside the script realm (via the realm's own JSON.parse). */
-  private toRealm(value: unknown): unknown {
-    if (value === undefined) return undefined
-    if (value === null) return null
-    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
-    return this.realmJsonParse(JSON.stringify(value))
   }
 
   /** Materialize the script's return value; violations become RESULT_UNSERIALIZABLE. */
@@ -453,7 +404,7 @@ export class WorkflowExecution {
               return null
             }
             this.observer.agentEnd({ ...info, outcome: 'completed' })
-            return this.toRealm(result.structured)
+            return result.structured
           }
           this.observer.agentEnd({ ...info, outcome: 'completed' })
           return outputText(result.output)
@@ -532,20 +483,17 @@ export class WorkflowExecution {
       }
       return thunk as () => unknown
     })
-    const settled = await Promise.all(thunks.map(async (thunk) => {
+    return Promise.all(thunks.map(async (thunk) => {
       try {
         return await thunk()
       } catch (error: unknown) {
-        // Hooks translate host errors at the realm boundary, so a fatal error
-        // reaches a thunk catch only as a realm clone (a script forging the
-        // shape merely kills its own run).
-        if (isFatalWorkflowErrorClone(error)) throw error
+        // Hook failures are host WorkflowErrors; a fatal one is recognized by
+        // host `instanceof` — a script-built object can never pass it, so
+        // fatality cannot be forged (nor accidentally dissolved).
+        if (isFatalWorkflowError(error)) throw error
         return null
       }
     }))
-    // The container must be a REALM array (module doc); the elements are
-    // realm values already.
-    return this.realmArrayFrom(settled)
   }
 
   /** The `pipeline(items, ...stages)` hook: per-item stage chains, NO cross-stage barrier. */
@@ -563,7 +511,7 @@ export class WorkflowExecution {
       }
       return stage as (previous: unknown, item: unknown, index: number) => unknown
     })
-    const settled = await Promise.all(rawItems.map(async (item: unknown, index) => {
+    return Promise.all(rawItems.map(async (item: unknown, index) => {
       let value: unknown = item
       try {
         for (const stage of stages) {
@@ -572,15 +520,12 @@ export class WorkflowExecution {
         return value
       } catch (error: unknown) {
         // An ordinary stage throw drops the ITEM to null and skips its
-        // remaining stages; a fatal error (a realm clone — see parallel())
-        // kills the whole script.
-        if (isFatalWorkflowErrorClone(error)) throw error
+        // remaining stages; a fatal host WorkflowError (see parallel()) kills
+        // the whole script.
+        if (isFatalWorkflowError(error)) throw error
         return null
       }
     }))
-    // The container must be a REALM array (module doc); the elements are
-    // realm values already.
-    return this.realmArrayFrom(settled)
   }
 
   private assertItemCap(length: number, hook: string): void {

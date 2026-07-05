@@ -127,8 +127,8 @@ export type WorkflowEventName =
  *   subset (see dsh-tools).
  * - `AGENT_CAP` / `ITEM_CAP` — the run/agent caps tripped.
  * - `AGENT_START` — the subagent seam refused to start a child.
- * - `RESULT_UNSERIALIZABLE` — a value crossing the realm boundary is not
- *   plain JSON data.
+ * - `RESULT_UNSERIALIZABLE` — a value crossing the script/host value boundary
+ *   is not plain JSON data.
  * - `CANCELLED` — the run was cancelled; pending and future hooks reject
  *   with this (the script-kill mechanism).
  */
@@ -179,7 +179,10 @@ export function isFatalWorkflowError(error: unknown): boolean {
  * - {@link start} throws synchronously for a request that cannot begin (an
  *   unparseable script, an invalid meta block). Once it returns a
  *   {@link WorkflowRun}, `result` NEVER rejects — every failure resolves with
- *   `stopReason: 'error'` (or `'cancelled'`).
+ *   `stopReason: 'error'` (or `'cancelled'`) — and once the run is cancelled,
+ *   `result` SETTLES within the implementation's bounded grace even if the
+ *   script itself never settles (a consumer awaiting `result` must never be
+ *   wedged past a cancellation).
  * - The `workflow/*` events fire through {@link emitWorkflowEvent} (data
  *   snapshots, per-listener containment); `workflow/end` fires exactly once
  *   per started run, after `result` is settled or as it settles.

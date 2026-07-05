@@ -103,29 +103,19 @@ return 2`
   })
 
   it('rejects a literal evaluating to non-JSON data (META_INVALID via materialization)', () => {
-    const error = bad('export const meta = { name: "x", description: "d", phases: [{ get title() { return "t" } }] }')
+    const error = bad('export const meta = { name: "x", description: "d", whenToUse: () => 1 }')
     expect(error.code).toBe('META_INVALID')
     expect(error.message).toContain('JSON data')
   })
 
-  it('rejects a meta literal containing a proxy as META_INVALID — its traps never run', () => {
-    // bad() rethrows anything that is not a WorkflowError, so a trap firing
-    // ('trap ran') would fail this test instead of mapping to META_INVALID.
-    const error = bad('export const meta = { name: "x", description: "d", phases: new Proxy([], { getPrototypeOf() { throw new Error("trap ran") } }) }')
-    expect(error.code).toBe('META_INVALID')
-    expect(error.message).toContain('proxies cannot cross')
-  })
-
-  it('a meta expression THROWING a hostile value maps to META_INVALID — rendering stays realm-side', () => {
-    // bad() rethrows anything that is not a WorkflowError, so a hostile value
-    // escaping the realm-side renderer raw would fail this test.
-    const error = bad('export const meta = { name: (() => { throw { get stack() { throw new Error("boom") }, toString() { throw new Error("boom") } } })(), description: "d" }\nreturn 1')
+  it('a meta expression that THROWS maps to META_INVALID carrying the rendered value', () => {
+    const error = bad('export const meta = { name: (() => { throw "nope" })(), description: "d" }\nreturn 1')
     expect(error.code).toBe('META_INVALID')
     expect(error.message).toContain('pure literal')
-    expect(error.message).toContain('[unrenderable thrown value]')
+    expect(error.message).toContain('nope')
   })
 
-  it('a spinning meta expression (even inside a thrown stack getter) dies by the eval timeout', () => {
+  it('a spinning meta expression dies by the eval timeout', () => {
     try {
       extractMeta('export const meta = { name: (() => { while (true) {} })(), description: "d" }', 50)
       throw new Error('expected the extraction to time out')

@@ -85,7 +85,7 @@ export interface WorkflowResult {
   stopReason: WorkflowStopReason
   /** The failure message (present iff `stopReason` is not `completed`). */
   error?: string
-  /** How many `agent()` calls the run started (across its whole lifetime). */
+  /** How many `agent()` calls the run accepted (whole lifetime, including calls still queued for a slot when the run was cancelled). */
   agentsStarted: number
 }
 
@@ -93,17 +93,19 @@ export interface WorkflowResult {
  * The handle the consumer holds while a script executes. The consumer awaits
  * `result`, may `cancel` mid-flight, and MUST `dispose` on every path.
  * `result` does NOT reject — a script failure resolves with `stopReason:
- * 'error'` — so the consumer maps a non-`completed` reason to an `isError`
- * result. `dispose()` cancels, then waits a bounded grace for the script to
- * settle before abandoning it (the engine documents the abandonment
- * semantics); it never hangs on a stuck script.
+ * 'error'` — and once the run is cancelled it SETTLES within the engine's
+ * bounded grace even if the script itself never settles (the engine abandons
+ * the script and reports `cancelled`), so a consumer awaiting `result` is
+ * never wedged past a cancellation. `dispose()` = cancel + that bounded
+ * settle + child quiescence; it never hangs on a stuck script and is safe to
+ * call on every path (idempotent).
  */
 export interface WorkflowRun {
   readonly id: WorkflowRunId
   /** The validated meta block (available before the body runs). */
   readonly meta: WorkflowMeta
   readonly result: Promise<WorkflowResult>
-  /** Cancel the run: children abort, pending hooks reject, the script dies at its next await. */
+  /** Cancel the run: children abort, pending hooks reject, the script dies at its next await (or is abandoned at the grace). */
   cancel(reason?: string): void
   /** Cancel + bounded-grace settle; safe to call on every path (idempotent). */
   dispose(): Promise<void>
@@ -149,6 +151,6 @@ export interface WorkflowResultInfo {
   stopReason: WorkflowStopReason
   /** The failure message (present iff `stopReason` is not `completed`). */
   error?: string
-  /** How many `agent()` calls the run started. */
+  /** How many `agent()` calls the run accepted (see {@link WorkflowResult.agentsStarted}). */
   agentsStarted: number
 }

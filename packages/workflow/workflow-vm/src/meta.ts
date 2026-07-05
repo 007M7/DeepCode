@@ -20,7 +20,7 @@
 import * as vm from 'node:vm'
 import { WorkflowError } from '@deepseek-ai/dsh-workflow'
 import type { WorkflowMeta, WorkflowPhase } from '@deepseek-ai/dsh-workflow'
-import { materializeFromRealm, MaterializeError, describeThrown, thrownRendering, REALM_THROWN_RENDERER_SOURCE } from './realm.ts'
+import { materializeFromRealm, MaterializeError, renderThrown } from './realm.ts'
 
 /** The result of {@link extractMeta}: the validated meta and the runnable body. */
 export interface ExtractedScript {
@@ -171,18 +171,11 @@ export function extractMeta(script: string, evalTimeoutMs: number): ExtractedScr
     // An EMPTY context: any non-literal reference (a variable, a call) throws
     // here. The result — data only — is what the contract checks; a getter or
     // IIFE can still run, which is why the timeout and the materialization
-    // below are part of the same boundary. A thrown value is pre-rendered by
-    // the realm-side catch INSIDE the timed window, so a hostile
-    // stack/message/toString can neither run on the host catch path nor
-    // outlive the timeout.
-    evaluated = vm.runInNewContext(
-      `(() => { try { return (${literal}) } catch (e) { throw (${REALM_THROWN_RENDERER_SOURCE})(e) } })()`,
-      undefined,
-      { timeout: evalTimeoutMs },
-    )
+    // below are part of the same boundary.
+    evaluated = vm.runInNewContext(`(${literal})`, undefined, { timeout: evalTimeoutMs })
   } catch (error: unknown) {
     throw new WorkflowError(
-      `meta block failed to evaluate as a pure literal: ${thrownRendering(error) ?? describeThrown(error)}`,
+      `meta block failed to evaluate as a pure literal: ${renderThrown(error)}`,
       'META_INVALID',
       { cause: error },
     )

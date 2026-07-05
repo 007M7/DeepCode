@@ -47,7 +47,7 @@ interface WorkflowResult {
 
 ## A live run: `WorkflowRun`
 
-The handle the consumer holds while a script executes. The consumer awaits `result`, may `cancel` mid-flight, and MUST `dispose` on every path. `result` does NOT reject — a script failure resolves with `stopReason: 'error'` — so the consumer maps a non-`completed` reason to an `isError` result. `dispose()` cancels, waits a bounded grace for the script to settle AND its children to finish disposing, then abandons whatever is left (the engine documents the abandonment semantics); it never hangs on a stuck script.
+The handle the consumer holds while a script executes. The consumer awaits `result`, may `cancel` mid-flight, and MUST `dispose` on every path. `result` does NOT reject — a script failure resolves with `stopReason: 'error'` — and once the run is cancelled it SETTLES within the engine's bounded grace even if the script itself never settles (the engine abandons the script and reports `cancelled`), so a consumer awaiting `result` is never wedged past a cancellation. `dispose()` = cancel + that bounded settle + child quiescence (the engine documents what abandonment leaves behind); it never hangs on a stuck script.
 
 ```ts type-equiv
 interface WorkflowRun {
