@@ -695,7 +695,7 @@ function renderDocs(): GraphDoc[] {
     { rel: 'docs/event-producer-consumer.md', content: renderEventRelations(pkgs) },
     { rel: 'docs/agent-lifecycle.md', content: renderLifecycle() },
     { rel: 'docs/tool-execution-pipeline.md', content: renderToolPipeline() },
-    { rel: 'docs/acp/snapshot-replay.md', content: renderSnapshotReplay() },
+    { rel: 'packages/ui/acp/snapshot-replay.md', content: renderSnapshotReplay() },
   ]
   docs.unshift({ rel: 'docs/graph-atlas.md', content: renderIndex(docs) })
   return docs
@@ -710,7 +710,7 @@ function renderIndex(docs: GraphDoc[]): string {
     'docs/event-producer-consumer.md': 'event producer/consumer matrix',
     'docs/agent-lifecycle.md': 'agent turn and step lifecycle',
     'docs/tool-execution-pipeline.md': 'tool execution pipeline',
-    'docs/acp/snapshot-replay.md': 'ACP snapshot replay',
+    'packages/ui/acp/snapshot-replay.md': 'ACP snapshot replay',
   }
   const modes: Record<string, string> = {
     'docs/capability-seams.md': 'hybrid generated',
@@ -720,7 +720,7 @@ function renderIndex(docs: GraphDoc[]): string {
     'docs/event-producer-consumer.md': 'hybrid generated',
     'docs/agent-lifecycle.md': 'curated',
     'docs/tool-execution-pipeline.md': 'curated',
-    'docs/acp/snapshot-replay.md': 'curated',
+    'packages/ui/acp/snapshot-replay.md': 'curated',
   }
   const rows = [
     '| [module dependency graph](module-graph.md) | `generated` |',
