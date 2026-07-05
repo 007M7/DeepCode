@@ -39,7 +39,7 @@ The first index links ten relationship surfaces. Package topology and tool-packa
 | [event producer/consumer matrix](../../../event-producer-consumer.md) | hybrid generated | Cordis event declarations, AST-scanned `ctx.on/emit/parallel/serial/waterfall` sites, and explicit dynamic dispatch overrides |
 | [agent turn and step lifecycle](../../../agent-lifecycle.md) | curated | architecture.md loop lifecycle, Cordis catalog links, and session event semantics |
 | [tool execution pipeline](../../../tool-execution-pipeline.md) | curated | tool pipeline semantics and the `tools/execute` waterfall |
-| [ACP snapshot replay](../../../acp/snapshot-replay.md) | curated | snapshot harness behavior |
+| [ACP snapshot replay](../../../../packages/ui/acp/snapshot-replay.md) | curated | snapshot harness behavior |
 
 ### Why generators own the docs
 
