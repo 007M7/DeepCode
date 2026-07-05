@@ -23,7 +23,7 @@ Because the package wires no logger entry, an ACP leaf has **nothing to get wron
 | Key | Default | Routed to |
 |---|---|---|
 | `model` | (required) | the per-session agent template the bridge creates agents from |
-| `systemPrompt` | (required) | the per-session agent's system prompt |
+| `persona` | — | the deployment persona template (may reference `{{model}}`/`{{cwd}}`), routed to `dsh-system-prompt` |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
 
 The leaf supplies the swappable backends: an LLM adapter (`llm-deepseek` for the real model, `llm-replay` for keyless snapshot replay) and a bash executor (`bash-local`).

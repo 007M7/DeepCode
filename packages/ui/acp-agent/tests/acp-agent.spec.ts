@@ -24,7 +24,7 @@ async function mount(config: acpAgent.Config): Promise<Context> {
 
 describe('dsh-acp-agent composition', () => {
   it('brings up the spine + persistence + the ACP bridge', async () => {
-    const ctx = await mount({ model: 'mock', systemPrompt: 'hi', persistenceRoot: '/tmp/dsh-acp-agent-test' })
+    const ctx = await mount({ model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-acp-agent-test' })
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('sessions')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
@@ -40,7 +40,8 @@ describe('dsh-acp-agent composition', () => {
     // `ctx.plugin`, which validates+defaults the config first) with no
     // persistenceRoot, so the runtime fallback is the one that fires.
     const ctx = new Context()
-    acpAgent.apply(ctx, { model: 'mock', systemPrompt: 'hi' })
+    // No persona: covers the omitted-persona forwarding branch too.
+    acpAgent.apply(ctx, { model: 'mock' })
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(ctx.get('sessionPersistence')).toBeDefined()
     await ctx.fiber.dispose()

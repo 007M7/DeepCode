@@ -49,7 +49,7 @@ export interface CreateAgentOptions {
    * for a fresh (spawn) child.
    */
   seed?: SessionEvent[]
-  /** Per-agent options (model, system prompt). */
+  /** Per-agent options (model, …). */
   agentOptions?: AgentOptions
 }
 
@@ -62,7 +62,7 @@ export interface ResumeAgentOptions {
   agentId: AgentId
   /** The persisted session id to load and resume on. */
   resumeSessionId: SessionId
-  /** Per-agent options (model, system prompt). */
+  /** Per-agent options (model, …). */
   agentOptions?: AgentOptions
 }
 
