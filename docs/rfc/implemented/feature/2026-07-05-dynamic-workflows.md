@@ -1,0 +1,58 @@
+# RFC: Dynamic workflows — a script-driven multi-agent orchestration seam
+
+- **Status**: implemented
+- **Class**: feature
+- **First proposed**: 2026-07-05
+
+## Problem
+
+The harness can delegate ONE task to ONE child (`dsh-tool-subagent`), but work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — forces the model to orchestrate turn by turn: every intermediate result lands in the parent context, the plan lives nowhere durable, and coordination costs a model round-trip per step. Claude Code ships this capability as [dynamic workflows](https://code.claude.com/docs/en/workflows): the model writes a JavaScript orchestration script, a runtime executes it, and the script — not the conversation — holds the loop, the branching, and the intermediate results.
+
+## Proposal
+
+A workflow capability family at `packages/workflow/` in the bash seam shape (interface / implementation / consumer), plus the structured-output foundation it needs on the subagent seam.
+
+### The script contract (Claude Code-compatible)
+
+A script is `export const meta = {...}` (a PURE object literal: `name`, `description`, optional `whenToUse`/`phases`) followed by a plain-JS body with top-level `await`, ending in `return <json-value>`. The body sees exactly: `agent(prompt, {label, phase, schema, model})`, `parallel(thunks)`, `pipeline(items, ...stages)` (NO cross-stage barrier; `(prev, item, index)` callbacks), `phase(title)`, `log(message)`, and `args`. CC semantics are preserved where they matter to script authors: a failed child resolves `null` (scripts `.filter(Boolean)`); an ordinary stage throw nulls the ITEM and skips its remaining stages; `Date.now()`/`Math.random()`/argless `new Date()` throw (kept banned so future resume support cannot break script compatibility).
+
+One deliberate strictness DIVERGENCE from CC: hook misuse — unknown or deferred options (`effort`/`isolation`/`agentType`), malformed arguments, schemas outside the supported subset, tripped caps, seam start failures — throws a `WorkflowError` with `fatal: true`, and the combinators RE-THROW fatal errors instead of nulling the item. Without this, a typo'd option dissolves into a `null` indistinguishable from a child failure — the accepted-then-ignored failure mode this repo bans. One addition: the tool's `args` parameter is a JSON OBJECT (a bare list is wrapped as a field) so the wire schema stays honest.
+
+### The seam (dsh-workflow)
+
+`ctx.workflows` is an abstract `WorkflowService` in the bash shape — one engine per context, no named-provider registry (engines are deployment swaps, not co-residents). `start(request)` throws synchronously for a script that cannot begin; a returned `WorkflowRun`'s `result` NEVER rejects (failures resolve as `stopReason: 'error' | 'cancelled'`). The `workflow/*` events are observe-only emits carrying DATA SNAPSHOTS (id + meta; `workflow/end` omits the result value), per-listener contained, mirroring `subagent/start`/`subagent/end` — control stays with the run's holder. Vocabulary details: [core-data-structures/workflow.md](../../../core-data-structures/workflow.md).
+
+### The engine (dsh-workflow-vm): in-process node:vm
+
+**Why node:vm and not isolated-vm/worker threads**: isolated-vm is in maintenance mode, needs `--no-node-snapshot` on EVERY consumer process (including the published bins) on Node ≥ 20, and falls back to node-gyp source builds; a worker-thread engine turns every hook into RPC and complicates the per-file coverage gate. Scripts are model-written — the same trust level as the model's existing bash access — so genuine sandboxing is not the current requirement. The interface/implementation split exists precisely so a hardened engine can swap in later. Accepted, documented limitations: vm is not a security boundary, and the vm timeout covers only the initial synchronous slice — a pathological synchronous spin after the first await cannot be killed in-process; `dispose()` cancels, waits a bounded grace, then abandons.
+
+**Meta extraction**: a string/comment-aware brace scanner (template interpolation rejected) finds the literal; it is evaluated ALONE in an empty, timed vm context; the result must materialize to plain JSON data and pass shape validation (unknown fields rejected loud); the statement is blanked line-preservingly so stacks keep script line numbers.
+
+**Realm boundary**: values entering the host (meta, hook options, schemas, the return value) go through `materializeFromRealm` — a descriptor walk that NEVER invokes accessors (the repo's `isJsonValue` is prototype-strict and getter-invoking, so it cannot run first; it would reject every cross-realm object and let realm code run outside the timed window) and rejects loud everything JSON cannot carry, copying via `Object.defineProperty` so a `"__proto__"` key becomes a data property, never a prototype mutation. Values entering the realm (`args`, `agent()` results) are rebuilt INSIDE the realm via the context's own `JSON.parse`, so the script never holds a live host-prototype object. Realm functions (stages, thunks) are called, never materialized.
+
+**Containment**: every hook-returned promise carries a no-op rejection consumer, so a script that drops a promise cannot surface an unhandled rejection when cancellation rejects it — `dsh-app-boot` exits the process on unhandled rejections. Caps (`maxConcurrentAgents` auto = `min(16, cores - 2)`, `maxTotalAgents` 1000, `maxItemsPerCall` 4096) and timeouts are validated Config, not literals.
+
+### The consumer (dsh-tool-workflow)
+
+A `workflow` tool mirroring `dsh-tool-subagent`'s synchronous shape: start, await, `try/finally` dispose, abort-bridge `exec.signal`, non-`completed` → `isError`. Render intent: a `generic` card titled by a textual `meta.name` sniff (presentation is a pure function of args). The tool description IS the model-facing authoring spec. Examples load it with guidance to use workflows only on explicit user request — the harness has no ultracode-style effort gate.
+
+### The foundation: structured output on the subagent seam
+
+`agent({schema})` needs `SubagentStartRequest.outputSchema` to actually work; it was vocabulary without an implementation (`outputSchema: false` everywhere). Implemented in `dsh-subagent-inprocess` for both in-process backends: a globally registered `structured_output` capture tool whose per-child schema is enforced by a `prepend: true` `agent/request` listener doing FINAL-REQUEST enforcement (post-processing `await next()` — cooperative mutation would not survive a downstream listener returning a replacement request), an `agent/turn-continuation` veto after capture (no wasted extra model step), validation-retry in-turn via `ToolArgsError`, and a clean-finish nudge loop (`structuredNudgeRetries`). Lifetime is refcounted by backends (plugin lifetime) AND live runs (start → settle). The seam's `outputSchema` type became the raw JSON-Schema SUBSET (`StructuredOutputSchema` in dsh-tools: single-string `type`, `properties`/`required`/`additionalProperties`, `items`, scalar `enum`/`const`; anything unenforced is rejected loud) — the schema travels verbatim to the model as the forced tool's parameters, so the wire format, not the author DSL, is the right vocabulary.
+
+## What was rejected
+
+- **Background execution as the default** (CC's shape): deferred; foreground-synchronous matches `dsh-tool-subagent`'s cut, and background semantics should be designed ONCE across bash/subagent/workflow rather than per-tool.
+- **Workflow-layer JSON parsing for `agent({schema})`**: duplicating a seam concern at one consumer while the seam's capability flag stayed dishonestly `false`.
+- **Meta as tool parameters instead of `export const meta`**: zero parsing, but scripts stop being self-contained artifacts and CC-authored scripts stop being drop-in.
+- **`SchemaSpec` as the outputSchema type**: the author-facing DSL cannot express what arrives as data and cannot be validated against without conversion loss.
+
+## Deferred (documented non-goals of this cut)
+
+- **Background collection** (start tool → run id → completion notice → collect), designed alongside bash/subagent background unification.
+- **Journaling + resume** (`resumeFromRunId`, cached agent() prefixes) — the determinism bans already keep scripts resume-compatible.
+- **Saved/bundled workflows** (a `.deepseek/workflows/` registry, slash-command surface) and **script persistence to a run directory** (the tool-call event already records the script durably).
+- **Nested `workflow()`**, **token `budget`**, and the `effort`/`isolation`/`agentType` agent options (each rejects loud with a message naming it deferred).
+- **Engine hardening**: a worker-thread or isolated-vm engine behind the same seam (kills synchronous spins; adds memory limits).
+- **ACP progress UI** over the `workflow/*` events (a `/workflows`-style view); the events exist for it.
+- **ACP-backend structured output** and **`toolFilter`** (both still capability-gated `false`).

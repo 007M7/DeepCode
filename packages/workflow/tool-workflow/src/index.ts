@@ -1,0 +1,179 @@
+/**
+ * The model-facing `workflow` tool: run a JavaScript orchestration script that
+ * fans out subagents, and return the script's final value. Pure schema +
+ * lifecycle shaping — script parsing, execution, caps, and cancellation live
+ * behind `ctx.workflows` (`@deepseek-ai/dsh-workflow`), so a hardened engine
+ * swaps in without touching what the model sees.
+ *
+ * Collection is SYNCHRONOUS this cut (like `dsh-tool-subagent`): `execute`
+ * starts a run and awaits `run.result` inside a `try/finally` that always
+ * disposes the run, so the script and its children are torn down on every
+ * path. A non-`completed` stop reason maps to an `isError` tool result (by
+ * throwing) rather than returning partial output as success. Background
+ * collection is deferred to the cross-tool background redesign.
+ *
+ * Render intent (decided up front, per the render-intent RFC): a `generic`
+ * card whose title carries the script's `meta.name`, sniffed textually from
+ * the args — presentation must be a pure function of `args`, so it cannot ask
+ * the engine to parse.
+ *
+ * @module @deepseek-ai/dsh-tool-workflow
+ */
+
+import type { Context } from 'cordis'
+import z from 'schemastery'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { WorkflowResult, WorkflowRun } from '@deepseek-ai/dsh-workflow'
+
+export const name = 'tool-workflow'
+export const inject = ['tools', 'workflows']
+
+/** Config: the model-facing tool name plus result rendering caps. */
+export interface Config {
+  /** The model-facing tool name to register (default `workflow`). */
+  toolName?: string
+  /** Rendered-result ceiling, in characters: a longer JSON value is truncated with a notice (default 50000). */
+  maxResultChars?: number
+}
+
+export const Config: z<Config> = z.object({
+  toolName: z.string().default('workflow'),
+  maxResultChars: z.natural().min(1).default(50_000),
+})
+
+/**
+ * The script-authoring contract, embedded in the tool description. This IS the
+ * model-facing spec: the meta block, the hooks and their exact semantics, the
+ * determinism bans, and the supported schema subset.
+ */
+const DESCRIPTION = `Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn.
+
+The script MUST begin with \`export const meta = {...}\` — a PURE object literal (no variables, calls, or template interpolation) with required \`name\` (short kebab-case) and \`description\` strings, optional \`whenToUse\` string and \`phases\` array (\`{title, detail?, model?}\`). The body after it is plain JavaScript (NOT TypeScript) running with top-level await; end with \`return <value>\` — the value must be JSON-serializable and is this tool's result.
+
+Script-body hooks:
+- \`agent(prompt, opts?): Promise<any>\` — run one subagent to completion. Without \`opts.schema\` it resolves to the child's final text; with \`opts.schema\` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const — no oneOf/pattern/format/numeric bounds) it resolves to the validated object. Resolves \`null\` when the child fails (filter with \`.filter(Boolean)\`). Other opts: \`label\` (display), \`phase\` (progress group), \`model\` (override). Anything else (\`effort\`/\`isolation\`/\`agentType\`) is rejected loudly.
+- \`pipeline(items, ...stages): Promise<any[]>\` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives \`(prev, item, index)\`. An ordinary stage throw drops that ITEM to \`null\` and skips its remaining stages.
+- \`parallel(thunks): Promise<any[]>\` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to \`null\`.
+- \`phase(title)\` — start a progress phase; \`log(message)\` — narrate progress; \`args\` — the tool call's \`args\` input, verbatim.
+
+Misused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) throw errors that ALWAYS kill the script — they never dissolve into a per-item \`null\`.
+
+Constraints: concurrency and total-agent caps apply; \`Date.now()\`, \`Math.random()\`, and argless \`new Date()\` throw (pass timestamps via \`args\`); no filesystem, network, timers, or Node.js APIs — the agents do the work, the script only coordinates them. The run executes in the foreground: this call returns when the whole script finishes.`
+
+type WorkflowCallArgs = { script: string; args?: Record<string, unknown> }
+
+/** Best-effort meta.name sniff for presentation (pure textual; no evaluation). */
+function sniffMetaName(script: string): string | undefined {
+  const match = /export\s+const\s+meta\s*=\s*\{[^{}]*?name\s*:\s*(['"`])([^'"`\n]{1,64})\1/.exec(script)
+  return match?.[2]
+}
+
+/** The pending-state card: a generic card titled by the script's meta name. */
+function presentWorkflowCall(args: WorkflowCallArgs): ToolCallView {
+  const name = sniffMetaName(args.script)
+  return {
+    card: 'generic',
+    title: name !== undefined ? `workflow: ${name}` : 'workflow',
+    rawInput: args.script,
+  }
+}
+
+/** The completed-state card: keep the pending title; render the result content as-is. */
+function presentWorkflowResult(args: WorkflowCallArgs, result: { content: ContentBlock[]; isError: boolean }): ToolResultView {
+  void args
+  void result
+  return { card: 'generic' }
+}
+
+/** A non-`completed` stop reason means the script did not finish cleanly. */
+function stopReasonError(result: WorkflowResult): string | undefined {
+  switch (result.stopReason) {
+    case 'completed':
+      return undefined
+    case 'cancelled':
+      return `workflow run was cancelled${result.error !== undefined ? ` (${result.error})` : ''}`
+    case 'error':
+      return `workflow run failed: ${result.error ?? 'unknown error'}`
+    /* v8 ignore start -- defensive: WorkflowStopReason is a closed union, exhaustive by construction; a future variant fails here loudly */
+    default:
+      return `workflow run ended abnormally (${String(result.stopReason satisfies never)})`
+    /* v8 ignore stop */
+  }
+}
+
+/** Render the run's outcome text: the meta name, agent count, and the JSON value (capped). */
+function renderResult(run: WorkflowRun, result: WorkflowResult, maxChars: number): string {
+  // The engine returns JSON data (null for a valueless script), so stringify never yields undefined.
+  const rendered = JSON.stringify(result.value, null, 2)
+  const clipped = rendered.length > maxChars
+    ? `${rendered.slice(0, maxChars)}\n… [truncated: ${rendered.length - maxChars} more characters]`
+    : rendered
+  return `workflow "${run.meta.name}" completed (${result.agentsStarted} agent${result.agentsStarted === 1 ? '' : 's'}).\nReturn value:\n${clipped}`
+}
+
+export function apply(ctx: Context, config: Config): void {
+  const maxResultChars = config.maxResultChars ?? 50_000
+  ctx.tools.register(defineTool({
+    name: config.toolName ?? 'workflow',
+    description: DESCRIPTION,
+    parameters: {
+      script: {
+        type: 'string',
+        required: true,
+        description: 'The complete workflow script: `export const meta = {...}` followed by the plain-JS body (top-level await allowed; end with `return <json-value>`).',
+      },
+      args: {
+        type: 'object',
+        description: 'Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {"files": [...]}).',
+      },
+    },
+    async execute(args, exec): Promise<ContentBlock[]> {
+      const parent = exec.agent
+      if (!parent) {
+        // The loop sets `exec.agent` for every model-driven call; its absence
+        // means a non-agent caller invoked the tool directly, which has no
+        // parent to attribute the children to. Fail loud rather than guess.
+        throw new Error('workflow tool requires a calling agent (exec.agent was undefined)')
+      }
+
+      // Parse failures (SCRIPT_PARSE/META_INVALID) throw synchronously here
+      // and become isError results via the registry — the model sees the
+      // violation list and can correct the script.
+      const run: WorkflowRun = ctx.workflows.start({
+        script: args.script,
+        ...args.args !== undefined ? { args: args.args } : {},
+        parent,
+        ...exec.signal ? { signal: exec.signal } : {},
+      })
+
+      // Bridge the tool's abort signal to the run: if the parent step is
+      // aborted while the script is in flight, cancel the whole run. The
+      // engine also receives `signal` directly, but an explicit bridge keeps
+      // the tool's contract local (and covers an engine that ignores it).
+      const onAbort = (): void => { run.cancel('parent step aborted') }
+      exec.signal?.addEventListener('abort', onAbort, { once: true })
+      // `addEventListener` does NOT fire for a signal already aborted before
+      // this line — cancel explicitly in that case.
+      if (exec.signal?.aborted) run.cancel('parent step aborted')
+
+      try {
+        const result = await run.result
+        const error = stopReasonError(result)
+        if (error !== undefined) {
+          // Map a non-clean finish to an isError result (the registry turns a
+          // throw into an isError). Report the reason, not partial output.
+          throw new Error(error)
+        }
+        return [{ type: 'text', text: renderResult(run, result, maxResultChars) }]
+      } finally {
+        exec.signal?.removeEventListener('abort', onAbort)
+        // Always reach run quiescence — never leak a live script or children.
+        await run.dispose()
+      }
+    },
+    presentCall: args => presentWorkflowCall(args),
+    presentResult: (args, result) => presentWorkflowResult(args, result),
+  }))
+}

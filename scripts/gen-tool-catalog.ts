@@ -51,6 +51,8 @@ import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
+import VmWorkflowEngine from '@deepseek-ai/dsh-workflow-vm'
+import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/tool-catalog/tools.md'
@@ -136,6 +138,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
     source: 'packages/todo/tool-todo/src/index.ts',
     async mount(ctx) {
       await ctx.plugin(ToolTodo)
+    },
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-workflow',
+    dir: 'tool-workflow',
+    source: 'packages/workflow/tool-workflow/src/index.ts',
+    async mount(ctx) {
+      // The tool injects `workflows`; boot the vm engine over a scripted
+      // subagent provider to satisfy it. The schema does not depend on which
+      // provider backs the engine.
+      await ctx.plugin(SubagentService)
+      await ctx.plugin(SubagentMock, { name: 'mock' })
+      await ctx.plugin(VmWorkflowEngine, { provider: 'mock' })
+      await ctx.plugin(ToolWorkflow)
     },
   },
   {

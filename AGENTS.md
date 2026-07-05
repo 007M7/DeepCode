@@ -18,6 +18,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   web/         web seam + search/fetch providers + model-facing web tools
   compact/     compaction seam + basic backend
   subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
+  workflow/    workflow seam + node:vm script engine + the workflow tool
   todo/        the todo_write tool
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends

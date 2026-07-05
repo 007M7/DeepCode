@@ -43,6 +43,7 @@ Dependency rule: extension plugins depend on interfaces, never on `dsh-agent-loo
 | `ctx.compact` | dsh-compact | compaction: detect pressure, summarize an older range |
 | `ctx.web` | dsh-web | search/fetch provider registries + `WebError` taxonomy |
 | `ctx.subagents` | dsh-subagent | named provider registry for delegating to child agents |
+| `ctx.workflows` | dsh-workflow | script-driven multi-agent orchestration: `start()` runs a workflow script |
 
 All registrations go through `ctx.effect()` and return disposers, so hot-reload and fiber disposal clean up automatically (full service interfaces: the generated [services catalog](cordis-catalog/services.md)).
 

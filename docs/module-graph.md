@@ -48,6 +48,9 @@ graph TD
   tools --> agent
   tools --> llm
   tools --> system-prompt
+  workflow --> agent
+  workflow --> brand
+  workflow --> llm
   acp --> agent
   acp --> llm
   acp --> session
@@ -83,6 +86,10 @@ graph TD
   tool-web --> system-prompt
   tool-web --> tools
   tool-web --> web
+  tool-workflow --> agent
+  tool-workflow --> llm
+  tool-workflow --> tools
+  tool-workflow --> workflow
   agent-core --> agent
   agent-core --> agent-loop
   agent-core --> invariants
@@ -112,6 +119,12 @@ graph TD
   tool-subagent --> llm
   tool-subagent --> subagent
   tool-subagent --> tools
+  workflow-vm --> agent
+  workflow-vm --> brand
+  workflow-vm --> llm
+  workflow-vm --> subagent
+  workflow-vm --> tools
+  workflow-vm --> workflow
   acp-agent --> acp
   acp-agent --> agent-core
   acp-agent --> app-boot
@@ -159,6 +172,7 @@ graph TD
 | `session-persistence-jsonl` | `session`, `session-persistence` |
 | `session-persistence-sqlite` | `session`, `session-persistence` |
 | `tools` | `agent`, `llm`, `system-prompt` |
+| `workflow` | `agent`, `brand`, `llm` |
 | `acp` | `agent`, `llm`, `session`, `session-persistence`, `tools` |
 | `agent-loop` | `agent`, `llm`, `session`, `session-persistence`, `system-prompt`, `tools` |
 | `hooks-codex` | `agent`, `hook-protocol`, `llm`, `session`, `tools` |
@@ -167,12 +181,14 @@ graph TD
 | `tool-fs` | `fs`, `llm`, `session`, `system-prompt`, `tools` |
 | `tool-todo` | `agent`, `session`, `tools` |
 | `tool-web` | `llm`, `system-prompt`, `tools`, `web` |
+| `tool-workflow` | `agent`, `llm`, `tools`, `workflow` |
 | `agent-core` | `agent`, `agent-loop`, `invariants`, `llm`, `session`, `system-prompt`, `tool-bash`, `tools` |
 | `hooks-claude` | `agent`, `hook-protocol`, `llm`, `session`, `subagent`, `tools` |
 | `subagent-acp` | `agent`, `llm`, `subagent` |
 | `subagent-inprocess` | `agent`, `llm`, `session`, `subagent`, `tools` |
 | `subagent-mock` | `agent`, `llm`, `subagent` |
 | `tool-subagent` | `agent`, `llm`, `subagent`, `tools` |
+| `workflow-vm` | `agent`, `brand`, `llm`, `subagent`, `tools`, `workflow` |
 | `acp-agent` | `acp`, `agent-core`, `app-boot`, `session-persistence-jsonl` |
 | `stdio-agent` | `agent`, `agent-core`, `app-boot`, `llm`, `session`, `session-persistence-jsonl` |
 | `subagent-fork` | `agent`, `session`, `subagent`, `subagent-inprocess` |

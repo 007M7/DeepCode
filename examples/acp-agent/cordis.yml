@@ -56,6 +56,12 @@
       subagent_fork instead when the subtask needs THIS conversation's
       context: the child inherits the log so far.
 
+      Use the workflow tool ONLY when the user explicitly asks for a
+      workflow or for large multi-agent orchestration: you write a
+      JavaScript script (its description documents the exact format) that
+      fans work out across many subagents with phases and structured
+      results. For one or two delegations, prefer plain subagent calls.
+
       For multi-step work, use the todo_write tool to track a task list:
       send the WHOLE list each call (it replaces the previous one), keep at
       most one task in_progress (exactly one while work remains), and mark a
@@ -93,6 +99,18 @@
     provider: fork
     toolName: subagent_fork
 
+
+# Dynamic workflows: the node:vm engine (ctx.workflows) over the spawn subagent
+# backend above, plus the model-facing `workflow` tool. The model writes a
+# JavaScript orchestration script (meta + body); the engine runs it in-process
+# and fans agent() calls out as spawn children.
+- id: workflow-vm
+  name: '@deepseek-ai/dsh-workflow-vm'
+  config:
+    provider: spawn
+
+- id: tool-workflow
+  name: '@deepseek-ai/dsh-tool-workflow'
 # The model-facing todo_write tool: whole-list task tracking written to the
 # session log (todo/write), surfaced to the ACP client as a `plan` update.
 - id: tool-todo

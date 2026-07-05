@@ -10,8 +10,8 @@ import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import type { StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import * as spawn from '../../subagent-spawn/src/index.ts'
-import * as fork from '../../subagent-fork/src/index.ts'
+import * as spawn from '@deepseek-ai/dsh-subagent-spawn'
+import * as fork from '@deepseek-ai/dsh-subagent-fork'
 import {
   acquireStructuredRuntime,
   STRUCTURED_OUTPUT_INSTRUCTION,

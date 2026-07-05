@@ -46,7 +46,7 @@
     # under ./.sessions); unset starts a fresh session each run.
     resumeSessionId: !!js process.env.RESUME_SESSION_ID
     persistenceRoot: './.sessions'
-    welcome: 'agent REPL ready. Give it a coding task (its tools are read, write, edit, bash, subagent, and todo_write).'
+    welcome: 'agent REPL ready. Give it a coding task (its tools are read, write, edit, bash, subagent, workflow, and todo_write).'
     systemPrompt: |
       You are coding-agent, a CLI coding assistant.
 
@@ -63,6 +63,12 @@
       its final result) — give it a complete, standalone instruction. Use
       subagent_fork instead when the subtask needs THIS conversation's
       context: the child inherits the log so far.
+
+      Use the workflow tool ONLY when the user explicitly asks for a
+      workflow or for large multi-agent orchestration: you write a
+      JavaScript script (its description documents the exact format) that
+      fans work out across many subagents with phases and structured
+      results. For one or two delegations, prefer plain subagent calls.
 
       Check the [exit code: N] marker on every command; investigate
       failures before moving on. Verify your work by running the code or
@@ -120,6 +126,18 @@
     provider: fork
     toolName: subagent_fork
 
+
+# Dynamic workflows: the node:vm engine (ctx.workflows) over the spawn subagent
+# backend above, plus the model-facing `workflow` tool. The model writes a
+# JavaScript orchestration script (meta + body); the engine runs it in-process
+# and fans agent() calls out as spawn children.
+- id: workflow-vm
+  name: '@deepseek-ai/dsh-workflow-vm'
+  config:
+    provider: spawn
+
+- id: tool-workflow
+  name: '@deepseek-ai/dsh-tool-workflow'
 # The model-facing todo_write tool: whole-list task tracking written to the
 # session log (todo/write), rendered as a stdio checklist / ACP plan.
 - id: tool-todo
