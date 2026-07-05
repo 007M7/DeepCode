@@ -41,7 +41,7 @@ Events are the harness extension API. Each service owns the vocabulary for the b
 Use the event domain to decide where new behavior belongs:
 
 - **Session events** are durable, replayable facts. Turn and step boundaries, user input, assistant output, tool calls, tool results, steering, compaction records, and tool-owned durable facts append to the session log and flow through `session/event`.
-- **Agent events** are live runtime surfaces. They carry the live `Agent` handle for status, diagnostics, prompt admission, request mutation, result validation, and continuation policy.
+- **Agent events** are live runtime surfaces. They carry the live `Agent` handle for status, diagnostics, prompt admission, call-config shaping, result validation, and continuation policy.
 - **Capability events** belong to the seam that owns the action. `tools/*`, `llm/*`, `system-prompt/*`, `fs/*`, and `subagent/*` let policy and adapters attach without importing the loop.
 
 ### Interception Semantics

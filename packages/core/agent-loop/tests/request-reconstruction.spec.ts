@@ -240,6 +240,35 @@ describe('request stability across the loop', () => {
     expectPrefixExtension(adapter.requests[0]!, adapter2.requests[0]!)
   })
 
+  it('a delegating listener cannot mutate the seed through next() — the fold stays log-true', async () => {
+    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    ctx.on('agent/request', async (_agent, _turn, _step, _config, next) => {
+      const config = await next()
+      // next() resolves the SAME frozen seed — in-place shaping after
+      // delegation is unrepresentable, so a "mutate what next() returned"
+      // listener cannot desync the log from the request (nor reach the
+      // session's cached header fold, which is deep-cloned away and itself
+      // frozen).
+      expect(Object.isFrozen(config)).toBe(true)
+      expect(() => { (config as { temperature?: number }).temperature = 0.9 }).toThrow(TypeError)
+      return config
+    })
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+
+    // No delta was logged (nothing really changed), and the session's own
+    // fold is immutable state.
+    expect(agent.session.events.filter(e => e.type === 'request/header-delta')).toHaveLength(0)
+    expect(Object.isFrozen(agent.session.requestHeader())).toBe(true)
+    expect(adapter.requests[1]!.temperature).toBeUndefined()
+  })
+
   it('THEOREM: every request rebuilds byte-equal from the session log alone', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'echo', { text: 'one' }, 'calling'),

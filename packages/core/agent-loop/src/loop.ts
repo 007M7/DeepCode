@@ -694,17 +694,23 @@ async function runStep(
   // baseline, which is what keeps fork model-overrides and resume-time
   // reconfiguration correct. Later steps seed from the log's folded header,
   // which by then is exactly what this instance last logged.
-  const seedConfig: LlmCallConfig = transmission.loggedHeader
+  // One deep-cloned, frozen seed serves BOTH the listener chain and the
+  // no-listener fallback: structuredClone decouples it from the session's
+  // cached header fold (a raw reference would let a delegating listener
+  // mutate the fold in place and silently skip the delta log), and the freeze
+  // makes in-place shaping unrepresentable — a switch is a RETURNED
+  // replacement, which the header event below records.
+  const seedConfig: LlmCallConfig = deepFreeze(structuredClone(transmission.loggedHeader
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- loggedHeader ⟹ a snapshot is in the log
     ? session.requestHeader()!.config
-    : { model: options.model ?? '' }
+    : { model: options.model ?? '' }))
 
   // Shape the call config: listeners return a replacement to switch model or
   // sampling (the seed is frozen — content shaping is not expressible here;
   // model-visible content flows through the log channels). The header event
   // below records whatever the request ACTUALLY uses, so a listener's switch
   // is a logged, reconstructable fact, never silent drift.
-  const config = await ctx.waterfall('agent/request', agent, turn, step, deepFreeze({ ...seedConfig }), () => Promise.resolve(seedConfig))
+  const config = await ctx.waterfall('agent/request', agent, turn, step, seedConfig, () => Promise.resolve(seedConfig))
   if (!config.model) {
     throw new Error(`agent "${agent.id}" has no model: set AgentOptions.model or supply one via the agent/request waterfall`)
   }

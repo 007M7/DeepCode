@@ -9,9 +9,10 @@
  *   to the next balanced tool-pairing boundary so a compacted region never
  *   splits a step's tool-call/result pair (an open tail step is never crossed —
  *   compaction declines and retries once it closes).
- * - **Summarization** — `ctx.llm.stream()` assembled via `BlockAssembler`
- *   (the single model-call surface; same path the loop uses) with a fixed
- *   condense-the-history system prompt routed through `agent/request`.
+ * - **Summarization** — a direct one-shot `ctx.llm.stream()` call assembled
+ *   via `BlockAssembler` with a fixed condense-the-history system prompt;
+ *   NOT a loop step, so `agent/request` never fires — interception happens
+ *   at `llm/stream` like any other direct call.
  * - **Surface mutation** — a single `user/message` replace node carries the
  *   summary; `compact/*` events are log-only lock + provenance records.
  * - **Auto-compaction** — an `agent/pre-step` listener delegates to

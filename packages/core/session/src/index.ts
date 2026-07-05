@@ -252,7 +252,11 @@ export class Session {
    */
   requestHeader(): EpochHeader | undefined {
     if (this.headerFoldSeq < this.log.length) {
-      this.headerFold = foldRequestHeader(this.log.slice(this.headerFoldSeq), this.headerFold)
+      // Frozen on update: the fold is session state exposed by reference — a
+      // consumer mutating it in place (instead of building a replacement)
+      // would desync every later comparison against the log, so mutation
+      // throws instead.
+      this.headerFold = deepFreeze(foldRequestHeader(this.log.slice(this.headerFoldSeq), this.headerFold))
       this.headerFoldSeq = this.log.length
     }
     return this.headerFold
