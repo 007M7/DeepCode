@@ -127,9 +127,7 @@ function gatesForMode(selected: Mode): Gate[] {
     case 'ci-static':
       return ciStaticGates()
     case 'ci-lint':
-      return [
-        lintGate(),
-      ]
+      return lintGates()
     case 'ci-coverage':
       return [
         coverageGate(),
@@ -160,10 +158,10 @@ function ciPrimaryGates(): Gate[] {
   return [
     pnpmScript('constraints', 'constraints'),
     pnpmScript('typecheck', 'typecheck'),
-    lintGate(),
+    ...lintGates(),
     coverageGate(),
     pnpmScript('snapshot', 'test:snapshot'),
-    demoSmokeGate({ needs: ['lint'] }),
+    demoSmokeGate({ needs: ['lint-source', 'lint-tests'] }),
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
@@ -199,10 +197,29 @@ function ciArtifactGates(): Gate[] {
   ]
 }
 
-function lintGate(): Gate {
-  return pnpmScript('lint', 'lint', {
-    env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
-  })
+function lintGates(): Gate[] {
+  const env = { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') }
+  return [
+    pnpmExec('lint-source', [
+      'eslint',
+      'packages/*/*/src/**/*.ts',
+      'examples/**/*.ts',
+      'scripts/**/*.ts',
+      '--ignore-pattern',
+      'examples/*/tests/**/*.ts',
+    ], {
+      label: 'lint source',
+      env,
+    }),
+    pnpmExec('lint-tests', [
+      'eslint',
+      'packages/*/*/tests/**/*.ts',
+      'examples/*/tests/**/*.ts',
+    ], {
+      label: 'lint tests',
+      env,
+    }),
+  ]
 }
 
 function coverageGate(): Gate {

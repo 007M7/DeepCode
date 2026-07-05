@@ -34,7 +34,7 @@ jobs:
             coverage_max_workers: ''
           - lane: lint
             command: pnpm run check:ci:lint
-            gate_concurrency: '1'
+            gate_concurrency: '2'
             publint_concurrency: '8'
             coverage_max_workers: ''
           - lane: coverage
