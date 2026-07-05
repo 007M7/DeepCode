@@ -45,7 +45,10 @@ export function callConfigEquals(a: LlmCallConfig, b: LlmCallConfig): boolean {
  * never rewrite it, so the wire bytes cannot silently desync from what the
  * session log reconstructs. Guards against cycles with a WeakSet: loop-built
  * requests hold `structuredClone`d JSON-validated session data, but the
- * helper accepts arbitrarily constructed values.
+ * helper accepts arbitrarily constructed values. One exemption: an
+ * `AbortSignal` is never entered or frozen — it is the request's live
+ * cancellation channel, and freezing one breaks `AbortController.abort()`
+ * outright (Node stores the aborted flag as an own property of the signal).
  * @param value - the value to freeze in place.
  * @returns the same value, frozen.
  */
@@ -53,6 +56,7 @@ export function deepFreeze<T>(value: T): T {
   const seen = new WeakSet<object>()
   const walk = (node: unknown): void => {
     if (node === null || typeof node !== 'object') return
+    if (node instanceof AbortSignal) return
     if (seen.has(node)) return
     seen.add(node)
     Object.freeze(node)

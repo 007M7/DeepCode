@@ -11,9 +11,10 @@ import { isAbsolute } from 'node:path'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { CreateSessionOptions, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { isJsonValue } from './json.ts'
 import { SurfaceManager, isSurfaceEligibleType } from './surface.ts'
+import { foldRequestHeader } from './request-header.ts'
 
 export * from './types.ts'
 export { isJsonValue } from './json.ts'
@@ -22,7 +23,7 @@ export { interruptedTurnClosers } from './repair.ts'
 export type { SurfaceNode } from './surface.ts'
 export { isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { isToolPairingBalanced } from './tool-pairing.ts'
-export { applyHeaderDelta, canonicalHeader, diffHeader, foldRequestHeader } from './request-header.ts'
+export { applyHeaderDelta, canonicalHeader, diffHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -234,6 +235,27 @@ export class Session {
     this.log.push(event as unknown as SessionEvent)
     this.onAppend?.(event as unknown as SessionEvent)
     return event
+  }
+
+  /** Cached fold of the request-header events — see {@link requestHeader}. */
+  private headerFold: EpochHeader | undefined
+  /** Log position (events consumed) the header fold has reached. */
+  private headerFoldSeq = 0
+
+  /**
+   * The {@link EpochHeader} in force after the log's last header event — the
+   * header the NEXT request will be compared against — or undefined before
+   * the first `request/header` snapshot. The live, incrementally-maintained
+   * form of `foldRequestHeader(session.events)`: each header event is folded
+   * once, when first seen, so a per-step read costs O(new events).
+   * @returns the folded header, or undefined when no header event exists yet.
+   */
+  requestHeader(): EpochHeader | undefined {
+    if (this.headerFoldSeq < this.log.length) {
+      this.headerFold = foldRequestHeader(this.log.slice(this.headerFoldSeq), this.headerFold)
+      this.headerFoldSeq = this.log.length
+    }
+    return this.headerFold
   }
 
   /** The derived-message cache: frozen projections, extended per unseen node. */

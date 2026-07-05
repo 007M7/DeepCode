@@ -163,7 +163,7 @@ get(id: SessionId): Session | undefined
 list(): Session[]
 ```
 
-Source: [`packages/core/session/src/index.ts:345`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:367`](../../packages/core/session/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 

@@ -105,6 +105,23 @@ function applyTools(prev: readonly ToolSchema[], delta: ToolsDelta): ToolSchema[
 }
 
 /**
+ * Field-wise equality over canonical headers — the cheap comparison the
+ * writer's round-trip guard runs (`applyHeaderDelta(prev, delta)` must equal
+ * the intended header) and the loop runs to skip logging an unchanged header.
+ * Tools compare per-schema IN ORDER (canonical JSON), so a pure reordering is
+ * correctly unequal.
+ * @param a - one canonical header.
+ * @param b - the other.
+ * @returns whether config, system, and tools (in order) all match.
+ */
+export function headerEquals(a: EpochHeader, b: EpochHeader): boolean {
+  if (!callConfigEquals(a.config, b.config) || a.system !== b.system) return false
+  const at = a.tools ?? []
+  const bt = b.tools ?? []
+  return at.length === bt.length && at.every((tool, i) => sameSchema(tool, bt[i] as ToolSchema))
+}
+
+/**
  * Compute the `request/header-delta` payload between two canonical headers,
  * or undefined when they are equal. The caller MUST round-trip the result
  * ({@link applyHeaderDelta} on `prev` deep-equals `next`) before logging it —
@@ -154,10 +171,12 @@ export function applyHeaderDelta(
  * the dev invariant both use it; the live session tracks the same fold
  * incrementally.
  * @param events - session events in log order (non-header events are skipped).
+ * @param from - a previously folded state to continue from (the live session's
+ *   incremental cursor); omit to fold from nothing.
  * @returns the folded header, or undefined when no header event exists yet.
  */
-export function foldRequestHeader(events: readonly SessionEvent[]): EpochHeader | undefined {
-  let state: EpochHeader | undefined
+export function foldRequestHeader(events: readonly SessionEvent[], from?: EpochHeader): EpochHeader | undefined {
+  let state: EpochHeader | undefined = from
   for (const event of events) {
     if (event.type === 'request/header') {
       state = canonicalHeader(event.data.header)
