@@ -160,10 +160,9 @@ jobs:
       - name: Run complete keyless Python suite
         run: uv run --python 3.10 --group test --project python/sdk pytest
 
-  # Windows build lane: install + `pnpm run build` (tsc -b + tsdown) on native
-  # Windows. Windows path/shell support is still partial, so this lane covers
-  # the build surface only — tests and gates are not run here yet. Wired into
-  # all-checks-passed so a native-Windows build regression cannot land silently.
+  # Blocking Windows build lane: keep the already-green native build protected
+  # while the broader observational gate job below exposes the remaining
+  # portability work without blocking mainline merges.
   windows-build:
     runs-on: windows-2025
     name: windows / build
@@ -183,11 +182,79 @@ jobs:
       - name: Build (tsc -b + tsdown)
         run: pnpm run build
 
+  # Observational Windows mirror of the Linux gates. Snapshot stays Linux-only
+  # while its replay goldens remain platform-specific. This job intentionally
+  # stays out of all-checks-passed.needs.
+  windows-gates:
+    runs-on: windows-2025
+    name: windows node 24
+    env:
+      DSH_GATE_CONCURRENCY: '2'
+      DSH_PUBLINT_CONCURRENCY: '8'
+      DSH_COVERAGE_MAX_WORKERS: '4'
+      DSH_ESLINT_CACHE: '1'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Enable Developer Mode (symlink support)
+        shell: powershell
+        run: >-
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
+          /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Enable corepack (pnpm)
+        shell: powershell
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        id: pnpm-store
+        shell: powershell
+        run: '"path=$(pnpm store path --silent)" >> $env:GITHUB_OUTPUT'
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
+
+      - name: Install (immutable)
+        shell: powershell
+        run: pnpm install --frozen-lockfile
+
+      - uses: actions/cache@v4
+        with:
+          path: .cache/eslint
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-
+
+      - name: Run static gates
+        shell: powershell
+        run: pnpm run check:ci:static
+
+      - name: Run lint gates
+        shell: powershell
+        run: pnpm run check:ci:lint
+
+      - name: Run coverage gates
+        shell: powershell
+        run: pnpm run check:ci:coverage
+
+      - name: Run artifact gates
+        shell: powershell
+        run: pnpm run check:ci:artifacts
+
   # Single stable required check for branch protection: require "all checks
   # passed" instead of enumerating matrix legs whose names change as lanes and
-  # node versions evolve. Every other job in THIS workflow must be listed in
-  # `needs` (`needs` cannot reach across workflow files; e2e.yml stays its own
-  # check). `if: always()` is load-bearing: without it a failed dependency
+  # node versions evolve. Every blocking job in THIS workflow must be listed in
+  # `needs`; explicitly observational jobs such as windows-gates stay out
+  # (`needs` cannot reach across workflow files; e2e.yml stays its own check).
+  # `if: always()` is load-bearing: without it a failed dependency
   # would SKIP this job, and GitHub counts a skipped required check as passing
   # — so this job always runs and fails on any non-success result, including
   # 'cancelled' and 'skipped'.
