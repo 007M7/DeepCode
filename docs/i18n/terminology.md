@@ -36,6 +36,7 @@
 | harness | harness | 保留英文 |
 | manifest | manifest | 描述模块或工具元数据的文件 |
 | monorepo | monorepo | |
+| package | package | 保留英文；指 npm 包（`@deepseek-ai/dsh-*`） |
 | schema DSL | schema DSL | |
 | schema | schema | 保留英文 |
 | seam | seam | 首次出现可写：seam（扩展点） |
