@@ -29,8 +29,6 @@ export interface ExtractedScript {
   body: string
 }
 
-const META_PREFIX = /^\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*|\s+)*export\s+const\s+meta\s*=\s*/
-
 /**
  * Scan `source` from `start` (an opening `{`) to its matching `}`, aware of
  * string literals (`'`/`"`/backtick, with escapes) and comments. Returns the
@@ -145,6 +143,44 @@ function validateMetaShape(meta: unknown): { meta?: WorkflowMeta; violations: st
   }
 }
 
+/** `export const meta =`, anchored AFTER {@link skipLeadingTrivia} — its quantifiers cannot backtrack ambiguously. */
+const META_HEAD = /^export\s+const\s+meta\s*=\s*/
+
+/**
+ * Index just past the leading trivia: whitespace and `//` / `/*`-style
+ * comments. A hand-rolled character scan, NOT a prefix regex — an
+ * all-alternation prefix (`\s*(?:comment|\s+)*`) partitions a whitespace run
+ * ambiguously and backtracks EXPONENTIALLY when the match ultimately fails,
+ * so a near-miss script (a comment header, then a forgotten `export`) would
+ * spin the host synchronously inside `start()`, where no vm timeout applies.
+ * The near-miss must fail fast into `SCRIPT_PARSE` instead — that error is
+ * the model's retry signal.
+ */
+function skipLeadingTrivia(source: string): number {
+  let index = 0
+  while (index < source.length) {
+    const ch = source.charAt(index)
+    if (/\s/.test(ch)) {
+      index += 1
+      continue
+    }
+    if (ch === '/' && source[index + 1] === '/') {
+      const end = source.indexOf('\n', index)
+      if (end === -1) return source.length
+      index = end + 1
+      continue
+    }
+    if (ch === '/' && source[index + 1] === '*') {
+      const end = source.indexOf('*/', index + 2)
+      if (end === -1) throw new WorkflowError('script has an unterminated comment before the meta block', 'SCRIPT_PARSE')
+      index = end + 2
+      continue
+    }
+    break
+  }
+  return index
+}
+
 /**
  * Extract and validate the leading `export const meta = {...}` statement.
  * Throws {@link WorkflowError} — `SCRIPT_PARSE` when the statement is missing
@@ -155,11 +191,12 @@ function validateMetaShape(meta: unknown): { meta?: WorkflowMeta; violations: st
  * @returns the validated meta and the line-preservingly blanked body.
  */
 export function extractMeta(script: string, evalTimeoutMs: number): ExtractedScript {
-  const match = META_PREFIX.exec(script)
+  const triviaEnd = skipLeadingTrivia(script)
+  const match = META_HEAD.exec(script.slice(triviaEnd))
   if (!match) {
     throw new WorkflowError('script must begin with `export const meta = {...}` (leading comments allowed)', 'SCRIPT_PARSE')
   }
-  const literalStart = match[0].length
+  const literalStart = triviaEnd + match[0].length
   if (script[literalStart] !== '{') {
     throw new WorkflowError('`export const meta =` must be followed by an object literal', 'SCRIPT_PARSE')
   }

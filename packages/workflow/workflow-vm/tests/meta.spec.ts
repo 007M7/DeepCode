@@ -81,6 +81,27 @@ return 2`
     expect(bad('export const meta = [1]').code).toBe('SCRIPT_PARSE')
   })
 
+  it('a near-miss prefix (comment header + whitespace, then no `export`) fails FAST as SCRIPT_PARSE', () => {
+    // Regression: the previous all-alternation prefix regex backtracked
+    // exponentially on exactly this shape (~×2 per extra whitespace char once
+    // the match fails), spinning the host synchronously inside start(). The
+    // linear trivia scan must reject it in effectively zero time.
+    const nearMiss = `// deep-audit workflow: reviews every route handler\n${'    \n'.repeat(40)}/* second header block */\n${' '.repeat(200)}\nconst meta = { name: 'x', description: 'y' }\n`
+    const started = Date.now()
+    expect(bad(nearMiss).code).toBe('SCRIPT_PARSE')
+    expect(Date.now() - started).toBeLessThan(1000)
+  })
+
+  it('an unterminated block comment BEFORE the meta statement is SCRIPT_PARSE', () => {
+    const error = bad('/* never closed\nexport const meta = { name: "x", description: "y" }')
+    expect(error.code).toBe('SCRIPT_PARSE')
+    expect(error.message).toContain('unterminated comment')
+  })
+
+  it('a line comment running to EOF leaves no meta statement (SCRIPT_PARSE)', () => {
+    expect(bad('// only a comment, no newline').code).toBe('SCRIPT_PARSE')
+  })
+
   it('rejects template interpolation in the meta block as impure (SCRIPT_PARSE)', () => {
     const error = bad('export const meta = { name: `w-${1}`, description: "d" }\nreturn 1')
     expect(error.code).toBe('SCRIPT_PARSE')
