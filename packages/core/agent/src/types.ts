@@ -78,11 +78,14 @@ export interface AgentOptions {
   /** Model name (must have a registered adapter at call time). */
   model?: string
   /**
-   * The agent's persona: a deployment-authored prompt-template fragment,
+   * The agent's persona: a deployment-authored prompt-TEMPLATE fragment,
    * rendered as the order-0 section of the assembled system prompt (before
    * all tool guidance). It may reference registered `{{variables}}` (e.g.
    * `{{model}}`, `{{cwd}}`); it is one section of the full prompt, never the
-   * whole.
+   * whole. Template, not free-form text: every complete `{{…}}` group IS
+   * interpreted, strictly — an unknown or malformed reference fails the turn
+   * loudly — and there is no escape syntax for literal `{{…}}` prose yet (a
+   * deliberate deferral; see the prompt-variables RFC).
    */
   systemPrompt?: string
 }
