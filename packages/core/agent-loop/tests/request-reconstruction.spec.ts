@@ -253,7 +253,7 @@ describe('request stability across the loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
     ctx.systemPrompt.section({ name: 'extra', order: 2, text: 'now with guidance' })
-    ctx.on('agent/request', async (_agent, _turn, _step, config, _next) => ({ ...config, temperature: 0.5 }))
+    ctx.on('agent/request', async (_agent, _turn, _step, config, _next) => ({ ...config, temperature: 0.5, maxTokens: 99, stop: ['<END>'] }))
     send(agent, 'again')
     await waitForIdle(ctx, agent)
 

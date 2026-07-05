@@ -325,11 +325,10 @@ export class BasicCompactService extends CompactService {
       throw new Error('summarization produced no text summary content')
     }
 
-    return {
-      summary,
-      model: options.model,
-      ...options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {},
-    }
+    // config.maxTokens is required and validated positive, so this backend's
+    // envelope always carries the cap; the return type's optionality exists
+    // for overriding subclasses whose summarizer has none.
+    return { summary, model: options.model, maxTokens: this.config.maxTokens }
   }
 
   // ---- Core API (implements the abstract contract) ----
