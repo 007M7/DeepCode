@@ -23,6 +23,7 @@ jobs:
       DSH_GATE_CONCURRENCY: ${{ matrix.gate_concurrency }}
       DSH_PUBLINT_CONCURRENCY: ${{ matrix.publint_concurrency }}
       DSH_COVERAGE_MAX_WORKERS: ${{ matrix.coverage_max_workers }}
+      DSH_ESLINT_CACHE: ${{ matrix.eslint_cache }}
     strategy:
       fail-fast: false
       matrix:
@@ -32,26 +33,31 @@ jobs:
             gate_concurrency: '4'
             publint_concurrency: '8'
             coverage_max_workers: ''
+            eslint_cache: ''
           - lane: lint
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             publint_concurrency: '8'
             coverage_max_workers: ''
+            eslint_cache: '1'
           - lane: coverage
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
             publint_concurrency: '8'
             coverage_max_workers: '4'
+            eslint_cache: ''
           - lane: snapshot
             command: pnpm run check:ci:snapshot
             gate_concurrency: '1'
             publint_concurrency: '8'
             coverage_max_workers: ''
+            eslint_cache: ''
           - lane: artifacts
             command: pnpm run check:ci:artifacts
             gate_concurrency: '3'
             publint_concurrency: '8'
             coverage_max_workers: ''
+            eslint_cache: ''
     steps:
       - uses: actions/checkout@v6
 
@@ -75,6 +81,14 @@ jobs:
 
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
+
+      - uses: actions/cache@v4
+        if: matrix.lane == 'lint'
+        with:
+          path: .cache/eslint
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-
 
       - name: Run gates
         run: ${{ matrix.command }}

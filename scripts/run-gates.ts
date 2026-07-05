@@ -200,6 +200,20 @@ function ciArtifactGates(): Gate[] {
 }
 
 function lintGate(): Gate {
+  if (process.env.DSH_ESLINT_CACHE === '1') {
+    return pnpmExec('lint', [
+      'eslint',
+      '.',
+      '--cache',
+      '--cache-location',
+      '.cache/eslint/',
+      '--cache-strategy',
+      'content',
+    ], {
+      label: 'lint',
+      env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
+    })
+  }
   return pnpmScript('lint', 'lint', {
     env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
   })
