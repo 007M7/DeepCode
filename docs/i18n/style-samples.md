@@ -26,6 +26,14 @@
 
 覆盖率门禁（`pnpm run test:coverage`）：作为合入门禁校验，要求 `packages/*/*/src` 目录下每个文件行覆盖率达到 100%。未覆盖代码行大多是无用死代码，门禁标记这类代码是提示删除，而非单纯补充测试。行覆盖率是必要条件，但远不充分：它仅能证明代码被执行过，无法保证功能符合线上预期。
 
+> We are DeepSeek — do not ration real-API tests. A no-key test proves the plumbing; only a with-key run proves the agent works against a real model. Write many: real prompts that write files, multi-turn conversations, tool use, cancellation mid-stream. Cheapest and highest-value are **smoke tests** that boot the real example, send one real prompt, and check the world — they catch the "green unit tests, broken product" class that mocks structurally cannot. The self-skip exists only so secretless CI and keyless contributors aren't blocked; it is not a cost signal.
+
+我们是 DeepSeek：真实接口相关测试不得刻意缩减用例数量。无密钥测试仅能验证底层通路；只有携带有效密钥执行的用例，才能确认 agent 可正常对接真实模型。请大量编写此类测试：包含文件写入类真实提示词、多轮对话、工具调用、流式中途取消等场景。
+
+成本最低、收益最高的是**冒烟测试**：拉起完整真实示例，发送一条真实提示并校验整体运行状态。这类用例能捕获一类问题——单元测试全部绿灯，但产品实际运行故障，单靠模拟接口完全无法发现这类缺陷。
+
+自带自动跳过逻辑，仅用于保障无密钥 CI 环境、无权限贡献者不会被流程拦截，不代表可以以此为由削减真实接口测试投入。
+
 ## ④ 机制描述
 
 > Blob hashes, not commit hashes, so the record is computable for files edited in the same PR (`git hash-object foo.md`) and consistency is a pure content comparison. The recorded hash also recovers the exact last-confirmed text of either side (`git cat-file -p <hash>`), so an out-of-sync pair is updated by diffing the edited side against its last-confirmed state and patching the counterpart minimally — never by re-translating whole files.
@@ -59,3 +67,4 @@
 - 类别名词说中文并在首现括注英文：实操手册（cookbook）、事故复盘（postmortem）；指目录或路径时保留代码体英文。
 - 长段按语义单元拆段，一段一件事；名词短语展开为动词句。
 - 母语重写不等于删减：原文每个语义成分都要落地。
+- 样例与 [terminology.md](terminology.md) 冲突时，以术语表为准：收录样例前按表修正术语（例如 agent 保留英文、cancellation 译「取消」）。
