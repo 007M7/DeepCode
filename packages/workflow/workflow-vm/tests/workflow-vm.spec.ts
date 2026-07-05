@@ -288,9 +288,23 @@ describe('dsh-workflow-vm', () => {
           () => { throw new Error('boom') },
           () => agent('fine'),
           () => 'plain value',
+          () => { throw 'string throw' },
+          () => { throw new Proxy({ name: 'WorkflowError', fatal: true }, {}) },
+          () => { throw { name: 'WorkflowError', fatal: 'forged-but-not-true' } },
         ])
       `))
-      expect(result.value).toEqual([null, 'stub reply', 'plain value'])
+      // The last three probe the fatal-clone recognition: a non-object, a
+      // proxy (never inspected), and a shape miss are all ordinary nulls.
+      expect(result.value).toEqual([null, 'stub reply', 'plain value', null, null, null])
+    })
+
+    it('a script forging a fatal clone kills only its own run (self-sabotage, not a bypass)', async () => {
+      const { ctx, parent } = await setup()
+      const result = await run(ctx, parent, script(`
+        return await parallel([() => { throw { name: 'WorkflowError', fatal: true, message: 'forged fatal' } }])
+      `))
+      expect(result.stopReason).toBe('error')
+      expect(result.error).toContain('forged fatal')
     })
 
     it('FATAL errors propagate through parallel AND pipeline instead of dissolving into null', async () => {
@@ -431,6 +445,86 @@ describe('dsh-workflow-vm', () => {
       expect((await run(ctx, parent, script('return args * 2'), 21)).value).toBe(42)
       expect((await run(ctx, parent, script('return args === null'), null)).value).toBe(true)
       expect((await run(ctx, parent, script('return typeof args'))).value).toBe('undefined')
+    })
+
+    it('hook promises are REALM promises: instanceof holds in-script, host Promise.prototype stays unreachable', async () => {
+      const { ctx, parent } = await setup()
+      const result = await run(ctx, parent, script(`
+        const p = agent('x')
+        const par = parallel([() => 'v'])
+        const pipe = pipeline([1], (n) => n)
+        Object.getPrototypeOf(p).wfLeakProbe = 'realm-only'
+        return {
+          agentIsRealmPromise: p instanceof Promise,
+          parallelIsRealmPromise: par instanceof Promise,
+          pipelineIsRealmPromise: pipe instanceof Promise,
+          value: await p,
+        }
+      `))
+      expect(result.stopReason).toBe('completed')
+      expect(result.value).toEqual({
+        agentIsRealmPromise: true,
+        parallelIsRealmPromise: true,
+        pipelineIsRealmPromise: true,
+        value: 'stub reply',
+      })
+      expect((Promise.prototype as unknown as Record<string, unknown>).wfLeakProbe).toBeUndefined()
+      delete (Promise.prototype as unknown as Record<string, unknown>).wfLeakProbe
+    })
+
+    it('hook failures cross the boundary as realm-built WorkflowError clones', async () => {
+      const { ctx, parent } = await setup()
+      const result = await run(ctx, parent, script(`
+        try {
+          await agent('p', { bogus: true })
+          return 'unreachable'
+        } catch (e) {
+          Object.getPrototypeOf(Object.getPrototypeOf(e)).wfErrLeakProbe = 'realm-only'
+          return { isRealmError: e instanceof Error, name: e.name, code: e.code, fatal: e.fatal, message: e.message }
+        }
+      `))
+      expect(result.stopReason).toBe('completed')
+      expect(result.value).toMatchObject({ isRealmError: true, name: 'WorkflowError', code: 'UNSUPPORTED_OPTION', fatal: true })
+      expect((result.value as { message: string }).message).toContain('"bogus" is not recognized')
+      // The script mutated its error's prototype CHAIN — host intrinsics untouched.
+      expect((Object.prototype as unknown as Record<string, unknown>).wfErrLeakProbe).toBeUndefined()
+      expect((Error.prototype as unknown as Record<string, unknown>).wfErrLeakProbe).toBeUndefined()
+    })
+
+    it('a non-WorkflowError host failure (a rejecting provider result) crosses as a generic realm clone', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SubagentService)
+      const provider: SubagentProvider = {
+        name: 'rejecting',
+        capabilities: { outputSchema: true, depthLimit: true, toolFilter: true },
+        start: () => ({
+          id: AgentId('reject-child'),
+          result: Promise.reject(new Error('backend exploded')),
+          cancel: () => { /* nothing in flight */ },
+          dispose: () => Promise.resolve(),
+        }),
+      }
+      ctx.subagents.registerProvider(provider)
+      await ctx.plugin(VmWorkflowEngine, { provider: 'rejecting' })
+      const result = await run(ctx, fakeParent(), script(`
+        try { await agent('p'); return 'unreachable' } catch (e) { return { isRealmError: e instanceof Error, name: e.name, message: e.message } }
+      `))
+      expect(result.value).toMatchObject({ isRealmError: true, name: 'Error' })
+      expect((result.value as { message: string }).message).toContain('backend exploded')
+    })
+
+    it('phase()/log() synchronous throws cross as realm clones too', async () => {
+      const { ctx, parent } = await setup()
+      const result = await run(ctx, parent, script(`
+        try { phase(3) } catch (e) {
+          if (!(e instanceof Error) || e.name !== 'WorkflowError') throw e
+        }
+        try { log(3) } catch (e) {
+          return { isRealmError: e instanceof Error, name: e.name, message: e.message }
+        }
+      `))
+      expect(result.value).toMatchObject({ isRealmError: true, name: 'WorkflowError' })
+      expect((result.value as { message: string }).message).toContain('log() requires')
     })
 
     it('parallel/pipeline resolve to REALM arrays: instanceof holds in-script, host intrinsics stay unreachable', async () => {

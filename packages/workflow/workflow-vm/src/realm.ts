@@ -157,6 +157,22 @@ function ownDataProperty(value: object, key: string): unknown {
 }
 
 /**
+ * Whether `error` is a FATAL realm-built `WorkflowError` clone — the shape the
+ * engine's hooks reject with (host errors are translated at the realm boundary
+ * so the script never holds host prototypes), duck-checked because a realm
+ * object cannot be an `instanceof` the host class. Proxy-guarded and
+ * descriptor-read, so a forged object cannot run code here; a script forging
+ * the shape only kills its own run (self-sabotage). Combinators use this to
+ * decide re-throw vs per-item `null`.
+ * @param error - the value a combinator caught from a realm thunk/stage.
+ * @returns `true` when the error must propagate and kill the script.
+ */
+export function isFatalWorkflowErrorClone(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || types.isProxy(error)) return false
+  return ownDataProperty(error, 'name') === 'WorkflowError' && ownDataProperty(error, 'fatal') === true
+}
+
+/**
  * Whether an object's prototype chain is data-shaped: `null`, or a prototype
  * whose own prototype is `null` (the realm's `Object.prototype` — which we
  * cannot compare by identity across realms). A `Date`/`Map`/class instance

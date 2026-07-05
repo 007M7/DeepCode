@@ -9,17 +9,22 @@
  * descriptor walks; values ENTERING the realm from the host (`args`, agent()
  * results) are rebuilt INSIDE the realm through the context's own
  * `JSON.parse`, so the script never holds an object whose prototype chain
- * reaches host intrinsics. The arrays `parallel`/`pipeline` resolve to are
- * realm-built for the same reason (their ELEMENTS are realm values already —
- * only the container needs rebuilding). Realm functions (pipeline stages,
- * parallel thunks) are called, not materialized — their values stay
- * realm-side.
+ * reaches host intrinsics. The same rule covers every other value a hook
+ * hands the script: the promises `agent`/`parallel`/`pipeline` return are
+ * realm promises (the realm's own `Promise.resolve` over the host promise),
+ * the arrays the combinators resolve to are realm-built (their ELEMENTS are
+ * realm values already — only the container needs rebuilding), and a hook
+ * failure — rejection or synchronous `phase`/`log` throw — crosses as a
+ * realm-built clone carrying name/code/message/fatal. Realm functions
+ * (pipeline stages, parallel thunks) are called, not materialized — their
+ * values stay realm-side.
  *
  * Failure discipline: fatal {@link WorkflowError}s (bad hook arguments,
  * unsupported options/schemas, tripped caps, seam start failures,
- * cancellation) ALWAYS propagate through `parallel`/`pipeline`; the per-item
- * `null` is reserved for child-run failures and ordinary in-stage script
- * errors. Every hook-returned promise gets a no-op rejection consumer
+ * cancellation) ALWAYS propagate through `parallel`/`pipeline` — they cross
+ * the realm boundary as fatal clones, recognized structurally — and the
+ * per-item `null` is reserved for child-run failures and ordinary in-stage
+ * script errors. Every hook-returned promise gets a no-op rejection consumer
  * attached, so a script that drops a promise (fires an `agent()` without
  * awaiting it) cannot surface an unhandled rejection when cancellation
  * rejects it — the app boot layer exits the process on unhandled rejections.
@@ -34,14 +39,14 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { assertSupportedOutputSchema, OutputSchemaError } from '@deepseek-ai/dsh-tools'
 import type { StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
-import { WorkflowError, isFatalWorkflowError } from '@deepseek-ai/dsh-workflow'
+import { WorkflowError } from '@deepseek-ai/dsh-workflow'
 import type {
   WorkflowAgentEndInfo,
   WorkflowAgentInfo,
   WorkflowMeta,
   WorkflowResult,
 } from '@deepseek-ai/dsh-workflow'
-import { materializeFromRealm, MaterializeError, describeThrown, thrownRendering, REALM_THROWN_RENDERER_SOURCE } from './realm.ts'
+import { materializeFromRealm, MaterializeError, describeThrown, thrownRendering, isFatalWorkflowErrorClone, REALM_THROWN_RENDERER_SOURCE } from './realm.ts'
 
 /** The per-run knobs the engine resolves from its Config. */
 export interface ExecutionLimits {
@@ -121,6 +126,8 @@ export class WorkflowExecution {
   private readonly context: vm.Context
   private readonly realmJsonParse: (text: string) => unknown
   private readonly realmArrayFrom: (items: unknown[]) => unknown[]
+  private readonly realmPromiseResolve: (value: unknown) => Promise<unknown>
+  private readonly realmErrorClone: (name: string, code: string | undefined, message: string, fatal: boolean) => unknown
   private readonly compiled: vm.Script
   /** Every live `agent()` call promise — awaited or stray — for {@link quiesce}. */
   private readonly inFlightAgents = new Set<Promise<unknown>>()
@@ -159,16 +166,38 @@ export class WorkflowExecution {
     // The realm's own JSON.parse — the host→realm rebuild channel.
     const realmJson = vm.runInContext('JSON', this.context) as { parse(text: string): unknown }
     this.realmJsonParse = (text: string) => realmJson.parse(text)
-    // The realm's own Array.from, bound NOW so a script reassigning its
-    // globals later cannot swap it: combinator results must be realm arrays.
+    // The realm's own Array.from / Promise.resolve / an error factory, bound
+    // NOW so a script reassigning its globals later cannot swap them:
+    // combinator results must be realm arrays, hook promises realm promises,
+    // and hook failures realm-built clones.
     this.realmArrayFrom = vm.runInContext('Array.from.bind(Array)', this.context) as (items: unknown[]) => unknown[]
+    this.realmPromiseResolve = vm.runInContext('Promise.resolve.bind(Promise)', this.context) as (value: unknown) => Promise<unknown>
+    this.realmErrorClone = vm.runInContext(`(name, code, message, fatal) => {
+      const error = new Error(message)
+      error.name = name
+      if (code !== undefined) error.code = code
+      error.fatal = fatal
+      return error
+    }`, this.context) as (name: string, code: string | undefined, message: string, fatal: boolean) => unknown
 
     const globals: Record<string, unknown> = {
-      agent: (prompt: unknown, opts?: unknown) => this.contain(this.track(this.agent(prompt, opts))),
-      parallel: (thunks: unknown) => this.contain(this.parallel(thunks)),
-      pipeline: (items: unknown, ...stages: unknown[]) => this.contain(this.pipeline(items, stages)),
-      phase: (title: unknown) => { this.phase(title) },
-      log: (message: unknown) => { this.log(message) },
+      agent: (prompt: unknown, opts?: unknown) => this.realmFacing(this.track(this.agent(prompt, opts))),
+      parallel: (thunks: unknown) => this.realmFacing(this.parallel(thunks)),
+      pipeline: (items: unknown, ...stages: unknown[]) => this.realmFacing(this.pipeline(items, stages)),
+      phase: (title: unknown) => {
+        try {
+          this.phase(title)
+        } catch (error: unknown) {
+          throw this.toRealmError(error)
+        }
+      },
+      log: (message: unknown) => {
+        try {
+          this.log(message)
+        } catch (error: unknown) {
+          throw this.toRealmError(error)
+        }
+      },
       args: this.toRealm(args),
     }
     for (const [key, value] of Object.entries(globals)) {
@@ -228,8 +257,12 @@ export class WorkflowExecution {
       const value = raw === undefined ? null : this.materializeResult(raw)
       return { value, stopReason: 'completed', agentsStarted: this.started }
     } catch (error: unknown) {
-      if (error instanceof WorkflowError && error.code === 'CANCELLED') {
-        return { value: null, stopReason: 'cancelled', error: error.message, agentsStarted: this.started }
+      // Any failure after cancel() reports `cancelled` with the canonical
+      // reason — the reject path mirrors the resolve path's post-settle
+      // check, and a hook CANCELLED failure crosses the realm boundary as a
+      // clone that deliberately fails the host `instanceof`.
+      if (this.isCancelled()) {
+        return { value: null, stopReason: 'cancelled', error: this.cancelledError().message, agentsStarted: this.started }
       }
       // Ordinary script failures arrive pre-rendered by the realm-side catch
       // (thrownRendering); host-thrown errors (a vm timeout, a WorkflowError)
@@ -256,6 +289,37 @@ export class WorkflowExecution {
   private contain<T>(promise: Promise<T>): Promise<T> {
     promise.catch(() => { /* consumed: see method contract — a dropped hook promise must not surface an unhandled rejection */ })
     return promise
+  }
+
+  /**
+   * Hand a hook's host promise to the script as a REALM promise (the realm's
+   * own `Promise.resolve` assimilates it) whose failure reason is a
+   * realm-built clone — the script must never hold host prototypes, and both
+   * the promise object and a caught rejection would otherwise expose them
+   * (module doc). The realm promise gets the same no-op rejection consumer as
+   * {@link contain}, since the script may drop it; the intermediate host
+   * promises are handled by the assimilation chain itself.
+   */
+  private realmFacing(hostPromise: Promise<unknown>): Promise<unknown> {
+    const translated = hostPromise.catch((error: unknown) => {
+      throw this.toRealmError(error)
+    })
+    const realmPromise = this.realmPromiseResolve(translated)
+    realmPromise.catch(() => { /* consumed: a script-dropped realm promise must not surface an unhandled rejection (see contain) */ })
+    return realmPromise
+  }
+
+  /**
+   * Rebuild a host failure as a realm-built error clone: a `WorkflowError`
+   * keeps its name/code/message/fatal (the combinators recognize the shape
+   * via {@link isFatalWorkflowErrorClone}); anything else becomes a generic
+   * realm `Error` carrying its {@link describeThrown} rendering.
+   */
+  private toRealmError(error: unknown): unknown {
+    if (error instanceof WorkflowError) {
+      return this.realmErrorClone('WorkflowError', error.code, error.message, error.fatal)
+    }
+    return this.realmErrorClone('Error', undefined, describeThrown(error), false)
   }
 
   /**
@@ -472,7 +536,10 @@ export class WorkflowExecution {
       try {
         return await thunk()
       } catch (error: unknown) {
-        if (isFatalWorkflowError(error)) throw error
+        // Hooks translate host errors at the realm boundary, so a fatal error
+        // reaches a thunk catch only as a realm clone (a script forging the
+        // shape merely kills its own run).
+        if (isFatalWorkflowErrorClone(error)) throw error
         return null
       }
     }))
@@ -505,8 +572,9 @@ export class WorkflowExecution {
         return value
       } catch (error: unknown) {
         // An ordinary stage throw drops the ITEM to null and skips its
-        // remaining stages; a fatal error kills the whole script.
-        if (isFatalWorkflowError(error)) throw error
+        // remaining stages; a fatal error (a realm clone — see parallel())
+        // kills the whole script.
+        if (isFatalWorkflowErrorClone(error)) throw error
         return null
       }
     }))
