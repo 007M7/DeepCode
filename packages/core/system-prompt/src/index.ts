@@ -54,9 +54,9 @@ export interface PromptSection {
   /** Unique name — a duplicate registration throws (see {@link SystemPrompt.section}). */
   name: string
   /**
-   * Sections are concatenated in ascending order. Convention: `0` is the
-   * per-agent persona, tool guidance uses 100–199; negative orders render
-   * before the persona.
+   * Sections are concatenated in ascending order. Convention: `-100` is the
+   * harness identity, `0` the per-agent persona, tool guidance uses 100–199;
+   * other negative orders also render before the persona.
    */
   order: number
   /**

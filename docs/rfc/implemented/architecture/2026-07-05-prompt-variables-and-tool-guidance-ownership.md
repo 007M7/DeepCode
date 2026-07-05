@@ -30,7 +30,7 @@ Plugins contribute named values via `ctx.systemPrompt.variable(name, provider)`;
 
 ### Persona as the order-0 section
 
-The loop plugin registers ONE section, `agent:persona` at order 0, whose text is `context.agent?.options.systemPrompt ?? ''`. The loop's special-case join is deleted: `fullSystemPrompt ≡ renderPrompt(assembly)`, one ordered pipeline for everything the model sees, and `agent/pre-step` (compaction's token-pressure input) measures exactly the real prompt. Order bands are now convention: persona `0`, tool guidance `100–199`, negative orders render before the persona. `AgentOptions.systemPrompt` keeps its familiar key but is documented as what it is — the persona template fragment, one section of the full prompt, never the whole (see `CONTEXT.md`).
+The loop plugin registers ONE section, `agent:persona` at order 0, whose text is `context.agent?.options.systemPrompt ?? ''`. The loop's special-case join is deleted: `fullSystemPrompt ≡ renderPrompt(assembly)`, one ordered pipeline for everything the model sees, and `agent/pre-step` (compaction's token-pressure input) measures exactly the real prompt. Order bands are now convention: harness identity `-100` (the loop's static `harness:identity` section — every agent's prompt opens by stating it is powered by the DeepSeek Harness SDK), persona `0`, tool guidance `100–199`; other negative orders also render before the persona. `AgentOptions.systemPrompt` keeps its familiar key but is documented as what it is — the persona template fragment, one section of the full prompt, never the whole (see `CONTEXT.md`).
 
 ### Tool guidance ownership
 

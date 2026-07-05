@@ -69,7 +69,7 @@ A `Session` is an append-only log of typed `SessionEvent`s — the single source
 
 ## Prompt assembly (dsh-system-prompt)
 
-Plugins contribute `PromptSection`s (named, ordered, static or computed from the per-call `AssembleContext`), tool-schema providers, and named **prompt variables** interpolated as `{{name}}` at render (strict: an unknown or valueless reference throws). `renderPrompt(assemble({ agent }))` IS the full prompt: the loop's `agent:persona` section (order 0) and its `model`/`cwd` variables carry the per-agent facts — no second composition path. Tool schemas are deliberately part of the assembly ([RFC](rfc/implemented/architecture/2026-06-11-tool-schemas-in-prompt-assembly.md)); prompt-fact ownership (persona vs description vs section vs variable) is pinned by [the prompt-variables RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
+Plugins contribute `PromptSection`s (named, ordered, static or computed from the per-call `AssembleContext`), tool-schema providers, and named **prompt variables** interpolated as `{{name}}` at render (strict: an unknown or valueless reference throws). `renderPrompt(assemble({ agent }))` IS the full prompt: the loop's `harness:identity` (−100) and `agent:persona` (0) sections plus its `model`/`cwd` variables carry the harness and per-agent facts — no second composition path. Tool schemas are deliberately part of the assembly ([RFC](rfc/implemented/architecture/2026-06-11-tool-schemas-in-prompt-assembly.md)); prompt-fact ownership (persona vs description vs section vs variable) is pinned by [the prompt-variables RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
 
 ## Tool pipeline (dsh-tools)
 

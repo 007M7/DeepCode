@@ -21,7 +21,7 @@ System prompt assembly registry. Plugins contribute ordered text sections, tool-
 ### Key types
 
 - `AssembleContext` — what one `assemble()` call is FOR. Declared empty here and merge-extensible; `dsh-agent` declares `agent?: Agent`, so providers project per-agent facts. Providers must tolerate absent fields (a bare `assemble()` carries an empty context).
-- `PromptSection` — `{ name, order, text: string | ((context) => string) }`. Sections are concatenated in ascending `order`. Order bands: `0` is the per-agent persona (registered by the agent loop), tool guidance uses `100–199`; negative orders render before the persona.
+- `PromptSection` — `{ name, order, text: string | ((context) => string) }`. Sections are concatenated in ascending `order`. Order bands: `-100` is the harness identity, `0` the per-agent persona (both registered by the agent loop), tool guidance uses `100–199`; other negative orders also render before the persona.
 - `PromptAssembly` — `{ sections: AssembledSection[], tools: ToolSchema[], variables: Record<string, string | undefined> }`. Section texts arrive resolved but not yet interpolated; `variables` holds every registered variable resolved against the context. Tool schemas are part of the assembly by design: "what the model is told it can do" is one coherent thing, even though adapters transmit schemas as a separate wire field.
 - `renderPrompt(assembly)` — interpolates `{{variable}}` references in each section, drops empty sections, joins with blank lines. STRICT: an unknown reference (`Object.hasOwn` lookup — prototype names like `{{constructor}}` are unknown), a registered-but-valueless reference, a malformed complete `{{…}}` group, or a `{{` that opens no complete group while a `}}` still follows (`{{{model}}}`) throws — fail loud beats shipping a malformed prompt. A lone `{{` with no `}}` anywhere after it passes through verbatim; substituted values are never re-scanned.
 
@@ -29,7 +29,7 @@ Merge-extensible: plugins can declare extra fields on `PromptAssembly` and `Asse
 
 ### Extension points
 
-- Section providers: tool packages own their cross-call guidance (`tool:bash`, `tool:read`, …); the agent loop owns `agent:persona`.
+- Section providers: tool packages own their cross-call guidance (`tool:bash`, `tool:read`, …); the agent loop owns `harness:identity` and `agent:persona`.
 - Variable providers: the agent loop registers `model` and `cwd`; any plugin can register the facts it owns (a future `date`, git state, …).
 - Tool schema providers: `ToolRegistry` registers itself as a tool provider automatically.
 - The `system-prompt/assemble` waterfall: mutate or replace the assembly per caller (dynamic tool filtering, extra variables).

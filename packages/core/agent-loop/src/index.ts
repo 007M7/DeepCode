@@ -82,13 +82,20 @@ export class AgentLoop extends Service implements AgentFactory {
     // Provide the agent-creation factory to the registry (effect-scoped: the
     // slot is cleared on dispose).
     ctx.effect(() => this.ctx.agents.setFactory(this), 'agentLoop.setFactory()')
-    // The per-agent prompt pieces, registered once and resolved per assembly
-    // from the AssembleContext the loop passes (loop.ts assembles with
-    // `{ agent }` each step). The persona is the order-0 section — identity
-    // renders before all tool guidance; `{{model}}`/`{{cwd}}` are the built-in
-    // prompt variables projecting the agent's configured model and its
-    // session workspace. A provider returns undefined when the fact is absent
-    // (renderPrompt then rejects a persona that claims it — fail loud).
+    // The prompt pieces the harness itself owns, registered once. The
+    // harness-identity section states what every agent on this loop IS,
+    // ahead of everything (order −100 — before the deployment's persona);
+    // the persona is the order-0 section resolved per assembly from the
+    // AssembleContext the loop passes (loop.ts assembles with `{ agent }`
+    // each step); `{{model}}`/`{{cwd}}` are the built-in prompt variables
+    // projecting the agent's configured model and its session workspace. A
+    // provider returns undefined when the fact is absent (renderPrompt then
+    // rejects a persona that claims it — fail loud).
+    ctx.systemPrompt.section({
+      name: 'harness:identity',
+      order: -100,
+      text: 'You are an AI agent powered by the DeepSeek Harness SDK.',
+    })
     ctx.systemPrompt.section({
       name: 'agent:persona',
       order: 0,

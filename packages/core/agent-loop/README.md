@@ -33,7 +33,7 @@ interface Config {
 }
 ```
 
-Agents listed in config are auto-created at startup. The plugin also registers the per-agent prompt pieces on `ctx.systemPrompt`: the `agent:persona` section (order 0 — `AgentOptions.systemPrompt` renders before all tool guidance) and the built-in `model`/`cwd` prompt variables, each resolved per step from the `assemble({ agent })` context.
+Agents listed in config are auto-created at startup. The plugin also registers the harness-owned prompt pieces on `ctx.systemPrompt`: the `harness:identity` section (order −100 — every agent's prompt opens by stating it is powered by the DeepSeek Harness SDK), the `agent:persona` section (order 0 — `AgentOptions.systemPrompt` renders after it, before all tool guidance), and the built-in `model`/`cwd` prompt variables, resolved per step from the `assemble({ agent })` context.
 
 ### Classes
 

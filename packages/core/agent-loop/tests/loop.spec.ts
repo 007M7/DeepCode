@@ -141,7 +141,7 @@ describe('agent loop', () => {
       .toEqual({ diffs: [{ path: 'a.txt', oldText: null, newText: 'x' }] })
   })
 
-  it('renders the persona as the order-0 section — before tool guidance — with {{variables}} resolved', async () => {
+  it('renders harness identity, then the persona, then tool guidance — with {{variables}} resolved', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     ctx.systemPrompt.section({ name: 'tool:noop', order: 100, text: 'Use the noop tool wisely.' })
@@ -161,7 +161,7 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     const request = adapter.requests[0]
-    expect(request!.system).toBe('You are a test agent on mock.\n\nUse the noop tool wisely.')
+    expect(request!.system).toBe('You are an AI agent powered by the DeepSeek Harness SDK.\n\nYou are a test agent on mock.\n\nUse the noop tool wisely.')
     expect(request!.tools?.map(t => t.name)).toEqual(['noop'])
   })
 
@@ -179,7 +179,7 @@ describe('agent loop', () => {
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
 
-    expect(adapter.requests[0]!.system).toBe('Working in /work/space.')
+    expect(adapter.requests[0]!.system).toBe('You are an AI agent powered by the DeepSeek Harness SDK.\n\nWorking in /work/space.')
   })
 
   it('contains a strict-variable render failure: the turn errors, the loop keeps serving turns', async () => {
@@ -212,7 +212,7 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     expect(adapter.requests).toHaveLength(1)
-    expect(adapter.requests[0]!.system).toBe('In /rescued.')
+    expect(adapter.requests[0]!.system).toBe('You are an AI agent powered by the DeepSeek Harness SDK.\n\nIn /rescued.')
     const turnEnds = agent.session.events.filter(e => e.type === 'turn/end')
     expect(turnEnds).toHaveLength(2)
     expect(turnEnds[1]?.type === 'turn/end' && turnEnds[1].data.reason.kind).toBe('completed')
@@ -426,10 +426,12 @@ describe('agent loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    // One fire per step, in order, each with the assembled system prompt.
+    // One fire per step, in order, each with the assembled system prompt
+    // (here just the loop's own harness-identity section — no persona set).
+    const HARNESS = 'You are an AI agent powered by the DeepSeek Harness SDK.'
     expect(fires).toEqual([
-      { turn: 1, step: 1, fullSystemPrompt: '' },
-      { turn: 1, step: 2, fullSystemPrompt: '' },
+      { turn: 1, step: 1, fullSystemPrompt: HARNESS },
+      { turn: 1, step: 2, fullSystemPrompt: HARNESS },
     ])
   })
 
