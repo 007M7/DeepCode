@@ -18,7 +18,7 @@ Generated `.sessions/` logs and `.doc-typecheck-*` temp directories are ignored 
 
 Build output is produced once inside the Node 24 artifact lane. The artifact consumers (`publint`, `verify-node-next-types`, and built-bin smoke) declare a dependency on `build`, so there is no upload/download handoff and no consumer can race ahead of declarations or bundles. The CI coverage reporter is text-only while local coverage keeps the HTML report.
 
-Both CI workflows cache the pnpm store after enabling Corepack. The real-API e2e workflow also uses the shared `vitest.e2e.config.ts` bounded file pool (`DSH_E2E_MAX_WORKERS=16` in CI), so its speedup comes from dependency-cache reuse plus lower-level test-file fan-out instead of a separate GitHub job split.
+Both CI workflows cache the pnpm store after enabling Corepack. The real-API e2e workflow also uses the shared `vitest.e2e.config.ts` bounded file pool (`DSH_E2E_MAX_WORKERS=14` in CI), so its speedup comes from dependency-cache reuse plus lower-level test-file fan-out instead of a separate GitHub job split.
 
 ## Alternatives considered
 
