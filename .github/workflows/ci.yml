@@ -105,6 +105,8 @@ jobs:
             command: pnpm run verify-mermaid
           - name: rfc classification
             command: pnpm run verify-rfc-classification
+          - name: rfc format
+            command: pnpm run verify-rfc-format
           - name: type equivalence
             command: pnpm run verify-type-equiv
           - name: translation pairing
