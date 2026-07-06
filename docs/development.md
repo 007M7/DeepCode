@@ -88,7 +88,7 @@ During implementation, prefer the narrowest gate that can fail for the change yo
 
 ## Daily commands
 
-Use these from the repo root as a command reference, not as a checklist to rerun after every edit:
+Use these from the repo root:
 
 ```sh
 pnpm run test           # unit tests

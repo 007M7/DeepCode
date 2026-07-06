@@ -88,7 +88,7 @@ GitHub 工作流在每个 pull request 上运行这些门禁：
 
 ## 日常命令
 
-在仓库根目录使用；下面是命令参考，不是每次编辑后都要重新跑一遍的 checklist：
+在仓库根目录使用：
 
 ```sh
 pnpm run test           # unit tests
