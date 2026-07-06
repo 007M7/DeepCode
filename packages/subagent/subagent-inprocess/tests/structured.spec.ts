@@ -179,6 +179,25 @@ describe('in-process structured output', () => {
     await run.dispose()
   })
 
+  it('a cancel landing after a clean turn end stops the nudge loop: no post-cancellation turn is spent', async () => {
+    const { ctx, parent, adapter } = await setup([textResponse('prose, no capture')], { nudges: 3 })
+    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const child = ctx.agents.get(run.id)!
+    // Cancel synchronously inside the first turn's end recording — after the
+    // turn reads `completed`, before the nudge continuation resumes. The turn
+    // state alone cannot see this cancel (`child.cancel()` only clears
+    // queued/running work), so without the loop's own cancelled check the
+    // next send would spend a fresh child turn after the caller cancelled.
+    ctx.on('session/event', (session, event) => {
+      if (session === child.session && event.type === 'turn/end') run.cancel('cancelled between turn end and nudge')
+    })
+    const result = await run.result
+    expect(result.stopReason).toBe('aborted')
+    // Exactly one model request: the nudge turn never ran.
+    expect(adapter.requests.length).toBe(1)
+    await run.dispose()
+  })
+
   it('rejects a schema outside the subset loud, before any child exists', async () => {
     const { ctx, parent } = await setup([])
     expect(() => ctx.subagents.start('spawn', structuredRequest(parent, {

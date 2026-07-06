@@ -171,6 +171,10 @@ export function startInProcessRun(
   // `turn/end` is logged — settles as `aborted` (honoring the cancel contract)
   // rather than falling through to the no-turn `error` mapping.
   let cancelled = false
+  // An accessor, not an inline read: `cancelled` mutates from closures (the
+  // abort listener, run.cancel), which control-flow narrowing cannot see — an
+  // inline `!cancelled` in the nudge condition reads as always-true.
+  const isCancelled = (): boolean => cancelled
   const requestCancel = (reason: string): void => {
     cancelled = true
     child.cancel(reason)
@@ -191,12 +195,17 @@ export function startInProcessRun(
         // Nudge loop: a child that finished a turn CLEANLY without calling
         // structured_output gets re-prompted, up to the backend-configured
         // retry count. An errored/aborted turn is not nudged — its failure is
-        // the honest result. (This also covers a cancel: a cancelled turn ends
-        // `aborted`, and a pre-turn cancel leaves no `turn/end` at all, so
-        // neither reads `completed`.)
+        // the honest result (a cancelled turn ends `aborted`, and a pre-turn
+        // cancel leaves no `turn/end` at all, so neither reads `completed`).
+        // `!cancelled` closes the remaining window: a cancel landing AFTER a
+        // clean turn end clears nothing — `child.cancel()` only kills
+        // queued/running work — so without it the next `send` would spend a
+        // fresh post-cancellation turn; the condition re-evaluates after
+        // every `whenIdle()`, so a mid-nudge cancel stops the loop at the
+        // next boundary too.
         let nudges = options.structuredNudgeRetries
         while (
-          structured.captured(child) === undefined && nudges > 0
+          !isCancelled() && structured.captured(child) === undefined && nudges > 0
           && lastOwnTurnEnd(child, seedLength)?.data.reason.kind === 'completed'
         ) {
           nudges -= 1
@@ -204,7 +213,7 @@ export function startInProcessRun(
           await child.whenIdle()
         }
       }
-      return readResult(child, seedLength, cancelled, structured ? { captured: structured.captured(child) } : undefined)
+      return readResult(child, seedLength, isCancelled(), structured ? { captured: structured.captured(child) } : undefined)
     } finally {
       request.signal?.removeEventListener('abort', onAbort)
       if (structured) {
@@ -266,7 +275,10 @@ function readResult(
     : toStopReason(lastEnd?.data.reason)
   if (structured) {
     if (structured.captured) return { output, structured: structured.captured.value, stopReason }
-    if (stopReason === 'completed') return { output, stopReason: 'error' }
+    // No capture on a cleanly-completed turn: an ERROR when the run was left
+    // to finish (the nudges ran out), but ABORTED when a cancel is why the
+    // nudging stopped — the cancel contract outranks the schema shortfall.
+    if (stopReason === 'completed') return { output, stopReason: cancelled ? 'aborted' : 'error' }
   }
   return { output, stopReason }
 }
