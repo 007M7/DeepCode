@@ -31,6 +31,7 @@ import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionRes
 import {
   appendHookInvoked,
   appendHookResult,
+  createDetachedRuns,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
   matchesMatcher,
@@ -127,6 +128,14 @@ export function apply(ctx: Context, config: Config): void {
     ctx.logger.warn(`hooks-claude: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
     return
   }
+
+  // --- The emit-shaped points (SessionStart, SubagentStart, SubagentStop) run
+  // detached — no seam awaits them — so every run chain is tracked and disposal
+  // aborts still-running hook processes, then drains the continuations
+  // (docs/defensive-patterns.md: dispose must reach quiescence). After the parse
+  // gate: a bridge that registered nothing has nothing to drain. ---
+  const detached = createDetachedRuns()
+  ctx.effect(() => () => detached.drain(), 'hooks-claude: drain detached hook runs')
 
   /**
    * Run every command hook configured for `point` whose matcher selects
@@ -237,14 +246,14 @@ export function apply(ctx: Context, config: Config): void {
   // to the interception seams; today the contract is "injected as soon as the
   // hook resolves", not "before the first request". ---
   ctx.on('agent/session-start', (agent, source) => {
-    void runPoint('SessionStart', source, sessionStartPayload(agent, source), { agent })
+    detached.track(runPoint('SessionStart', source, sessionStartPayload(agent, source), { agent, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
         if (context) agent.inject(context.content, { source: context.source })
       })
       .catch((error: unknown) => {
         ctx.logger.warn(`hooks-claude: SessionStart hook failed: ${String(error)}`)
-      })
+      }))
   })
 
   // --- UserPromptSubmit → PromptDecision. The prompt text is the payload; no
@@ -330,12 +339,12 @@ export function apply(ctx: Context, config: Config): void {
   // a specific-kind matcher does not (documented in the RFC). ---
   ctx.on('subagent/start', (info) => {
     const child = ctx.get('agents')?.get(info.id)
-    void runPoint('SubagentStart', SUBAGENT_TYPE, subagentPayload('SubagentStart', info, child), { ...child ? { agent: child } : {} })
+    detached.track(runPoint('SubagentStart', SUBAGENT_TYPE, subagentPayload('SubagentStart', info, child), { ...child ? { agent: child } : {}, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
         if (context && child) child.inject(context.content, { source: context.source })
       })
-      .catch((error: unknown) => { ctx.logger.warn(`hooks-claude: SubagentStart hook failed: ${String(error)}`) })
+      .catch((error: unknown) => { ctx.logger.warn(`hooks-claude: SubagentStart hook failed: ${String(error)}`) }))
   })
   ctx.on('subagent/end', (info) => {
     // Look up the child (still recoverable: `subagent/end` fires from the
@@ -343,9 +352,10 @@ export function apply(ctx: Context, config: Config): void {
     // disposes it) so the hook runs in the child's cwd, not the server default.
     // No `.then`/inject follows (SubagentStop only observes), and no `turn` is
     // passed (so no `hook/*` log records), so runPoint has nothing that can
-    // reject — no `.catch` is needed. Fire-and-forget.
+    // reject — no `.catch` is needed (the tracker's settlement bookkeeping
+    // would absorb one anyway).
     const child = ctx.get('agents')?.get(info.id)
-    void runPoint('SubagentStop', SUBAGENT_TYPE, subagentPayload('SubagentStop', info, child), { ...child ? { agent: child } : {} })
+    detached.track(runPoint('SubagentStop', SUBAGENT_TYPE, subagentPayload('SubagentStop', info, child), { ...child ? { agent: child } : {}, signal: detached.signal }))
   })
 }
 
