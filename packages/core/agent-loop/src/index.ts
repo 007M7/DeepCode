@@ -29,6 +29,10 @@ declare module 'cordis' {
   }
 }
 
+/**
+ * Plugin config: the agents to create — or resume, via `resumeSessionId` —
+ * declaratively at startup, so a cordis.yml deployment needs no code.
+ */
 export interface Config {
   /** Agents created from configuration at startup. */
   agents: (AgentOptions & {

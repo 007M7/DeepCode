@@ -66,6 +66,8 @@ function serializeAssistant(message: Message): WireMessage {
  * `{role: 'tool'}` messages; the harness puts each tool result in its own
  * user-role message, so a mixed user message contributes its text first and
  * its tool results as separate wire messages after.
+ * @param messages - the harness conversation, in order.
+ * @returns the wire messages; order preserved, each tool result expanded into its own entry.
  */
 export function serializeMessages(messages: Message[]): WireMessage[] {
   const wire: WireMessage[] = []
@@ -97,7 +99,14 @@ export function serializeMessages(messages: Message[]): WireMessage[] {
   return wire
 }
 
-/** Build the full wire request. */
+/**
+ * Build the full wire request. Always streaming (`stream: true`, usage
+ * reporting on); optional fields are omitted rather than sent as null, so
+ * provider defaults apply.
+ * @param options - the harness request (model, history, system, tools, sampling).
+ * @param defaults - adapter-level thinking defaults; undefined fields put nothing on the wire.
+ * @returns the chat-completions request body.
+ */
 export function serializeRequest(options: GenerateOptions, defaults: RequestDefaults = {}): WireRequest {
   const messages: WireMessage[] = []
   if (options.system !== undefined) {

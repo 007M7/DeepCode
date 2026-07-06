@@ -121,7 +121,12 @@ export const DEFAULT_DISPOSE_GRACE_MS = 3_000
  */
 export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
 
-/** The ambient env minus credential-shaped vars, plus the spec's explicit env. */
+/**
+ * The ambient env minus credential-shaped vars, plus the spec's explicit env.
+ * @param extra - explicit vars layered on top AFTER the scrub, so a
+ * credential-shaped name supplied deliberately still reaches the child.
+ * @returns the environment to spawn the child with.
+ */
 export function buildChildEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
   for (const [key, value] of Object.entries(process.env)) {
@@ -130,7 +135,12 @@ export function buildChildEnv(extra: Record<string, string>): NodeJS.ProcessEnv 
   return { ...env, ...extra }
 }
 
-/** Map an ACP {@link StopReason} to a harness {@link SubagentStopReason}. */
+/**
+ * Map an ACP {@link StopReason} to a harness {@link SubagentStopReason}.
+ * @param reason - the terminal reason from the child's `session/prompt` response.
+ * @returns the harness equivalent; `max_turn_requests` and any unknown future
+ * variant map to `error`, so an unclean stop is never reported as `completed`.
+ */
 export function acpStopReason(reason: StopReason): SubagentStopReason {
   switch (reason) {
     case 'end_turn':
@@ -155,12 +165,20 @@ export function acpStopReason(reason: StopReason): SubagentStopReason {
   }
 }
 
-/** Collect the text of an ACP content block (non-text blocks contribute nothing). */
+/**
+ * Collect the text of an ACP content block (non-text blocks contribute nothing).
+ * @param content - the content block off a streamed `agent_message_chunk`.
+ * @returns the block's text, or `''` for a non-text block.
+ */
 export function acpContentText(content: AcpContentBlock): string {
   return content.type === 'text' ? content.text : ''
 }
 
-/** Translate the harness prompt blocks into ACP prompt blocks (text only). */
+/**
+ * Translate the harness prompt blocks into ACP prompt blocks (text only).
+ * @param prompt - the harness prompt; non-text blocks are dropped.
+ * @returns the ACP text blocks, in order.
+ */
 export function toAcpPrompt(prompt: ContentBlock[]): AcpContentBlock[] {
   const blocks: AcpContentBlock[] = []
   for (const block of prompt) {
@@ -206,6 +224,11 @@ function exitsWithin(child: ChildProcess, ms: number): Promise<boolean> {
  * failure (a spawn/transport/RPC error resolves with `stopReason: 'error'`), per
  * the seam contract. `cancel()` sends `session/cancel`; `dispose()` kills the
  * subprocess and awaits its exit (quiescent teardown).
+ * @param request - the start request; the driver consumes `prompt` and `signal`
+ * (an already-aborted signal yields an inert `aborted` run with no spawn).
+ * @param spec - the resolved spawn spec: command/args/cwd, env, permission
+ * policy, dispose graces, and the optional error sink.
+ * @returns the live run handle for the child subprocess.
  */
 export function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): SubagentRun {
   const id = AgentId(randomUUID())

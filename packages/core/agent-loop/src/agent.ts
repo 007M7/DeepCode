@@ -22,6 +22,10 @@ import { isTurnOpen, lastTurnNumber, runLoop } from './loop.ts'
  * the agent/* event taxonomy — plugins never need this class.
  */
 export class ReactLoopAgent implements Agent {
+  /**
+   * The queued + steering FIFOs behind {@link send}/{@link steer}. Public so
+   * the driver loop can drain it; {@link cancel} clears it wholesale.
+   */
   readonly inbox = new Inbox()
 
   private _status: AgentStatus = 'idle'
@@ -256,6 +260,8 @@ export class ReactLoopAgent implements Agent {
    * promise (unblocking the idle wait), releases any `whenIdle` waiters, and
    * aborts the current request if any. The returned `agent.done` promise
    * resolves once the loop exits.
+   * @returns the disposer — idempotent and infallible (it runs inside the
+   *   fiber's LIFO disposal chain, where a throw would skip later disposers).
    */
   start(): () => void {
     this.done = runLoop(this.ctx, this, {

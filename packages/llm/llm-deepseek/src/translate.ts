@@ -29,7 +29,11 @@ interface OpenBlock {
   name?: string
 }
 
-/** Map the wire finish_reason vocabulary to the harness FinishReason. */
+/**
+ * Map the wire finish_reason vocabulary to the harness FinishReason.
+ * @param reason - the wire `finish_reason` string.
+ * @returns the mapped reason; unrecognized values (content_filter, …) become `{kind: 'error'}` with the uppercased value as `code`.
+ */
 export function mapFinishReason(reason: string): FinishReason {
   switch (reason) {
     case 'stop': return { kind: 'stop' }
@@ -46,6 +50,8 @@ export function mapFinishReason(reason: string): FinishReason {
  * (`prompt_tokens = prompt_cache_hit_tokens + prompt_cache_miss_tokens`,
  * api/create-chat-completion); the harness TokenUsage convention is
  * DISJOINT counts, so cache reads are subtracted out of `inputTokens`.
+ * @param usage - wire usage from the finish chunk or the trailing usage-only chunk.
+ * @returns disjoint harness counts; cache/reasoning fields present only when the wire reported them.
  */
 export function mapUsage(usage: WireUsage): TokenUsage {
   const cacheRead = usage.prompt_tokens_details?.cached_tokens ?? usage.prompt_cache_hit_tokens
@@ -75,6 +81,8 @@ function closeBlock(block: OpenBlock): ContentBlock {
 /**
  * Consume SSE data payloads (ending with `[DONE]`) and yield StreamChunks.
  * Malformed JSON payloads abort the stream with `MALFORMED_RESPONSE`.
+ * @param payloads - SSE data payloads from {@link parseSse}, `[DONE]`-terminated.
+ * @returns deltas as they arrive; `block-end`s, `usage`, and `finish` are all deferred to the `[DONE]` sentinel.
  */
 export async function* translate(payloads: AsyncIterable<string>): AsyncGenerator<StreamChunk> {
   let nextIndex = 0

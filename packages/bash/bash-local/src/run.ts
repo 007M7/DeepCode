@@ -56,6 +56,8 @@ export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
  * by in-process plugins (the hooks bridges), not the model — `dsh-tool-bash`
  * builds its request from named fields only and does not forward model input
  * here (see its README, § "The tool builds its request from named args only").
+ * @param extra - caller-supplied entries merged last; an explicit entry wins even against the scrub and the overrides.
+ * @returns the environment to hand to `spawn` for the child process.
  */
 export function childEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
@@ -147,6 +149,14 @@ export class OutputCollector {
     private readonly spillDir: string,
   ) {}
 
+  /**
+   * Ingest one stream chunk, counting it toward the whole-stream total. On
+   * first overflow of the in-memory cap a spill file is opened and every chunk
+   * (already-collected ones included) is appended there from then on; the
+   * in-memory tail then drops whole chunks from its head (or the head of a
+   * single over-cap chunk) until it fits the cap again.
+   * @param chunk - the raw bytes from one stream 'data' event.
+   */
   push(chunk: Buffer): void {
     this.total += chunk.length
     const overflows = this.bytes + chunk.length > this.maxBytes
@@ -190,7 +200,10 @@ export class OutputCollector {
   // the bottom of this file) and `totalBytes` is read only by a test. The live
   // background-poll path goes through `readFrom()`, so inline snapshot() into
   // finalize() and drop or privatize the totalBytes getter.
-  /** Read the collected tail without finalizing (the final-result snapshot). */
+  /**
+   * Read the collected tail without finalizing (the final-result snapshot).
+   * @returns the retained tail text, the truncation flag, and the spill path when one was created.
+   */
   snapshot(): CollectedOutput {
     return {
       text: Buffer.concat(this.chunks).toString('utf8'),
@@ -209,6 +222,8 @@ export class OutputCollector {
    * pushed since `fromByte`. When `fromByte` has already slid out of the
    * in-memory tail window, the read is `lossy` — it returns the whole
    * retained tail and the gap is only recoverable from the spill file.
+   * @param fromByte - whole-stream offset to resume from (a prior read's `nextOffset`; 0 for the first read).
+   * @returns the delta text, the offset for the next read, the `lossy` flag, and the spill path when one was created.
    */
   readFrom(fromByte: number): { text: string; nextOffset: number; lossy: boolean; spillPath?: string } {
     const windowStart = this.total - this.bytes
@@ -223,7 +238,12 @@ export class OutputCollector {
     }
   }
 
-  /** Close the spill file (if any) and return the final output. */
+  /**
+   * Close the spill file (if any) and return the final output. A failed close
+   * (delayed writeback fault) stops advertising the spill path — the file may
+   * be missing its tail — but still returns the in-memory result.
+   * @returns the final collected output: tail text, truncation flag, and the spill path when intact.
+   */
   finalize(): CollectedOutput {
     if (this.spillFd !== undefined) {
       try {
@@ -249,6 +269,8 @@ export class OutputCollector {
  * host process — a kill that cannot be delivered is reported by the process
  * NOT dying, which callers already handle via escalation/timeouts. No-op for
  * non-positive pids (spawn never started a process).
+ * @param pid - the group leader's pid; non-positive means the spawn failed and the call is a no-op.
+ * @param sig - the signal to deliver to the whole group.
  */
 export function killGroup(pid: number, sig: NodeJS.Signals): void {
   if (pid <= 0) return
@@ -290,6 +312,9 @@ export interface RunningBash {
  * exec sessions addressable via session ids + stdin writes. We deliberately
  * spawn a fresh non-login `bash -c` per call for determinism (no rc files,
  * no inherited shell state); revisit when real workflows demand it.
+ * @param spec - the fully-resolved run (command, cwd, limits); no defaulting happens here.
+ * @param internals - test-only knobs; omitted fields fall back to the private per-process spill dir.
+ * @returns the live handle: pid, the two live collectors, the outcome promise, and `kill()`.
  */
 export function runBash(spec: SpawnSpec, internals: RunInternals = {}): RunningBash {
   const spillDir = internals.spillDir ?? privateSpillDir()

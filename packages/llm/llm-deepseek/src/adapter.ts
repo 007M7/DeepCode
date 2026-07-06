@@ -13,7 +13,9 @@ import { parseSse } from './sse.ts'
 import { translate } from './translate.ts'
 import type { WireError } from './types.ts'
 
+/** Constructor options for {@link DeepSeekAdapter}; the plugin's `apply` resolves them from Config + environment. */
 export interface DeepSeekAdapterOptions {
+  /** Bearer token sent in the `authorization` header on every request. */
   apiKey: string
   /** Endpoint base; `/chat/completions` is appended. */
   baseURL: string
@@ -21,7 +23,11 @@ export interface DeepSeekAdapterOptions {
   defaults?: RequestDefaults
 }
 
-/** Map an HTTP status to a stable LlmError code. */
+/**
+ * Map an HTTP status to a stable LlmError code.
+ * @param status - status of a non-2xx provider response.
+ * @returns `AUTH` (401/403), `RATE_LIMIT` (429), `INVALID_REQUEST` (400), `SERVER` (5xx), or `HTTP_<status>` for anything else.
+ */
 export function httpErrorCode(status: number): string {
   if (status === 401 || status === 403) return 'AUTH'
   if (status === 429) return 'RATE_LIMIT'

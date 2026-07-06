@@ -45,6 +45,9 @@ declare module 'cordis' {
  *
  * The comparison includes the full event payload, not just seq/type/time, so a
  * mutated seed cannot be grafted onto a durable log with the same envelope.
+ * @param seed - the live session's creation-time event snapshot.
+ * @param prefix - the persisted prefix the seed must reproduce.
+ * @returns `true` when the prefix fits within the seed and every event matches by JSON text.
  */
 export function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly SessionEvent[]): boolean {
   return prefix.length <= seed.length
@@ -58,6 +61,7 @@ export function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly
  * Reject non-JSON-serializable event data before a backend serializes a batch.
  * Live session appends already enforce this; persistence append paths also
  * accept replay/fork batches that may bypass a live session instance.
+ * @param events - the batch to validate; throws naming the offending event's type and seq.
  */
 export function assertSerializable(events: readonly SessionEvent[]): void {
   for (const event of events) {
