@@ -196,6 +196,26 @@ export function apply(ctx: Context, config: Config): void {}
 `,
     }))).toThrow(/config type 'Config' is imported from '@fix\/dep'/)
   })
+
+  it('hard-errors when one name resolves to two different declarations across the closure', () => {
+    expect(() => collectConfigCatalog(make({
+      'src/index.ts': `import type { Context } from 'cordis'
+import type { A } from './a.ts'
+import type { B } from './b.ts'
+/** Fixture config. */
+export interface Config {
+  /** A. */
+  a?: A
+  /** B. */
+  b?: B
+}
+/** Load. */
+export function apply(ctx: Context, config: Config): void {}
+`,
+      'src/a.ts': '/** First Option. */\nexport interface Option {\n  /** X. */\n  x?: string\n}\n/** A. */\nexport interface A {\n  /** O. */\n  o?: Option\n}\n',
+      'src/b.ts': '/** Second Option. */\nexport interface Option {\n  /** Y. */\n  y?: string\n}\n/** B. */\nexport interface B {\n  /** O. */\n  o?: Option\n}\n',
+    }))).toThrow(/type name 'Option' resolves to two different declarations/)
+  })
 })
 
 describe('gen-config-catalog schema cross-check', () => {

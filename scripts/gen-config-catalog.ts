@@ -41,7 +41,10 @@
  * - Every type NAME a pasted declaration references resolves: pasted
  *   transitively when package-local, linked when it is another plugin's
  *   config type / a core-data-structures entry / a workspace or external
- *   import. An unresolvable name is an error, never silently unexplained.
+ *   import. An unresolvable name is an error, and so is a NAME COLLISION —
+ *   two distinct declarations, or a declaration and an import, sharing one
+ *   name across the closure (a verbatim fence has a single flat namespace) —
+ *   never a silent skip.
  * - The runtime schemastery schema (`Config` export or `static Config`),
  *   when present, is walked statically — `z.object` keys, nested object/array
  *   compositions as key PATHS (`agents[].id`), and `z.intersect` composition
@@ -700,28 +703,54 @@ export function collectConfigCatalog(scanRoot: string = root): CatalogEntry[] {
     entry.configTypeName = typeName
     const pastes: Paste[] = []
     const refs = new Map<string, TypeRef>()
-    const pastedNames = new Set<string>()
+    // A bare name is the fence's whole namespace: two DIFFERENT declarations
+    // (or a declaration in one file and an import in another) sharing a name
+    // cannot both render unambiguously, so every resolution is identity-checked
+    // by source pointer and a collision is a violation, never a silent skip.
+    const pastedDeclByName = new Map<string, string>()
     const queue: { name: string; from: FileCtx }[] = [{ name: typeName, from: ctx }]
     for (let item = queue.shift(); item !== undefined; item = queue.shift()) {
       const { name, from } = item
-      if (pastedNames.has(name)) continue
       const resolved = resolveTypeName(from, name, cache, violations)
       if (resolved === null) {
         violations.push(`${pkg}: config declaration references '${name}' (via ${from.rel}), which is neither declared in the package, imported, nor a known global type.`)
         continue
       }
       if ('ref' in resolved) {
-        if (name === typeName) violations.push(`${pkg}: config type '${name}' is imported from '${resolved.ref.specifier}'; a plugin's config type must live in its own package.`)
-        else refs.set(name, resolved.ref)
+        if (name === typeName) {
+          violations.push(`${pkg}: config type '${name}' is imported from '${resolved.ref.specifier}'; a plugin's config type must live in its own package.`)
+          continue
+        }
+        if (pastedDeclByName.has(name)) {
+          violations.push(`${pkg}: '${name}' resolves to a package-local declaration (${pastedDeclByName.get(name) ?? ''}) in one file and an import from '${resolved.ref.specifier}' in another; rename one so the fence is unambiguous.`)
+          continue
+        }
+        const existing = refs.get(name)
+        if (existing && (existing.specifier !== resolved.ref.specifier || existing.imported !== resolved.ref.imported)) {
+          violations.push(`${pkg}: '${name}' is imported from both '${existing.specifier}' (${existing.imported}) and '${resolved.ref.specifier}' (${resolved.ref.imported}) across the pasted closure; disambiguate the aliases.`)
+          continue
+        }
+        refs.set(name, resolved.ref)
         continue
       }
-      pastedNames.add(name)
-      pastes.push({ text: pasteText(resolved.ctx, resolved.decl), source: pointer(resolved.ctx.rel, resolved.ctx.sf, resolved.decl) })
+      const declKey = pointer(resolved.ctx.rel, resolved.ctx.sf, resolved.decl)
+      const prior = pastedDeclByName.get(name)
+      if (prior === declKey) continue // same declaration reached again — benign
+      if (prior !== undefined) {
+        violations.push(`${pkg}: type name '${name}' resolves to two different declarations (${prior} and ${declKey}) across the pasted closure; rename one — a verbatim fence cannot carry two same-named declarations.`)
+        continue
+      }
+      if (refs.has(name)) {
+        violations.push(`${pkg}: '${name}' resolves to an import from '${refs.get(name)?.specifier ?? ''}' in one file and a package-local declaration (${declKey}) in another; rename one so the fence is unambiguous.`)
+        continue
+      }
+      pastedDeclByName.set(name, declKey)
+      pastes.push({ text: pasteText(resolved.ctx, resolved.decl), source: declKey })
       checkMemberDocs(resolved.ctx, resolved.decl, violations)
       const names = new Set<string>()
       collectTypeNames(resolved.decl, names)
       for (const n of names) {
-        if (GLOBAL_TYPES.has(n) || pastedNames.has(n)) continue
+        if (GLOBAL_TYPES.has(n)) continue
         queue.push({ name: n, from: resolved.ctx })
       }
     }
