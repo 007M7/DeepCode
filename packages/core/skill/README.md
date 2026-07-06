@@ -8,7 +8,7 @@ Agent skill discovery and model-facing skill guidance.
 
 - `ctx.skills.list({ cwd? })` Returns model-invocable skill summaries for the current workspace.
 - `ctx.skills.get(name, { cwd? })` Returns the full skill, including disabled-for-model skills.
-- `ctx.skills.register(skill): () => void` Registers a runtime skill, disposed with the calling fiber.
+- `ctx.skills.register(skill): () => void` Registers a runtime skill, disposed with the calling fiber. Same-name runtime registrations are first-wins: a duplicate logs a warning and gets a no-op disposer.
 
 ### Config
 
@@ -18,7 +18,7 @@ Agent skill discovery and model-facing skill guidance.
 | `agentsHome` | `$DSH_AGENTS_HOME` or `~/.agents` | Shared agent config root scanned for compatible skills. |
 | `extraRoots` | `[]` | Additional skill roots scanned after user roots and before system skills. |
 | `installSystemSkills` | `true` | Whether startup materializes bundled system skills under `dshHome`. |
-| `promptFieldMaxLength` | `500` | Maximum rendered `description` / `whenToUse` length in the prompt listing. |
+| `promptFieldMaxLength` | `500` | Maximum rendered `description` / `whenToUse` length in the prompt listing; must be at least `3` because truncated fields reserve `...`. |
 | `collectCacheMaxEntries` | `128` | Maximum cwd/root discovery promises kept in memory. |
 
 ### Discovery
@@ -39,7 +39,7 @@ The project root is the nearest ancestor containing `.git`; without one, the cur
 
 When `ctx.fs` is available, discovery lists roots through `ctx.fs.listDir`, reads skill files through `ctx.fs.readText`, and installs system skills through `ctx.fs.writeText`. Without a filesystem service, the package falls back to Node filesystem I/O so the service can still run in minimal test contexts. Missing, unreadable, or malformed skill files warn and skip instead of failing the whole request.
 
-Discovery is memoized per resolved root set and runtime-skill revision. Runtime `register()` and disposer calls invalidate the cache; disk-only changes are picked up on the next invalidation or process restart.
+Discovery is memoized per resolved root set and runtime-skill revision. Runtime `register()` and active disposer calls invalidate the cache; duplicate runtime registrations do not alter the active set. Disk-only changes are picked up on the next invalidation or process restart.
 
 ## Skill Format
 

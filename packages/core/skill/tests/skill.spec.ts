@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mkdir, readdir, readFile, stat, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -335,6 +335,12 @@ describe('SkillService', () => {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
       installSystemSkills: false,
+      promptFieldMaxLength: 2,
+    })).rejects.toThrow('greater than or equal to 3')
+    await expect(ctx.plugin(SkillService, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      installSystemSkills: false,
       collectCacheMaxEntries: 1.5,
     })).rejects.toThrow('collectCacheMaxEntries')
   })
@@ -659,6 +665,44 @@ describe('SkillService', () => {
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['manual-dispose'])
     dispose()
     expect(await ctx.skills.list()).toEqual([])
+  })
+
+  it('keeps the first runtime skill when a duplicate name is registered', async () => {
+    const home = await tempDir('skill-runtime-duplicate')
+    const ctx = new Context()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    await ctx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false })
+
+    const firstDispose = ctx.skills.register({
+      name: 'same-runtime',
+      description: 'first',
+      content: 'First body.',
+      directory: 'memory://first',
+      source: 'runtime',
+    })
+    const duplicateDispose = ctx.skills.register({
+      name: 'same-runtime',
+      description: 'second',
+      content: 'Second body.',
+      directory: 'memory://second',
+      source: 'runtime',
+    })
+
+    await expect(ctx.skills.get('same-runtime')).resolves.toMatchObject({
+      description: 'first',
+      content: 'First body.',
+      directory: 'memory://first',
+    })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('runtime skill "same-runtime"'))
+
+    duplicateDispose()
+    await expect(ctx.skills.get('same-runtime')).resolves.toMatchObject({
+      description: 'first',
+      content: 'First body.',
+    })
+
+    firstDispose()
+    await expect(ctx.skills.get('same-runtime')).resolves.toBeUndefined()
   })
 
   it('rejects invalid runtime skill registrations', async () => {

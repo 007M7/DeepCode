@@ -75,7 +75,7 @@ export interface Config {
   extraRoots?: string[]
   /** Ensure bundled system skills exist under `<dshHome>/skills/.system`. Defaults true. */
   installSystemSkills?: boolean
-  /** Maximum rendered description/whenToUse length in the prompt listing. */
+  /** Maximum rendered description/whenToUse length in the prompt listing; minimum 3. */
   promptFieldMaxLength?: number
   /** Maximum number of cwd/root discovery promises kept in the in-memory cache. */
   collectCacheMaxEntries?: number
@@ -159,7 +159,7 @@ export class SkillService extends Service {
     this.installSystemSkills = config.installSystemSkills ?? true
     this.promptFieldMaxLength = config.promptFieldMaxLength ?? DEFAULT_PROMPT_FIELD_LENGTH
     this.collectCacheMaxEntries = config.collectCacheMaxEntries ?? DEFAULT_COLLECT_CACHE_ENTRIES
-    assertPositiveInteger('promptFieldMaxLength', this.promptFieldMaxLength)
+    assertPositiveInteger('promptFieldMaxLength', this.promptFieldMaxLength, 3)
     assertPositiveInteger('collectCacheMaxEntries', this.collectCacheMaxEntries)
     if (this.installSystemSkills) {
       const systemRoot = join(this.dshHome, 'skills/.system')
@@ -178,11 +178,18 @@ export class SkillService extends Service {
 
   /**
    * Register a runtime skill contribution.
+   * Same-name runtime registrations are first-wins: a duplicate logs a warning
+   * and returns a no-op disposer so it cannot remove the active contribution.
    * @param skill - the complete skill definition to expose for discovery.
-   * @returns a disposer that removes the runtime skill and invalidates caches.
+   * @returns a disposer that removes this runtime contribution and invalidates caches.
    */
   register(skill: SkillRegistration): () => void {
     const normalized = normalizeSkill(skill)
+    const existing = this.runtime.get(normalized.name)
+    if (existing !== undefined) {
+      this.ctx.logger.warn(`runtime skill "${normalized.name}" from ${normalized.source} ignored because it is already registered from ${existing.source}`)
+      return () => {}
+    }
     const dispose = this.ctx.effect(function* (this: SkillService) {
       this.runtime.set(normalized.name, normalized)
       this.invalidateCache()
@@ -587,9 +594,9 @@ function promptLine(value: string, maxLength: number): string {
   return escapeText(truncated)
 }
 
-function assertPositiveInteger(name: string, value: number): void {
-  if (!Number.isInteger(value) || value < 1) {
-    throw new Error(`skill: ${name} must be a positive integer`)
+function assertPositiveInteger(name: string, value: number, minimum = 1): void {
+  if (!Number.isInteger(value) || value < minimum) {
+    throw new Error(`skill: ${name} must be an integer greater than or equal to ${minimum}`)
   }
 }
 

@@ -71,7 +71,7 @@ interface SkillLookupOptions {
 }
 ```
 
-The service can be pointed at alternate user roots in tests or deployments. `installSystemSkills` controls whether bundled system skills are materialized under `<dshHome>/skills/.system` on startup.
+The service can be pointed at alternate user roots in tests or deployments. `installSystemSkills` controls whether bundled system skills are materialized under `<dshHome>/skills/.system` on startup. `promptFieldMaxLength` must be at least `3`, matching the `...` truncation suffix reserved in rendered prompt fields.
 
 ```ts type-equiv
 interface Config {
