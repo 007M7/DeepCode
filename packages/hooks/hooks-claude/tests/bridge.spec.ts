@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, type Fiber } from 'cordis'
@@ -314,13 +314,14 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
   it('disposing the bridge aborts a still-running hook and drains to quiescence', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-'))
     dirs.push(dir)
+    const pidFile = join(dir, 'pid')
     const marker = join(dir, 'started')
     const slowHook = join(dir, 'slow.sh')
-    // Touch the marker FIRST so the test can tell "the hook is genuinely
-    // mid-run", then sleep far past the suite timeout: dispose resolving at all
-    // proves the drain KILLED the process (the tracker's abort signal) instead
-    // of awaiting its exit or its 10-minute default hook timeout.
-    writeFileSync(slowHook, `#!/usr/bin/env bash\ntouch "${marker}"\nsleep 30\n`)
+    // Record the hook shell's PID and touch the marker FIRST so the test can
+    // tell "the hook is genuinely mid-run", then sleep far past the suite
+    // timeout. Dispose must KILL the process (the tracker's abort signal), not
+    // await its exit or its 10-minute default hook timeout.
+    writeFileSync(slowHook, `#!/usr/bin/env bash\necho $$ > "${pidFile}"\ntouch "${marker}"\nsleep 30\n`)
     chmodSync(slowHook, 0o755)
     writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: {
       SubagentStart: [{ hooks: [{ type: 'command', command: slowHook }] }],
@@ -331,7 +332,14 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     ctx.logger.warn = warn as never
     ctx.emit('subagent/start', { provider: 'inproc', id: AgentId('child-1') })
     await waitFor(() => existsSync(marker))
+    const pid = Number(readFileSync(pidFile, 'utf8').trim())
     await hooks.dispose()
+    // Quiescence, not just promptness: the drain resolves only after the run
+    // settled, and the run settles only after the killed process was reaped —
+    // so by the time dispose returns, the PID must be GONE (kill(pid, 0)
+    // throws ESRCH). An untracked fire-and-forget regression would leave the
+    // process alive (or unreaped) and fail this deterministically.
+    expect(() => process.kill(pid, 0)).toThrow()
     // The aborted run resolves as a non-blocking error (runHook never rejects),
     // so the drained continuation must NOT have logged a failure.
     expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('SubagentStart hook failed'))

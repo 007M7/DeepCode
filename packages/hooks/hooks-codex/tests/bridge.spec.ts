@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from 'cordis'
@@ -170,12 +170,13 @@ describe('hooks-codex bridge', () => {
 
   it('disposing the bridge aborts a still-running SessionStart hook and drains to quiescence', async () => {
     const dir = configDir()
+    const pidFile = join(dir, 'pid')
     const marker = join(dir, 'started')
-    // Touch the marker FIRST so the test can tell "the hook is genuinely
-    // mid-run", then sleep far past the suite timeout: dispose resolving at all
-    // proves the drain KILLED the process (the tracker's abort signal wired
-    // through this bridge's runPoint) instead of awaiting its exit.
-    const slow = script(dir, 'slow.sh', `#!/usr/bin/env bash\ntouch "${marker}"\nsleep 30\n`)
+    // Record the hook shell's PID and touch the marker FIRST so the test can
+    // tell "the hook is genuinely mid-run", then sleep far past the suite
+    // timeout. Dispose must KILL the process (the tracker's abort signal wired
+    // through this bridge's runPoint), not await its exit.
+    const slow = script(dir, 'slow.sh', `#!/usr/bin/env bash\necho $$ > "${pidFile}"\ntouch "${marker}"\nsleep 30\n`)
     writeHooks(dir, { SessionStart: [{ hooks: [{ type: 'command', command: slow }] }] })
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -191,7 +192,14 @@ describe('hooks-codex bridge', () => {
     ctx.logger.warn = warn as never
     ctx.agentLoop.create(AgentId('a1'), { model: 'mock' }) // fires agent/session-start
     await waitFor(() => existsSync(marker))
+    const pid = Number(readFileSync(pidFile, 'utf8').trim())
     await fiber.dispose()
+    // Quiescence, not just promptness: the drain resolves only after the run
+    // settled, and the run settles only after the killed process was reaped —
+    // so by the time dispose returns, the PID must be GONE (kill(pid, 0)
+    // throws ESRCH). An untracked fire-and-forget regression would leave the
+    // process alive (or unreaped) and fail this deterministically.
+    expect(() => process.kill(pid, 0)).toThrow()
     // The aborted run resolves as a non-blocking error (runHook never rejects),
     // so the drained continuation must NOT have logged a failure.
     expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('SessionStart hook failed'))
