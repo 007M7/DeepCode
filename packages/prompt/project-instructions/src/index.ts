@@ -17,7 +17,6 @@ import { DEFAULT_DSH_HOME_DISPLAY, defaultDshHome, resolveDshHome } from '@deeps
 import type { PostToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 
 export const name = 'project-instructions'
-export const inject = ['fs']
 
 const DEFAULT_BASELINE_MAX_BYTES = 64 * 1024
 const DEFAULT_PROJECT_ROOT_MARKERS = ['.git'] as const
@@ -154,16 +153,14 @@ async function nodeStatFile(path: string): Promise<FileSignature | undefined> {
 }
 
 async function fsStatFile(path: string, fileSystem: FileSystem): Promise<DiscoveredInstructionFile['signature'] & { target: FsTarget } | undefined> {
-  const noFollow = await nodeStatFile(path)
-  if (noFollow === undefined) return undefined
   try {
     const target = await fileSystem.resolve(path)
     const info = await fileSystem.stat(target)
     if (info?.type !== 'file') return undefined
-    return { version: info.version, size: info.size ?? noFollow.size, target }
+    return { version: info.version, size: info.size, target }
   } catch {
-    // Expected race/absence: the no-follow check passed, but the backing fs
-    // provider could no longer resolve/stat the target. Treat it as not loadable.
+    // Expected race/absence: a candidate file may not exist, or may disappear
+    // between directory discovery and provider stat. Treat it as not loadable.
     return undefined
   }
 }
@@ -594,6 +591,8 @@ export function apply(ctx: Context, config: Config): void {
   const pendingNestedDisplayPaths = new WeakMap<object, Set<string>>()
   ctx.on('agent/request', async (agent: Agent, _turn: number, _step: number, request: GenerateOptions, next) => {
     if (resolved.baselineMaxBytes <= 0 || !Number.isFinite(resolved.baselineMaxBytes)) return next()
+    const fileSystem = ctx.get('fs')
+    if (fileSystem === undefined) return next()
     /* v8 ignore next -- stdio compatibility fallback; tests avoid process.chdir() because cwd is process-global. */
     const cwd = agent.session.header.cwd ?? process.cwd()
     const instructions = await loadBaselineInstructions({
@@ -603,7 +602,7 @@ export function apply(ctx: Context, config: Config): void {
       baselineMaxBytes: resolved.baselineMaxBytes,
       instructionFileCandidates: resolved.instructionFileCandidates,
       cache,
-    }, ctx.fs)
+    }, fileSystem)
     if (instructions !== undefined) {
       request.messages = [workspaceContextMessage(instructions.text), ...request.messages]
     }
@@ -612,7 +611,9 @@ export function apply(ctx: Context, config: Config): void {
   ctx.on('tools/post-execute', async (exec: ToolExecution, result: ToolExecutionResult, next): Promise<PostToolDecision> => {
     const downstream = await next()
     if (downstream.kind === 'block') return downstream
-    const context = await dynamicInstructionContext(exec.agent, exec, result, resolved, cache, pendingNestedDisplayPaths, ctx.fs)
+    const fileSystem = ctx.get('fs')
+    if (fileSystem === undefined) return downstream
+    const context = await dynamicInstructionContext(exec.agent, exec, result, resolved, cache, pendingNestedDisplayPaths, fileSystem)
     if (context === undefined) return downstream
     return {
       kind: 'accept',

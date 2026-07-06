@@ -1,5 +1,5 @@
 import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
@@ -567,6 +567,72 @@ describe('project instruction rendering', () => {
 })
 
 describe('project instruction request injection', () => {
+  it('mounts without requiring a filesystem provider', async () => {
+    const ctx = new Context()
+    try {
+      const outcome = await Promise.race([
+        ctx.plugin(projectInstructions, {}).then(() => {
+          return 'settled' as const
+        }),
+        new Promise<'pending'>((resolve) => {
+          setTimeout(() => {
+            resolve('pending')
+          }, 50)
+        }),
+      ])
+
+      expect(outcome).toBe('settled')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('does not declare fs as a static inject dependency', () => {
+    expect('inject' in projectInstructions).toBe(false)
+  })
+
+  it('leaves requests unchanged when no filesystem provider is present', async () => {
+    const ctx = new Context()
+    try {
+      await ctx.plugin(projectInstructions, {})
+      const request: GenerateOptions = {
+        model: 'mock',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
+      }
+
+      const result = await ctx.waterfall('agent/request', stubAgent('/virtual/repo'), 1, 1, request, async () => request)
+
+      expect(result.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }])
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('leaves post-execute decisions unchanged when no filesystem provider is present', async () => {
+    const ctx = new Context()
+    try {
+      await ctx.plugin(projectInstructions, {})
+
+      const decision = await ctx.waterfall('tools/post-execute', {
+        callId: CallId('no-fs-post-execute'),
+        name: 'read',
+        arguments: { file_path: 'pkg/file.txt' },
+        agent: stubAgent('/virtual/repo'),
+      }, {
+        callId: CallId('no-fs-post-execute'),
+        isError: false,
+        content: [{ type: 'text', text: 'file content' }],
+      }, async () => ({
+        kind: 'accept',
+        content: [{ type: 'text', text: 'downstream content' }],
+      }))
+
+      expect(decision).toEqual({ kind: 'accept', content: [{ type: 'text', text: 'downstream content' }] })
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('prepends a synthetic user workspace-context message without mutating the system prompt', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
@@ -623,6 +689,32 @@ describe('project instruction request injection', () => {
     }
   })
 
+  it('loads provider-visible instruction files that do not exist on the host filesystem', async () => {
+    const root = join(await tempRepo(), 'virtual-repo')
+    const home = join(await tempRepo(), 'virtual-home')
+    const ctx = new Context()
+    try {
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'provider-only rule' })
+      await ctx.plugin(projectInstructions, { dshHome: home })
+
+      const request: GenerateOptions = {
+        model: 'mock',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
+      }
+      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+
+      expect(firstText(result.messages[0])).toContain('provider-only rule')
+      expect(fs.readTargets).toEqual([join(root, 'AGENTS.md')])
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(dirname(root), { recursive: true, force: true })
+      await rm(dirname(home), { recursive: true, force: true })
+    }
+  })
+
   it('loads user-global and CLAUDE fallback content through ctx.fs', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
@@ -654,7 +746,7 @@ describe('project instruction request injection', () => {
     }
   })
 
-  it('skips lstat-visible instruction files when ctx.fs reports a non-file target', async () => {
+  it('skips provider-visible instruction candidates when ctx.fs reports a non-file target', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -706,7 +798,7 @@ describe('project instruction request injection', () => {
     }
   })
 
-  it('skips lstat-visible instruction files when ctx.fs cannot stat them', async () => {
+  it('skips provider-visible instruction candidates when ctx.fs cannot stat them', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {

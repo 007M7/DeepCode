@@ -56,6 +56,19 @@ async function waitForStdout(running: RunningBash, expected: string, timeoutMs =
   throw new Error(`stdout did not include ${JSON.stringify(expected)} after ${timeoutMs}ms`)
 }
 
+async function waitForFileText(path: string, timeoutMs = 5_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      return readFileSync(path, 'utf8')
+    } catch (error: unknown) {
+      if (typeof error !== 'object' || error === null || !('code' in error) || error.code !== 'ENOENT') throw error
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+  }
+  throw new Error(`file ${path} did not appear after ${timeoutMs}ms`)
+}
+
 describe('runBash', () => {
   it('captures stdout on success', async () => {
     const result = await runBash(spec('echo hello')).done
@@ -119,8 +132,7 @@ describe('runBash', () => {
     // group must take the sleep down with bash.
     const pidFile = join(spillDir, `grandchild-${Date.now()}.pid`)
     const running = runBash(spec(`sleep 60 & echo $! > ${pidFile}; wait`))
-    await new Promise(resolve => setTimeout(resolve, 300))
-    const grandchild = Number(readFileSync(pidFile, 'utf8').trim())
+    const grandchild = Number((await waitForFileText(pidFile)).trim())
     expect(grandchild).toBeGreaterThan(0)
 
     running.kill()
