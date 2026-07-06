@@ -142,28 +142,51 @@ function registerRuntime(root: Context, runtime: StructuredRuntime): void {
   // The registered parameters are a PLACEHOLDER: the request listener below
   // swaps in the run's real schema per child, and strips the tool entirely for
   // every agent without a structured run — so this shape is never model-visible.
-  runtime.disposers.push(root.tools.register({
-    name: STRUCTURED_OUTPUT_TOOL,
-    description:
-      'Report your final structured result. Call this exactly once, when your answer is complete; '
-      + 'the arguments must match this tool\'s parameter schema exactly.',
-    parameters: { type: 'object', properties: {} },
-    execute(args: unknown, exec: ToolExecution): Promise<ContentBlock[]> {
-      const state = exec.agent ? runtime.states.get(exec.agent) : undefined
-      if (!state) {
-        // Reachable only if a non-structured agent somehow calls the tool (the
-        // request listener strips it, so the model never sees it) — fail loud
-        // rather than capture into nowhere.
-        throw new Error(`${STRUCTURED_OUTPUT_TOOL} is only available to subagents started with an output schema`)
-      }
-      const violations = validateStructuredValue(state.schema, args)
-      // ToolArgsError → isError result with INVALID_ARGS: the model retries
-      // within the same turn, exactly like a schema-validated defineTool call.
-      if (violations.length > 0) throw new ToolArgsError(violations)
-      state.captured = { value: args }
-      return Promise.resolve([{ type: 'text', text: 'Structured output recorded.' }])
-    },
-  }))
+  //
+  // Registration does NOT ride on the acquiring backend's plugin-level
+  // `inject`: a backend that waited on `tools` would apply later than it did
+  // before this module existed, shifting when its PROVIDER registers — and the
+  // delegation tool mirrors provider lifecycle, so that shift would reorder
+  // the model-visible tool list of every existing prompt. Instead the capture
+  // tool registers synchronously when `tools` is already live (the common
+  // case), and through a scoped inject fiber when the Loader happens to start
+  // the backend first. Either way the registration lands on root and is
+  // disposed by the runtime's refcount; disposing the fiber also covers the
+  // never-activated case.
+  let disposeTool: (() => void) | undefined
+  const registerCapture = (tools: Context['tools']): void => {
+    disposeTool = tools.register({
+      name: STRUCTURED_OUTPUT_TOOL,
+      description:
+        'Report your final structured result. Call this exactly once, when your answer is complete; '
+        + 'the arguments must match this tool\'s parameter schema exactly.',
+      parameters: { type: 'object', properties: {} },
+      execute(args: unknown, exec: ToolExecution): Promise<ContentBlock[]> {
+        const state = exec.agent ? runtime.states.get(exec.agent) : undefined
+        if (!state) {
+          // Reachable only if a non-structured agent somehow calls the tool (the
+          // request listener strips it, so the model never sees it) — fail loud
+          // rather than capture into nowhere.
+          throw new Error(`${STRUCTURED_OUTPUT_TOOL} is only available to subagents started with an output schema`)
+        }
+        const violations = validateStructuredValue(state.schema, args)
+        // ToolArgsError → isError result with INVALID_ARGS: the model retries
+        // within the same turn, exactly like a schema-validated defineTool call.
+        if (violations.length > 0) throw new ToolArgsError(violations)
+        state.captured = { value: args }
+        return Promise.resolve([{ type: 'text', text: 'Structured output recorded.' }])
+      },
+    })
+  }
+  const liveTools = root.get('tools')
+  const toolsFiber = liveTools ? undefined : root.inject(['tools'], (childCtx: Context) => {
+    registerCapture(childCtx.root.tools)
+  })
+  if (liveTools) registerCapture(liveTools)
+  runtime.disposers.push(() => {
+    disposeTool?.()
+    void toolsFiber?.dispose()
+  })
 
   // FINAL-ASSEMBLY enforcement (prepend: true = first registered = OUTERMOST
   // wrapper): post-process whatever the downstream listeners and the registry

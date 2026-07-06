@@ -170,8 +170,10 @@ describe('dsh-subagent-fork', () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
     await ctx.plugin(AgentRegistry)
-    // The backend injects 'tools' for the structured runtime, so the registry
-    // (and its systemPrompt dependency) must be live for the fiber to activate.
+    // The backend does NOT inject 'tools' (the structured runtime gates its
+    // capture-tool registration on tools availability itself, keeping backend
+    // apply timing — and the delegation tool's prompt position — unchanged);
+    // the registries are loaded here so the runtime registers eagerly anyway.
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     const fiber = await ctx.plugin(fork, { providerName: 'fork', structuredNudgeRetries: 1 })
@@ -183,12 +185,12 @@ describe('dsh-subagent-fork', () => {
   it('has the namespace-plugin export shape (no stray default)', () => {
     expect('default' in fork).toBe(false)
     expect(fork.name).toBe('subagent-fork')
-    expect(fork.inject).toEqual(['subagents', 'agents', 'tools'])
+    expect(fork.inject).toEqual(['subagents', 'agents'])
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(fork) as Record<string, unknown>
     expect(unwrapped).toBe(fork)
     expect(unwrapped.name).toBe('subagent-fork')
-    expect(unwrapped.inject).toEqual(['subagents', 'agents', 'tools'])
+    expect(unwrapped.inject).toEqual(['subagents', 'agents'])
     expect(typeof unwrapped.apply).toBe('function')
   })
 })

@@ -28,7 +28,11 @@ import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } fro
 import { acquireStructuredRuntime, startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
 
 export const name = 'subagent-fork'
-export const inject = ['subagents', 'agents', 'tools']
+// `tools` is deliberately NOT injected — same rationale as subagent-spawn: the
+// structured runtime gates its capture-tool registration on `tools` itself, so
+// this backend's apply timing (and the delegation tool's position in the
+// model-visible tool list) is unchanged by structured output.
+export const inject = ['subagents', 'agents']
 
 /** Config: the registry name to register the provider under, plus structured-run tuning. */
 export interface Config {

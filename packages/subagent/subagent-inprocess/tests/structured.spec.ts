@@ -420,6 +420,33 @@ describe('in-process structured output', () => {
       expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
     })
 
+    it('registers the capture tool through the scoped fiber when tools loads after the acquisition', async () => {
+      // The Loader starts sibling plugins concurrently, so a backend can
+      // acquire the runtime before dsh-tools has applied. The capture tool
+      // must then register as soon as `tools` exists — via the inject fiber,
+      // not by deferring the backend (which would reorder the prompt's tools).
+      const ctx = new Context()
+      const acquisition = acquireStructuredRuntime(ctx)
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRegistry)
+      // Fiber activation completes asynchronously after the service appears.
+      await new Promise(resolve => setImmediate(resolve))
+      expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeDefined()
+      acquisition.release()
+      expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
+    })
+
+    it('releasing before tools ever loads disposes the pending fiber without registering', async () => {
+      const ctx = new Context()
+      const acquisition = acquireStructuredRuntime(ctx)
+      acquisition.release()
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRegistry)
+      await new Promise(resolve => setImmediate(resolve))
+      // The disposed fiber never fires: nothing registers after the fact.
+      expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
+    })
+
     it('attach/captured/detach manage per-agent state through the acquisition surface', async () => {
       const { ctx, parent } = await setup([])
       const acquisition = acquireStructuredRuntime(ctx)
