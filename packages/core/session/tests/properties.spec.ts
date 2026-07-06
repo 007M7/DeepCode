@@ -109,15 +109,17 @@ describe('Session properties', () => {
     ))
   })
 
-  it('every derived message has a known role and decoupled content', () => {
+  it('every derived message has a known role and is frozen (append-only contract)', () => {
     fc.assert(fc.property(logArb, (events) => {
       const session = build(events)
       const messages = session.deriveMessages()
       const before = structuredClone(session.events)
       for (const m of messages) {
         expect(['user', 'assistant', 'system']).toContain(m.role)
-        // Mutating derived content must not touch the log (append-only).
-        m.content.push({ type: 'text', text: 'mutation' })
+        // Derived messages are frozen shared projections: mutation THROWS
+        // (strict mode) instead of relying on per-call clones for isolation.
+        expect(Object.isFrozen(m)).toBe(true)
+        expect(() => { m.content.push({ type: 'text', text: 'mutation' }) }).toThrow(TypeError)
       }
       expect(session.events).toEqual(before)
     }))

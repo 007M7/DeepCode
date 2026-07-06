@@ -1,5 +1,5 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { CallId, ContentBlock, MessageSource, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { CallId, ContentBlock, LlmCallConfig, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
 
 /** Identifies one session in the store (and its persistence artifacts). */
 export type SessionId = Branded<'SessionId'>
@@ -177,6 +177,67 @@ export interface TodoItem {
 }
 
 /**
+ * The request header: everything about an LLM request besides its message
+ * content — the call configuration plus the rendered system prompt and tool
+ * schemas. Logged session state (the reconstructability RFC): a
+ * {@link SessionEventMap} `request/header` snapshot installs one, a
+ * `request/header-delta` amends it, and folding those events over the log
+ * (`foldRequestHeader`) reconstructs the header any request was built under.
+ * Canonical form: an empty system prompt and an empty tool list are ABSENT
+ * fields, matching how requests are built.
+ */
+export interface EpochHeader {
+  /** The conversation's call configuration (model + sampling scalars). */
+  config: LlmCallConfig
+  /** Rendered system prompt text; absent for a system-less request. */
+  system?: string
+  /** Assembled tool schemas; absent for a tool-less request. */
+  tools?: ToolSchema[]
+}
+
+/**
+ * Why a `request/header` snapshot was appended: `'initial'` — the log's first
+ * header (a new conversation); `'resume'` — a loop instance's first request
+ * over a log that already has header events (process restart, fork seed);
+ * `'fallback'` — a mid-run change the delta encoding could not round-trip
+ * (e.g. a pure tool reordering), recorded whole instead.
+ */
+export type RequestHeaderReason = 'initial' | 'resume' | 'fallback'
+
+/**
+ * Line-level edit of the system prompt: keep the first `keepStart` and last
+ * `keepEnd` lines of the previous text, with `insert` replacing everything
+ * between. Computed as a common-prefix/common-suffix trim — deterministic,
+ * library-free, degenerating to a full replacement when nothing is shared.
+ * Absence is encoded as zero lines (the canonical form has no empty-string
+ * system), so a transition to or from "no system prompt" round-trips.
+ */
+export interface SystemDelta {
+  /** Lines kept from the start of the previous system prompt. */
+  keepStart: number
+  /** Lines kept from the end of the previous system prompt. */
+  keepEnd: number
+  /** Lines replacing everything between the kept edges. */
+  insert: string[]
+}
+
+/**
+ * Tool-set edit keyed by tool name (names are unique — the registry rejects
+ * duplicates): `removed` names drop, `changed` schemas replace their
+ * predecessor in place, `added` schemas append at the end. A change this
+ * encoding cannot express (a pure reordering) fails the writer's round-trip
+ * guard and is recorded as a `'fallback'` snapshot instead.
+ */
+export interface ToolsDelta {
+  /** Schemas appended to the end of the tool list. */
+  added: ToolSchema[]
+  /** Names of schemas dropped from the tool list. */
+  removed: string[]
+  /** Schemas replacing the same-named predecessor in place. */
+  changed: ToolSchema[]
+}
+
+/**
  * The session event vocabulary — the append-only source of truth for an
  * agent's whole interaction history. The LLM message history is *derived*
  * from this log; nothing else is authoritative. Replay = re-derive from the
@@ -274,6 +335,30 @@ export interface SessionEventMap {
    * cordis-catalog row.
    */
   'todo/write': { todos: TodoItem[] }
+  /**
+   * Full snapshot of the {@link EpochHeader} the NEXT request is built under,
+   * with the {@link RequestHeaderReason} it was recorded whole. Appended by
+   * the loop inside the step, before dispatch, on a loop instance's first
+   * request-building step (`'initial'`/`'resume'`) or when a delta failed its
+   * round-trip guard (`'fallback'`); always records what the request actually
+   * used, post-`agent/request`. Anchors the header fold: reconstruction reads
+   * the latest snapshot and applies the deltas after it. NOT a
+   * {@link SurfaceEventType}: it produces no LLM message — it is the request
+   * envelope, logged so every request is a pure function of the session log
+   * (the reconstructability RFC).
+   */
+  'request/header': { header: EpochHeader; reason: RequestHeaderReason }
+  /**
+   * Amendment to the folded {@link EpochHeader}: at least one of a
+   * {@link SystemDelta}, a {@link ToolsDelta}, or a whole replacement
+   * {@link LlmCallConfig} (four scalars — not worth diffing). Appended by the
+   * loop inside the step, before dispatch, when the header for this request
+   * differs from the fold of the log so far; the writer verifies
+   * `applyHeaderDelta(previous, delta)` reproduces the new header exactly and
+   * falls back to a `'fallback'` `request/header` snapshot when it cannot, so
+   * a logged delta ALWAYS round-trips. NOT a {@link SurfaceEventType}.
+   */
+  'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig }
 }
 
 export type SessionEventType = keyof SessionEventMap

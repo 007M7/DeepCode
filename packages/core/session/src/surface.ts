@@ -72,6 +72,9 @@ export class SurfaceManager {
   /** The last processed seq. -1 forces a full rebuild on first access. */
   private _lastProcessedSeq = -1
 
+  /** Rewrite generation — see {@link replaceGeneration}. */
+  private _replaceGeneration = 0
+
   constructor(private log: readonly SessionEvent[]) {}
 
   /**
@@ -83,6 +86,23 @@ export class SurfaceManager {
     this._lastProcessedSeq = -1
     this._nodes = []
     this._nodeBySeq.clear()
+    // A wholesale rebuild is a rewrite: bump the generation so incremental
+    // consumers (the session's derived-message cache) discard their view.
+    this._replaceGeneration += 1
+  }
+
+  /**
+   * The surface's rewrite generation: bumped by every folded `replace` op and
+   * by {@link invalidate}. A replace is the ONE operation that rewrites the
+   * surface non-monotonically, so an incremental consumer of {@link nodes}
+   * (the session's derived-message cache) compares this between visits — an
+   * unchanged generation guarantees every node it has not seen is a pure tail
+   * append; a changed one means its view must rebuild. Monotonic: it never
+   * moves backwards, so comparisons cannot be fooled by a re-fold.
+   */
+  get replaceGeneration(): number {
+    if (this._lastProcessedSeq < this.log.length - 1) this._processDelta()
+    return this._replaceGeneration
   }
 
   /** The surface nodes in linked-list order (head to tail). */
@@ -155,5 +175,6 @@ export class SurfaceManager {
     if (nextNode) nextNode.prev = newSeq
     this._nodes.splice(startIdx, 0, newNode)
     this._nodeBySeq.set(newSeq, newNode)
+    this._replaceGeneration += 1
   }
 }

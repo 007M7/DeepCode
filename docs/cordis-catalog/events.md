@@ -47,7 +47,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:394`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:404`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -89,15 +89,15 @@ Source: [`packages/core/agent/src/types.ts:273`](../../packages/core/agent/src/t
 
 ### `agent/request` — waterfall
 
-Waterfall: mutate the fully-assembled GenerateOptions before the model call (hooks, model switching, tool filtering, …). Call `next()` to delegate, or return without it to short-circuit. For surface mutation that must precede history derivation (compaction), use agent/pre-step instead — by the time this fires, `options.messages` is already derived.
+Waterfall: shape the step's call configuration — model switching, sampling overrides — by returning a replacement LlmCallConfig (the frozen seed is the config the loop would otherwise use). Config is ALL a listener shapes here: every request is a pure function of the session log (the reconstructability RFC), so model-visible content flows through the log channels — `inject()`, steering, prompt-submit `additionalContext`, prompt sections via `system-prompt/assemble` — never through request mutation, and the loop records whatever config the request actually uses as a `request/header*` event before dispatch. The step's messages are already snapshotted when this fires (the `step/start` boundary): an `inject()` from a listener here lands in the log but joins the NEXT request. For surface mutation that must precede the snapshot (compaction), use agent/pre-step. Call `next()` to delegate, or return an LlmCallConfig without it to short-circuit.
 
 ```ts cordis-catalog
-'agent/request'(agent: Agent, turn: number, step: number, options: GenerateOptions, next: () => Promise<GenerateOptions>): Promise<GenerateOptions>
+'agent/request'(agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:359`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:369`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -133,7 +133,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:369`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:379`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -145,7 +145,7 @@ Waterfall: override the turn-continuation decision via a typed ContinuationDecis
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:382`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:392`](../../packages/core/agent/src/types.ts)
 
 ## `fs/*`
 
@@ -189,7 +189,7 @@ Source: [`packages/fs/fs/src/index.ts:109`](../../packages/fs/fs/src/index.ts)
 
 ### `llm/stream` — waterfall
 
-Waterfall around every streaming model call (retry, caching, routing). Bound to the LlmService; call `next()` to reach the resolved adapter's stream, or yield your own chunks to short-circuit.
+Waterfall around every streaming model call (retry, replay, routing). Bound to the LlmService; call `next()` to reach the resolved adapter's stream, or yield your own chunks to short-circuit.
 
 ```ts cordis-catalog
 'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
@@ -197,7 +197,7 @@ Waterfall around every streaming model call (retry, caching, routing). Bound to 
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:33`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:39`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 
@@ -209,7 +209,7 @@ A session was created in the store.
 'session/created'(session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:36`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:39`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
@@ -221,7 +221,7 @@ An event was appended to a session log (sync, fire-and-forget). This is the per-
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:44`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:47`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -231,7 +231,7 @@ Awaited durability checkpoint. The agent loop awaits `ctx.parallel('session/flus
 'session/flush'(session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:54`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:57`](../../packages/core/session/src/index.ts)
 
 ## `subagent/*`
 
