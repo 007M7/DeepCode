@@ -10,13 +10,26 @@ async function setup(): Promise<{ ctx: Context; sessions: SessionStore }> {
   return { ctx, sessions: ctx.sessions }
 }
 
-function appendClosedTurn(session: Session, reason: TurnEndReason = { kind: 'completed' }): void {
-  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+function appendClosedTurn(
+  session: Session,
+  turn: number,
+  text = `hello ${turn}`,
+  reason: TurnEndReason = { kind: 'completed' },
+): void {
+  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
   session.append('user/message', {
-    content: [{ type: 'text', text: 'hello' }],
+    content: [{ type: 'text', text }],
     source: { kind: 'user' },
   }, { surfaceOp: 'append' })
-  session.append('turn/end', { turn: 1, reason })
+  session.append('turn/end', { turn, reason })
+}
+
+function appendOpenTurn(session: Session, turn: number): void {
+  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('user/message', {
+    content: [{ type: 'text', text: `open ${turn}` }],
+    source: { kind: 'user' },
+  }, { surfaceOp: 'append' })
 }
 
 function firstUserMessage(events: readonly SessionEvent[]): SessionEvent<'user/message'> {
@@ -25,43 +38,68 @@ function firstUserMessage(events: readonly SessionEvent[]): SessionEvent<'user/m
   return event
 }
 
-describe('SessionStore fork helpers', () => {
-  it('snapshots an empty live session as an empty seed with lineage metadata', async () => {
+function lastSeq(session: Session): number {
+  const event = session.events.at(-1)
+  if (event === undefined) throw new Error('missing last event')
+  return event.seq
+}
+
+describe('SessionStore.fork', () => {
+  it('forks an empty live session as an empty child with lineage metadata', async () => {
     const { ctx, sessions } = await setup()
     const source = ctx.sessions.create(SessionId('empty-parent'), { meta: { cwd: '/workspace' } })
 
-    const snapshot = sessions.snapshot(source)
+    const child = sessions.fork({ source, childSessionId: SessionId('empty-child') })
 
-    expect(snapshot.source).toBe(source)
-    expect(snapshot.seed).toEqual([])
-    expect(snapshot.meta).toEqual({
+    expect(child.events).toEqual([])
+    expect(child.header).toMatchObject({
+      id: SessionId('empty-child'),
       cwd: '/workspace',
       parentSession: SessionId('empty-parent'),
       seedLength: 0,
     })
   })
 
-  it('snapshots a completed boundary by live session id and deep-clones seed events', async () => {
+  it('forks the latest completed boundary by default and deep-clones seed events', async () => {
     const { ctx, sessions } = await setup()
     const source = ctx.sessions.create(SessionId('parent'), { meta: { cwd: '/workspace' } })
-    appendClosedTurn(source)
+    appendClosedTurn(source, 1, 'hello')
 
-    const snapshot = sessions.snapshot(SessionId('parent'))
+    const child = sessions.fork({ source: SessionId('parent'), childSessionId: SessionId('child') })
 
-    expect(snapshot.source).toBe(source)
-    expect(snapshot.seed).toEqual(source.events)
-    expect(snapshot.seed).not.toBe(source.events)
-    expect(snapshot.seed[1]).not.toBe(source.events[1])
-    firstUserMessage(snapshot.seed).data.content[0] = { type: 'text', text: 'mutated' }
+    expect(child.events).toEqual(source.events)
+    expect(child.events).not.toBe(source.events)
+    expect(child.events[1]).not.toBe(source.events[1])
+    firstUserMessage(child.events).data.content[0] = { type: 'text', text: 'child mutation' }
     expect(firstUserMessage(source.events).data.content).toEqual([{ type: 'text', text: 'hello' }])
-    expect(snapshot.meta).toEqual({
+    expect(child.header).toMatchObject({
+      id: SessionId('child'),
       cwd: '/workspace',
       parentSession: SessionId('parent'),
       seedLength: source.events.length,
     })
   })
 
-  it('accepts every turn/end reason as a fork boundary', async () => {
+  it('forks from an earlier turn boundary even when the source currently has an open tail', async () => {
+    const { ctx, sessions } = await setup()
+    const source = ctx.sessions.create(SessionId('parent'), { meta: { cwd: '/workspace' } })
+    appendClosedTurn(source, 1, 'first')
+    const firstBoundary = lastSeq(source)
+    appendClosedTurn(source, 2, 'second')
+    appendOpenTurn(source, 3)
+
+    const child = sessions.fork({
+      source,
+      boundary: firstBoundary,
+      childSessionId: SessionId('child-from-first'),
+    })
+
+    expect(child.events).toEqual(source.events.slice(0, firstBoundary + 1))
+    expect(child.header.seedLength).toBe(firstBoundary + 1)
+    expect(child.deriveMessages()).toEqual([{ role: 'user', content: [{ type: 'text', text: 'first' }] }])
+  })
+
+  it('accepts every turn/end reason as an explicit fork boundary', async () => {
     const { ctx, sessions } = await setup()
     const reasons: TurnEndReason[] = [
       { kind: 'completed' },
@@ -74,19 +112,42 @@ describe('SessionStore fork helpers', () => {
 
     for (const reason of reasons) {
       const source = ctx.sessions.create(SessionId(`parent-${reason.kind}`))
-      appendClosedTurn(source, reason)
+      appendClosedTurn(source, 1, reason.kind, reason)
 
-      const snapshot = sessions.snapshot(source)
+      const child = sessions.fork({
+        source,
+        boundary: lastSeq(source),
+        childSessionId: SessionId(`child-${reason.kind}`),
+      })
 
-      expect(snapshot.seed.at(-1)?.type).toBe('turn/end')
-      expect(snapshot.meta.seedLength).toBe(source.events.length)
+      expect(child.events.at(-1)?.type).toBe('turn/end')
+      expect(child.header.seedLength).toBe(source.events.length)
     }
+  })
+
+  it('rejects invalid boundaries before creating a child', async () => {
+    const { ctx, sessions } = await setup()
+    const empty = ctx.sessions.create(SessionId('empty'))
+    expect(() => sessions.fork({ source: empty, boundary: 0, childSessionId: SessionId('empty-child') }))
+      .toThrow(new SessionForkError('fork boundary 0 does not exist in session "empty" (last seq: none)', 'INVALID_BOUNDARY'))
+    expect(ctx.sessions.get(SessionId('empty-child'))).toBeUndefined()
+
+    const source = ctx.sessions.create(SessionId('parent'))
+    appendClosedTurn(source, 1)
+    expect(() => sessions.fork({ source, boundary: -1, childSessionId: SessionId('negative') }))
+      .toThrow(/non-negative safe integer/)
+    expect(() => sessions.fork({ source, boundary: 0.5, childSessionId: SessionId('fraction') }))
+      .toThrow(/non-negative safe integer/)
+    expect(() => sessions.fork({ source, boundary: Number.MAX_SAFE_INTEGER + 1, childSessionId: SessionId('unsafe') }))
+      .toThrow(/non-negative safe integer/)
+    expect(() => sessions.fork({ source, boundary: source.seq, childSessionId: SessionId('past-end') }))
+      .toThrow(new SessionForkError(`fork boundary ${source.seq} does not exist in session "parent" (last seq: ${source.seq - 1})`, 'INVALID_BOUNDARY'))
   })
 
   it('rejects an unknown live session id', async () => {
     const { sessions } = await setup()
 
-    expect(() => sessions.snapshot(SessionId('missing')))
+    expect(() => sessions.fork({ source: SessionId('missing') }))
       .toThrow(new SessionForkError('session "missing" not found', 'SESSION_NOT_FOUND'))
   })
 
@@ -94,7 +155,7 @@ describe('SessionStore fork helpers', () => {
     const { sessions } = await setup()
     const detached = new Session(SessionId('detached'))
 
-    expect(() => sessions.snapshot(detached))
+    expect(() => sessions.fork({ source: detached }))
       .toThrow(new SessionForkError('session "detached" not found', 'SESSION_NOT_FOUND'))
   })
 
@@ -103,28 +164,32 @@ describe('SessionStore fork helpers', () => {
     ctx.sessions.create(SessionId('same-id'))
     const stale = new Session(SessionId('same-id'))
 
-    expect(() => sessions.snapshot(stale))
+    expect(() => sessions.fork({ source: stale }))
       .toThrow(new SessionForkError('session "same-id" is not the live store instance', 'SESSION_NOT_LIVE'))
   })
 
-  it('rejects non-empty logs whose last event is not turn/end', async () => {
+  it('rejects selected slices whose boundary is inside an open turn', async () => {
     const { ctx, sessions } = await setup()
-    const cases: [string, (session: Session) => void][] = [
+    const cases: [string, (session: Session) => number][] = [
       ['turn/start', (session) => {
         session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+        return lastSeq(session)
       }],
       ['step/start', (session) => {
         session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         session.append('step/start', { turn: 1, step: 1 })
+        return lastSeq(session)
       }],
       ['user/message', (session) => {
         session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         session.append('user/message', { content: [{ type: 'text', text: 'open' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+        return lastSeq(session)
       }],
       ['assistant/message', (session) => {
         session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         session.append('step/start', { turn: 1, step: 1 })
         session.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'partial' }] }, { surfaceOp: 'append' })
+        return lastSeq(session)
       }],
       ['tool/call', (session) => {
         const callId = CallId('call-open')
@@ -136,51 +201,64 @@ describe('SessionStore fork helpers', () => {
           content: [{ type: 'tool-call', id: callId, name: 'bash', arguments: '{}' }],
         }, { surfaceOp: 'append' })
         session.append('tool/call', { turn: 1, step: 1, callId, name: 'bash', arguments: '{}' })
+        return lastSeq(session)
       }],
     ]
 
     for (const [lastType, build] of cases) {
       const source = ctx.sessions.create(SessionId(`open-${lastType}`))
-      build(source)
+      const boundary = build(source)
 
-      expect(() => sessions.snapshot(source))
-        .toThrow(new SessionForkError(`cannot fork session "open-${lastType}" inside an open turn (last event: ${lastType})`, 'OPEN_TURN'))
+      expect(() => sessions.fork({ source, boundary }))
+        .toThrow(new SessionForkError(`cannot fork session "open-${lastType}" at boundary ${boundary}: slice ends inside an open turn (last event: ${lastType})`, 'OPEN_TURN'))
     }
   })
 
-  it('creates a forked child session with the seed and lineage metadata', async () => {
+  it('rejects malformed turn enclosure in the selected slice', async () => {
     const { ctx, sessions } = await setup()
-    const source = ctx.sessions.create(SessionId('parent'), { meta: { cwd: '/workspace' } })
-    appendClosedTurn(source)
+    const outside = ctx.sessions.create(SessionId('outside'), {
+      seed: [
+        { type: 'step/start', seq: 0, time: 1, data: { turn: 1, step: 1 } },
+      ],
+    })
+    expect(() => sessions.fork({ source: outside, boundary: 0 }))
+      .toThrow(new SessionForkError('cannot fork session "outside" at boundary 0: event 0 (step/start) is outside a turn', 'OPEN_TURN'))
 
-    const child = sessions.fork({ source, sessionId: SessionId('child') })
+    const nested = ctx.sessions.create(SessionId('nested'), {
+      seed: [
+        { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+        { type: 'turn/start', seq: 1, time: 2, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      ],
+    })
+    expect(() => sessions.fork({ source: nested, boundary: 1 }))
+      .toThrow(new SessionForkError('cannot fork session "nested" at boundary 1: turn 2 starts before turn 1 ended', 'OPEN_TURN'))
 
-    expect(child.id).toBe(SessionId('child'))
-    expect(child.events).toEqual(source.events)
-    expect(child.header.parentSession).toBe(source.id)
-    expect(child.header.seedLength).toBe(source.events.length)
-    expect(child.header.cwd).toBe('/workspace')
-    firstUserMessage(child.events).data.content[0] = { type: 'text', text: 'child mutation' }
-    expect(firstUserMessage(source.events).data.content).toEqual([{ type: 'text', text: 'hello' }])
+    const orphanEnd = ctx.sessions.create(SessionId('orphan-end'), {
+      seed: [
+        { type: 'turn/end', seq: 0, time: 1, data: { turn: 1, reason: { kind: 'completed' } } },
+      ],
+    })
+    expect(() => sessions.fork({ source: orphanEnd, boundary: 0 }))
+      .toThrow(new SessionForkError('cannot fork session "orphan-end" at boundary 0: turn/end at seq 0 has no matching turn/start', 'OPEN_TURN'))
   })
 
   it('rejects a child session id that is already live with a typed fork error', async () => {
     const { ctx, sessions } = await setup()
     const source = ctx.sessions.create(SessionId('parent'))
-    appendClosedTurn(source)
+    appendClosedTurn(source, 1)
     ctx.sessions.create(SessionId('child'))
 
-    expect(() => sessions.fork({ source, sessionId: SessionId('child') }))
+    expect(() => sessions.fork({ source, childSessionId: SessionId('child') }))
       .toThrow(new SessionForkError('session "child" already exists', 'SESSION_ALREADY_EXISTS'))
   })
 
-  it('rejects a duplicate child session id before validating the source boundary', async () => {
+  it('rejects a duplicate child session id before validating the boundary', async () => {
     const { ctx, sessions } = await setup()
     const source = ctx.sessions.create(SessionId('open-parent'))
     source.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     ctx.sessions.create(SessionId('child'))
 
-    expect(() => sessions.fork({ source, sessionId: SessionId('child') }))
+    expect(() => sessions.fork({ source, childSessionId: SessionId('child') }))
       .toThrow(new SessionForkError('session "child" already exists', 'SESSION_ALREADY_EXISTS'))
   })
 })

@@ -159,14 +159,13 @@ export interface SurfaceNode {
 
 Everything else (`turn/*`, `step/*`) is structural and does not project into a message. Token usage is observed on `assistant/message.usage` (the step that produced it); an operational error's step number is on `turn/end.reason` for `kind: 'error'`.
 
-## Live-session fork helpers
+## Live-session fork API
 
-`ctx.sessions.create(id, { seed, meta })` is the low-level replay/fork primitive. For ordinary live-session forks, `SessionStore` adds two policy helpers:
+`ctx.sessions.create(id, { seed, meta })` is the low-level replay/fork primitive. For ordinary live-session forks, `SessionStore` exposes one policy API:
 
-- `snapshot(source)` accepts a live `Session` object or live `SessionId`, validates the source log is empty or ends at `turn/end`, then returns a deep-cloned `SessionEvent[]` seed plus child metadata (`parentSession`, `seedLength`, and inherited `cwd`).
-- `fork({ source, sessionId? })` calls `snapshot(source)` and immediately creates the live child via `ctx.sessions.create(sessionId, { seed, meta })`.
+- `fork({ source, boundary?, childSessionId? })` accepts a live `Session` object or live `SessionId`, selects source events through the inclusive `boundary` seq (default: current last event), validates that selected prefix is turn-enclosed and empty or ends at `turn/end`, then creates a live child session with deep-cloned seed events plus child metadata (`parentSession`, `seedLength`, and inherited `cwd`).
 
-The split is intentional: `snapshot()` is the reusable seed/metadata computation for callers that create an agent or defer session creation; `fork()` is the convenience path when a caller only needs a child `Session`. Both reject open-turn sources instead of clipping to an older prefix. `dsh-subagent-fork` keeps its completed-prefix clipping because tool-time delegation usually starts while the parent turn is open; ordinary session branching should not silently drop the parent turn tail.
+An explicit `boundary` lets callers fork from a previous completed turn even if the source has newer events or an open current turn. The API rejects open or malformed selected prefixes instead of clipping silently. `dsh-subagent-fork` keeps its completed-prefix clipping because tool-time delegation usually starts while the parent turn is open; ordinary session branching should make the requested boundary explicit.
 
 ## What started a turn: `TurnTriggerMap`
 

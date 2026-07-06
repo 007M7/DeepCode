@@ -321,35 +321,24 @@ export class Session {
 /** A fork source: either the live session object or its live store id. */
 export type SessionForkSource = Session | SessionId
 
-/** Metadata and seed events that can create a forked child session or agent. */
-export interface SessionForkSeed {
-  /** The resolved live source session. */
-  source: Session
-  /** Deep-cloned seed events copied from the source session at a turn boundary. */
-  seed: SessionEvent[]
-  /** Session creation metadata for the forked child. */
-  meta: {
-    /** The source session id. */
-    parentSession: SessionId
-    /** How many leading child events were inherited rather than produced. */
-    seedLength: number
-    /** The source session workspace, inherited by the child when present. */
-    cwd?: string
-  }
-}
-
-/** Inputs for the convenience session-creation path. */
+/** Inputs for live session forking. */
 export interface ForkSessionOptions {
   /** Live source session object or id. */
   source: SessionForkSource
+  /**
+   * Inclusive source event seq to fork through. Omitted means the source's
+   * current last event; omitted on an empty source forks an empty child.
+   */
+  boundary?: number
   /** Optional child session id; omitted delegates to SessionStore's id policy. */
-  sessionId?: SessionId
+  childSessionId?: SessionId
 }
 
 export type SessionForkErrorCode =
   | 'SESSION_NOT_FOUND'
   | 'SESSION_NOT_LIVE'
   | 'SESSION_ALREADY_EXISTS'
+  | 'INVALID_BOUNDARY'
   | 'OPEN_TURN'
 
 /** Typed error for session fork rejections. */
@@ -496,45 +485,65 @@ export class SessionStore extends Service {
   }
 
   /**
-   * Resolve and validate a live source session, then return a reusable deep-
-   * cloned fork seed. A non-empty source must end exactly at `turn/end`; this
-   * rejects open turns rather than clipping to an older boundary.
+   * Create a live child session from a turn-enclosed prefix of a live source.
+   * `boundary` is an inclusive source event seq; omitted means the source's
+   * current last event. A non-empty selected slice must be turn-enclosed and end
+   * at `turn/end`; this rejects open turns rather than clipping silently.
    *
-   * @param source Live session object or live store id to snapshot.
-   * @returns Deep-cloned seed events plus child session metadata.
-   */
-  snapshot(source: SessionForkSource): SessionForkSeed {
-    const session = this._resolveForkSource(source)
-    this._assertForkBoundary(session)
-    const seed = session.events.map(event => structuredClone(event))
-    return {
-      source: session,
-      seed,
-      meta: {
-        ...session.header.cwd !== undefined ? { cwd: session.header.cwd } : {},
-        parentSession: session.id,
-        seedLength: seed.length,
-      },
-    }
-  }
-
-  /**
-   * Convenience path: create a live child session from a fork snapshot. Callers
-   * that create agents can use {@link snapshot} and pass its seed/meta through
-   * `ctx.agents.create` instead.
-   *
-   * @param options Source and optional child session id for the fork.
+   * @param options Source, optional boundary, and optional child id for the fork.
    * @returns The created live child session.
    */
   fork(options: ForkSessionOptions): Session {
-    if (options.sessionId !== undefined && this.get(options.sessionId) !== undefined) {
-      throw new SessionForkError(`session "${options.sessionId}" already exists`, 'SESSION_ALREADY_EXISTS')
+    if (options.childSessionId !== undefined && this.get(options.childSessionId) !== undefined) {
+      throw new SessionForkError(`session "${options.childSessionId}" already exists`, 'SESSION_ALREADY_EXISTS')
     }
-    const snapshot = this.snapshot(options.source)
-    return this.create(options.sessionId, {
-      seed: snapshot.seed,
-      meta: snapshot.meta,
+    const source = this._resolveForkSource(options.source)
+    const seed = this._forkSeed(source, options.boundary)
+    return this.create(options.childSessionId, {
+      seed,
+      meta: {
+        ...source.header.cwd !== undefined ? { cwd: source.header.cwd } : {},
+        parentSession: source.id,
+        seedLength: seed.length,
+      },
     })
+  }
+
+  private _forkSeed(session: Session, requestedBoundary: number | undefined): SessionEvent[] {
+    const events = session.events
+    const lastEvent = events.at(-1)
+    let boundary: number
+    if (requestedBoundary !== undefined) {
+      boundary = requestedBoundary
+    } else {
+      if (lastEvent === undefined) return []
+      boundary = lastEvent.seq
+    }
+    if (!Number.isSafeInteger(boundary) || boundary < 0) {
+      throw new SessionForkError(
+        `fork boundary for session "${session.id}" must be a non-negative safe integer, got ${String(boundary)}`,
+        'INVALID_BOUNDARY',
+      )
+    }
+    if (boundary >= events.length) {
+      const lastSeq = events.at(-1)?.seq
+      throw new SessionForkError(
+        `fork boundary ${boundary} does not exist in session "${session.id}" (last seq: ${lastSeq ?? 'none'})`,
+        'INVALID_BOUNDARY',
+      )
+    }
+
+    const boundaryEvent = events[boundary]
+    if (boundaryEvent === undefined || boundaryEvent.seq !== boundary) {
+      throw new SessionForkError(
+        `fork boundary ${boundary} does not match a contiguous event seq in session "${session.id}"`,
+        'INVALID_BOUNDARY',
+      )
+    }
+
+    const seed = events.slice(0, boundary + 1)
+    this._assertForkBoundary(session, seed, boundary)
+    return seed.map(event => structuredClone(event))
   }
 
   private _resolveForkSource(source: SessionForkSource): Session {
@@ -552,11 +561,46 @@ export class SessionStore extends Service {
     return source
   }
 
-  private _assertForkBoundary(session: Session): void {
-    const last = session.events.at(-1)
-    if (last !== undefined && last.type !== 'turn/end') {
+  private _assertForkBoundary(session: Session, seed: readonly SessionEvent[], boundary: number): void {
+    let openTurn: SessionEvent<'turn/start'> | undefined
+    for (const event of seed) {
+      switch (event.type) {
+        case 'turn/start': {
+          if (openTurn !== undefined) {
+            throw new SessionForkError(
+              `cannot fork session "${session.id}" at boundary ${boundary}: turn ${event.data.turn} starts before turn ${openTurn.data.turn} ended`,
+              'OPEN_TURN',
+            )
+          }
+          openTurn = event
+          break
+        }
+        case 'turn/end': {
+          if (openTurn === undefined) {
+            throw new SessionForkError(
+              `cannot fork session "${session.id}" at boundary ${boundary}: turn/end at seq ${event.seq} has no matching turn/start`,
+              'OPEN_TURN',
+            )
+          }
+          openTurn = undefined
+          break
+        }
+        default: {
+          if (openTurn === undefined) {
+            throw new SessionForkError(
+              `cannot fork session "${session.id}" at boundary ${boundary}: event ${event.seq} (${event.type}) is outside a turn`,
+              'OPEN_TURN',
+            )
+          }
+          break
+        }
+      }
+    }
+
+    const last = seed.at(-1)
+    if (openTurn !== undefined || last?.type !== 'turn/end') {
       throw new SessionForkError(
-        `cannot fork session "${session.id}" inside an open turn (last event: ${last.type})`,
+        `cannot fork session "${session.id}" at boundary ${boundary}: slice ends inside an open turn (last event: ${last?.type ?? 'none'})`,
         'OPEN_TURN',
       )
     }

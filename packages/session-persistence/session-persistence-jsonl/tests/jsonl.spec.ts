@@ -144,7 +144,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     const source = ctx.sessions.create(SessionId('persist-parent'), { meta: { cwd: '/workspace' } })
     appendClosedTurn(source)
 
-    const child = ctx.sessions.fork({ source, sessionId: SessionId('persist-child') })
+    const child = ctx.sessions.fork({ source, childSessionId: SessionId('persist-child') })
     await ctx.parallel('session/flush', child)
     const loaded = await ctx.sessionPersistence.load(child.id)
 
