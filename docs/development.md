@@ -84,8 +84,6 @@ The GitHub workflow runs these gates on each pull request:
 
 `pnpm run hygiene` is the local shorthand for `pnpm run knip && pnpm run publint && pnpm run constraints && pnpm run verify-node-next-types`; CI also runs `pnpm run constraints` as an earlier fail-fast step, then runs the full hygiene script after `pnpm run build`.
 
-During implementation, prefer the narrowest gate that can fail for the change you just made: filtered tests for touched packages/specs, `pnpm run typecheck` after type or API changes, `pnpm run lint` after code edits, and the specific doc/generator check only when that surface changed. Run the full CI-gate sequence from `AGENTS.md` once the change is complete and before marking a PR ready; repeat it only after later edits could invalidate the result.
-
 ## Daily commands
 
 Use these from the repo root:
