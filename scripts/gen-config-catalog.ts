@@ -1,0 +1,672 @@
+/**
+ * Generate (and verify) the plugin config catalog in docs/config-catalog.md.
+ *
+ * The page is the DEPLOYMENT-axis reference: for every harness package a
+ * `cordis.yml` entry can load, the exact config surface its `apply` function or
+ * service constructor receives — pasted VERBATIM from source (the `export
+ * interface Config` declaration with its JSDoc), plus resolved links for every
+ * type the declaration references. It complements the wiring-axis cordis
+ * catalogs (events + services, what a plugin AUTHOR listens to and calls) the
+ * same way the tool catalog complements them for the model-facing axis.
+ *
+ * The catalog is FULLY GENERATED from source — never hand-edit it. Like the
+ * cordis catalog (and unlike the tool catalog, which must boot plugins), this
+ * is a pure-AST pass: every config type is a static declaration and every
+ * schemastery schema is a static `z.object`/`z.intersect` literal, so
+ * generation cannot drift and a regenerate-and-diff freshness check (`--check`)
+ * gates staleness. Because generation enumerates every package under
+ * `packages/<group>/<pkg>`, a brand-new plugin cannot be silently
+ * undocumented: it must classify as configurable, config-free, seam, or
+ * library, and an unclassifiable entry hard-errors the generator.
+ *
+ *   `tsx scripts/gen-config-catalog.ts`          → write the catalog
+ *   `tsx scripts/gen-config-catalog.ts --check`  → exit 1 if the committed
+ *                                                  catalog is stale (CI /
+ *                                                  pre-push gate)
+ *
+ * What the walk enforces (aggregated into one error, like the sibling
+ * generators):
+ *
+ * - CLASSIFICATION is total. Every package entry resolves, mirroring the
+ *   cordis Loader's `unwrapExports` (`exports.default ?? exports`), to a
+ *   loadable plugin (default class / `apply` function), an abstract seam
+ *   class, or a plain library. Anything else is an error, not a skip.
+ * - The CONFIG TYPE is the declared type of the plugin's second parameter
+ *   (`apply(ctx, config)` / `constructor(ctx, config)`) — the type cordis
+ *   actually passes — and it must resolve to a declaration inside the owning
+ *   package (entry file or a package-local relative import).
+ * - Every property of a pasted declaration carries non-empty JSDoc prose: the
+ *   paste IS the documentation, so an undocumented field is a gate failure,
+ *   the same forcing function the events catalog applies via `@mode`.
+ * - Every type NAME a pasted declaration references resolves: pasted
+ *   transitively when package-local, linked when it is another plugin's
+ *   config type / a core-data-structures entry / a workspace or external
+ *   import. An unresolvable name is an error, never silently unexplained.
+ * - The runtime schemastery schema (`Config` export or `static Config`),
+ *   when present, is walked statically (`z.object` keys, `z.intersect`
+ *   composition across packages) and every schema-validated top-level key
+ *   must be a declared member of the config type — the paste cannot hide a
+ *   loader-accepted field. The reverse is deliberately NOT checked: a
+ *   declared field may be a runtime-only seam the schema excludes (e.g. the
+ *   ACP bridge's test-injected `stream`).
+ *
+ * Config fences use the ` ```ts config-catalog ` info string: doc-typecheck
+ * recognizes it and skips compilation (a lone interface referencing imported
+ * types is not standalone-compilable, like the ` ```ts cordis-catalog `
+ * signature blocks).
+ */
+
+import { globSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import ts from 'typescript'
+import { LINK_MAP, parseJsDoc, pointer, rawJsDoc } from './gen-cordis-catalog.ts'
+
+const root = resolve(import.meta.dirname, '..')
+const OUT = 'docs/config-catalog.md'
+
+/** The fenced-block info string for pasted config declarations (skipped by
+ * doc-typecheck, since a lone declaration referencing imports is not
+ * standalone-compilable). */
+const FENCE = 'ts config-catalog'
+
+/** TypeScript/Node global type names a config declaration may reference
+ * without importing; never treated as unresolved. Extend when a new global
+ * legitimately appears — the generator hard-errors on unknown names, so an
+ * omission is loud, not silent. */
+const GLOBAL_TYPES = new Set([
+  'Array', 'ReadonlyArray', 'Record', 'Partial', 'Required', 'Readonly', 'Pick', 'Omit',
+  'Promise', 'Map', 'Set', 'Date', 'Error', 'RegExp', 'Exclude', 'Extract', 'NonNullable',
+  'ReturnType', 'Parameters', 'AbortSignal', 'URL', 'Buffer', 'NodeJS', 'Iterable', 'AsyncIterable',
+])
+
+/** How a package classifies for the catalog. */
+type Kind = 'config' | 'no-config' | 'seam' | 'library'
+
+/** One name a pasted declaration references but the paste does not contain. */
+interface TypeRef {
+  /** The name as it appears in the pasted text (the local import alias). */
+  alias: string
+  /** The name the source module exports it under (pre-alias). */
+  imported: string
+  /** The import module specifier (package name or external module). */
+  specifier: string
+}
+
+/** One verbatim declaration paste. */
+interface Paste {
+  /** Full source text: leading JSDoc (when present) through the closing token. */
+  text: string
+  /** Source pointer `packages/…/file.ts:line` of the declaration. */
+  source: string
+}
+
+/** One package's catalog entry. */
+export interface CatalogEntry {
+  /** npm package name, e.g. `@deepseek-ai/dsh-agent-loop`. */
+  pkg: string
+  /** Repo-relative package dir, e.g. `packages/core/agent-loop`. */
+  dir: string
+  /** Repo-relative entry file, `<dir>/src/index.ts`. */
+  entry: string
+  kind: Kind
+  /** Service keys the plugin `inject`s (empty when none declared). */
+  inject: string[]
+  /** Seam/service class name (kinds `seam` and class-based plugins). */
+  className?: string
+  /** Name of the config type (kind `config`). */
+  configTypeName?: string
+  /** Verbatim declaration pastes, the config type first (kind `config`). */
+  pastes?: Paste[]
+  /** References the pastes leave unresolved locally (kind `config`). */
+  refs?: TypeRef[]
+  /** Top-level keys of the runtime schema, `null` when no schema exists or
+   * composition is still pending resolution (kind `config`). */
+  schemaKeys?: string[] | null
+  /** Package names whose schemas an intersect composes (kind `config`). */
+  schemaComposes?: string[]
+}
+
+/** A parsed source file plus its import map (local name → origin). */
+interface FileCtx {
+  abs: string
+  rel: string
+  text: string
+  sf: ts.SourceFile
+  /** Local binding name → `{ imported, specifier }`; default imports record
+   * `imported: 'default'`. */
+  imports: Map<string, { imported: string; specifier: string }>
+}
+
+/** Throw one aggregate error for every violation the walk collected. */
+function report(violations: string[]): void {
+  if (violations.length === 0) return
+  throw new Error(
+    `gen-config-catalog: ${violations.length} violation(s):\n`
+    + violations.map(v => `  ${v}`).join('\n'),
+  )
+}
+
+/** Parse a source file and index its import declarations. */
+function loadFile(abs: string, rel: string, cache: Map<string, FileCtx>): FileCtx {
+  const cached = cache.get(abs)
+  if (cached) return cached
+  const text = readFileSync(abs, 'utf8')
+  const sf = ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, true)
+  const imports = new Map<string, { imported: string; specifier: string }>()
+  for (const stmt of sf.statements) {
+    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue
+    const specifier = stmt.moduleSpecifier.text
+    const clause = stmt.importClause
+    if (!clause) continue
+    if (clause.name) imports.set(clause.name.text, { imported: 'default', specifier })
+    if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+      for (const el of clause.namedBindings.elements) {
+        imports.set(el.name.text, { imported: (el.propertyName ?? el.name).text, specifier })
+      }
+    }
+    if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+      imports.set(clause.namedBindings.name.text, { imported: '*', specifier })
+    }
+  }
+  const ctx = { abs, rel, text, sf, imports }
+  cache.set(abs, ctx)
+  return ctx
+}
+
+/** A type declaration a paste can contain. */
+type TypeDecl = ts.InterfaceDeclaration | ts.TypeAliasDeclaration
+
+/** Find an interface/type-alias declaration by name in a file, or null. */
+function findTypeDecl(ctx: FileCtx, name: string): TypeDecl | null {
+  for (const stmt of ctx.sf.statements) {
+    if ((ts.isInterfaceDeclaration(stmt) || ts.isTypeAliasDeclaration(stmt)) && stmt.name.text === name) return stmt
+  }
+  return null
+}
+
+/**
+ * Resolve a type name from a file to its declaration (following package-local
+ * relative imports transitively) or to the import that brings it in. Returns
+ * `null` when the name is neither declared, imported, nor a known global.
+ */
+function resolveTypeName(
+  ctx: FileCtx,
+  name: string,
+  cache: Map<string, FileCtx>,
+  violations: string[],
+): { decl: TypeDecl; ctx: FileCtx } | { ref: TypeRef } | null {
+  const local = findTypeDecl(ctx, name)
+  if (local) return { decl: local, ctx }
+  const imp = ctx.imports.get(name)
+  if (!imp) return null
+  if (imp.specifier.startsWith('.')) {
+    if (!imp.specifier.endsWith('.ts')) {
+      violations.push(`${ctx.rel}: relative import '${imp.specifier}' lacks the explicit .ts extension the repo convention requires.`)
+      return null
+    }
+    if (imp.imported !== name) {
+      violations.push(`${ctx.rel}: '${name}' aliases '${imp.imported}' across a package-local import; the catalog pastes declarations verbatim, so keep package-local config types unaliased.`)
+      return null
+    }
+    const abs = resolve(dirname(ctx.abs), imp.specifier)
+    const rel = ctx.rel.slice(0, ctx.rel.lastIndexOf('/') + 1) + imp.specifier.replace(/^\.\//, '')
+    const target = loadFile(abs, rel, cache)
+    return resolveTypeName(target, imp.imported, cache, violations)
+  }
+  return { ref: { alias: name, imported: imp.imported, specifier: imp.specifier } }
+}
+
+/** Collect every type NAME referenced in type positions under a node. */
+function collectTypeNames(node: ts.Node, out: Set<string>): void {
+  const visit = (n: ts.Node): void => {
+    if (ts.isTypeReferenceNode(n)) {
+      let head: ts.EntityName = n.typeName
+      while (ts.isQualifiedName(head)) head = head.left
+      out.add(head.text)
+    } else if (ts.isExpressionWithTypeArguments(n) && ts.isIdentifier(n.expression)) {
+      out.add(n.expression.text) // heritage clause: `extends X`
+    }
+    ts.forEachChild(n, visit)
+  }
+  visit(node)
+}
+
+/** The verbatim paste text of a declaration: leading JSDoc through the end. */
+function pasteText(ctx: FileCtx, decl: TypeDecl): string {
+  const raw = rawJsDoc(ctx.text, decl)
+  const start = raw ? ctx.text.indexOf(raw, decl.getFullStart()) : decl.getStart(ctx.sf)
+  return ctx.text.slice(start, decl.end)
+}
+
+/** Enforce non-empty JSDoc prose on every property of a pasted declaration,
+ * recursing into nested type literals (e.g. an array-of-objects field). */
+function checkMemberDocs(ctx: FileCtx, decl: TypeDecl, violations: string[]): void {
+  const walkMembers = (members: ts.NodeArray<ts.TypeElement>, path: string): void => {
+    for (const member of members) {
+      if (!ts.isPropertySignature(member)) continue
+      const name = member.name.getText(ctx.sf)
+      const where = `config field '${path}.${name}' (${pointer(ctx.rel, ctx.sf, member)})`
+      if (!parseJsDoc(rawJsDoc(ctx.text, member)).doc) violations.push(`${where} has no JSDoc prose.`)
+      if (member.type) walkNested(member.type, `${path}.${name}`)
+    }
+  }
+  const walkNested = (type: ts.Node, path: string): void => {
+    if (ts.isTypeLiteralNode(type)) walkMembers(type.members, path)
+    else ts.forEachChild(type, (n) => { walkNested(n, path) })
+  }
+  if (ts.isInterfaceDeclaration(decl)) walkMembers(decl.members, decl.name.text)
+  else walkNested(decl.type, decl.name.text)
+}
+
+/** Top-level property names of the config type (for the schema-subset check). */
+function topLevelMembers(decl: TypeDecl): Set<string> | null {
+  if (ts.isInterfaceDeclaration(decl)) {
+    return new Set(decl.members.filter(ts.isPropertySignature).map(m => m.name.getText()))
+  }
+  if (ts.isTypeLiteralNode(decl.type)) {
+    return new Set(decl.type.members.filter(ts.isPropertySignature).map(m => m.name.getText()))
+  }
+  return null
+}
+
+/** Unwrap `as` / `satisfies` / parenthesized wrappers around an expression. */
+function unwrapExpr(expr: ts.Expression): ts.Expression {
+  let e = expr
+  while (ts.isAsExpression(e) || ts.isSatisfiesExpression(e) || ts.isParenthesizedExpression(e)) e = e.expression
+  return e
+}
+
+/**
+ * Statically walk a schemastery schema expression to its top-level object
+ * keys plus the packages whose schemas an intersect composes. Handles the
+ * shapes the repo declares — `z.object({…})` (possibly behind chained calls)
+ * and `z.intersect([X.Config, …])` — and hard-errors on anything else, so a
+ * schema the walk cannot see fails the gate instead of silently thinning it.
+ */
+function walkSchemaExpr(
+  ctx: FileCtx,
+  expr: ts.Expression,
+  where: string,
+  violations: string[],
+): { keys: string[]; composes: string[] } {
+  const keys: string[] = []
+  const composes: string[] = []
+  const visit = (e: ts.Expression): void => {
+    const call = unwrapExpr(e)
+    if (!ts.isCallExpression(call) || !ts.isPropertyAccessExpression(call.expression)) {
+      violations.push(`${where}: schema expression is not a statically walkable schemastery call.`)
+      return
+    }
+    const method = call.expression.name.text
+    if (method === 'object' && call.arguments[0] && ts.isObjectLiteralExpression(call.arguments[0])) {
+      for (const prop of call.arguments[0].properties) {
+        if (ts.isPropertyAssignment(prop) || ts.isShorthandPropertyAssignment(prop)) {
+          keys.push(ts.isStringLiteral(prop.name) ? prop.name.text : prop.name.getText(ctx.sf))
+        } else {
+          violations.push(`${where}: schema object property '${prop.getText(ctx.sf)}' is not a plain key.`)
+        }
+      }
+      return
+    }
+    if (method === 'intersect' && call.arguments[0] && ts.isArrayLiteralExpression(call.arguments[0])) {
+      for (const el of call.arguments[0].elements) {
+        const part = unwrapExpr(el)
+        if (ts.isPropertyAccessExpression(part) && part.name.text === 'Config' && ts.isIdentifier(part.expression)) {
+          const imp = ctx.imports.get(part.expression.text)
+          if (imp && !imp.specifier.startsWith('.')) { composes.push(imp.specifier); continue }
+        }
+        if (ts.isCallExpression(part)) { visit(part); continue }
+        violations.push(`${where}: intersect element '${part.getText(ctx.sf)}' is neither a workspace plugin's Config nor an inline schema call.`)
+      }
+      return
+    }
+    // A chained refinement (`z.object({…}).default(…)` etc.): the keys live on
+    // the call the chain hangs off — keep unwrapping toward it.
+    const base = unwrapExpr(call.expression.expression)
+    if (ts.isCallExpression(base)) { visit(base); return }
+    violations.push(`${where}: schema call '${method}' is not object/intersect and hangs off no walkable base call.`)
+  }
+  visit(expr)
+  return { keys, composes }
+}
+
+/** Find a plugin's schemastery schema expression: an exported `const Config`
+ * in the entry file, else a `static Config` on the plugin class. */
+function findSchemaExpr(ctx: FileCtx, pluginClass: ts.ClassDeclaration | null): ts.Expression | null {
+  for (const stmt of ctx.sf.statements) {
+    if (!ts.isVariableStatement(stmt)) continue
+    if (!stmt.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword)) continue
+    for (const decl of stmt.declarationList.declarations) {
+      if (ts.isIdentifier(decl.name) && decl.name.text === 'Config' && decl.initializer) return decl.initializer
+    }
+  }
+  for (const member of pluginClass?.members ?? []) {
+    if (!ts.isPropertyDeclaration(member) || member.name.getText() !== 'Config') continue
+    if (!member.modifiers?.some(m => m.kind === ts.SyntaxKind.StaticKeyword)) continue
+    if (member.initializer) return member.initializer
+  }
+  return null
+}
+
+/** Read an `inject` service-key list: `export const inject = […]` in the entry
+ * file, else `static inject = […]` on the plugin class. */
+function findInject(ctx: FileCtx, pluginClass: ts.ClassDeclaration | null, violations: string[]): string[] {
+  const fromArray = (expr: ts.Expression, where: string): string[] => {
+    if (!ts.isArrayLiteralExpression(expr)) {
+      violations.push(`${where}: inject is not a plain string-array literal; teach the generator the new shape.`)
+      return []
+    }
+    return expr.elements.map(el => ts.isStringLiteral(el) ? el.text : el.getText(ctx.sf))
+  }
+  for (const stmt of ctx.sf.statements) {
+    if (!ts.isVariableStatement(stmt)) continue
+    for (const decl of stmt.declarationList.declarations) {
+      if (ts.isIdentifier(decl.name) && decl.name.text === 'inject' && decl.initializer) {
+        return fromArray(decl.initializer, ctx.rel)
+      }
+    }
+  }
+  for (const member of pluginClass?.members ?? []) {
+    if (ts.isPropertyDeclaration(member) && member.name.getText() === 'inject' && member.initializer) {
+      return fromArray(member.initializer, ctx.rel)
+    }
+  }
+  return []
+}
+
+/** Resolve the entry file's default export to its class/function declaration
+ * (mirroring the Loader's `unwrapExports`), or null when there is none. */
+function defaultExport(ctx: FileCtx): ts.ClassDeclaration | ts.FunctionDeclaration | null {
+  for (const stmt of ctx.sf.statements) {
+    if (ts.isExportAssignment(stmt) && !stmt.isExportEquals && ts.isIdentifier(stmt.expression)) {
+      const name = stmt.expression.text
+      for (const s of ctx.sf.statements) {
+        if ((ts.isClassDeclaration(s) || ts.isFunctionDeclaration(s)) && s.name?.text === name) return s
+      }
+      return null
+    }
+    if ((ts.isClassDeclaration(stmt) || ts.isFunctionDeclaration(stmt))
+      && stmt.modifiers?.some(m => m.kind === ts.SyntaxKind.DefaultKeyword)) return stmt
+  }
+  return null
+}
+
+/** Find the exported `apply` function declaration in the entry file, or null. */
+function applyExport(ctx: FileCtx): ts.FunctionDeclaration | null {
+  for (const stmt of ctx.sf.statements) {
+    if (ts.isFunctionDeclaration(stmt) && stmt.name?.text === 'apply'
+      && stmt.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword)) return stmt
+  }
+  return null
+}
+
+/**
+ * Walk every `packages/<group>/<pkg>` entry and build the catalog entries.
+ * Hard-errors (aggregated) on any violation listed in the module doc.
+ * `scanRoot` defaults to the repo root; tests pass a fixture dir.
+ */
+export function collectConfigCatalog(scanRoot: string = root): CatalogEntry[] {
+  const violations: string[] = []
+  const cache = new Map<string, FileCtx>()
+  const entries: CatalogEntry[] = []
+
+  for (const manifestRel of globSync('packages/*/*/package.json', { cwd: scanRoot }).sort()) {
+    const dir = manifestRel.slice(0, -'/package.json'.length)
+    const pkg = (JSON.parse(readFileSync(resolve(scanRoot, manifestRel), 'utf8')) as { name?: string }).name
+    if (!pkg) { violations.push(`${manifestRel} has no "name".`); continue }
+    const entryRel = `${dir}/src/index.ts`
+    let ctx: FileCtx
+    try {
+      ctx = loadFile(resolve(scanRoot, entryRel), entryRel, cache)
+    } catch {
+      // A package without src/index.ts cannot be classified — that is the
+      // violation itself; nothing else in this loop body can run without it.
+      violations.push(`${pkg}: entry ${entryRel} is missing or unreadable.`)
+      continue
+    }
+
+    // Classify, mirroring the Loader's unwrapExports: the default export IS
+    // the plugin when present; else an exported `apply` makes the module
+    // namespace the plugin; else the package is a plain library.
+    const dflt = defaultExport(ctx)
+    const apply = applyExport(ctx)
+    let pluginClass: ts.ClassDeclaration | null = null
+    let configParam: ts.ParameterDeclaration | undefined
+    let kind: Kind
+    let className: string | undefined
+    if (dflt && ts.isClassDeclaration(dflt)) {
+      className = dflt.name?.text
+      if (dflt.modifiers?.some(m => m.kind === ts.SyntaxKind.AbstractKeyword)) {
+        kind = 'seam'
+      } else {
+        pluginClass = dflt
+        const ctor = dflt.members.find(ts.isConstructorDeclaration)
+        configParam = ctor?.parameters[1]
+        kind = configParam ? 'config' : 'no-config'
+      }
+    } else if (dflt) {
+      configParam = dflt.parameters[1]
+      kind = configParam ? 'config' : 'no-config'
+    } else if (apply) {
+      configParam = apply.parameters[1]
+      kind = configParam ? 'config' : 'no-config'
+    } else {
+      kind = 'library'
+    }
+
+    const entry: CatalogEntry = {
+      pkg,
+      dir,
+      entry: entryRel,
+      kind,
+      inject: kind === 'library' || kind === 'seam' ? [] : findInject(ctx, pluginClass, violations),
+      ...className !== undefined ? { className } : {},
+    }
+    entries.push(entry)
+    if (kind !== 'config' || !configParam) continue
+
+    // Resolve the config type and paste its package-local transitive closure.
+    if (!configParam.type || !ts.isTypeReferenceNode(configParam.type) || !ts.isIdentifier(configParam.type.typeName)) {
+      violations.push(`${pkg}: config parameter type (${pointer(entryRel, ctx.sf, configParam)}) is not a plain type-name reference; declare a named config type.`)
+      continue
+    }
+    const typeName = configParam.type.typeName.text
+    entry.configTypeName = typeName
+    const pastes: Paste[] = []
+    const refs = new Map<string, TypeRef>()
+    const pastedNames = new Set<string>()
+    const queue: { name: string; from: FileCtx }[] = [{ name: typeName, from: ctx }]
+    for (let item = queue.shift(); item !== undefined; item = queue.shift()) {
+      const { name, from } = item
+      if (pastedNames.has(name)) continue
+      const resolved = resolveTypeName(from, name, cache, violations)
+      if (resolved === null) {
+        violations.push(`${pkg}: config declaration references '${name}' (via ${from.rel}), which is neither declared in the package, imported, nor a known global type.`)
+        continue
+      }
+      if ('ref' in resolved) {
+        if (name === typeName) violations.push(`${pkg}: config type '${name}' is imported from '${resolved.ref.specifier}'; a plugin's config type must live in its own package.`)
+        else refs.set(name, resolved.ref)
+        continue
+      }
+      pastedNames.add(name)
+      pastes.push({ text: pasteText(resolved.ctx, resolved.decl), source: pointer(resolved.ctx.rel, resolved.ctx.sf, resolved.decl) })
+      checkMemberDocs(resolved.ctx, resolved.decl, violations)
+      const names = new Set<string>()
+      collectTypeNames(resolved.decl, names)
+      for (const n of names) {
+        if (GLOBAL_TYPES.has(n) || pastedNames.has(n)) continue
+        queue.push({ name: n, from: resolved.ctx })
+      }
+    }
+    entry.pastes = pastes
+    entry.refs = [...refs.values()].sort((a, b) => a.alias.localeCompare(b.alias))
+
+    // Statically walk the runtime schema (when one exists) for the subset check.
+    const schemaExpr = findSchemaExpr(ctx, pluginClass)
+    if (schemaExpr) {
+      const { keys, composes } = walkSchemaExpr(ctx, unwrapExpr(schemaExpr), `${pkg} (${entryRel})`, violations)
+      entry.schemaKeys = keys
+      entry.schemaComposes = composes
+    } else {
+      entry.schemaKeys = null
+    }
+  }
+
+  // Second phase: fold composed schemas' keys in, then check every
+  // schema-validated key is a declared member of the config type.
+  const byName = new Map(entries.map(e => [e.pkg, e]))
+  for (const entry of entries) {
+    if (entry.kind !== 'config' || entry.schemaKeys === null || entry.schemaKeys === undefined) continue
+    const seen = new Set<string>()
+    const foldComposed = (e: CatalogEntry): string[] => {
+      if (seen.has(e.pkg)) return []
+      seen.add(e.pkg)
+      const keys = [...e.schemaKeys ?? []]
+      for (const composed of e.schemaComposes ?? []) {
+        const target = byName.get(composed)
+        if (!target) {
+          violations.push(`${entry.pkg}: schema intersects '${composed}', which is not a workspace package the walk collected.`)
+          continue
+        }
+        keys.push(...foldComposed(target))
+      }
+      return keys
+    }
+    const allKeys = foldComposed(entry)
+    const mainPaste = entry.pastes?.[0]
+    const mainFile = mainPaste?.source.split(':')[0]
+    const mainCtx = mainFile !== undefined ? cache.get(resolve(scanRoot, mainFile)) : undefined
+    const mainDecl = mainCtx && entry.configTypeName ? findTypeDecl(mainCtx, entry.configTypeName) : null
+    const members = mainDecl ? topLevelMembers(mainDecl) : null
+    if (!members) {
+      violations.push(`${entry.pkg}: cannot enumerate the members of config type '${entry.configTypeName}' for the schema-subset check.`)
+      continue
+    }
+    for (const key of allKeys) {
+      if (!members.has(key)) {
+        violations.push(`${entry.pkg}: schema validates key '${key}' but config type '${entry.configTypeName}' declares no such member — the catalog paste would hide a loader-accepted field.`)
+      }
+    }
+  }
+
+  report(violations)
+  return entries.sort((a, b) => a.pkg.localeCompare(b.pkg))
+}
+
+/** GitHub-style anchor slug for a `## \`pkg\`` heading. */
+function slug(heading: string): string {
+  return heading.toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/ /g, '-')
+}
+
+/** Render the `Requires:` service-key line, or '' when the plugin injects nothing. */
+function requiresLine(inject: string[]): string {
+  return inject.length ? `Requires: ${inject.map(k => `\`${k}\``).join(' · ')}` : ''
+}
+
+/** Render one reference as a link: another plugin's config type → its section,
+ * a curated core-data-structures name → its page, any other workspace type →
+ * its source file, an external type → named with its module, unlinked. */
+function refLink(ref: TypeRef, byName: Map<string, CatalogEntry>): string {
+  const target = byName.get(ref.specifier)
+  if (target?.kind === 'config' && ref.imported === target.configTypeName) {
+    return `[\`${ref.alias}\`](#${slug(target.pkg)})`
+  }
+  const page = LINK_MAP[ref.imported]
+  if (page) return `[\`${ref.alias}\`](core-data-structures/${page})`
+  if (target) return `[\`${ref.alias}\`](../${target.entry})`
+  return `\`${ref.alias}\` (\`${ref.specifier}\`)`
+}
+
+/** Render one configurable plugin's section. */
+function renderConfigEntry(entry: CatalogEntry, byName: Map<string, CatalogEntry>): string[] {
+  const out = [`## \`${entry.pkg}\``, '']
+  const requires = requiresLine(entry.inject)
+  if (requires) out.push(requires, '')
+  out.push('```' + FENCE, ...(entry.pastes ?? []).map(p => p.text).join('\n\n').split('\n'), '```', '')
+  if (entry.refs && entry.refs.length > 0) {
+    out.push(`Depends on: ${entry.refs.map(r => refLink(r, byName)).join(' · ')}`, '')
+  }
+  const source = entry.pastes?.[0]?.source ?? entry.entry
+  out.push(`Source: [\`${source}\`](../${source.split(':')[0]})`, '')
+  return out
+}
+
+/** Render one terse list line (the no-config / seam / library sections). */
+function renderTerse(entry: CatalogEntry, detail: string): string {
+  const requires = entry.inject.length ? ` — requires ${entry.inject.map(k => `\`${k}\``).join(' · ')}` : ''
+  return `- \`${entry.pkg}\`${detail}${requires} ([\`${entry.entry}\`](../${entry.entry}))`
+}
+
+/** Render the full catalog (pure, deterministic given sorted entries). */
+export function render(entries: CatalogEntry[]): string {
+  const byName = new Map(entries.map(e => [e.pkg, e]))
+  const lines: string[] = [
+    '<!-- Generated by scripts/gen-config-catalog.ts — do not edit by hand.',
+    '     Run `pnpm run gen-config-catalog` to regenerate. -->',
+    '',
+    '# Plugin Config Catalog',
+    '',
+    'Every `config:` block a `cordis.yml` entry can set: for each loadable harness package, the verbatim config declaration (JSDoc included) its `apply` function or service constructor receives, with every referenced type pasted alongside (package-local types) or linked (everything else). This is the **deployment**-axis reference — the wiring a plugin author works against is the cordis [events](cordis-catalog/events.md) + [services](cordis-catalog/services.md) catalogs, the model-facing tool schemas are the [tool catalog](tool-catalog/tools.md), and [core-data-structures/](core-data-structures/core.md) documents the types these declarations reference.',
+    '',
+    'This file is GENERATED from source (`scripts/gen-config-catalog.ts`) and verified fresh by `pnpm run verify-config-catalog` (part of `doc-sync`) — do not edit it by hand. Declaration blocks use a `ts config-catalog` fence (skipped by doc-typecheck, since a lone declaration referencing imports is not standalone-compilable). The generator also cross-checks the runtime schemastery schema against the pasted declaration — every schema-validated key must be a declared member — so the paste cannot hide a loader-accepted field.',
+    '',
+    'A `Requires:` line lists the service keys the plugin `inject`s: its `cordis.yml` tree must also load providers for those services. Scope is the harness tier (`packages/`); the vendored cordis plugins a config tree may also load (`hmr`, the console logger, …) are pinned upstream source ([vendoring policy](../vendor/README.md)) and not catalogued here.',
+    '',
+  ]
+  for (const entry of entries.filter(e => e.kind === 'config')) {
+    lines.push(...renderConfigEntry(entry, byName))
+  }
+  lines.push(
+    '## Loadable plugins with no config',
+    '',
+    'These load from a `cordis.yml` entry with no `config:` block; they declare no config surface.',
+    '',
+    ...entries.filter(e => e.kind === 'no-config').map(e => renderTerse(e, '')),
+    '',
+    '## Seam packages (not directly loadable)',
+    '',
+    'Abstract service classes — a deployment loads a concrete implementation package instead ([capability seams](rfc/implemented/architecture/2026-06-13-capability-seams.md)).',
+    '',
+    ...entries.filter(e => e.kind === 'seam').map(e => renderTerse(e, ` — abstract \`${e.className ?? ''}\``)),
+    '',
+    '## Library packages (no plugin entry)',
+    '',
+    'Imported as libraries by other packages; a `cordis.yml` cannot load them.',
+    '',
+    ...entries.filter(e => e.kind === 'library').map(e => renderTerse(e, '')),
+    '',
+  )
+  return lines.join('\n')
+}
+
+/** CLI entry: default writes the catalog, `--check` fails if the committed
+ * copy is stale. Guarded behind an entry-point check so importing this module
+ * for tests neither regenerates the committed file nor calls process.exit. */
+function main(): void {
+  const content = render(collectConfigCatalog())
+  if (process.argv.includes('--check')) {
+    let committed: string | null = null
+    try {
+      committed = readFileSync(resolve(root, OUT), 'utf8')
+    } catch {
+      // Only ENOENT (not yet generated) is expected; a present-but-unreadable
+      // file is not a state this repo produces. Either way the remedy is the
+      // same — regenerate — so treat a read failure as "stale".
+      committed = null
+    }
+    if (committed === content) {
+      console.log(`gen-config-catalog: ${OUT} is up to date.`)
+      process.exit(0)
+    }
+    console.error(`gen-config-catalog: ${OUT} is stale. Run \`pnpm run gen-config-catalog\` and commit ${OUT}.`)
+    process.exit(1)
+  }
+  writeFileSync(resolve(root, OUT), content)
+  console.log(`gen-config-catalog: wrote ${OUT}.`)
+}
+
+// Run only when invoked as a script, not when imported by a test.
+if (process.argv[1] && import.meta.filename === resolve(process.argv[1])) {
+  main()
+}
