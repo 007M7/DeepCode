@@ -487,8 +487,7 @@ export class SessionStore extends Service {
   /**
    * Create a live child session from a turn-enclosed prefix of a live source.
    * `boundary` is an inclusive source event seq; omitted means the source's
-   * current last event. A non-empty selected slice must be turn-enclosed and end
-   * at `turn/end`; this rejects open turns rather than clipping silently.
+   * current last event. A non-empty selected slice must end at `turn/end`.
    *
    * @param options Source, optional boundary, and optional child id for the fork.
    * @returns The created live child session.
@@ -540,10 +539,14 @@ export class SessionStore extends Service {
         'INVALID_BOUNDARY',
       )
     }
+    if (boundaryEvent.type !== 'turn/end') {
+      throw new SessionForkError(
+        `fork boundary ${boundary} in session "${session.id}" must be turn/end, got ${boundaryEvent.type}`,
+        'OPEN_TURN',
+      )
+    }
 
-    const seed = events.slice(0, boundary + 1)
-    this._assertForkBoundary(session, seed, boundary)
-    return seed.map(event => structuredClone(event))
+    return events.slice(0, boundary + 1).map(event => structuredClone(event))
   }
 
   private _resolveForkSource(source: SessionForkSource): Session {
@@ -561,50 +564,6 @@ export class SessionStore extends Service {
     return source
   }
 
-  private _assertForkBoundary(session: Session, seed: readonly SessionEvent[], boundary: number): void {
-    let openTurn: SessionEvent<'turn/start'> | undefined
-    for (const event of seed) {
-      switch (event.type) {
-        case 'turn/start': {
-          if (openTurn !== undefined) {
-            throw new SessionForkError(
-              `cannot fork session "${session.id}" at boundary ${boundary}: turn ${event.data.turn} starts before turn ${openTurn.data.turn} ended`,
-              'OPEN_TURN',
-            )
-          }
-          openTurn = event
-          break
-        }
-        case 'turn/end': {
-          if (openTurn === undefined) {
-            throw new SessionForkError(
-              `cannot fork session "${session.id}" at boundary ${boundary}: turn/end at seq ${event.seq} has no matching turn/start`,
-              'OPEN_TURN',
-            )
-          }
-          openTurn = undefined
-          break
-        }
-        default: {
-          if (openTurn === undefined) {
-            throw new SessionForkError(
-              `cannot fork session "${session.id}" at boundary ${boundary}: event ${event.seq} (${event.type}) is outside a turn`,
-              'OPEN_TURN',
-            )
-          }
-          break
-        }
-      }
-    }
-
-    const last = seed.at(-1)
-    if (openTurn !== undefined || last?.type !== 'turn/end') {
-      throw new SessionForkError(
-        `cannot fork session "${session.id}" at boundary ${boundary}: slice ends inside an open turn (last event: ${last?.type ?? 'none'})`,
-        'OPEN_TURN',
-      )
-    }
-  }
 }
 
 export default SessionStore

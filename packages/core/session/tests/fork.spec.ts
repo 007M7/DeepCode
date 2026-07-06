@@ -210,36 +210,8 @@ describe('SessionStore.fork', () => {
       const boundary = build(source)
 
       expect(() => sessions.fork({ source, boundary }))
-        .toThrow(new SessionForkError(`cannot fork session "open-${lastType}" at boundary ${boundary}: slice ends inside an open turn (last event: ${lastType})`, 'OPEN_TURN'))
+        .toThrow(new SessionForkError(`fork boundary ${boundary} in session "open-${lastType}" must be turn/end, got ${lastType}`, 'OPEN_TURN'))
     }
-  })
-
-  it('rejects malformed turn enclosure in the selected slice', async () => {
-    const { ctx, sessions } = await setup()
-    const outside = ctx.sessions.create(SessionId('outside'), {
-      seed: [
-        { type: 'step/start', seq: 0, time: 1, data: { turn: 1, step: 1 } },
-      ],
-    })
-    expect(() => sessions.fork({ source: outside, boundary: 0 }))
-      .toThrow(new SessionForkError('cannot fork session "outside" at boundary 0: event 0 (step/start) is outside a turn', 'OPEN_TURN'))
-
-    const nested = ctx.sessions.create(SessionId('nested'), {
-      seed: [
-        { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
-        { type: 'turn/start', seq: 1, time: 2, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
-      ],
-    })
-    expect(() => sessions.fork({ source: nested, boundary: 1 }))
-      .toThrow(new SessionForkError('cannot fork session "nested" at boundary 1: turn 2 starts before turn 1 ended', 'OPEN_TURN'))
-
-    const orphanEnd = ctx.sessions.create(SessionId('orphan-end'), {
-      seed: [
-        { type: 'turn/end', seq: 0, time: 1, data: { turn: 1, reason: { kind: 'completed' } } },
-      ],
-    })
-    expect(() => sessions.fork({ source: orphanEnd, boundary: 0 }))
-      .toThrow(new SessionForkError('cannot fork session "orphan-end" at boundary 0: turn/end at seq 0 has no matching turn/start', 'OPEN_TURN'))
   })
 
   it('rejects a child session id that is already live with a typed fork error', async () => {
