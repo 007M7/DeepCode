@@ -159,6 +159,15 @@ export interface SurfaceNode {
 
 Everything else (`turn/*`, `step/*`) is structural and does not project into a message. Token usage is observed on `assistant/message.usage` (the step that produced it); an operational error's step number is on `turn/end.reason` for `kind: 'error'`.
 
+## Live-session fork helpers
+
+`ctx.sessions.create(id, { seed, meta })` is the low-level replay/fork primitive. For ordinary live-session forks, `SessionStore` adds two policy helpers:
+
+- `snapshot(source)` accepts a live `Session` object or live `SessionId`, validates the source log is empty or ends at `turn/end`, then returns a deep-cloned `SessionEvent[]` seed plus child metadata (`parentSession`, `seedLength`, and inherited `cwd`).
+- `fork({ source, sessionId? })` calls `snapshot(source)` and immediately creates the live child via `ctx.sessions.create(sessionId, { seed, meta })`.
+
+The split is intentional: `snapshot()` is the reusable seed/metadata computation for callers that create an agent or defer session creation; `fork()` is the convenience path when a caller only needs a child `Session`. Both reject open-turn sources instead of clipping to an older prefix. `dsh-subagent-fork` keeps its completed-prefix clipping because tool-time delegation usually starts while the parent turn is open; ordinary session branching should not silently drop the parent turn tail.
+
 ## What started a turn: `TurnTriggerMap`
 
 ```ts type-equiv

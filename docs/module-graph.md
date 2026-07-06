@@ -78,9 +78,6 @@ flowchart TD
     pkg_app_boot["app-boot"]
     pkg_stdio_agent["stdio-agent"]
   end
-  subgraph group_session_fork["packages/session-fork"]
-    pkg_session_fork["session-fork"]
-  end
   pkg_llm --> pkg_brand
   pkg_bash --> pkg_brand
   pkg_llm_deepseek --> pkg_llm
@@ -109,7 +106,6 @@ flowchart TD
   pkg_session_persistence --> pkg_session
   pkg_llm_replay --> pkg_llm
   pkg_llm_replay --> pkg_session
-  pkg_session_fork --> pkg_session
   pkg_tools --> pkg_agent
   pkg_tools --> pkg_llm
   pkg_tools --> pkg_system_prompt
@@ -230,7 +226,6 @@ flowchart TD
 | [`hook-protocol`](../packages/hooks/hook-protocol) | `hooks` | [`bash`](../packages/bash/bash), [`session`](../packages/core/session) |
 | [`session-persistence`](../packages/session-persistence/session-persistence) | `session-persistence` | [`session`](../packages/core/session) |
 | [`llm-replay`](../packages/support/llm-replay) | `support` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
-| [`session-fork`](../packages/session-fork/session-fork) | `session-fork` | [`session`](../packages/core/session) |
 | [`tools`](../packages/core/tools) | `core` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt) |
 | [`compact-basic`](../packages/compact/compact-basic) | `compact` | [`agent`](../packages/core/agent), [`compact`](../packages/compact/compact), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl) | `session-persistence` | [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |

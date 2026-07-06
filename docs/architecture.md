@@ -30,7 +30,6 @@ The default distribution is a composition, not a hierarchy. `packages/core/` is 
 | `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
 | `ctx.compact` | [`compact/`](../packages/compact/README.md) | session-surface compaction |
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
-| `ctx.sessionFork` | [`session-fork/`](../packages/session-fork/README.md) | live-session fork boundary validation and seed snapshots |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable storage for session logs |
 
 ## Event Surface
@@ -109,7 +108,7 @@ Every session event is turn-enclosed. Reloading a crashed session preserves the 
 
 The session log is the source of truth. `deriveMessages()` projects session events into the `Message[]` sent to the model; raw `assistant/chunk` events stay in the log for replay and UI fidelity. Replay, fork, resume, transcript rendering, telemetry, and persistence all derive from the same event stream.
 
-The low-level fork primitive is `ctx.sessions.create(id, { seed, meta })`. The optional `ctx.sessionFork` service owns live-session fork policy: it validates that a source session is empty or at a turn boundary, snapshots the seed, and creates child metadata without changing the core log.
+The low-level fork primitive is `ctx.sessions.create(id, { seed, meta })`. The session store also exposes `ctx.sessions.snapshot(source)` and `ctx.sessions.fork({ source, sessionId? })` for ordinary live-session forks: they validate that a source session is empty or at a turn boundary, snapshot the seed, and create child metadata without changing the core log.
 
 Durability is a plugin concern. Persistence backends buffer synchronous `session/event` notifications and the loop awaits a turn-end checkpoint before moving on. The `SessionPersistence` seam stores `SessionEvent` directly, with metadata in `SessionHeader`; JSONL and SQLite share one contract suite.
 
@@ -125,7 +124,7 @@ Streaming is a raw chunk protocol (`block-start` through `finish`) with `BlockAs
 
 A swappable capability usually splits into **interface / implementation / consumer**: the interface owns the `ctx` key and vocabulary; an implementation registers a backend; a consumer exposes model-facing behavior through `ctx.tools` or prompt assembly. The bash trio is the reference shape, and the [capability seam graph](capability-seams.md) shows the current package families.
 
-Some seams bend the template deliberately. LLM keeps interface and consumer vocabulary together because adapters are the implementations. Filesystem adds policy as event gates around provider primitives. Web is one service with search and fetch provider registries, so provider swaps do not rename model tools. Session-fork keeps its interface and implementation together because it delegates durable work to the existing session store. Subagents use a named provider registry because multiple delegation backends can coexist; `spawn` starts fresh, `fork` seeds from the parent's completed-turn prefix, and ACP can drive an out-of-process child ([subagent.md](core-data-structures/subagent.md)).
+Some seams bend the template deliberately. LLM keeps interface and consumer vocabulary together because adapters are the implementations. Filesystem adds policy as event gates around provider primitives. Web is one service with search and fetch provider registries, so provider swaps do not rename model tools. Subagents use a named provider registry because multiple delegation backends can coexist; `spawn` starts fresh, `fork` seeds from the parent's completed-turn prefix, and ACP can drive an out-of-process child ([subagent.md](core-data-structures/subagent.md)).
 
 ### Bundles And Apps
 
@@ -144,6 +143,6 @@ New behavior should attach to a documented seam; changing the shipped loop requi
 | Intercept prompts, requests, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` waterfall |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
 | Add durable session state | add a `SessionEventMap` member and render/replay from the log |
-| Fork a live session | use `ctx.sessionFork` to validate the boundary and create a seeded child session |
+| Fork a live session | use `ctx.sessions.snapshot()` for reusable seed metadata or `ctx.sessions.fork()` to create a seeded child session |
 
 The [extension cookbook](cookbook/extension-cookbook.md) carries plugin skeletons and the feature-to-seam map; step-by-step guides cover [packages](cookbook/adding-a-package.md), [tools](cookbook/adding-a-tool.md), [LLM adapters](cookbook/adding-an-llm-adapter.md), and [vendored packages](cookbook/adding-a-vendored-package.md).

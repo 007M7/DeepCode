@@ -46,7 +46,6 @@
         "./packages/fs/*/src",
         "./packages/compact/*/src",
         "./packages/subagent/*/src",
-        "./packages/session-fork/*/src",
         "./packages/web/*/src",
         "./packages/todo/*/src",
         "./packages/hooks/*/src",

@@ -42,7 +42,6 @@
     { "path": "./packages/fs/fs-policy" },
     { "path": "./packages/fs/tool-fs" },
     { "path": "./packages/compact/compact" },
-    { "path": "./packages/session-fork/session-fork" },
     { "path": "./packages/compact/compact-basic" },
     { "path": "./packages/web/web" },
     { "path": "./packages/web/web-search-exa" },
