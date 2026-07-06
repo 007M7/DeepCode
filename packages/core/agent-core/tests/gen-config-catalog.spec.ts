@@ -224,6 +224,89 @@ export function apply(ctx: Context, config: Config): void {}
     }))).toThrow(/schema validates key 'hidden' but config type 'Config' declares no such member/)
   })
 
+  it('hard-errors on a NESTED schema key the config type does not declare', () => {
+    expect(() => collectConfigCatalog(make({
+      'src/index.ts': `import type { Context } from 'cordis'
+import z from 'schemastery'
+/** Fixture config. */
+export interface Config {
+  /** Entries. */
+  entries: {
+    /** Id. */
+    id: string
+  }[]
+}
+export const Config: z<Config> = z.object({ entries: z.array(z.object({ id: z.string(), ghost: z.string() })) })
+/** Load. */
+export function apply(ctx: Context, config: Config): void {}
+`,
+    }))).toThrow(/schema validates key 'entries\[\]\.ghost'/)
+  })
+
+  it('resolves nested keys through a workspace-imported intersection part (re-export chains included)', () => {
+    const root = makeRoot()
+    writePkg(root, 'group/dep', '@fix/dep', {
+      'src/index.ts': 'export * from \'./types.ts\'\n',
+      'src/types.ts': '/** Shared options. */\nexport interface Opts {\n  /** Model. */\n  model?: string\n}\n',
+    })
+    writePkg(root, 'group/one', '@fix/one', {
+      'src/index.ts': `import type { Context } from 'cordis'
+import z from 'schemastery'
+import type { Opts } from '@fix/dep'
+/** Fixture config. */
+export interface Config {
+  /** Entries. */
+  entries: (Opts & {
+    /** Id. */
+    id: string
+  })[]
+}
+export const Config: z<Config> = z.object({ entries: z.array(z.object({ id: z.string(), model: z.string() })) })
+/** Load. */
+export function apply(ctx: Context, config: Config): void {}
+`,
+    })
+    expect(() => collectConfigCatalog(root)).not.toThrow()
+  })
+
+  it('resolves nested keys through a Partial<> wrapper', () => {
+    expect(() => collectConfigCatalog(make({
+      'src/index.ts': `import type { Context } from 'cordis'
+import z from 'schemastery'
+/** Caps. */
+export interface Caps {
+  /** X. */
+  x?: boolean
+}
+/** Fixture config. */
+export interface Config {
+  /** Capabilities. */
+  capabilities?: Partial<Caps>
+}
+export const Config: z<Config> = z.object({ capabilities: z.object({ x: z.boolean() }) })
+/** Load. */
+export function apply(ctx: Context, config: Config): void {}
+`,
+    }))).not.toThrow()
+  })
+
+  it('leaves a nested key under an external (unresolvable) type unreported', () => {
+    expect(() => collectConfigCatalog(make({
+      'src/index.ts': `import type { Context } from 'cordis'
+import z from 'schemastery'
+import type { External } from 'some-external-pkg'
+/** Fixture config. */
+export interface Config {
+  /** Options. */
+  options?: External
+}
+export const Config: z<Config> = z.object({ options: z.object({ whatever: z.string() }) })
+/** Load. */
+export function apply(ctx: Context, config: Config): void {}
+`,
+    }))).not.toThrow()
+  })
+
   it('folds an intersected workspace schema into the subset check', () => {
     const root = makeRoot()
     writePkg(root, 'group/leaf', '@fix/leaf', {
@@ -257,6 +340,43 @@ export function apply(ctx: Context, config: Config): void {}
     })
     const entries = collectConfigCatalog(root)
     expect(entries.find(e => e.pkg === '@fix/bundle')?.schemaComposes).toEqual(['@fix/leaf'])
+  })
+
+  it('resolves composed nested keys through an indexed-access forwarder', () => {
+    const root = makeRoot()
+    writePkg(root, 'group/leaf', '@fix/leaf', {
+      'src/index.ts': `import type { Context } from 'cordis'
+import z from 'schemastery'
+/** Leaf config. */
+export interface Config {
+  /** Agents. */
+  agents: {
+    /** Id. */
+    id: string
+  }[]
+}
+/** Leaf service. */
+export default class Leaf {
+  static Config = z.object({ agents: z.array(z.object({ id: z.string() })) }) as unknown as z<Config>
+  constructor(ctx: Context, config: Config) {}
+}
+`,
+    })
+    writePkg(root, 'group/bundle', '@fix/bundle', {
+      'src/index.ts': `import type { Context } from 'cordis'
+import z from 'schemastery'
+import Leaf, { type Config as LeafConfig } from '@fix/leaf'
+/** Bundle config forwarding the leaf's agents list. */
+export interface Config {
+  /** Forwarded agents list. */
+  agents?: LeafConfig['agents']
+}
+export const Config = z.intersect([Leaf.Config]) as unknown as z<Config>
+/** Load. */
+export function apply(ctx: Context, config: Config): void {}
+`,
+    })
+    expect(() => collectConfigCatalog(root)).not.toThrow()
   })
 
   it('hard-errors when an intersected schema key is missing from the bundle config type', () => {
