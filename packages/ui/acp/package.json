@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-acp",
-  "description": "Agent Client Protocol (ACP) bridge: drive the DeepSeek Harness coding agent from an ACP editor over JSON-RPC stdio",
+  "description": "Agent Client Protocol (ACP) bridge: drive DeepSeek Harness SDK agents from an ACP editor over JSON-RPC stdio",
   "version": "0.0.1",
   "private": true,
   "type": "module",

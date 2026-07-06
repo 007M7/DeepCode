@@ -45,6 +45,7 @@
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock, GenerateOptions, Message, MessageSource } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 
 /** Identifies one live agent in the registry. */
 export type AgentId = Branded<'AgentId'>
@@ -55,15 +56,28 @@ export function AgentId(id: string): AgentId {
 }
 import type { Session } from '@deepseek-ai/dsh-session'
 
+declare module '@deepseek-ai/dsh-system-prompt' {
+  interface AssembleContext {
+    /**
+     * The agent this assembly is for. The agent loop passes it on every
+     * per-step `assemble({ agent })`; variable providers project per-agent
+     * facts from it (`options.model` → `{{model}}`, `session.header.cwd` →
+     * `{{cwd}}`). Optional because a bare `assemble()` (tests, diagnostics)
+     * has no agent — providers must tolerate its absence.
+     */
+    agent?: Agent
+  }
+}
+
 /**
- * Options an agent is created with.
+ * Options an agent is created with. The persona is NOT here — it is the
+ * deployment's `persona` config on the dsh-system-prompt plugin, shared by
+ * every agent in the context.
  * Merge-extensible: plugins declare extra fields via declaration merging.
  */
 export interface AgentOptions {
   /** Model name (must have a registered adapter at call time). */
   model?: string
-  /** Per-agent system prompt appended after the assembled sections. */
-  systemPrompt?: string
 }
 
 export interface SendOptions {

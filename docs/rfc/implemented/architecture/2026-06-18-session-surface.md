@@ -1,8 +1,8 @@
 # RFC: Session surface — a linked list over the event log for LLM message derivation
 
-Status: implemented (accepted 2026-06-18)
+Status: implemented
 
-## Context
+## Problem
 
 The `Session` event log is the single source of truth ([event-sourced sessions](2026-06-11-event-sourced-sessions.md)), but the only view over it was `deriveMessages()` — a linear scan that filtered and transformed raw events into `Message[]`. This creates problems for session-history-manipulating plugins (compaction, tool-call result pruning, etc.). Without a central mechanism, each plugin would need to wrap `agent/request` to rewrite the message list — a pattern that suffers from listener-ordering fragility, provides no durable record of what was changed, and forces repeated changes to the core `deriveMessages()` whenever a new manipulation is added. A central hub in the `session` package, with a provenance-recording mechanism and enough flexibility for future plugins to manipulate session history through a stable API, lays a solid foundation for plugin development.
 
@@ -29,13 +29,11 @@ export type SurfaceOp =
 
 2. **Replace** — remove nodes from `start` through `end` (both inclusive) and insert a new node in their place. Both `start` and `end` must be valid surface node seqs in the current surface; `start === end` replaces a single node. The node's `sourceEventSeqs` must contain every shadowed surface node. The shadowed events remain in the log but are no longer on the surface.
 
-The both-ends-inclusive design was chosen over half-open `[start, endExclusive)` because the surface is a doubly-linked list — both ends are naturally named by node seqs, and single-node replacement (`start === end`) is a common case that reads naturally with inclusive semantics.
-
 ### SurfaceManager: delta-based, not full rebuild
 
 A `SurfaceManager` class (private to `Session`) maintains the cached linked list. It tracks `_lastProcessedSeq` and processes only the **delta** (new events since the last access) rather than rescanning the entire log. Because the log is append-only, prior events never change — full rebuild is only needed after a wholesale log replacement (e.g., seeding).
 
-Why delta processing? The naive approach (a dirty flag + full rebuild on every access) would be O(N²) over a session's lifetime — every single-event append triggers a complete scan of all prior events. Delta processing is O(1) when no new events and O(new events) when new events arrive.
+Delta processing is O(1) when no new events and O(new events) when new events arrive.
 
 `deriveMessages()` uses the surface when surface markers exist, falling back to the existing linear scan for sessions without markers (backward compatibility).
 
@@ -52,6 +50,12 @@ The `repair.ts` module synthesizes `tool/result` closers for orphaned tool calls
 The dev-mode invariants plugin validates: `sourceEventSeqs` references (non-empty, no duplicates, references earlier events, references known seqs) and `surfaceOp` (replace `start ≤ end`, both endpoints are on the tracked surface, the range is non-reversed in surface position, and `sourceEventSeqs` includes every node the range shadows).
 
 Because the surface is the SOLE derivation path, a surface-eligible event that carries no `surfaceOp` marker is invisible to `deriveMessages()` — it would land in the log yet silently drop from history on resume/fork. `append`'s typed overload makes the marker mandatory for `SurfaceEventType` events at compile time, but only when the type argument is a SPECIFIC literal; when it widens to the `SessionEventType` union (a caller iterating raw events, e.g. `for (const e of log) append(e.type, e.data)`) the conditional rest collapses to optional and the compiler stops enforcing it. The marker requirement is therefore ALSO checked at runtime in two places: `append` itself throws on a marker-less surface-eligible event (covering the union-widening loophole), and the `Session` seed constructor re-checks the same invariant (alongside its seq-contiguity and JSON-serializability checks) so a seed/load/fork — which arrives as raw `SessionEvent[]`, bypassing `append` — is REJECTED rather than constructing a session that resumes with missing history. (No backward-compat path for surface-less logs: per the pre-release stance there is no persisted user data to preserve, so such a log is rejected, not upgraded.)
+
+## Alternatives considered
+
+- **Per-plugin `agent/request` wrapping** (the pre-surface pattern for history manipulation) — listener-ordering fragility, no durable record of what was changed, and every new manipulation forces another change to core `deriveMessages()`.
+- **Half-open `[start, endExclusive)` replace ranges** — rejected: the surface is a doubly-linked list whose ends are naturally named by node seqs, and single-node replacement (`start === end`) reads naturally with inclusive semantics.
+- **Full rebuild behind a dirty flag** instead of delta processing — O(N²) over a session's lifetime: every single-event append would rescan all prior events.
 
 ## Consequences
 

@@ -53,6 +53,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
     // budget even though those blocks are stripped before the checkpoint is
     // stored.
     ctx = await codingHarness(workdir, {
+      persona: SYSTEM_PROMPT,
       compact: {
         contextWindow: 2400,
         thresholdRatio: 0.5,
@@ -63,10 +64,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
       },
       persistenceRoot: './.sessions',
     })
-    const agent = ctx.agentLoop.create(AgentId('e2e-compaction'), {
-      model: 'deepseek-v4-flash',
-      systemPrompt: SYSTEM_PROMPT,
-    })
+    const agent = ctx.agentLoop.create(AgentId('e2e-compaction'), { model: 'deepseek-v4-flash' })
 
     agent.send([{
       type: 'text',

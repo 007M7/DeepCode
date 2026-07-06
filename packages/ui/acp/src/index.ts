@@ -237,8 +237,6 @@ function elicitationForQuestion(
 export interface AcpConfig {
   /** Model name for created agents (must have a registered adapter). */
   model?: string
-  /** Per-agent system prompt. */
-  systemPrompt?: string
   /**
    * Transport stream override. Production omits this (the plugin wires
    * `process.stdin`/`process.stdout` via `ndJsonStream`). Tests inject an
@@ -251,7 +249,6 @@ export interface AcpConfig {
 
 export const Config: Schema<AcpConfig> = Schema.object({
   model: Schema.string(),
-  systemPrompt: Schema.string(),
 })
 
 /**
@@ -859,10 +856,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
  * (exactOptionalPropertyTypes: never assign `undefined` to an optional key).
  * Exported for unit coverage of both the present and absent branches.
  */
-export function agentOptions(config: AcpConfig): { model?: string; systemPrompt?: string } {
+export function agentOptions(config: AcpConfig): { model?: string } {
   return {
     ...config.model !== undefined ? { model: config.model } : {},
-    ...config.systemPrompt !== undefined ? { systemPrompt: config.systemPrompt } : {},
   }
 }
 

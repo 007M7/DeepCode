@@ -488,6 +488,18 @@ describe('createStdioChat input', () => {
     expect(exit).not.toHaveBeenCalled()
   })
 
+  it('rejects new questions immediately after stdin has closed', async () => {
+    const { ctx, input, out } = await setup()
+    input.finish()
+    await new Promise(r => setImmediate(r))
+    const before = out.text()
+
+    const answer = ctx.userInteraction.ask({ question: 'Too late?' })
+
+    await expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    expect(out.text()).toBe(before)
+  })
+
   it('sends a typed line to an idle agent', async () => {
     const { ctx, input } = await setup()
     const agent = makeAgent('main', 'idle')

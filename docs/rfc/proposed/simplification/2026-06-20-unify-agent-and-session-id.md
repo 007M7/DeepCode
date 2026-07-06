@@ -28,7 +28,9 @@ Make an agent BE its session: one id. An agent's registry handle IS its `session
 - The config path (`AgentLoop.create`) uses its configured `id` directly as the session id, applying whatever resume-or-create policy it adopts (today it appends a per-run uuid to avoid colliding with an on-disk log; that policy moves onto the single id, e.g. the config id IS the session and a durable backend resumes it — to be settled in the implementing PR).
 - The registry's existing unique-`agentId` check becomes, by construction, a unique-session-id guarantee — the bash alias hole is closed with NO new defensive invariant: two agents cannot share a session id because the session id is the agent id.
 
-## Why not just enforce session-id uniqueness in `AgentRegistry.register()`?
+## Alternatives considered
+
+### Why not just enforce session-id uniqueness in `AgentRegistry.register()`?
 
 That was the review's first suggestion. It would couple the generic registry to a session-uniqueness assumption (the registry tracks *agents*, not sessions) and entrench the very separation this RFC removes. Unifying the ids closes the hole more cleanly — there is nothing left to enforce.
 

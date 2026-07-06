@@ -290,6 +290,11 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
 
     const disposeUserInteractionProvider = ctx.userInteraction.registerProvider({
       ask(request) {
+        if (disposed || stdinClosed) {
+          return Promise.reject(
+            new UserInteractionError('ask_user_question cannot be answered because stdin is closed', 'ASK_ABORTED'),
+          )
+        }
         return new Promise<AskUserQuestionAnswer>((resolve, reject) => {
           const pending: PendingQuestion = {
             request,

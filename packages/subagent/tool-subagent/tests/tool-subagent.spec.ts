@@ -112,6 +112,7 @@ describe('dsh-tool-subagent', () => {
     ctx.subagents.registerProvider({
       name: 'weird',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      inheritsParentContext: false,
       start: () => ({
         id: AgentId('weird-child'),
         result: Promise.resolve({ output: [{ type: 'text', text: 'partial' }], stopReason: 'frobnicated' as never }),
@@ -137,6 +138,7 @@ describe('dsh-tool-subagent', () => {
     ctx.subagents.registerProvider({
       name: 'capture',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      inheritsParentContext: false,
       start: (request) => {
         seen = request
         return {
@@ -147,10 +149,10 @@ describe('dsh-tool-subagent', () => {
         }
       },
     })
-    await ctx.plugin(tool, { provider: 'capture', agentOptions: { model: 'child-model', systemPrompt: 'be terse' } })
+    await ctx.plugin(tool, { provider: 'capture', agentOptions: { model: 'child-model' } })
 
     await callSubagent(ctx, { description: 'd', prompt: 'p' })
-    expect(seen?.agentOptions).toEqual({ model: 'child-model', systemPrompt: 'be terse' })
+    expect(seen?.agentOptions).toEqual({ model: 'child-model' })
   })
 
   it('defaults toolName and omits agentOptions when apply() is called directly (schema bypass)', async () => {
@@ -166,6 +168,7 @@ describe('dsh-tool-subagent', () => {
     ctx.subagents.registerProvider({
       name: 'bare',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      inheritsParentContext: false,
       start: (request) => {
         seen = request
         return {
@@ -192,14 +195,96 @@ describe('dsh-tool-subagent', () => {
     expect(text(result)).toContain('requires a calling agent')
   })
 
-  it('surfaces an UNSUPPORTED_CAPABILITY rejection as an isError result is NOT applicable here '
-    + '(the tool requests no capabilities) — a missing provider IS surfaced', async () => {
-    // Bind the tool to a provider name that is not registered: the service throws
-    // NO_PROVIDER, the registry turns it into an isError result.
-    const ctx = await setup({ provider: 'does-not-exist' })
+  it('registers when the provider appears LATER — no load-order requirement (Loader starts siblings concurrently)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    // Tool first: no provider yet — the tool must be absent, not broken.
+    // Direct apply (schema bypass): also covers the waiting-note's default
+    // toolName fallback, which validated config pre-fills.
+    tool.apply(ctx, { provider: 'mock' })
+    expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(false)
+    // Backend arrives (as a delayed sibling fiber would): the tool appears.
+    await ctx.plugin(mock, { name: 'mock', reply: 'late but fine' })
+    expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(true)
     const result = await callSubagent(ctx, { description: 'd', prompt: 'p' })
-    expect(result.isError).toBe(true)
-    expect(text(result)).toContain('no subagent provider')
+    expect(text(result)).toBe('late but fine')
+  })
+
+  it('mirrors the provider lifecycle: gone on backend dispose, re-derived wording on re-registration', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    const backend = await ctx.plugin(mock, { name: 'mock' }) // spawn-shaped (inherits: false)
+    await ctx.plugin(tool, { provider: 'mock' })
+    expect(ctx.tools.schemas().find(s => s.name === 'subagent')!.description).toContain('does not see this conversation')
+
+    // Backend unloads (HMR shape): the tool must not outlive its provider.
+    await backend.dispose()
+    expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(false)
+
+    // Backend reloads with a DIFFERENT contract: the wording is re-derived
+    // from the fresh provider, not served stale from the first mount.
+    await ctx.plugin(mock, { name: 'mock', inheritsParentContext: true })
+    expect(ctx.tools.schemas().find(s => s.name === 'subagent')!.description).toContain('INHERITS this conversation')
+  })
+
+  it('the tool PLUGIN fiber owns its lifecycle listeners: disposal unmounts, and a disposed fiber never zombie-mounts', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+
+    // Arm 1: a mounted tool dies with its plugin fiber; the provider survives.
+    await ctx.plugin(mock, { name: 'mock' })
+    const mounted = await ctx.plugin(tool, { provider: 'mock' })
+    expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(true)
+    await mounted.dispose()
+    expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(false)
+    expect(ctx.subagents.getProvider('mock')).toBeDefined()
+
+    // Arm 2: a fiber disposed while WAITING must not react to the provider
+    // arriving later — a surviving listener would re-register a tool that no
+    // live plugin owns (the zombie mount).
+    const waiting = await ctx.plugin(tool, { provider: 'later', toolName: 'subagent_later' })
+    await waiting.dispose()
+    await ctx.plugin(mock, { name: 'later' })
+    expect(ctx.tools.schemas().some(s => s.name === 'subagent_later')).toBe(false)
+  })
+
+  it('ignores lifecycle events for OTHER providers', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    await ctx.plugin(mock, { name: 'mock' })
+    await ctx.plugin(tool, { provider: 'mock' })
+    // An unrelated provider registering (added-event with another name) and
+    // unregistering (removed-event with another name) must not touch the tool.
+    const other = await ctx.plugin(mock, { name: 'other', inheritsParentContext: true })
+    expect(ctx.tools.schemas().filter(s => s.name === 'subagent')).toHaveLength(1)
+    expect(ctx.tools.schemas().find(s => s.name === 'subagent')!.description).toContain('does not see this conversation')
+    await other.dispose()
+    expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(true)
+  })
+
+  it('derives spawn-shaped wording from a fresh-context provider (default mock)', async () => {
+    const ctx = await setup({ provider: 'mock' })
+    const schema = ctx.tools.schemas().find(s => s.name === 'subagent')!
+    expect(schema.description).toContain('does not see this conversation')
+    const props = (schema.parameters as { properties: Record<string, { description: string }> }).properties
+    expect(props['prompt']!.description).toContain('include everything it needs')
+  })
+
+  it('derives fork-shaped wording from an inheriting provider (the description stops lying)', async () => {
+    const ctx = await setup({ provider: 'mock', toolName: 'subagent' }, { inheritsParentContext: true })
+    const schema = ctx.tools.schemas().find(s => s.name === 'subagent')!
+    expect(schema.description).toContain('INHERITS this conversation')
+    expect(schema.description).not.toContain('does not see this conversation')
+    const props = (schema.parameters as { properties: Record<string, { description: string }> }).properties
+    expect(props['prompt']!.description).toContain('completed turns')
   })
 
   it('disposes the run on the success path (no leaked child)', async () => {
@@ -213,6 +298,7 @@ describe('dsh-tool-subagent', () => {
     ctx.subagents.registerProvider({
       name: 'spy',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      inheritsParentContext: false,
       start: () => ({
         id: AgentId('spy-child'),
         result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
@@ -235,6 +321,7 @@ describe('dsh-tool-subagent', () => {
     ctx.subagents.registerProvider({
       name: 'spy',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      inheritsParentContext: false,
       start: () => ({
         id: AgentId('spy-child'),
         result: Promise.resolve({ output: [], stopReason: 'error' as const }),
@@ -258,6 +345,7 @@ describe('dsh-tool-subagent', () => {
     ctx.subagents.registerProvider({
       name: 'spy',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      inheritsParentContext: false,
       start: () => {
         let resolveResult: (r: { output: never[]; stopReason: 'aborted' }) => void
         const result = new Promise<{ output: never[]; stopReason: 'aborted' }>((res) => { resolveResult = res })
@@ -304,6 +392,7 @@ describe('dsh-tool-subagent', () => {
     ctx.subagents.registerProvider({
       name: 'spy',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      inheritsParentContext: false,
       start: () => {
         let resolveResult: (r: { output: never[]; stopReason: 'aborted' }) => void
         const result = new Promise<{ output: never[]; stopReason: 'aborted' }>((res) => { resolveResult = res })

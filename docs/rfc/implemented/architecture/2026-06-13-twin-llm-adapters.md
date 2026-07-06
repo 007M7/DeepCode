@@ -1,10 +1,8 @@
 # RFC: Two LLM adapters as a design-verification twin
 
-Status: implemented (accepted 2026-06-13)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 `dsh-llm` owns a provider-neutral streaming vocabulary — the `StreamChunk` protocol (`block-start`, `text-delta`, `reasoning-delta`, `tool-call-delta`, `block-end`, `usage`, `finish`) and the content-block types ([the content-block vocabulary](2026-06-11-content-block-vocabulary.md)). A vocabulary defined against a single adapter risks baking that adapter's quirks into the "neutral" contract: anything the one implementation happens to do becomes the de-facto spec, and the abstraction is unverified until a second provider arrives — by which point the leak is expensive to fix.
 
@@ -17,7 +15,10 @@ Ship **two** adapters against the one contract from the start, deliberately buil
 
 The rule they enforce: **anything the StreamChunk vocabulary cannot express for BOTH implementations is a core-vocabulary bug**, caught immediately rather than at the next provider. The pair pinned down conventions now documented on `StreamChunk` in `dsh-llm/src/types.ts`: usage emitted before finish, nothing after finish, tool-call `arguments` as raw JSON strings end-to-end, and the two sanctioned error paths (throw from `stream()` *or* end with `finish {kind:'error'|'aborted'}`) that a consumer must handle on both sides — a divergence the library-backed adapter surfaced that a single hand-rolled adapter would have hidden.
 
-Alternatives considered: **a single adapter** — less code and half the e2e cost, but leaves the "provider-neutral" claim unverified; the vocabulary would encode DeepSeek-via-fetch assumptions silently. **A mock second adapter** — cheaper but doesn't exercise a real provider's wire quirks, so it proves little. The twin is real-on-real.
+## Alternatives considered
+
+- **A single adapter** — less code and half the e2e cost, but leaves the "provider-neutral" claim unverified; the vocabulary would encode DeepSeek-via-fetch assumptions silently.
+- **A mock second adapter** — cheaper but doesn't exercise a real provider's wire quirks, so it proves little. The twin is real-on-real.
 
 ## Consequences
 

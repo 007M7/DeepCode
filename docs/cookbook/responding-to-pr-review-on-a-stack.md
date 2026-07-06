@@ -15,7 +15,7 @@ A wave of review comments lands across several PRs in a dependent stack (`A ← 
 2. Map each accepted finding to its originating PR, fix it there, then merge down the chain in order.
 3. Delegated fixes are trust-but-verify: a sub-agent's report describes intent, not necessarily what landed. Re-run the gates yourself on the actual tree, and for a regression guard, prove it FAILS on the unfixed code (introduce the regression, watch red, revert) — a guard that passes both ways guards nothing. A sub-agent that reframes a problem as already-handled is a signal to dig in personally.
 4. Reply in the review thread (`gh api repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`), not as a top-level comment, stating the fix and the commit that carries it.
-5. Before merging the stack, check dependents: deleting a PR's base branch auto-closes the dependent PR — `gh pr list --json number,baseRefName` first, and merge without `--delete-branch` where a child still bases on the branch.
+5. Before merging the stack, check dependents: deleting a PR's base branch auto-closes the dependent PR — check each branch with `gh pr list --state open --base <branch> --json number --jq length` (non-zero = open dependents), and merge without `--delete-branch` where a child still bases on the branch. The full landing procedure is the [dsh-merging-stacked-prs](../../.agents/skills/dsh-merging-stacked-prs/SKILL.md) skill.
 
 ## Verify
 

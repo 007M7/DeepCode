@@ -26,7 +26,17 @@ Optionless questions are always free-form, even if a caller passes `allowCustom:
 
 The ACP mapping deliberately uses elicitation, not `session/request_permission`. `request_permission` is still reserved for the separate permission gate: it is a yes/no-or-policy authorization protocol around tool execution. `ask_user_question` is a general information-gathering tool with optional free-form answers, so ACP form elicitation is the closer protocol fit. The bridge's session routing is shared with the future permission gate, but the user intent is different.
 
-## Risks / trade-offs
+## Alternatives considered
+
+**Assistant text followed by a stopped turn.** The model could ask the user in plain assistant text and then stop. That loses the structured option metadata, gives UIs no provider-neutral way to render a choice, and forces the next human answer to arrive as a new user prompt rather than as the result of the operation that needed the answer.
+
+**A core `tool-ask-user` package.** The first implementation put the model-facing tool under `packages/core`, but the tool is not providerless loop infrastructure. It is a product-facing affordance that only works when a UI provider exists, so core owns only the abstract `ctx.userInteraction` seam and the tool lives under `packages/ui`.
+
+**ACP `session/request_permission`.** Permission requests are authorization around tool execution; `ask_user_question` is information gathering with optional free-form answers. Using permission for general questions would collapse two different product concepts and make the future permission gate harder to reason about.
+
+**A loop-level pause primitive.** The agent loop already knows how to await a tool call and resume from a tool result. Adding a new loop special case would duplicate that async shape and make every loop implementation learn about a UI concern.
+
+## Consequences
 
 ACP elicitation is currently marked unstable in the SDK. The fallback is still structured: if a client does not implement it, the tool returns `ASK_FAILED` rather than hanging. A later ACP stabilization may rename or reshape the method; that migration should stay inside `dsh-acp` because the core `ctx.userInteraction` vocabulary is provider-neutral.
 
@@ -34,6 +44,6 @@ The feature gives the model a powerful pause primitive, so prompt guidance matte
 
 `dsh-tool-ask-user` lives in `packages/ui` even though it is a tool, because it is a product-facing human-interaction affordance rather than providerless loop infrastructure. The core package remains only the abstract seam; `agent-core` does not load the tool. Front-door app packages such as `stdio-agent` and `acp-agent` opt into it alongside their UI provider.
 
-## Test plan
+## Testing
 
 Unit coverage pins provider registration/disposal, duplicate-provider rejection, abort-before-provider, structured tool errors through `ctx.tools.execute()`, option labels/values, and the model schema including the removal of `desc`. `dsh-stdio-agent` tests cover recommended-first display, descriptions, queued questions, EOF/abort cleanup, and optionless free-form input even with `allowCustom: false`. ACP bridge tests drive a real in-memory ACP connection with the real `ask_user_question` tool and verify both selected-option and optionless free-form elicitation paths continue the agent loop.

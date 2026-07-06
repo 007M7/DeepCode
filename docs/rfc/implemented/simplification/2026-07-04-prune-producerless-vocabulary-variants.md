@@ -1,6 +1,6 @@
 # RFC: Prune producer-less vocabulary variants (block cache hints, the `agent` message source, the `continuation` turn trigger)
 
-Status: implemented (proposed and accepted 2026-07-04)
+Status: implemented
 
 ## Problem
 
@@ -16,16 +16,16 @@ The merge-extensible vocabulary maps are designed to grow by declaration merging
 
 Each variant returns the day it gains a real producer, exactly as the maps are designed to grow: a caching feature re-adds `cache` together with the adapter that transmits it; subagent attribution re-adds `agent` together with the backend that stamps it and a consumer that routes on it; an auto-continue feature that genuinely starts new turns re-adds `continuation` with the plugin that emits it.
 
-## Why not keep them?
+## Alternatives considered
+
+### Why not keep them?
 
 The [content-block vocabulary RFC](../architecture/2026-06-11-content-block-vocabulary.md) listed "cache hints … have a home" as a design consequence, and reserved slots do advertise intent. But an empty slot is contract surface every implementation and consumer must consider (must my adapter honor `cache`? must my renderer route `agent` sources?), and the sibling map's own JSDoc already rejects reservation-without-emitter — `refusal` and `max_turn_requests` are named as variants to add *when something first emits them*, not declared in advance. Holding already-declared dead variants to the same standard makes the vocabulary mean something: if it is in the map, something produces it.
 
-## Acceptance criteria
+## Verification
 
-- `rg` for `CacheHint`, the `agent` message-source spelling, and the `continuation` trigger spelling returns only RFC records (this one, and [the drop-image RFC](2026-07-04-drop-image-content-block.md)'s account of the image block's own `cache` field).
-- The core-data-structures pastes and the type-equiv manifest are in sync (`pnpm run doc-sync` green).
-- The fixture asserts the same replay behavior with an `injection` trigger; the suite is green.
+`rg` for `CacheHint`, the `agent` message-source spelling, and the `continuation` trigger spelling returns only RFC records (this one, and [the drop-image RFC](2026-07-04-drop-image-content-block.md)'s account of the image block's own `cache` field); the llm-replay fixture asserts the same replay behavior with an `injection` trigger; the core-data-structures pastes and the type-equiv manifest are in sync.
 
-## Risks
+## Consequences
 
-None operational — nothing could construct these values. The mirror-event removals (recorded in [the boundary-mirror RFC](2026-06-20-remove-agent-boundary-mirror-events.md) and [the stream-chunk RFC](2026-07-02-remove-stream-chunk-mirror.md)) touch only transient `agent/*` events, never the durable vocabulary, so there is no collision. Elsewhere in the vocabulary the admission policy already holds: `rejected`, `prompt/blocked`, and `hook/invoked`/`hook/result` each have live producers — this RFC extends the same bar to the three variants that lacked one. The image block's own `cache?` field belongs to [the drop-image RFC](2026-07-04-drop-image-content-block.md), which removed it together with the block; this RFC covers the two fields on the block types that remain.
+Nothing operational changed — nothing could construct these values. The mirror-event removals ([the boundary-mirror RFC](2026-06-20-remove-agent-boundary-mirror-events.md), [the stream-chunk RFC](2026-07-02-remove-stream-chunk-mirror.md)) touch only transient `agent/*` events, never the durable vocabulary, so there is no collision. Elsewhere the admission policy already holds: `rejected`, `prompt/blocked`, and `hook/invoked`/`hook/result` each have live producers — this RFC extends the same bar to the three variants that lacked one. The image block's own `cache?` field belongs to [the drop-image RFC](2026-07-04-drop-image-content-block.md), which removed it together with the block; this RFC covers the two fields on the block types that remain.

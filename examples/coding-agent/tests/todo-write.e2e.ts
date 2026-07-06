@@ -18,11 +18,8 @@ afterEach(async () => {
 
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('todo_write: real model records a plan', () => {
   it('appends a todo/write event with the model-produced task list', async () => {
-    ctx = await codingHarness(process.cwd())
-    const agent = ctx.agentLoop.create(AgentId('e2e-todo'), {
-      model: 'deepseek-v4-flash',
-      systemPrompt: TODO_SYSTEM_PROMPT,
-    })
+    ctx = await codingHarness(process.cwd(), { persona: TODO_SYSTEM_PROMPT })
+    const agent = ctx.agentLoop.create(AgentId('e2e-todo'), { model: 'deepseek-v4-flash' })
 
     agent.send([{ type: 'text', text:
       'Use the todo_write tool to record a plan of exactly two steps: first '

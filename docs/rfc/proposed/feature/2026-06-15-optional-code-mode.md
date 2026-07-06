@@ -2,8 +2,6 @@
 
 Status: proposed
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
 ## Problem
 
 Today the agent loop advertises every registered tool to the model as a native JSON-schema function definition. `ToolRegistry` feeds its schemas into `ctx.systemPrompt`, the loop puts them on `GenerateOptions.tools`, and the adapter serializes them to the provider's function-calling wire format. The model then invokes one `tool-call` block per step, the loop dispatches each call through `ctx.tools.execute()` **sequentially** (parallel tool execution is an explicit open TODO in `dsh-tools` and [docs/architecture.md](../../../architecture.md)), and **every** intermediate `tool-result` re-enters the model's context on the next request.
@@ -73,7 +71,7 @@ These are illustrations of the seam's reach, **not commitments** — the MVP shi
 
 **Optionality / toggle.** Loading the `code-mode` plugin enables Code Mode for that context; not loading it leaves today's native tool-calling untouched. The two are mutually exclusive within one ctx, because Code Mode rewrites the wire tool list down to `[run_code]`. Per-agent selection via ctx forks, and the visibility tiers above, are future work; the MVP toggle is plugin presence.
 
-## Alternatives
+## Alternatives considered
 
 **Result elision / summarization over native tool-calling (the narrower route).** The Problem has two halves — context bloat (every intermediate `tool-result` re-enters context) and serial composition (one tool call per round-trip). The context-bloat half can be addressed *without* any code-execution runtime: keep provider tool-calling exactly as it is, and add a plugin on the `agent/request` waterfall (or a compaction pass akin to [the session-persistence work](../../implemented/architecture/2026-06-14-session-persistence.md)) that elides or summarizes older `tool-result` blocks before they re-enter the model's context — drop them past a window, replace large payloads with a digest, or keep only the blocks the model still references. This is strictly less invasive than Code Mode: no new runtime seam, no model-written programs, no new safety surface. It is the right tool if context growth is the only pain.
 
@@ -89,6 +87,14 @@ It is insufficient for the **composition / round-trip** half, which is the decis
 4. Tests: HMR-safety (dispose removes the tool, the section, and the listener); a waterfall test that the wire tool list is exactly `[run_code]` (spy adapter, asserting via `agent/request` and optionally `llm/stream`); an integration test that a program calling two tools returns only its printed/returned output (verify the world, not the self-report); a **serialization test** that `Promise.all([...])` over SDK calls does not overlap the underlying `ctx.tools.execute` invocations (a probe tool records enter/exit; assert no interleaving); `deriveMessages()` ignores `code/dispatch`; abort mid-program stops further dispatches; `CodeRunError` surfaces as `isError: true`; and the **unsafe-runtime refusal test** (§3, the VM-guard): with the unsafe flag unset, a non-mock agent's `run_code` is refused; with it set, the program runs.
 5. Wire an example: `examples/coding-agent-code-mode` (or a config flag on the existing example) loading the trio. Running it against the node:vm stub requires both opt-ins (`VmCodeRuntime({ unsafe: true })` and `code-mode`'s `allowUnsafeRuntime`); the example sets them explicitly and comments why, or uses a mock model — a real model never reaches the unsandboxed stub without those deliberate flags. Add a `pnpm run demo:*` entry.
 6. Docs: update [docs/architecture.md](../../../architecture.md) (a `ctx.codeRuntime` row in the service map, a Code Mode note under the tool pipeline / capability seams sections); add a [cookbook](../../../cookbook) note on writing a `CodeRuntime` backend; and **file the follow-up RFC for the hardened execution substrate** (the isolate/sandboxed-process design, the additional-language backends sketched in §1 — AssemblyScript/WASM, Python — with their per-language SDK generators, plus the tool-visibility-tier design skipped here). On landing, move this file to `implemented/` and update its row in [the RFC index](../../README.md).
+
+## Acceptance criteria
+
+- The three packages exist and pass their suites: `dsh-code-runtime` (the abstract seam), `dsh-code-runtime-vm` (the reference stub whose constructor throws without `{ unsafe: true }`), and `dsh-code-mode` (SDK codegen, the lazy prompt section, the `agent/request` collapse, the `run_code` tool).
+- The wire tool list is exactly `[run_code]` under the plugin (spy-adapter test); the generated SDK covers every registered tool, with non-identifier names reachable via quoted access.
+- A program calling two tools returns only its curated output; `code/dispatch` events land in the session log and never enter derived history.
+- `Promise.all` over SDK calls does not overlap the underlying `ctx.tools.execute` invocations (the per-run serialization queue holds); an abort stops further dispatches.
+- With `allowUnsafeRuntime` unset over an unsafe runtime, `run_code` is not registered and the wire tool list is unchanged from native.
 
 ## Risks
 
