@@ -18,7 +18,7 @@ Each skill is either `<name>/SKILL.md` or `<name>.md` with YAML frontmatter. `na
 
 Skill filesystem I/O goes through `ctx.fs` when a filesystem service is loaded: project-root lookup probes `.git` with `resolve` and `stat`, root discovery uses `listDir`, skill reads use `readText`, and system-skill installation uses `writeText`. The Node filesystem remains a fallback for minimal contexts that mount `dsh-skill` without the fs seam. Missing roots and unreadable or malformed skill files degrade to warn-and-skip so one bad local file does not make every agent request fail.
 
-The service injects a request-time `## Skills` fragment through the existing `agent/request` waterfall. It appends to `GenerateOptions.system` instead of changing `systemPrompt.assemble()`, because the available project skills depend on the calling agent's cwd. The fragment contains only stable routing metadata and is sorted by skill name after first-wins collection, so equivalent workspaces produce deterministic prompt text and better prefix-cache reuse. Full skill bodies are never included in the listing.
+The service injects a request-time `## Skills` fragment through the existing `system-prompt/assemble` waterfall. It appends a late section for the calling agent instead of mutating `GenerateOptions.system` in `agent/request`, because request configuration is now reconstructable model/sampling state while model-visible content flows through system prompt assembly. The fragment contains only stable routing metadata and is sorted by skill name after first-wins collection, so equivalent workspaces produce deterministic prompt text and better prefix-cache reuse. Full skill bodies are never included in the listing.
 
 The `skill({ name })` tool loads one full skill for the current agent cwd and returns a `<skill_content name="...">` block with the body plus base-directory guidance. Invalid names, unknown skills, and skills marked `disableModelInvocation` return tool errors. v1 does not additionally inject the loaded body into session context; the tool result is the model-visible disclosure path.
 
@@ -32,7 +32,7 @@ The data structures and prompt/tool contract are documented in [skills.md](../..
 
 **Expose skills only as slash commands.** Rejected for v1 because model-initiated loading is the core capability; slash/ACP command advertisement can layer on later without changing discovery.
 
-**Use a separate system-reminder message.** Rejected for the current loop because `agent/request` already owns the last mutation point before the adapter call and `GenerateOptions.system` is the provider-neutral system prompt surface. A later provider-specific surface can still split this fragment if needed.
+**Use a separate system-reminder message.** Rejected for the current loop because the provider-neutral system prompt surface is assembled through `system-prompt/assemble`. A later provider-specific surface can still split this fragment if needed.
 
 **Recursively discover nested `**/SKILL.md`.** Rejected for v1. Flat files and one-level directory bundles cover the configured roots while keeping duplicate handling and prompt order easy to reason about.
 

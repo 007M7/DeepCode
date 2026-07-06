@@ -86,6 +86,6 @@ interface Config {
 
 ## Prompt and tool contract
 
-`ctx.skills.renderModelListing()` returns a `## Skills` fragment wrapped in `<available_skills>`. Descriptions and `whenToUse` are whitespace-normalized, length-capped, and XML-escaped before rendering. The listing is appended to the same `GenerateOptions.system` string by the `agent/request` waterfall, after the base system prompt is assembled.
+`ctx.skills.renderModelListing()` returns a `## Skills` fragment wrapped in `<available_skills>`. Descriptions and `whenToUse` are whitespace-normalized, length-capped, and XML-escaped before rendering. The listing is appended as a late `system-prompt/assemble` section for the calling agent, so it remains cwd-sensitive while still flowing through the reconstructable system-prompt path.
 
 The model-facing `skill({ name })` tool validates the kebab-case name, loads the complete definition for the calling agent cwd, rejects unknown or `disableModelInvocation` skills, and returns a `<skill_content name="...">` block with the body plus base-directory and relative-path guidance. The tool result is the only v1 path that exposes full skill instructions to the model.

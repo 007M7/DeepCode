@@ -52,7 +52,7 @@ pnpm run demo:acp       # ACP server agent (needs DEEPSEEK_API_KEY)
 
 ### Run the CI gates locally before marking a PR ready
 
-CI is the backstop, not the first run. From a fresh clone or worktree, `pnpm run build` first — publint and the NodeNext check validate built `lib/`. The CI-equivalent run:
+From a fresh clone or worktree, `pnpm run build` first — publint and the NodeNext check validate built `lib/`. The CI-equivalent run:
 
 ```sh
 set -euo pipefail
@@ -72,7 +72,7 @@ rm -rf .sessions
 pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts
 ```
 
-`test:coverage`, not `test`, is the gating run ([why](docs/testing.md)); a review sign-off counts only for the commands it actually ran.
+`test:coverage`, not `test`, is the gating run ([why](docs/testing.md)); a sign-off counts only for commands actually run.
 
 ## Secrets / .env
 
@@ -81,18 +81,19 @@ Real-API tests and demos read `DEEPSEEK_API_KEY` (and optional `DEEPSEEK_BASE_UR
 ## Conventions
 
 - Every npm package is `@deepseek-ai/dsh-<name>`; vendored packages keep upstream names and are `private: true`. `cordis` is a peerDependency (+ dev) of every harness package.
-- ESM everywhere (`"type": "module"`). Cross-package imports use package names, never relative paths; in-package relative imports use explicit `.ts` extensions. Dev/test/demo run unbuilt via tsx + the root tsconfig `paths` map; building is only for consumers outside the repo.
+- ESM everywhere (`"type": "module"`). Cross-package imports use package names, never relative paths; in-package relative imports use explicit `.ts` extensions. Dev/test/demo run unbuilt via tsx + the root tsconfig `paths` map; builds are for outside consumers only.
 - **Registrations are effects**: every contribution goes through `ctx.effect()` / `ctx.on()`; a registry's `register()` returns the disposer.
-- **Typed events via declaration merging**; extensible unions use the merge-extensible-map pattern (`ContentBlockMap`, `SessionEventMap`, …). Every new event's JSDoc carries an `@mode` tag and a `@param` per payload parameter (`this`/trailing `next` exempt); every public service-class method documents each parameter and non-void return (`@param`/`@returns`) — the catalog generator hard-errors otherwise ([completeness RFC](docs/rfc/implemented/process/2026-07-04-cordis-jsdoc-completeness-gate.md)); mode semantics are in the [generated events catalog](docs/cordis-catalog/events.md) header and [the catalog RFC](docs/rfc/implemented/process/2026-06-20-generated-cordis-catalog.md).
+- **Typed events via declaration merging**; extensible unions use the merge-extensible-map pattern (`ContentBlockMap`, `SessionEventMap`, …). Every new event's JSDoc carries an `@mode` tag and a `@param` per payload parameter (`this`/trailing `next` exempt); every public service-class method documents each parameter and non-void return (`@param`/`@returns`) — the catalog generator hard-errors otherwise ([completeness RFC](docs/rfc/implemented/process/2026-07-04-cordis-jsdoc-completeness-gate.md)); mode semantics are in the [generated events catalog](docs/cordis-catalog/events.md) header ([catalog RFC](docs/rfc/implemented/process/2026-06-20-generated-cordis-catalog.md)).
 - **Discriminated unions: `switch` on the tag**, not if-chains. Closed unions end with `default: assertNever(...)`; merge-extensible unions must NOT — handle known cases and fall through `default` with a comment.
 - **Waterfall listeners MUST call `next()`** to delegate; returning without it is the veto ([semantics](docs/cordis-primer.md#cordis-waterfall-semantics)).
+- **Model-visible ⟺ logged**: anything that reaches a model request must be reconstructable from the session log; a new model-visible input requires a session event ([reconstructability RFC](docs/rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 - **Plugins, not loop changes**: new behavior goes on the documented extension seams; changing `agent-loop` requires updating docs/architecture.md.
 - **Capability seams are three packages** — interface / implementation / consumer ([capability seams](docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)); don't split preemptively.
-- **Explicit > implicit at package seams**: no optional field silently filled by a hidden `?? default` inside `run()`; defaulting is an explicit `resolve(request): Spec` step in the owning implementation (the `dsh-bash` request/spec split is the template).
-- **No hardcoded tunables in plugins**: anything two deployments could want different — timeouts, caps, grace periods, model names, base URLs — is a defaulted, validated `Config` field, not a literal; a `DEFAULT_*` constant or test-only seam is not configurability. The test: changeable from `cordis.yml`, no code edit. Protocol/wire constants, external-spec values, security invariants stay hardcoded.
+- **Explicit > implicit at package seams**: defaulting is an explicit `resolve(request): Spec` step in the owning implementation, never a hidden `?? default` inside `run()` (the `dsh-bash` request/spec split is the template).
+- **No hardcoded tunables in plugins**: anything two deployments could want different — timeouts, caps, model names, base URLs — is a defaulted, validated `Config` field, not a literal; a `DEFAULT_*` constant or test-only seam is not configurability. The test: changeable from `cordis.yml`, no code edit. Protocol/wire constants, external-spec values, security invariants stay hardcoded.
 - **Opaque cross-boundary ids are branded** (`Branded<B>` from `dsh-brand`), never bare `string` ([branded IDs](docs/rfc/implemented/architecture/2026-06-20-branded-ids.md)).
 - **An empty `catch` names what it swallows** and why nothing else can reach it; keep the `try` to one statement.
-- **Symmetry is usually more correct**: parallel values get parallel form; asymmetry is a smell for a missed extraction.
+- **Symmetry is usually more correct**: parallel values get parallel form; asymmetry smells of a missed extraction.
 - **Tests document behavior, not golden truth**: a green test pins what the code DOES, not what it SHOULD do. Before preserving a behavior solely for its test, ask whether it is load-bearing; an artifact changes together with its test, with the why in the PR ([worked example](docs/rfc/implemented/simplification/2026-06-19-drop-mutable-session-summary.md)).
 - **RFCs are proposals, not golden truth**: validate its premise against current code before implementing; friction is evidence of over-reach — amend on the way to `implemented/` ([worked example](docs/rfc/implemented/simplification/2026-06-20-public-agent-stop-surface.md)).
 - **Testing policy** — tiers, with-key generosity, real-over-mock, world-verification, real-load-path and published-bin guards: [docs/testing.md](docs/testing.md). A transcript/UX-affecting change needs a snapshot test, or a PR note why none applies.

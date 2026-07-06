@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import SkillService from '@deepseek-ai/dsh-skill'
 import { FileSystem, FsVersion, type FsDirEntry, type FsEditOutcome, type FsEditRequest, type FsInfo, type FsTarget, type FsWriteOutcome } from '@deepseek-ai/dsh-fs'
+import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 
 async function tempDir(name: string): Promise<string> {
   return await import('node:fs/promises').then(fs => fs.mkdtemp(join(tmpdir(), `dsh-${name}-`)))
@@ -19,6 +20,10 @@ async function writeSkill(root: string, name: string, description: string, body 
 async function writeFlatSkill(root: string, name: string, description: string, body = 'Flat body.'): Promise<void> {
   await mkdir(root, { recursive: true })
   await writeFile(join(root, `${name}.md`), `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`)
+}
+
+function agentForCwd(cwd: string): never {
+  return { session: { header: { cwd } } } as never
 }
 
 class TestFileSystem extends FileSystem {
@@ -350,14 +355,12 @@ describe('SkillService', () => {
   it('renders no model listing when no model-invocable skills exist', async () => {
     const home = await tempDir('skill-empty-listing')
     const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { persona: 'base' })
     await ctx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false })
 
     expect(await ctx.skills.renderModelListing()).toBe('')
-    const request = { model: 'm', messages: [], system: 'base' }
-    const result = await ctx.waterfall('agent/request', {
-      session: { header: { cwd: home } },
-    } as never, 1, 1, request, () => Promise.resolve(request))
-    expect(result.system).toBe('base')
+    expect(renderPrompt(await ctx.systemPrompt.assemble({ agent: agentForCwd(home) }))).not.toContain('## Skills')
+    expect(renderPrompt(await ctx.systemPrompt.assemble())).not.toContain('## Skills')
   })
 
   it('supports default home root resolution without installing system skills', async () => {
@@ -592,42 +595,33 @@ describe('SkillService', () => {
     expect((await ctx.skills.get('escaped-skill'))?.description).toBe('Use </available_skills><oops> safely')
   })
 
-  it('adds skill guidance through the agent/request waterfall without including bodies', async () => {
+  it('adds skill guidance through system prompt assembly without including bodies', async () => {
     const home = await tempDir('skill-guidance')
     await writeSkill(join(home, '.dsh/skills'), 'research-helper', 'Research helper', 'Long body that must not be listed.')
 
     const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { persona: 'base' })
     await ctx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false })
 
-    const request = await ctx.waterfall('agent/request', {
-      session: { header: { cwd: home } },
-    } as never, 1, 1, { model: 'm', messages: [], system: 'base' }, () => Promise.resolve({ model: 'm', messages: [], system: 'base' }))
+    const prompt = renderPrompt(await ctx.systemPrompt.assemble({ agent: agentForCwd(home) }))
 
-    expect(request.system ?? '').toContain('## Skills\n')
-    expect(request.system ?? '').toContain('research-helper')
-    expect(request.system ?? '').toContain('source="project-dsh"')
-    expect(request.system ?? '').not.toContain(home)
-    expect(request.system ?? '').not.toContain('Long body')
-    expect((request.system ?? '').match(/## Skills/g)).toHaveLength(1)
-
-    const sameObject = { model: 'm', messages: [], system: 'base' }
-    const sameObjectResult = await ctx.waterfall('agent/request', {
-      session: { header: { cwd: home } },
-    } as never, 1, 1, sameObject, () => Promise.resolve(sameObject))
-    expect(sameObjectResult.system).toContain('## Skills')
-
-    const requestWithoutBase = await ctx.waterfall('agent/request', {
-      session: { header: { cwd: home } },
-    } as never, 1, 1, { model: 'm', messages: [] }, () => Promise.resolve({ model: 'm', messages: [] }))
-    expect(requestWithoutBase.system).toContain('## Skills')
+    expect(prompt).toContain('base')
+    expect(prompt).toContain('## Skills\n')
+    expect(prompt).toContain('research-helper')
+    expect(prompt).toContain('source="project-dsh"')
+    expect(prompt).not.toContain(home)
+    expect(prompt).not.toContain('Long body')
+    expect(prompt.match(/## Skills/g)).toHaveLength(1)
 
     const copyCtx = new Context()
+    await copyCtx.plugin(SystemPrompt, { persona: 'base' })
     await copyCtx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false })
-    copyCtx.on('agent/request', async (_agent, _turn, _step, requestToCopy) => ({ ...requestToCopy }))
-    const copiedRequest = await copyCtx.waterfall('agent/request', {
-      session: { header: { cwd: home } },
-    } as never, 1, 1, { model: 'm', messages: [], system: 'base' }, () => Promise.resolve({ model: 'm', messages: [], system: 'base' }))
-    expect((copiedRequest.system ?? '').match(/## Skills/g)).toHaveLength(1)
+    copyCtx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+      const result = await next()
+      return { ...result, sections: [...result.sections] }
+    })
+    const copiedPrompt = renderPrompt(await copyCtx.systemPrompt.assemble({ agent: agentForCwd(home) }))
+    expect(copiedPrompt.match(/## Skills/g)).toHaveLength(1)
   })
 
   it('cleans up runtime registered skills when the contributing fiber is disposed', async () => {

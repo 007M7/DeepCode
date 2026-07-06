@@ -25,6 +25,7 @@
     "@deepseek-ai/dsh-agent": "^0.0.1",
     "@deepseek-ai/dsh-fs": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
+    "@deepseek-ai/dsh-system-prompt": "^0.0.1",
     "cordis": "^4.0.0-rc.6"
   },
   "dependencies": {
@@ -35,6 +36,7 @@
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-fs": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }
 }

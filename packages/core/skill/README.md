@@ -47,7 +47,7 @@ Skills can be single-level directory bundles (`<name>/SKILL.md`) or flat Markdow
 
 ## Prompt Integration
 
-The service listens on `agent/request` and appends a short `## Skills` listing to the request system prompt for the calling agent's cwd. The listing contains only stable routing metadata (`name`, `source`, `description`, and optional `whenToUse`), not skill bodies or local absolute paths. `description` and `whenToUse` are whitespace-normalized and capped in the listing so one pathological skill cannot bloat every model request. Models load full instructions through the `skill` tool.
+The service listens on `system-prompt/assemble` and appends a short `## Skills` section to the calling agent's assembled system prompt. The listing contains only stable routing metadata (`name`, `source`, `description`, and optional `whenToUse`), not skill bodies or local absolute paths. `description` and `whenToUse` are whitespace-normalized and capped in the listing so one pathological skill cannot bloat every model request. Models load full instructions through the `skill` tool.
 
 ## System Skills
 

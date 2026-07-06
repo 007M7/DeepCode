@@ -16,12 +16,13 @@ import z from 'schemastery'
 import type Schema from 'schemastery'
 import { parse as parseYaml } from 'yaml'
 import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
-import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-agent'
 
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const DEFAULT_PROMPT_FIELD_LENGTH = 500
 const DEFAULT_COLLECT_CACHE_ENTRIES = 128
+const SKILL_PROMPT_SECTION_ORDER = 1000
 
 /** Return whether a string is a valid kebab-case skill name. */
 export function isSkillName(name: string): boolean {
@@ -168,10 +169,18 @@ export class SkillService extends Service {
       })
     }
 
-    ctx.on('agent/request', async (agent, _turn, _step, _request, next) => {
-      const listing = await this.renderModelListing({ cwd: agent.session.header.cwd })
+    ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
       const result = await next()
-      if (listing.length > 0) appendSystem(result, listing)
+      const agent = context.agent
+      if (agent === undefined) return result
+      const listing = await this.renderModelListing({ cwd: agent.session.header.cwd })
+      if (listing.length > 0) {
+        result.sections.push({
+          name: 'skills:available',
+          order: SKILL_PROMPT_SECTION_ORDER,
+          text: listing,
+        })
+      }
       return result
     })
   }
@@ -667,10 +676,6 @@ function collectCacheKey(roots: { project: SkillRoot[]; shared: SkillRoot[] }, r
 
 function errorMessage(error: unknown): string {
   return String(error)
-}
-
-function appendSystem(request: GenerateOptions, text: string): void {
-  request.system = [request.system ?? '', text].filter(part => part.length > 0).join('\n\n')
 }
 
 export default SkillService
