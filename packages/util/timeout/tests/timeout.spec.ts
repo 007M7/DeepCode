@@ -99,7 +99,11 @@ describe('deadline — fuse with upstream', () => {
     try {
       const upstream = new AbortController()
       using d = deadline(upstream.signal, 100, 'WEB_FETCH_TIMEOUT')
-      vi.advanceTimersByTime(100) // timer fires first
+      vi.advanceTimersByTime(150) // past the 100ms deadline: the timer fires first
+      expect(d.signal.aborted).toBe(true)
+      expect(timeoutOf(d.signal)?.code).toBe('WEB_FETCH_TIMEOUT')
+      // A later upstream abort is a no-op on the already-aborted fused signal:
+      // AbortSignal.any keeps the FIRST cause, so the timeout classification stands.
       upstream.abort('too late')
       expect(timeoutOf(d.signal)?.code).toBe('WEB_FETCH_TIMEOUT')
     } finally {
