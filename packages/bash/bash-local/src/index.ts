@@ -150,11 +150,12 @@ export class LocalBashExecutor extends BashExecutor {
       stdin: spec.stdin,
       env: spec.env,
     }, this.internals).done
-    // Classify the FIRST abort reason: a TimeoutReason means the timeout cut the
-    // command short; any other abort is upstream cancellation. Mutually
-    // exclusive by construction — the fused signal reports one cause, not two
-    // independently-latched facts.
-    const timedOut = timeoutOf(d.signal) !== undefined
+    // Classify the FIRST abort reason: a BASH_TIMEOUT TimeoutReason means our
+    // timeout cut the command short; any other abort — an upstream cancel, or a
+    // foreign (outer) deadline's timeout under nesting — is aborted. Scoping to
+    // our own code keeps a nested outer deadline from reading as our timeout.
+    // Mutually exclusive by construction — the fused signal reports one cause.
+    const timedOut = timeoutOf(d.signal, 'BASH_TIMEOUT') !== undefined
     const aborted = d.signal.aborted && !timedOut
     return { ...outcome, timedOut, aborted, timeoutMs: spec.timeoutMs }
   }

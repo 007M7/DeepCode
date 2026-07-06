@@ -138,12 +138,25 @@ export function deadline(
  * was its timeout (translate to the capability's timeout error/field) or an
  * ordinary upstream cancellation (`undefined` → the cancel path).
  *
+ * Pass `code` to scope the match to THIS deadline's timer. It matters under
+ * nesting: when the `upstream` handed to {@link deadline} is itself a deadline
+ * signal (e.g. a future `tools/execute` middleware arming a per-call deadline),
+ * `AbortSignal.any` preserves the OUTER `TimeoutReason` if the outer timer fires
+ * first. Without `code`, the inner capability would misclassify that outer
+ * timeout as its own (`timedOut:true` / `WEB_FETCH_TIMEOUT`) though its local
+ * timer never expired; with `code`, a foreign timeout reads as `undefined` and
+ * falls through to the upstream-cancel path, which is the correct classification
+ * from the inner capability's view. Omit `code` only to ask "was this ANY
+ * timeout" (a generic middleware that owns no single code).
+ *
  * @param x An {@link AbortSignal} or any `{ reason }` carrier (e.g. a caught abort error).
- * @returns The {@link TimeoutReason} when the abort was a timeout, else `undefined`.
+ * @param code When provided, only a {@link TimeoutReason} with this exact `code` matches.
+ * @returns The matching {@link TimeoutReason}, else `undefined`.
  */
-export function timeoutOf(x: AbortSignal | { reason?: unknown }): TimeoutReason | undefined {
+export function timeoutOf(x: AbortSignal | { reason?: unknown }, code?: string): TimeoutReason | undefined {
   // AbortSignal.reason is typed `any`; pin it to `unknown` so no `any` leaks and
   // the instanceof narrows cleanly for both a signal and a bare reason carrier.
   const reason: unknown = x.reason
-  return reason instanceof TimeoutReason ? reason : undefined
+  if (!(reason instanceof TimeoutReason)) return undefined
+  return code === undefined || reason.code === code ? reason : undefined
 }

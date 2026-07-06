@@ -157,4 +157,25 @@ describe('timeoutOf', () => {
     expect(timeoutOf({ reason: 'user cancelled' })).toBeUndefined()
     expect(timeoutOf({})).toBeUndefined()
   })
+
+  it('matches only the requested code when one is given', () => {
+    const reason = new TimeoutReason('BASH_TIMEOUT', 100)
+    expect(timeoutOf({ reason }, 'BASH_TIMEOUT')).toBe(reason)
+    expect(timeoutOf({ reason }, 'WEB_FETCH_TIMEOUT')).toBeUndefined()
+  })
+})
+
+describe('deadline — nested deadlines', () => {
+  it("does not misclassify an outer deadline's timeout as the inner code", () => {
+    // The upstream handed to the inner deadline is ITSELF a deadline that has
+    // already timed out (outer). AbortSignal.any preserves the outer reason;
+    // scoping timeoutOf to the inner code keeps the inner capability from
+    // reporting the outer timeout as its own — it reads as an upstream cancel.
+    const outer = new AbortController()
+    outer.abort(new TimeoutReason('OUTER_TIMEOUT', 30))
+    using inner = deadline(outer.signal, 60_000, 'BASH_TIMEOUT')
+    expect(inner.signal.aborted).toBe(true)
+    expect(timeoutOf(inner.signal, 'BASH_TIMEOUT')).toBeUndefined() // not ours → upstream-cancel path
+    expect(timeoutOf(inner.signal)?.code).toBe('OUTER_TIMEOUT') // but IS a timeout, unscoped
+  })
 })

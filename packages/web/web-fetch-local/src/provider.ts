@@ -249,13 +249,14 @@ function resolveRedirect(location: string, base: URL): URL {
  * Translate a thrown fetch/stream error into a `WebError`, classified by the
  * deadline signal rather than the error's shape (which differs by phase: the
  * request-phase `fetch` rejects with the abort reason, while the read-phase
- * reader surfaces a bare `AbortError`). `timeoutOf(signal)` recovering a
- * `TimeoutReason` means our timeout fired (`WEB_FETCH_TIMEOUT`); any other abort
- * is upstream cancellation (`WEB_ABORTED`); a throw with the signal NOT aborted
- * is a transport/network failure (`WEB_PROVIDER_ERROR`).
+ * reader surfaces a bare `AbortError`). `timeoutOf(signal, 'WEB_FETCH_TIMEOUT')`
+ * recovering OUR reason means our timeout fired (`WEB_FETCH_TIMEOUT`); any other
+ * abort — an upstream cancel, or a foreign/outer deadline's timeout under
+ * nesting — is `WEB_ABORTED`; a throw with the signal NOT aborted is a
+ * transport/network failure (`WEB_PROVIDER_ERROR`).
  */
 function translateAbortOrNetwork(error: unknown, signal: AbortSignal): WebError {
-  const timeout = timeoutOf(signal)
+  const timeout = timeoutOf(signal, 'WEB_FETCH_TIMEOUT')
   if (timeout !== undefined) return new WebError('web fetch timed out', 'WEB_FETCH_TIMEOUT', { cause: timeout })
   if (signal.aborted) return new WebError('web fetch aborted', 'WEB_ABORTED', { cause: error })
   return new WebError(`web fetch failed: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
