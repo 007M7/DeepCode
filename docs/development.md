@@ -6,7 +6,7 @@ This guide covers the local setup needed to work on DeepSeek Harness and underst
 
 ## Prerequisites
 
-- Node.js 22.18 or newer. The repo declares `node >=22.18`; CI runs the matrix on Node 22.18, 24, and 26.
+- Node.js `^22.18.0 || >=24.0.0` (22.18+ on the LTS line, or 24+). The Node 23 line is excluded: `node:sqlite` (until 23.4) and native TS type-stripping (until 23.6) are still flagged there, and 23 is non-LTS/EOL. CI runs the matrix on Node 22.18, 24, and 26.
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
 - Git.
 - Optional: a DeepSeek API key for the REPL/ACP agent demos and real-API e2e tests.

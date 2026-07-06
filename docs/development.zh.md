@@ -6,7 +6,7 @@
 
 ## 前置条件
 
-- Node.js 22.18 或更新版本。仓库声明 `node >=22.18`；CI 在 Node 22.18、24 和 26 上跑矩阵。
+- Node.js `^22.18.0 || >=24.0.0`(即 LTS 线的 22.18+,或 24+)。排除 Node 23 线:那里 `node:sqlite`(要到 23.4)和原生 TS 类型剥离(要到 23.6)仍需 flag,且 23 是非 LTS、已 EOL。CI 在 Node 22.18、24 和 26 上跑矩阵。
 - 启用了 Corepack 的 pnpm。仓库在 `package.json` 中钉住 `pnpm@11.7.0`；如果 `pnpm --version` 无法通过 Corepack 解析，先运行 `corepack enable`。
 - Git。
 - 可选：一个 DeepSeek API key，用于 REPL/ACP agent（智能体）演示和真实 API 的 e2e 测试。
