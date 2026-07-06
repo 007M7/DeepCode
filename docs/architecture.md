@@ -41,7 +41,7 @@ Events are the harness extension API. Each service owns the vocabulary for the b
 Use the event domain to decide where new behavior belongs:
 
 - **Session events** are durable, replayable facts. Turn and step boundaries, user input, assistant output, tool calls, tool results, steering, compaction records, and tool-owned durable facts append to the session log and flow through `session/event`.
-- **Agent events** are live runtime surfaces. They carry the live `Agent` handle for status, diagnostics, prompt admission, request mutation, result validation, and continuation policy.
+- **Agent events** are live runtime surfaces. They carry the live `Agent` handle for status, diagnostics, prompt admission, call-config shaping, result validation, and continuation policy.
 - **Capability events** belong to the seam that owns the action. `tools/*`, `llm/*`, `system-prompt/*`, `fs/*`, and `subagent/*` let policy and adapters attach without importing the loop.
 
 ### Interception Semantics
@@ -71,8 +71,8 @@ forever:
       assemble system prompt and tool schemas
       agent/pre-step
       'step/start'
-      derive messages from the session log
-      agent/request -> llm/stream
+      snapshot the derived messages (the reconstruction boundary)
+      agent/request (config only) -> log request/header -> llm/stream (frozen)
         'assistant/chunk'
       agent/step-result
       'assistant/message'
@@ -108,7 +108,7 @@ Every session event is turn-enclosed. Reloading a crashed session preserves the 
 
 The session log is the source of truth. `deriveMessages()` projects session events into the `Message[]` sent to the model; raw `assistant/chunk` events stay in the log for replay and UI fidelity. Replay, fork, resume, transcript rendering, telemetry, and persistence all derive from the same event stream.
 
-For live forks, `ctx.sessions.fork({ source, boundary?, childSessionId? })` creates a child from a turn-enclosed source prefix.
+**Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start`, headers by folding `request/header` — and dev invariants assert this ([reconstructability RFC](rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
 Durability is a plugin concern. Persistence backends buffer synchronous `session/event` notifications and the loop awaits a turn-end checkpoint before moving on. The `SessionPersistence` seam stores `SessionEvent` directly, with metadata in `SessionHeader`; JSONL and SQLite share one contract suite.
 

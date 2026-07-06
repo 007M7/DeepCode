@@ -230,9 +230,8 @@ describe('agent loop', () => {
       assembly.variables['model'] = 'mock'
       return next()
     })
-    ctx.on('agent/request', async (_agent, _turn, _step, options, next) => {
-      options.model = 'mock'
-      return next()
+    ctx.on('agent/request', async (_agent, _turn, _step, config, _next) => {
+      return { ...config, model: 'mock' }
     })
     const agent = ctx.agentLoop.create(AgentId('a-late-model'), {})
 
@@ -428,20 +427,27 @@ describe('agent loop', () => {
     expect(agent.session.events.some(e => e.type === 'tool/result')).toBe(true)
   })
 
-  it('agent/request waterfall can rewrite the request (model-switch pattern)', async () => {
+  it('agent/request waterfall switches models by returning a replacement config; the switch is logged', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     ctx.llm.registerAdapter(['other-model'], adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    ctx.on('agent/request', async (_agent, _turn, _step, options, next) => {
-      options.model = 'other-model'
-      return next()
+    ctx.on('agent/request', async (_agent, _turn, _step, config, _next) => {
+      // The seed is frozen — config is not a mutable per-call knob; a switch
+      // is proposed by returning a replacement, and the loop logs it.
+      expect(Object.isFrozen(config)).toBe(true)
+      expect(() => { (config as { model: string }).model = 'other-model' }).toThrow(TypeError)
+      return { ...config, model: 'other-model' }
     })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
     expect(adapter.requests[0]!.model).toBe('other-model')
+    // The header event records what the request ACTUALLY used — the switch is
+    // a reconstructable fact, not silent drift.
+    const headerEvent = agent.session.events.find(e => e.type === 'request/header')
+    expect(headerEvent?.type === 'request/header' && headerEvent.data.header.config.model).toBe('other-model')
   })
 
   it('agent/pre-step fires once per step before the step is opened', async () => {

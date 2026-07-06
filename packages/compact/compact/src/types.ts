@@ -32,6 +32,15 @@ declare module '@deepseek-ai/dsh-session' {
       shadowedRange: { start: number; end: number }
       shadowedSeqs: number[]
       shadowedTokenCount: number
+      /**
+       * The model that wrote the summary — the summarize call's envelope,
+       * reported by the backend that made the call, logged so the one-shot
+       * request is reconstructable from log + code and "which model wrote
+       * this summary" has a durable answer (the reconstructability RFC).
+       */
+      model: string
+      /** The generation cap the summarize call sent, when one applied. */
+      maxTokens?: number
     }
     /** Marks the end of a compaction — log-only, releases the lock. `error` set if summarization failed. */
     'compact/end': { turn: number; error?: string }
