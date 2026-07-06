@@ -12,11 +12,21 @@
  * `durationMs` (wall-clock hook runtime) → 0. NOT scrubbed: the log's `seq`
  * (deterministic — `seq = log.length`, part of the event-log contract).
  *
+ * A separate, composable normalizer — {@link scrubRequestHeaders} — replaces
+ * the bulky request-header CONTENT (the composed system prompt and the tool
+ * schema list) with `{{system}}`/`{{tools}}` tokens. It is deliberately NOT
+ * folded into {@link normalizeSessionLog}: the one header-pinning scenario
+ * compares that content verbatim, every other scenario composes the scrub in
+ * (the `pinsHeader` flag in acp.snapshot.ts; see the pinned-header RFC,
+ * docs/rfc/implemented/testing/2026-07-06-pin-request-header-content-in-one-scenario.md).
+ *
  * See docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  */
 
 const SESSION_ID = '{{sessionId}}'
 const CWD = '{{cwd}}'
+const SYSTEM = '{{system}}'
+const TOOLS = '{{tools}}'
 
 /** A UUID v4 string, the shape `randomUUID()` produces for session ids. */
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
@@ -109,4 +119,47 @@ export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): stri
     return scrubValue(record, ctx) as Record<string, unknown>
   })
   return records.map(r => JSON.stringify(r)).join('\n') + '\n'
+}
+
+/**
+ * Replace request-header CONTENT in a session JSONL with stable tokens: a
+ * `request/header` event's `data.header.system` → `{{system}}` and
+ * `data.header.tools` → `{{tools}}`, and a `request/header-delta` event's
+ * `data.system`/`data.tools` payloads likewise (a delta embeds prompt/schema
+ * fragments, so leaving it raw would reopen the churn this scrub closes).
+ * Absent fields stay absent — WHETHER a header carried a system prompt or
+ * tools is behavior and stays visible; `config` and `reason` are small and
+ * stable, so they stay verbatim (a model swap SHOULD churn every fixture — it
+ * invalidates the recorded responses; a prompt/schema edit does NOT — replay
+ * never reads this content, see dsh-llm-replay).
+ *
+ * Only lines with something to scrub are re-serialized; every other line
+ * passes through byte-for-byte, so the transform is idempotent and applying
+ * it to an already-scrubbed fixture is a no-op — the on-disk-fixtures guard
+ * in acp.snapshot.ts relies on exactly that.
+ */
+export function scrubRequestHeaders(rawLog: string): string {
+  const lines = rawLog.split('\n')
+  const out = lines.map((line) => {
+    if (line.trim().length === 0) return line
+    const record = JSON.parse(line) as Record<string, unknown>
+    const data = record.data as Record<string, unknown> | null | undefined
+    if (data === null || typeof data !== 'object') return line
+    if (record.type === 'request/header') {
+      const header = data.header as Record<string, unknown> | null | undefined
+      if (header === null || typeof header !== 'object') return line
+      if (!('system' in header) && !('tools' in header)) return line
+      if ('system' in header) header.system = SYSTEM
+      if ('tools' in header) header.tools = TOOLS
+      return JSON.stringify(record)
+    }
+    if (record.type === 'request/header-delta') {
+      if (!('system' in data) && !('tools' in data)) return line
+      if ('system' in data) data.system = SYSTEM
+      if ('tools' in data) data.tools = TOOLS
+      return JSON.stringify(record)
+    }
+    return line
+  })
+  return out.join('\n')
 }

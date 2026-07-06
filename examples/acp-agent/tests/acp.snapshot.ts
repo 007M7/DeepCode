@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { type HarvestedLog, type InputScript, runScenario } from './snapshot-harness.ts'
-import { type NormalizeContext, normalizeSessionLog, normalizeStdout } from './snapshot-normalize.ts'
+import { type NormalizeContext, normalizeSessionLog, normalizeStdout, scrubRequestHeaders } from './snapshot-normalize.ts'
 
 /**
  * ACP snapshot tests (REPLAY by default, keyless). Each scenario under
@@ -15,6 +15,13 @@ import { type NormalizeContext, normalizeSessionLog, normalizeStdout } from './s
  * session log — against the `session.jsonl` fixture itself, not a separate
  * golden: the fixture doubles as the replay source (recorded scenarios) and the
  * expected produced log (both sides normalized before comparing).
+ *
+ * Request-header content (the composed system prompt + tool schemas riding on
+ * `request/header` events) is pinned by exactly ONE scenario — the one with
+ * `pinsHeader` — and scrubbed to `{{system}}`/`{{tools}}` tokens in every
+ * other fixture and compare, so a prompt or tool-schema edit churns one
+ * committed line instead of every fixture (see the pinned-header RFC,
+ * docs/rfc/implemented/testing/2026-07-06-pin-request-header-content-in-one-scenario.md).
  *
  * `pnpm run test:snapshot:record` (DSH_SNAPSHOT=record + -u) re-records the
  * `session.jsonl` fixtures against the real API and refreshes the stdout golden
@@ -55,12 +62,29 @@ interface Scenario {
    * harvested child logs back to those files. Defaults to 0.
    */
   childSessions?: number
+  /**
+   * Whether THIS scenario's fixtures keep the full request-header content (the
+   * composed system prompt and tool schema list on `request/header` /
+   * `request/header-delta` events) and compare it verbatim. Exactly one
+   * scenario pins it; every other scenario stores and compares that content as
+   * `{{system}}`/`{{tools}}` tokens ({@link scrubRequestHeaders}), so a system
+   * prompt or tool-schema change shows up as ONE committed-fixture diff, not
+   * one per scenario. Today every fixture (parent, spawn child, fork child)
+   * carries the identical prompt-modulo-cwd and identical tools, so one pin
+   * covers the whole suite; if header composition ever becomes
+   * session-dependent (say, a restricted subagent toolset), pin one scenario
+   * per distinct header shape. Defaults to false.
+   */
+  pinsHeader?: boolean
 }
 
 const SCENARIOS: Scenario[] = [
   { name: 'handshake', hasModelTurn: false, recorded: false },
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
-  { name: 'text-turn', hasModelTurn: true, recorded: true },
+  // text-turn is the pinned-header scenario: the minimal single text turn,
+  // whose fixture is the ONE place the full system prompt + tool schemas are
+  // committed and compared verbatim.
+  { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
@@ -181,14 +205,19 @@ for (const scenario of SCENARIOS) {
       // RECORD mode (recorded model scenarios only): persist the freshly-harvested
       // logs back to their fixtures — the primary to session.jsonl, each child to
       // session.<n>.jsonl in harvest order. `--update` refreshes the Vitest
-      // goldens but NOT these fixtures, so write them here.
+      // goldens but NOT these fixtures, so write them here. A non-pinning
+      // scenario's fixtures are written header-scrubbed, so a re-record can
+      // never smuggle the full prompt/schema content back into every fixture.
+      const scrub = scenario.pinsHeader === true
+        ? (log: string): string => log
+        : scrubRequestHeaders
       if (RECORDING && scenario.recorded && scenario.hasModelTurn) {
         expect(result.sessionLogs.length, 'record produced no session log to harvest').toBeGreaterThan(0)
         expect(result.sessionLogs.length, `expected ${childSessions + 1} session logs (parent + children)`)
           .toBe(childSessions + 1)
-        await writeFile(join(dir, 'session.jsonl'), (result.sessionLogs[0] as HarvestedLog).content)
+        await writeFile(join(dir, 'session.jsonl'), scrub((result.sessionLogs[0] as HarvestedLog).content))
         for (let i = 1; i < result.sessionLogs.length; i++) {
-          await writeFile(join(dir, `session.${i}.jsonl`), (result.sessionLogs[i] as HarvestedLog).content)
+          await writeFile(join(dir, `session.${i}.jsonl`), scrub((result.sessionLogs[i] as HarvestedLog).content))
         }
       }
 
@@ -203,11 +232,17 @@ for (const scenario of SCENARIOS) {
         // 1:1. Each side passes through normalizeSessionLog, scrubbed against ITS
         // OWN volatile values — the live run's via `ctx`, the committed fixture's
         // via its own header (a committed file cannot share the live run's ids).
+        // Unless this scenario pins the header, both sides ALSO pass through
+        // scrubRequestHeaders: the live log carries the real prompt/schemas, the
+        // fixture carries the `{{system}}`/`{{tools}}` tokens, and the scrub is
+        // idempotent — so the compare checks the header's presence, position,
+        // reason, and config, but not its bulk content (pinned once, in the
+        // `pinsHeader` scenario).
         expect(result.sessionLogs.length, 'this scenario must persist a session log').toBe(childSessions + 1)
         const fixtureFiles = ['session.jsonl', ...Array.from({ length: childSessions }, (_, i) => `session.${i + 1}.jsonl`)]
         for (let i = 0; i < fixtureFiles.length; i++) {
-          const harvested = (result.sessionLogs[i] as HarvestedLog).content
-          const fixture = await readFile(join(dir, fixtureFiles[i] as string), 'utf8')
+          const harvested = scrub((result.sessionLogs[i] as HarvestedLog).content)
+          const fixture = scrub(await readFile(join(dir, fixtureFiles[i] as string), 'utf8'))
           expect(normalizeSessionLog(harvested, ctx), `${fixtureFiles[i]} mismatch`)
             .toEqual(normalizeSessionLog(fixture, fixtureContext(fixture)))
         }
@@ -250,6 +285,39 @@ describe('snapshot fixtures', () => {
       // session (`session.1.jsonl` …), the replay source for that child session.
       for (const childFixture of childFixturePaths(dir, childSessions ?? 0)) {
         expect(existsSync(childFixture), childFixture).toBe(true)
+      }
+    }
+  })
+
+  it('exactly one scenario pins the request-header content', () => {
+    // Zero pins would drop the prompt/schema surface from the suite entirely;
+    // two would split it. The single pin is the design (pinned-header RFC).
+    expect(SCENARIOS.filter(s => s.pinsHeader === true).map(s => s.name)).toEqual(['text-turn'])
+  })
+
+  it('committed fixtures carry request-header content ONLY in the pinning scenario', async () => {
+    // The whole point of the pin: a system-prompt or tool-schema change must
+    // churn exactly one committed line. A non-pinning fixture that carries the
+    // full header (a hand-recorded file, or a header line hand-edited out of
+    // its canonical JSON form) silently reopens the suite-wide churn, so fail
+    // loud here: every non-pinning session*.jsonl must be a fixed point of
+    // scrubRequestHeaders (apply the scrub to fix a violation), and the
+    // pinning scenario's fixtures must NOT be (their content IS the pin).
+    for (const scenario of SCENARIOS) {
+      const dir = join(SNAPSHOTS_DIR, scenario.name)
+      const files = [
+        'session.jsonl',
+        ...Array.from({ length: scenario.childSessions ?? 0 }, (_, i) => `session.${i + 1}.jsonl`),
+      ]
+      for (const file of files) {
+        const fixture = await readFile(join(dir, file), 'utf8')
+        if (scenario.pinsHeader === true) {
+          expect(scrubRequestHeaders(fixture), `${scenario.name}/${file} must PIN the full header content`)
+            .not.toEqual(fixture)
+        } else {
+          expect(scrubRequestHeaders(fixture), `${scenario.name}/${file} carries unscrubbed header content`)
+            .toEqual(fixture)
+        }
       }
     }
   })

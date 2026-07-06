@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type NormalizeContext, normalizeSessionLog, normalizeStdout } from '../tests/snapshot-normalize.ts'
+import { type NormalizeContext, normalizeSessionLog, normalizeStdout, scrubRequestHeaders } from '../tests/snapshot-normalize.ts'
 
 /**
  * Unit tests for the pure snapshot normalizers. Live as a *.spec.ts (runs in
@@ -106,5 +106,53 @@ describe('normalizeSessionLog', () => {
     const ev = JSON.stringify({ type: 'tool/result', seq: 2, time: 5, data: { durationMs: 88 } })
     const out = normalizeSessionLog(`${header({})}\n${ev}\n`, ctx)
     expect(out).toContain('"durationMs":88')
+  })
+})
+
+describe('scrubRequestHeaders', () => {
+  const headerLine = JSON.stringify({ type: 'session', version: 0, id: 's', createdAt: 1, cwd: '/w' })
+  const headerEvent = (header: object) =>
+    JSON.stringify({ type: 'request/header', seq: 3, time: 9, data: { header, reason: 'initial' } })
+
+  it('replaces header system and tools with tokens, keeping config and reason', () => {
+    const ev = headerEvent({
+      config: { model: 'm' },
+      system: 'You are an agent.\nBe brief.',
+      tools: [{ name: 'read', description: 'Read a file.', parameters: { type: 'object' } }],
+    })
+    const out = scrubRequestHeaders(`${headerLine}\n${ev}\n`)
+    expect(out).toContain('"system":"{{system}}"')
+    expect(out).toContain('"tools":"{{tools}}"')
+    expect(out).toContain('"config":{"model":"m"}')
+    expect(out).toContain('"reason":"initial"')
+    expect(out).not.toContain('You are an agent')
+    expect(out).not.toContain('Read a file')
+  })
+
+  it('keeps an absent system/tools absent (presence is behavior)', () => {
+    const out = scrubRequestHeaders(`${headerLine}\n${headerEvent({ config: { model: 'm' } })}\n`)
+    expect(out).not.toContain('{{system}}')
+    expect(out).not.toContain('{{tools}}')
+  })
+
+  it('scrubs a request/header-delta system/tools payload', () => {
+    const delta = JSON.stringify({
+      type: 'request/header-delta', seq: 8, time: 9,
+      data: { system: { keepStart: 1, keepEnd: 0, insert: ['leaked prompt line'] }, config: { model: 'm2' } },
+    })
+    const out = scrubRequestHeaders(`${headerLine}\n${delta}\n`)
+    expect(out).toContain('"system":"{{system}}"')
+    expect(out).toContain('"config":{"model":"m2"}')
+    expect(out).not.toContain('leaked prompt line')
+    expect(out).not.toContain('{{tools}}') // no tools delta → none invented
+  })
+
+  it('passes every other line through byte-for-byte and is idempotent', () => {
+    const other = JSON.stringify({ type: 'assistant/chunk', seq: 4, time: 9, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'hi' } } })
+    const raw = `${headerLine}\n${headerEvent({ config: { model: 'm' }, system: 's', tools: [] })}\n${other}\n`
+    const once = scrubRequestHeaders(raw)
+    expect(once.split('\n')[0]).toBe(headerLine)
+    expect(once.split('\n')[2]).toBe(other)
+    expect(scrubRequestHeaders(once)).toBe(once)
   })
 })
