@@ -1,10 +1,8 @@
 # RFC: Core-data-structures catalog and the `ts type-equiv` drift gate
 
-Status: implemented (accepted 2026-06-20)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 A reader trying to understand the harness could find its *behavior* in [architecture.md](../../../architecture.md) (the service map, the session/turn/step lifecycle, the event taxonomy) but had no single place describing its *vocabulary* — the data structures that behavior moves around. The type shapes lived only in source, scattered across `packages/*/src/types.ts`, so understanding "what is a `Message`, a `SessionEvent`, a `StreamChunk`" meant reading the declarations directly. A prose catalog would help, but a catalog that paraphrases or paste-copies type definitions rots the instant a field changes — and an out-of-sync type doc is worse than none, because a reader trusts it.
 
@@ -23,7 +21,7 @@ The rule that settled the remaining cases: ***the type you write, hold, or recei
 - A data structure is **core** if it flows through the agent-loop spine — the loop holds, derives, streams, or logs it on every turn regardless of which plugins load (`Message`, `StreamChunk`, `SessionEvent`, the `Agent` handle) — **or** it is the single headline type a plugin author writes against a pipeline (`ToolDefinition`).
 - `ToolDefinition` is core (it is what every tool author writes) **even though the loop never holds one** — authoring-importance overrides the strict flows-through-spine rule for this one headline type. But its typing machinery — the `SchemaSpec`/`InferArgs` DSL — is a sub-page detail (you write a `ToolDefinition`; the type-level machinery that types it you do not). That is the spine-vs-seam line made sharp.
 - `ToolSchema` is core (it is a field of `GenerateOptions`, the model request that flows through every step) even though it is conceptually part of the tool pipeline — *flows through the spine* wins over *conceptual home* when they conflict.
-- The tool-presentation vocabulary (`ToolCallPresentation`, …, carrying a `FIXME(tool-presentation)` redesign marker), the `SessionPersistence` durability seam, and bash vocabulary are sub-pages.
+- The tool-presentation vocabulary (`ToolCallView`/`ToolResultView`, …), the `SessionPersistence` durability seam, and bash vocabulary are sub-pages.
 
 `core.md` is a **self-contained spine doc**: it states the exact type definition of each spine structure with minimal prose and links to sub-pages for the per-seam detail. The sub-pages are `llm-streaming.md`, `session.md`, `persistence.md` (split from session along the in-memory-model vs. durability-seam line), `tools.md`, and `bash.md`.
 
@@ -39,6 +37,12 @@ The durability requirement was specific: the doc should show the **literal** cur
 ### Maintenance is the author's job, with a gate backstop
 
 `verify-type-equiv` catches a *drifted paste* of an already-documented type, but it cannot tell you a brand-new core type went undocumented. So AGENTS.md and the `dsh-code-review` skill were updated to require keeping the catalog in sync when a change adds or reshapes a documented type — the gate handles drift, the human handles new surface.
+
+## Alternatives considered
+
+- **A flat dump of all cross-package vocabulary** — the `BashExecRequest` test case killed it: if seam vocabulary is "core", the catalog helps no one; the tiered spine-vs-seam structure won.
+- **A compiled `_Check` assignability assertion** instead of the verbatim source match — rejected because byte-equality, not assignability, is the property we want: a renamed field with the same type would pass assignability.
+- **Provenance as directive comments in the prose** — rejected for the central manifest, whose enforced 1:1 correspondence means a block can never be silently unchecked and an entry can never rot.
 
 ## Process
 

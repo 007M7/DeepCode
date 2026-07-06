@@ -73,6 +73,9 @@ export class SessionForkService extends Service {
    * Resolve and validate a live source session, then return a reusable deep-
    * cloned fork seed. A non-empty source must end exactly at `turn/end`; this
    * service rejects open turns rather than clipping to an older boundary.
+   *
+   * @param source Live session object or live store id to snapshot.
+   * @returns Deep-cloned seed events plus child session metadata.
    */
   snapshot(source: SessionForkSource): SessionForkSeed {
     const session = this._resolve(source)
@@ -93,6 +96,9 @@ export class SessionForkService extends Service {
    * Convenience path: create a live child session from a fork snapshot. Callers
    * that create agents can use {@link snapshot} and pass its seed/meta through
    * `ctx.agents.create` instead.
+   *
+   * @param options Source and optional child session id for the fork.
+   * @returns The created live child session.
    */
   fork(options: ForkSessionOptions): Session {
     if (options.sessionId !== undefined && this.ctx.sessions.get(options.sessionId) !== undefined) {

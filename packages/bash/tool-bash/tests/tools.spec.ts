@@ -21,8 +21,8 @@ async function setup() {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-  ;(ctx.bash as LocalBashExecutor).internals = { spillDir, graceMs: 200 }
+  await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, graceMs: 200 })
+  ;(ctx.bash as LocalBashExecutor).internals = { spillDir }
   await ctx.plugin(ToolBash)
   return ctx
 }
@@ -184,8 +184,8 @@ describe('bash tool', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(LocalBashExecutor, { maxOutputBytes: 100 })
-    ;(ctx.bash as LocalBashExecutor).internals = { spillDir, graceMs: 200 }
+    await ctx.plugin(LocalBashExecutor, { maxOutputBytes: 100, graceMs: 200 })
+    ;(ctx.bash as LocalBashExecutor).internals = { spillDir }
     await ctx.plugin(ToolBash)
     const result = await call(ctx, 'bash', { command: 'for i in $(seq 1 100); do printf "line-%04d\\n" $i; done', description: 'test command' })
     expect(text(result)).toContain('[output truncated; full output: ')
@@ -261,6 +261,14 @@ describe('bash tool', () => {
     })
   })
 
+  it('contributes the exit-code habit as its prompt section (guidance the descriptions cannot carry)', async () => {
+    const ctx = await setup()
+    const assembly = await ctx.systemPrompt.assemble()
+    const section = assembly.sections.find(s => s.name === 'tool:bash')
+    expect(section?.order).toBe(105)
+    expect(section?.text).toContain('[exit code: N]')
+  })
+
   it('unregisters everything when the plugin fiber is disposed (HMR safety)', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -268,8 +276,11 @@ describe('bash tool', () => {
     await ctx.plugin(LocalBashExecutor, {})
     const fiber = await ctx.plugin(ToolBash)
     expect(ctx.tools.schemas()).toHaveLength(3)
+    expect((await ctx.systemPrompt.assemble()).sections.map(s => s.name)).toEqual(['harness:identity', 'deployment:persona', 'tool:bash'])
     await fiber.dispose()
     expect(ctx.tools.schemas()).toHaveLength(0)
+    // Only the system-prompt plugin's own built-in sections remain.
+    expect((await ctx.systemPrompt.assemble()).sections.map(s => s.name)).toEqual(['harness:identity', 'deployment:persona'])
   })
 
   it('tools depend on the executor: no registration without ctx.bash', async () => {
@@ -316,8 +327,8 @@ describe('background tools', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(LocalBashExecutor, { maxOutputBytes: 100 })
-    ;(ctx.bash as LocalBashExecutor).internals = { spillDir, graceMs: 200 }
+    await ctx.plugin(LocalBashExecutor, { maxOutputBytes: 100, graceMs: 200 })
+    ;(ctx.bash as LocalBashExecutor).internals = { spillDir }
     await ctx.plugin(ToolBash)
 
     const started = await call(ctx, 'bash', { command: 'for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', description: 'test command', run_in_background: true })
@@ -568,8 +579,8 @@ describe('background task ownership (cross-session isolation)', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-    ;(ctx.bash as LocalBashExecutor).internals = { spillDir, graceMs: 200 }
+    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, graceMs: 200 })
+    ;(ctx.bash as LocalBashExecutor).internals = { spillDir }
     const fiber = await ctx.plugin(ToolBash)
 
     const a = fakeAgent('sess-a')
@@ -716,45 +727,40 @@ describe('status lines', () => {
 })
 
 describe('tool-owned UI presentation (presentCall / presentResult)', () => {
-  it('bash presentCall: title is the command, description as a content block, marks a terminal; workdir → cwd (absolute or relative, bridge resolves)', async () => {
+  it('bash presentCall: a foreground run is a terminal card (command title, description, workdir → cwd absolute or relative)', async () => {
     const ctx = await setup()
-    // No explicit workdir → the call still flags a terminal, but with no cwd (the
-    // UI bridge fills the session cwd it owns; the pure presenter can't see it).
-    // The command is the title (an execute card hides rawInput); the description
-    // rides as a content text block (shown above the terminal card).
+    // No explicit workdir → a terminal card with no cwd (the UI bridge fills the
+    // session cwd it owns; the pure presenter can't see it).
     expect(ctx.tools.get('bash')?.presentCall?.({ command: 'ls -la src', description: 'List files in src' }))
-      .toEqual({ title: 'ls -la src', kind: 'execute', rawInput: 'ls -la src', content: [{ type: 'text', text: 'List files in src' }], terminal: {} })
+      .toEqual({ card: 'terminal', title: 'ls -la src', description: 'List files in src' })
     // An ABSOLUTE workdir is surfaced verbatim as the terminal cwd header.
     expect(ctx.tools.get('bash')?.presentCall?.({ command: 'pwd', description: 'Print dir', workdir: '/tmp/x' }))
-      .toEqual({ title: 'pwd', kind: 'execute', rawInput: 'pwd', content: [{ type: 'text', text: 'Print dir' }], terminal: { cwd: '/tmp/x' } })
+      .toEqual({ card: 'terminal', title: 'pwd', description: 'Print dir', cwd: '/tmp/x' })
     // A RELATIVE workdir is passed through AS-IS (the bridge resolves it against
     // the session cwd, matching where execution runs) — not dropped.
     expect(ctx.tools.get('bash')?.presentCall?.({ command: 'pwd', description: 'Print dir', workdir: 'sub' }))
-      .toEqual({ title: 'pwd', kind: 'execute', rawInput: 'pwd', content: [{ type: 'text', text: 'Print dir' }], terminal: { cwd: 'sub' } })
+      .toEqual({ card: 'terminal', title: 'pwd', description: 'Print dir', cwd: 'sub' })
   })
 
-  it('bash presentResult: console-block content AND terminal.output (RAW newlines) + parsed exit code', async () => {
+  it('bash presentResult: a terminal result carries RAW output (newlines intact) + parsed exit code', async () => {
     const ctx = await setup()
     const present = ctx.tools.get('bash')!.presentResult!(
       { command: 'echo hi', description: 'echo' },
       { content: [{ type: 'text', text: 'hi\n[exit code: 0]\n\n' }], isError: false },
     )
-    // The fenced ```console content trims trailing blank lines for a tidy block;
-    // terminal.output keeps the RAW bytes (newlines intact) a terminal renderer
-    // needs; exitCode is parsed back from the [exit code: N] marker.
-    expect(present).toEqual({
-      content: [{ type: 'text', text: '```console\nhi\n[exit code: 0]\n```' }],
-      terminal: { output: 'hi\n[exit code: 0]\n\n', exitCode: 0 },
-    })
+    // A terminal result keeps the RAW bytes (newlines intact) a terminal renderer
+    // needs; the bridge derives the fenced fallback. exitCode is parsed back from
+    // the [exit code: N] marker.
+    expect(present).toEqual({ card: 'terminal', output: 'hi\n[exit code: 0]\n\n', exitCode: 0 })
   })
 
   it('bash presentResult: a non-zero exit and a signal kill parse into exitCode / signal', async () => {
     const ctx = await setup()
     const args = { command: 'x', description: 'x' }
     const nonzero = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: 'oops\n[exit code: 3]' }], isError: false })
-    expect(nonzero?.terminal).toEqual({ output: 'oops\n[exit code: 3]', exitCode: 3 })
+    expect(nonzero).toEqual({ card: 'terminal', output: 'oops\n[exit code: 3]', exitCode: 3 })
     const killed = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: 'gone\n[killed by signal: SIGKILL]' }], isError: false })
-    expect(killed?.terminal).toEqual({ output: 'gone\n[killed by signal: SIGKILL]', signal: 'SIGKILL' })
+    expect(killed).toEqual({ card: 'terminal', output: 'gone\n[killed by signal: SIGKILL]', signal: 'SIGKILL' })
   })
 
   it('bash presentResult exit parse is the inverse of renderResult markers (round-trip)', async () => {
@@ -779,7 +785,8 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
     for (const c of cases) {
       const rendered = renderResult(c.result)
       const out = present.presentResult!({ command: 'x', description: 'x' }, { content: [{ type: 'text', text: rendered }], isError: false })
-      const { output: _o, ...exit } = out?.terminal ?? {}
+      // Drop card + output; the remaining fields are the parsed exit.
+      const { card: _c, output: _o, ...exit } = out as { card: string; output?: string; exitCode?: number; signal?: string }
       expect(exit).toEqual(c.expect)
     }
   })
@@ -793,44 +800,42 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
     // the marker (renderResult always inserts one before a REAL marker), so this
     // no-trailing-newline body is NOT mistaken for a failure → exitCode 0.
     const out = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: '[exit code: 5]' }], isError: false })
-    expect(out?.terminal).toEqual({ output: '[exit code: 5]', exitCode: 0 })
+    expect(out).toEqual({ card: 'terminal', output: '[exit code: 5]', exitCode: 0 })
     // Same for a fake signal marker with no leading newline.
     const sig = ctx.tools.get('bash')!.presentResult!(args, { content: [{ type: 'text', text: '[killed by signal: SIGKILL]' }], isError: false })
-    expect(sig?.terminal).toEqual({ output: '[killed by signal: SIGKILL]', exitCode: 0 })
+    expect(sig).toEqual({ card: 'terminal', output: '[killed by signal: SIGKILL]', exitCode: 0 })
   })
 
-  it('bash presentCall/presentResult: a run_in_background call is NOT a terminal and its ack carries no exit pill', async () => {
+  it('bash presentCall/presentResult: a run_in_background call is a generic card and its ack carries no exit pill', async () => {
     const ctx = await setup()
-    // The background start returns a task-id ack, not a streamed run — no terminal.
+    // The background start returns a task-id ack, not a streamed run — a generic
+    // execute card with the command as rawInput and the description as content.
     const call = ctx.tools.get('bash')!.presentCall!({ command: 'sleep 100', description: 'wait', run_in_background: true })
-    expect(call).toEqual({ title: 'sleep 100', kind: 'execute', rawInput: 'sleep 100', content: [{ type: 'text', text: 'wait' }] })
-    expect((call as { terminal?: unknown }).terminal).toBeUndefined()
-    // The ack result is fenced text only — no terminal output / exit pill.
+    expect(call).toEqual({ card: 'generic', title: 'sleep 100', kind: 'execute', rawInput: 'sleep 100', content: [{ type: 'text', text: 'wait' }] })
+    // The ack result is a generic fenced-text card — no terminal output / exit pill.
     const result = ctx.tools.get('bash')!.presentResult!(
       { command: 'sleep 100', description: 'wait', run_in_background: true },
       { content: [{ type: 'text', text: 'started background task bash-1' }], isError: false },
     )
-    expect(result?.terminal).toBeUndefined()
-    expect(result?.content).toEqual([{ type: 'text', text: '```console\nstarted background task bash-1\n```' }])
+    expect(result).toEqual({ card: 'generic', content: [{ type: 'text', text: '```console\nstarted background task bash-1\n```' }] })
   })
 
-  it('bash presentResult: an isError result carries no exit pill (no real process exit to report)', async () => {
+  it('bash presentResult: an isError result is a generic card (no real process exit to report)', async () => {
     const ctx = await setup()
     // A spawn failure / abort has no process exit — the body is an error message,
-    // not renderResult output, so no terminal output/exit is emitted.
+    // not renderResult output, so a generic fenced card, no terminal output/exit.
     const out = ctx.tools.get('bash')!.presentResult!(
       { command: 'x', description: 'x' },
       { content: [{ type: 'text', text: 'command aborted' }], isError: true },
     )
-    expect(out?.terminal).toBeUndefined()
-    expect(out?.content).toEqual([{ type: 'text', text: '```console\ncommand aborted\n```' }])
+    expect(out).toEqual({ card: 'generic', content: [{ type: 'text', text: '```console\ncommand aborted\n```' }] })
   })
 
   it('bash presentResult: leaves a non-text (unexpected) result untouched → undefined (UI keeps raw content)', async () => {
     const ctx = await setup()
     const present = ctx.tools.get('bash')!.presentResult!(
       { command: 'x', description: 'x' },
-      { content: [{ type: 'image', url: 'https://x/y.png' }], isError: false },
+      { content: [{ type: 'reasoning', text: 'unexpected' }], isError: false },
     )
     expect(present).toBeUndefined()
   })
@@ -849,9 +854,9 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
   it('bash_output / bash_kill presentCall: a readable task-scoped title, task id as rawInput', async () => {
     const ctx = await setup()
     expect(ctx.tools.get('bash_output')!.presentCall!({ task_id: 'bash-3' }))
-      .toEqual({ title: 'Read output from background task bash-3', kind: 'execute', rawInput: 'bash-3' })
+      .toEqual({ card: 'generic', title: 'Read output from background task bash-3', kind: 'execute', rawInput: 'bash-3' })
     expect(ctx.tools.get('bash_kill')!.presentCall!({ task_id: 'bash-3' }))
-      .toEqual({ title: 'Kill background task bash-3', kind: 'execute', rawInput: 'bash-3' })
+      .toEqual({ card: 'generic', title: 'Kill background task bash-3', kind: 'execute', rawInput: 'bash-3' })
   })
 
   it('presentCall validates softly: malformed args (missing required description) return undefined, never throw', async () => {
@@ -861,5 +866,107 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
     // display path — it may run on replay of arbitrary logged args. The
     // ToolDefinition.presentCall takes `unknown`, so a malformed shape needs no cast.
     expect(ctx.tools.get('bash')?.presentCall?.({ command: 'ls' })).toBeUndefined()
+  })
+})
+
+describe('the model-facing bash tool builds its request from named args only (no {...args} forward)', () => {
+  /**
+   * Records every {@link BashExecRequest} the consumer hands to `resolve()`, so a
+   * test can assert what the model-facing tool DID and DID NOT forward. The `bash`
+   * tool does not expose `stdin`/`env` as parameters (bash syntax already gives a
+   * model that power), so it must build its request from named args only and
+   * never spread unknown tool-call keys into it. This guard's job is to catch a
+   * future refactor that blindly forwards `...args` — which would silently thread
+   * model input into the post-scrub `env` merge — NOT to defend a trust boundary
+   * (the credential scrub in dsh-bash-local is the security control; see the
+   * bash-stdin-env RFC). Foreground `run()` returns a canned result; `start()` is
+   * unused here.
+   */
+  class RecordingBashExecutor extends BashExecutor {
+    readonly requests: BashExecRequest[] = []
+    resolve(request: BashExecRequest): BashExecSpec {
+      this.requests.push(request)
+      return {
+        command: request.command,
+        workdir: request.workdir ?? process.cwd(),
+        timeoutMs: request.timeoutMs ?? 0,
+        ...request.signal ? { signal: request.signal } : {},
+        ...request.stdin !== undefined ? { stdin: request.stdin } : {},
+        ...request.env !== undefined ? { env: request.env } : {},
+        owner: request.owner,
+      }
+    }
+    run(): Promise<BashRunResult> {
+      return Promise.resolve({
+        exitCode: 0, signal: null, timedOut: false, aborted: false, timeoutMs: 0,
+        stdout: { text: 'ok', truncated: false }, stderr: { text: '', truncated: false },
+      })
+    }
+    start(): BashTask { throw new Error('unused') }
+    get(): BashTask | undefined { return undefined }
+    ownerOf(): OwnerToken | undefined { return undefined }
+    list(): BashTask[] { return [] }
+    readOutput(): BashTaskRead { throw new Error('unused') }
+    kill(): boolean { return false }
+  }
+
+  async function setupRecording() {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(RecordingBashExecutor)
+    await ctx.plugin(ToolBash)
+    return { ctx, bash: ctx.bash as RecordingBashExecutor }
+  }
+
+  it('does not forward env/stdin even when the model includes them as extra arguments', async () => {
+    const { ctx, bash } = await setupRecording()
+    // Extra args: the model includes `env` and `stdin` keys hoping they reach the
+    // executor. The bash tool's schema ignores unknown keys, and execute() builds
+    // the request from only command/workdir/timeoutMs/signal — so the recorded
+    // request carries NEITHER. (Not a security wall — the model could set an env
+    // var or feed stdin via shell syntax anyway; this just keeps the request
+    // shape honest so a future `...args` spread can't silently forward input.)
+    await ctx.tools.execute({
+      callId: CallId('no-forward-1'),
+      name: 'bash',
+      arguments: {
+        command: 'echo hi',
+        description: 'echo',
+        env: { SNEAKY_API_KEY: 'leak' },
+        stdin: 'malicious payload',
+      },
+    })
+    expect(bash.requests).toHaveLength(1)
+    const request = bash.requests[0]!
+    expect(request.command).toBe('echo hi')
+    expect('env' in request).toBe(false)
+    expect('stdin' in request).toBe(false)
+  })
+
+  it('a background bash call likewise carries no env/stdin', async () => {
+    const { ctx, bash } = await setupRecording()
+    // start() throws in this recorder, but resolve() runs first and records the
+    // request — which is all this no-forward assertion needs.
+    await ctx.tools.execute({
+      callId: CallId('no-forward-2'),
+      name: 'bash',
+      arguments: {
+        command: 'sleep 1',
+        description: 'sleep',
+        run_in_background: true,
+        env: { TOKEN: 'leak' },
+        stdin: 'x',
+      },
+    })
+    expect(bash.requests).toHaveLength(1)
+    const request = bash.requests[0]!
+    expect('env' in request).toBe(false)
+    expect('stdin' in request).toBe(false)
+    // The owner token IS set on a background call (the isolation fence) — proving
+    // the recorder sees the real request the consumer built, so the absent
+    // env/stdin above is a real negative, not a recorder that drops everything.
+    expect('owner' in request).toBe(true)
   })
 })

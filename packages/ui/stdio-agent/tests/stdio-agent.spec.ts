@@ -8,13 +8,16 @@ import * as stdioAgent from '../src/index.ts'
  * Unit coverage for the @deepseek-ai/dsh-stdio-agent app plugin: mounting it
  * composes the console logger, the agent-core spine (pre-creating the `main`
  * agent from the app config), the JSONL backend, and the readline UI in one
- * `ctx.plugin`. The forwarded `model`/`systemPrompt` reach the pre-created
- * agent; `persistenceRoot`/`welcome`/`resumeSessionId` route to their backends.
+ * `ctx.plugin`. The forwarded `model` reaches the pre-created agent and
+ * `persona` the system-prompt plugin; `persistenceRoot`/`welcome`/
+ * `resumeSessionId` route to their backends.
  *
  * `hmr` is NOT part of this plugin (it is a leaf entry — a Loader-only dev
- * plugin the in-process tier cannot import); the REAL Loader-path guard (export
- * shape, `unwrapExports`, the whole subprocess tree incl. `hmr`) is the keyless
- * echo smoke in `examples/echo-agent`. Here we assert the composition + config
+ * plugin the in-process tier cannot import); the keyless echo smoke in
+ * `examples/echo-agent` proves the whole subprocess tree (incl. `hmr`) boots
+ * through the real Loader, while the export SHAPE is pinned by this suite's
+ * explicit `unwrapExports` assertion (an inject-less app would boot past a
+ * stray default rather than crash). Here we assert the composition + config
  * forwarding the unit tier can reach.
  */
 async function mount(config: stdioAgent.Config): Promise<Context> {
@@ -28,7 +31,7 @@ async function mount(config: stdioAgent.Config): Promise<Context> {
 
 describe('dsh-stdio-agent app', () => {
   it('composes the spine + front-door cluster and pre-creates the main agent', async () => {
-    const ctx = await mount({ model: 'mock', systemPrompt: 'hi', persistenceRoot: '/tmp/dsh-stdio-agent-spec' })
+    const ctx = await mount({ model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-stdio-agent-spec' })
     // The spine services (brought up by the agent-core bundle) are all present.
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
@@ -44,7 +47,8 @@ describe('dsh-stdio-agent app', () => {
     // apply()'s last two lines are the ones that fire — covering a
     // schema-bypassing direct-mount caller.
     const ctx = new Context()
-    stdioAgent.apply(ctx, { model: 'mock', systemPrompt: 'hi' })
+    // No persona: covers the omitted-persona forwarding branch too.
+    stdioAgent.apply(ctx, { model: 'mock' })
     await new Promise(resolve => setTimeout(resolve, 80))
     expect(ctx.get('sessionPersistence')).toBeDefined()
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
@@ -57,7 +61,7 @@ describe('dsh-stdio-agent app', () => {
     // the branch that maps resumeSessionId through is what this covers.
     const ctx = await mount({
       model: 'mock',
-      systemPrompt: 'hi',
+      persona: 'hi',
       persistenceRoot: '/tmp/dsh-stdio-agent-spec-resume',
       resumeSessionId: 'no-such-session',
     })

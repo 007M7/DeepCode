@@ -20,7 +20,7 @@ describe('acp bridge', () => {
   })
 
   afterEach(async () => {
-    // e2e/integration tests own their resources (AGENTS.md): dispose even on
+    // e2e/integration tests own their resources (docs/testing.md): dispose even on
     // failure so a flaky run never leaks a context or persistence dir.
     if (harness) await harness.dispose()
     harness = undefined
@@ -33,7 +33,7 @@ describe('acp bridge', () => {
     expect(res.protocolVersion).toBe(PROTOCOL_VERSION)
     expect(res.agentCapabilities?.loadSession).toBe(true)
     expect(res.agentCapabilities?.promptCapabilities).toMatchObject({ image: false, audio: false })
-    expect(res.agentInfo?.name).toBe('deepseek-harness-acp')
+    expect(res.agentInfo).toEqual({ name: 'deepseek-harness-acp', version: '0.0.1' })
   })
 
   it('session/new creates a session and a full prompt turn streams text then settles end_turn', async () => {
@@ -148,16 +148,15 @@ describe('acp bridge', () => {
     await expect(harness.client.authenticate({ methodId: 'whatever' })).resolves.toBeDefined()
   })
 
-  it('honors agentName/agentVersion/systemPrompt config', async () => {
+  it('renders the deployment persona into ACP-created agents\' requests', async () => {
     harness = await makeBridgeHarness({
       storageDir,
       script: [textResponse('ok')],
-      config: { agentName: 'custom-agent', agentVersion: '9.9.9', systemPrompt: 'be terse' },
+      persona: 'be terse',
     })
-    const res = await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
-    expect(res.agentInfo).toMatchObject({ name: 'custom-agent', version: '9.9.9' })
-    // Create + prompt so the systemPrompt config flows through agentOptions and
-    // reaches the model request.
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    // Create + prompt so the system-prompt plugin's persona section reaches
+    // the model request of an agent the BRIDGE created (session/new).
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
     await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'hi' }] })
     expect(harness.adapter.requests[0]?.system).toContain('be terse')

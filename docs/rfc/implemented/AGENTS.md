@@ -1,6 +1,6 @@
 # AGENTS.md — Implemented RFCs
 
-These are RFCs whose decision has **shipped**. The repo-wide and docs-wide rules still apply ([root AGENTS.md](../../../AGENTS.md) § "Type Safety and Documentation", [docs/AGENTS.md](../../AGENTS.md)); this file adds one rule specific to this folder.
+These are RFCs whose decision has **shipped**. The repo-wide and docs-wide rules still apply ([root AGENTS.md](../../../AGENTS.md) § "Type safety and documentation", [docs/AGENTS.md](../../AGENTS.md)), and the in-file skeleton — including the proposal→implemented rewrite a lifecycle move owes — is [README.md § The file format](../README.md#the-file-format), gated by `verify-rfc-format`; this file adds one rule specific to this folder.
 
 ## Keep an implemented RFC current with what actually shipped
 
@@ -10,6 +10,6 @@ Update it **in place** to state the current truth. Do **not** leave the outdated
 
 ### This is not a license to rewrite the *decision*
 
-Keeping the shipped-state description current is about **facts** (paths, names, structure, defaults) — not about silently flipping the **decision and its rationale** into a different one. If the underlying choice itself is reversed or materially changed (not just relocated), that is a new decision: write a new RFC and cross-link, per [rfc/README.md](../README.md) ("An RFC is never edited into a different decision"). The line: a refactor that moves where the decision is *realized* → edit this RFC to match; a reversal of *what was decided* → a new RFC.
+Keeping the shipped-state description current is about **facts** (paths, names, structure, defaults) — not about silently flipping the **decision and its rationale** into a different one. The "new RFC" escape hatch is for **macro** changes — a genuine reversal of *what was decided* or its rationale — NOT for renames, moves, or structural relocations. A rename is always a fact to fix **in place**: leaving a package/symbol/path at its old name (even with a "was renamed to…" aside) only confuses a reader who greps the current tree for a name that no longer exists. So: the package was renamed, a symbol changed, a plugin moved, the decision is now realized through a different mechanism → edit this RFC to state the current names and structure. Only a reversal of *what was decided* → a new RFC and cross-link, per [rfc/README.md](../README.md) ("An RFC is never edited into a different decision").
 
 When in doubt, ask whether a reader following this RFC to the code would land on something real. If not, it needs updating.

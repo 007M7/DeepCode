@@ -22,7 +22,7 @@
  * `agent→sessionId` reverse map for O(1) demux of `agent/*` events; every
  * `session/event` and `agent/*` event is routed strictly to its owning session
  * record, so two sessions streaming at once never interleave their
- * `session/update` notifications. The `tools/execute` permission gate is
+ * `session/update` notifications. The `tools/pre-execute` permission gate is
  * deferred — see the TODO(rfc010-permission-gate) note below.
  *
  * stdout is the protocol: this plugin must run in an example that loads NO
@@ -36,7 +36,7 @@
 import type { Context } from 'cordis'
 import { Readable, Writable } from 'node:stream'
 import { randomUUID } from 'node:crypto'
-import { isAbsolute, resolve as resolvePath } from 'node:path'
+import { isAbsolute, relative as relativePath, resolve as resolvePath, sep as pathSep } from 'node:path'
 import Schema from 'schemastery'
 import {
   AgentSideConnection,
@@ -62,12 +62,12 @@ import {
   type StopReason,
 } from '@agentclientprotocol/sdk'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { assertNever, CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
-import type { ToolCallKind, ToolCallPresentation, ToolRegistry, ToolResultPresentation, ToolTerminal } from '@deepseek-ai/dsh-tools'
+import type { ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } from '@deepseek-ai/dsh-tools'
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -115,12 +115,6 @@ function sameWorkspaceCwd(left: string, right: string): boolean {
 export interface AcpConfig {
   /** Model name for created agents (must have a registered adapter). */
   model?: string
-  /** Per-agent system prompt. */
-  systemPrompt?: string
-  /** Agent/server name reported to the client in `initialize`. */
-  agentName?: string
-  /** Agent/server version reported to the client in `initialize`. */
-  agentVersion?: string
   /**
    * Transport stream override. Production omits this (the plugin wires
    * `process.stdin`/`process.stdout` via `ndJsonStream`). Tests inject an
@@ -133,9 +127,6 @@ export interface AcpConfig {
 
 export const Config: Schema<AcpConfig> = Schema.object({
   model: Schema.string(),
-  systemPrompt: Schema.string(),
-  agentName: Schema.string().default('deepseek-harness-acp'),
-  agentVersion: Schema.string().default('0.0.1'),
 })
 
 /**
@@ -199,22 +190,16 @@ interface SessionRecord {
 }
 
 /**
- * Drive the in-flight prompt's settle from the harness event stream. A turn
- * can end three ways the bridge must all handle (AGENTS.md "honor cross-seam
- * contracts on BOTH sides"): the normal `agent/turn-end` event; a `turn/end`
- * session event WITHOUT the agent event (a boundary emit threw inside the loop,
- * which still appends `turn/end`); or the agent erroring/settling to idle. The
- * first of these to fire settles the prompt; `settle` is then cleared so the
- * others are no-ops (settle-exactly-once).
+ * Drive the in-flight prompt's settle from the harness event stream. The bridge
+ * settles off the durable log: the `turn/end` session event on the
+ * `session/event` feed for the prompt's own turn, with the agent
+ * erroring/settling to idle as a fallback (docs/defensive-patterns.md "honor
+ * cross-seam contracts on BOTH sides") for the case where a throwing peer `session/event` listener
+ * starved the bridge's listener before it saw the boundary. The first of these
+ * to fire settles the prompt; `settle` is then cleared so the others are no-ops
+ * (settle-exactly-once).
  */
 export function apply(ctx: Context, config: AcpConfig): void {
-  // TODO(double-default): these literals duplicate the Config schema defaults
-  // (`agentName`/`agentVersion` `.default(...)` above). The Loader applies the
-  // schema before apply() runs, so the `??` only fires for direct-apply unit
-  // tests. Pick one home for the default to avoid drift.
-  const agentName = config.agentName ?? 'deepseek-harness-acp'
-  const agentVersion = config.agentVersion ?? '0.0.1'
-
   // Capture the injected services NOW, during apply(), while we are inside this
   // plugin's fiber (where `inject` grants access). The ACP method handlers run
   // LATER, from the AgentSideConnection's JSON-RPC read loop — a context that is
@@ -283,7 +268,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     // sessionUpdate returns a promise; a closed connection rejects it. The
     // update is best-effort UI feed, never load-bearing for correctness, so a
     // throwing/rejecting send must not break the turn (the chunk is emitted
-    // inside the model step — see AGENTS.md "contain callback exceptions").
+    // inside the model step — see docs/defensive-patterns.md "contain callback exceptions").
     /* v8 ignore next 3 -- the rejection only fires on a stdout/connection write
        failure (closed pipe), which the in-memory test transport never induces;
        the swallow is a defensive best-effort guard like the loop's emit traps */
@@ -318,15 +303,14 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // the canonical log: every assistant/chunk and tool/call/result is logged, so
   // translating from the log makes live streaming and `session/load` replay
   // share the identical path (streamSessionEventUpdate). Both the owning-turn
-  // capture and the settle key off the log's own `turn/start`/`turn/end` — NOT
-  // the `agent/turn-start`/`agent/turn-end` EVENTS, which a throwing PEER
-  // listener (cordis `emit` stops at the first throw) or a boundary-emit failure
-  // can skip. `closeTurn` appends `turn/end` to the log unconditionally, and
-  // `turn/start` is appended before any step runs, so within this one listener
-  // we always see the prompt's turn-start (tag `inflight.turn`) then its
-  // turn-end (settle). A `turn/end` settles the prompt ONLY when it is the
-  // prompt's OWN turn (`inflight.turn === event.data.turn`) — a previous,
-  // already-cancelled turn whose end arrives late is ignored (see
+  // capture and the settle key off the log's own `turn/start`/`turn/end` — the
+  // durable boundary events (there is no agent/* turn mirror). `closeTurn`
+  // appends `turn/end` to the log unconditionally, and `turn/start` is appended
+  // before any step runs, so within this one listener we always see the
+  // prompt's turn-start (tag `inflight.turn`) then its turn-end (settle). A
+  // `turn/end` settles the prompt ONLY when it is the prompt's OWN turn
+  // (`inflight.turn === event.data.turn`) — a previous, already-cancelled turn
+  // whose end arrives late is ignored (see
   // SessionRecord.inflight). A turn that ends `error` REJECTS the prompt (ACP
   // has no error stop reason); other reasons resolve via the codec. Demux
   // strictly by session id: a `session/event` is routed to its own record, so
@@ -430,7 +414,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
         terminalOutputCap = params.clientCapabilities?._meta?.['terminal_output'] === true
         return Promise.resolve({
           protocolVersion,
-          agentInfo: { name: agentName, version: agentVersion },
+          // Fixed server identity: this bridge IS the harness ACP server, so the
+          // branding is a literal, not config (no shipped surface sets it).
+          agentInfo: { name: 'deepseek-harness-acp', version: '0.0.1' },
           agentCapabilities: {
             loadSession: true,
             // Baseline prompt blocks only: text plus resource_link rendered as
@@ -639,7 +625,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
   conn = new AgentSideConnection(makeAgent, stream)
 
   /**
-   * Tear ALL live sessions down to quiescence (AGENTS.md "dispose must reach
+   * Tear ALL live sessions down to quiescence (docs/defensive-patterns.md "dispose must reach
    * quiescence"): for each session settle any pending prompt `cancelled`, then
    * run that session's {@link AgentHandle} `dispose()` — which stops the loop
    * (sets `disposed`, aborts the in-flight step), AWAITS the loop's exit (the
@@ -716,10 +702,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
  * (exactOptionalPropertyTypes: never assign `undefined` to an optional key).
  * Exported for unit coverage of both the present and absent branches.
  */
-export function agentOptions(config: AcpConfig): { model?: string; systemPrompt?: string } {
+export function agentOptions(config: AcpConfig): { model?: string } {
   return {
     ...config.model !== undefined ? { model: config.model } : {},
-    ...config.systemPrompt !== undefined ? { systemPrompt: config.systemPrompt } : {},
   }
 }
 
@@ -813,66 +798,13 @@ export function streamSessionEventUpdate(
       return
     }
     case 'tool/call': {
-      const present = presenter.call(event.data.callId, event.data.name, event.data.arguments)
-      // A terminal-rendered call (a shell command) gets a terminal CARD when the
-      // client supports it: a `terminal` content block plus `_meta.terminal_info`
-      // (the cwd header). Otherwise it is an ordinary tool_call and the output
-      // arrives as text on the result. See the terminal-rendering RFC.
-      const asTerminal = present.terminal !== undefined && terminal.enabled
-      // The tool's pending content (e.g. bash's `description`) renders ABOVE the
-      // card; when the card is shown, append the terminal block AFTER it so the
-      // description sits over the command (Zed renders content blocks in order).
-      // Without the capability the description still renders as the card's body.
-      const callContent: ({ type: 'content'; content: AcpContentBlock } | { type: 'terminal'; terminalId: string })[] = [
-        ...present.content !== undefined ? toolResultContent(present.content) : [],
-        ...asTerminal ? [{ type: 'terminal' as const, terminalId: event.data.callId }] : [],
-      ]
-      notify({
-        sessionId,
-        update: {
-          sessionUpdate: 'tool_call',
-          toolCallId: event.data.callId,
-          title: present.title,
-          kind: present.kind,
-          status: 'in_progress',
-          ...present.rawInput !== undefined ? { rawInput: present.rawInput } : {},
-          ...callContent.length > 0 ? { content: callContent } : {},
-          ...asTerminal
-            ? { _meta: { terminal_info: { terminal_id: event.data.callId, cwd: terminalCwd(present.terminal, terminal.cwd) } } }
-            : {},
-        },
-      })
+      const view = presenter.call(event.data.callId, event.data.name, event.data.arguments)
+      notify({ sessionId, update: toolCallUpdate(event.data.callId, view, terminal) })
       return
     }
     case 'tool/result': {
-      const present = presenter.result(event.data.callId, event.data.content, event.data.isError)
-      const term = present.terminal
-      // When the call rendered as a terminal AND the client is capable, the output
-      // and exit status ride on `_meta` (the terminal card consumes them) and the
-      // text `content` is OMITTED: a `tool_call_update.content` REPLACES the call's
-      // content collection in Zed, so sending the fenced ```console block here
-      // would clobber the terminal content block the call installed. The incapable
-      // path keeps sending `content` (the fenced fallback is the only rendering).
-      const asTerminal = term?.output !== undefined && terminal.enabled
-      const terminalResultMeta = asTerminal
-        ? {
-          _meta: {
-            terminal_output: { terminal_id: event.data.callId, data: term.output },
-            ...terminalExitMeta(event.data.callId, term),
-          },
-        }
-        : {}
-      notify({
-        sessionId,
-        update: {
-          sessionUpdate: 'tool_call_update',
-          toolCallId: event.data.callId,
-          status: event.data.isError ? 'failed' : 'completed',
-          ...asTerminal ? {} : { content: toolResultContent(present.content) },
-          ...present.title !== undefined ? { title: present.title } : {},
-          ...terminalResultMeta,
-        },
-      })
+      const view = presenter.result(event.data.callId, event.data.content, event.data.isError, event.data.meta)
+      notify({ sessionId, update: toolResultUpdate(event.data.callId, view, event.data.isError, terminal) })
       return
     }
     case 'todo/write': {
@@ -916,43 +848,19 @@ export interface TerminalRendering {
 const noTerminalRendering: TerminalRendering = { enabled: false, cwd: undefined }
 
 /**
- * Resolved pending-state presentation the bridge feeds into a `tool_call`
- * update: a title is always present (tool name when the tool gives none), `kind`
- * and `rawInput` are optional.
- */
-interface ResolvedCallPresentation {
-  title: string
-  kind: ToolCallKind
-  rawInput?: unknown
-  /** UI content shown on the pending call (e.g. a bash description text block above the card). */
-  content?: ContentBlock[]
-  /** Tool's request to render as a terminal (the pending side carries the cwd). */
-  terminal?: ToolTerminal
-}
-
-/** Resolved completed-state presentation fed into a `tool_call_update`. */
-interface ResolvedResultPresentation {
-  /** UI content for the result (harness blocks; the tool may reformat, else the raw result). */
-  content: ContentBlock[]
-  /** Optional replacement title for the completed call. */
-  title?: string
-  /** Tool's terminal output/exit for a terminal-rendered call (the result side). */
-  terminal?: ToolTerminal
-}
-
-/**
  * Resolves tool-owned presentation for a session's tool-call events. A tool
- * declares `presentCall`/`presentResult` (see `dsh-tools`); this looks them up
- * by name in the registry and applies the generic fallback when a tool defines
- * neither.
+ * declares `presentCall`/`presentResult` (see `dsh-tools`) returning a
+ * `card`-tagged {@link ToolCallView}/{@link ToolResultView}; this looks them up
+ * by name in the registry and applies a generic fallback when a tool defines
+ * neither. The returned view is what {@link streamSessionEventUpdate} switches on.
  *
- * The `tool/result` session event carries only `{ callId, content, isError }` —
- * NOT the tool name or args — so to call a tool's `presentResult` (which needs
- * both), the presenter remembers each `tool/call`'s `{ name, args }` keyed by
- * callId and looks it up on the matching result. The map is bridge-LOCAL (not a
- * change to the event schema or a core service): one presenter per live session
- * (and a throwaway per `session/load` replay), and each entry is removed when
- * its result arrives. In the normal loop a `tool/call` is always followed by a
+ * The `tool/result` session event does NOT carry the tool name or args — so to
+ * call a tool's `presentResult` (which needs both), the presenter remembers each
+ * `tool/call`'s `{ name, args, card }` keyed by callId and looks it up on the
+ * matching result. The map is bridge-LOCAL (not a change to the event schema or a
+ * core service): one presenter per live session
+ * (and a throwaway per `session/load` replay), and each entry is removed when its
+ * result arrives. In the normal loop a `tool/call` is always followed by a
  * `tool/result` (the registry turns even a thrown tool into an isError result),
  * so the map holds only currently-in-flight calls. The one exception is a step
  * torn down mid-tool (an abort between `tool/call` and `tool/result`), which can
@@ -962,14 +870,14 @@ interface ResolvedResultPresentation {
  * stale entry's only cost is one map slot until the session ends.
  */
 export class ToolPresenter {
-  private readonly pending = new Map<CallId, { name: string; args: unknown; isTerminal: boolean }>()
+  private readonly pending = new Map<CallId, { name: string; args: unknown; card: ToolCallView['card'] }>()
 
   /**
    * @param tools the registry to resolve tool definitions by name.
    * @param onError invoked when a tool's `presentCall`/`presentResult` THROWS;
    *   the presenter swallows the error and falls back to the generic
    *   presentation so a buggy display callback can never fail a live turn or a
-   *   `session/load` replay (AGENTS.md "contain callback exceptions at the
+   *   `session/load` replay (docs/defensive-patterns.md "contain callback exceptions at the
    *   boundary"). Defaults to a no-op for callers that don't supply a logger.
    */
   constructor(
@@ -977,10 +885,10 @@ export class ToolPresenter {
     private readonly onError: (message: string) => void = () => {},
   ) {}
 
-  /** Pending-state presentation for a `tool/call`; remembers `(name, args)` for the matching result. */
-  call(callId: CallId, name: string, argsJson: string): ResolvedCallPresentation {
+  /** Pending-state render intent for a `tool/call`; remembers `(name, args, card)` for the matching result. */
+  call(callId: CallId, name: string, argsJson: string): ToolCallView {
     const args = parseToolArguments(argsJson)
-    let present: ToolCallPresentation | undefined
+    let present: ToolCallView | undefined
     try {
       present = this.tools.get(name)?.presentCall?.(args)
     } catch (error: unknown) {
@@ -988,50 +896,39 @@ export class ToolPresenter {
       this.onError(`acp: tool "${name}" presentCall threw, using generic presentation: ${String(error)}`)
       present = undefined
     }
-    if (present === undefined) {
-      // No tool-owned presentation: fall back to the tool name as the title and
-      // the full parsed args as the raw input (the pre-seam behavior). A generic
-      // call is never a terminal, so a later result can't emit terminal output.
-      this.pending.set(callId, { name, args, isTerminal: false })
-      return { title: name, kind: toolKindFor(name), rawInput: args }
-    }
-    // Remember whether THIS call rendered as a terminal, so `result()` only emits
-    // terminal output/exit for a call that actually registered a terminal — a
-    // `presentResult().terminal` without a matching `presentCall().terminal`
-    // would otherwise orphan `_meta.terminal_output` to a terminal Zed never made.
-    this.pending.set(callId, { name, args, isTerminal: present.terminal !== undefined })
-    return {
-      title: present.title,
-      kind: present.kind ?? 'other',
-      rawInput: present.rawInput,
-      ...present.content !== undefined ? { content: present.content } : {},
-      ...present.terminal !== undefined ? { terminal: present.terminal } : {},
-    }
+    // No tool-owned presentation: fall back to the tool name as the title, the
+    // full parsed args as the raw input, and kind `other` (the generic card).
+    // The kind is never sniffed from the name — the bridge does not special-case
+    // tool names; a tool that wants a richer kind declares `presentCall`.
+    const view: ToolCallView = present ?? { card: 'generic', title: name, kind: 'other', rawInput: args }
+    this.pending.set(callId, { name, args, card: view.card })
+    return view
   }
 
-  /** Completed-state presentation for a `tool/result`; consumes the remembered `(name, args)`. */
-  result(callId: CallId, content: ContentBlock[], isError: boolean): ResolvedResultPresentation {
+  /** Completed-state render intent for a `tool/result`; consumes the remembered `(name, args, card)`. */
+  result(callId: CallId, content: ContentBlock[], isError: boolean, meta?: unknown): ToolResultView {
     const call = this.pending.get(callId)
     this.pending.delete(callId)
     // No remembered call (unknown/late callId) → nothing to present from; raw content.
-    if (call === undefined) return { content }
-    let present: ToolResultPresentation | undefined
+    if (call === undefined) return { card: 'generic', content }
+    let present: ToolResultView | undefined
     try {
-      present = this.tools.get(call.name)?.presentResult?.(call.args, { content, isError })
+      present = this.tools.get(call.name)?.presentResult?.(call.args, { content, isError, ...meta !== undefined ? { meta } : {} })
     } catch (error: unknown) {
       // A throwing presentResult must not break streaming/replay: log + fall back.
       this.onError(`acp: tool "${call.name}" presentResult threw, using raw result: ${String(error)}`)
       present = undefined
     }
-    if (present === undefined) return { content }
-    return {
-      content: present.content ?? content,
-      ...present.title !== undefined ? { title: present.title } : {},
-      // Only propagate terminal output/exit when the PENDING call registered a
-      // terminal (finding: orphan terminal output otherwise). A result-only
-      // terminal with no matching call-side terminal is dropped.
-      ...present.terminal !== undefined && call.isTerminal ? { terminal: present.terminal } : {},
-    }
+    if (present === undefined) return { card: 'generic', content }
+    // Orphan guard: only honor a `terminal` result when the PENDING call was a
+    // terminal. A result-only terminal with no matching call-side terminal would
+    // orphan `_meta.terminal_output` to a terminal Zed never made — drop it back
+    // to the raw content.
+    if (present.card === 'terminal' && call.card !== 'terminal') return { card: 'generic', content }
+    // A generic result that reformats no content keeps the RAW result content
+    // (the tool replaced only the title); fill it so the card is never blanked.
+    if (present.card === 'generic' && present.content === undefined) return { ...present, content }
+    return present
   }
 }
 
@@ -1041,16 +938,8 @@ export class ToolPresenter {
  * results pass their raw content through unchanged.
  */
 export const nullToolPresenter: Pick<ToolPresenter, 'call' | 'result'> = {
-  call: (_callId, name, argsJson) => ({ title: name, kind: toolKindFor(name), rawInput: parseToolArguments(argsJson) }),
-  result: (_callId, content) => ({ content }),
-}
-
-/** Map a harness tool name to an ACP ToolKind (best-effort; default `other`). */
-function toolKindFor(name: string): ToolCallKind {
-  if (name === 'bash' || name === 'bash_output' || name === 'bash_kill') return 'execute'
-  if (name === 'read' || name.startsWith('read')) return 'read'
-  if (name === 'write' || name === 'edit' || name.startsWith('edit')) return 'edit'
-  return 'other'
+  call: (_callId, name, argsJson) => ({ card: 'generic', title: name, kind: 'other', rawInput: parseToolArguments(argsJson) }),
+  result: (_callId, content) => ({ card: 'generic', content }),
 }
 
 /** Parse a tool-call arguments JSON string for `rawInput`; raw string on failure. */
@@ -1075,20 +964,121 @@ function toolResultContent(blocks: ContentBlock[]): { type: 'content'; content: 
   return out
 }
 
+/** The `session/update` payload for a `tool_call` / `tool_call_update`. */
+type ToolCallSessionUpdate = SessionNotification['update']
+
+/** An ACP tool-call content block (a text/image `content`, a `diff`, or a `terminal`). */
+type AcpToolCallContent =
+  | { type: 'content'; content: AcpContentBlock }
+  | { type: 'diff'; path: string; oldText: string | null; newText: string }
+  | { type: 'terminal'; terminalId: string }
+
 /**
- * Resolve the terminal card's header cwd. The tool's `terminal.cwd` (a model
- * `workdir`) wins when ABSOLUTE; a RELATIVE one resolves against the session
- * cwd (matching how `dsh-tool-bash` resolves a relative workdir for execution,
- * so the header matches where the command actually ran); when the tool gives no
- * cwd, the session workspace cwd is the default. Returns `undefined` only when
- * neither the tool nor the session supplies one (Zed then shows "current
- * directory").
+ * Relativize a file card's TITLE path against the session workspace cwd, so a
+ * card reads `Read src/foo.ts` rather than `/abs/proj/src/foo.ts` — matching the
+ * reference ACP adapter's `toDisplayPath`. Only the TITLE is relativized; the
+ * card's `locations`/`diff` paths stay RAW (the editor opens the real path). The
+ * pure tool presenter can't see the session cwd, so this happens here where the
+ * bridge knows it. The rewrite is an exact substring replace of the known raw
+ * path (a card carries the same path in `locations[0]`/`diffs[0]`), never a
+ * heuristic. A path outside the workspace, or an absent/relative session cwd, is
+ * left unchanged.
  */
-function terminalCwd(term: ToolTerminal | undefined, sessionCwd: string | undefined): string | undefined {
-  const toolCwd = term?.cwd
-  if (toolCwd === undefined) return sessionCwd
-  if (isAbsolute(toolCwd)) return toolCwd
-  return sessionCwd !== undefined ? resolvePath(sessionCwd, toolCwd) : toolCwd
+function displayTitle(title: string, rawPath: string | undefined, sessionCwd: string | undefined): string {
+  if (rawPath === undefined || sessionCwd === undefined || !isAbsolute(rawPath) || !isAbsolute(sessionCwd)) return title
+  const rel = relativePath(sessionCwd, rawPath)
+  // Only relativize a target that stays INSIDE the workspace. `relative` prefixes
+  // a `..` SEGMENT for a target above the cwd — test for the segment (`..` alone
+  // or `..<sep>…`), NOT a bare `..` char prefix, so a sibling like `..cache/x`
+  // (a real in-workspace name) still relativizes. Never relativize to the empty
+  // string (rawPath === cwd — a non-file target).
+  if (rel.length === 0 || rel === '..' || rel.startsWith(`..${pathSep}`)) return title
+  return title.split(rawPath).join(rel)
+}
+
+/**
+ * Resolve the terminal card's header cwd. A `TerminalCallView.cwd` (a model
+ * `workdir`) wins when ABSOLUTE; a RELATIVE one resolves against the session cwd
+ * (matching how `dsh-tool-bash` resolves a relative workdir for execution, so the
+ * header matches where the command actually ran); when the view gives no cwd, the
+ * session workspace cwd is the default. Returns `undefined` only when neither the
+ * view nor the session supplies one (Zed then shows "current directory").
+ */
+function terminalCwd(viewCwd: string | undefined, sessionCwd: string | undefined): string | undefined {
+  if (viewCwd === undefined) return sessionCwd
+  if (isAbsolute(viewCwd)) return viewCwd
+  return sessionCwd !== undefined ? resolvePath(sessionCwd, viewCwd) : viewCwd
+}
+
+/**
+ * Build the `tool_call` (pending) `session/update` from a tool's render intent.
+ * Switches on `view.card`: a `generic` card maps title/kind/rawInput/content/
+ * locations; a `diff` card emits `{ type: 'diff' }` content blocks (the editor's
+ * inline diff) plus follow-along locations; a `terminal` card renders as a
+ * terminal when the client is capable (a `terminal` content block + the
+ * `_meta.terminal_info` cwd header) and otherwise falls back to a generic execute
+ * card whose body is the description. File-card titles are relativized against the
+ * session cwd (see {@link displayTitle}).
+ */
+function toolCallUpdate(callId: CallId, view: ToolCallView, terminal: TerminalRendering): ToolCallSessionUpdate {
+  switch (view.card) {
+    case 'generic':
+      return {
+        sessionUpdate: 'tool_call',
+        toolCallId: callId,
+        // Relativize the title against the session cwd when the card carries a
+        // file location (a read/file card); a location-less card (bash, todo)
+        // has no path to relativize, so the title is used as-is.
+        title: displayTitle(view.title, view.locations?.[0]?.path, terminal.cwd),
+        kind: view.kind ?? 'other',
+        status: 'in_progress',
+        ...view.rawInput !== undefined ? { rawInput: view.rawInput } : {},
+        ...view.locations !== undefined ? { locations: view.locations } : {},
+        ...view.content !== undefined && view.content.length > 0 ? { content: toolResultContent(view.content) } : {},
+      }
+    case 'diff': {
+      const rawPath = view.locations?.[0]?.path ?? view.diffs[0]?.path
+      const content: AcpToolCallContent[] = view.diffs.map(d => ({ type: 'diff', path: d.path, oldText: d.oldText, newText: d.newText }))
+      return {
+        sessionUpdate: 'tool_call',
+        toolCallId: callId,
+        title: displayTitle(view.title, rawPath, terminal.cwd),
+        kind: 'edit',
+        status: 'in_progress',
+        ...view.locations !== undefined ? { locations: view.locations } : {},
+        ...content.length > 0 ? { content } : {},
+      }
+    }
+    case 'terminal': {
+      // A terminal-rendered call gets a terminal CARD when the client supports it:
+      // the description renders ABOVE the card, then the terminal block, plus
+      // `_meta.terminal_info` (the cwd header). Without the capability it is an
+      // ordinary execute card whose body is the description and whose rawInput is
+      // the command; the output arrives as text on the result.
+      const asTerminal = terminal.enabled
+      const description: AcpToolCallContent[] = view.description !== undefined
+        ? [{ type: 'content', content: { type: 'text', text: view.description } }]
+        : []
+      const content: AcpToolCallContent[] = [
+        ...description,
+        ...asTerminal ? [{ type: 'terminal' as const, terminalId: callId }] : [],
+      ]
+      return {
+        sessionUpdate: 'tool_call',
+        toolCallId: callId,
+        title: view.title,
+        kind: 'execute',
+        status: 'in_progress',
+        rawInput: view.title,
+        ...content.length > 0 ? { content } : {},
+        ...asTerminal
+          ? { _meta: { terminal_info: { terminal_id: callId, cwd: terminalCwd(view.cwd, terminal.cwd) } } }
+          : {},
+      }
+    }
+    default:
+      return assertNever(view, 'ToolCallView.card')
+  }
 }
 
 /** The `terminal_exit` `_meta` entry for a completed terminal call. */
@@ -1098,12 +1088,89 @@ interface TerminalExitMeta {
 
 /**
  * Build the optional `terminal_exit` portion of a `tool_call_update`'s `_meta`
- * from the tool's terminal result: a `signal` death yields `{signal}`, an
- * `exitCode` yields `{exit_code}`, and neither yields nothing (the card simply
- * shows no exit pill). Spread into the `_meta` object alongside `terminal_output`.
+ * from a terminal result: a `signal` death yields `{signal}`, an `exitCode`
+ * yields `{exit_code}`, and neither yields nothing (the card simply shows no exit
+ * pill). Spread into the `_meta` object alongside `terminal_output`.
  */
-function terminalExitMeta(callId: string, term: ToolTerminal): TerminalExitMeta {
-  if (term.signal !== undefined) return { terminal_exit: { terminal_id: callId, signal: term.signal } }
-  if (term.exitCode !== undefined) return { terminal_exit: { terminal_id: callId, exit_code: term.exitCode } }
+function terminalExitMeta(callId: string, view: TerminalResultView): TerminalExitMeta {
+  if (view.signal !== undefined) return { terminal_exit: { terminal_id: callId, signal: view.signal } }
+  if (view.exitCode !== undefined) return { terminal_exit: { terminal_id: callId, exit_code: view.exitCode } }
   return {}
+}
+
+/**
+ * Build the `tool_call_update` (completed) `session/update` from a result render
+ * intent. A `generic` result sends its reformatted content (or the raw result);
+ * a `terminal` result rides its output/exit on `_meta` when the client is capable
+ * (the terminal card consumes them and `content` is OMITTED — a
+ * `tool_call_update.content` REPLACES the call's content collection in Zed, so
+ * re-sending would clobber the terminal block the call installed) and otherwise
+ * derives the fenced ```console fallback from `output`. A `diff` result emits its
+ * `{ type: 'diff' }` content blocks (an applied hunk, or a whole-file diff for a
+ * create), which replace the diff the call installed — so the model-facing result
+ * text can never clobber it.
+ */
+function toolResultUpdate(callId: CallId, view: ToolResultView, isError: boolean, terminal: TerminalRendering): ToolCallSessionUpdate {
+  const status = isError ? 'failed' as const : 'completed' as const
+  switch (view.card) {
+    case 'terminal': {
+      const output = view.output ?? ''
+      if (terminal.enabled) {
+        return {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: callId,
+          status,
+          ...view.title !== undefined ? { title: view.title } : {},
+          _meta: {
+            terminal_output: { terminal_id: callId, data: output },
+            ...terminalExitMeta(callId, view),
+          },
+        }
+      }
+      // No terminal capability: the bridge derives the fenced ```console fallback.
+      const fenced = `\`\`\`console\n${output.replace(/\n+$/, '')}\n\`\`\``
+      return {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: callId,
+        status,
+        content: [{ type: 'content', content: { type: 'text', text: fenced } }],
+        ...view.title !== undefined ? { title: view.title } : {},
+      }
+    }
+    case 'generic':
+      return {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: callId,
+        status,
+        // The presenter fills a generic result's content from the raw result, so
+        // `content` is always defined here; the guard keeps this total for a
+        // directly-constructed view.
+        /* v8 ignore next -- content always defined via the presenter (see above) */
+        ...view.content !== undefined ? { content: toolResultContent(view.content) } : {},
+        ...view.title !== undefined ? { title: view.title } : {},
+      }
+    case 'diff': {
+      // A result-time diff: emit one `{ type: 'diff' }` content block per entry
+      // (an applied hunk for an edit/overwrite, or a whole-file diff for a
+      // create), mirroring the call-side diff arm. `tool_call_update.content`
+      // REPLACES the call's content in an editor, so this result diff supersedes
+      // the diff the pending card installed (and keeps the model-facing result
+      // text from clobbering it).
+      const content: AcpToolCallContent[] = view.diffs.map(d => ({ type: 'diff', path: d.path, oldText: d.oldText, newText: d.newText }))
+      // Relativize the replacement title against the session cwd from the diff
+      // path, exactly as the call-side card does — `tool_call_update.title`
+      // replaces the card header, so a raw absolute path here would undo the
+      // pending card's relativized title.
+      const title = view.title !== undefined ? displayTitle(view.title, view.diffs[0]?.path, terminal.cwd) : undefined
+      return {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: callId,
+        status,
+        ...content.length > 0 ? { content } : {},
+        ...title !== undefined ? { title } : {},
+      }
+    }
+    default:
+      return assertNever(view, 'ToolResultView.card')
+  }
 }

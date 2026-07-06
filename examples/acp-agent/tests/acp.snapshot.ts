@@ -30,11 +30,21 @@ interface Scenario {
   /** Whether the scenario drives at least one model turn (so a JSONL golden applies). */
   hasModelTurn: boolean
   /**
+   * Whether the run persists a comparable session log to diff against the
+   * `session.jsonl` fixture. Defaults to {@link hasModelTurn} (a model turn
+   * always produces a log worth comparing). Set it independently for a scenario
+   * that produces a non-trivial log WITHOUT a model turn — e.g. a prompt blocked
+   * by a `UserPromptSubmit` hook, which opens a `rejected` turn carrying `hook/*`
+   * events but never calls the model.
+   */
+  comparesLog?: boolean
+  /**
    * Whether `test:snapshot:record` regenerates this scenario's `session.jsonl`
    * from the LIVE API. `recorded` scenarios are model-driven and reproducible;
    * `authored` scenarios (a hand-written `replay.override.json` sidecar drives
    * replay — e.g. a provider error or a cancel, which the live API can't be
-   * coaxed into deterministically) are NEVER re-recorded.
+   * coaxed into deterministically — or a deterministic hook scenario whose
+   * derived empty script needs no sidecar) are NEVER re-recorded.
    */
   recorded: boolean
   /**
@@ -52,8 +62,15 @@ const SCENARIOS: Scenario[] = [
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
   { name: 'text-turn', hasModelTurn: true, recorded: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
+  { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
   { name: 'workspace-edit', hasModelTurn: true, recorded: true },
+  { name: 'fs-read', hasModelTurn: true, recorded: true },
+  { name: 'fs-write', hasModelTurn: true, recorded: true },
+  { name: 'fs-edit', hasModelTurn: true, recorded: true },
+  { name: 'fs-write-overwrite', hasModelTurn: true, recorded: true },
+  { name: 'fs-read-window', hasModelTurn: true, recorded: true },
+  { name: 'fs-policy-reject', hasModelTurn: true, recorded: true },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
   { name: 'error-finish', hasModelTurn: true, recorded: false },
   { name: 'cancel', hasModelTurn: true, recorded: false },
@@ -61,6 +78,45 @@ const SCENARIOS: Scenario[] = [
   { name: 'subagent-multi', hasModelTurn: true, recorded: true, childSessions: 2 },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true, childSessions: 1 },
   { name: 'subagent-mixed', hasModelTurn: true, recorded: true, childSessions: 2 },
+  // Hook matrix — one scenario per hook point × its headline Decision outcome,
+  // across BOTH bridges (Claude `hooks.json`, Codex `codex-hooks.json`, seeded in
+  // workspace/). The block scenarios need no model call: a UserPromptSubmit hook
+  // blocks the prompt before any step runs (keyless, authored — the derived
+  // script is empty so no sidecar), yet persists a `rejected` turn carrying
+  // `hook/*` events, so their logs ARE compared. Every other point fires a real
+  // seam mid-turn, so its transcript is recorded WITH the hook active.
+  { name: 'hook-cc-promptsubmit-block', hasModelTurn: false, comparesLog: true, recorded: false },
+  { name: 'hook-codex-promptsubmit-block', hasModelTurn: false, comparesLog: true, recorded: false },
+  // The mid-turn seams fire during a real model turn, so each is recorded WITH
+  // its hook active (the model's reaction to a deny/block/force-continue is part
+  // of the captured transcript). The Codex bridge exercises the same seams in its
+  // own snake_case dialect.
+  //
+  // Two hook points are deliberately NOT snapshotted, and stay on the bridges'
+  // unit coverage (`bridge.spec.ts` / `coverage.spec.ts`) instead:
+  //   - SessionStart and SubagentStart inject context through a detached,
+  //     best-effort `void runPoint(...).then(agent.inject())` with no turn
+  //     binding, so the resulting `context/message` races the work it precedes
+  //     and lands at a nondeterministic log position — a recorded golden does not
+  //     even reproduce on its own replay.
+  //   - SubagentStop is observe-only with no turn and no injection, so it writes
+  //     NOTHING to the transcript — a golden would be byte-identical to the
+  //     no-hook run and could never be proven to fail.
+  // See the hook-snapshot-matrix RFC for the full rationale.
+  { name: 'hook-cc-promptsubmit-context', hasModelTurn: true, recorded: true },
+  { name: 'hook-cc-pretool-deny', hasModelTurn: true, recorded: true },
+  { name: 'hook-cc-pretool-ask', hasModelTurn: true, recorded: true },
+  // TODO(hook-snapshot-noise): re-record the PostToolUse block fixtures with a
+  // self-limiting prompt or hook so one rejected result proves the seam without
+  // repeated block/retry cycles in the committed JSONL.
+  { name: 'hook-cc-posttool-block', hasModelTurn: true, recorded: true },
+  { name: 'hook-cc-posttool-context', hasModelTurn: true, recorded: true },
+  { name: 'hook-cc-stop-continue', hasModelTurn: true, recorded: true },
+  { name: 'hook-codex-promptsubmit-context', hasModelTurn: true, recorded: true },
+  { name: 'hook-codex-pretool-block', hasModelTurn: true, recorded: true },
+  { name: 'hook-codex-posttool-block', hasModelTurn: true, recorded: true },
+  { name: 'hook-codex-posttool-context', hasModelTurn: true, recorded: true },
+  { name: 'hook-codex-stop-continue', hasModelTurn: true, recorded: true },
 ]
 
 /** The sibling child-fixture paths for a scenario (`session.1.jsonl` …). */
@@ -139,12 +195,15 @@ for (const scenario of SCENARIOS) {
       await expect(normalizeStdout(result.rawStdout, ctx))
         .toMatchFileSnapshot(join(dir, 'stdout.golden.jsonl'))
 
-      if (scenario.hasModelTurn) {
+      // A model turn always produces a log worth comparing; a hook scenario can
+      // produce one without a model turn (a `rejected` turn carrying `hook/*`).
+      const comparesLog = scenario.comparesLog ?? scenario.hasModelTurn
+      if (comparesLog) {
         // The harvested logs (primary-first) must match their committed fixtures
         // 1:1. Each side passes through normalizeSessionLog, scrubbed against ITS
         // OWN volatile values — the live run's via `ctx`, the committed fixture's
         // via its own header (a committed file cannot share the live run's ids).
-        expect(result.sessionLogs.length, 'a model scenario must persist a session log').toBe(childSessions + 1)
+        expect(result.sessionLogs.length, 'this scenario must persist a session log').toBe(childSessions + 1)
         const fixtureFiles = ['session.jsonl', ...Array.from({ length: childSessions }, (_, i) => `session.${i + 1}.jsonl`)]
         for (let i = 0; i < fixtureFiles.length; i++) {
           const harvested = (result.sessionLogs[i] as HarvestedLog).content

@@ -25,3 +25,5 @@ The fork backend seeds the child with the parent's **balanced completed-turn pre
 - `subagent-mixed` is the first snapshot scenario to drive two *different* subagent backends in one transcript, exercising the per-session replay keying across a spawn and a fork child simultaneously.
 - Out-of-process (ACP) subagent replay remains a different shape (each child is its own process with its own replay) and is still tracked as `TODO(acp-subagent-replay)` — these scenarios are in-process only.
 - Re-recording (`pnpm run test:snapshot:record`) regenerates all four fork/spawn fixtures from the live API; the two new scenarios self-skip without a key like every recorded scenario.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

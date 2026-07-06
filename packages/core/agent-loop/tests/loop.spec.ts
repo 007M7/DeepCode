@@ -8,11 +8,11 @@ import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from './mock-adapter.ts'
 
-async function harness(adapter: MockAdapter) {
+async function harness(adapter: MockAdapter, persona = '') {
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(SystemPrompt, { persona })
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
@@ -46,15 +46,20 @@ describe('agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
+    // All boundaries — turn and step — are durable session events on the
+    // session/event feed (no agent/* mirror). Record them in fire order to
+    // assert the full boundary nesting.
     const order: string[] = []
-    for (const name of ['agent/turn-start', 'agent/step-start', 'agent/step-end', 'agent/turn-end'] as const) {
-      ctx.on(name, () => void order.push(name))
-    }
+    ctx.on('session/event', (_session, event) => {
+      if (event.type === 'turn/start' || event.type === 'step/start' || event.type === 'step/end' || event.type === 'turn/end') {
+        order.push(event.type)
+      }
+    })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
 
-    expect(order).toEqual(['agent/turn-start', 'agent/step-start', 'agent/step-end', 'agent/turn-end'])
+    expect(order).toEqual(['turn/start', 'step/start', 'step/end', 'turn/end'])
 
     const types = agent.session.events.map(e => e.type)
     // turn/start opens the turn, THEN the queued user message is recorded inside
@@ -110,10 +115,38 @@ describe('agent loop', () => {
     expect(types).toContain('tool/result')
   })
 
-  it('passes assembled system prompt and tool schemas into the request', async () => {
-    const adapter = new MockAdapter([textResponse('ok')])
+  it('threads a tool-attached meta (execute object return) onto the tool/result event', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'writer', { path: 'a.txt' }, 'writing'),
+      textResponse('done'),
+    ])
     const ctx = await harness(adapter)
-    ctx.systemPrompt.section({ name: 'persona', order: 0, text: 'You are a test agent.' })
+    // A tool that returns the { content, meta } object form: the loop must
+    // persist `meta` on the tool/result event so a UI reproduces the card on replay.
+    ctx.tools.register(defineTool({
+      name: 'writer',
+      description: 'writes a file',
+      parameters: { path: { type: 'string' } },
+      async execute() {
+        return { content: [{ type: 'text', text: 'ok' }], meta: { diffs: [{ path: 'a.txt', oldText: null, newText: 'x' }] } }
+      },
+    }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    send(agent, 'use the tool')
+    await waitForIdle(ctx, agent)
+
+    const toolResult = agent.session.events.find(e => e.type === 'tool/result')
+    expect(toolResult?.type === 'tool/result' && toolResult.data.meta)
+      .toEqual({ diffs: [{ path: 'a.txt', oldText: null, newText: 'x' }] })
+  })
+
+  it('renders harness identity, then the persona, then tool guidance — with {{variables}} resolved', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    // The persona is a TEMPLATE: {{model}} is the loop-registered variable
+    // projecting this agent's configured model, so the model knows its own name.
+    const ctx = await harness(adapter, 'You are a test agent on {{model}}.')
+    ctx.systemPrompt.section({ name: 'tool:noop', order: 100, text: 'Use the noop tool wisely.' })
     ctx.tools.register(defineTool({
       name: 'noop',
       description: 'does nothing',
@@ -122,23 +155,115 @@ describe('agent loop', () => {
         return []
       },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock', systemPrompt: 'Agent-specific suffix.' })
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
 
     const request = adapter.requests[0]
-    expect(request!.system).toBe('You are a test agent.\n\nAgent-specific suffix.')
+    expect(request!.system).toBe('You are an AI agent powered by the DeepSeek Harness SDK.\n\nYou are a test agent on mock.\n\nUse the noop tool wisely.')
     expect(request!.tools?.map(t => t.name)).toEqual(['noop'])
   })
 
-  it('records raw chunks for replay and emits agent/stream-chunk', async () => {
+  it('resolves {{cwd}} from the agent session workspace (factory create with meta.cwd)', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter, 'Working in {{cwd}}.')
+    const handle = ctx.agents.create({
+      agentId: AgentId('a-cwd'),
+      sessionId: SessionId('s-cwd'),
+      meta: { cwd: '/work/space' },
+      agentOptions: { model: 'mock' },
+    })
+
+    const agent = handle.agent as ReactLoopAgent
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests[0]!.system).toBe('You are an AI agent powered by the DeepSeek Harness SDK.\n\nWorking in /work/space.')
+  })
+
+  it('contains a strict-variable render failure: the turn errors, the loop keeps serving turns', async () => {
+    // A persona claiming {{cwd}} on a session with NO cwd is a deployment
+    // authoring error — renderPrompt throws, the turn ends with an error, and
+    // the same agent must then RUN a later turn to completion (not merely
+    // report idle status): a rescue listener supplies the variable and the
+    // follow-up prompt reaches the model.
+    const adapter = new MockAdapter([textResponse('ok after rescue')])
+    const ctx = await harness(adapter, 'In {{cwd}}.')
+    const errors: Error[] = []
+    ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(0) // the request was never sent
+    expect(errors.some(e => e.message.includes('no value for this assembly'))).toBe(true)
+    const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('error')
+
+    // The loop survived: a waterfall listener rescues {{cwd}} and the SAME
+    // agent completes a real model turn.
+    ctx.on('system-prompt/assemble', async (assembly, _context, next) => {
+      assembly.variables['cwd'] = '/rescued'
+      return next()
+    })
+    send(agent, 'again')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]!.system).toBe('You are an AI agent powered by the DeepSeek Harness SDK.\n\nIn /rescued.')
+    const turnEnds = agent.session.events.filter(e => e.type === 'turn/end')
+    expect(turnEnds).toHaveLength(2)
+    expect(turnEnds[1]?.type === 'turn/end' && turnEnds[1].data.reason.kind).toBe('completed')
+  })
+
+  it('supports the model-via-agent/request path with a {{model}} persona: the supplier states it via the assemble waterfall', async () => {
+    // AgentOptions.model unset: the model arrives in the agent/request
+    // waterfall (the loop's documented fallback — see runStep's no-model
+    // error). {{model}} renders BEFORE that waterfall, so the SAME plugin
+    // states the fact early on system-prompt/assemble — the owner of a
+    // late-bound fact owns stating it wherever it is claimed.
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter, 'You run on {{model}}.')
+    ctx.on('system-prompt/assemble', async (assembly, _context, next) => {
+      assembly.variables['model'] = 'mock'
+      return next()
+    })
+    ctx.on('agent/request', async (_agent, _turn, _step, options, next) => {
+      options.model = 'mock'
+      return next()
+    })
+    const agent = ctx.agentLoop.create(AgentId('a-late-model'), {})
+
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]!.model).toBe('mock')
+    expect(adapter.requests[0]!.system).toBe('You are an AI agent powered by the DeepSeek Harness SDK.\n\nYou run on mock.')
+  })
+
+  it('omits the system field when a system-prompt/assemble veto empties the assembly', async () => {
+    // The documented escape valve: a deployment that must drop the harness
+    // openers short-circuits the assemble waterfall; the request then carries
+    // NO system field at all (not an empty string).
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    ctx.on('system-prompt/assemble', async () => ({ sections: [], tools: [], variables: {} }))
+    const agent = ctx.agentLoop.create(AgentId('a-no-system'), { model: 'mock' })
+
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect('system' in adapter.requests[0]!).toBe(false)
+  })
+
+  it('records raw chunks for replay as assistant/chunk session events', async () => {
     const adapter = new MockAdapter([textResponse('abc')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
-
-    const streamed: StreamChunk[] = []
-    ctx.on('agent/stream-chunk', (_agent, _turn, _step, chunk) => void streamed.push(chunk))
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
@@ -146,7 +271,6 @@ describe('agent loop', () => {
     const chunkEvents = agent.session.events.filter(e => e.type === 'assistant/chunk')
     // textResponse('abc') = block-start + 3 deltas + block-end + usage + finish = 7
     expect(chunkEvents).toHaveLength(7)
-    expect(streamed).toHaveLength(7)
     // replay: chunk events alone re-assemble to the recorded assistant message
     const deltaText = chunkEvents
       .flatMap(e => e.type === 'assistant/chunk' ? [e.data.chunk] : [])
@@ -269,9 +393,9 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let steps = 0
-    ctx.on('agent/step-end', () => void steps++)
+    ctx.on('session/event', (_session, event) => { if (event.type === 'step/end') steps++ })
     ctx.on('agent/turn-continuation', async (_agent, _turn, _defaultDecision, next) => {
-      if (steps < 3) return true
+      if (steps < 3) return { action: 'continue' as const }
       return next()
     })
 
@@ -294,7 +418,7 @@ describe('agent loop', () => {
     }))
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
-    ctx.on('agent/turn-continuation', async () => false as const)
+    ctx.on('agent/turn-continuation', async () => ({ action: 'stop' }) as const)
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -344,10 +468,12 @@ describe('agent loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    // One fire per step, in order, each with the assembled system prompt.
+    // One fire per step, in order, each with the assembled system prompt
+    // (here just the loop's own harness-identity section — no persona set).
+    const HARNESS = 'You are an AI agent powered by the DeepSeek Harness SDK.'
     expect(fires).toEqual([
-      { turn: 1, step: 1, fullSystemPrompt: '' },
-      { turn: 1, step: 2, fullSystemPrompt: '' },
+      { turn: 1, step: 1, fullSystemPrompt: HARNESS },
+      { turn: 1, step: 2, fullSystemPrompt: HARNESS },
     ])
   })
 
@@ -430,7 +556,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     // wait until the stream is hanging, then cancel
@@ -450,7 +576,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -475,16 +601,16 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let steps = 0
-    ctx.on('agent/step-end', () => void steps++)
+    ctx.on('session/event', (_session, event) => { if (event.type === 'step/end') steps++ })
     // Force exactly one continuation (step 1 → step 2), then defer to default
     // (step 2 is a plain stop with no tool calls → stops).
     ctx.on('agent/turn-continuation', async (_agent, _turn, _defaultDecision, next) => {
-      if (steps < 2) return true
+      if (steps < 2) return { action: 'continue' as const }
       return next()
     })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -506,7 +632,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'first')
     await waitForIdle(ctx, agent)
@@ -539,7 +665,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -581,7 +707,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -600,7 +726,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -640,7 +766,7 @@ describe('agent loop', () => {
     ])
   })
 
-  it('stops the turn when agent/step-end listener failure has recorded an error', async () => {
+  it('stops the turn when a step/end session-event listener failure has recorded an error', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'echo', { text: 'x' }),
       textResponse('should not run'),
@@ -656,8 +782,11 @@ describe('agent loop', () => {
     }))
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
     let threw = false
-    ctx.on('agent/step-end', () => {
-      if (!threw) { threw = true; throw new Error('bad step-end listener') }
+    // A throwing step/end session-event listener is the surviving boundary-listener
+    // failure path (step boundaries have no agent/* mirror): closeStep contains it
+    // and surfaces it as a turn error rather than stranding the turn open.
+    ctx.on('session/event', (_session, event) => {
+      if (event.type === 'step/end' && !threw) { threw = true; throw new Error('bad step/end listener') }
     })
 
     send(agent, 'go')
@@ -674,13 +803,13 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const turns: number[] = []
-    ctx.on('agent/turn-start', (_agent, turn) => void turns.push(turn))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/start') turns.push(event.data.turn) })
 
     // queue two messages while idle — first starts turn 1 immediately;
-    // queue the second during turn 1 via a stream-chunk hook
+    // queue the second during turn 1 when the first assistant chunk streams
     let queued = false
-    ctx.on('agent/stream-chunk', () => {
-      if (!queued) {
+    ctx.on('session/event', (_s, event) => {
+      if (event.type === 'assistant/chunk' && !queued) {
         queued = true
         send(agent, 'second message')
       }
@@ -721,7 +850,7 @@ describe('agent loop', () => {
     const errors: Error[] = []
     const reasons: TurnEndReason[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
-    ctx.on('agent/turn-end', (_agent, _turn, reason) => void reasons.push(reason))
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
@@ -766,7 +895,7 @@ describe('agent loop', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, {
-      agents: [{ id: AgentId('config-agent'), model: 'mock', systemPrompt: 'Config prompt' }],
+      agents: [{ id: AgentId('config-agent'), model: 'mock' }],
     })
     ctx.llm.registerAdapter(['mock'], adapter)
 

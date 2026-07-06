@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
+import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -53,7 +54,7 @@ runCoordinatorContract('sqlite', async (): Promise<CoordinatorFixture> => {
       // A row past the committed region whose `data` does not parse: scanRows
       // bounds the preserved prefix at it and returns its seq as tornFrom, which
       // the backend surfaces to the coordinator as the tornMarker to delete from.
-      const db = openDatabase(path)
+      const db = openDatabase(path, 'wal')
       const next = (db.prepare('SELECT COALESCE(MAX(seq), -1) + 1 AS n FROM events WHERE session_id = ?')
         .get(id) as { n: number }).n
       db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
@@ -192,7 +193,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await b1.ctx.sessionPersistence.append(m.id, oneTurnLog()) // seqs 0..5
     await b1.dispose()
     // Hand-write an interrupted turn (turn/start seq 6, no turn/end).
-    const db = openDatabase(path)
+    const db = openDatabase(path, 'wal')
     db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, 6, ?, 7, ?)')
       .run(m.id, 'turn/start', JSON.stringify({ turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } }))
     db.close()
@@ -204,7 +205,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     expect(loaded.events.at(-1)!.type).toBe('turn/end')
     // load() is mutating: the synthetic turn/end MUST be on disk so the stored log
     // is balanced and the cursor is truthful (contract: load closes, not defers).
-    const probe = openDatabase(path)
+    const probe = openDatabase(path, 'wal')
     const stored = probe.prepare('SELECT seq, type FROM events WHERE session_id = ? ORDER BY seq').all(m.id) as { seq: number; type: string }[]
     probe.close()
     expect(stored.map(r => r.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
@@ -237,21 +238,21 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
 
   it('rejects opening a database whose schema version is not the current build (newer OR older)', async () => {
     const path = await freshDbPath()
-    openDatabase(path).close() // stamp user_version = SCHEMA_VERSION
+    openDatabase(path, 'wal').close() // stamp user_version = SCHEMA_VERSION
     // Bump user_version past what this build supports.
-    const dbNewer = openDatabase(path)
+    const dbNewer = openDatabase(path, 'wal')
     dbNewer.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`)
     dbNewer.close()
-    expect(() => openDatabase(path)).toThrow(/incompatible with this build/)
+    expect(() => openDatabase(path, 'wal')).toThrow(/incompatible with this build/)
 
     // A stale OLDER version (e.g. a pre-summary-drop v1 DB) is also rejected —
     // we do not migrate (unreleased software, no backward-compat).
     const olderPath = await freshDbPath()
-    openDatabase(olderPath).close()
-    const dbOlder = openDatabase(olderPath)
+    openDatabase(olderPath, 'wal').close()
+    const dbOlder = openDatabase(olderPath, 'wal')
     dbOlder.exec('PRAGMA user_version = 1')
     dbOlder.close()
-    expect(() => openDatabase(olderPath)).toThrow(/incompatible with this build/)
+    expect(() => openDatabase(olderPath, 'wal')).toThrow(/incompatible with this build/)
   })
 
   it('rejects a sibling v3 database (the merge-collided version) rather than opening it against missing columns', async () => {
@@ -261,11 +262,11 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     // of this build's columns, so it MUST be rejected, not opened. Stamp a v3
     // database and confirm the version check refuses it.
     const path = await freshDbPath()
-    openDatabase(path).close() // creates + stamps user_version = SCHEMA_VERSION (4)
-    const db = openDatabase(path)
+    openDatabase(path, 'wal').close() // creates + stamps user_version = SCHEMA_VERSION (4)
+    const db = openDatabase(path, 'wal')
     db.exec('PRAGMA user_version = 3')
     db.close()
-    expect(() => openDatabase(path)).toThrow(/schema version 3, incompatible with this build/)
+    expect(() => openDatabase(path, 'wal')).toThrow(/schema version 3, incompatible with this build/)
   })
 
   it('a corrupt-JSON row in the uncommitted tail is discarded on load, not unloadable', async () => {
@@ -281,7 +282,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     // unloadable; a torn tail must be discarded. scanRows finds the last
     // turn/end on the seq+type columns (never parsing tail `data`), so the
     // unparsable row after it bounds the preserved prefix and is deleted by load.
-    const db = openDatabase(path)
+    const db = openDatabase(path, 'wal')
     db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, 6, ?, 7, ?)')
       .run(m.id, 'turn/start', '{not valid json')
     db.close()
@@ -368,6 +369,29 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
     await b1.dispose()
     await b2.dispose()
+  })
+
+  it('journalMode config reaches the database (default wal, rollback modes selectable)', async () => {
+    // :memory: databases always report journal_mode=memory, so probe file DBs.
+    const walPath = await freshDbPath()
+    const bWal = await backend(walPath)
+    await bWal.ctx.sessionPersistence.create(meta('jm-wal'))
+    expect((openDatabase(walPath, 'wal').prepare('PRAGMA journal_mode').get() as { journal_mode: string }).journal_mode).toBe('wal')
+    await bWal.dispose()
+
+    const deletePath = await freshDbPath()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceSqlite, { path: deletePath, journalMode: 'delete' })
+    await ctx.sessionPersistence.create(meta('jm-delete'))
+    // Probe through a second connection: journal_mode=delete is a per-database
+    // property only insofar as no WAL files exist — assert the world, not the
+    // backend's self-report (no -wal sidecar after writes in delete mode).
+    const db = openDatabase(deletePath, 'delete')
+    expect((db.prepare('PRAGMA journal_mode').get() as { journal_mode: string }).journal_mode).toBe('delete')
+    db.close()
+    expect(existsSync(`${deletePath}-wal`)).toBe(false)
+    await fiber.dispose()
   })
 
   it('HMR: a DIFFERENT session colliding with a materialized on-disk id is rejected', async () => {

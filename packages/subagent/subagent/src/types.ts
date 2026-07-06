@@ -164,6 +164,16 @@ export interface SubagentProvider {
   /** The start-time features this provider supports (see {@link SubagentCapabilities}). */
   readonly capabilities: SubagentCapabilities
   /**
+   * The provider's context contract: `true` when a child SEES the parent
+   * conversation (fork — the child is seeded with the parent's completed-turn
+   * prefix), `false` when it starts fresh (spawn, ACP). A DESCRIPTIVE fact,
+   * not a start-time capability: the service validates nothing against it —
+   * the model-facing consumer (`dsh-tool-subagent`) derives truthful tool
+   * wording from it, so a tool bound to a fork provider stops telling the
+   * model the child "does not see this conversation".
+   */
+  readonly inheritsParentContext: boolean
+  /**
    * Start a child run. The service has already validated that every requested
    * start-time capability is supported, so an implementation may assume e.g.
    * `request.maxDepth` is honorable when present.

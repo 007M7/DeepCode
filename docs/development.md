@@ -1,5 +1,7 @@
 # Development guide
 
+English | [中文](development.zh.md)
+
 This guide covers the local setup needed to work on DeepSeek Harness and understand the local hooks, daily checks, and CI gates.
 
 ## Prerequisites
@@ -7,7 +9,7 @@ This guide covers the local setup needed to work on DeepSeek Harness and underst
 - Node.js 24 or newer. The repo declares `node >=24`; CI runs the matrix on Node 24 and 26.
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
 - Git.
-- Optional: a DeepSeek API key for the coding-agent demo and real-API e2e tests.
+- Optional: a DeepSeek API key for the REPL/ACP agent demos and real-API e2e tests.
 
 ## First-time setup
 
@@ -43,7 +45,7 @@ pnpm run build
 
 ## Environment variables
 
-The real DeepSeek adapter and coding-agent demo read credentials from the environment or from a gitignored `.env` at the repo root:
+The real DeepSeek adapter and key-backed agent demos read credentials from the environment or from a gitignored `.env` at the repo root:
 
 ```sh
 DEEPSEEK_API_KEY=sk-...
@@ -94,11 +96,16 @@ pnpm run typecheck      # build package/vendor outputs, then typecheck examples,
 pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
-pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events-and-services.md from source
-pnpm run verify-cordis-catalog  # fail if the cordis events/services catalog is stale
+pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events.md + services.md from source
+pnpm run verify-cordis-catalog  # fail if either cordis catalog is stale
+pnpm run gen-doc-graphs     # regenerate generated relationship docs from source and curated graph definitions
+pnpm run verify-doc-graphs  # fail if generated relationship docs are stale
+pnpm run gen-rfc-index          # regenerate the docs/rfc/README.md index tables from the RFC tree
 pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
+pnpm run verify-mermaid  # fail if a ```mermaid diagram has invalid Mermaid syntax
 pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
-pnpm run doc-sync       # doc-typecheck, cordis-catalog freshness, markdown wrap/link, and type-equiv verification
+pnpm run verify-doc-budgets  # fail if a budgeted standing doc exceeds its word ceiling
+pnpm run doc-sync       # all Markdown/doc gates; see the doc-sync script in package.json for the full list
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
 pnpm run build          # emit lib/types intermediates, then bundle lib/index.* runtime files
@@ -106,7 +113,7 @@ pnpm run verify-node-next-types  # fail if built declarations are not NodeNext-c
 pnpm run hygiene        # knip, publint, workspace constraints, and NodeNext declaration check
 ```
 
-When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets, cordis events/services catalog drift, and hard-wrapped markdown prose, but broader prose/API sync still needs review.
+When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets, generated doc freshness, markdown wrap/link drift, type equivalence, translation pairing, Mermaid syntax, and doc budgets, but broader prose/API sync still needs review.
 
 ## Demos
 
@@ -116,13 +123,13 @@ The echo demo does not need API credentials:
 pnpm run demo:echo
 ```
 
-The coding-agent demo uses the real DeepSeek adapter and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
+The REPL agent demo uses the real DeepSeek adapter and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
 
 ```sh
-pnpm run demo:coding
+pnpm run demo:repl
 ```
 
-The ACP server demo exposes the same coding agent over JSON-RPC stdio and also needs `DEEPSEEK_API_KEY`:
+The ACP server agent demo exposes the agent over JSON-RPC stdio and also needs `DEEPSEEK_API_KEY`:
 
 ```sh
 pnpm run demo:acp

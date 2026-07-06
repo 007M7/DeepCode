@@ -9,7 +9,7 @@ DeepSeek adapter for the harness LLM seam backed by [`@earendil-works/pi-ai`](ht
 - pi-ai hands tool-call `arguments` around as **parsed objects**; the harness keeps raw JSON strings. The adapter patches replay payloads back to the original raw strings before sending them, and re-stringifies parsed output tool calls at `block-end`.
 - pi-ai reports failures as **in-stream error events** (it never throws mid-stream); these map to `finish {kind:'error'|'aborted'}` chunks — the protocol's other sanctioned error path besides throwing (which llm-deepseek uses).
 - pi-ai folds reasoning tokens into `usage.output`; there is no separate reasoning count to map.
-- pi-ai's options omit some DeepSeek/OpenAI-compatible details; the adapter uses its `onPayload` hook to preserve the harness contract (`stop`, per-tool `strict`, omitted reasoning effort, raw replayed tool arguments).
+- pi-ai's options omit some DeepSeek/OpenAI-compatible details; the adapter uses its `onPayload` hook to preserve the harness contract (`stop`, scrubbing pi-ai's own per-tool `strict` default — the hand-rolled twin sends no such field — omitted reasoning effort, raw replayed tool arguments).
 
 ## Config
 
@@ -25,13 +25,17 @@ Same shape as llm-deepseek (one-line swap in cordis.yml), with pi-ai's thinking-
     reasoning: high   # off | high | xhigh (xhigh → wire 'max')
 ```
 
+## App attribution
+
+Every request carries the shared attribution header from dsh-llm's `attributionHeaders()`, passed through pi-ai's `headers` stream option (pi-ai merges caller headers last, so it always reaches the wire - the unit suite asserts arrival on the mock server, same as llm-deepseek). OpenRouter-specific app attribution headers are intentionally not sent by this adapter contract; they are deferred to a future explicit OpenRouter adapter or mode. See [dsh-llm § App attribution](../llm/README.md#app-attribution-attributionts).
+
 ## Dependency weight
 
 pi-ai declares the openai/anthropic/google/mistral/AWS SDKs as install-time dependencies. They are lazy-loaded — only the openai SDK actually loads for this adapter — but they do land in `node_modules`. Accepted for a package whose purpose is design verification.
 
 ## Limitations
 
-Same MVP contract as llm-deepseek: `prefill` throws `UNSUPPORTED`, images are not representable, `tool_choice` is not mapped.
+Same MVP contract as llm-deepseek: `tool_choice` is not mapped.
 
 ## Testing
 

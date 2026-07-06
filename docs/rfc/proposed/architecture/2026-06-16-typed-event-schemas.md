@@ -2,8 +2,6 @@
 
 Status: proposed
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
 ## Problem
 
 The harness models its core vocabulary — content blocks, message sources, finish reasons, turn triggers, turn-end reasons, and session events — as **merge-extensible maps**: a TypeScript `interface` (e.g. `SessionEventMap`, `ContentBlockMap`) that plugins augment via declaration merging, with the public union derived as `Map[keyof Map]`. This is the repo's universal extension pattern, documented in [docs/architecture.md](../../../architecture.md) ("The same merge-extensible-map pattern is used for `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`") and relied on by the `defineTool` `InferArgs` DSL and the `assertNever` exhaustiveness convention.
@@ -36,7 +34,7 @@ A migration of the event/vocabulary surface to runtime schemas touches, at minim
 
 This is a HUGE change. It is not in scope for the RFC-009 session-persistence work and must not be smuggled in through it.
 
-## Options
+## Alternatives considered
 
 ### A. Status quo — merge-extensible types + `isJsonValue` at the durable boundary
 Keep the compile-time pattern. Persistence stays opaque-JSON + serializability guard. Plugins extend via declaration merging; correctness of event *shape* is the producer's responsibility, enforced by TypeScript at compile time and by the `dsh-invariants` plugin's structural checks in dev.
@@ -56,9 +54,19 @@ Replace the merge-extensible maps with a runtime registry the producers contribu
 - **Pros**: real runtime validation at the durable boundary and at plugin seams; one source of truth; enables generic tooling (auto-generated docs, fuzzing, wire-format checks).
 - **Cons**: the full blast radius above; **Zod is not currently a direct dependency** (only a transitive dep of `@earendil-works/pi-ai`) and the repo's chosen schema lib is **schemastery** — adopting Zod broadly is itself a dependency decision; declaration-merge ergonomics (one-line plugin extension, full inference) are replaced by runtime registration + manual type wiring; the `assertNever` exhaustiveness guarantee weakens (runtime variants aren't statically exhaustive).
 
-## Recommendation
+## Proposal
 
 Defer. Do **not** change #33. If runtime validation is wanted at the durable boundary in the near term, **Option B** (schemastery on the closed header/metadata shapes) is the proportionate step and stays within the existing convention. **Option C** is a genuine architecture decision that should be evaluated on its own merits — including whether the chosen library is Zod or schemastery — and, if accepted, land as its own change with its own RFC, not as a side effect of persistence serialization.
+
+## Acceptance criteria
+
+- The decision state is explicit: Option C proceeds only as its own change with its own implementation RFC — never as a side effect of a persistence PR.
+- If Option B is taken up, the closed header/metadata shapes (the JSONL `isHeaderLine` guard and kin) validate through schemastery in place of hand-rolled guards, with the merge-extensible maps untouched.
+
+## Risks
+
+- The deferral leaves event `data` structurally unvalidated at the durable boundary: a malformed-but-JSON datum is caught late, by a consumer's `switch` — the status-quo cost, accepted deliberately.
+- If Option C is ever adopted, the ergonomic loss is real: one-line declaration merging becomes runtime registration plus manual type wiring, and the `assertNever` static-exhaustiveness guarantee weakens.
 
 ## Open questions
 

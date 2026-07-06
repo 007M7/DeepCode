@@ -10,7 +10,7 @@
 import { Context, Service } from 'cordis'
 import { randomUUID } from 'node:crypto'
 import z from 'schemastery'
-import type { AgentFactory, AgentHandle, AgentId, AgentOptions, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
+import type { AgentFactory, AgentHandle, AgentId, AgentOptions, CreateAgentOptions, ResumeAgentOptions, SessionStartSource } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -72,7 +72,6 @@ export class AgentLoop extends Service implements AgentFactory {
     agents: z.array(z.object({
       id: z.string().required(),
       model: z.string(),
-      systemPrompt: z.string(),
       resumeSessionId: z.string(),
     })).default([]),
   }) as unknown as z<Config>
@@ -82,6 +81,16 @@ export class AgentLoop extends Service implements AgentFactory {
     // Provide the agent-creation factory to the registry (effect-scoped: the
     // slot is cleared on dispose).
     ctx.effect(() => this.ctx.agents.setFactory(this), 'agentLoop.setFactory()')
+    // The prompt variables the shipped loop provides, registered once. The
+    // sections themselves (`harness:identity`, `deployment:persona`) belong to
+    // dsh-system-prompt — they must survive a swapped loop plugin — but
+    // `{{model}}`/`{{cwd}}` are runtime facts of the agents THIS loop drives:
+    // it assembles with `{ agent }` each step (loop.ts), and the variables
+    // project the agent's configured model and its session workspace from that
+    // context. A provider returns undefined when the fact is absent
+    // (renderPrompt then rejects a persona that claims it — fail loud).
+    ctx.systemPrompt.variable('model', context => context.agent?.options.model)
+    ctx.systemPrompt.variable('cwd', context => context.agent?.session.header.cwd)
     for (const { id, resumeSessionId, ...options } of config.agents) {
       if (resumeSessionId !== undefined && resumeSessionId !== '') {
         // Resume a prior session instead of starting fresh. resume() needs
@@ -121,6 +130,9 @@ export class AgentLoop extends Service implements AgentFactory {
    * deliberate resume-or-create policy (resume the prior session if one exists,
    * else start fresh) or an explicit caller-chosen session id — revisit when the
    * UI/ACP path owns session selection.
+   * @param id - the agent id; also seeds the generated session id.
+   * @param options - loop options (model, limits, …); defaults applied per option.
+   * @returns the running agent, owned by the calling fiber (no handle).
    */
   create(id: AgentId, options: AgentOptions = {}): ReactLoopAgent {
     this.assertAgentIdFree(id)
@@ -129,7 +141,7 @@ export class AgentLoop extends Service implements AgentFactory {
     // session + agent down as one ordered chain, capturing the loop's closing
     // flush). The whole effect is owned by THIS fiber; no AgentHandle is needed.
     const session = this.ctx.sessions.prepare(SessionId(`${id}-session-${randomUUID()}`), { meta: {} })
-    const { agent } = this.start(id, options, session)
+    const { agent } = this.start(id, options, session, 'startup')
     return agent
   }
 
@@ -142,6 +154,9 @@ export class AgentLoop extends Service implements AgentFactory {
    * `seed` (a balanced completed-turn prefix of the parent's log) so the child
    * starts with the parent's context. Returns an {@link AgentHandle} the owner
    * disposes to tear down exactly this agent.
+   * @param options - agent id, caller-supplied session id, optional seed/meta,
+   *   and agent options.
+   * @returns the handle whose dispose tears down exactly this agent.
    */
   createAgent(options: CreateAgentOptions): AgentHandle {
     // Check the agent id BEFORE preparing the session: register() would reject a
@@ -152,7 +167,9 @@ export class AgentLoop extends Service implements AgentFactory {
       ...options.seed !== undefined ? { seed: options.seed } : {},
       meta: options.meta ?? {},
     })
-    return this.startOwned(options.agentId, options.agentOptions ?? {}, session)
+    // A seeded (forked) create is still a fresh start, NOT a resume — `resume`
+    // is reserved for reloading a PERSISTED session via resume()/resumeWith().
+    return this.startOwned(options.agentId, options.agentOptions ?? {}, session, 'startup')
   }
 
   /**
@@ -166,6 +183,8 @@ export class AgentLoop extends Service implements AgentFactory {
    * configured. NOT hard-injected (that would make non-persistent demos pend
    * forever) — callers that need resume (ACP) inject `sessionPersistence`, so
    * by the time this runs the service exists.
+   * @param options - the persisted session id to reload, plus agent id/options.
+   * @returns the handle for the agent resumed on the reconstructed session.
    */
   async resume(options: ResumeAgentOptions): Promise<AgentHandle> {
     // Read the service through `ctx.get('sessionPersistence')` — a direct
@@ -224,7 +243,7 @@ export class AgentLoop extends Service implements AgentFactory {
         ...meta.seedLength !== undefined ? { seedLength: meta.seedLength } : {},
       },
     })
-    return this.startOwned(options.agentId, options.agentOptions ?? {}, session)
+    return this.startOwned(options.agentId, options.agentOptions ?? {}, session, 'resume')
   }
 
   /**
@@ -261,14 +280,33 @@ export class AgentLoop extends Service implements AgentFactory {
    * so a throwing `session/created`/`agent/created` listener unwinds the
    * already-yielded disposers instead of leaking.
    *
+   * `source` says why the session began ({@link SessionStartSource}); it is
+   * emitted as `agent/session-start` once, AFTER the agent is registered (so a
+   * listener can resolve the agent via `ctx.agents.get(id)` and `inject()` into
+   * it) and BEFORE the loop starts its first turn. The emit is contained: a
+   * throwing session-start listener must not abort agent construction — it is
+   * logged, and the agent still starts. (Unlike a turn-boundary throw, there is
+   * no open turn here to balance; the durable evidence of a session-start hook
+   * is whatever it `inject()`ed.)
+   *
    * Returns the agent plus the composite effect's disposer (`disposeAgent`).
    */
-  private start(id: AgentId, options: AgentOptions, session: Session): { agent: ReactLoopAgent; disposeAgent: () => Promise<void> } {
+  private start(
+    id: AgentId, options: AgentOptions, session: Session, source: SessionStartSource,
+  ): { agent: ReactLoopAgent; disposeAgent: () => Promise<void> } {
     const agent = new ReactLoopAgent(this.ctx, id, options, session)
     const dispose = this.ctx.effect(function* (this: AgentLoop) {
       yield this.ctx.sessions.enter(session)
       this.ctx.sessions.announce(session)
       yield this.ctx.agents.register(agent)
+      // Fire AFTER register (a listener can ctx.agents.get(id) + inject()) and
+      // BEFORE the loop's first turn. Contained: a throwing listener is logged,
+      // never aborts construction (no open turn to balance here).
+      try {
+        this.ctx.emit('agent/session-start', agent, source)
+      } catch (error: unknown) {
+        this.ctx.logger.warn(`agent "${id}": agent/session-start listener threw: ${String(error)}`)
+      }
       const stop = agent.start()
       // Disposed FIRST (LIFO): request loop stop (sync), then AWAIT the loop's
       // actual exit so its closing flush lands while onAppend (yielded above,
@@ -295,8 +333,8 @@ export class AgentLoop extends Service implements AgentFactory {
    * `AgentHandle.dispose(): Promise<void>` contract (mirrors the ACP `quiesce()`
    * helper).
    */
-  private startOwned(id: AgentId, options: AgentOptions, session: Session): AgentHandle {
-    const { agent, disposeAgent } = this.start(id, options, session)
+  private startOwned(id: AgentId, options: AgentOptions, session: Session, source: SessionStartSource): AgentHandle {
+    const { agent, disposeAgent } = this.start(id, options, session, source)
     let disposing: Promise<void> | undefined
     return { agent, dispose: () => (disposing ??= disposeAgent()) }
   }

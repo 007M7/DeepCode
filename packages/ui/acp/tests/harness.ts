@@ -19,7 +19,10 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import {
   ClientSideConnection,
@@ -150,12 +153,14 @@ export interface BridgeHarness {
 export async function makeBridgeHarness(options: {
   script?: (StreamChunk[] | 'hang')[]
   config?: Partial<AcpConfig>
+  /** Deployment persona for the tree (the system-prompt plugin's config). */
+  persona?: string
   storageDir: string
   /**
    * Plug the REAL `dsh-bash-local` executor + `dsh-tool-bash` tools (instead of
    * a test's own inline tool). Lets a test drive the actual `bash` tool — its
    * real `presentCall`/`presentResult` — through the bridge, so tool-call UI
-   * tests verify the SHIPPING tool, not a stand-in (AGENTS.md "prefer the real
+   * tests verify the SHIPPING tool, not a stand-in (docs/testing.md "prefer the real
    * implementation over a mock in tests").
    */
   withBash?: boolean
@@ -165,13 +170,22 @@ export async function makeBridgeHarness(options: {
    * tool + the bridge's own todo/write→plan mapping, not a stand-in.
    */
   withTodo?: boolean
+  /**
+   * Plug the REAL filesystem stack (`dsh-fs-local` + `dsh-fs-policy` +
+   * `dsh-tool-fs`) so a test can drive `read`/`write`/`edit` through the bridge
+   * and assert their tool-owned presentation (title/kind/`locations`) on the
+   * wire — the shipping tools, not a stand-in. `fsCwd` sets the local backend's
+   * base directory (default: `storageDir`).
+   */
+  withFs?: boolean
+  fsCwd?: string
 } = { storageDir: '' }): Promise<BridgeHarness> {
   const adapter = new MockAdapter(options.script ?? [])
 
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(SystemPrompt, { persona: options.persona ?? '' })
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
@@ -182,6 +196,11 @@ export async function makeBridgeHarness(options: {
   }
   if (options.withTodo) {
     await ctx.plugin(ToolTodo)
+  }
+  if (options.withFs) {
+    await ctx.plugin(LocalFileSystem, { cwd: options.fsCwd ?? options.storageDir })
+    await ctx.plugin(FsPolicy)
+    await ctx.plugin(ToolFs)
   }
   ctx.llm.registerAdapter(['mock'], adapter)
 

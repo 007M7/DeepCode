@@ -22,6 +22,7 @@ const NO_CAPS: SubagentCapabilities = { outputSchema: false, depthLimit: false, 
 /** A scripted provider whose run settles immediately with a fixed result. */
 class StubProvider implements SubagentProvider {
   startCount = 0
+  readonly inheritsParentContext = false
   constructor(
     readonly name: string,
     readonly capabilities: SubagentCapabilities = ALL_CAPS,
@@ -44,6 +45,59 @@ function baseRequest(overrides: Partial<SubagentStartRequest> = {}): SubagentSta
 }
 
 describe('SubagentService', () => {
+  it('announces provider lifecycle: added on register, removed on dispose', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const added: string[] = []
+    const removed: string[] = []
+    ctx.on('subagent/provider-added', provider => void added.push(provider.name))
+    ctx.on('subagent/provider-removed', name => void removed.push(name))
+
+    const dispose = ctx.subagents.registerProvider(new StubProvider('alpha'))
+    expect(added).toEqual(['alpha'])
+    expect(removed).toEqual([])
+
+    dispose()
+    expect(removed).toEqual(['alpha'])
+  })
+
+  it('rolls back the registration when a provider-added listener throws', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    let threw = false
+    const off = ctx.on('subagent/provider-added', () => {
+      if (!threw) { threw = true; throw new Error('boom added listener') }
+    })
+
+    expect(() => ctx.subagents.registerProvider(new StubProvider('alpha'))).toThrow('boom added listener')
+    expect(ctx.subagents.getProvider('alpha')).toBeUndefined() // nothing leaked
+
+    off()
+    ctx.subagents.registerProvider(new StubProvider('alpha'))
+    expect(ctx.subagents.getProvider('alpha')).toBeDefined()
+  })
+
+  it('contains a throwing provider-removed listener: later mirrors still hear it, teardown completes', async () => {
+    // provider-removed fires inside the registration's DISPOSER, so a
+    // propagating listener would disrupt the backend's teardown; and cordis
+    // emit halts on the first throw, so an uncontained one would starve every
+    // mirror registered after it (a stale model-facing tool). Both are
+    // prevented by per-listener containment.
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => void warnings.push(String(message))) as typeof ctx.logger.warn
+    ctx.on('subagent/provider-removed', () => { throw new Error('boom removed listener') })
+    const heard: string[] = []
+    ctx.on('subagent/provider-removed', name => void heard.push(name))
+
+    const dispose = ctx.subagents.registerProvider(new StubProvider('alpha'))
+    expect(() => { dispose() }).not.toThrow()
+    expect(heard).toEqual(['alpha']) // the listener AFTER the thrower still ran
+    expect(ctx.subagents.getProvider('alpha')).toBeUndefined() // teardown reached quiescence
+    expect(warnings.some(w => w.includes('boom removed listener'))).toBe(true)
+  })
+
   it('registers a provider and starts a run on it by name', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
@@ -173,6 +227,122 @@ describe('SubagentService', () => {
     expect(ended).toHaveBeenCalledWith(expect.objectContaining({ provider: 'events', id: run.id, stopReason: 'completed' }))
   })
 
+  it('carries lastAssistantMessage (the child output) onto the end event', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider(new StubProvider(
+      'enriched',
+      ALL_CAPS,
+      { output: [{ type: 'text', text: 'the child answer' }], stopReason: 'completed' },
+    ))
+
+    const started = vi.fn()
+    const ended = vi.fn()
+    ctx.on('subagent/start', started)
+    ctx.on('subagent/end', ended)
+
+    const run = ctx.subagents.start('enriched', baseRequest())
+    expect(started).toHaveBeenCalledWith(expect.objectContaining({ provider: 'enriched', id: run.id }))
+
+    await run.result
+    await Promise.resolve()
+    expect(ended).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'enriched',
+      id: run.id,
+      stopReason: 'completed',
+      lastAssistantMessage: [{ type: 'text', text: 'the child answer' }],
+    }))
+  })
+
+  it('observe-only: a subagent/end listener mutating lastAssistantMessage cannot corrupt the caller\'s result', async () => {
+    // The subagent/end emit fires from a detached `.then` registered before
+    // start() returns — i.e. BEFORE the caller's own `await run.result`
+    // continuation. If the event shared the result.output reference, a mutating
+    // listener would change the SubagentResult the caller consumes. The service
+    // deep-clones output onto the event, so the listener mutates only its copy.
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider(new StubProvider(
+      'clone',
+      ALL_CAPS,
+      { output: [{ type: 'text', text: 'original' }], stopReason: 'completed' },
+    ))
+
+    ctx.on('subagent/end', (info) => {
+      // A hostile/buggy listener reaches in and mutates the event's array.
+      const blocks = info.lastAssistantMessage
+      if (blocks?.[0]?.type === 'text') blocks[0].text = 'HIJACKED'
+      blocks?.push({ type: 'text', text: 'injected' })
+    })
+
+    const run = ctx.subagents.start('clone', baseRequest())
+    const result = await run.result
+    await Promise.resolve() // let the detached settle hook (and its listener) run
+    // The caller's result.output is untouched by the listener's mutation.
+    expect(result.output).toEqual([{ type: 'text', text: 'original' }])
+  })
+
+  it('omits lastAssistantMessage on the reject path (no SubagentResult was produced)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'rej',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: () => ({
+        id: AgentId('rej-child'),
+        result: Promise.reject(new Error('infra fault')),
+        cancel() {},
+        dispose: async () => {},
+      }),
+    })
+
+    const ended = vi.fn()
+    ctx.on('subagent/end', ended)
+    const run = ctx.subagents.start('rej', baseRequest())
+    await run.result.catch(() => {})
+    await Promise.resolve()
+
+    const endInfo = ended.mock.calls[0]![0] as Record<string, unknown>
+    expect(endInfo.stopReason).toBe('error')
+    expect('lastAssistantMessage' in endInfo).toBe(false) // no output exists on reject
+  })
+
+  it('contains a structuredClone failure: emits subagent/end without lastAssistantMessage (no unhandled rejection)', async () => {
+    // The clone runs inside onFulfilled, OUTSIDE emitLifecycle's per-listener
+    // containment. An uncloneable output (here a content block carrying a
+    // function) would otherwise throw and become an unhandled rejection on the
+    // detached `.then`. The handler must instead log and emit the event WITHOUT
+    // lastAssistantMessage, still carrying the real stopReason.
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    const warn = vi.fn(); ctx.logger.warn = warn as never
+    // An output value structuredClone cannot handle (a function is uncloneable).
+    const uncloneable = [{ type: 'text', text: 'x', evil: () => 0 }] as unknown as SubagentResult['output']
+    ctx.subagents.registerProvider({
+      name: 'unclone',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: () => ({
+        id: AgentId('unclone-child'),
+        result: Promise.resolve({ output: uncloneable, stopReason: 'completed' } as SubagentResult),
+        cancel() {},
+        dispose: async () => {},
+      }),
+    })
+
+    const ended = vi.fn()
+    ctx.on('subagent/end', ended)
+    const run = ctx.subagents.start('unclone', baseRequest())
+    await run.result
+    await Promise.resolve()
+
+    const endInfo = ended.mock.calls[0]![0] as Record<string, unknown>
+    expect(endInfo.stopReason).toBe('completed')        // the real outcome is preserved
+    expect('lastAssistantMessage' in endInfo).toBe(false) // clone failed → omitted, not crashed
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not clone'))
+  })
+
   it('emits subagent/end with stopReason "error" when the run result promise rejects', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
@@ -182,6 +352,7 @@ describe('SubagentService', () => {
     ctx.subagents.registerProvider({
       name: 'rejecter',
       capabilities: NO_CAPS,
+      inheritsParentContext: false,
       start: () => ({
         id: AgentId('rej-child'),
         result: Promise.reject(new Error('infra fault')),

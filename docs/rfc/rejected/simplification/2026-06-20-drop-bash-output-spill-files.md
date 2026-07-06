@@ -20,8 +20,10 @@ This proposal can land independently of [a generic long-running tool runtime](..
 - `OutputCollector` keeps bounded buffers only and deletes the temp-file machinery.
 - `renderResult()` reports truncation without a filesystem path.
 - Tests cover tail truncation and no longer assert full-output file contents.
-- Security guidance in [root AGENTS.md](../../../../AGENTS.md) stops treating private spill files as a model-visible interface.
+- Security guidance in [docs/defensive-patterns.md](../../../defensive-patterns.md) stops treating private spill files as a model-visible interface.
 
 ## What we give up
 
 A model or user cannot recover the omitted prefix of a huge command output from a temp file. That is acceptable until there is a real artifact service. The current spill path is too much bespoke machinery for a feature whose lifecycle and permissions are not designed.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

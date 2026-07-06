@@ -75,17 +75,18 @@ interface SubagentRun {
 
 ## The provider seam: `SubagentProvider`
 
-One transport for running a child agent. Implementations register under a unique name via `SubagentService.registerProvider`; multiple coexist in one context. The service validates every requested start-time capability before calling `start`, so an implementation may assume e.g. `request.maxDepth` is honorable when present.
+One transport for running a child agent. Implementations register under a unique name via `SubagentService.registerProvider`; multiple coexist in one context. The service validates every requested start-time capability before calling `start`, so an implementation may assume e.g. `request.maxDepth` is honorable when present. `inheritsParentContext` is a DESCRIPTIVE fact beside the capabilities (nothing validates against it): whether a child sees the parent conversation (`fork`: true, `spawn`/`acp`: false) — the model-facing consumer derives truthful tool wording from it.
 
 ```ts type-equiv
 interface SubagentProvider {
   readonly name: string
   readonly capabilities: SubagentCapabilities
+  readonly inheritsParentContext: boolean
   start(request: SubagentStartRequest): SubagentRun
 }
 ```
 
-The service (`ctx.subagents`) emits `subagent/start` when a run begins and `subagent/end` when it settles (see the [events catalog](../cordis-catalog/events-and-services.md)). Both emits contain a thrown listener **per listener** (logged, never propagated): one bad subscriber can neither strand a live run, surface as an unhandled rejection on the detached settle hook, nor starve the listeners registered after it.
+The service (`ctx.subagents`) emits `subagent/start` when a run begins and `subagent/end` when it settles (see the [events catalog](../cordis-catalog/events.md)). `subagent/end` carries `lastAssistantMessage` (the child's final `output`) on the settle path, so an observer sees WHAT the subagent produced without holding the run (absent when the run rejected at the infrastructure level — no result was produced). These are **observe-only** events: both are plain `emit`s (the `subagent/end` fires from a detached `.then` after the result settles and awaits no listener), so a subscriber observes but cannot change the run. Both emits contain a thrown listener **per listener** (logged, never propagated): one bad subscriber can neither strand a live run, surface as an unhandled rejection on the detached settle hook, nor starve the listeners registered after it.
 
 ## In-process backends: depth and seed
 
