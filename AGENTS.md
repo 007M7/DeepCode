@@ -115,7 +115,7 @@ Docs are part of every change: code changes update their README and JSDoc in the
 
 ## Editing these instructions
 
-`AGENTS.md` is the real file; `CLAUDE.md` is a symlink to it (root, `packages/`, `examples/`). Edit `AGENTS.md`, never the symlink. This file is budget-gated (`verify-doc-budgets`): additions displace something or justify a ceiling raise in the PR.
+`AGENTS.md` is the real file; `CLAUDE.md` is a symlink to it (root, `packages/`, `examples/`). Edit `AGENTS.md`, never the symlink. This file is budget-gated (`verify-doc-budgets`): condense first if it is possible without sacrificing clarity; truly needed additions may justify a ceiling raise.
 
 ## Vendoring policy
 
