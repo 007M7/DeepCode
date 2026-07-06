@@ -1,10 +1,8 @@
-# Skill system — progressive disclosure instructions for agents
+# RFC: Skill system — progressive disclosure instructions for agents
 
-## Status
+Status: implemented
 
-Implemented.
-
-## Context
+## Problem
 
 Agent products have converged on a skill pattern: keep the request prompt small by listing only available instruction bundles, then load the full body when the model decides a task matches. Codex, Claude Code, OpenCode, and Kimi Code differ in details, but all separate discovery metadata from complete instructions so a workspace can carry reusable behavior without paying the full prompt cost on every turn.
 
@@ -28,7 +26,7 @@ System skills are ordinary skill files materialized under `~/.dsh/skills/.system
 
 The data structures and prompt/tool contract are documented in [skills.md](../../../core-data-structures/skills.md), with service signatures in the generated [services catalog](../../../cordis-catalog/services.md).
 
-## Rejected alternatives
+## Alternatives considered
 
 **Inject full skill bodies into every system prompt.** Rejected because it destroys progressive disclosure and makes every request pay for instructions that may not apply.
 
