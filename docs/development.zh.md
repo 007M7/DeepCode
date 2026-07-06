@@ -59,7 +59,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 lefthook 在 `lefthook.yml` 中配置，作为评审前的本地早期检查点：
 
 - `pre-commit` 运行对暂存文件的 ESLint 修复、`pnpm run typecheck` 和 vendor manifest 守卫。
-- `pre-push` 运行 `pnpm run test`、`pnpm run test:snapshot`、`pnpm run hygiene`、`pnpm run doc-sync` 和 `pnpm run verify-module-graph`。
+- `pre-push` 运行 `pnpm run check:pre-push`，其调度器并发运行单元测试、快照测试、build、module graph 新鲜度，以及 `pnpm run hygiene` 和 `pnpm run doc-sync` 的成员门禁。
 
 vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `vendor/README.md` manifest 更新一起暂存。编辑 vendor 代码前先看 `vendor/README.md`。
 
@@ -67,22 +67,9 @@ vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `v
 
 ## CI 门禁
 
-GitHub 工作流在每个 pull request 上运行这些门禁：
+keyless GitHub 工作流有六个 job：五个 Node 24 lane 分别运行 static gates、lint、coverage、snapshot replay 和 artifact gates，Node 26 兼容性 job 运行 `pnpm run check:node-compat`。各 lane 调度器并发运行来自 `package.json` 的独立门禁：constraints、typecheck、lint、coverage、snapshot replay、`doc-sync` 成员、module graph 新鲜度、`knip` 和 echo-agent 冒烟测试。
 
-- `pnpm install --frozen-lockfile`
-- `pnpm run constraints`
-- `pnpm run typecheck`
-- `pnpm run lint`
-- `pnpm run doc-sync`
-- `pnpm run verify-module-graph`
-- `pnpm run test:coverage`
-- `pnpm run test:snapshot`
-- `pnpm run build`
-- `pnpm run hygiene`
-- 一个 echo-agent 冒烟测试，检查演示的工具调用、工具结果和 JSONL 输出
-- built-bin 冒烟测试，用纯 `node` 运行发布产物 `lib/bin.js` 入口
-
-`pnpm run hygiene` 是 `pnpm run knip && pnpm run publint && pnpm run constraints && pnpm run verify-node-next-types` 的本地简写；CI 还会把 `pnpm run constraints` 作为更早的快速失败步骤单独跑一次，然后在 `pnpm run build` 之后跑完整的 hygiene 脚本。
+`pnpm run build` 供给 artifact lane，`publint`、`verify-node-next-types` 和 built-bin 冒烟测试等待 build 输出。单独的真实 API 工作流带密钥运行 `pnpm run test:e2e`，并设置 `DSH_E2E_MAX_WORKERS=14`。
 
 ## 日常命令
 
