@@ -56,9 +56,11 @@ forever:
       drain steering
       assembly = systemPrompt.assemble({agent})  ⟵ renderPrompt(assembly) IS the full prompt
       await serial agent/pre-step        ⟵ surface mutation (compaction) outside the step
-      session('step/start')
-      request = waterfall agent/request
-      stream llm.stream(request) → session('assistant/chunk')
+      boundary = session.deriveMessages()   ⟵ reconstruction boundary: same sync frame,
+      session('step/start')                     strictly before step/start
+      config = waterfall agent/request       ⟵ frozen seed; return a replacement to switch
+      session('request/header'[-delta])      ⟵ the header event this request owes the log
+      stream llm.stream(freeze({header..., messages: boundary})) → session('assistant/chunk')
       message = waterfall agent/step-result
       session('assistant/message')
       each tool-call: session('tool/call')

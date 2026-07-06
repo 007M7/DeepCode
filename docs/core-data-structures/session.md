@@ -60,6 +60,30 @@ interface SessionEventMap {
    * cordis-catalog row.
    */
   'todo/write': { todos: TodoItem[] }
+  /**
+   * Full snapshot of the {@link EpochHeader} the NEXT request is built under,
+   * with the {@link RequestHeaderReason} it was recorded whole. Appended by
+   * the loop inside the step, before dispatch, on a loop instance's first
+   * request-building step (`'initial'`/`'resume'`) or when a delta failed its
+   * round-trip guard (`'fallback'`); always records what the request actually
+   * used, post-`agent/request`. Anchors the header fold: reconstruction reads
+   * the latest snapshot and applies the deltas after it. NOT a
+   * {@link SurfaceEventType}: it produces no LLM message — it is the request
+   * envelope, logged so every request is a pure function of the session log
+   * (the reconstructability RFC).
+   */
+  'request/header': { header: EpochHeader; reason: RequestHeaderReason }
+  /**
+   * Amendment to the folded {@link EpochHeader}: at least one of a
+   * {@link SystemDelta}, a {@link ToolsDelta}, or a whole replacement
+   * {@link LlmCallConfig} (four scalars — not worth diffing). Appended by the
+   * loop inside the step, before dispatch, when the header for this request
+   * differs from the fold of the log so far; the writer verifies
+   * `applyHeaderDelta(previous, delta)` reproduces the new header exactly and
+   * falls back to a `'fallback'` `request/header` snapshot when it cannot, so
+   * a logged delta ALWAYS round-trips. NOT a {@link SurfaceEventType}.
+   */
+  'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig }
 }
 ```
 
@@ -73,6 +97,23 @@ export interface TodoItem {
   status: 'pending' | 'in_progress' | 'completed'
 }
 ```
+
+### The request header events: `request/header` and `request/header-delta`
+
+The request envelope — the `EpochHeader` (call config + rendered system prompt + assembled tool schemas) — is logged session state, so every conversation request is a pure function of the log (the reconstructability RFC). A `request/header` snapshot (reason `'initial' | 'resume' | 'fallback'`) anchors the fold at conversation birth, process boundaries, and delta-encoding fallbacks; `request/header-delta` events amend it mid-run. `foldRequestHeader(events)` reconstructs the header any request was built under; the writer round-trip-verifies every delta before logging it, so a well-formed log always folds. Neither is a `SurfaceEventType` — they produce no LLM message.
+
+```ts type-equiv
+export interface EpochHeader {
+  /** The conversation's call configuration (model + sampling scalars). */
+  config: LlmCallConfig
+  /** Rendered system prompt text; absent for a system-less request. */
+  system?: string
+  /** Assembled tool schemas; absent for a tool-less request. */
+  tools?: ToolSchema[]
+}
+```
+
+Canonical form: an empty system prompt and an empty tool list are ABSENT fields, matching how requests are built. The delta payloads (`SystemDelta` — a common-prefix/suffix line trim; `ToolsDelta` — name-keyed added/removed/changed) live beside the events in [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts).
 
 ## `SessionEvent<T>` — one log entry
 
@@ -148,9 +189,9 @@ export interface SurfaceNode {
 }
 ```
 
-## Derived history: `deriveMessages()`
+## Derived history: `deriveMessages()` and `deriveEventMessage()`
 
-`Session.deriveMessages()` projects the event log into the `Message[]` the model sees. The projection rules:
+`Session.deriveMessages()` projects the event log into the `Message[]` the model sees — cached (each surface node projected once, when first seen; a surface rewrite rebuilds) and frozen (a fresh array per call over shared, deep-frozen messages, so mutating logged history through a projection is unrepresentable). `deriveEventMessage(event)` is the per-node pure function the fold applies — public so external reconstructors and the dev invariant project a log prefix with exactly the same rules and cannot disagree with the cache. The projection rules:
 
 - `user/message` → a user message.
 - `assistant/message` → an assistant message. Raw `assistant/chunk` events are replay/UI data and are **skipped** in derivation (the assembled message is authoritative). An **empty-content** `assistant/message` is also skipped — a max-tokens step cut off with no content still records an `assistant/message` to host its `usage`, but a content-less assistant turn must not enter the provider transcript.

@@ -9,9 +9,10 @@
  *   to the next balanced tool-pairing boundary so a compacted region never
  *   splits a step's tool-call/result pair (an open tail step is never crossed —
  *   compaction declines and retries once it closes).
- * - **Summarization** — `ctx.llm.stream()` assembled via `BlockAssembler`
- *   (the single model-call surface; same path the loop uses) with a fixed
- *   condense-the-history system prompt routed through `agent/request`.
+ * - **Summarization** — a direct one-shot `ctx.llm.stream()` call assembled
+ *   via `BlockAssembler` with a fixed condense-the-history system prompt;
+ *   NOT a loop step, so `agent/request` never fires — interception happens
+ *   at `llm/stream` like any other direct call.
  * - **Surface mutation** — a single `user/message` replace node carries the
  *   summary; `compact/*` events are log-only lock + provenance records.
  * - **Auto-compaction** — an `agent/pre-step` listener delegates to
@@ -182,9 +183,9 @@ export class BasicCompactService extends CompactService {
       // log-only `compact/*` records and the replacement node cleanly outside a
       // step, so a crash mid-compaction leaves an inert orphan the turn-repair
       // closes — never a half-open step.
-      ctx.on('agent/pre-step', async (agent: Agent, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal) => {
+      ctx.on('agent/pre-step', async (agent: Agent, _turn: number, _step: number, fullSystemPrompt: string, signal: AbortSignal) => {
         try {
-          const result = await this.compactIfNeeded(agent, turn, step, fullSystemPrompt, signal)
+          const result = await this.compactIfNeeded(agent, fullSystemPrompt, signal)
           if (result) {
             const after = this.estimateTokens(agent.session.deriveMessages(), fullSystemPrompt)
             ctx.logger.info(
@@ -271,9 +272,13 @@ export class BasicCompactService extends CompactService {
   }
 
   /**
-   * Summarize conversation text into content blocks via `agent/request` plus
-   * `ctx.llm.stream()` assembled through a `BlockAssembler` (the single
-   * model-call surface).
+   * Summarize conversation text into content blocks via `ctx.llm.stream()`
+   * assembled through a `BlockAssembler`. A direct one-shot model call, NOT a
+   * loop step: it does not run the `agent/request` waterfall (that seam shapes
+   * the loop's conversation requests); per-call
+   * interception happens at `llm/stream` like any other direct call. The model
+   * comes from `BasicCompactConfig.summarizationModel`, falling back to the
+   * agent's own model.
    * Override in a subclass for a template or remote summarizer.
    *
    * Honors the adapter failure contract: an adapter may report a model failure
@@ -283,8 +288,15 @@ export class BasicCompactService extends CompactService {
    *
    * Forwards `signal` into `GenerateOptions.signal` so an abort/dispose tears
    * down the in-flight summarization rather than orphaning the model call.
+   *
+   * Returns the summary blocks TOGETHER with the call envelope it actually
+   * used (`model`, `maxTokens`) — the caller logs the envelope on the
+   * `compact/summary` provenance event, so an overriding subclass (template
+   * or remote summarizer) reports its own envelope honestly.
    */
-  async summarize(text: string, agent: Agent, turn: number, step: number, signal?: AbortSignal): Promise<ContentBlock[]> {
+  async summarize(
+    text: string, agent: Agent, signal?: AbortSignal,
+  ): Promise<{ summary: ContentBlock[]; model: string; maxTokens?: number }> {
     const assembler = new BlockAssembler()
     const options: GenerateOptions = {
       model: this.config.summarizationModel || agent.options.model || '',
@@ -299,11 +311,10 @@ export class BasicCompactService extends CompactService {
     // exactOptionalPropertyTypes: only set `signal` when present — assigning
     // `undefined` to an optional `signal?: AbortSignal` is a type error.
     if (signal) options.signal = signal
-    const request = await this.ctx.waterfall('agent/request', agent, turn, step, options, () => Promise.resolve(options))
-    if (!request.model) {
-      throw new Error('no model available for summarization: set BasicCompactConfig.summarizationModel, AgentOptions.model, or supply one via the agent/request waterfall')
+    if (!options.model) {
+      throw new Error('no model available for summarization: set BasicCompactConfig.summarizationModel or AgentOptions.model')
     }
-    for await (const chunk of this.ctx.llm.stream(request)) {
+    for await (const chunk of this.ctx.llm.stream(options)) {
       assembler.push(chunk)
     }
 
@@ -315,7 +326,10 @@ export class BasicCompactService extends CompactService {
       throw new Error('summarization produced no text summary content')
     }
 
-    return summary
+    // config.maxTokens is required and validated positive, so this backend's
+    // envelope always carries the cap; the return type's optionality exists
+    // for overriding subclasses whose summarizer has none.
+    return { summary, model: options.model, maxTokens: this.config.maxTokens }
   }
 
   // ---- Core API (implements the abstract contract) ----
@@ -348,8 +362,6 @@ export class BasicCompactService extends CompactService {
    */
   override async compactIfNeeded(
     agent: Agent,
-    turn: number,
-    step: number,
     fullSystemPrompt: string,
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
@@ -368,7 +380,7 @@ export class BasicCompactService extends CompactService {
         break
       }
 
-      result = await this.compactRegion(session, range.start, range.end, agent, turn, step, signal)
+      result = await this.compactRegion(session, range.start, range.end, agent, signal)
     }
 
     const totalTokens = this.estimateTokens(session.deriveMessages(), fullSystemPrompt)
@@ -385,8 +397,6 @@ export class BasicCompactService extends CompactService {
     start: number,
     end: number,
     agent: Agent,
-    turn: number,
-    step: number,
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
     // Resolve the range by surface POSITION, not numeric seq interval. A prior
@@ -450,7 +460,7 @@ export class BasicCompactService extends CompactService {
     try {
       // --- Extract text and summarize ---
       const text = this._extractText(session, shadowedSeqs)
-      const summary = await this.summarize(text, agent, turn, step, signal)
+      const { summary, model, maxTokens } = await this.summarize(text, agent, signal)
 
       // Estimate token count of the shadowed content for provenance.
       let shadowedTokenCount = 0
@@ -472,6 +482,8 @@ export class BasicCompactService extends CompactService {
         shadowedRange: { start, end },
         shadowedSeqs,
         shadowedTokenCount,
+        model,
+        ...maxTokens !== undefined ? { maxTokens } : {},
       })
 
       // --- Surface replacement ---

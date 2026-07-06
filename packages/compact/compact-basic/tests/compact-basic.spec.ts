@@ -58,13 +58,13 @@ class TestCompactService extends BasicCompactService {
     return blocks.length * 10
   }
 
-  override async summarize(text: string, agent: Agent): Promise<ContentBlock[]> {
+  override async summarize(text: string, agent: Agent): Promise<{ summary: ContentBlock[]; model: string; maxTokens?: number }> {
     const model = this.config.summarizationModel || agent.options.model || ''
     this.summarizeCalls.push({ text, model })
     if (this.summarizeError) throw this.summarizeError
     const summary = this.mockSummaryQueue.shift() ?? this.mockSummary
     this.summaryOutputs.add(summary)
-    return summary
+    return { summary, model }
   }
 }
 
@@ -402,6 +402,9 @@ describe('BasicCompactService.compactRegion', () => {
     expect(startEvent).toBeDefined()
     expect(summaryEvent).toBeDefined()
     expect(endEvent).toBeDefined()
+    // The provenance record carries the summarize call's envelope, so "which
+    // model wrote this summary" is answerable from the log alone.
+    expect(summaryEvent?.type === 'compact/summary' && summaryEvent.data.model).toBe('test-model')
 
     // compact/* events are log-only — no surfaceOp (type system enforces this).
     const startRaw = startEvent as unknown as { surfaceOp?: unknown }
@@ -980,7 +983,7 @@ function compactIfNeeded(
   model: string,
   signal: AbortSignal,
 ) {
-  return svc.compactIfNeeded(stubAgent(session, model), 1, 1, fullSystemPrompt, signal)
+  return svc.compactIfNeeded(stubAgent(session, model), fullSystemPrompt, signal)
 }
 
 function compactRegion(
@@ -991,11 +994,11 @@ function compactRegion(
   model: string,
   signal?: AbortSignal,
 ) {
-  return svc.compactRegion(session, start, end, stubAgent(session, model), 1, 1, signal)
+  return svc.compactRegion(session, start, end, stubAgent(session, model), signal)
 }
 
 function summarize(svc: BasicCompactService, text: string, model: string) {
-  return svc.summarize(text, stubAgent(new Session(SessionId('summary')), model), 1, 1)
+  return svc.summarize(text, stubAgent(new Session(SessionId('summary')), model))
 }
 
 describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
@@ -1003,8 +1006,12 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     const { ctx, adapter } = await ctxWithModel('SUMMARY TEXT')
     const svc = new BasicCompactService(ctx, cfg({ auto: false, maxTokens: 512 }))
 
-    const summary = await summarize(svc, 'User: hi\n\nAssistant: hello', 'test-model')
+    const { summary, model, maxTokens } = await summarize(svc, 'User: hi\n\nAssistant: hello', 'test-model')
     expect(summary).toEqual([{ type: 'text', text: 'SUMMARY TEXT' }])
+    // The returned envelope reports what the call actually used — the caller
+    // logs it on compact/summary (the reconstructability RFC).
+    expect(model).toBe('test-model')
+    expect(maxTokens).toBe(512)
     // The fixed system prompt and maxTokens flow through.
     expect(adapter.lastOptions!.system).toContain('compaction engine')
     expect(adapter.lastOptions!.system).toContain('## Next Step')
@@ -1035,7 +1042,7 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
     ])
     const svc = new BasicCompactService(ctx, cfg({ auto: false }))
 
-    const summary = await summarize(svc, 'User: hi', 'test-model')
+    const { summary } = await summarize(svc, 'User: hi', 'test-model')
 
     expect(summary).toEqual([{ type: 'text', text: 'PUBLIC SUMMARY' }])
   })
@@ -1231,15 +1238,20 @@ describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => 
     expect(session.events.some(e => e.type === 'compact/start')).toBe(false)
   })
 
-  it('routes summarization through agent/request so router agents can choose the model', async () => {
+  it('summarization is interceptable at llm/stream (model routing for direct calls)', async () => {
     const { ctx, adapter } = await ctxWithModel('ROUTED SUMMARY', 'routed-model')
-    ctx.on('agent/request', async (_agent, _turn, _step, options, next) => {
+    // The summarize call is a direct one-shot model call, not a loop step: it
+    // does not run agent/request (that seam shapes the loop's conversation
+    // requests). llm/stream is its interception surface, and a hand-built
+    // request is not frozen, so mutate-then-next model routing works — the
+    // adapter resolves AFTER the waterfall, so the rewrite picks the adapter.
+    ctx.on('llm/stream', (options, next) => {
       options.model = 'routed-model'
       return next()
     })
     void new BasicCompactService(ctx, cfg({ contextWindow: 200, thresholdRatio: 0.5, retainTokens: 20 }))
     const session = multiTurnSession(5, 1)
-    const agent = stubAgent(session)
+    const agent = stubAgent(session, 'agent-model')
 
     await ctx.serial('agent/pre-step', agent, 1, 1, '', SIGNAL)
 
