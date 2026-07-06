@@ -14,4 +14,3 @@ The interface lives at `fs/fs/`. A sandboxed, remote, or project-scoped filesyst
 ## No timeouts on file IO
 
 `read`/`write`/`edit` take **no** `timeoutMs`, and the provider seam arms no deadline — unlike bash and web, which consume [`@deepseek-ai/dsh-timeout`](../util/timeout/README.md). A local syscall is best-effort-abortable at most: a timeout could not force an in-progress `fsync`/`rename` to stop, so a deadline here would be a knob that cannot deliver on its promise. Adding one would also be an implicit default in the exact place explicit-over-implicit forbids. Both reference agents (Claude Code, Codex) leave file IO untimed for the same reason; cancellation still propagates through the tool-execution signal for best-effort abort at syscall boundaries.
-
