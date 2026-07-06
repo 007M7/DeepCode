@@ -10,7 +10,6 @@ import { lstat, readFile, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
 import type { FileSystem, FsTarget } from '@deepseek-ai/dsh-fs'
 import { DEFAULT_DSH_HOME_DISPLAY, defaultDshHome, resolveDshHome } from '@deepseek-ai/dsh-paths'
@@ -481,10 +480,6 @@ export function renderProjectInstructions(files: LoadedInstructionFile[], option
   return { text, omitted, truncated }
 }
 
-function workspaceContextMessage(text: string): Message {
-  return { role: 'user', content: [{ type: 'text', text }] }
-}
-
 function workspaceContextHook(text: string): HookContext {
   return { content: [{ type: 'text', text }], source: PLUGIN_SOURCE }
 }
@@ -531,7 +526,7 @@ function instructionDisplayPathsFromContextContent(content: readonly { type: str
   return paths
 }
 
-function loadedNestedInstructionDisplayPaths(agent: Agent, pendingDisplayPaths: Set<string>): Set<string> {
+function visibleInstructionDisplayPaths(agent: Agent): { visible: Set<string>; logged: Set<string> } {
   const visibleSeqs = new Set(agent.session.surface.nodes.map(node => node.seq))
   const visible = new Set<string>()
   const logged = new Set<string>()
@@ -543,6 +538,11 @@ function loadedNestedInstructionDisplayPaths(agent: Agent, pendingDisplayPaths: 
       if (visibleSeqs.has(seq)) visible.add(displayPath)
     }
   }
+  return { visible, logged }
+}
+
+function loadedNestedInstructionDisplayPaths(agent: Agent, pendingDisplayPaths: Set<string>): Set<string> {
+  const { visible, logged } = visibleInstructionDisplayPaths(agent)
   // The loop records returned additionalContext shortly after this plugin
   // returns it. Once the durable log contains that marker anywhere, clear the
   // temporary pending bit; load decisions still use visible surface state so
@@ -591,10 +591,10 @@ export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
   const cache: InstructionContentCache = new Map()
   const pendingNestedDisplayPaths = new WeakMap<object, Set<string>>()
-  ctx.on('agent/request', async (agent: Agent, _turn: number, _step: number, request: GenerateOptions, next) => {
-    if (resolved.baselineMaxBytes <= 0 || !Number.isFinite(resolved.baselineMaxBytes)) return next()
+  ctx.on('agent/pre-step', async (agent: Agent) => {
+    if (resolved.baselineMaxBytes <= 0 || !Number.isFinite(resolved.baselineMaxBytes)) return
     const fileSystem = ctx.get('fs')
-    if (fileSystem === undefined) return next()
+    if (fileSystem === undefined) return
     /* v8 ignore next -- stdio compatibility fallback; tests avoid process.chdir() because cwd is process-global. */
     const cwd = agent.session.header.cwd ?? process.cwd()
     const instructions = await loadBaselineInstructions({
@@ -605,10 +605,11 @@ export function apply(ctx: Context, config: Config): void {
       instructionFileCandidates: resolved.instructionFileCandidates,
       cache,
     }, fileSystem)
-    if (instructions !== undefined) {
-      request.messages = [workspaceContextMessage(instructions.text), ...request.messages]
-    }
-    return next()
+    if (instructions === undefined) return
+    const visibleDisplayPaths = visibleInstructionDisplayPaths(agent).visible
+    const baselineDisplayPaths = instructionDisplayPathsFromText(instructions.text)
+    if (baselineDisplayPaths.length > 0 && baselineDisplayPaths.every(path => visibleDisplayPaths.has(path))) return
+    agent.inject(workspaceContextHook(instructions.text).content, { source: PLUGIN_SOURCE })
   })
   ctx.on('tools/post-execute', async (exec: ToolExecution, result: ToolExecutionResult, next): Promise<PostToolDecision> => {
     const downstream = await next()

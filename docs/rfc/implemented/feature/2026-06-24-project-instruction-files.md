@@ -12,7 +12,7 @@ The non-obvious constraint is multi-session cwd. `dsh-system-prompt` sections ar
 
 ## Decision
 
-The shipped implementation adds `packages/prompt/project-instructions` (`@deepseek-ai/dsh-project-instructions`). It is a single-purpose prompt/context extension plugin, not an interface/implementation/consumer capability seam: there is no swappable backend, only filesystem discovery plus context injection. It depends on interface packages (`dsh-agent`, `dsh-llm`, `dsh-tools`, and `dsh-fs`) plus the low-level `dsh-paths` utility for the shared DSH home convention, and consumes the existing `agent/request` and `tools/post-execute` waterfalls.
+The shipped implementation adds `packages/prompt/project-instructions` (`@deepseek-ai/dsh-project-instructions`). It is a single-purpose prompt/context extension plugin, not an interface/implementation/consumer capability seam: there is no swappable backend, only filesystem discovery plus context injection. It depends on interface packages (`dsh-agent`, `dsh-tools`, and `dsh-fs`) plus the low-level `dsh-paths` utility for the shared DSH home convention, and consumes the existing `agent/pre-step` checkpoint and `tools/post-execute` waterfall.
 
 The plugin is loaded by `@deepseek-ai/dsh-agent-core` so both product front doors (`dsh-stdio-agent` and `dsh-acp-agent`) get instruction-file behavior by default. It does not add `fs` to the spine's required service graph: instruction discovery runs only when a `ctx.fs` provider is available at request/tool time, so providerless load-path smokes still boot and apps that want instruction loading must load a filesystem provider. The bundle and both app packages expose `projectInstructions` config, so apps may set `projectInstructions: false` or `baselineMaxBytes: 0` when they need a hermetic prompt. The default product behavior matches user expectations for coding agents once the app leaf supplies the filesystem provider.
 
@@ -52,9 +52,9 @@ Shell commands are not a trigger. `dsh-bash-local` runs each command in a fresh 
 
 Baseline instructions are rendered as full text, not summarized. These files are already hand-authored summaries of durable guidance; asking a model to summarize them before every use risks deleting exactly the edge-case rules they exist to preserve. The only compression mechanism is deterministic byte budgeting and truncation.
 
-The plugin injects baseline instructions through the `agent/request` waterfall by prepending a synthetic workspace-context message to `GenerateOptions.messages`. It deliberately does not register a global `ctx.systemPrompt.section()` because that service has no per-agent/cwd dimension. It also deliberately does not append to `GenerateOptions.system`: repository files are workspace-provided context, and in cloned or third-party repositories they may be attacker-controlled. They should guide the model, but they must not be represented as top-authority system instructions.
+The plugin injects baseline instructions during `agent/pre-step` by calling `agent.inject()` before the loop snapshots `deriveMessages()` for the next request. It deliberately does not register a global `ctx.systemPrompt.section()` because that service has no per-agent/cwd dimension. It also deliberately does not append to provider system text: repository files are workspace-provided context, and in cloned or third-party repositories they may be attacker-controlled. They should guide the model, but they must not be represented as top-authority system instructions.
 
-Because `agent/request` currently has no request-kind marker, baseline injection also applies to maintenance model calls such as compaction summarization. The implementation should not sniff the summarization prompt text to special-case this; a future request marker should let prompt-context plugins opt out of non-user-facing calls explicitly.
+Because baseline injection runs through the agent loop's pre-step checkpoint, one-shot maintenance model calls such as compaction summarization do not receive project instruction context.
 
 The rendered block uses an explicit envelope that says the content came from local instruction files, is lower authority than system/developer/direct user instructions, and must not override safety, permission, or secret-handling rules. The direct user prompt remains later in the message list, so normal conversational precedence still lets the user override repo guidance.
 
@@ -96,7 +96,7 @@ The budget is configurable. A budget of `0` disables baseline file injection. If
 
 ### Caching
 
-The observable contract is "consider the current applicable files before each model request." To satisfy that without excessive I/O, the plugin re-walks the ancestor chain on each `agent/request`, so newly created instruction files on the baseline path are discovered. It caches file content by normalized absolute path plus `stat` signature (`mtimeMs` and `size`) and re-reads only when that signature changes.
+The observable contract is "consider the current applicable files before each model request." To satisfy that without excessive I/O, the plugin re-walks the ancestor chain on each `agent/pre-step`, so newly created instruction files on the baseline path are discovered. It caches file content by normalized absolute path plus provider metadata signature and re-reads only when that signature changes.
 
 The implementation does not cache a rendered block for the lifetime of the process; the per-request walk is required to discover new files. Filesystems with coarse mtime granularity can miss same-size edits made inside one tick; this is an acceptable first-cut limitation documented in code comments near the cache.
 
@@ -110,7 +110,7 @@ Load both `AGENTS.md` and `CLAUDE.md` when both exist. This maximizes compatibil
 
 Load only `AGENTS.md` and provide a separate Claude import command. This matches Codex and Kimi and gives the cleanest native contract. We reject it for the first product default because many existing Claude Code repositories would silently lose their only instruction file. Fallback loading gives useful compatibility while still making `AGENTS.md` the preferred native path.
 
-Use `ctx.systemPrompt.section()` for baseline instructions. This was the original architecture checklist sketch and is fine for a single-cwd process, but it is wrong once ACP can host multiple sessions in one context. Per-agent injection via `agent/request` keeps instruction loading isolated by session.
+Use `ctx.systemPrompt.section()` for baseline instructions. This was the original architecture checklist sketch and is fine for a single-cwd process, but it is wrong once ACP can host multiple sessions in one context. Per-agent injection via `agent/pre-step` keeps instruction loading isolated by session.
 
 Append baseline instructions to `GenerateOptions.system`. This would keep the files in a system-like slot, but it overstates their authority. Repository-local instruction files can be supplied by an untrusted checkout, so they belong in a fenced workspace-context message whose text explicitly yields to system, developer, and direct user instructions.
 

@@ -8,6 +8,7 @@
     { "doc": "docs/core-data-structures/core.md", "symbol": "FinishReasonMap", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "GenerateOptions", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "ToolSchema", "source": "packages/llm/llm/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "LlmCallConfig", "source": "packages/llm/llm/src/call-config.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "Agent", "source": "packages/core/agent/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "HookContext", "source": "packages/core/agent/src/types.ts" },
@@ -21,6 +22,7 @@
     { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "AppIdentity", "source": "packages/llm/llm/src/attribution.ts" },
 
     { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEventMap", "source": "packages/core/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/session.md", "symbol": "EpochHeader", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "TodoItem", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "TurnTriggerMap", "source": "packages/core/session/src/types.ts" },

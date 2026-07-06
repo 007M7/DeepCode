@@ -399,9 +399,8 @@ describe('MEDIUM: misc registry and config fixes', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), {}) // no model — router plugin decides
 
-    ctx.on('agent/request', async (_agent, _turn, _step, options, next) => {
-      options.model = 'mock'
-      return next()
+    ctx.on('agent/request', async (_agent, _turn, _step, config, _next) => {
+      return { ...config, model: 'mock' }
     })
 
     send(agent, 'go')

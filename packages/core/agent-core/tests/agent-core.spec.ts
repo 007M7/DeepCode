@@ -41,9 +41,8 @@ function waitForMainIdle(ctx: Context): Promise<void> {
   })
 }
 
-function firstText(message: Message | undefined): string | undefined {
-  const block = message?.content[0]
-  return block?.type === 'text' ? block.text : undefined
+function messageText(message: Message | undefined): string {
+  return message?.content.map(block => block.type === 'text' ? block.text : '').join('\n') ?? ''
 }
 
 describe('dsh-agent-core bundle', () => {
@@ -110,8 +109,9 @@ describe('dsh-agent-core bundle', () => {
       agent.send([{ type: 'text', text: 'hi' }])
       await waitForMainIdle(ctx)
 
-      expect(adapter.requests[0]?.messages[0]?.role).toBe('user')
-      expect(firstText(adapter.requests[0]?.messages[0])).toContain('bundled project rule')
+      const sentText = adapter.requests[0]?.messages.map(messageText).join('\n')
+      expect(sentText).toContain('hi')
+      expect(sentText).toContain('bundled project rule')
       expect(adapter.requests[0]?.system).toContain('You are an AI agent powered by the DeepSeek Harness SDK.')
       expect(adapter.requests[0]?.system).not.toContain('bundled project rule')
       await handle.dispose()

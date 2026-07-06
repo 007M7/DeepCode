@@ -1,14 +1,14 @@
 # DeepSeek Harness Architecture
 
-The **DeepSeek Harness SDK** is an SDK for building agent harnesses using the Cordis framework. The governing principle is simple: **everything is a plugin**. For example, the shipped agent loop is just one plugin in the default bundle, not a privileged kernel.
+The **DeepSeek Harness SDK** builds agent harnesses on Cordis. The governing principle is simple: **everything is a plugin**. The shipped agent loop is one plugin in the default bundle, not a privileged kernel.
 
-Read this page as the system map before changing `packages/`. It explains how the runtime is shaped, how the default loop moves work, where state lives, and where extensions attach. Type shapes live in [core-data-structures/](core-data-structures/core.md); exact event and service signatures live in the generated [events](cordis-catalog/events.md) and [services](cordis-catalog/services.md) catalogs; package contracts live in the [package map](../packages/README.md); rationale lives in the [RFCs](rfc/README.md). If Cordis itself is new to you, start with the [Cordis primer](cordis-primer.md).
+Read this page before changing `packages/`: runtime shape, loop flow, state, and extension points. Type shapes live in [core-data-structures/](core-data-structures/core.md); exact signatures live in generated [events](cordis-catalog/events.md) and [services](cordis-catalog/services.md); package contracts live in the [package map](../packages/README.md); rationale lives in the [RFCs](rfc/README.md). If Cordis is new to you, start with the [Cordis primer](cordis-primer.md).
 
 ## System Shape
 
 A running harness is one Cordis context. Packages contribute service keys, typed events, and disposable registrations to that context. Services are the stable call surfaces (`ctx.llm`, `ctx.tools`, `ctx.sessions`); events are interception and notification points (`agent/request`, `tools/pre-execute`, `session/event`); registrations install prompt sections, tool schemas, providers, adapters, and listeners.
 
-The default distribution is a composition, not a hierarchy. `packages/core/` is a repository grouping for the default agent spine; capability seams around it are equally first-class plugins from a Cordis perspective.
+The default distribution is a composition, not a hierarchy. `packages/core/` groups the default agent spine; surrounding capability seams are equally first-class Cordis plugins.
 
 ### Default Service Spine
 
@@ -41,7 +41,7 @@ Events are the harness extension API. Each service owns the vocabulary for the b
 Use the event domain to decide where new behavior belongs:
 
 - **Session events** are durable, replayable facts. Turn and step boundaries, user input, assistant output, tool calls, tool results, steering, compaction records, and tool-owned durable facts append to the session log and flow through `session/event`.
-- **Agent events** are live runtime surfaces. They carry the live `Agent` handle for status, diagnostics, prompt admission, request mutation, result validation, and continuation policy.
+- **Agent events** are live runtime surfaces. They carry the live `Agent` handle for status, diagnostics, prompt admission, call-config shaping, result validation, and continuation policy.
 - **Capability events** belong to the seam that owns the action. `tools/*`, `llm/*`, `system-prompt/*`, `fs/*`, and `subagent/*` let policy and adapters attach without importing the loop.
 
 ### Interception Semantics
@@ -71,8 +71,8 @@ forever:
       assemble system prompt and tool schemas
       agent/pre-step
       'step/start'
-      derive messages from the session log
-      agent/request -> llm/stream
+      snapshot the derived messages (the reconstruction boundary)
+      agent/request (config only) -> log request/header -> llm/stream (frozen)
         'assistant/chunk'
       agent/step-result
       'assistant/message'
@@ -108,6 +108,8 @@ Every session event is turn-enclosed. Reloading a crashed session preserves the 
 
 The session log is the source of truth. `deriveMessages()` projects session events into the `Message[]` sent to the model; raw `assistant/chunk` events stay in the log for replay and UI fidelity. Replay, fork, resume, transcript rendering, telemetry, and persistence all derive from the same event stream.
 
+**Model-visible ⟺ logged**: the log reconstructs every conversation request byte-for-byte — messages by derivation at the `step/start` boundary, the header (system prompt, tools, model + sampling) by folding `request/header` events — asserted per request by the dev invariant ([reconstructability RFC](rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)).
+
 Durability is a plugin concern. Persistence backends buffer synchronous `session/event` notifications and the loop awaits a turn-end checkpoint before moving on. The `SessionPersistence` seam stores `SessionEvent` directly, with metadata in `SessionHeader`; JSONL and SQLite share one contract suite.
 
 ### Model Content
@@ -124,7 +126,7 @@ A swappable capability usually splits into **interface / implementation / consum
 
 Some seams bend the template deliberately. LLM keeps interface and consumer vocabulary together because adapters are the implementations. Filesystem adds policy as event gates around provider primitives. Web is one service with search and fetch provider registries, so provider swaps do not rename model tools. Subagents use a named provider registry because multiple delegation backends can coexist; `spawn` starts fresh, `fork` seeds from the parent's completed-turn prefix, and ACP can drive an out-of-process child ([subagent.md](core-data-structures/subagent.md)).
 
-Prompt/context extensions that shape model inputs without a core service live under `packages/prompt/`. `dsh-project-instructions` uses per-agent `agent/request` instead of global `ctx.systemPrompt.section()` for multi-cwd isolation, reads through `ctx.fs`, and watches file tools via `tools/post-execute` to inject nested files as durable `context/message` entries. Shared path conventions live in `dsh-paths`.
+Prompt/context extensions without a core service live under `packages/prompt/`. `dsh-project-instructions` uses per-agent `agent/pre-step`, not global `ctx.systemPrompt.section()`, for multi-cwd isolation; it reads through `ctx.fs` and injects nested files via `tools/post-execute`. Shared path conventions live in `dsh-paths`.
 
 ### Bundles And Apps
 

@@ -670,3 +670,113 @@ describe('surface invariants', () => {
       .toThrow(/cannot carry surfaceOp/)
   })
 })
+
+describe('request-reconstruction cross-check (llm/stream)', () => {
+  /** Session with a boundary: one derivable user message, an open step, and the header event the loop would have logged. */
+  async function requestSetup() {
+    const { ctx } = await setup({ freeze: false })
+    const session = ctx.sessions.create(SessionId('req-check'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    const boundary = session.deriveMessages()
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('request/header', { header: { config: { model: 'm' } }, reason: 'initial' })
+    return { ctx, session, boundary }
+  }
+
+  /** Dispatch the llm/stream waterfall with a stub core, collecting the check's verdict. */
+  function dispatch(ctx: Context, options: unknown): void {
+    // The invariants listener runs synchronously at dispatch time (its checks
+    // precede next()); the stub core just yields nothing.
+    void ctx.waterfall('llm/stream', options as never, () => (async function* () {})() as never)
+  }
+
+  it('passes a frozen request that equals the boundary derivation + the folded header', async () => {
+    const { ctx, session, boundary } = await requestSetup()
+    const options = Object.freeze({ model: 'm', messages: Object.freeze(boundary), sessionId: session.id })
+    expect(() => { dispatch(ctx, options) }).not.toThrow()
+  })
+
+  it('is boundary-correct: content logged after step/start is legitimately absent from this request', async () => {
+    const { ctx, session, boundary } = await requestSetup()
+    // An agent/request-window inject: lands in the log after the boundary,
+    // belongs to the NEXT request. A current-surface comparison would
+    // false-fire here; the seq-bounded rebuild must not.
+    session.append('context/message', { content: [{ type: 'text', text: '[late]' }], source: { kind: 'plugin', plugin: 'x' } }, { surfaceOp: 'append' })
+    const options = Object.freeze({ model: 'm', messages: Object.freeze(boundary), sessionId: session.id })
+    expect(() => { dispatch(ctx, options) }).not.toThrow()
+  })
+
+  it('rejects a frozen request whose messages diverge from the boundary derivation', async () => {
+    const { ctx, session, boundary } = await requestSetup()
+    const messages = [...boundary, { role: 'user', content: [{ type: 'text', text: 'phantom' }] }]
+    const options = Object.freeze({ model: 'm', messages: Object.freeze(messages), sessionId: session.id })
+    expect(() => { dispatch(ctx, options) }).toThrow(/diverges from the boundary derivation/)
+  })
+
+  it('rejects a frozen request whose fields diverge from the folded header', async () => {
+    const { ctx, session, boundary } = await requestSetup()
+    const options = Object.freeze({ model: 'other', messages: Object.freeze(boundary), sessionId: session.id })
+    expect(() => { dispatch(ctx, options) }).toThrow(/diverges from the folded request header/)
+  })
+
+  it('rejects a loop-built request with no header event or no step/start in its log', async () => {
+    const { ctx } = await setup({ freeze: false })
+    const session = ctx.sessions.create(SessionId('req-bare'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const bare = Object.freeze({ model: 'm', messages: Object.freeze([]), sessionId: session.id })
+    expect(() => { dispatch(ctx, bare) }).toThrow(/no step\/start/)
+
+    session.append('step/start', { turn: 1, step: 1 })
+    expect(() => { dispatch(ctx, bare) }).toThrow(/no request\/header event/)
+  })
+
+  it('rejects a frozen request carrying an unfrozen messages array', async () => {
+    const { ctx, session, boundary } = await requestSetup()
+    const options = Object.freeze({ model: 'm', messages: [...boundary], sessionId: session.id })
+    expect(() => { dispatch(ctx, options) }).toThrow(/frozen messages array/)
+  })
+
+  it('skips hand-built (unfrozen) requests — compaction summarize is out of scope', async () => {
+    const { ctx, session } = await requestSetup()
+    // Unfrozen envelope + arbitrary messages: a direct one-shot call.
+    const options = { model: 'summarizer', messages: [{ role: 'user', content: [{ type: 'text', text: 'summarize!' }] }], sessionId: session.id }
+    expect(() => { dispatch(ctx, options) }).not.toThrow()
+  })
+
+  it('skips requests without a sessionId or with an unknown session', async () => {
+    const { ctx } = await requestSetup()
+    expect(() => { dispatch(ctx, Object.freeze({ model: 'm', messages: Object.freeze([]) })) }).not.toThrow()
+    expect(() => { dispatch(ctx, Object.freeze({ model: 'm', messages: Object.freeze([]), sessionId: SessionId('ghost') })) }).not.toThrow()
+  })
+})
+
+describe('request cross-check ordering (prepend)', () => {
+  it('runs ahead of a short-circuiting llm/stream listener registered before it', async () => {
+    // The replay adapter returns its chunks WITHOUT calling next(), which
+    // would silence a later-registered check — snapshot compositions load
+    // replay before the app bundle that loads invariants. The check prepends,
+    // so it fires ahead of append-registered listeners regardless of load
+    // order. (Prepend orders it against APPENDED listeners only; correctness
+    // rests on the seq-bounded rebuild, not on listener timing.)
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    ctx.on('llm/stream', () => (async function* () {})() as never) // short-circuits, no next()
+    await ctx.plugin(Invariants, { freeze: false })
+
+    const session = ctx.sessions.create(SessionId('prepend-check'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('request/header', { header: { config: { model: 'm' } }, reason: 'initial' })
+
+    const divergent = Object.freeze({
+      model: 'm',
+      messages: Object.freeze([{ role: 'user', content: [{ type: 'text', text: 'phantom' }] }]),
+      sessionId: session.id,
+    })
+    expect(() => {
+      void ctx.waterfall('llm/stream', divergent as never, () => (async function* () {})() as never)
+    }).toThrow(/diverges from the boundary derivation/)
+  })
+})

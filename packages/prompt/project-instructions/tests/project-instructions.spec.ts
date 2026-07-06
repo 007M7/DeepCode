@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import * as projectInstructions from '@deepseek-ai/dsh-project-instructions'
-import { CallId, type GenerateOptions } from '@deepseek-ai/dsh-llm'
+import { CallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
 import { AgentId } from '@deepseek-ai/dsh-agent'
@@ -122,15 +122,12 @@ function stubAgent(cwd?: string): Agent {
     status: 'idle',
     send() {},
     steer() {},
-    inject() {},
+    inject(content, options) {
+      session.append('context/message', { content, source: options?.source ?? { kind: 'user' } }, { surfaceOp: 'append' })
+    },
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
-}
-
-function firstText(message: GenerateOptions['messages'][number] | undefined): string | undefined {
-  const block = message?.content[0]
-  return block?.type === 'text' ? block.text : undefined
 }
 
 function blocksText(blocks: { type: string; text?: string }[] | undefined): string {
@@ -144,6 +141,18 @@ function appendAdditionalContext(agent: Agent, result: { additionalContext?: Hoo
     content: context.content,
     source: context.source,
   }, { surfaceOp: 'append' }).seq
+}
+
+async function runBaselinePreStep(ctx: Context, agent: Agent): Promise<void> {
+  await ctx.serial('agent/pre-step', agent, 1, 1, '', AbortSignal.timeout(1000))
+}
+
+function derivedText(agent: Agent): string {
+  return blocksText(agent.session.deriveMessages()[0]?.content)
+}
+
+function expectNoDerivedMessages(agent: Agent): void {
+  expect(agent.session.deriveMessages()).toEqual([])
 }
 
 describe('project instruction discovery', () => {
@@ -275,14 +284,11 @@ describe('project instruction discovery', () => {
       await symlink(join(outside, 'secret.txt'), join(root, 'AGENTS.md'))
       const ctx = new Context()
       await mountProjectInstructions(ctx, { dshHome: home })
+      const agent = stubAgent(root)
 
-      const request: GenerateOptions = {
-        model: 'mock',
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
-      }
-      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+      await runBaselinePreStep(ctx, agent)
 
-      expect(result.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }])
+      expectNoDerivedMessages(agent)
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -631,18 +637,15 @@ describe('project instruction request injection', () => {
     expect('inject' in projectInstructions).toBe(false)
   })
 
-  it('leaves requests unchanged when no filesystem provider is present', async () => {
+  it('does not inject baseline context when no filesystem provider is present', async () => {
     const ctx = new Context()
     try {
       await ctx.plugin(projectInstructions, {})
-      const request: GenerateOptions = {
-        model: 'mock',
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
-      }
+      const agent = stubAgent('/virtual/repo')
 
-      const result = await ctx.waterfall('agent/request', stubAgent('/virtual/repo'), 1, 1, request, async () => request)
+      await runBaselinePreStep(ctx, agent)
 
-      expect(result.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }])
+      expectNoDerivedMessages(agent)
     } finally {
       await ctx.fiber.dispose()
     }
@@ -673,7 +676,7 @@ describe('project instruction request injection', () => {
     }
   })
 
-  it('prepends a synthetic user workspace-context message without mutating the system prompt', async () => {
+  it('injects baseline workspace context through the session log before step derivation', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -681,20 +684,35 @@ describe('project instruction request injection', () => {
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
       await mountProjectInstructions(ctx, { dshHome: home })
+      const agent = stubAgent(root)
 
-      const request: GenerateOptions = {
-        model: 'mock',
-        system: 'real system',
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
-      }
-      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+      await runBaselinePreStep(ctx, agent)
 
-      expect(result.system).toBe('real system')
-      expect(result.messages).toHaveLength(2)
-      expect(result.messages[0]?.role).toBe('user')
-      expect(firstText(result.messages[0])).toContain('<workspace-context source="project-instruction-files">')
-      expect(firstText(result.messages[0])).toContain('repo rule')
-      expect(result.messages[1]).toEqual({ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] })
+      expect(agent.session.deriveMessages()).toHaveLength(1)
+      expect(derivedText(agent)).toContain('<context source="plugin">')
+      expect(derivedText(agent)).toContain('<workspace-context source="project-instruction-files">')
+      expect(derivedText(agent)).toContain('repo rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('does not duplicate still-visible baseline workspace context on later pre-step checks', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      const ctx = new Context()
+      await mountProjectInstructions(ctx, { dshHome: home })
+      const agent = stubAgent(root)
+
+      await runBaselinePreStep(ctx, agent)
+      await runBaselinePreStep(ctx, agent)
+
+      expect(agent.session.events.filter(event => event.type === 'context/message')).toHaveLength(1)
+      expect(derivedText(agent)).toContain('repo rule')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -713,15 +731,12 @@ describe('project instruction request injection', () => {
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'ctx.fs rule' })
       await ctx.plugin(projectInstructions, { dshHome: home })
+      const agent = stubAgent(root)
 
-      const request: GenerateOptions = {
-        model: 'mock',
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
-      }
-      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+      await runBaselinePreStep(ctx, agent)
 
-      expect(firstText(result.messages[0])).toContain('ctx.fs rule')
-      expect(firstText(result.messages[0])).not.toContain('node fs rule')
+      expect(derivedText(agent)).toContain('ctx.fs rule')
+      expect(derivedText(agent)).not.toContain('node fs rule')
       expect(fs.readTargets).toEqual([join(root, 'AGENTS.md')])
     } finally {
       await rm(root, { recursive: true, force: true })
@@ -739,14 +754,11 @@ describe('project instruction request injection', () => {
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'provider-only rule' })
       await ctx.plugin(projectInstructions, { dshHome: home })
+      const agent = stubAgent(root)
 
-      const request: GenerateOptions = {
-        model: 'mock',
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
-      }
-      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+      await runBaselinePreStep(ctx, agent)
 
-      expect(firstText(result.messages[0])).toContain('provider-only rule')
+      expect(derivedText(agent)).toContain('provider-only rule')
       expect(fs.readTargets).toEqual([join(root, 'AGENTS.md')])
     } finally {
       await ctx.fiber.dispose()
@@ -769,17 +781,14 @@ describe('project instruction request injection', () => {
       fs.entries.set(join(home, 'AGENTS.md'), { type: 'file', content: 'ctx global rule' })
       fs.entries.set(join(root, 'CLAUDE.md'), { type: 'file', content: 'ctx claude rule' })
       await ctx.plugin(projectInstructions, { dshHome: home })
+      const agent = stubAgent(root)
 
-      const request: GenerateOptions = {
-        model: 'mock',
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
-      }
-      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+      await runBaselinePreStep(ctx, agent)
 
-      expect(firstText(result.messages[0])).toContain('ctx global rule')
-      expect(firstText(result.messages[0])).toContain('ctx claude rule')
-      expect(firstText(result.messages[0])).not.toContain('node global rule')
-      expect(firstText(result.messages[0])).not.toContain('node claude rule')
+      expect(derivedText(agent)).toContain('ctx global rule')
+      expect(derivedText(agent)).toContain('ctx claude rule')
+      expect(derivedText(agent)).not.toContain('node global rule')
+      expect(derivedText(agent)).not.toContain('node claude rule')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -798,14 +807,11 @@ describe('project instruction request injection', () => {
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.entries.set(join(root, 'AGENTS.md'), { type: 'directory' })
       await ctx.plugin(projectInstructions, { dshHome: home })
+      const agent = stubAgent(root)
 
-      const request: GenerateOptions = {
-        model: 'mock',
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
-      }
-      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+      await runBaselinePreStep(ctx, agent)
 
-      expect(result.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }])
+      expectNoDerivedMessages(agent)
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -825,14 +831,11 @@ describe('project instruction request injection', () => {
       fs.entries.set(join(root, 'AGENTS.md'), { type: 'directory' })
       fs.lstatTypes.set(join(root, 'AGENTS.md'), 'file')
       await ctx.plugin(projectInstructions, { dshHome: home })
+      const agent = stubAgent(root)
 
-      const request: GenerateOptions = {
-        model: 'mock',
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
-      }
-      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+      await runBaselinePreStep(ctx, agent)
 
-      expect(result.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }])
+      expectNoDerivedMessages(agent)
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -851,14 +854,11 @@ describe('project instruction request injection', () => {
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.entries.set(join(root, 'AGENTS.md'), { type: 'file' })
       await ctx.plugin(projectInstructions, { dshHome: home })
+      const agent = stubAgent(root)
 
-      const request: GenerateOptions = {
-        model: 'mock',
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
-      }
-      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+      await runBaselinePreStep(ctx, agent)
 
-      expect(firstText(result.messages[0])).toContain('## AGENTS.md')
+      expect(derivedText(agent)).toContain('## AGENTS.md')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -877,14 +877,11 @@ describe('project instruction request injection', () => {
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.throwOnStat.add(join(root, 'AGENTS.md'))
       await ctx.plugin(projectInstructions, { dshHome: home })
+      const agent = stubAgent(root)
 
-      const request: GenerateOptions = {
-        model: 'mock',
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
-      }
-      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+      await runBaselinePreStep(ctx, agent)
 
-      expect(result.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }])
+      expectNoDerivedMessages(agent)
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -903,14 +900,11 @@ describe('project instruction request injection', () => {
       fs.throwOnStat.add(join(root, '.git'))
       fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'repo rule' })
       await ctx.plugin(projectInstructions, { dshHome: home })
+      const agent = stubAgent(root)
 
-      const request: GenerateOptions = {
-        model: 'mock',
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
-      }
-      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+      await runBaselinePreStep(ctx, agent)
 
-      expect(firstText(result.messages[0])).toContain('repo rule')
+      expect(derivedText(agent)).toContain('repo rule')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -928,16 +922,16 @@ describe('project instruction request injection', () => {
       await write(join(repoB, 'AGENTS.md'), 'repo B only')
       const ctx = new Context()
       await mountProjectInstructions(ctx, { dshHome: home })
-      const requestA: GenerateOptions = { model: 'mock', messages: [{ role: 'user', content: [{ type: 'text', text: 'A' }] }] }
-      const requestB: GenerateOptions = { model: 'mock', messages: [{ role: 'user', content: [{ type: 'text', text: 'B' }] }] }
+      const agentA = stubAgent(repoA)
+      const agentB = stubAgent(repoB)
 
-      const resultA = await ctx.waterfall('agent/request', stubAgent(repoA), 1, 1, requestA, async () => requestA)
-      const resultB = await ctx.waterfall('agent/request', stubAgent(repoB), 1, 1, requestB, async () => requestB)
+      await runBaselinePreStep(ctx, agentA)
+      await runBaselinePreStep(ctx, agentB)
 
-      expect(firstText(resultA.messages[0])).toContain('repo A only')
-      expect(firstText(resultA.messages[0])).not.toContain('repo B only')
-      expect(firstText(resultB.messages[0])).toContain('repo B only')
-      expect(firstText(resultB.messages[0])).not.toContain('repo A only')
+      expect(derivedText(agentA)).toContain('repo A only')
+      expect(derivedText(agentA)).not.toContain('repo B only')
+      expect(derivedText(agentB)).toContain('repo B only')
+      expect(derivedText(agentB)).not.toContain('repo A only')
     } finally {
       await rm(repoA, { recursive: true, force: true })
       await rm(repoB, { recursive: true, force: true })
@@ -956,19 +950,19 @@ describe('project instruction request injection', () => {
       const ctx = new Context()
       await ctx.plugin(LocalFileSystem, { cwd: '/' })
       await ctx.plugin(projectInstructions, {})
-      const request: GenerateOptions = { model: 'mock', messages: [{ role: 'user', content: [{ type: 'text', text: 'prompt' }] }] }
+      const agent = stubAgent(cwd)
 
-      const result = await ctx.waterfall('agent/request', stubAgent(cwd), 1, 1, request, async () => request)
+      await runBaselinePreStep(ctx, agent)
 
-      expect(firstText(result.messages[0])).toContain('## AGENTS.md\n\nroot schema default rule')
-      expect(firstText(result.messages[0])).toContain('## child/AGENTS.md\n\nchild schema default rule')
+      expect(derivedText(agent)).toContain('## AGENTS.md\n\nroot schema default rule')
+      expect(derivedText(agent)).toContain('## child/AGENTS.md\n\nchild schema default rule')
       await ctx.fiber.dispose()
     } finally {
       await rm(root, { recursive: true, force: true })
     }
   })
 
-  it('cleans up its agent/request listener when the plugin fiber is disposed', async () => {
+  it('cleans up its agent/pre-step listener when the plugin fiber is disposed', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -977,14 +971,11 @@ describe('project instruction request injection', () => {
       const ctx = new Context()
       const fiber = await mountProjectInstructions(ctx, { dshHome: home })
       await fiber.dispose()
+      const agent = stubAgent(root)
 
-      const request: GenerateOptions = {
-        model: 'mock',
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
-      }
-      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+      await runBaselinePreStep(ctx, agent)
 
-      expect(result.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }])
+      expectNoDerivedMessages(agent)
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -999,14 +990,11 @@ describe('project instruction request injection', () => {
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
       await mountProjectInstructions(ctx, { dshHome: home, baselineMaxBytes: 0 })
+      const agent = stubAgent(root)
 
-      const request: GenerateOptions = {
-        model: 'mock',
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
-      }
-      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+      await runBaselinePreStep(ctx, agent)
 
-      expect(result.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }])
+      expectNoDerivedMessages(agent)
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1021,14 +1009,11 @@ describe('project instruction request injection', () => {
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
       await mountProjectInstructions(ctx, { dshHome: home, baselineMaxBytes: -1 })
+      const agent = stubAgent(root)
 
-      const request: GenerateOptions = {
-        model: 'mock',
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
-      }
-      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+      await runBaselinePreStep(ctx, agent)
 
-      expect(result.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }])
+      expectNoDerivedMessages(agent)
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1042,14 +1027,11 @@ describe('project instruction request injection', () => {
       await mkdir(join(root, '.git'), { recursive: true })
       const ctx = new Context()
       await mountProjectInstructions(ctx, { dshHome: home })
+      const agent = stubAgent(root)
 
-      const request: GenerateOptions = {
-        model: 'mock',
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
-      }
-      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+      await runBaselinePreStep(ctx, agent)
 
-      expect(result.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }])
+      expectNoDerivedMessages(agent)
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
