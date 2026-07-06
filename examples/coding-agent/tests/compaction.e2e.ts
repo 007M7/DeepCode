@@ -43,8 +43,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
     // A handful of files for the model to read, so multiple bash steps
     // accumulate surface nodes (tool calls + results) and grow the history past
     // the (deliberately tiny) window.
-    for (let i = 1; i <= 6; i++) {
-      await writeFile(join(workdir, `file${i}.txt`), `This is file number ${i}. `.repeat(40))
+    for (let i = 1; i <= 4; i++) {
+      await writeFile(join(workdir, `file${i}.txt`), `This is file number ${i}. `.repeat(50))
     }
 
     // Tiny window so a couple of steps crosses the threshold. The generation
@@ -55,21 +55,21 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
     ctx = await codingHarness(workdir, {
       persona: SYSTEM_PROMPT,
       compact: {
-        contextWindow: 2400,
+        contextWindow: 2000,
         thresholdRatio: 0.5,
-        retainTokens: 500,
+        retainTokens: 400,
         summarizationModel: '',
-        maxTokens: 2048,
+        maxTokens: 1024,
         compactionRetries: 1,
       },
-      persistenceRoot: './.sessions',
+      persistenceRoot: join(workdir, '.sessions'),
     })
     const agent = ctx.agentLoop.create(AgentId('e2e-compaction'), { model: 'deepseek-v4-flash' })
 
     agent.send([{
       type: 'text',
-      text: 'Read file1.txt, file2.txt, file3.txt, file4.txt, file5.txt, and file6.txt one at a '
-        + 'time using cat (a separate bash command for each). After reading all six, tell me how '
+      text: 'Read file1.txt, file2.txt, file3.txt, and file4.txt one at a '
+        + 'time using cat (a separate bash command for each). After reading all four, tell me how '
         + 'many files you read and the number mentioned in file1.txt.',
     }])
     await waitForIdle(ctx, agent)
@@ -98,9 +98,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
     expect(summaryData.shadowedSeqs.length).toBeGreaterThan(0)
 
     // The conversation survived compaction: the agent produced a final answer
-    // that reflects the work (it read six files).
+    // that reflects the work (it read four files).
     const answer = finalText(events).toLowerCase()
     expect(answer.length).toBeGreaterThan(0)
-    expect(answer).toMatch(/\b(6|six)\b/)
+    expect(answer).toMatch(/\b(4|four)\b/)
   }, 240_000)
 })
