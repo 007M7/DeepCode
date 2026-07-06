@@ -144,6 +144,18 @@ describe('SessionStore.fork', () => {
       .toThrow(new SessionForkError(`fork boundary ${source.seq} does not exist in session "parent" (last seq: ${source.seq - 1})`, 'INVALID_BOUNDARY'))
   })
 
+  it('rejects a corrupted live source whose array index no longer matches event seq', async () => {
+    const { ctx, sessions } = await setup()
+    const source = ctx.sessions.create(SessionId('corrupt-parent'))
+    appendClosedTurn(source, 1)
+    const mutableLog = (source as unknown as { log: SessionEvent[] }).log
+    mutableLog[2] = { ...mutableLog[2]!, seq: 99 }
+
+    expect(() => sessions.fork({ source, boundary: 2, childSessionId: SessionId('corrupt-child') }))
+      .toThrow(new SessionForkError('fork boundary 2 does not match a contiguous event seq in session "corrupt-parent"', 'INVALID_BOUNDARY'))
+    expect(ctx.sessions.get(SessionId('corrupt-child'))).toBeUndefined()
+  })
+
   it('rejects an unknown live session id', async () => {
     const { sessions } = await setup()
 
