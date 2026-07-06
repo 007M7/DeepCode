@@ -294,3 +294,103 @@ export namespace Loose {
     ])
   })
 })
+
+describe('verify-export-jsdoc fail-closed forms (review round 1)', () => {
+  it('checks the function contract on a non-identifier default export', () => {
+    expect(collectExportJsdocViolations(make(
+      '/** Doubles. */\nexport default (x: number): number => x * 2\n',
+    ))).toEqual([
+      expect.stringMatching(/default export .* is missing @param x\./),
+      expect.stringMatching(/default export .* is missing @returns \(return type: number\)\./),
+    ])
+    expect(collectExportJsdocViolations(make(
+      '/**\n * Doubles.\n * @param x - the input.\n * @returns twice the input.\n */\nexport default (x: number): number => x * 2\n',
+    ))).toEqual([])
+  })
+
+  it('treats an inline function-type annotation as the surface signature', () => {
+    expect(collectExportJsdocViolations(make(
+      '/** Maps a number. */\nexport declare const f: (x: number) => number\n',
+    ))).toEqual([
+      expect.stringMatching(/exported const 'f' .* is missing @param x\./),
+      expect.stringMatching(/exported const 'f' .* is missing @returns \(return type: number\)\./),
+    ])
+    expect(collectExportJsdocViolations(make(
+      '/**\n * Maps a number.\n * @param x - the input.\n * @returns the mapped value.\n */\nexport const f: (x: number) => number = v => v\n',
+    ))).toEqual([])
+  })
+
+  it('recurses into an ambient declare namespace where members export implicitly', () => {
+    expect(collectExportJsdocViolations(make(
+      'export declare namespace N {\n  function f(x: number): number\n}\n',
+    ))).toEqual([
+      expect.stringMatching(/exported namespace 'N' .* has no JSDoc\./),
+      expect.stringMatching(/exported function 'N.f' .* has no JSDoc\./),
+    ])
+  })
+
+  it('skips an export-import alias (the aliased definition owns the doc)', () => {
+    expect(collectExportJsdocViolations(make(
+      '/** Holder. */\nexport namespace N {\n  /** The value. */\n  export const x = 1\n}\nexport import y = N.x\n',
+    ))).toEqual([])
+  })
+
+  it('refuses an export-equals assignment instead of failing open', () => {
+    expect(collectExportJsdocViolations(make(
+      'const x = 1\nexport = x\n',
+    ))).toEqual([expect.stringMatching(/export-equals assignment .* is not a gate-supported export form/)])
+  })
+})
+
+describe('verify-export-jsdoc heritage refinement (review round 1)', () => {
+  it('requires @param for parameters the base member never names', () => {
+    const violations = collectExportJsdocViolations(make(`
+/** Seam. */
+export abstract class Base {
+  /**
+   * Do it.
+   * @param x - input.
+   * @returns output.
+   */
+  abstract run(x: number): number
+}
+/** Impl. */
+export class Impl extends Base {
+  override run(x: number, verbose?: boolean): number { return verbose ? x : -x }
+}
+`))
+    expect(violations).toEqual([expect.stringMatching(/exported class method 'Impl.run' .* is missing @param verbose\./)])
+  })
+
+  it('does not exempt a public override of a protected-only base member', () => {
+    expect(collectExportJsdocViolations(make(`
+/** Seam. */
+export abstract class Base {
+  /** Subclass hook. */
+  protected hook(): void {}
+}
+/** Impl. */
+export class Impl extends Base {
+  override hook(): void {}
+}
+`))).toEqual([expect.stringMatching(/exported class method 'Impl.hook' .* has no JSDoc\./)])
+  })
+
+  it('treats an underscore-prefixed rename of a base parameter as the same parameter', () => {
+    expect(collectExportJsdocViolations(make(`
+/** Seam. */
+export abstract class Base {
+  /**
+   * Load it.
+   * @param cwd - the working directory to scope the lookup.
+   * @returns the loaded value.
+   */
+  abstract load(cwd: string): number
+}
+/** Impl (ignores cwd). */
+export class Impl extends Base {
+  load(_cwd: string): number { return 1 }
+}
+`))).toEqual([])
+  })
+})

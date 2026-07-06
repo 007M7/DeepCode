@@ -13,33 +13,39 @@
  *
  * - Every exported name needs JSDoc with non-empty description prose (prose
  *   ends at the first block tag, standard JSDoc semantics).
- * - A function-like export (function declaration, or a const with a function
- *   initializer) additionally needs a non-empty `@param` per parameter
- *   (`this` receiver annotations exempt; a stale `@param` errors) and a
- *   non-empty `@returns` unless the return type is `void`/`Promise<void>`.
- *   The walk classifies returns syntactically, so the return type must be
- *   ANNOTATED — except a const whose DECLARATOR is type-annotated (e.g.
- *   `export const f: Handler = …`), where the named type owns the return
- *   contract and `@returns` stays optional.
+ * - A function-like export (function declaration, a const with a function
+ *   initializer or an INLINE function-type annotation, or a non-identifier
+ *   function default export) additionally needs a non-empty `@param` per
+ *   parameter (`this` receiver annotations exempt; a stale `@param` errors)
+ *   and a non-empty `@returns` unless the return type is `void` /
+ *   `Promise<void>`. The walk classifies returns syntactically, so the return
+ *   type must be ANNOTATED — except a const whose declarator is annotated
+ *   with a NAMED type (e.g. `export const f: Handler = …`), where that type's
+ *   own declaration owns the signature contract and `@returns` stays
+ *   optional; an inline `(x: T) => U` annotation is the surface signature
+ *   itself and gets the full contract.
  * - An exported class needs class-level JSDoc; its public methods (static
  *   included — they are reachable on the exported name) follow the function
  *   contract, and public properties and accessors need description prose (on
- *   a get/set pair the getter's doc covers both). A member whose name exists
- *   on an `extends`/`implements` heritage type is EXEMPT — the seam
- *   declaration is the doc's one home, the IDE inherits it, and re-documenting
- *   every implementation invites drift. This is the one question the walk
- *   asks the TYPE CHECKER (heritage members live across package boundaries);
- *   everything else is pure AST. Constructors are exempt like the cordis
- *   gate's: plugin classes are framework-constructed, and the class doc owns
- *   the story.
+ *   a get/set pair the getter's doc covers both). A member declared by an
+ *   `extends`/`implements` heritage type is EXEMPT — the seam declaration is
+ *   the doc's one home, the IDE inherits it, and re-documenting every
+ *   implementation invites drift — UNLESS the override grows surface the
+ *   base never documented: a protected-only base member does not exempt a
+ *   public override, and parameters the base never names keep their `@param`
+ *   duty. This is the one question the walk asks the TYPE CHECKER (heritage
+ *   members live across package boundaries); everything else is pure AST.
+ *   Constructors are exempt like the cordis gate's: plugin classes are
+ *   framework-constructed, and the class doc owns the story.
  * - Exported interfaces, type aliases, enums: description prose on the
  *   declaration (member-level docs stay review's job; the highest-value
  *   member surface — seam service classes — is already under the cordis
  *   gate).
  * - An exported namespace recurses (its exported members are package
- *   surface); the namespace itself needs prose only when it does not merge
- *   with an already-documented same-name declaration (the Config-namespace
- *   idiom documents the class/function once, not twice).
+ *   surface; in an ambient `declare` namespace every member exports
+ *   implicitly); the namespace itself needs prose only when it does not
+ *   merge with an already-documented same-name declaration (the
+ *   Config-namespace idiom documents the class/function once, not twice).
  * - The cordis plugin-protocol slots are exempt: top-level `name` / `inject`
  *   / `reusable` / `Config` consts and the `apply` entry, plus the same
  *   slots as statics on a plugin class. Their shape is fixed by the
@@ -50,10 +56,13 @@
  * - Overload groups: each overload signature carries its own docs; the
  *   implementation signature is exempt (callers never see it).
  * - Skipped: `declare module` / `declare global` augmentation bodies (the
- *   cordis gate's turf; an augmentation is not an export of the package) and
- *   re-export statements with a module specifier (`export … from`) — the
- *   defining module is walked on its own, and external definitions are not
- *   ours to document.
+ *   cordis gate's turf; an augmentation is not an export of the package),
+ *   re-export statements with a module specifier (`export … from`) and
+ *   `export import X = N.member` aliases — the defining module is walked on
+ *   its own, and external definitions are not ours to document.
+ * - Everything else fails CLOSED: `export =` is refused outright, and an
+ *   exported statement kind the dispatch does not recognize is itself a
+ *   violation, so no export form can pass unchecked by omission.
  */
 
 import { existsSync, globSync } from 'node:fs'
@@ -107,26 +116,60 @@ function thisReceiver(p: ts.ParameterDeclaration): boolean {
 }
 
 /**
- * True when a member name exists on any `extends`/`implements` heritage type
- * of the class — the member implements or overrides a documented seam
- * declaration, which is the doc's one home (the IDE inherits it on hover).
- * Static members are looked up on the base CONSTRUCTOR type (only an
- * `extends` expression has one; an unresolvable or interface expression
- * yields no property and therefore no exemption).
+ * The heritage-member exemption for one class member. When the member's name
+ * is declared by an `extends`/`implements` heritage type, the seam declaration
+ * is the doc's one home (the IDE inherits it on hover) and the member needs no
+ * doc of its own — EXCEPT where the override grows public surface the base
+ * never documented: a base member that is protected on every declaration does
+ * not exempt a public override (consumers could not call it before), and
+ * parameters the base never names keep their own `@param` duty (the caller
+ * reads the seam doc, which cannot describe them; an underscore-prefixed
+ * rename of a base parameter — the deliberately-unused marker — is the same
+ * parameter, not new surface). Static members are looked
+ * up on the base CONSTRUCTOR type (only an `extends` expression has one; an
+ * unresolvable or interface expression yields no property and therefore no
+ * exemption).
  * @param cls - the class whose heritage to search.
  * @param name - the member name to look up.
  * @param staticSide - whether to search the constructor side instead of the instance side.
  * @param checker - the program's type checker.
- * @returns true when a heritage type declares the member.
+ * @returns null when no exemption applies; otherwise the parameter names the
+ * base declarations carry (`baseParams: null` means the base's parameters are
+ * not syntactically recoverable — a complex heritage type — and the member is
+ * exempt in full).
  */
-function inheritedMember(cls: ts.ClassDeclaration, name: string, staticSide: boolean, checker: ts.TypeChecker): boolean {
+function heritageExemption(
+  cls: ts.ClassDeclaration,
+  name: string,
+  staticSide: boolean,
+  checker: ts.TypeChecker,
+): { baseParams: Set<string> | null } | null {
+  const isProtected = (d: ts.Declaration): boolean =>
+    (ts.canHaveModifiers(d) ? ts.getModifiers(d) : undefined)?.some(m => m.kind === ts.SyntaxKind.ProtectedKeyword) ?? false
   for (const clause of cls.heritageClauses ?? []) {
     for (const t of clause.types) {
       const type = staticSide ? checker.getTypeAtLocation(t.expression) : checker.getTypeAtLocation(t)
-      if (type.getProperty(name) !== undefined) return true
+      const prop = type.getProperty(name)
+      if (prop === undefined) continue
+      const decls = prop.declarations ?? []
+      if (decls.length > 0 && decls.every(isProtected)) continue // public override of a protected base: new surface
+      let baseParams: Set<string> | null = null
+      for (const d of decls) {
+        let params: readonly ts.ParameterDeclaration[] | undefined
+        if (ts.isMethodDeclaration(d) || ts.isMethodSignature(d)) params = d.parameters
+        else if ((ts.isPropertySignature(d) || ts.isPropertyDeclaration(d)) && d.type !== undefined && ts.isFunctionTypeNode(d.type)) {
+          params = d.type.parameters
+        } else continue
+        baseParams ??= new Set()
+        // Leading underscores are the deliberately-unused marker (eslint
+        // argsIgnorePattern), not a rename: `_cwd` overriding `cwd` is the
+        // same parameter, so compare underscore-stripped on both sides.
+        for (const p of params) if (ts.isIdentifier(p.name)) baseParams.add(p.name.text.replace(/^_+/, ''))
+      }
+      return { baseParams }
     }
   }
-  return false
+  return null
 }
 
 /**
@@ -171,9 +214,10 @@ function checkFunctionLike(
  * Check one exported class: class-level prose, the function contract on every
  * public method (overload implementations exempt), and description prose on
  * public properties and accessors (a get/set pair is covered by the getter's
- * doc). Members declared by a heritage type and the plugin-protocol statics
- * are exempt; constructors are not checked (framework-constructed plugins,
- * and the class doc owns the story).
+ * doc). Heritage-declared members are exempt per heritageExemption (an
+ * override's extra parameters keep their @param duty); plugin-protocol
+ * statics are exempt; constructors are not checked (framework-constructed
+ * plugins, and the class doc owns the story).
  * @param cls - the exported class declaration.
  * @param name - the class's surface name (namespace-qualified).
  * @param w - the walk state violations append to.
@@ -192,10 +236,26 @@ function checkClass(cls: ts.ClassDeclaration, name: string, w: Walk): void {
     if (!('name' in m) || ts.isComputedPropertyName(m.name)) continue // computed/symbol members
     const mname = m.name.getText(w.sf)
     if (isStatic(m) && PROTOCOL_STATICS.has(mname)) continue // cordis plugin-protocol slot
-    if (inheritedMember(cls, mname, isStatic(m), w.checker)) continue // the heritage declaration owns the doc
+    const exemption = heritageExemption(cls, mname, isStatic(m), w.checker)
     if (ts.isMethodDeclaration(m)) {
       if (m.body && overloadSigs.has(mname)) continue // overload implementation: the signatures carry the docs
-      checkFunctionLike(`exported class method '${name}.${mname}' (${pointer(w.rel, w.sf, m)})`, rawJsDoc(w.text, m), m.parameters, m.type, false, w)
+      const where = `exported class method '${name}.${mname}' (${pointer(w.rel, w.sf, m)})`
+      if (exemption !== null) {
+        // The heritage declaration owns prose and @returns; parameters the
+        // base never names are new surface and keep their @param duty.
+        const base = exemption.baseParams
+        const inBase = (p: ts.ParameterDeclaration): boolean =>
+          base !== null && ts.isIdentifier(p.name) && base.has(p.name.text.replace(/^_+/, ''))
+        if (base !== null && m.parameters.some(p => ts.isIdentifier(p.name) && p.name.text !== 'this' && !inBase(p))) {
+          const { params } = parseTags(rawJsDoc(w.text, m))
+          checkParams(where, 'export', m.parameters, params, w.sf,
+            p => thisReceiver(p) || inBase(p), w.violations)
+        }
+        continue
+      }
+      checkFunctionLike(where, rawJsDoc(w.text, m), m.parameters, m.type, false, w)
+    } else if (exemption !== null) {
+      continue // the heritage declaration owns the doc (properties/accessors carry no own parameters)
     } else if (ts.isGetAccessorDeclaration(m) || ts.isPropertyDeclaration(m)) {
       const kind = ts.isPropertyDeclaration(m) ? 'property' : 'accessor'
       checkDescribed(`exported class ${kind} '${name}.${mname}' (${pointer(w.rel, w.sf, m)})`, rawJsDoc(w.text, m), w)
@@ -207,11 +267,14 @@ function checkClass(cls: ts.ClassDeclaration, name: string, w: Walk): void {
 }
 
 /**
- * Check one exported declaration statement, dispatching on its kind.
+ * Check one exported declaration statement, dispatching on its kind. Any
+ * exported statement kind the dispatch does not recognize is a violation
+ * (fail closed), so no export form can pass unchecked by omission.
  * @param stmt - the exported statement (export modifier or export-list target).
  * @param prefix - the namespace qualification for surface names ('' at top level).
  * @param overloadSigs - names in this scope declared as bodyless function overload signatures.
  * @param byName - this scope's named declarations (for namespace/sibling-merge lookups).
+ * @param ambient - whether the enclosing scope is ambient (`declare`), where members export implicitly.
  * @param w - the walk state violations append to.
  */
 function checkDecl(
@@ -219,6 +282,7 @@ function checkDecl(
   prefix: string,
   overloadSigs: Set<string>,
   byName: Map<string, ts.Statement[]>,
+  ambient: boolean,
   w: Walk,
 ): void {
   const at = (n: ts.Node): string => ` (${pointer(w.rel, w.sf, n)})`
@@ -253,9 +317,14 @@ function checkDecl(
       if (prefix === '' && PROTOCOL_EXPORTS.has(name)) continue // cordis plugin-protocol slot
       const where = `exported const '${prefix}${name}'${at(d)}`
       const init = d.initializer
-      if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
-        // A declarator type annotation (`const f: Handler = …`) hands the
-        // return contract to the named type; the arrow's own annotation is
+      if (d.type !== undefined && ts.isFunctionTypeNode(d.type)) {
+        // An INLINE function-type annotation is the surface signature itself:
+        // its parameters and result need docs right here. (A NAMED reference
+        // type carries its docs at the type's own declaration instead.)
+        checkFunctionLike(where, raw, d.type.parameters, d.type.type, false, w)
+      } else if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
+        // A named declarator type annotation (`const f: Handler = …`) hands
+        // the return contract to the named type; the arrow's own annotation is
         // still checked when it is the only signature the reader has.
         checkFunctionLike(where, raw, init.parameters, init.type, init.type === undefined && d.type !== undefined, w)
       } else {
@@ -276,8 +345,21 @@ function checkDecl(
       nsPrefix += `${body.name.getText(w.sf)}.`
       body = body.body
     }
-    if (body !== undefined && ts.isModuleBlock(body)) checkScope(body.statements, nsPrefix, w)
+    // In an ambient (`declare`) namespace body, members are implicitly
+    // exported — no `export` modifier required — so the recursion must treat
+    // every statement as surface.
+    const declared = ambient
+      || ((ts.canHaveModifiers(stmt) ? ts.getModifiers(stmt) : undefined)?.some(m => m.kind === ts.SyntaxKind.DeclareKeyword) ?? false)
+    if (body !== undefined && ts.isModuleBlock(body)) checkScope(body.statements, nsPrefix, w, declared)
+    return
   }
+  if (ts.isImportEqualsDeclaration(stmt)) {
+    return // alias re-export (`export import X = N.member`): the aliased definition owns the doc, like `export … from`
+  }
+  // Fail CLOSED: an exported statement kind this dispatch does not recognize
+  // must never pass silently — the gate's whole promise is that unchecked
+  // surface cannot exist. New TypeScript export forms extend the gate here.
+  w.violations.push(`exported statement${at(stmt)} uses an export form verify-export-jsdoc does not handle; extend the gate.`)
 }
 
 /**
@@ -287,8 +369,9 @@ function checkDecl(
  * @param statements - the scope's statements.
  * @param prefix - the namespace qualification for surface names ('' at top level).
  * @param w - the walk state violations append to.
+ * @param ambient - whether this scope is ambient (`declare` namespace or a declaration file), where members export implicitly.
  */
-function checkScope(statements: readonly ts.Statement[], prefix: string, w: Walk): void {
+function checkScope(statements: readonly ts.Statement[], prefix: string, w: Walk, ambient: boolean): void {
   const byName = new Map<string, ts.Statement[]>()
   const overloadSigs = new Set<string>()
   const add = (name: string, stmt: ts.Statement): void => {
@@ -313,7 +396,7 @@ function checkScope(statements: readonly ts.Statement[], prefix: string, w: Walk
   const check = (stmt: ts.Statement): void => {
     if (checked.has(stmt)) return
     checked.add(stmt)
-    checkDecl(stmt, prefix, overloadSigs, byName, w)
+    checkDecl(stmt, prefix, overloadSigs, byName, ambient, w)
   }
   for (const stmt of statements) {
     if (ts.isModuleDeclaration(stmt)
@@ -331,15 +414,25 @@ function checkScope(statements: readonly ts.Statement[], prefix: string, w: Walk
       }
       continue
     }
-    if (ts.isExportAssignment(stmt) && !stmt.isExportEquals) {
+    if (ts.isExportAssignment(stmt)) {
+      if (stmt.isExportEquals) {
+        // `export =` has no ESM consumer surface in this repo and the walk
+        // cannot classify its operand's shape; refuse rather than fail open.
+        w.violations.push(`export-equals assignment (${pointer(w.rel, w.sf, stmt)}) is not a gate-supported export form; use ESM named exports.`)
+        continue
+      }
+      const where = `default export (${pointer(w.rel, w.sf, stmt)})`
       if (ts.isIdentifier(stmt.expression)) {
         for (const decl of byName.get(stmt.expression.text) ?? []) check(decl)
+      } else if (ts.isArrowFunction(stmt.expression) || ts.isFunctionExpression(stmt.expression)) {
+        const fn = stmt.expression
+        checkFunctionLike(where, rawJsDoc(w.text, stmt), fn.parameters, fn.type, false, w)
       } else {
-        checkDescribed(`default export (${pointer(w.rel, w.sf, stmt)})`, rawJsDoc(w.text, stmt), w)
+        checkDescribed(where, rawJsDoc(w.text, stmt), w)
       }
       continue
     }
-    if (isExported(stmt)) check(stmt)
+    if (isExported(stmt) || (ambient && !ts.isImportDeclaration(stmt))) check(stmt)
   }
 }
 
@@ -385,7 +478,9 @@ export function collectExportJsdocViolations(scanRoot: string = root): string[] 
   for (const rel of rels) {
     const sf = program.getSourceFile(resolve(scanRoot, rel))
     if (!sf) continue // program root files always resolve; guard for narrowing
-    checkScope(sf.statements, '', { rel, sf, text: sf.text, checker, violations })
+    // A script-style declaration file (no imports/exports) is one big ambient
+    // scope; a module-style .d.ts still honors explicit export modifiers.
+    checkScope(sf.statements, '', { rel, sf, text: sf.text, checker, violations }, sf.isDeclarationFile && !ts.isExternalModule(sf))
   }
   return violations
 }
