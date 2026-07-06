@@ -11,7 +11,7 @@ A terminal chat always wants the same cluster, so the package owns it rather tha
 | Plugin | Why it is here |
 |---|---|
 | `@cordisjs/plugin-logger-console` | the console logger — stdout is just the terminal here, so logging to it is correct (the ACP app must NOT have this) |
-| `@deepseek-ai/dsh-agent-core` | the spine, pre-creating a `main` agent from this app's `model`/`systemPrompt` |
+| `@deepseek-ai/dsh-agent-core` | the spine, pre-creating a `main` agent from this app's `model` and carrying its `persona` |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log under `persistenceRoot` |
 | `stdio-chat` (in-package module) | the readline UI, bound to the `main` agent |
 
@@ -24,7 +24,7 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 | Key | Default | Routed to |
 |---|---|---|
 | `model` | (required) | the pre-created `main` agent's model |
-| `systemPrompt` | (required) | the `main` agent's system prompt |
+| `persona` | — | the deployment persona template (may reference `{{model}}`), routed to `dsh-system-prompt` |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
 | `welcome` | `ready.` | the stdin-chat banner |
 | `resumeSessionId` | — | resume a persisted session id instead of starting fresh (sourced from an env var in the leaf) |
@@ -54,7 +54,7 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
   name: '@deepseek-ai/dsh-stdio-agent'
   config:
     model: deepseek-v4-flash
-    systemPrompt: 'You are a CLI coding assistant. Your only tools are bash…'
+    persona: 'You are a coding assistant powered by the {{model}} model.'
 ```
 
 Swap `llm-deepseek` for a `mock-llm` leaf plugin and you have the echo demo — "swap the backend, keep the app".

@@ -53,11 +53,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('coding task: fix a failing test 
     const before = spawnSync('node', ['add.test.js'], { cwd: workdir })
     expect(before.status).not.toBe(0)
 
-    ctx = await codingHarness(workdir)
-    const agent = ctx.agentLoop.create(AgentId('e2e-task'), {
-      model: 'deepseek-v4-flash',
-      systemPrompt: SYSTEM_PROMPT,
-    })
+    ctx = await codingHarness(workdir, { persona: SYSTEM_PROMPT })
+    const agent = ctx.agentLoop.create(AgentId('e2e-task'), { model: 'deepseek-v4-flash' })
 
     agent.send([{
       type: 'text',

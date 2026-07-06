@@ -1,10 +1,8 @@
 # RFC: dsh-hook-protocol — the shared Claude Code / Codex hook wire-protocol core
 
-Status: implemented (accepted 2026-06-30)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 The hooks subsystem ships two bridge plugins: one that runs a user's existing Claude Code (CC) hooks, one for Codex hooks. Studying the reference implementations (`~/repos/refs/claude-code`, `~/repos/refs/codex`) surfaced a decisive fact: **Codex deliberately reimplements a SUBSET of the CC hook protocol.** Its engine reads the same `hooks.json`, uses the same matcher-group shape, the same exit-code/structured-stdout output contract, and the same command-hook execution model — Codex's source even names the engine after Claude's and comments where it "intentionally diverges." So the two bridges would otherwise duplicate the bulk of the protocol.
 
@@ -23,9 +21,9 @@ A new `packages/hooks/` group with `hook-protocol` as a pure library. It owns fo
 
 **Per-dialect (the bridge plugins):** building each event's stdin payload (CC's base+per-event field sets vs Codex's snake_case with `turn_id`/`model` extras), the dialect's env + `${CLAUDE_PLUGIN_ROOT}` substitution (CC) vs none (Codex), and mapping the neutral `HookOutput`/`MergedHookOutcome` onto the harness's seam-specific typed Decisions (`PreToolDecision`, `PromptDecision`, `ContinuationDecision`, `PostToolDecision`).
 
-### Why "shared core + per-dialect adapters", not "one parameterized engine"
+## Alternatives considered
 
-A single engine parameterized by a full `dialect` descriptor was considered and rejected. The payload construction and decision mapping are where the dialects genuinely diverge (different field names, different supported outputs, CC's env/substitution); folding those into a data-driven descriptor would make the *bridge* logic indirect — a reader of `dsh-hooks-claude` would have to chase a descriptor to see what payload it sends. Keeping the truly-identical primitives shared (matcher, codec, runner, merge, events) and letting each bridge write its own straightforward payload+mapping keeps each bridge readable standalone, at the cost of a little duplication in the payload shape. The primitives are the part where duplication would actually be dangerous (a divergent matcher or exit-code rule is a correctness bug); the payload is the part where explicitness beats sharing.
+**One parameterized engine.** A single engine parameterized by a full `dialect` descriptor was considered and rejected. The payload construction and decision mapping are where the dialects genuinely diverge (different field names, different supported outputs, CC's env/substitution); folding those into a data-driven descriptor would make the *bridge* logic indirect — a reader of `dsh-hooks-claude` would have to chase a descriptor to see what payload it sends. Keeping the truly-identical primitives shared (matcher, codec, runner, merge, events) and letting each bridge write its own straightforward payload+mapping keeps each bridge readable standalone, at the cost of a little duplication in the payload shape. The primitives are the part where duplication would actually be dangerous (a divergent matcher or exit-code rule is a correctness bug); the payload is the part where explicitness beats sharing.
 
 ## Consequences
 

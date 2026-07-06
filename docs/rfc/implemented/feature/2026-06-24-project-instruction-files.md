@@ -10,13 +10,13 @@ The neighboring agent projects make the design space clear. Codex and Kimi treat
 
 The non-obvious constraint is multi-session cwd. `dsh-system-prompt` sections are context-global, while ACP can create multiple live sessions with different `SessionHeader.cwd` values in one Cordis context. A plain global `ctx.systemPrompt.section()` would leak one workspace's instructions into another workspace's model requests. Project instruction loading must therefore be per agent/session.
 
-## Proposal
+## Decision
 
-Add a new plugin package `packages/prompt/project-instructions` (`@deepseek-ai/dsh-project-instructions`). It is a single-purpose prompt/context extension plugin, not an interface/implementation/consumer capability seam: there is no swappable backend, only filesystem discovery plus context injection. It depends on interface packages (`dsh-agent`, `dsh-llm`, `dsh-tools`, and `dsh-fs`) plus the low-level `dsh-paths` utility for the shared DSH home convention, and consumes the existing `agent/request` and `tools/post-execute` waterfalls.
+The shipped implementation adds `packages/prompt/project-instructions` (`@deepseek-ai/dsh-project-instructions`). It is a single-purpose prompt/context extension plugin, not an interface/implementation/consumer capability seam: there is no swappable backend, only filesystem discovery plus context injection. It depends on interface packages (`dsh-agent`, `dsh-llm`, `dsh-tools`, and `dsh-fs`) plus the low-level `dsh-paths` utility for the shared DSH home convention, and consumes the existing `agent/request` and `tools/post-execute` waterfalls.
 
 The plugin is loaded by `@deepseek-ai/dsh-agent-core` so both product front doors (`dsh-stdio-agent` and `dsh-acp-agent`) get instruction-file behavior by default. The bundle and both app packages expose `projectInstructions` config, so apps may set `projectInstructions: false` or `baselineMaxBytes: 0` when they need a hermetic prompt. The default product behavior matches user expectations for coding agents.
 
-This RFC ships baseline loading plus structured file-tool nested loading. The baseline path is the user-global instruction file plus the ancestor chain from project root to the session cwd. When the real `read`, `write`, or `edit` tools successfully touch a descendant path, the plugin loads newly discovered instruction files between the session cwd and the touched file. It deliberately does not add a generic `contextPaths()` hook or parse arbitrary shell commands; those would add broader path-reporting semantics than this feature needs.
+The implementation ships baseline loading plus structured file-tool nested loading. The baseline path is the user-global instruction file plus the ancestor chain from project root to the session cwd. When the real `read`, `write`, or `edit` tools successfully touch a descendant path, the plugin loads newly discovered instruction files between the session cwd and the touched file. It deliberately does not add a generic `contextPaths()` hook or parse arbitrary shell commands; those would add broader path-reporting semantics than this feature needs.
 
 ### File names and precedence
 
@@ -94,9 +94,9 @@ The budget is configurable. A budget of `0` disables baseline file injection. If
 
 ### Caching
 
-The observable contract is "consider the current applicable files before each model request." To satisfy that without excessive I/O, the plugin should re-walk the ancestor chain on each `agent/request`, so newly created instruction files on the baseline path are discovered. It may cache file content by normalized absolute path plus `stat` signature (`mtimeMs` and `size`) and re-read only when that signature changes.
+The observable contract is "consider the current applicable files before each model request." To satisfy that without excessive I/O, the plugin re-walks the ancestor chain on each `agent/request`, so newly created instruction files on the baseline path are discovered. It caches file content by normalized absolute path plus `stat` signature (`mtimeMs` and `size`) and re-reads only when that signature changes.
 
-The implementation should not cache a rendered block for the lifetime of the process unless it is keyed by session cwd and all contributing file signatures. Even then, the per-request walk is still required to discover new files. Filesystems with coarse mtime granularity can miss same-size edits made inside one tick; this is an acceptable first-cut limitation and should be documented in code comments near the cache.
+The implementation does not cache a rendered block for the lifetime of the process; the per-request walk is required to discover new files. Filesystems with coarse mtime granularity can miss same-size edits made inside one tick; this is an acceptable first-cut limitation documented in code comments near the cache.
 
 ### Source and role
 
@@ -114,19 +114,7 @@ Append baseline instructions to `GenerateOptions.system`. This would keep the fi
 
 Summarize instruction files before injection. This saves tokens but makes the instruction loader depend on a model call, introduces nondeterminism, and can erase hard-earned edge-case rules. Deterministic full-text loading with byte budgets is simpler and safer.
 
-## Plan
-
-1. Add `packages/prompt/project-instructions` with config for `dshHome`, `projectRootMarkers` (default `['.git']`), `baselineMaxBytes` (default `65536`), and `instructionFileCandidates` (default `['AGENTS.md', 'CLAUDE.md']`). Include pure discovery/rendering helpers so the filesystem rules can be tested without Cordis.
-
-2. Implement baseline `agent/request` injection in `dsh-project-instructions`. The listener computes the instruction block for `agent.session.header.cwd` or the stdio-only `process.cwd()` fallback, prepends one synthetic workspace-context message to the request messages, and returns the request through `next()`. It must never mutate shared global prompt sections or the provider system field. Implement nested `tools/post-execute` injection for successful structured file-tool touches, folding the new context onto any downstream `additionalContext`.
-
-3. Load the plugin from `@deepseek-ai/dsh-agent-core` so both app packages receive it by default, and expose `projectInstructions` config through `agent-core`, `stdio-agent`, and `acp-agent`. Update `packages/README.md` and `docs/architecture.md` as part of the implementation. No generated Cordis catalog update is expected because the implementation adds no event or service.
-
-4. Add tests: pure discovery order, default `AGENTS.md` over `CLAUDE.md`, configurable candidate order, `$DSH_HOME` defaulting to `~/.dsh`, `.git` file and directory markers, no project-root overrun, no recursive startup scan, full-text rendering, budget truncation naming omitted/truncated paths, per-request discovery of new baseline files, content cache invalidation by signature, per-agent no-leak behavior with two agents in different cwd values, dynamic nested loading through the real file tools, duplicate suppression, and HMR/dispose cleanup.
-
-5. Add request-shape coverage that proves the synthetic workspace-context message is present and lower in authority than the system field. Add a with-key e2e smoke test because the baseline change affects real model behavior but is not observable in replay snapshots. Snapshot coverage is not required for this phase unless the implementation also changes editor-visible transcript output.
-
-## Risks
+## Consequences
 
 Prompt growth is the main operational risk. Full-text loading is deliberate, but a large root `AGENTS.md` can consume context. The byte budget and explicit omitted/truncated file list make the behavior bounded and visible. The default should be generous enough for real project guidance but small enough to avoid surprising model-call cost.
 

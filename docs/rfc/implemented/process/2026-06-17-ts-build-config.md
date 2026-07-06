@@ -1,10 +1,8 @@
 # RFC: TSC-first build and one tsconfig
 
-Status: implemented (accepted 2026-06-20)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 The current TypeScript build and typecheck setup had these issues:
 
@@ -56,6 +54,11 @@ tsc -b tsconfig.json
 ```
 
 `pnpm run demo:*` still runs `src` directly through tsx and root paths, without a compile step.
+
+## Alternatives considered
+
+- **Keep `tsdown`/oxc as the TypeScript transformer** — oxc's transform is not `tsc` behavior (decorator transform differs, bundled JS differs from per-file emit), and its bundled `.d.ts` conflicts with Cordis' internal relative module augmentation shape.
+- **One root strict program over packages, vendor, examples, tests, and scripts** — vendor source triggers type errors outside this project's ownership under the root strict flags; project references with per-project strictness are the boundary that works.
 
 ## Consequences
 

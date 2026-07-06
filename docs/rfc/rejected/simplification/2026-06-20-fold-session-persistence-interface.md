@@ -25,3 +25,5 @@ The implementing PR should update the [capability seams](../../implemented/archi
 ## What we give up
 
 `dsh-session` becomes heavier: it owns both the in-memory log and the persistence interface. That is the trade. If third-party persistence backends were already a public ecosystem, the separate interface package would be a cleaner SDK boundary; pre-release, the extra package looks like abstraction before there is an external consumer.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

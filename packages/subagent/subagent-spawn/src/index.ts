@@ -39,6 +39,8 @@ export const Config: z<Config> = z.object({
  */
 class SpawnProvider implements SubagentProvider {
   readonly capabilities: SubagentCapabilities = { outputSchema: false, depthLimit: true, toolFilter: false }
+  // Context contract: a spawned child starts fresh — it never sees the parent conversation.
+  readonly inheritsParentContext = false
 
   constructor(readonly name: string, private readonly ctx: Context) {}
 

@@ -1,10 +1,8 @@
 # RFC: pnpm as the package manager instead of Yarn 4
 
-Status: implemented (accepted 2026-06-16)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 The repo shipped on **Yarn 4** with the `node-modules` linker — a deliberately conservative choice that behaves like npm's flat layout while giving us Yarn's workspaces and `yarn constraints`. It worked. But Yarn 4's Plug'n'Play heritage makes the `node-modules` linker the off-the-beaten-path mode, and the broader JS ecosystem — tooling defaults, CI actions, Corepack examples, contributor familiarity — increasingly centers on pnpm. For a repo that is built primarily by agents and read by occasional human contributors, "the package manager most tools and people expect" has real value: fewer surprises, better-trodden failure paths, more copy-pasteable answers.
 
@@ -20,7 +18,11 @@ Adopt **pnpm 11.7.0**, pinned via the `packageManager` field and installed throu
 - **Constraints become package-manager-independent.** `yarn.config.cjs` (which imported `@yarnpkg/types` and used `Yarn.workspaces()` / `workspace.set()`) is replaced by `scripts/check-workspace-constraints.ts`, a plain tsx script run as `pnpm run constraints`. It enforces the identical invariants — every package `private: true`; `@deepseek-ai/dsh-*` packages declare `cordis` as both a peer- and dev-dependency with matching ranges, `version: 0.0.1`, `type: module`; vendored packages checked for privacy only — over the same `vendor` + `packages` scope.
 - All `yarn …` verbs across CI, lefthook hooks, `package.json` scripts, and docs become `pnpm …` / `pnpm run …`. `yarn.lock` → `pnpm-lock.yaml` (lockfile v9). `.gitignore` swaps `.yarn/` for `.pnpm-store/`. Vendored READMEs (e.g. `vendor/cordis/README.md`) keep their upstream `yarn` examples untouched per the Vendoring Policy.
 
-Alternatives considered: **keep Yarn 4** (zero churn, but bets on the less-traveled linker mode and a constraints engine tied to one package manager); **npm workspaces** (ubiquitous, but no constraints story and weaker monorepo ergonomics); **pnpm with hoisted linker** (smoother migration, but throws away the phantom-dependency safety that is the main correctness reason to move).
+## Alternatives considered
+
+- **Keep Yarn 4** — zero churn, but bets on the less-traveled linker mode and a constraints engine tied to one package manager.
+- **npm workspaces** — ubiquitous, but no constraints story and weaker monorepo ergonomics.
+- **pnpm with the hoisted linker** — smoother migration, but throws away the phantom-dependency safety that is the main correctness reason to move.
 
 ## Consequences
 

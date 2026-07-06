@@ -17,9 +17,9 @@
  * The leaf supplies the swappable backends: the LLM adapter (`llm-deepseek` for
  * the real model, `llm-replay` for keyless snapshot replay), the bash executor
  * (`bash-local`), and any optional product tools it wants to expose. This app's
- * {@link Config} (model, system prompt, persistence root) routes each value to
- * where it is wired — model/prompt onto the bridge's per-session agent
- * template, the root onto the JSONL backend.
+ * {@link Config} (model, persona, persistence root) routes each value to where
+ * it is wired — model onto the bridge's per-session agent template, persona
+ * onto the shared system-prompt spine, the root onto the JSONL backend.
  *
  * Plugin export shape: named `name`/`Config`/`apply`, NO default export — the
  * cordis Loader's `unwrapExports` does `exports.default ?? exports`, so a stray
@@ -40,16 +40,17 @@ import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 export const name = 'acp-agent'
 
 /**
- * App config: the swappable per-deployment values. `model`/`systemPrompt`
- * configure the agent template the ACP bridge creates each session's agent from
- * (NOT a pre-created agent — ACP creates agents at `session/new`);
+ * App config: the swappable per-deployment values. `model` configures the
+ * agent template the ACP bridge creates each session's agent from (NOT a
+ * pre-created agent — ACP creates agents at `session/new`); `persona` is the
+ * deployment persona (forwarded to the system-prompt plugin);
  * `persistenceRoot` is the JSONL backend's directory.
  */
 export interface Config {
   /** Model name for ACP-created agents (must have a registered adapter). */
   model: string
-  /** Per-agent system prompt for ACP-created agents. */
-  systemPrompt: string
+  /** Deployment persona (the system-prompt plugin's `persona` config). */
+  persona?: string
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** Controls automatic AGENTS.md/CLAUDE.md loading; set `false` for hermetic prompts. */
@@ -58,20 +59,23 @@ export interface Config {
 
 export const Config: z<Config> = z.object({
   model: z.string().required(),
-  systemPrompt: z.string().required(),
+  persona: z.string(),
   persistenceRoot: z.string().default('./.sessions'),
   projectInstructions: z.union([z.const(false), projectInstructions.Config]),
 }) as unknown as z<Config>
 
 /**
  * Compose the spine with the ACP front door. The agent-core bundle pre-creates
- * NO agents (its `agents` list defaults to `[]`); the JSONL backend persists
- * under `persistenceRoot`; the ACP bridge owns stdout for JSON-RPC and creates
- * one agent per `session/new` from `model`/`systemPrompt`. No logger, no `hmr` —
- * stdout stays pure.
+ * NO agents (its `agents` list defaults to `[]`) and carries the deployment
+ * `persona`; the JSONL backend persists under `persistenceRoot`; the ACP
+ * bridge owns stdout for JSON-RPC and creates one agent per `session/new`
+ * from `model`. No logger, no `hmr` — stdout stays pure.
  */
 export function apply(ctx: Context, config: Config): void {
-  ctx.plugin(agentCore, config.projectInstructions === undefined ? {} : { projectInstructions: config.projectInstructions })
+  ctx.plugin(agentCore, {
+    ...config.persona !== undefined ? { persona: config.persona } : {},
+    ...config.projectInstructions !== undefined ? { projectInstructions: config.projectInstructions } : {},
+  })
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
-  ctx.plugin(acp, { model: config.model, systemPrompt: config.systemPrompt })
+  ctx.plugin(acp, { model: config.model })
 }

@@ -25,3 +25,5 @@ This proposal is narrower than [collapsing tool-owned UI presentation](2026-06-2
 ## What we give up
 
 Zed users lose the dedicated terminal card: no cwd header, terminal display, or exit pill. They still see the command and output as plain content. That is a reasonable simplification while the ACP bridge is still unreleased and the `_meta` keys are a convention rather than a standard.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

@@ -99,7 +99,7 @@ async function makeConsumer(): Promise<string> {
     '  name: \'@deepseek-ai/dsh-acp-agent\'',
     '  config:',
     '    model: deepseek-v4-flash',
-    '    systemPrompt: \'test agent\'',
+    '    persona: \'test agent\'',
     '',
   ].join('\n'))
   return dir

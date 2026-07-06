@@ -12,7 +12,9 @@ Status: implemented
 
 One vendored-plugin fact the overlay depends on, deliberately: the include applies `patches` when it loads the file — its `refresh()`/`internal/update` paths re-read without re-patching — which is exactly enough for a one-shot replay boot (the replay app loads no `hmr` and nothing rewrites the config mid-run). The snapshot suite is the proof: all scenarios pass unchanged on the overlay, byte-identical goldens included.
 
-## Why not the alternatives?
+## Alternatives considered
+
+### Why not the alternatives?
 
 Keeping the full twin with a symmetry verify-gate was the recorded fallback — it would have removed the silent-drift class but kept a 125-line near-copy whose only content was one entry's difference, growing with every plugin the app gains. A bin-side swap (parse the config, replace the entry, delete the file) would have put YAML surgery inside a published artifact and moved the replay delta out of sight; the overlay keeps the delta declarative, readable, and next to the base config — the teaching value the twin's defenders actually wanted.
 

@@ -1,6 +1,6 @@
 # RFC: Prune write-only fields and a dead routing knob from the fs seam
 
-Status: implemented (proposed and accepted 2026-07-04)
+Status: implemented
 
 ## Problem
 
@@ -15,15 +15,16 @@ The [fs seam split](2026-06-26-fsspec-style-fs-seam.md) moved read routing and p
 
 Delete the fs-local constant, its re-export, and the `streamMinSize` knob (the remaining `FsIoInternals` knobs are genuinely used by the atomic-write tests); drop `inputPath` from `FsTarget`; shrink `FsEditOutcome` to `{ version, before, after }` and pass `replaceAll` to `formatEditOutput` from the parsed args; drop `limit`/`version` from `FileReadOutcome`. The [filesystem.md](../../../core-data-structures/filesystem.md) pastes, `packages/fs/fs/README.md`, and the test fakes that had to fabricate the removed fields shrink with the types.
 
-## Why not keep them?
+## Alternatives considered
+
+### Why not keep them?
 
 A future permission/containment layer might want the pre-resolution path for error text — but it would want the *request*, which every call site still holds. "N occurrences replaced" might become model-facing text — a behavior change to design when wanted, and the backend-internal count survives for its error message. A read footer might display `limit` — everything the footer shows already derives from `lines`/`totalLines`. Meanwhile every current and future backend (remote, native) would have to fabricate wire fields nobody consumes, and every test fake would have to satisfy them.
 
-## Acceptance criteria
+## Verification
 
-- The removed surfaces are gone — `STREAM_MIN_SIZE`/`streamMinSize` in `dsh-fs-local`, `FsTarget.inputPath`, `FsEditOutcome.replacements`/`.replaceAll`, and `FileReadOutcome.limit`/`.version` — while the request-side `replaceAll` (`FsEditRequest`) and the version fields on the other outcome types are untouched; doc pastes and the manifest in sync; the suite is green with the shrunk fakes.
-- `formatEditOutput`'s emitted text is unchanged for both `replace_all` branches, so no snapshot golden churns.
+The removed surfaces are gone — `STREAM_MIN_SIZE`/`streamMinSize` in `dsh-fs-local`, `FsTarget.inputPath`, `FsEditOutcome.replacements`/`.replaceAll`, and `FileReadOutcome.limit`/`.version` — while the request-side `replaceAll` (`FsEditRequest`) and the version fields on the other outcome types are untouched; the test fakes shrank with the types. `formatEditOutput`'s emitted text is unchanged for both `replace_all` branches, so no snapshot golden churned.
 
-## Risks
+## Consequences
 
-The in-flight fs discovery work (glob/grep tools) touches the same `dsh-fs` type files — a textual, not design, conflict; land in either order and reconcile mechanically. Backends gain no new obligations; they shed four.
+Backends gain no new obligations; they shed four fields nobody consumed. The fs discovery work (glob/grep tools) touches the same `dsh-fs` type files — a textual, not design, overlap that reconciles mechanically.

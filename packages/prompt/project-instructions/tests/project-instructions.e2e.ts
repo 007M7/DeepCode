@@ -36,7 +36,7 @@ async function harness(): Promise<{ ctx: Context; agent: Agent }> {
   ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(SystemPrompt, { persona: 'Answer the user exactly and concisely.' })
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(LocalFileSystem, { cwd: '/' })
@@ -48,10 +48,7 @@ async function harness(): Promise<{ ctx: Context; agent: Agent }> {
     agentId: AgentId('project-instructions-e2e'),
     sessionId: SessionId('project-instructions-e2e-session'),
     meta: { cwd: workdir },
-    agentOptions: {
-      model: 'deepseek-v4-flash',
-      systemPrompt: 'Answer the user exactly and concisely.',
-    },
+    agentOptions: { model: 'deepseek-v4-flash' },
   })
   return { ctx, agent: handle.agent }
 }

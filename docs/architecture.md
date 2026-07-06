@@ -15,7 +15,7 @@ The default distribution is a composition, not a hierarchy. `packages/core/` is 
 | ctx key | Package | Role |
 |---|---|---|
 | `ctx.sessions` | `dsh-session` | in-memory event-sourced sessions |
-| `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections plus tool schemas |
+| `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and prompt variables |
 | `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
 | `ctx.agents` | `dsh-agent` | live agent registry, public `Agent` handle, `agent/*` vocabulary |
 | `ctx.agentLoop` | `dsh-agent-loop` | shipped `ReactLoopAgent` driver |
@@ -88,6 +88,8 @@ forever:
     checkpoint persistence and notify idle/running status
 ```
 
+Prompt assembly is single-path: `renderPrompt(assemble({ agent }))` IS the system prompt sent to the model. Plugins contribute ordered sections (static or computed from the per-call `AssembleContext`), tool schemas, and named variables interpolated as `{{name}}` at render — strictly, so an unknown or valueless reference fails the turn instead of shipping a hole. `dsh-system-prompt` itself owns the openers — the static `harness:identity` section (order −100) and the deployment's persona (order 0, from its `persona` config, shared by every agent in the context) — while the shipped loop registers the `model`/`cwd` variables; prompt-fact ownership is pinned by the [prompt-variables RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
+
 Post-tool context lands after all tool results so tool-call/result adjacency stays stable. Steering drains between steps; leftover steering after a turn is re-queued as ordinary input.
 
 ### Failure Boundaries
@@ -122,7 +124,7 @@ A swappable capability usually splits into **interface / implementation / consum
 
 Some seams bend the template deliberately. LLM keeps interface and consumer vocabulary together because adapters are the implementations. Filesystem adds policy as event gates around provider primitives. Web is one service with search and fetch provider registries, so provider swaps do not rename model tools. Subagents use a named provider registry because multiple delegation backends can coexist; `spawn` starts fresh, `fork` seeds from the parent's completed-turn prefix, and ACP can drive an out-of-process child ([subagent.md](core-data-structures/subagent.md)).
 
-Prompt/context extension plugins that shape model inputs without owning a core service live under `packages/prompt/`. `dsh-project-instructions` is the reference case: it uses per-agent `agent/request` instead of global `ctx.systemPrompt.section()` for multi-cwd isolation, reads through `ctx.fs`, and observes successful `read`/`write`/`edit` calls via `tools/post-execute` to inject nested files as durable `context/message` entries. Shared filesystem path conventions such as the default DSH home live in the low-level `dsh-paths` utility package rather than in the prompt plugin.
+Prompt/context extensions that shape model inputs without a core service live under `packages/prompt/`. `dsh-project-instructions` uses per-agent `agent/request` instead of global `ctx.systemPrompt.section()` for multi-cwd isolation, reads through `ctx.fs`, and watches file tools via `tools/post-execute` to inject nested files as durable `context/message` entries. Shared path conventions live in `dsh-paths`.
 
 ### Bundles And Apps
 

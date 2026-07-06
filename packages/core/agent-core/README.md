@@ -19,6 +19,7 @@ This is the package to read to see **the whole plugin tree at once** — the tea
 @deepseek-ai/dsh-tool-bash        the model-facing bash/bash_output/bash_kill schemas
 @deepseek-ai/dsh-project-instructions  AGENTS.md/CLAUDE.md workspace context loader
 @deepseek-ai/dsh-agent-loop       THE concrete loop (gets the forwarded `agents`)
+                                  (dsh-system-prompt gets the forwarded `persona`)
 ```
 
 ## What it deliberately leaves OUTSIDE the bundle
@@ -35,10 +36,11 @@ This is the [interface/implementation/consumer seam](../../../docs/rfc/implement
 
 ```ts
 import type { Config } from '@deepseek-ai/dsh-agent-core'
-// Config === AgentLoop.Config — the `agents` list, default [].
+// { agents?, persona? } — the schema is z.intersect([AgentLoop.Config, SystemPrompt.Config]),
+// so validation and defaulting can never drift from the owners'.
 ```
 
-The bundle FORWARDS `agent-loop`'s `agents` list as its own (default `[]`), so each app supplies its own pre-created agents — a stdio app pre-creates a `main`; the ACP app pre-creates none (it creates agents on demand at `session/new`). Forwarding the list is exactly why the loop can live in the shared spine even though the apps disagree on which agents to pre-create.
+The bundle FORWARDS each field to the child that owns it: `agents` to `agent-loop` (default `[]`), so each app supplies its own pre-created agents — a stdio app pre-creates a `main`; the ACP app pre-creates none (it creates agents on demand at `session/new`) — and `persona` to `dsh-system-prompt` (default `''`), the deployment's persona section. Forwarding is exactly why the owners can live in the shared spine even though the apps disagree on what to configure.
 
 ## Why a code bundle, not a shared YAML include
 

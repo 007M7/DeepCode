@@ -66,11 +66,27 @@ describe('dsh-agent-core bundle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('forwards a pre-created agent to the loop', async () => {
+  it('forwards a pre-created agent to the loop and the persona to system-prompt', async () => {
     const ctx = await mount({
-      agents: [{ id: AgentId('main'), model: 'mock', systemPrompt: 'hi' }],
+      agents: [{ id: AgentId('main'), model: 'mock' }],
+      persona: 'You are main.',
     })
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
+    const assembly = await ctx.get('systemPrompt')!.assemble()
+    expect(assembly.sections.find(s => s.name === 'deployment:persona')?.text).toBe('You are main.')
+    await ctx.fiber.dispose()
+  })
+
+  it('tolerates a schema-bypassing direct apply (the ?? fallbacks fire)', async () => {
+    // ctx.plugin validates + defaults the bundle config first; a direct apply
+    // skips the schema, so the forwarding `?? []` / `?? ''` are what fire.
+    const ctx = new Context()
+    agentCore.apply(ctx, {})
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(ctx.get('agentLoop')).toBeDefined()
+    expect(ctx.get('agents')?.list()).toHaveLength(0)
+    const assembly = await ctx.get('systemPrompt')!.assemble()
+    expect(assembly.sections.find(s => s.name === 'deployment:persona')?.text).toBe('')
     await ctx.fiber.dispose()
   })
 
@@ -96,7 +112,8 @@ describe('dsh-agent-core bundle', () => {
 
       expect(adapter.requests[0]?.messages[0]?.role).toBe('user')
       expect(firstText(adapter.requests[0]?.messages[0])).toContain('bundled project rule')
-      expect(adapter.requests[0]?.system).toBeUndefined()
+      expect(adapter.requests[0]?.system).toContain('You are an AI agent powered by the DeepSeek Harness SDK.')
+      expect(adapter.requests[0]?.system).not.toContain('bundled project rule')
       await handle.dispose()
       await ctx.fiber.dispose()
     } finally {

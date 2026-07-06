@@ -1,10 +1,8 @@
 # RFC: Dev-mode invariants over compile-time deep-readonly
 
-Status: implemented (accepted 2026-06-13)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 The session log is append-only by contract, but the types don't enforce it: `session.events` returns `readonly SessionEvent[]` whose *elements* are mutable, and `deriveMessages()` handed the logged `content` arrays/blocks out by reference. The loop then passes those derived messages into the `agent/request` waterfall and on to adapters, where mutating the request is sanctioned — so a request middleware could reach back and rewrite history, silently breaking replay equivalence and the derived-history guarantee. Separately, the event taxonomy (turn/step nesting, seq monotonicity, tool-call/result pairing, legal status transitions) was asserted only where individual tests happened to look.
 
@@ -19,7 +17,9 @@ Reject the pervasive `DeepReadonly<T>` type flip. Instead:
 
 The invariants encode the *real* contract, not an idealized one: a `tool/call` may have no `tool/result` (a thrown tool-execution pipeline step ends the turn), and both `idle→disposed` and `running→disposed` are legal.
 
-`DeepReadonly` was rejected because it is compile-time only (a plugin casts straight through it), high type-noise across every log/message consumer and adapter, and would force readonly types through code where mutation is the sanctioned API. The clone draws the mutable/immutable boundary exactly at "logged vs in-flight" without any of that noise.
+## Alternatives considered
+
+**The pervasive `DeepReadonly<T>` type flip** ([the rejected proposal](../../rejected/architecture/2026-06-11-immutable-public-surfaces.md)) — compile-time only (a plugin casts straight through it), high type-noise across every log/message consumer and adapter, and it would force readonly types through code where mutation is the sanctioned API. The clone draws the mutable/immutable boundary exactly at "logged vs in-flight" without any of that noise.
 
 ## Consequences
 
