@@ -16,6 +16,8 @@ export * from './never.ts'
 export * from './error.ts'
 export * from './types.ts'
 export { BlockAssembler } from './assembler.ts'
+export { callConfigEquals, deepFreeze } from './call-config.ts'
+export type { LlmCallConfig } from './call-config.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -24,10 +26,14 @@ declare module 'cordis' {
 
   interface Events {
     /**
-     * Waterfall around every streaming model call (retry, caching, routing).
+     * Waterfall around every streaming model call (retry, replay, routing).
      * Bound to the {@link LlmService}; call `next()` to reach the resolved
      * adapter's stream, or yield your own chunks to short-circuit.
-     * @param options - the full request; listeners may rewrite it before delegating.
+     * @param options - the full request. A LOOP-built request arrives
+     *   deep-frozen (mutation throws): its content is a pure function of the
+     *   session log (the reconstructability RFC), so listeners read it, never
+     *   rewrite it. A hand-built one-shot (compaction summarize) is the
+     *   caller's own object and stays mutable here.
      * @mode waterfall
      */
     'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>

@@ -334,3 +334,26 @@ describe('surface type guards', () => {
     expect(isSurfaceEvent(markerless)).toBe(false)
   })
 })
+
+describe('SurfaceManager.replaceGeneration', () => {
+  it('folds the pending log delta on access and counts replaces and invalidations', () => {
+    const s = new Session(SessionId('gen'))
+    s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    s.append('user/message', { content: [{ type: 'text', text: 'one' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    s.append('user/message', { content: [{ type: 'text', text: 'two' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    // Read the generation FIRST — before nodes — so the getter itself folds
+    // the pending delta rather than piggybacking on a nodes read.
+    expect(s.surface.replaceGeneration).toBe(0)
+
+    const nodes = s.surface.nodes
+    s.append('context/message', {
+      content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact' },
+    }, { surfaceOp: { op: 'replace', start: nodes[0]!.seq, end: nodes[1]!.seq }, sourceEventSeqs: [nodes[0]!.seq, nodes[1]!.seq] })
+    expect(s.surface.replaceGeneration).toBe(1)
+
+    // invalidate() is a rewrite too: the generation moves forward (and the
+    // refold re-counts the replace), never backwards.
+    s.surface.invalidate()
+    expect(s.surface.replaceGeneration).toBeGreaterThan(1)
+  })
+})
