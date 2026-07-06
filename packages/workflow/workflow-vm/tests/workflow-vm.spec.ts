@@ -97,7 +97,10 @@ async function setup(options?: SetupOptions) {
     options?.disposeDelayMs ?? 0,
   )
   ctx.subagents.registerProvider(provider)
-  await ctx.plugin(VmWorkflowEngine, { provider: 'stub', ...options?.config })
+  // A fixed concurrency ceiling: the auto-resolved default is machine-derived
+  // (cores - 2, floored at 1), so tests that expect N children in flight
+  // would wedge on small CI runners. Tests about the ceiling override it.
+  await ctx.plugin(VmWorkflowEngine, { provider: 'stub', maxConcurrentAgents: 8, ...options?.config })
   return { ctx, provider, parent: fakeParent() }
 }
 
