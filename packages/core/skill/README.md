@@ -35,9 +35,9 @@ Default roots are resolved in this conflict priority order:
 | Extra | `Config.extraRoots` |
 | System | `~/.dsh/skills/.system` |
 
-The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. The user DSH root skips `.system` during normal user scanning so system skills are read exactly once. Same-name skills keep the highest-priority copy, then model-visible summaries are sorted by skill name for stable prompts and provider prefix-cache friendliness.
+The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. When `ctx.fs` is available, that ancestor lookup probes `.git` through the filesystem service rather than the host filesystem so remote or sandboxed workspaces keep their own project boundary. The user DSH root skips `.system` during normal user scanning so system skills are read exactly once. Same-name skills keep the highest-priority copy, then model-visible summaries are sorted by skill name for stable prompts and provider prefix-cache friendliness.
 
-When `ctx.fs` is available, discovery lists roots through `ctx.fs.listDir`, reads skill files through `ctx.fs.readText`, and installs system skills through `ctx.fs.writeText`. Without a filesystem service, the package falls back to Node filesystem I/O so the service can still run in minimal test contexts. Missing, unreadable, or malformed skill files warn and skip instead of failing the whole request.
+When `ctx.fs` is available, discovery lists roots through `ctx.fs.listDir`, reads skill files through `ctx.fs.readText`, and installs system skills through `ctx.fs.writeText`. Without a filesystem service, the package falls back to Node filesystem I/O for project-root lookup, discovery, reads, and installation so the service can still run in minimal test contexts. Missing, unreadable, or malformed skill files warn and skip instead of failing the whole request.
 
 Discovery is memoized per resolved root set and runtime-skill revision. Runtime `register()` and active disposer calls invalidate the cache; duplicate runtime registrations do not alter the active set. Disk-only changes are picked up on the next invalidation or process restart.
 

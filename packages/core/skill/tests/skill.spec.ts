@@ -25,6 +25,7 @@ class TestFileSystem extends FileSystem {
   listDirCalls = 0
   failResolvePaths = new Set<string>()
   failStatPaths = new Set<string>()
+  statOverrides = new Map<string, FsInfo | undefined>()
 
   override async resolve(path: string): Promise<FsTarget> {
     if (this.failResolvePaths.has(path)) throw new Error('resolve failed')
@@ -33,6 +34,7 @@ class TestFileSystem extends FileSystem {
 
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
     if (this.failStatPaths.has(target.displayPath)) throw new Error('stat failed')
+    if (this.statOverrides.has(target.displayPath)) return this.statOverrides.get(target.displayPath)
     try {
       const fs = await import('node:fs/promises')
       const info = await fs.stat(target.displayPath)
@@ -456,6 +458,30 @@ describe('SkillService', () => {
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['text-skill'])
     expect(fs.listDirCalls).toBeGreaterThan(0)
     expect(await ctx.skills.get('binary-skill')).toBeUndefined()
+  })
+
+  it('uses the filesystem service when locating a workspace project root', async () => {
+    const home = await tempDir('skill-project-root-fs')
+    const project = await tempDir('skill-project-root-backend')
+    const nestedCwd = join(project, 'packages/app')
+    await mkdir(nestedCwd, { recursive: true })
+    await writeSkill(join(project, '.agents/skills'), 'backend-root', 'Backend root skill')
+
+    const ctx = new Context()
+    await ctx.plugin(TestFileSystem)
+    const fs = ctx.fs as TestFileSystem
+    fs.failResolvePaths.add(join(nestedCwd, '.git'))
+    fs.failStatPaths.add(join(project, 'packages/.git'))
+    fs.statOverrides.set(join(project, '.git'), {
+      version: FsVersion('virtual-git'),
+      type: 'directory',
+      size: 0,
+    })
+    await ctx.plugin(SkillService, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false })
+
+    expect((await ctx.skills.list({ cwd: nestedCwd })).map(skill => [skill.name, skill.source])).toEqual([
+      ['backend-root', 'project-agents'],
+    ])
   })
 
   it('degrades when bundled system skill installation fails', async () => {

@@ -296,7 +296,7 @@ export class SkillService extends Service {
   private async roots(cwd: string | undefined): Promise<{ project: SkillRoot[]; shared: SkillRoot[] }> {
     const project: SkillRoot[] = []
     if (cwd !== undefined) {
-      const projectRoot = await findProjectRoot(resolve(cwd))
+      const projectRoot = await findProjectRoot(resolve(cwd), optionalFileSystem(this.ctx))
       project.push(
         { path: join(projectRoot, '.dsh/skills'), source: 'project-dsh' },
         { path: join(projectRoot, '.agents/skills'), source: 'project-agents' },
@@ -549,18 +549,48 @@ function findClosingFrontmatter(raw: string, start: number): { start: number; bo
   }
 }
 
-async function findProjectRoot(cwd: string): Promise<string> {
+async function findProjectRoot(cwd: string, fs: FileSystem | undefined): Promise<string> {
   let current = cwd
   while (true) {
-    try {
-      await access(join(current, '.git'))
+    if (await pathExists(join(current, '.git'), fs)) {
       return current
-    } catch {
-      // Continue walking upward until a git root is found.
     }
     const parent = dirname(current)
     if (parent === current) return cwd
     current = parent
+  }
+}
+
+async function pathExists(path: string, fs: FileSystem | undefined): Promise<boolean> {
+  if (fs !== undefined) {
+    return await pathExistsInFileSystem(path, fs)
+  }
+  return await pathExistsInNode(path)
+}
+
+async function pathExistsInFileSystem(path: string, fs: FileSystem): Promise<boolean> {
+  let target
+  try {
+    target = await fs.resolve(path)
+  } catch {
+    // A backend may reject or hide this candidate; continue walking upward.
+    return false
+  }
+  try {
+    return await fs.stat(target) !== undefined
+  } catch {
+    // Transient stat failures make only this git-root candidate unusable.
+    return false
+  }
+}
+
+async function pathExistsInNode(path: string): Promise<boolean> {
+  try {
+    await access(path)
+    return true
+  } catch {
+    // Missing host paths are expected while walking toward the filesystem root.
+    return false
   }
 }
 

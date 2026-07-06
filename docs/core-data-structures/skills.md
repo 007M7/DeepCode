@@ -63,7 +63,7 @@ type SkillRegistration = Omit<SkillDefinition, 'disableModelInvocation'> & {
 
 ## Lookup and configuration
 
-Skill lookup is cwd-sensitive because project skill roots are relative to the current workspace. If no git root is found, the supplied cwd itself is the project root.
+Skill lookup is cwd-sensitive because project skill roots are relative to the current workspace. If no git root is found, the supplied cwd itself is the project root. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary.
 
 ```ts type-equiv
 interface SkillLookupOptions {
