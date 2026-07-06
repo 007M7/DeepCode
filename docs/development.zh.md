@@ -84,9 +84,11 @@ GitHub 工作流在每个 pull request 上运行这些门禁：
 
 `pnpm run hygiene` 是 `pnpm run knip && pnpm run publint && pnpm run constraints && pnpm run verify-node-next-types` 的本地简写；CI 还会把 `pnpm run constraints` 作为更早的快速失败步骤单独跑一次，然后在 `pnpm run build` 之后跑完整的 hygiene 脚本。
 
+开发过程中，优先运行刚才那次改动可能打红的最窄门禁：针对受影响 package/spec 的过滤测试；类型或 API 变动后跑 `pnpm run typecheck`；代码改动后跑 `pnpm run lint`；只在触及文档或生成面时跑对应的 doc/generator 检查。改动完成、准备把 PR 标为 ready 前，再按 `AGENTS.md` 中的完整 CI 门禁跑一遍；只有后续改动可能让结果失效时才重复全量。
+
 ## 日常命令
 
-在仓库根目录使用：
+在仓库根目录使用；下面是命令参考，不是每次编辑后都要重新跑一遍的 checklist：
 
 ```sh
 pnpm run test           # unit tests
