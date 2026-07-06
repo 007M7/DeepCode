@@ -6,7 +6,7 @@
 
 ## 前置条件
 
-- Node.js 24 或更新版本。仓库声明 `node >=24`；CI 在 Node 24 和 26 上跑矩阵。
+- Node.js 22.18 或更新版本。仓库声明 `node >=22.18`；CI 在 Node 22.18、24 和 26 上跑矩阵。
 - 启用了 Corepack 的 pnpm。仓库在 `package.json` 中钉住 `pnpm@11.7.0`；如果 `pnpm --version` 无法通过 Corepack 解析，先运行 `corepack enable`。
 - Git。
 - 可选：一个 DeepSeek API key，用于 REPL/ACP agent（智能体）演示和真实 API 的 e2e 测试。
@@ -63,7 +63,7 @@ lefthook 在 `lefthook.yml` 中配置，作为评审前的本地早期检查点�
 
 vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `vendor/README.md` manifest 更新一起暂存。编辑 vendor 代码前先看 `vendor/README.md`。
 
-这些钩子并不与 CI 完全一致。特别是：`pre-push` 跑不带覆盖率的单元测试，而 CI 跑 `pnpm run test:coverage`；CI 还会跑 echo-agent 和 built-bin 冒烟测试，并在 Node 24 和 26 上跑矩阵。
+这些钩子并不与 CI 完全一致。特别是：`pre-push` 跑不带覆盖率的单元测试，而 CI 跑 `pnpm run test:coverage`；CI 还会跑 echo-agent 和 built-bin 冒烟测试，并在 Node 22.18、24 和 26 上跑矩阵。
 
 ## CI 门禁
 
