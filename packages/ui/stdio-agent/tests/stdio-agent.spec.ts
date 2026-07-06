@@ -11,8 +11,9 @@ import * as stdioAgent from '../src/index.ts'
  * Unit coverage for the @deepseek-ai/dsh-stdio-agent app plugin: mounting it
  * composes the console logger, the agent-core spine (pre-creating the `main`
  * agent from the app config), the JSONL backend, and the readline UI in one
- * `ctx.plugin`. The forwarded `model`/`systemPrompt` reach the pre-created
- * agent; `persistenceRoot`/`welcome`/`resumeSessionId` route to their backends.
+ * `ctx.plugin`. The forwarded `model` reaches the pre-created agent and
+ * `persona` the system-prompt plugin; `persistenceRoot`/`welcome`/
+ * `resumeSessionId` route to their backends.
  *
  * `hmr` is NOT part of this plugin (it is a leaf entry — a Loader-only dev
  * plugin the in-process tier cannot import); the keyless echo smoke in
@@ -60,7 +61,7 @@ async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
 
 describe('dsh-stdio-agent app', () => {
   it('composes the spine + front-door cluster and pre-creates the main agent', async () => {
-    const ctx = await mount({ model: 'mock', systemPrompt: 'hi', persistenceRoot: '/tmp/dsh-stdio-agent-spec', skills: await isolatedSkillsConfig() })
+    const ctx = await mount({ model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-stdio-agent-spec', skills: await isolatedSkillsConfig() })
     // The spine services (brought up by the agent-core bundle) are all present.
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
@@ -78,7 +79,8 @@ describe('dsh-stdio-agent app', () => {
     // apply()'s last two lines are the ones that fire — covering a
     // schema-bypassing direct-mount caller.
     const ctx = new Context()
-    stdioAgent.apply(ctx, { model: 'mock', systemPrompt: 'hi', skills: await isolatedSkillsConfig() })
+    // No persona: covers the omitted-persona forwarding branch too.
+    stdioAgent.apply(ctx, { model: 'mock', skills: await isolatedSkillsConfig() })
     await new Promise(resolve => setTimeout(resolve, 80))
     expect(ctx.get('sessionPersistence')).toBeDefined()
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
@@ -88,7 +90,7 @@ describe('dsh-stdio-agent app', () => {
   it('uses default skill config when apply is called directly without skills', async () => {
     await withIsolatedSkillHomes(async () => {
       const ctx = new Context()
-      stdioAgent.apply(ctx, { model: 'mock', systemPrompt: 'hi' })
+      stdioAgent.apply(ctx, { model: 'mock' })
       await new Promise(resolve => setTimeout(resolve, 80))
       expect(ctx.skills).toBeDefined()
       expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(expect.arrayContaining([
@@ -105,7 +107,7 @@ describe('dsh-stdio-agent app', () => {
     // the branch that maps resumeSessionId through is what this covers.
     const ctx = await mount({
       model: 'mock',
-      systemPrompt: 'hi',
+      persona: 'hi',
       persistenceRoot: '/tmp/dsh-stdio-agent-spec-resume',
       resumeSessionId: 'no-such-session',
       skills: await isolatedSkillsConfig(),
@@ -115,7 +117,7 @@ describe('dsh-stdio-agent app', () => {
   })
 
   it('forwards skill config into agent-core', async () => {
-    const ctx = await mount({ model: 'mock', systemPrompt: 'hi', skills: await isolatedSkillsConfig() })
+    const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig() })
     expect(await ctx.skills.list()).toEqual([])
     await ctx.fiber.dispose()
   })

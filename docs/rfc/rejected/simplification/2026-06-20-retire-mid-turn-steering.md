@@ -31,3 +31,5 @@ A user cannot add same-turn steering content while a model is between tool steps
 ## Related
 
 This pairs naturally with [dropping durable step boundaries](2026-06-20-drop-durable-step-boundaries.md), because removing same-turn steering and `agent/turn-continuation` leaves tool calls as the only reason a turn contains multiple model steps.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

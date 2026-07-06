@@ -90,6 +90,8 @@ type ResolvedConfig = Required<Omit<Config, 'cwd'>> & Pick<Config, 'cwd'>
  */
 class AcpProvider implements SubagentProvider {
   readonly capabilities: SubagentCapabilities = { outputSchema: false, depthLimit: false, toolFilter: false }
+  // Context contract: an out-of-process ACP child starts fresh — no parent conversation crosses the process boundary.
+  readonly inheritsParentContext = false
 
   constructor(readonly name: string, private readonly ctx: Context, private readonly config: ResolvedConfig) {}
 

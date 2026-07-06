@@ -18,7 +18,7 @@ The process decision behind this index is recorded in [the documentation graph R
 | [event producer/consumer matrix](event-producer-consumer.md) | `hybrid generated` |
 | [agent turn and step lifecycle](agent-lifecycle.md) | `curated` |
 | [tool execution pipeline](tool-execution-pipeline.md) | `curated` |
-| [ACP snapshot replay](acp/snapshot-replay.md) | `curated` |
+| [ACP snapshot replay](../packages/ui/acp/snapshot-replay.md) | `curated` |
 
 Regenerate with `pnpm run gen-doc-graphs`; verify freshness with `pnpm run verify-doc-graphs`.
 

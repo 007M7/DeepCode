@@ -45,10 +45,9 @@
 import type { Context } from 'cordis'
 import Timer from '@cordisjs/plugin-timer'
 import z from 'schemastery'
-import type Schema from 'schemastery'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt, { type Config as SystemPromptConfig } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import SkillService, { type Config as SkillConfig } from '@deepseek-ai/dsh-skill'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -60,47 +59,58 @@ import AgentLoop, { type Config as AgentLoopConfig } from '@deepseek-ai/dsh-agen
 export const name = 'agent-core'
 
 /**
- * Bundle config: the agent-loop `agents` list plus skill discovery config.
- * Default `agents: []` means an app that pre-creates no agents (the ACP bridge
- * creates them on demand at `session/new`) can omit it; an app that needs a
- * pre-created `main` (the stdio chat) supplies one. `skills` is forwarded to
- * {@link @deepseek-ai/dsh-skill}, so leaf cordis.yml files can change DSH/user
- * skill roots and caps without code changes.
+ * Bundle config: each field forwarded verbatim to the child that owns it —
+ * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
+ * bridge, simply omits it), `persona` to the system-prompt plugin (the
+ * deployment's persona section), and `skills` to the skill service. All three
+ * are optional INPUT here because each owner's schema supplies the default
+ * (`[]` / `''` / the DSH skill roots); the schema is the INTERSECTION of the
+ * owners' own schemas, so validation and defaulting can never drift from them.
  */
-export interface Config extends AgentLoopConfig {
+export interface Config {
+  /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
+  agents?: AgentLoopConfig['agents']
+  /** The deployment persona (see dsh-system-prompt's `Config`). */
+  persona?: SystemPromptConfig['persona']
   /** Skill discovery roots, system-skill installation, and prompt/cache bounds. */
   skills?: SkillConfig
 }
 
 /** The skill config schema exported for app packages that forward `skills`. */
-export const SkillConfigSchema: Schema<SkillConfig> = SkillService.Config
+export const SkillConfigSchema = SkillService.Config
 
-/** Bundle schema: reuse agent-loop's agent shape and add skill config. */
-export const Config: Schema<Config> = z.intersect([
+/** Intersect the owners' schemas so validation + defaulting stay identical. */
+export const Config = z.intersect([
   AgentLoop.Config,
+  SystemPrompt.Config,
   z.object({ skills: SkillConfigSchema }),
-])
+]) as unknown as z<Config>
 
 /**
  * Load the spine. Each `ctx.plugin(...)` mounts one child of the bundle fiber;
- * `agent-loop` receives the forwarded `agents` list. Load order is irrelevant
- * (cordis pends each fiber on its `inject` until the services it needs exist),
- * but the listing mirrors the dependency layering for readability: the LLM
- * vocabulary and core registries first, then the dev tripwire and the bash tool
- * consumer, then the loop that drives them.
+ * `agent-loop` receives the forwarded `agents` list and `system-prompt` the
+ * forwarded `persona`. Load order is irrelevant (cordis pends each fiber on
+ * its `inject` until the services it needs exist), but the listing mirrors the
+ * dependency layering for readability: the LLM vocabulary and core registries
+ * first, then the dev tripwire and the bash tool consumer, then the loop that
+ * drives them.
  */
 export function apply(ctx: Context, config: Config): void {
   ctx.plugin(Timer)
   ctx.plugin(LlmService)
   ctx.plugin(SessionStore)
-  ctx.plugin(SystemPrompt)
+  // The forwarded fields are validated + defaulted by this bundle's intersected
+  // schema before apply runs, so the ?? fallbacks only narrow the
+  // optional-input TYPES — they mirror the owners' schema defaults, never
+  // introduce different ones.
+  ctx.plugin(SystemPrompt, { persona: config.persona ?? '' })
   ctx.plugin(ToolRegistry)
   ctx.plugin(SkillService, config.skills ?? {})
   ctx.plugin(AgentRegistry)
   ctx.plugin(invariants)
   ctx.plugin(toolBash)
   ctx.plugin(toolSkill)
-  ctx.plugin(AgentLoop, { agents: config.agents })
+  ctx.plugin(AgentLoop, { agents: config.agents ?? [] })
 }
 
 export type { SkillConfig }

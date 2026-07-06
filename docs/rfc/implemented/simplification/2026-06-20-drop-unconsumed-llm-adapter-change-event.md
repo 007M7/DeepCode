@@ -1,6 +1,6 @@
 # RFC: Drop the unconsumed `llm/adapter-change` event
 
-Status: implemented (proposed and accepted 2026-06-20)
+Status: implemented
 
 ## Problem
 
@@ -10,32 +10,23 @@ This differs from `tools/change` and `system-prompt/change`. Those two events ar
 
 The event is not free. `registerAdapter()` yields its rollback disposer before emitting `llm/adapter-change` so a throwing listener unwinds the mutation instead of leaking an adapter entry, and the package carries tests for that listener-throw path. That defensive ordering protects a failure mode only tests can trigger.
 
-## Proposal
+## Decision
 
-Remove only `llm/adapter-change`:
+Only `llm/adapter-change` is removed: the declaration in `dsh-llm`'s `interface Events`, the `ctx.emit('llm/adapter-change')` calls, and the "Emits `llm/adapter-change` on registration and disposal" sentence in `LlmService.registerAdapter`'s JSDoc. `registerAdapter()`'s effect generator keeps the mutation and rollback disposer for HMR/disposal but sheds the listener-throw rollback ordering that existed only for the removed event. The adapter-disposer test asserts the returned disposer removes the adapter without subscribing to the event; the listener-throw rollback test is gone with its subject. The event taxonomy in [docs/architecture.md](../../../architecture.md) and [packages/llm/llm/README.md](../../../../packages/llm/llm/README.md) is updated in the same change.
 
-- Delete the `llm/adapter-change` declaration from `dsh-llm`'s `interface Events`.
-- Delete the `ctx.emit('llm/adapter-change')` calls.
-- Simplify `registerAdapter()`'s effect generator: keep the mutation and rollback disposer for HMR/disposal, but drop the listener-throw rollback ordering that exists only for the removed event.
-- Remove the "Emits `llm/adapter-change` on registration and disposal" sentence from `LlmService.registerAdapter`'s JSDoc.
-- Rewrite the adapter-disposer test to assert the returned disposer removes the adapter without subscribing to `llm/adapter-change`; delete the listener-throw rollback test that exists solely for the removed event.
-- Update the event taxonomy table in [docs/architecture.md](../../../architecture.md) and [packages/llm/llm/README.md](../../../../packages/llm/llm/README.md). The [doc-sync-enforcement RFC](../../implemented/process/2026-06-11-doc-sync-enforcement.md) should avoid using `llm/adapter-change` as an example once the event is gone.
+## Alternatives considered
 
-## Why not remove every registry change event?
+### Why not remove every registry change event?
 
 A microkernel where registries announce mutations is a coherent convention. `tools/change` and `system-prompt/change` may become useful when a UI can live-refresh available tools or prompt sections. This RFC leaves that convention intact where it has a plausible user-facing consumer and cuts only the adapter-change event whose current and likely future consumer is unclear.
 
 If an LLM adapter browser or dynamic model-picker needs this signal later, reintroduce it with that consumer and a clearer payload than "something changed."
 
-## Acceptance criteria
+## Verification
 
-- `llm/adapter-change` and its emits are gone; `pnpm run verify-cordis-catalog` passes against the regenerated catalog.
-- HMR-safety tests still pass: disposing a contributing fiber still removes the adapter.
-- `tools/change` and `system-prompt/change` remain documented and tested.
-- `pnpm run test:coverage` stays 100% per-file.
-- No production code path changes observable behavior (verified by unchanged ACP snapshot goldens and the echo-agent smoke test).
+`llm/adapter-change` and its emits are gone and the regenerated cordis catalog is fresh; HMR-safety holds (disposing a contributing fiber removes the adapter); `tools/change` and `system-prompt/change` remain documented and tested; and no production path changed observable behavior — the ACP snapshot goldens and the echo-agent smoke are byte-unchanged.
 
-## Risks
+## Consequences
 
 - **Removing a documented emit event is a public-surface change.** It is in the taxonomy table, so it reads as deliberate API. But "declared and emitted" is not "consumed" — the same distinction that justified dropping the mutable summary. The taxonomy table is updated in the same change, so the docs do not drift.
 - **The registry-change convention becomes uneven.** That is acceptable because LLM adapter registration is not the same user-facing concept as tools or prompt sections. Uneven but honest beats uniform but dead.

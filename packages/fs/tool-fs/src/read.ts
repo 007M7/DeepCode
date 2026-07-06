@@ -72,7 +72,7 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
   ctx.systemPrompt.section({
     name: 'tool:read',
     order: 100,
-    text: 'Use the read tool to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.',
+    text: 'Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.',
   })
 
   ctx.tools.register(defineTool({

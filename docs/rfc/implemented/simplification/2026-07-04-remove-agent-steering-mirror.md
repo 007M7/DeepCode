@@ -1,6 +1,6 @@
 # RFC: Remove the `agent/steering` mirror emit
 
-Status: implemented (accepted 2026-07-04)
+Status: implemented
 
 ## Problem
 
@@ -16,15 +16,16 @@ Steering carries real production traffic — the hook bridges' turn-continuation
 
 Three implemented RFCs stated the retention, and each is amended per [implemented/AGENTS.md](../AGENTS.md) to point here as the record of the removal: the [boundary RFC](2026-06-20-remove-agent-boundary-mirror-events.md)'s retained-list entry, the [stream-chunk RFC](2026-07-02-remove-stream-chunk-mirror.md)'s scope clause, and the [event-domain-semantics RFC](../architecture/2026-06-30-event-domain-semantics.md)'s transient-emit enumeration.
 
-## Why not keep it?
+## Alternatives considered
+
+### Why not keep it?
 
 "It is a control signal, not a boundary" — but the taxonomy's operative distinction is mirrored-vs-live-only, not control-vs-boundary, and this event mirrored. A consumer that wants enqueue-time notification has `agent/queued` (with its steering flag); a consumer that wants drain-time notification is by definition asking for the moment `steering/message` is appended, which `session/event` delivers with the same payload plus durability. The rejected [retire-mid-turn-steering RFC](../../rejected/simplification/2026-06-20-retire-mid-turn-steering.md) defended the steering *capability* — `steer()`, the durable event, continuation forcing — all of which this removal keeps untouched.
 
-## Acceptance criteria
+## Verification
 
-- The `agent/steering` spelling survives only in RFC prose (this RFC, the three amended RFCs above, and the frozen [rejected steering-capability RFC](../../rejected/simplification/2026-06-20-retire-mid-turn-steering.md), whose text records the proposal it declined); the catalog is regenerated and fresh.
-- The retargeted test pins source preservation on `steering/message`; the suite is green.
+The `agent/steering` spelling survives only in RFC prose (this RFC, the three amended RFCs above, and the frozen [rejected steering-capability RFC](../../rejected/simplification/2026-06-20-retire-mid-turn-steering.md), whose text records the proposal it declined); the catalog is regenerated; the retargeted test pins source preservation on `steering/message`.
 
-## Risks
+## Consequences
 
-None known: zero production listeners existed to migrate, and both live-notification needs (enqueue, drain) have surviving homes (`agent/queued`, `session/event`).
+Zero production listeners existed to migrate, and both live-notification needs keep surviving homes: enqueue-time on `agent/queued` (with its `steering` flag), drain-time on `session/event` as the durable `steering/message` lands.

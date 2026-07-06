@@ -18,13 +18,14 @@ import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
  *
  * `fsCwd` is the local backend's default base; a per-session cwd (set via a
  * session header) overrides it, but this harness creates agents without a
- * session cwd, so the provider default IS the workspace.
+ * session cwd, so the provider default IS the workspace. `persona` is the
+ * deployment persona (the system-prompt plugin's per-context config).
  */
-export async function fsHarness(fsCwd: string): Promise<Context> {
+export async function fsHarness(fsCwd: string, persona = ''): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(SystemPrompt, { persona })
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })

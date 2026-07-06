@@ -31,6 +31,8 @@ This keys by WHO calls, not by global call order — so it stays correct even if
 
 The ordering key is the session header `createdAt`. In the current synchronous cut this is sound because sibling children are created **strictly sequentially** — the subagent tool awaits one child's result and disposes it before the parent's next tool call starts the next child — so their `createdAt` values are strictly ordered and match first-call order exactly. A same-millisecond sibling tie is therefore unreachable; the `recordedId` tiebreak only keeps such a degenerate collision deterministic, it does not recover first-call order. A future cut that runs siblings concurrently/backgrounded WOULD be able to create two children in the same millisecond, and must then thread a real first-call ordinal (the order live sessions first stream) rather than leaning on `createdAt` — flagged with `XXX(concurrent-subagents)` at the sort site.
 
+## Alternatives considered
+
 The alternative considered and rejected was a **call-ordered merge of the parent and child logs** into one global script (sound only because in-process subagent execution is strictly nested — the parent blocks on the child). It is simpler for today's synchronous cut but bakes in the parent-blocks-on-child invariant that a future backgrounded/concurrent subagent would break; per-session keying does not.
 
 ### 3. The harness harvests every log, primary-first

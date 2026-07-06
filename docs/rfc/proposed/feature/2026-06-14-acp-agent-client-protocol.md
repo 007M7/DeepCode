@@ -2,7 +2,6 @@
 
 Status: proposed
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
 > **Implementation status (MVP landed):** steps 1, 2, 3, 4, 6, 7, 8 are implemented in `packages/ui/acp` + `examples/acp-agent`. **Step 5 (the `session/request_permission` permission gate) is deferred** — the bridge ships a pass-through (tools run with the executor's full authority) marked `TODO(rfc010-permission-gate)`, and lays down only the `WeakMap<Agent, sessionId>` ownership seam the gate will build on. Status stays `proposed` until the gate lands. `session/cancel` is the queue-aware `agent.cancel()`: it aborts a running step, clears queued + steering work, and drops a turn that is about to start, so a queued-but-not-yet-started prompt never runs and a later prompt cannot be batched into the cancelled turn. **Per-session `cwd` is now honored** (lifting the original "launch the server in the workspace root" restriction — see § Deferred): `session/new` accepts any absolute `cwd`, and `session/load` requires the request `cwd` to match the persisted session `cwd` so the editor and bash executor agree on the workspace.
 
 ## Problem
@@ -58,6 +57,17 @@ Deferred (each names its owning future work):
 - ~~`cwd` honoring.~~ **RESOLVED.** Originally there was no path from `session/new.cwd` to the bash workdir (`tool-bash` forwarded only an explicit `args.workdir`; `LocalBashExecutor.resolve` defaulted to its own config or `process.cwd()`), so the MVP validated `cwd` (require absolute) AND required the server to launch in the workspace root, erroring on a mismatch. This is now lifted: the validated `cwd` is stored as `SessionHeader.cwd`, and `dsh-tool-bash` defaults the bash workdir to the calling agent's `session.header.cwd` (an explicit model `workdir` still wins; a relative one resolves against it). Any absolute `cwd` is honored — the server need not launch in the workspace, and N sessions can each target a different directory. Widening scope beyond the single cwd (`additionalDirectories`) remains deferred.
 - Client `terminal/*` proxying (a live editor terminal) and `fs/*` (editor-rendered diffs) — a future `BashExecutor` over the [capability seams](../../implemented/architecture/2026-06-13-capability-seams.md) bash seam, gated on `clientCapabilities.terminal`.
 - Image/audio prompts (blocked on the DeepSeek adapter, which skips `image` blocks today), modes, auth, `available_commands`/slash-commands, `plan`, and `usage_update`.
+
+## Alternatives considered
+
+- **A process-wide stdout hijack inside `dsh-acp`** (defensively monkey-patching `console.log` / `process.stdout.write`) — rejected: it lives outside Cordis' effect-scoped, HMR-friendly plugin model, races the connection's own stdout handoff, and fights the logger. The stdout guarantee is config-only.
+- **Injecting `agentLoop` directly instead of the abstract create/resume factory** — the recorded fallback, taken only if the factory seam is judged not worth it, with the architecture-rule exception recorded in `docs/architecture.md`.
+
+## Acceptance criteria
+
+- The `acp-agent` example speaks ACP over stdio end-to-end: `initialize`, `session/new` with a validated absolute `cwd` honored as the session workspace, streamed `session/update` frames per prompt turn, `session/load` re-deriving identical history, and `session/prompt` resolving with the correct wire `stopReason`.
+- stdout carries only framed JSON-RPC (asserted by test); the permission gate settles every `session/request_permission` exactly once — on outcome, cancel, or connection close.
+- The plan's test set runs green: the property-based protocol invariants, the codec unit tests over an in-memory duplex pair, the HMR-safety test, the failure-path matrix, and the self-skipping real-API e2e that verifies the world.
 
 ## Risks
 

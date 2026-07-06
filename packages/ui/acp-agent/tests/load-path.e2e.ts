@@ -54,7 +54,7 @@ const CORDIS_YML = `
   name: '@deepseek-ai/dsh-acp-agent'
   config:
     model: deepseek-v4-flash
-    systemPrompt: 'You are a test agent.'
+    persona: 'You are a test agent.'
 `
 
 interface Spawned {

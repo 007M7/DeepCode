@@ -27,6 +27,8 @@ Two of the cataloged items need no generator at all: folding the e2e entry glob 
 - `knip.json` carries a per-package override only where it encodes real information (an extra entry file, an ignored dependency), never a restatement of the default stanza.
 - Snapshot scenarios declare policy, not facts discoverable from their fixture directories.
 
-## What we give up
+## Risks
 
 Discovery scripts can become too clever. The implementation should stay boring: read manifests, filter on explicit fields, print the resolved list, and fail loud. The payoff is removing manual inventory drift, not inventing a build system.
+
+<!-- rfc-format: alternatives-not-recorded (pre-format RFC) -->

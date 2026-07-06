@@ -14,7 +14,9 @@ The helper lives inside `@deepseek-ai/dsh-stdio-agent` as the in-package `stdio-
 
 The `packages/support/ui-stdio` package is gone: manifest, tsconfig references, module-graph rows, and README rows deleted; the doc comments that named the package (the example e2e module docs, `packages/README.md`, the support and todo READMEs, [the ui group README](../../../../packages/ui/README.md)) describe the in-package module.
 
-## Why not promote it to `ui/` instead?
+## Alternatives considered
+
+### Why not promote it to `ui/` instead?
 
 Promotion would have resolved the support-vs-product mismatch while keeping the boundary — the right call only if the readline UI were an independently swappable integration or had a second composer, and the consumer census said neither. The structured ACP bridge stays its own package because it is the product protocol surface with its own contract and snapshot tiers; the readline helper is scaffolding for one app's front door. Re-extraction stays cheap pre-release: if a second product app wants the readline UI, split it back out then, with that consumer shaping the package contract.
 

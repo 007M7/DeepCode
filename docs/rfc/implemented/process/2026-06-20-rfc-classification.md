@@ -1,8 +1,8 @@
 # RFC: Classify RFCs by kind via path-encoded subdirectories
 
-Status: implemented (proposed 2026-06-20, accepted 2026-06-20)
+Status: implemented
 
-## Context
+## Problem
 
 `docs/rfc/` grouped RFCs by **lifecycle** only — `proposed/` / `implemented/` / `rejected/`. Nothing recorded what *kind* of decision each RFC was. The index was one flat list per lifecycle, with no way to scan "show me every simplification" or "every testing-strategy decision." A wave of simplification RFCs landing on the same day made the gap concrete: a reader skimming `proposed/` could not tell a new capability from a removal from a tooling-policy change without opening each file.
 
@@ -29,14 +29,14 @@ The `architecture` / `process` line: **architecture** is about the source we shi
 
 Both are `doc-sync` members, in the `verify-md-wrap` style (tsx ESM, verify-don't-generate, exit non-zero on the first violation):
 
-- **`scripts/verify-rfc-classification.ts`** — the closed set and index freshness. It asserts every file under a lifecycle folder lives in a class folder from the canonical set (a loose `.md` at a lifecycle root, or an unknown class folder, fails), and that the README's marker-delimited index regions byte-match a fresh render from the tree (see [generate the RFC index tables](2026-07-04-generate-rfc-index-tables.md)). The canonical class set lives as a `const` in `scripts/rfc-index.ts` — the machine source of truth shared with the generator — and [the index](../../README.md) documents it in prose; the README's class *descriptions* stay hand-written, its tables are generated.
+- **`scripts/verify-rfc-classification.ts`** — the closed set and index freshness. It asserts every file under a lifecycle folder lives in a class folder from the canonical set (a loose `.md` at a lifecycle root, or an unknown class folder, fails), and that the generated [INDEX.md](../../INDEX.md) byte-matches a fresh render from the tree (see [generate the RFC index tables](2026-07-04-generate-rfc-index-tables.md)). The canonical class set lives as a `const` in `scripts/rfc-index.ts` — the machine source of truth shared with the generator — and [the README](../../README.md) documents it in prose; the class *descriptions* stay hand-written, the index is generated.
 - **`scripts/verify-doc-refs.ts`** — source comments that cite docs. RFC paths are referenced not only from Markdown but from TypeScript doc comments (root-relative prose like `docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md`). `verify-md-links` never saw those, so the reorg could have silently orphaned them. This gate scans repo-authored `.ts` under `packages/**` and `examples/**` (excluding built `lib/` and `vendor/`) for `docs/….md` tokens, resolves each root-relative, and asserts it exists. It requires the `.md` extension so extensionless prose (`docs/postmortem/0001`, `docs/architecture.md § Extending The Harness`) is left alone.
 
-### Rejected alternatives
+## Alternatives considered
 
 - **A `Classification:` prose line** in each file (next to `Status:`), parsed by the gate. Workable, but it duplicates into the file a fact the path can already carry, and a line can disagree with its folder. Path-encoding makes the label and its storage the same thing — there is nothing to keep in sync.
 - **A `refactor` class.** It overlaps `simplification` almost entirely; the only discriminator anyone reached for was "does observable behavior change?", which `simplification` already encodes (it does not). One class, not two.
-- **Auto-generating the README index** from the filesystem. Rejected here to keep the index hand-written; superseded by [generate the RFC index tables](2026-07-04-generate-rfc-index-tables.md) once stacked proposal waves made the hand-written tables the repo's most conflict-prone docs region — the tables are now generated between markers while the surrounding prose stays curated.
+- **Auto-generating the index** from the filesystem. Rejected here to keep the index hand-written; superseded by [generate the RFC index tables](2026-07-04-generate-rfc-index-tables.md) once stacked proposal waves made the hand-written tables the repo's most conflict-prone docs region — the list is now the fully generated [INDEX.md](../../INDEX.md) while the README prose stays curated.
 
 ## Consequences
 

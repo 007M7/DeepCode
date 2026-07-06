@@ -58,6 +58,16 @@ interface TerminalResultView { card: 'terminal'; title?: string; output?: string
 
 `claude-agent-acp` relativizes a file card's title path against the session cwd (`toDisplayPath`) — `Read src/foo.ts`, not `/abs/proj/src/foo.ts` — while keeping `locations[]`/`diff.path` **raw** (the editor opens the real path). Our `presentCall` is pure/args-only and cannot see the session cwd, so this relativization happens at the **bridge**, which already threads the session cwd into tool-call rendering (the same cwd it uses to resolve a terminal card's header). The bridge relativizes the title only, by an exact structured replace of the known `locations[0].path`/`diffs[0].path` substring — generic over the file-card kinds, never special-casing tool names.
 
+## Alternatives considered
+
+- **Delete tool-owned presentation entirely** — [the rejected collapse proposal](../../rejected/simplification/2026-06-20-generic-tool-rendering.md); its own verdict deferred to exactly this union once two real tools and two real consumers existed, and that bar is now met.
+- **A merge-extensible union** (the `ContentBlockMap` pattern) — rejected: a new render intent needs new bridge code to render it anyway, so a plugin-added variant the bridge silently drops would be worse than the compile error the closed union raises at the bridge's `assertNever` switch.
+- **Keeping the optional-field bag** — the status quo the Problem dissects: invalid states representable, undocumented field interactions, and no way to ask for a diff card at all.
+
+## Consequences
+
+A new render intent is a compile-breaking change at the bridge switch — deliberately: rendering code must exist before a card kind does. Invalid card/field combinations are now unrepresentable, and the bash fallback derivation lives in the bridge, so a tool returns one structured shape. The bar for a fourth card (a table, a chart) is writing its bridge arm in the same change.
+
 ## Non-goals
 
 - **Live incremental `terminal_output_delta` streaming** and **command classification** — the terminal-rendering RFC's own deferred follow-ups, untouched here.

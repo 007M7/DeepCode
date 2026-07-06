@@ -1,10 +1,8 @@
 # RFC: Interception seams — the typed-Decision surface a hook programs against
 
-Status: implemented (accepted 2026-06-30)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 The harness needs a hooks subsystem: users extend or gate the agent at lifecycle points the way Claude Code (CC) and Codex do. The key reframe driving this design is that **"native hooks" are not a package** — a native hook is just an ordinary Cordis plugin subscribing to the canonical lifecycle events. So the real product is a *powerful, well-typed canonical event surface*; the CC/Codex bridges (the `dsh-hooks-claude` / `dsh-hooks-codex` packages) are merely translators that map an external shell-hook protocol onto that same surface. Anything a bridge can do, a plain plugin can do directly — more powerfully (no serialization boundary, full `ctx`, typed returns).
 
@@ -39,6 +37,11 @@ Add/​reshape the interception seams so every one returns a small, seam-specifi
 ### What this PR does NOT do
 
 It does **not** declare `hook/*` SessionEvents (the durable hook-invocation log) — those belong to the `dsh-hook-protocol` library, because a native plugin can already use the typed Decisions without a durable hook log. A worked native-plugin example/test in this PR (`packages/core/agent-loop/tests/interception.spec.ts`) proves all the seams compose end-to-end through the REAL loop with NO `hook/*` involved — the concrete proof that "native hooks are just a plugin". Compaction (`PreCompact`/`PostCompact`), the Notification hook, Codex `PermissionRequest`, the permission/`ask` system, and the Stop loop-guard remain deferred (`FIXME(permissions)` marks the `ask`→deny degrade).
+
+## Alternatives considered
+
+- **Shipping pre-tool INPUT rewrite as part of this seam set** — deferred as the over-reach signal; the section above carries the consistency problem (audit, history, and presentation all read `tool/call.arguments` logged before execution), and [the pre-tool input-rewrite proposal](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md) owns the design.
+- **Declaring the durable `hook/*` SessionEvents alongside the seams** — rejected: a native plugin uses the typed Decisions with no hook log at all (the worked example proves it), so the durable log belongs to [the hook-protocol library](2026-06-30-hook-protocol-lib.md), not the seam surface.
 
 ## Consequences
 

@@ -148,15 +148,15 @@ describe('acp bridge', () => {
     await expect(harness.client.authenticate({ methodId: 'whatever' })).resolves.toBeDefined()
   })
 
-  it('honors systemPrompt config', async () => {
+  it('renders the deployment persona into ACP-created agents\' requests', async () => {
     harness = await makeBridgeHarness({
       storageDir,
       script: [textResponse('ok')],
-      config: { systemPrompt: 'be terse' },
+      persona: 'be terse',
     })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
-    // Create + prompt so the systemPrompt config flows through agentOptions and
-    // reaches the model request.
+    // Create + prompt so the system-prompt plugin's persona section reaches
+    // the model request of an agent the BRIDGE created (session/new).
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
     await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'hi' }] })
     expect(harness.adapter.requests[0]?.system).toContain('be terse')

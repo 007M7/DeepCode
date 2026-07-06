@@ -1,10 +1,8 @@
 # RFC: tsdown for JS bundling instead of dumble
 
-Status: implemented (accepted 2026-06-11)
+Status: implemented
 
-<!-- XXX: legacy ADR/RFC body format, not yet normalized to a unified RFC template. -->
-
-## Context
+## Problem
 
 The initial build used **dumble**, the cordiverse zero-config esbuild wrapper that upstream Cordis itself builds with — maximum alignment with the vendored packages' conventions (it reads each package.json and infers entries/formats from the `exports` field). But dumble is a liability as a load-bearing tool in this repo: v0.2.x, ~530 npm downloads/week, effectively one maintainer, and we were invoking it through a custom orchestration script (`scripts/build.ts`) because it has no workspace mode.
 
@@ -19,7 +17,11 @@ Replace dumble with **tsdown** (rolldown-based, ~2.5M downloads/week, VoidZero-b
 - Two per-package overrides in vendor/ (ours, like the regenerated tsconfigs; logged in vendor/README.md): schemastery (dual `.mjs`/`.cjs` via `outExtensions`), logger-console (two single-entry passes so the shared base class is inlined into each entry instead of a hash-named chunk, matching upstream's published shape).
 - `scripts/build.ts` deleted; `pnpm run build` = `tsc -b tsconfig.build.json && tsdown`.
 
-Alternatives considered: **direct esbuild script** (most established engine, zero wrapper risk, but hand-maintains the per-package spec table tsdown's workspace mode gives us); **pkgroll** (closest drop-in philosophically, but 78k dl/wk and Rollup-based — strictly weaker maintenance story than tsdown); **keep dumble** (perfect upstream alignment, unacceptable bus factor).
+## Alternatives considered
+
+- **A direct esbuild script** — the most established engine and zero wrapper risk, but hand-maintains the per-package spec table tsdown's workspace mode gives us.
+- **pkgroll** — the closest drop-in philosophically, but 78k downloads/week and Rollup-based: strictly weaker maintenance story than tsdown.
+- **Keep dumble** — perfect upstream alignment, unacceptable bus factor.
 
 ## Consequences
 
