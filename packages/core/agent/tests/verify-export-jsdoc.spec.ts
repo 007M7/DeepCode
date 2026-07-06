@@ -338,6 +338,19 @@ describe('verify-export-jsdoc fail-closed forms (review round 1)', () => {
     ))).toEqual([])
   })
 
+  it('refuses an export-import alias to a callable, class, or namespace target', () => {
+    const refusal = /exported alias 'g' .* aliases a callable, class, or namespace target/
+    expect(collectExportJsdocViolations(make(
+      'namespace N {\n  export function f(x: number): number { return x }\n}\n/** Alias. */\nexport import g = N.f\n',
+    ))).toEqual([expect.stringMatching(refusal)])
+    expect(collectExportJsdocViolations(make(
+      'namespace N {\n  export class C {\n    run(x: number): number { return x }\n  }\n}\n/** Alias. */\nexport import g = N.C\n',
+    ))).toEqual([expect.stringMatching(refusal)])
+    expect(collectExportJsdocViolations(make(
+      'namespace N {\n  export namespace Sub {\n    export function f(x: number): number { return x }\n  }\n}\n/** Alias. */\nexport import g = N.Sub\n',
+    ))).toEqual([expect.stringMatching(refusal)])
+  })
+
   it('classifies wrapped function initializers and default exports (parens, satisfies)', () => {
     expect(collectExportJsdocViolations(make(
       'type Fn = (x: number) => number\n/** Wrapped. */\nexport const f = (((x: number): number => x)) satisfies Fn\n',

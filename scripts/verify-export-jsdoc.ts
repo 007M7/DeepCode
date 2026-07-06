@@ -64,8 +64,9 @@
  *   re-export statements with a module specifier (`export … from`) — the
  *   defining module is walked on its own, and external definitions are not
  *   ours to document. An `export import X = N.member` alias documents
- *   ITSELF (its target may be a non-exported namespace member no walk
- *   visits, so a skip would fail open).
+ *   ITSELF, and only prose-only target kinds are gate-supported: a callable,
+ *   class, or namespace target carries signature/member contracts the alias
+ *   cannot hold and is refused (export the declaration directly).
  * - Everything else fails CLOSED: `export =` is refused outright, and an
  *   exported statement kind the dispatch does not recognize is itself a
  *   violation, so no export form can pass unchecked by omission.
@@ -404,10 +405,25 @@ function checkDecl(
     return
   }
   if (ts.isImportEqualsDeclaration(stmt)) {
-    // An alias (`export import X = N.member`) is a distinct exported name and
-    // its target may be a non-exported namespace member no walk ever visits,
-    // so a blanket skip would fail open — the alias documents itself.
-    checkDescribed(`exported alias '${prefix}${stmt.name.text}'${at(stmt)}`, rawJsDoc(w.text, stmt), w)
+    const where = `exported alias '${prefix}${stmt.name.text}'${at(stmt)}`
+    // An alias is a distinct exported name whose target may be a non-exported
+    // namespace member no walk ever visits, so it documents ITSELF — which
+    // matches the gate's strength only for prose-only target kinds. A
+    // callable, class, or namespace target carries signature or member
+    // contracts the alias prose cannot hold: refuse those (fail closed) and
+    // demand the declaration be exported directly. An unresolvable target is
+    // refused for the same reason.
+    const sym = w.checker.getSymbolAtLocation(stmt.name)
+    const target = sym !== undefined && (sym.flags & ts.SymbolFlags.Alias) !== 0 ? w.checker.getAliasedSymbol(sym) : sym
+    const RICH_TARGETS = ts.SymbolFlags.Function | ts.SymbolFlags.Class | ts.SymbolFlags.ValueModule | ts.SymbolFlags.NamespaceModule
+    const rich = target === undefined
+      || (target.flags & RICH_TARGETS) !== 0
+      || w.checker.getTypeOfSymbol(target).getCallSignatures().length > 0
+    if (rich) {
+      w.violations.push(`${where} aliases a callable, class, or namespace target whose signature/member contract the alias cannot carry; export the declaration directly instead.`)
+      return
+    }
+    checkDescribed(where, rawJsDoc(w.text, stmt), w)
     return
   }
   // Fail CLOSED: an exported statement kind this dispatch does not recognize
