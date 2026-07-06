@@ -108,7 +108,7 @@ Every session event is turn-enclosed. Reloading a crashed session preserves the 
 
 The session log is the source of truth. `deriveMessages()` projects session events into the `Message[]` sent to the model; raw `assistant/chunk` events stay in the log for replay and UI fidelity. Replay, fork, resume, transcript rendering, telemetry, and persistence all derive from the same event stream.
 
-The low-level fork primitive is `ctx.sessions.create(id, { seed, meta })`. The session store also exposes `ctx.sessions.snapshot(source)` and `ctx.sessions.fork({ source, sessionId? })` for ordinary live-session forks: they validate that a source session is empty or at a turn boundary, snapshot the seed, and create child metadata without changing the core log.
+For live forks, `ctx.sessions.snapshot(source)` validates an empty or turn-ended source and returns seed metadata; `ctx.sessions.fork()` creates the child session from it.
 
 Durability is a plugin concern. Persistence backends buffer synchronous `session/event` notifications and the loop awaits a turn-end checkpoint before moving on. The `SessionPersistence` seam stores `SessionEvent` directly, with metadata in `SessionHeader`; JSONL and SQLite share one contract suite.
 
@@ -143,6 +143,6 @@ New behavior should attach to a documented seam; changing the shipped loop requi
 | Intercept prompts, requests, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` waterfall |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
 | Add durable session state | add a `SessionEventMap` member and render/replay from the log |
-| Fork a live session | use `ctx.sessions.snapshot()` for reusable seed metadata or `ctx.sessions.fork()` to create a seeded child session |
+| Fork a live session | use `ctx.sessions.snapshot()` or `ctx.sessions.fork()` |
 
 The [extension cookbook](cookbook/extension-cookbook.md) carries plugin skeletons and the feature-to-seam map; step-by-step guides cover [packages](cookbook/adding-a-package.md), [tools](cookbook/adding-a-tool.md), [LLM adapters](cookbook/adding-an-llm-adapter.md), and [vendored packages](cookbook/adding-a-vendored-package.md).
