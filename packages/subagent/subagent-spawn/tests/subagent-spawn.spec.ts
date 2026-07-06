@@ -34,7 +34,7 @@ async function setup(script: Script) {
   await ctx.plugin(Invariants)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
-  await ctx.plugin(spawn, { providerName: 'spawn' })
+  await ctx.plugin(spawn, { providerName: 'spawn', structuredNudgeRetries: 1 })
   ctx.llm.registerAdapter(['mock'], adapter)
   const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
   return { ctx, parent, adapter }
@@ -241,17 +241,23 @@ describe('dsh-subagent-spawn', () => {
     await parentHandle.dispose()
   })
 
-  it('advertises depthLimit but not outputSchema/toolFilter', async () => {
+  it('advertises depthLimit and outputSchema but not toolFilter', async () => {
     const { ctx } = await setup([])
     const provider = ctx.subagents.getProvider('spawn')!
-    expect(provider.capabilities).toEqual({ outputSchema: false, depthLimit: true, toolFilter: false })
+    expect(provider.capabilities).toEqual({ outputSchema: true, depthLimit: true, toolFilter: false })
   })
 
   it('unregisters the provider when its fiber is disposed (HMR safety)', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
     await ctx.plugin(AgentRegistry)
-    const fiber = await ctx.plugin(spawn, { providerName: 'spawn' })
+    // The backend does NOT inject 'tools' (the structured runtime gates its
+    // capture-tool registration on tools availability itself, keeping backend
+    // apply timing — and the delegation tool's prompt position — unchanged);
+    // the registries are loaded here so the runtime registers eagerly anyway.
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    const fiber = await ctx.plugin(spawn, { providerName: 'spawn', structuredNudgeRetries: 1 })
     expect(ctx.subagents.list()).toEqual(['spawn'])
     await fiber.dispose()
     expect(ctx.subagents.list()).toEqual([])

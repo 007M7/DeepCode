@@ -8,7 +8,7 @@
 
 import type { Agent, AgentId, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { SchemaSpec } from '@deepseek-ai/dsh-tools'
+import type { StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
 
 /**
  * Which START-TIME features a provider supports. Checked by the service
@@ -56,12 +56,16 @@ export interface SubagentStartRequest {
   /** Per-child agent options (model, system prompt). */
   agentOptions?: AgentOptions
   /**
-   * Optional structured-output schema. When set AND the provider's
-   * {@link SubagentCapabilities.outputSchema} is `true`, the child's final
-   * answer is shaped to this schema and surfaced as {@link SubagentResult.structured}.
+   * Optional structured-output schema — an object-rooted JSON Schema within the
+   * enforced subset (see `assertSupportedOutputSchema` in dsh-tools; a schema
+   * outside the subset is rejected loud at start). When set AND the provider's
+   * {@link SubagentCapabilities.outputSchema} is `true`, the child is driven to
+   * report a value matching this schema, surfaced as
+   * {@link SubagentResult.structured}. The schema must be plain host-realm JSON
+   * data — a caller holding foreign-realm data materializes it first.
    * Requesting it against a provider that lacks the capability is rejected at start.
    */
-  outputSchema?: SchemaSpec
+  outputSchema?: StructuredOutputSchema
   /**
    * Optional recursion cap (max delegation depth below this child). Requires
    * {@link SubagentCapabilities.depthLimit}; rejected at start otherwise.

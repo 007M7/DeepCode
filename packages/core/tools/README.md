@@ -71,6 +71,12 @@ A `defineTool` tool also **validates the model-generated arguments against its `
 
 See `defineTool`, `validateArgs`, `ToolArgsError`, `SchemaSpec`, `InferArgs`, and `schemaSpecToJsonSchema` in the public API for details.
 
+### Structured-output schema subset
+
+A separate vocabulary for callers that DEMAND a machine-readable value from an agent — the subagent seam's `SubagentStartRequest.outputSchema` (and, by extension, a workflow's `agent({ schema })`). Unlike `SchemaSpec` (the author-facing DSL for tool parameters), a `StructuredOutputSchema` is an object-rooted **raw JSON Schema subset** as data: it travels verbatim to the model as a forced tool's `parameters`, and the produced value is validated against it.
+
+The subset is deliberately narrow and REJECTS LOUD outside it — accepting a keyword the validator doesn't enforce would validate less than the schema promises (accepted-then-ignored). Supported: single-string `type` (`object`/`array`/`string`/`number`/`integer`/`boolean`/`null`; type arrays rejected), `properties`/`required`/`additionalProperties` (boolean; every `required` key must be declared), `items`, scalar-only `enum`/`const`; annotations (`description`/`title`/`default`/`examples`) are ignored but must still be JSON data. `assertSupportedOutputSchema(schema)` throws `OutputSchemaError` (`code: 'UNSUPPORTED_SCHEMA'`, listing every violation) for anything else; `validateStructuredValue(schema, value)` returns path-qualified violations (empty = valid, total — never throws).
+
 ### Tool-owned UI presentation
 
 A tool owns how ITS calls render in a UI (an editor's tool-call card, a CLI log line) — a UI plugin must NOT special-case tool names. A `ToolDefinition` may declare two optional, pure, display-only methods that return a **`card`-tagged render intent** (a discriminated union — a tool declares its card kind once and a UI bridge switches on `card`):

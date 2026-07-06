@@ -51,7 +51,7 @@ describe('depthOf', () => {
 describe('startInProcessRun', () => {
   it('drives a fresh child (no seed) to completion and returns its output', async () => {
     const { ctx, parent } = await setup([textResponse('driver child answer')])
-    const run = startInProcessRun(ctx, { prompt: [{ type: 'text', text: 'do X' }], parent }, { providerName: 'spawn' })
+    const run = startInProcessRun(ctx, { prompt: [{ type: 'text', text: 'do X' }], parent }, { providerName: 'spawn', structuredNudgeRetries: 1 })
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(text(result.output)).toBe('driver child answer')
@@ -61,7 +61,7 @@ describe('startInProcessRun', () => {
 
   it('throws SubagentDepthError when the child would exceed maxDepth', async () => {
     const { ctx, parent } = await setup([])
-    expect(() => startInProcessRun(ctx, { prompt: [{ type: 'text', text: 'p' }], parent, maxDepth: 0 }, { providerName: 'spawn' }))
+    expect(() => startInProcessRun(ctx, { prompt: [{ type: 'text', text: 'p' }], parent, maxDepth: 0 }, { providerName: 'spawn', structuredNudgeRetries: 1 }))
       .toThrow(SubagentDepthError)
   })
 
@@ -73,7 +73,7 @@ describe('startInProcessRun', () => {
     parent.send([{ type: 'text', text: 'parent q' }])
     await parent.whenIdle()
     const seed = parent.session.events.slice()
-    const run = startInProcessRun(ctx, { prompt: [{ type: 'text', text: 'child q' }], parent }, { providerName: 'fork', seed })
+    const run = startInProcessRun(ctx, { prompt: [{ type: 'text', text: 'child q' }], parent }, { providerName: 'fork', structuredNudgeRetries: 1, seed })
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(text(result.output)).toBe('seeded child reply')
