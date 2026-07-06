@@ -9,6 +9,7 @@ Inter-package dependencies among the `@deepseek-ai/dsh-*` harness packages, deri
 flowchart TD
   subgraph group_util["packages/util"]
     pkg_brand["brand"]
+    pkg_timeout["timeout"]
   end
   subgraph group_llm["packages/llm"]
     pkg_llm["llm"]
@@ -86,6 +87,7 @@ flowchart TD
   pkg_session --> pkg_llm
   pkg_system_prompt --> pkg_llm
   pkg_bash_local --> pkg_bash
+  pkg_bash_local --> pkg_timeout
   pkg_fs --> pkg_brand
   pkg_fs --> pkg_llm
   pkg_web --> pkg_llm
@@ -97,6 +99,7 @@ flowchart TD
   pkg_fs_policy --> pkg_fs
   pkg_compact --> pkg_llm
   pkg_compact --> pkg_session
+  pkg_web_fetch_local --> pkg_timeout
   pkg_web_fetch_local --> pkg_web
   pkg_web_search_deepseek --> pkg_web
   pkg_web_search_exa --> pkg_web
@@ -205,6 +208,7 @@ flowchart TD
 | Package | Group | Depends on |
 | --- | --- | --- |
 | [`brand`](../packages/util/brand) | `util` | — |
+| [`timeout`](../packages/util/timeout) | `util` | — |
 | [`app-boot`](../packages/ui/app-boot) | `ui` | — |
 | [`llm`](../packages/llm/llm) | `llm` | [`brand`](../packages/util/brand) |
 | [`bash`](../packages/bash/bash) | `bash` | [`brand`](../packages/util/brand) |
@@ -212,14 +216,14 @@ flowchart TD
 | [`llm-pi-ai`](../packages/llm/llm-pi-ai) | `llm` | [`llm`](../packages/llm/llm) |
 | [`session`](../packages/core/session) | `core` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm) |
 | [`system-prompt`](../packages/core/system-prompt) | `core` | [`llm`](../packages/llm/llm) |
-| [`bash-local`](../packages/bash/bash-local) | `bash` | [`bash`](../packages/bash/bash) |
+| [`bash-local`](../packages/bash/bash-local) | `bash` | [`bash`](../packages/bash/bash), [`timeout`](../packages/util/timeout) |
 | [`fs`](../packages/fs/fs) | `fs` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm) |
 | [`web`](../packages/web/web) | `web` | [`llm`](../packages/llm/llm) |
 | [`agent`](../packages/core/agent) | `core` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
 | [`fs-local`](../packages/fs/fs-local) | `fs` | [`fs`](../packages/fs/fs) |
 | [`fs-policy`](../packages/fs/fs-policy) | `fs` | [`fs`](../packages/fs/fs) |
 | [`compact`](../packages/compact/compact) | `compact` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
-| [`web-fetch-local`](../packages/web/web-fetch-local) | `web` | [`web`](../packages/web/web) |
+| [`web-fetch-local`](../packages/web/web-fetch-local) | `web` | [`timeout`](../packages/util/timeout), [`web`](../packages/web/web) |
 | [`web-search-deepseek`](../packages/web/web-search-deepseek) | `web` | [`web`](../packages/web/web) |
 | [`web-search-exa`](../packages/web/web-search-exa) | `web` | [`web`](../packages/web/web) |
 | [`web-search-perplexity`](../packages/web/web-search-perplexity) | `web` | [`web`](../packages/web/web) |
