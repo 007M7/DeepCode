@@ -43,10 +43,16 @@
  *   config type / a core-data-structures entry / a workspace or external
  *   import. An unresolvable name is an error, never silently unexplained.
  * - The runtime schemastery schema (`Config` export or `static Config`),
- *   when present, is walked statically (`z.object` keys, `z.intersect`
- *   composition across packages) and every schema-validated top-level key
- *   must be a declared member of the config type — the paste cannot hide a
- *   loader-accepted field. The reverse is deliberately NOT checked: a
+ *   when present, is walked statically — `z.object` keys, nested object/array
+ *   compositions as key PATHS (`agents[].id`), and `z.intersect` composition
+ *   across packages — and every schema-validated key path must be locatable
+ *   on the declared config type, resolving package-local and
+ *   workspace-imported types, re-export chains, intersections, utility
+ *   wrappers, and indexed access. The paste cannot hide a loader-accepted
+ *   field, top-level or nested. A path that crosses a type the walk cannot
+ *   enumerate (an external package's type) is skipped, never mis-reported,
+ *   and nested keys under dynamic-key shapes (`z.dict`) or union alternatives
+ *   contribute no paths. The reverse direction is deliberately NOT checked: a
  *   declared field may be a runtime-only seam the schema excludes (e.g. the
  *   ACP bridge's test-injected `stream`).
  *
@@ -119,8 +125,8 @@ export interface CatalogEntry {
   pastes?: Paste[]
   /** References the pastes leave unresolved locally (kind `config`). */
   refs?: TypeRef[]
-  /** Top-level keys of the runtime schema, `null` when no schema exists or
-   * composition is still pending resolution (kind `config`). */
+  /** Top-level keys and nested key paths (`agents[].id`) of the runtime
+   * schema, `null` when no schema exists (kind `config`). */
   schemaKeys?: string[] | null
   /** Package names whose schemas an intersect composes (kind `config`). */
   schemaComposes?: string[]
@@ -258,15 +264,195 @@ function checkMemberDocs(ctx: FileCtx, decl: TypeDecl, violations: string[]): vo
   else walkNested(decl.type, decl.name.text)
 }
 
-/** Top-level property names of the config type (for the schema-subset check). */
-function topLevelMembers(decl: TypeDecl): Set<string> | null {
-  if (ts.isInterfaceDeclaration(decl)) {
-    return new Set(decl.members.filter(ts.isPropertySignature).map(m => m.name.getText()))
+/** Cross-file resolution context for the schema-path check. */
+interface World {
+  scanRoot: string
+  cache: Map<string, FileCtx>
+  /** Workspace package name → repo-relative package dir. */
+  pkgDirByName: Map<string, string>
+}
+
+/** How a schema key path fared against the declared config type: definitely
+ * present, definitely absent, or crossing a shape the walk cannot enumerate
+ * (only `missing` is a violation — `unknown` must never mis-report). */
+type PathLookup = 'found' | 'missing' | 'unknown'
+
+/** One step of a schema key path: a named member, or an array-element hop. */
+type PathStep = { member: string } | { array: true }
+
+/** Parse a schema key path (`agents[].id`) into member/array steps. */
+function parsePath(path: string): PathStep[] {
+  const steps: PathStep[] = []
+  for (const seg of path.split('.')) {
+    let name = seg
+    let arrays = 0
+    while (name.endsWith('[]')) {
+      name = name.slice(0, -2)
+      arrays += 1
+    }
+    steps.push({ member: name })
+    for (let i = 0; i < arrays; i += 1) steps.push({ array: true })
   }
-  if (ts.isTypeLiteralNode(decl.type)) {
-    return new Set(decl.type.members.filter(ts.isPropertySignature).map(m => m.name.getText()))
+  return steps
+}
+
+/** Load a package-relative import target as a FileCtx. */
+function loadRelative(world: World, from: FileCtx, specifier: string): FileCtx {
+  const abs = resolve(dirname(from.abs), specifier)
+  const rel = from.rel.slice(0, from.rel.lastIndexOf('/') + 1) + specifier.replace(/^\.\//, '')
+  return loadFile(abs, rel, world.cache)
+}
+
+/** Find a type declaration EXPORTED (directly or via re-export chains) from a
+ * file, following `export … from './x.ts'` and `export * from './x.ts'`. */
+function findExportedTypeDecl(world: World, ctx: FileCtx, name: string, seen = new Set<string>()): { decl: TypeDecl; ctx: FileCtx } | null {
+  const key = `${ctx.abs}#${name}`
+  if (seen.has(key)) return null
+  seen.add(key)
+  const local = findTypeDecl(ctx, name)
+  if (local) return { decl: local, ctx }
+  for (const stmt of ctx.sf.statements) {
+    if (!ts.isExportDeclaration(stmt) || !stmt.moduleSpecifier || !ts.isStringLiteral(stmt.moduleSpecifier)) continue
+    const spec = stmt.moduleSpecifier.text
+    if (!spec.startsWith('.') || !spec.endsWith('.ts')) continue
+    let lookFor: string | null = null
+    if (!stmt.exportClause) {
+      lookFor = name // export * from './x.ts'
+    } else if (ts.isNamedExports(stmt.exportClause)) {
+      const el = stmt.exportClause.elements.find(e => e.name.text === name)
+      if (el) lookFor = (el.propertyName ?? el.name).text
+    }
+    if (lookFor === null) continue
+    const hit = findExportedTypeDecl(world, loadRelative(world, ctx, spec), lookFor, seen)
+    if (hit) return hit
   }
   return null
+}
+
+/** Resolve a referenced type NAME to its declaration: declared locally, via a
+ * package-relative import, or via a workspace-package import (entry file +
+ * re-export chains). `'unknown'` = external or otherwise out of reach. */
+function declForTypeName(world: World, ctx: FileCtx, name: string): { decl: TypeDecl; ctx: FileCtx } | 'unknown' {
+  const local = findTypeDecl(ctx, name)
+  if (local) return { decl: local, ctx }
+  const imp = ctx.imports.get(name)
+  if (!imp) return 'unknown'
+  if (imp.specifier.startsWith('.')) {
+    if (!imp.specifier.endsWith('.ts')) return 'unknown'
+    return findExportedTypeDecl(world, loadRelative(world, ctx, imp.specifier), imp.imported) ?? 'unknown'
+  }
+  const dir = world.pkgDirByName.get(imp.specifier)
+  if (dir === undefined) return 'unknown'
+  const entryRel = `${dir}/src/index.ts`
+  let entry: FileCtx
+  try {
+    entry = loadFile(resolve(world.scanRoot, entryRel), entryRel, world.cache)
+  } catch {
+    // A workspace package without a readable entry is reported by its own
+    // classification pass; for a lookup it is merely out of reach.
+    return 'unknown'
+  }
+  return findExportedTypeDecl(world, entry, imp.imported) ?? 'unknown'
+}
+
+/** Utility wrappers that pass a member lookup through to their type argument. */
+const PASSTHROUGH_WRAPPERS = new Set(['Partial', 'Required', 'Readonly', 'NonNullable'])
+
+/**
+ * Walk a schema key path against a declared type. This is a PRESENCE check,
+ * not a shape check: it answers "does the declared config type have a member
+ * here", resolving interfaces (heritage included), type aliases, literals,
+ * intersections, unions, arrays, indexed access, pass-through utility
+ * wrappers, and type references across package-local and workspace imports.
+ * Anything it cannot see through resolves `'unknown'`, never `'missing'`.
+ */
+function lookupPath(world: World, ctx: FileCtx, node: ts.Node, steps: PathStep[], seen: Set<string>): PathLookup {
+  if (steps.length === 0) return 'found'
+  // Guard recursion at NAMED declarations only — the sole way a walk can loop
+  // (a recursive interface/alias). Structural nodes must not be guarded: a
+  // first child shares `.pos` with its parent, so a span-keyed guard there
+  // would mistake ordinary descent for a cycle.
+  if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
+    const key = `${ctx.abs}:${node.pos}:${steps.length}`
+    if (seen.has(key)) return 'unknown' // recursive type — bail rather than loop
+    seen.add(key)
+  }
+  const step = steps[0]
+  if (step === undefined) return 'found'
+  // Combine branch results: any found wins, else any unknown taints, else missing.
+  const combine = (results: PathLookup[]): PathLookup => {
+    if (results.includes('found')) return 'found'
+    if (results.includes('unknown')) return 'unknown'
+    return 'missing'
+  }
+  const intoMembers = (members: ts.NodeArray<ts.TypeElement>): PathLookup | null => {
+    if (!('member' in step)) return null
+    for (const m of members) {
+      if (!ts.isPropertySignature(m) || m.name.getText(ctx.sf) !== step.member) continue
+      if (steps.length === 1) return 'found'
+      return m.type ? lookupPath(world, ctx, m.type, steps.slice(1), seen) : 'unknown'
+    }
+    return null // not among these members; caller consults heritage/parts
+  }
+  if (ts.isInterfaceDeclaration(node)) {
+    if (!('member' in step)) return 'unknown' // an array step cannot land on an interface
+    const direct = intoMembers(node.members)
+    if (direct !== null) return direct
+    const bases: PathLookup[] = []
+    for (const clause of node.heritageClauses ?? []) {
+      for (const base of clause.types) {
+        if (!ts.isIdentifier(base.expression)) {
+          bases.push('unknown')
+          continue
+        }
+        const resolved = declForTypeName(world, ctx, base.expression.text)
+        bases.push(resolved === 'unknown' ? 'unknown' : lookupPath(world, resolved.ctx, resolved.decl, steps, seen))
+      }
+    }
+    return bases.length ? combine(bases) : 'missing'
+  }
+  if (ts.isTypeAliasDeclaration(node)) return lookupPath(world, ctx, node.type, steps, seen)
+  if (ts.isTypeLiteralNode(node)) {
+    if (!('member' in step)) return 'unknown'
+    return intoMembers(node.members) ?? 'missing'
+  }
+  if (ts.isParenthesizedTypeNode(node)) return lookupPath(world, ctx, node.type, steps, seen)
+  if (ts.isIntersectionTypeNode(node)) {
+    return combine(node.types.map(t => lookupPath(world, ctx, t, steps, seen)))
+  }
+  if (ts.isUnionTypeNode(node)) {
+    // Presence on a union is only definite when every branch agrees.
+    const results = node.types.map(t => lookupPath(world, ctx, t, steps, seen))
+    if (results.every(r => r === 'found')) return 'found'
+    if (results.every(r => r === 'missing')) return 'missing'
+    return 'unknown'
+  }
+  if (ts.isArrayTypeNode(node)) {
+    return 'array' in step ? lookupPath(world, ctx, node.elementType, steps.slice(1), seen) : 'unknown'
+  }
+  if (ts.isTypeOperatorNode(node)) return lookupPath(world, ctx, node.type, steps, seen)
+  if (ts.isIndexedAccessTypeNode(node)) {
+    const index = node.indexType
+    if (ts.isLiteralTypeNode(index) && ts.isStringLiteral(index.literal)) {
+      return lookupPath(world, ctx, node.objectType, [{ member: index.literal.text }, ...steps], seen)
+    }
+    return 'unknown'
+  }
+  if (ts.isTypeReferenceNode(node)) {
+    let head: ts.EntityName = node.typeName
+    while (ts.isQualifiedName(head)) head = head.left
+    const name = head.text
+    if (PASSTHROUGH_WRAPPERS.has(name) && node.typeArguments?.[0]) {
+      return lookupPath(world, ctx, node.typeArguments[0], steps, seen)
+    }
+    if ((name === 'Array' || name === 'ReadonlyArray') && node.typeArguments?.[0]) {
+      return 'array' in step ? lookupPath(world, ctx, node.typeArguments[0], steps.slice(1), seen) : 'unknown'
+    }
+    if (!ts.isIdentifier(node.typeName)) return 'unknown' // namespace-qualified: out of reach
+    const resolved = declForTypeName(world, ctx, name)
+    return resolved === 'unknown' ? 'unknown' : lookupPath(world, resolved.ctx, resolved.decl, steps, seen)
+  }
+  return 'unknown'
 }
 
 /** Unwrap `as` / `satisfies` / parenthesized wrappers around an expression. */
@@ -277,11 +463,14 @@ function unwrapExpr(expr: ts.Expression): ts.Expression {
 }
 
 /**
- * Statically walk a schemastery schema expression to its top-level object
- * keys plus the packages whose schemas an intersect composes. Handles the
- * shapes the repo declares — `z.object({…})` (possibly behind chained calls)
- * and `z.intersect([X.Config, …])` — and hard-errors on anything else, so a
- * schema the walk cannot see fails the gate instead of silently thinning it.
+ * Statically walk a schemastery schema expression to its key paths plus the
+ * packages whose schemas an intersect composes. A key path is the top-level
+ * key or a nested path through object/array compositions (`agents[].id`).
+ * Handles the shapes the repo declares — `z.object({…})` (possibly behind
+ * chained calls) and `z.intersect([X.Config, …])` — and hard-errors on
+ * anything else, so a schema the walk cannot see fails the gate instead of
+ * silently thinning it. Nested values that are neither `object` nor `array`
+ * compositions (primitives, unions, dynamic-key dicts) contribute no paths.
  */
 function walkSchemaExpr(
   ctx: FileCtx,
@@ -291,6 +480,28 @@ function walkSchemaExpr(
 ): { keys: string[]; composes: string[] } {
   const keys: string[] = []
   const composes: string[] = []
+  // Nested paths under one object property's VALUE expression: recurse through
+  // chained refinements toward the base call, descending into object/array.
+  const collectValuePaths = (value: ts.Expression, base: string): void => {
+    const call = unwrapExpr(value)
+    if (!ts.isCallExpression(call) || !ts.isPropertyAccessExpression(call.expression)) return
+    const method = call.expression.name.text
+    if (method === 'object' && call.arguments[0] && ts.isObjectLiteralExpression(call.arguments[0])) {
+      for (const prop of call.arguments[0].properties) {
+        if (!ts.isPropertyAssignment(prop)) continue
+        const key = ts.isStringLiteral(prop.name) ? prop.name.text : prop.name.getText(ctx.sf)
+        keys.push(`${base}.${key}`)
+        collectValuePaths(prop.initializer, `${base}.${key}`)
+      }
+      return
+    }
+    if (method === 'array' && call.arguments[0]) {
+      collectValuePaths(call.arguments[0], `${base}[]`)
+      return
+    }
+    const inner = unwrapExpr(call.expression.expression)
+    if (ts.isCallExpression(inner)) collectValuePaths(inner, base)
+  }
   const visit = (e: ts.Expression): void => {
     const call = unwrapExpr(e)
     if (!ts.isCallExpression(call) || !ts.isPropertyAccessExpression(call.expression)) {
@@ -301,7 +512,9 @@ function walkSchemaExpr(
     if (method === 'object' && call.arguments[0] && ts.isObjectLiteralExpression(call.arguments[0])) {
       for (const prop of call.arguments[0].properties) {
         if (ts.isPropertyAssignment(prop) || ts.isShorthandPropertyAssignment(prop)) {
-          keys.push(ts.isStringLiteral(prop.name) ? prop.name.text : prop.name.getText(ctx.sf))
+          const key = ts.isStringLiteral(prop.name) ? prop.name.text : prop.name.getText(ctx.sf)
+          keys.push(key)
+          if (ts.isPropertyAssignment(prop)) collectValuePaths(prop.initializer, key)
         } else {
           violations.push(`${where}: schema object property '${prop.getText(ctx.sf)}' is not a plain key.`)
         }
@@ -410,10 +623,23 @@ export function collectConfigCatalog(scanRoot: string = root): CatalogEntry[] {
   const cache = new Map<string, FileCtx>()
   const entries: CatalogEntry[] = []
 
+  // Pre-pass: package name → dir, so schema-path lookups can follow
+  // workspace-package imports while individual packages are still being walked.
+  const pkgDirByName = new Map<string, string>()
+  const manifests: { dir: string; pkg: string }[] = []
   for (const manifestRel of globSync('packages/*/*/package.json', { cwd: scanRoot }).sort()) {
     const dir = manifestRel.slice(0, -'/package.json'.length)
     const pkg = (JSON.parse(readFileSync(resolve(scanRoot, manifestRel), 'utf8')) as { name?: string }).name
-    if (!pkg) { violations.push(`${manifestRel} has no "name".`); continue }
+    if (!pkg) {
+      violations.push(`${manifestRel} has no "name".`)
+      continue
+    }
+    pkgDirByName.set(pkg, dir)
+    manifests.push({ dir, pkg })
+  }
+  const world: World = { scanRoot, cache, pkgDirByName }
+
+  for (const { dir, pkg } of manifests) {
     const entryRel = `${dir}/src/index.ts`
     let ctx: FileCtx
     try {
@@ -513,8 +739,10 @@ export function collectConfigCatalog(scanRoot: string = root): CatalogEntry[] {
     }
   }
 
-  // Second phase: fold composed schemas' keys in, then check every
-  // schema-validated key is a declared member of the config type.
+  // Second phase: fold composed schemas' key paths in, then walk every
+  // schema-validated path against the declared config type. Only a definite
+  // miss is a violation — a path through a shape the walk cannot enumerate
+  // stays silent rather than mis-reporting.
   const byName = new Map(entries.map(e => [e.pkg, e]))
   for (const entry of entries) {
     if (entry.kind !== 'config' || entry.schemaKeys === null || entry.schemaKeys === undefined) continue
@@ -537,15 +765,14 @@ export function collectConfigCatalog(scanRoot: string = root): CatalogEntry[] {
     const mainPaste = entry.pastes?.[0]
     const mainFile = mainPaste?.source.split(':')[0]
     const mainCtx = mainFile !== undefined ? cache.get(resolve(scanRoot, mainFile)) : undefined
-    const mainDecl = mainCtx && entry.configTypeName ? findTypeDecl(mainCtx, entry.configTypeName) : null
-    const members = mainDecl ? topLevelMembers(mainDecl) : null
-    if (!members) {
-      violations.push(`${entry.pkg}: cannot enumerate the members of config type '${entry.configTypeName}' for the schema-subset check.`)
+    const mainDecl = mainCtx && entry.configTypeName !== undefined ? findTypeDecl(mainCtx, entry.configTypeName) : null
+    if (!mainCtx || !mainDecl) {
+      violations.push(`${entry.pkg}: cannot locate config type '${entry.configTypeName ?? ''}' for the schema-path check.`)
       continue
     }
-    for (const key of allKeys) {
-      if (!members.has(key)) {
-        violations.push(`${entry.pkg}: schema validates key '${key}' but config type '${entry.configTypeName}' declares no such member — the catalog paste would hide a loader-accepted field.`)
+    for (const keyPath of allKeys) {
+      if (lookupPath(world, mainCtx, mainDecl, parsePath(keyPath), new Set()) === 'missing') {
+        violations.push(`${entry.pkg}: schema validates key '${keyPath}' but config type '${entry.configTypeName ?? ''}' declares no such member — the catalog paste would hide a loader-accepted field.`)
       }
     }
   }
@@ -607,9 +834,9 @@ export function render(entries: CatalogEntry[]): string {
     '',
     '# Plugin Config Catalog',
     '',
-    'Every `config:` block a `cordis.yml` entry can set: for each loadable harness package, the verbatim config declaration (JSDoc included) its `apply` function or service constructor receives, with every referenced type pasted alongside (package-local types) or linked (everything else). This is the **deployment**-axis reference — the wiring a plugin author works against is the cordis [events](cordis-catalog/events.md) + [services](cordis-catalog/services.md) catalogs, the model-facing tool schemas are the [tool catalog](tool-catalog.md), and [core-data-structures/](core-data-structures/core.md) documents the types these declarations reference.',
+    'Every `config:` block a `cordis.yml` entry can set: for each loadable harness package, the verbatim config declaration (JSDoc included) its `apply` function or service constructor receives, with every referenced type pasted alongside (package-local types) or linked (everything else). The paste is the plugin\'s full declared config type — a field the runtime schema deliberately excludes is a runtime-only seam (its own JSDoc says so) and is not settable from `cordis.yml`. This is the **deployment**-axis reference — the wiring a plugin author works against is the cordis [events](cordis-catalog/events.md) + [services](cordis-catalog/services.md) catalogs, the model-facing tool schemas are the [tool catalog](tool-catalog.md), and [core-data-structures/](core-data-structures/core.md) documents the types these declarations reference.',
     '',
-    'This file is GENERATED from source (`scripts/gen-config-catalog.ts`) and verified fresh by `pnpm run verify-config-catalog` (part of `doc-sync`) — do not edit it by hand. Declaration blocks use a `ts config-catalog` fence (skipped by doc-typecheck, since a lone declaration referencing imports is not standalone-compilable). The generator also cross-checks the runtime schemastery schema against the pasted declaration — every schema-validated key must be a declared member — so the paste cannot hide a loader-accepted field.',
+    'This file is GENERATED from source (`scripts/gen-config-catalog.ts`) and verified fresh by `pnpm run verify-config-catalog` (part of `doc-sync`) — do not edit it by hand. Declaration blocks use a `ts config-catalog` fence (skipped by doc-typecheck, since a lone declaration referencing imports is not standalone-compilable). The generator also cross-checks the runtime schemastery schema against the pasted declaration — every schema-validated key, nested keys included, must be locatable on the declared config type — so the paste cannot hide a loader-accepted field.',
     '',
     'A `Requires:` line lists the service keys the plugin `inject`s: its `cordis.yml` tree must also load providers for those services. Scope is the harness tier (`packages/`); the vendored cordis plugins a config tree may also load (`hmr`, the console logger, …) are pinned upstream source ([vendoring policy](../vendor/README.md)) and not catalogued here.',
     '',
