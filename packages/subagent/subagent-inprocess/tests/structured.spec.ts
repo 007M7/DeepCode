@@ -298,16 +298,16 @@ describe('in-process structured output', () => {
       await runB.dispose()
     })
 
-    it('wins against a downstream listener that REPLACES the request object', async () => {
+    it('wins against a downstream listener that REPLACES the assembly object', async () => {
       const { ctx, parent, adapter } = await setup([
         toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 5 }),
       ])
-      // A downstream (non-prepend) listener that returns a brand-new request —
+      // A downstream (non-prepend) listener that returns a brand-new assembly —
       // the composition caveat that erases cooperative mutations. Registered
       // AFTER the runtime's prepend listener, so it runs INSIDE it.
-      ctx.on('agent/request', async (_agent, _turn, _step, _options, next) => {
+      ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
         const replaced = await next()
-        return { ...replaced, tools: [...(replaced.tools ?? [])] }
+        return { sections: [...replaced.sections], tools: [...replaced.tools], variables: { ...replaced.variables } }
       })
       const run = ctx.subagents.start('spawn', structuredRequest(parent))
       const result = await run.result
@@ -333,22 +333,23 @@ describe('in-process structured output', () => {
       await new Promise(resolve => setTimeout(resolve, 0))
     })
 
-    it('handles a request with NO tools field at all, for plain and structured agents alike', async () => {
-      // Drive the waterfall directly with a toolless request — the enforcement
-      // listener must tolerate `tools: undefined` on both branches: leave it
-      // absent for a plain agent, and create the array for a structured child.
+    it('shapes a bare assembly on the waterfall: no-agent context strips the placeholder; a structured agent gains schema + trailing instruction section', async () => {
+      // Drive ctx.systemPrompt.assemble directly — the enforcement listener
+      // must tolerate a context with NO agent (a bare diagnostic assemble)
+      // and shape a structured agent's assembly on the same path the loop
+      // renders and logs as the request header.
       const { ctx, parent } = await setup([])
-      const bare: GenerateOptions = { model: 'mock', messages: [] }
-      const plain = await ctx.waterfall('agent/request', parent, 1, 1, bare, () => Promise.resolve(bare))
-      expect(plain.tools).toBeUndefined()
+      const bare = await ctx.systemPrompt.assemble({})
+      expect(bare.tools.map(tool => tool.name)).not.toContain(STRUCTURED_OUTPUT_TOOL)
 
       const acquisition = acquireStructuredRuntime(ctx)
       acquisition.attach(parent, SCHEMA)
-      const bare2: GenerateOptions = { model: 'mock', messages: [] }
-      const shaped = await ctx.waterfall('agent/request', parent, 1, 1, bare2, () => Promise.resolve(bare2))
-      expect(shaped.tools!.map(tool => tool.name)).toEqual([STRUCTURED_OUTPUT_TOOL])
-      // A bare request carries no system text: the instruction IS the system.
-      expect(shaped.system).toBe(STRUCTURED_OUTPUT_INSTRUCTION)
+      const shaped = await ctx.systemPrompt.assemble({ agent: parent })
+      expect(shaped.tools.map(tool => tool.name)).toContain(STRUCTURED_OUTPUT_TOOL)
+      expect(shaped.tools.find(tool => tool.name === STRUCTURED_OUTPUT_TOOL)!.parameters).toEqual(SCHEMA)
+      // The demand travels with the tool: the instruction renders LAST
+      // (appended post-next(); renderPrompt joins in array order).
+      expect(shaped.sections.at(-1)).toMatchObject({ name: `tool:${STRUCTURED_OUTPUT_TOOL}`, text: STRUCTURED_OUTPUT_INSTRUCTION })
       acquisition.detach(parent)
       acquisition.release()
     })

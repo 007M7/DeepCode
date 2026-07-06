@@ -7,16 +7,18 @@
  * whose REGISTERED parameters are a placeholder — the real schema is per run.
  * Because the tool registry and prompt assembly are context-global while
  * schemas differ per child (two concurrent structured runs may carry different
- * schemas), per-agent shaping happens on the `agent/request` waterfall with a
- * `prepend: true` listener that post-processes `await next()` — FINAL-REQUEST
- * enforcement: whatever downstream listeners mutated or replaced, the request
- * that hits the wire never carries `structured_output` for an agent without a
- * structured run, and for one that has it always carries the run's OWN schema
- * plus the {@link STRUCTURED_OUTPUT_INSTRUCTION} appended to its `system`
- * text (the demand travels with the tool — `AgentOptions` has no per-agent
- * prompt field to carry it).
+ * schemas), per-agent shaping happens on the `system-prompt/assemble`
+ * waterfall with a `prepend: true` listener that post-processes `await next()`
+ * — FINAL-ASSEMBLY enforcement: whatever downstream listeners mutated or
+ * replaced, the assembly the loop renders never carries `structured_output`
+ * for an agent without a structured run, and for one that has it always
+ * carries the run's OWN schema plus a trailing
+ * {@link STRUCTURED_OUTPUT_INSTRUCTION} section (the demand travels with the
+ * tool). The loop logs what the assembly produced as the request header, so
+ * the injection is a reconstructable fact of the session log, never a
+ * wire-only mutation (the reconstructability RFC).
  * (Cooperative mutate-then-`next()` would not survive a downstream listener
- * returning a replacement request — see the waterfall composition caveat in
+ * returning a replacement assembly — see the waterfall composition caveat in
  * docs/architecture.md.)
  *
  * A companion `agent/turn-continuation` listener stops a child's turn once its
@@ -37,8 +39,9 @@
 
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { ContentBlock, GenerateOptions, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { ContinuationDecision } from '@deepseek-ai/dsh-agent'
+import type { AssembleContext, PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { ToolArgsError, validateStructuredValue, type StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
 
@@ -46,11 +49,12 @@ import { ToolArgsError, validateStructuredValue, type StructuredOutputSchema } f
 export const STRUCTURED_OUTPUT_TOOL = 'structured_output'
 
 /**
- * The instruction the request listener appends to a structured child's
- * `system` on every request. Per-request wire state, NOT agent prompt state:
- * `AgentOptions` has no prompt field (the persona is deployment config on the
- * system-prompt plugin), so the same final-request enforcement that injects
- * the schema'd tool carries the instruction that demands calling it.
+ * The instruction the assembly listener appends to a structured child's
+ * system prompt as a trailing section on every assembly. Per-assembly state,
+ * NOT agent prompt state: `AgentOptions` has no prompt field (the persona is
+ * deployment config on the system-prompt plugin), so the same final-assembly
+ * enforcement that injects the schema'd tool carries the instruction that
+ * demands calling it.
  */
 export const STRUCTURED_OUTPUT_INSTRUCTION
   = 'When you have your final answer, you MUST report it by calling the '
@@ -161,15 +165,17 @@ function registerRuntime(root: Context, runtime: StructuredRuntime): void {
     },
   }))
 
-  // FINAL-REQUEST enforcement (prepend: true = first registered = OUTERMOST
-  // wrapper): post-process whatever the downstream listeners and the core
-  // produced, so a downstream listener returning a replacement request cannot
-  // leak the tool to other agents or erase the child's schema.
-  runtime.disposers.push(root.on('agent/request', async function (
-    this: unknown, agent: Agent, _turn: number, _step: number, _options: GenerateOptions, next: () => Promise<GenerateOptions>,
-  ): Promise<GenerateOptions> {
+  // FINAL-ASSEMBLY enforcement (prepend: true = first registered = OUTERMOST
+  // wrapper): post-process whatever the downstream listeners and the registry
+  // produced, so a downstream listener returning a replacement assembly cannot
+  // leak the tool to other agents or erase the child's schema. The loop logs
+  // the rendered assembly as the step's request header, so the swap is
+  // reconstructable log state, never a wire-only mutation.
+  runtime.disposers.push(root.on('system-prompt/assemble', async function (
+    this: unknown, _assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>,
+  ): Promise<PromptAssembly> {
     const final = await next()
-    const state = runtime.states.get(agent)
+    const state = context.agent ? runtime.states.get(context.agent) : undefined
     if (state) {
       const schemaEntry: ToolSchema = {
         name: STRUCTURED_OUTPUT_TOOL,
@@ -180,21 +186,17 @@ function registerRuntime(root: Context, runtime: StructuredRuntime): void {
         // asserted subset type is structurally exactly that.
         parameters: state.schema as unknown as Record<string, unknown>,
       }
-      final.tools = [...(final.tools ?? []).filter(tool => tool.name !== STRUCTURED_OUTPUT_TOOL), schemaEntry]
-      // The demand travels WITH the tool: the instruction is appended to the
-      // final request's system text (the loop always assembles one; a bare
-      // direct dispatch may carry none).
-      final.system = final.system === undefined
-        ? STRUCTURED_OUTPUT_INSTRUCTION
-        : `${final.system}\n\n${STRUCTURED_OUTPUT_INSTRUCTION}`
+      final.tools = [...final.tools.filter(tool => tool.name !== STRUCTURED_OUTPUT_TOOL), schemaEntry]
+      // The demand travels WITH the tool: a trailing section in the
+      // tool-guidance order band, appended after next() so it renders last
+      // (renderPrompt joins in array order).
+      final.sections = [...final.sections, { name: `tool:${STRUCTURED_OUTPUT_TOOL}`, order: 190, text: STRUCTURED_OUTPUT_INSTRUCTION }]
       return final
     }
-    // No structured run: strip the placeholder if present; leave an absent
-    // tools field absent (an adapter may treat `tools: []` and no tools
-    // differently on the wire).
-    if (final.tools?.some(tool => tool.name === STRUCTURED_OUTPUT_TOOL)) {
-      final.tools = final.tools.filter(tool => tool.name !== STRUCTURED_OUTPUT_TOOL)
-    }
+    // No structured run: strip the placeholder so it is never model-visible.
+    // An empty tools array canonicalizes to an absent header/wire field
+    // (canonicalHeader pins empty ≡ absent), so no re-shaping is needed here.
+    final.tools = final.tools.filter(tool => tool.name !== STRUCTURED_OUTPUT_TOOL)
     return final
   }, { prepend: true }))
 

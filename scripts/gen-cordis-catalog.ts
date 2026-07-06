@@ -83,6 +83,7 @@ const LINK_MAP: Record<string, string> = {
   Message: 'core.md',
   MessageSource: 'core.md',
   GenerateOptions: 'core.md',
+  LlmCallConfig: 'core.md',
   SessionEvent: 'core.md',
   StreamChunk: 'llm-streaming.md',
   TurnEndReason: 'session.md',

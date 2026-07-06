@@ -91,8 +91,6 @@ export abstract class CompactService extends Service {
    *   over-budget. Bounding an individual unit's size is a separate concern.
    *
    * @param agent - agent context owning the session surface and model options.
-   * @param turn - turn number of the pre-step checkpoint.
-   * @param step - step number about to start.
    * @param fullSystemPrompt - assembled system prompt, counted toward the estimate.
    * @param signal - cancellation signal. A backend summarizing via
    *   `ctx.llm.stream()` MUST forward this into the call's `GenerateOptions.signal`
@@ -102,8 +100,6 @@ export abstract class CompactService extends Service {
    */
   abstract compactIfNeeded(
     agent: CompactAgentContext,
-    turn: number,
-    step: number,
     fullSystemPrompt: string,
     signal: AbortSignal,
   ): Promise<CompactionResult | null>
@@ -129,8 +125,6 @@ export abstract class CompactService extends Service {
    * @param start - inclusive seq of the first surface node to compact.
    * @param end - inclusive seq of the last surface node to compact.
    * @param agent - agent context used by router-aware summarizers.
-   * @param turn - lifecycle turn forwarded to request-routing seams.
-   * @param step - lifecycle step forwarded to request-routing seams.
    * @param signal - optional cancellation signal. A backend that summarizes via
    *   `ctx.llm.stream()` MUST forward this into the call's `GenerateOptions.signal`
    *   so an abort/dispose tears down the in-flight summarization rather than
@@ -148,8 +142,6 @@ export abstract class CompactService extends Service {
     start: number,
     end: number,
     agent: CompactAgentContext,
-    turn: number,
-    step: number,
     signal?: AbortSignal,
   ): Promise<CompactionResult>
 }

@@ -27,6 +27,9 @@
       "path": "../subagent"
     },
     {
+      "path": "../../core/system-prompt"
+    },
+    {
       "path": "../../core/tools"
     }
   ]
