@@ -54,8 +54,8 @@ jobs:
     if: >-
       github.event_name != 'pull_request'
       || !(github.event.pull_request.head.repo.fork || github.event.pull_request.user.login == 'dependabot[bot]')
-    # Serial files (fileParallelism: false), 120s/test, retry 2. 45m bounds a
-    # wedged run while leaving headroom for retry storms against a slow API.
+    # Bounded file parallelism (DSH_E2E_MAX_WORKERS), 120s/test, retry 2. 45m
+    # still bounds retry storms against a slow API while the happy path fans out.
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
@@ -66,6 +66,17 @@ jobs:
 
       - name: Enable corepack (pnpm)
         run: corepack enable
+
+      - name: Resolve pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-24-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-24-pnpm-
 
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
@@ -97,4 +108,5 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY_EXTERNAL }}
           DEEPSEEK_BASE_URL: https://api.deepseek.com
+          DSH_E2E_MAX_WORKERS: 14
         run: pnpm run test:e2e

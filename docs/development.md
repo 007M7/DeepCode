@@ -59,7 +59,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 lefthook is configured in `lefthook.yml` as an early local checkpoint before review:
 
 - `pre-commit` runs staged-file ESLint fixes, `pnpm run typecheck`, and the vendor manifest guard.
-- `pre-push` runs `pnpm run test`, `pnpm run test:snapshot`, `pnpm run hygiene`, `pnpm run doc-sync`, and `pnpm run verify-module-graph`.
+- `pre-push` runs `pnpm run check:pre-push`, whose scheduler runs unit tests, snapshot tests, build, module-graph freshness, and the member gates of `pnpm run hygiene` and `pnpm run doc-sync` concurrently.
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 
@@ -67,22 +67,9 @@ These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests withou
 
 ## CI gates
 
-The GitHub workflow runs these gates on each pull request:
+The keyless GitHub workflow has six jobs: five Node 24 lanes run static gates, lint, coverage, snapshot replay, and artifact gates separately, and the Node 26 compatibility job runs `pnpm run check:node-compat`. The lane schedulers fan out independent gates from `package.json`: constraints, typecheck, lint, coverage, snapshot replay, `doc-sync` members, module-graph freshness, `knip`, and the echo-agent smoke test.
 
-- `pnpm install --frozen-lockfile`
-- `pnpm run constraints`
-- `pnpm run typecheck`
-- `pnpm run lint`
-- `pnpm run doc-sync`
-- `pnpm run verify-module-graph`
-- `pnpm run test:coverage`
-- `pnpm run test:snapshot`
-- `pnpm run build`
-- `pnpm run hygiene`
-- an echo-agent smoke test that checks the demo's tool call, tool result, and JSONL output
-- built-bin smoke tests that run the published `lib/bin.js` entrypoints under plain `node`
-
-`pnpm run hygiene` is the local shorthand for `pnpm run knip && pnpm run publint && pnpm run constraints && pnpm run verify-node-next-types`; CI also runs `pnpm run constraints` as an earlier fail-fast step, then runs the full hygiene script after `pnpm run build`.
+`pnpm run build` feeds the artifact lane, and `publint`, `verify-node-next-types`, and built-bin smoke tests wait for build output. The separate real-API workflow runs `pnpm run test:e2e` with a secret and `DSH_E2E_MAX_WORKERS=14`.
 
 ## Daily commands
 

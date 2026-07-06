@@ -43,7 +43,7 @@ export default defineConfig({
         functions: 100,
         lines: 100,
       },
-      reporter: ['text', 'html'],
+      reporter: process.env.CI ? ['text'] : ['text', 'html'],
     },
   },
 })
