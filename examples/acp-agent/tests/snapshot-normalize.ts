@@ -37,11 +37,6 @@ function scrubString(value: string, ctx: NormalizeContext): string {
   out = out.split(ctx.cwd).join(CWD)
   for (const id of ctx.sessionIds) out = out.split(id).join(SESSION_ID)
   out = out.replace(UUID_RE, SESSION_ID)
-  // The fs-policy-reject fixture replays a recorded GNU-sed `sed -i` command.
-  // macOS/BSD sed treats the same argv as an error. The snapshot's behavior is
-  // the policy flow, not platform sed syntax, so normalize this exact stderr to
-  // the Linux no-output result the fixture records.
-  out = out.split('[stderr]\nsed: 1: "settings.txt\n": unterminated substitute pattern\n[exit code: 1]').join('(no output)')
   return out
 }
 

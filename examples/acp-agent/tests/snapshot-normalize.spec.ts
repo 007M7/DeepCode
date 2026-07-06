@@ -42,20 +42,6 @@ describe('normalizeStdout', () => {
     expect(normalizeStdout(raw, ctx)).toContain('{{sessionId}}')
   })
 
-  it('normalizes macOS sed -i stderr for the fs-policy-reject fixture', () => {
-    const raw = JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'session/update',
-      params: {
-        update: {
-          sessionUpdate: 'tool_call_update',
-          content: [{ type: 'content', content: { type: 'text', text: '```console\n[stderr]\nsed: 1: "settings.txt\n": unterminated substitute pattern\n[exit code: 1]\n```' } }],
-        },
-      },
-    })
-    expect(normalizeStdout(raw, ctx)).toContain('```console\\n(no output)\\n```')
-  })
-
   it('leaves notification frames without an id untouched in id-space', () => {
     const raw = JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: {} })
     const out = normalizeStdout(raw, ctx)
@@ -103,15 +89,6 @@ describe('normalizeSessionLog', () => {
   it('scrubs the session id in the header', () => {
     const out = normalizeSessionLog(`${header({ id: ctx.sessionIds[0] })}\n`, ctx)
     expect(out).toContain('{{sessionId}}')
-  })
-
-  it('normalizes macOS sed -i stderr in persisted tool results', () => {
-    const ev = JSON.stringify({
-      type: 'tool/result', seq: 2, time: 5,
-      data: { content: [{ type: 'text', text: '[stderr]\nsed: 1: "settings.txt\n": unterminated substitute pattern\n[exit code: 1]' }] },
-    })
-    const out = normalizeSessionLog(`${header({})}\n${ev}\n`, ctx)
-    expect(out).toContain('"text":"(no output)"')
   })
 
   it('zeroes a hook/result durationMs (run-to-run noise) but keeps its decision', () => {
