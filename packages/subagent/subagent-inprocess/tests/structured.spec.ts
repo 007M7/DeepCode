@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { type GenerateOptions } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, type ContentBlock, type GenerateOptions } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -83,6 +83,90 @@ describe('in-process structured output', () => {
     // Default continuation would run a second step after the tool call; the
     // structured runtime's turn-continuation veto stops the turn instead.
     expect(adapter.requests.length).toBe(1)
+    await run.dispose()
+  })
+
+  it('denies tool calls that FOLLOW the capture in the same response — terminal means terminal', async () => {
+    // One model response carrying structured_output FIRST and a side-effecting
+    // call after it: the continuation veto only fires at step end, so without
+    // the pre-execute deny the trailing call would still run after the final
+    // answer was accepted.
+    const response = [
+      ...toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 5 }).slice(0, -2),
+      { type: 'block-start', index: 1, blockType: 'tool-call' },
+      { type: 'block-end', index: 1, block: { type: 'tool-call', id: CallId('c2'), name: 'side_effect', arguments: '{}' } },
+      { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } },
+      { type: 'finish', reason: { kind: 'tool-calls' } },
+    ] as Script[number]
+    const { ctx, parent } = await setup([response])
+    let sideEffectRan = false
+    ctx.tools.register({
+      name: 'side_effect',
+      description: 'probe',
+      parameters: { type: 'object', properties: {} },
+      execute(): Promise<ContentBlock[]> {
+        sideEffectRan = true
+        return Promise.resolve([{ type: 'text', text: 'ran' }])
+      },
+    })
+    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const result = await run.result
+    expect(result.stopReason).toBe('completed')
+    expect(result.structured).toEqual({ answer: 5 })
+    // The deny skipped dispatch entirely: the probe body never ran.
+    expect(sideEffectRan).toBe(false)
+    await run.dispose()
+  })
+
+  it('leaves tool calls that PRECEDE the capture in the same response untouched', async () => {
+    const response = [
+      { type: 'block-start', index: 0, blockType: 'tool-call' },
+      { type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('c1'), name: 'side_effect', arguments: '{}' } },
+      ...toolCallResponse('c2', STRUCTURED_OUTPUT_TOOL, { answer: 6 }).map(chunk =>
+        'index' in chunk ? { ...chunk, index: 1 } : chunk),
+    ] as Script[number]
+    const { ctx, parent } = await setup([response])
+    let sideEffectRan = false
+    ctx.tools.register({
+      name: 'side_effect',
+      description: 'probe',
+      parameters: { type: 'object', properties: {} },
+      execute(): Promise<ContentBlock[]> {
+        sideEffectRan = true
+        return Promise.resolve([{ type: 'text', text: 'ran' }])
+      },
+    })
+    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const result = await run.result
+    // The call ran BEFORE captured was set: the deny gate only guards the
+    // window after the terminal answer landed.
+    expect(sideEffectRan).toBe(true)
+    expect(result.structured).toEqual({ answer: 6 })
+    await run.dispose()
+  })
+
+  it('snapshots the schema at start(): caller mutation after start cannot drift enforcement', async () => {
+    const mutable: StructuredOutputSchema = {
+      type: 'object',
+      properties: { answer: { type: 'number' } },
+      required: ['answer'],
+      additionalProperties: false,
+    }
+    const pristine = structuredClone(mutable)
+    const { ctx, parent, adapter } = await setup([
+      toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 3 }),
+    ])
+    const run = ctx.subagents.start('spawn', structuredRequest(parent, { outputSchema: mutable }))
+    // Mutate the caller's object AFTER start() returned but before the child's
+    // first request assembles: with a live reference this would reach both the
+    // model-visible parameters and validateStructuredValue.
+    ;(mutable.properties as Record<string, unknown>).answer = { type: 'string' }
+    const result = await run.result
+    expect(result.structured).toEqual({ answer: 3 })
+    // The child's request carried the PRISTINE schema, not the mutated one.
+    const childRequest = adapter.requests.at(-1)
+    const captureTool = (childRequest?.tools ?? []).find(tool => tool.name === STRUCTURED_OUTPUT_TOOL)
+    expect(captureTool?.parameters).toEqual(pristine)
     await run.dispose()
   })
 
