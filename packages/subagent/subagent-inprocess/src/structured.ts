@@ -25,7 +25,11 @@
  * output is captured — without it, the loop's default "had tool calls ⇒
  * continue" buys a wasted extra model step per structured child. It is also
  * `prepend: true`: the veto must run before any earlier-registered listener
- * that could short-circuit the chain into a forced continue.
+ * that could short-circuit the chain into a forced continue. A third listener
+ * closes the within-step window the continuation veto cannot: a
+ * `tools/pre-execute` deny for any call arriving after the agent's capture, so
+ * a response that lists `structured_output` before further tool calls cannot
+ * run side effects after the final answer was accepted.
  *
  * Lifetime is refcounted with two kinds of holder: each backend acquires for
  * its plugin lifetime (so the tool exists before any run), and each structured
@@ -42,7 +46,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { ContinuationDecision } from '@deepseek-ai/dsh-agent'
 import type { AssembleContext, PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
-import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 import { ToolArgsError, validateStructuredValue, type StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
 
 /** The model-facing tool name a structured child must call to finish. */
@@ -234,6 +238,29 @@ function registerRuntime(root: Context, runtime: StructuredRuntime): void {
     this: unknown, agent: Agent, _turn: number, _decision: ContinuationDecision, next: () => Promise<ContinuationDecision>,
   ): Promise<ContinuationDecision> {
     if (runtime.states.get(agent)?.captured) return Promise.resolve({ action: 'stop' })
+    return next()
+  }, { prepend: true }))
+
+  // Terminal means terminal WITHIN the step, not only at its end: the
+  // turn-continuation veto above runs after every call in the current model
+  // response has executed, so a response that puts `structured_output` before
+  // further tool calls would still perform those side effects after the final
+  // answer was accepted. Deny every later call for a captured agent at the
+  // allow/deny gate — dispatch is skipped and the model sees an `isError`
+  // result naming the contract. Calls that PRECEDE the capture in the same
+  // response ran before `captured` was set and are untouched; a second
+  // `structured_output` is denied like any other call. `prepend: true` for the
+  // same reason as the continuation veto: no earlier-registered allow may
+  // short-circuit past the terminal contract.
+  runtime.disposers.push(root.on('tools/pre-execute', function (
+    this: unknown, exec: ToolExecution, next: () => Promise<PreToolDecision>,
+  ): Promise<PreToolDecision> {
+    if (exec.agent && runtime.states.get(exec.agent)?.captured) {
+      return Promise.resolve({
+        kind: 'deny',
+        reason: `structured output already recorded: the run is complete, so \`${exec.name}\` is not executed`,
+      })
+    }
     return next()
   }, { prepend: true }))
 }

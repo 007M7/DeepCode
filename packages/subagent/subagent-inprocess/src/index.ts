@@ -119,9 +119,14 @@ export function startInProcessRun(
   if (request.maxDepth !== undefined && childDepth > request.maxDepth) {
     throw new SubagentDepthError(childDepth, request.maxDepth)
   }
-  // Assert the schema subset BEFORE any child exists (the service has already
-  // capability-gated; this rejects a schema outside the enforced subset loud).
-  const schema = request.outputSchema
+  // Snapshot, then assert, the schema subset BEFORE any child exists (the
+  // service has already capability-gated; this rejects a schema outside the
+  // enforced subset loud). The snapshot is load-bearing: the caller keeps its
+  // reference, so validating and attaching the ORIGINAL would let a
+  // post-start() mutation drift the enforced schema away from the asserted
+  // one — the clone pins assertion, the model-visible parameters, and
+  // validateStructuredValue to the same isolation-immutable value.
+  const schema = request.outputSchema === undefined ? undefined : structuredClone(request.outputSchema)
   if (schema !== undefined) assertSupportedOutputSchema(schema)
 
   const childId = AgentId(randomUUID())
