@@ -8,11 +8,13 @@
 
 import { Context, Service } from 'cordis'
 import { isAbsolute } from 'node:path'
+import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { CreateSessionOptions, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { isJsonValue } from './json.ts'
 import { SurfaceManager, isSurfaceEligibleType } from './surface.ts'
+import { foldRequestHeader } from './request-header.ts'
 
 export * from './types.ts'
 export { isJsonValue } from './json.ts'
@@ -21,6 +23,7 @@ export { interruptedTurnClosers } from './repair.ts'
 export type { SurfaceNode } from './surface.ts'
 export { isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { isToolPairingBalanced } from './tool-pairing.ts'
+export { applyHeaderDelta, canonicalHeader, diffHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -234,53 +237,93 @@ export class Session {
     return event
   }
 
+  /** Cached fold of the request-header events — see {@link requestHeader}. */
+  private headerFold: EpochHeader | undefined
+  /** Log position (events consumed) the header fold has reached. */
+  private headerFoldSeq = 0
+
+  /**
+   * The {@link EpochHeader} in force after the log's last header event — the
+   * header the NEXT request will be compared against — or undefined before
+   * the first `request/header` snapshot. The live, incrementally-maintained
+   * form of `foldRequestHeader(session.events)`: each header event is folded
+   * once, when first seen, so a per-step read costs O(new events).
+   * @returns the folded header, or undefined when no header event exists yet.
+   */
+  requestHeader(): EpochHeader | undefined {
+    if (this.headerFoldSeq < this.log.length) {
+      // Frozen on update: the fold is session state exposed by reference — a
+      // consumer mutating it in place (instead of building a replacement)
+      // would desync every later comparison against the log, so mutation
+      // throws instead.
+      this.headerFold = deepFreeze(foldRequestHeader(this.log.slice(this.headerFoldSeq), this.headerFold))
+      this.headerFoldSeq = this.log.length
+    }
+    return this.headerFold
+  }
+
+  /** The derived-message cache: frozen projections, extended per unseen node. */
+  private derived: Message[] = []
+  /** Surface position (nodes projected) the cache has reached. */
+  private derivedNodes = 0
+  /** {@link SurfaceManager.replaceGeneration} the cache was built under. */
+  private derivedGeneration = 0
+
   /**
    * Derive the LLM message history by walking the session surface — the linked
    * list of message-producing events maintained by `surfaceOp` markers. The
    * surface is the single source of derived history: every message-producing
    * append records its `surfaceOp`, so a raw event with no marker (a chunk, a
    * turn boundary) is correctly absent, and a compaction `replace` deletes the
-   * shadowed nodes from the derivation.
+   * shadowed nodes from the derivation. The projection rules are
+   * {@link deriveEventMessage}, folded per node.
    *
-   * - `user/message` → user message
-   * - `assistant/message` → assistant message (chunks are skipped — they are
-   *   replay/UI data; the assembled message is authoritative for history). An
-   *   EMPTY-content assistant/message is skipped: a max-tokens step cut off with
-   *   no content still records an assistant/message to host its `usage`, but a
-   *   content-less assistant turn must not enter the provider transcript.
-   * - `tool/result` → user message carrying a tool-result block
-   * - `context/message` / `steering/message` → tagged synthetic user messages
-   *   at their chronological position
-   *
-   * The returned `content` is **deep-cloned** off the logged events: the loop
-   * hands these messages into the mutable `agent/request` waterfall and on to
-   * adapters, where mutating the request is sanctioned — but the session log
-   * is append-only by contract. Cloning at this boundary keeps in-flight
-   * mutation from reaching back and rewriting history (which would silently
-   * break replay equivalence). Cost is one structured clone per step,
-   * negligible next to a model call.
+   * CACHED: each surface node is projected exactly once, when first seen — a
+   * call costs O(new nodes), and a surface rewrite (a `replace`;
+   * {@link SurfaceManager.replaceGeneration}) rebuilds. The returned array is
+   * a fresh snapshot per call (later appends never grow an array a caller
+   * already holds); the `Message` objects in it are SHARED and **deep-frozen**
+   * — cloned once off the log at projection time, so consumers can never
+   * mutate logged data, and mutation attempts throw instead of silently
+   * diverging replay from history.
+   * @returns a fresh array of the shared, frozen derived history.
    */
   deriveMessages(): Message[] {
-    const messages: Message[] = []
-    for (const node of this.surface.nodes) {
+    const nodes = this.surface.nodes
+    const generation = this.surface.replaceGeneration
+    if (generation !== this.derivedGeneration) {
+      this.derived = []
+      this.derivedNodes = 0
+      this.derivedGeneration = generation
+    }
+    for (const node of nodes.slice(this.derivedNodes)) {
       // Surface nodes are built from this.log — node.seq is always a valid
       // index by construction. The non-null assertion expresses that invariant.
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const msg = this._deriveOneMessage(this.log[node.seq]!)
+      const msg = this.deriveEventMessage(this.log[node.seq]!)
       // A surface node is one of the five message-producing types, but an
       // empty-content assistant/message (a max-tokens step that hosts only
       // usage) derives to null and must not enter the transcript.
-      if (msg) messages.push(msg)
+      if (msg) this.derived.push(deepFreeze(msg))
     }
-    return messages
+    this.derivedNodes = nodes.length
+    return [...this.derived]
   }
 
   /**
-   * Derive a single LLM message from one surface event, or null if it produces
-   * no message (an empty-content assistant/message that exists only to host
-   * usage).
+   * Project a single event into the LLM message it derives to, or null when
+   * it produces none — a non-surface event (chunk, boundary, log-only record)
+   * or an empty-content assistant/message (which exists only to host usage).
+   * The per-node pure function {@link deriveMessages} folds over the surface;
+   * an external reconstructor (or the dev invariant) folds the same function
+   * over a log prefix's surface to rebuild the exact messages any request was
+   * built from (the reconstructability RFC). The returned `content` is
+   * deep-cloned off the logged event: the log is append-only by contract, so
+   * no live reference to logged data leaves this boundary.
+   * @param event - the event to project.
+   * @returns the derived message, or null when the event produces none.
    */
-  private _deriveOneMessage(event: SessionEvent): Message | null {
+  deriveEventMessage(event: SessionEvent): Message | null {
     // Intentionally non-exhaustive: only message-producing events derive
     // history; turn/step boundaries, chunks, usage, and errors are
     // trace/replay data.
@@ -311,8 +354,9 @@ export class Session {
         const { content, source } = event.data
         return { role: 'user', content: renderTagged('steering', structuredClone(content), source) }
       }
-      /* v8 ignore next 2 -- unreachable: only surface nodes (the 5 message-producing types) reach here */
       default:
+        // A non-surface event (boundary, chunk, log-only record) projects to
+        // no message. Merge-extensible union: no assertNever here.
         return null
     }
   }

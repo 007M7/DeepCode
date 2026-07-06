@@ -44,7 +44,7 @@ Turn and step boundaries are NOT mirrored as `agent/*` emits: a consumer that ne
 - `agent/session-start` (emit) — fired once before the first turn; a listener seeds context via `agent.inject()` (it cannot veto startup).
 - `agent/prompt-submit` — decide what happens to one drained queued message before it becomes a `user/message`: `PromptDecision` = `allow` (optionally rewriting the prompt `content` or attaching `additionalContext`) or `block` (drop it; a batch whose every prompt is blocked opens a zero-step turn that ends `rejected`). Maps onto Claude Code's `UserPromptSubmit`.
 - `agent/pre-step` (serial) — mutate the session surface before the step opens and history is derived (compaction). Fires after `turn/start` and before `step/start`, so a listener's appended events land outside the step.
-- `agent/request` — mutate `GenerateOptions` before the model call (hooks, model switching, tool filtering)
+- `agent/request` — shape the call config before the model call: a frozen `LlmCallConfig` seed in, a replacement out (model switching, sampling overrides). Content is not shapeable here — every request is a pure function of the session log ([reconstructability RFC](../../../docs/rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)); the loop logs whatever config the request actually uses as a `request/header*` event
 - `agent/step-result` — post-process the assembled assistant message before tool dispatch (validates what the log records)
 - `agent/turn-continuation` — override the continue/stop decision via `ContinuationDecision` = `{action:'stop'}` or `{action:'continue', reason?}` (a `continue` `reason` is recorded as next-step steering in the same turn — the typed `/goal` pattern). Force-continue `/loop`, force-stop budget guard.
 

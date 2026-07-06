@@ -23,7 +23,7 @@ Raw stream chunk — token-level replay fidelity.
 
 Types: [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:237`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:298`](../../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -35,7 +35,7 @@ Assembled assistant message for one step (derived history uses this). Carries th
 
 Types: [ContentBlock](../core-data-structures/core.md) · [TokenUsage](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:244`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:305`](../../packages/core/session/src/types.ts)
 
 ### `compact/*`
 
@@ -47,7 +47,7 @@ Marks the end of a compaction — log-only, releases the lock. `error` set if su
 'compact/end': { turn: number; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:37`](../../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:46`](../../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
@@ -64,7 +64,7 @@ Source: [`packages/compact/compact/src/types.ts:23`](../../packages/compact/comp
 Provenance record of a completed summarization — log-only, no surfaceOp. The summary content is in `data.summary`; the actual surface replacement is performed by a subsequent `user/message` event that shadows the compacted range.
 
 ```ts persistence-catalog
-'compact/summary': { summary: ContentBlock[]; shadowedRange: { start: number; end: number }; shadowedSeqs: number[]; shadowedTokenCount: number }
+'compact/summary': { summary: ContentBlock[]; shadowedRange: { start: number; end: number }; shadowedSeqs: number[]; shadowedTokenCount: number; model: string; maxTokens?: number }
 ```
 
 Types: [ContentBlock](../core-data-structures/core.md)
@@ -83,7 +83,7 @@ In-session context injection (file-change notices, subdir AGENTS.md, skill conte
 
 Types: [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:235`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:296`](../../packages/core/session/src/types.ts)
 
 ### `hook/*`
 
@@ -119,7 +119,29 @@ A queued prompt an `agent/prompt-submit` listener VETOED — the durable record 
 
 Types: [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:229`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:290`](../../packages/core/session/src/types.ts)
+
+### `request/*`
+
+#### `request/header` — log-only
+
+Full snapshot of the EpochHeader the NEXT request is built under, with the RequestHeaderReason it was recorded whole. Appended by the loop inside the step, before dispatch, on a loop instance's first request-building step (`'initial'`/`'resume'`) or when a delta failed its round-trip guard (`'fallback'`); always records what the request actually used, post-`agent/request`. Anchors the header fold: reconstruction reads the latest snapshot and applies the deltas after it. NOT a SurfaceEventType: it produces no LLM message — it is the request envelope, logged so every request is a pure function of the session log (the reconstructability RFC).
+
+```ts persistence-catalog
+'request/header': { header: EpochHeader; reason: RequestHeaderReason }
+```
+
+Source: [`packages/core/session/src/types.ts:350`](../../packages/core/session/src/types.ts)
+
+#### `request/header-delta` — log-only
+
+Amendment to the folded EpochHeader: at least one of a SystemDelta, a ToolsDelta, or a whole replacement LlmCallConfig (four scalars — not worth diffing). Appended by the loop inside the step, before dispatch, when the header for this request differs from the fold of the log so far; the writer verifies `applyHeaderDelta(previous, delta)` reproduces the new header exactly and falls back to a `'fallback'` `request/header` snapshot when it cannot, so a logged delta ALWAYS round-trips. NOT a SurfaceEventType.
+
+```ts persistence-catalog
+'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig }
+```
+
+Source: [`packages/core/session/src/types.ts:361`](../../packages/core/session/src/types.ts)
 
 ### `steering/*`
 
@@ -133,7 +155,7 @@ Steering content injected between steps of a running turn.
 
 Types: [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:262`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:323`](../../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -145,7 +167,7 @@ Closes step `step` of turn `turn`.
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:216`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:277`](../../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -155,7 +177,7 @@ Opens step `step` of turn `turn` — one model call plus the tool executions it 
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:214`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:275`](../../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
@@ -171,7 +193,7 @@ NOT a SurfaceEventType: it produces no LLM message and never reaches `deriveMess
 
 Types: [TodoItem](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:276`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:337`](../../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -185,7 +207,7 @@ The model requested one tool invocation: `name` with the raw `arguments` JSON st
 
 Types: [CallId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:250`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:311`](../../packages/core/session/src/types.ts)
 
 #### `tool/result` — surface
 
@@ -197,7 +219,7 @@ A completed tool call's model-facing result, plus an optional tool-private `meta
 
 Types: [CallId](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:260`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:321`](../../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -211,7 +233,7 @@ Closes turn `turn` with the TurnEndReason that ended it. The loop fires the awai
 
 Types: [TurnEndReason](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:212`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:273`](../../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -223,7 +245,7 @@ Opens turn `turn`. `trigger` records what started it — a drained message batch
 
 Types: [TurnTrigger](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:206`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:267`](../../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -237,4 +259,4 @@ A user-visible prompt (queued message drained at turn start).
 
 Types: [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:218`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:279`](../../packages/core/session/src/types.ts)

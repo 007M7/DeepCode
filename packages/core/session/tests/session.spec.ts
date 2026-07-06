@@ -78,19 +78,25 @@ describe('Session', () => {
     }, { surfaceOp: 'append' })
     const before = structuredClone(session.events)
 
-    // A request middleware / adapter mutates the messages it was handed.
+    // A misbehaving consumer tries to mutate the messages it was handed.
+    // Derived messages are frozen shared projections (cloned once off the
+    // log, then deep-frozen): every mutation attempt THROWS in strict mode —
+    // isolation by unrepresentability, not by per-call cloning.
     const messages = session.deriveMessages()
     const userBlock = messages[0]!.content[0]!
-    if (userBlock.type === 'text') userBlock.text = 'HACKED'
+    expect(() => { if (userBlock.type === 'text') userBlock.text = 'HACKED' }).toThrow(TypeError)
     const toolBlock = messages[1]!.content[0]!
-    if (toolBlock.type === 'tool-result') {
-      toolBlock.content.push({ type: 'text', text: 'injected' })
-    }
-    messages[0]!.content.push({ type: 'text', text: 'extra' })
+    expect(() => {
+      if (toolBlock.type === 'tool-result') toolBlock.content.push({ type: 'text', text: 'injected' })
+    }).toThrow(TypeError)
+    expect(() => { messages[0]!.content.push({ type: 'text', text: 'extra' }) }).toThrow(TypeError)
+    // The returned ARRAY is the caller's own snapshot, though — reordering it
+    // is the caller's business and never reaches the cache or the log.
+    messages.reverse()
 
     // The log is unchanged: deep-equal to the snapshot taken before mutation.
     expect(session.events).toEqual(before)
-    // And a fresh derivation still reflects the original content.
+    // And a fresh derivation still reflects the original content and order.
     expect(session.deriveMessages()[0]!.content).toEqual([{ type: 'text', text: 'original' }])
   })
 

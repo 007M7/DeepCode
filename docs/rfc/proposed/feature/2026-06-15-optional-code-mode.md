@@ -2,6 +2,8 @@
 
 Status: proposed
 
+> Premise partially stale: this proposal predates [request reconstructability](../../implemented/architecture/2026-07-05-reconstructable-requests.md) — `agent/request` now shapes call config only (no request/content mutation), so the interception points named below need re-mapping onto the log channels and `system-prompt/assemble` before implementation.
+
 ## Problem
 
 Today the agent loop advertises every registered tool to the model as a native JSON-schema function definition. `ToolRegistry` feeds its schemas into `ctx.systemPrompt`, the loop puts them on `GenerateOptions.tools`, and the adapter serializes them to the provider's function-calling wire format. The model then invokes one `tool-call` block per step, the loop dispatches each call through `ctx.tools.execute()` **sequentially** (parallel tool execution is an explicit open TODO in `dsh-tools` and [docs/architecture.md](../../../architecture.md)), and **every** intermediate `tool-result` re-enters the model's context on the next request.
