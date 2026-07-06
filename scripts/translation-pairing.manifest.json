@@ -9,6 +9,7 @@
   "excluded": [
     "docs/AGENTS.md",
     "docs/module-graph.md",
+    "docs/config-catalog.md",
     "docs/cordis-catalog/",
     "docs/tool-catalog/",
     "docs/persistence-catalog/",
