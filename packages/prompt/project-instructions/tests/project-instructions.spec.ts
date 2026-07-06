@@ -719,6 +719,29 @@ describe('project instruction request injection', () => {
     }
   })
 
+  it('does not duplicate markerless baseline workspace context on later pre-step checks', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      const ctx = new Context()
+      await mountProjectInstructions(ctx, { dshHome: home, baselineMaxBytes: 10 })
+      const agent = stubAgent(root)
+
+      await runBaselinePreStep(ctx, agent)
+      await runBaselinePreStep(ctx, agent)
+
+      const messages = agent.session.events.filter(event => event.type === 'context/message')
+      expect(messages).toHaveLength(1)
+      expect(blocksText(messages[0]?.type === 'context/message' ? messages[0].data.content : undefined))
+        .not.toContain('project-instruction-files:path=')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('loads instruction file content through ctx.fs instead of direct node reads', async () => {
     const root = await tempRepo()
     const home = await tempRepo()

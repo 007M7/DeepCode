@@ -526,19 +526,25 @@ function instructionDisplayPathsFromContextContent(content: readonly { type: str
   return paths
 }
 
-function visibleInstructionDisplayPaths(agent: Agent): { visible: Set<string>; logged: Set<string> } {
+function visibleInstructionDisplayPaths(agent: Agent): { visible: Set<string>; logged: Set<string>; visibleTexts: Set<string> } {
   const visibleSeqs = new Set(agent.session.surface.nodes.map(node => node.seq))
   const visible = new Set<string>()
   const logged = new Set<string>()
+  const visibleTexts = new Set<string>()
   for (const [seq, event] of agent.session.events.entries()) {
     if (event.type !== 'context/message' || !isProjectInstructionContextSource(event.data.source)) continue
+    if (visibleSeqs.has(seq)) {
+      for (const block of event.data.content) {
+        if (block.type === 'text') visibleTexts.add(block.text)
+      }
+    }
     const displayPaths = instructionDisplayPathsFromContextContent(event.data.content)
     for (const displayPath of displayPaths) {
       logged.add(displayPath)
       if (visibleSeqs.has(seq)) visible.add(displayPath)
     }
   }
-  return { visible, logged }
+  return { visible, logged, visibleTexts }
 }
 
 function loadedNestedInstructionDisplayPaths(agent: Agent, pendingDisplayPaths: Set<string>): Set<string> {
@@ -606,9 +612,10 @@ export function apply(ctx: Context, config: Config): void {
       cache,
     }, fileSystem)
     if (instructions === undefined) return
-    const visibleDisplayPaths = visibleInstructionDisplayPaths(agent).visible
+    const visibleInstructions = visibleInstructionDisplayPaths(agent)
     const baselineDisplayPaths = instructionDisplayPathsFromText(instructions.text)
-    if (baselineDisplayPaths.length > 0 && baselineDisplayPaths.every(path => visibleDisplayPaths.has(path))) return
+    if (baselineDisplayPaths.length > 0 && baselineDisplayPaths.every(path => visibleInstructions.visible.has(path))) return
+    if (baselineDisplayPaths.length === 0 && visibleInstructions.visibleTexts.has(instructions.text)) return
     agent.inject(workspaceContextHook(instructions.text).content, { source: PLUGIN_SOURCE })
   })
   ctx.on('tools/post-execute', async (exec: ToolExecution, result: ToolExecutionResult, next): Promise<PostToolDecision> => {
