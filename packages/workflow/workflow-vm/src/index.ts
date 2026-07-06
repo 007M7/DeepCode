@@ -7,9 +7,12 @@
  * TRUST PREMISE: scripts are MODEL-WRITTEN — the same trust level as the
  * model's existing bash access — so this engine defends against BUGGY
  * scripts, never hostile ones. vm is NOT a security boundary and no attempt
- * is made to contain adversarial values (see ./realm.ts); genuine sandboxing
- * is an engine swap behind the seam (worker-thread/isolated-vm), not
- * incremental host-side defenses here.
+ * is made to contain adversarial values (see ./realm.ts); the context is
+ * escapable by construction (the host `Function` constructor is reachable via
+ * `globalThis.constructor.constructor`, and `process` from there), so the
+ * absent globals are API surface, not containment. Genuine sandboxing is an
+ * engine swap behind the seam (worker-thread/isolated-vm), not incremental
+ * host-side defenses here.
  *
  * Engine limitations, documented as the accepted cost of the in-process
  * mechanism:

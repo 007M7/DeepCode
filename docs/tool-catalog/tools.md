@@ -293,7 +293,7 @@ Script-body hooks:
 
 Misused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) throw errors that ALWAYS kill the script — they never dissolve into a per-item `null`.
 
-Constraints: concurrency and total-agent caps apply; `Date.now()`, `Math.random()`, and argless `new Date()` throw (pass timestamps via `args`); no filesystem, network, timers, or Node.js APIs — the agents do the work, the script only coordinates them. The run executes in the foreground: this call returns when the whole script finishes.
+Constraints: concurrency and total-agent caps apply; `Date.now()`, `Math.random()`, and argless `new Date()` throw (pass timestamps via `args`); no filesystem, network, timers, or Node.js APIs are provided — the agents do the work, the script only coordinates them. The run executes in the foreground: this call returns when the whole script finishes.
 
 ```json
 {
