@@ -21,7 +21,8 @@ import { type NormalizeContext, normalizeSessionLog, normalizeStdout, scrubReque
  * `pinsHeader` — and scrubbed to `{{system}}`/`{{tools}}` tokens in every
  * other fixture and compare, so a prompt or tool-schema edit churns one
  * committed line instead of every fixture. A per-run uniformity guard keeps
- * the single pin sound: every live header must equal the pinned one (see the
+ * the single pin sound: every live header must equal the pinned one, and no
+ * header-delta may appear outside the pinning scenario (see the
  * pinned-header RFC,
  * docs/rfc/implemented/testing/2026-07-06-pin-request-header-content-in-one-scenario.md).
  *
@@ -194,6 +195,14 @@ function normalizedHeaders(rawLog: string, ctx: NormalizeContext): unknown[] {
     .map(record => record.data?.header)
 }
 
+/** Count the `request/header-delta` events in a session JSONL. */
+function headerDeltaCount(rawLog: string): number {
+  return rawLog.split('\n')
+    .filter(line => line.trim().length > 0)
+    .filter(line => (JSON.parse(line) as { type?: unknown }).type === 'request/header-delta')
+    .length
+}
+
 for (const scenario of SCENARIOS) {
   describe(`snapshot: ${scenario.name}`, () => {
     // In RECORD mode, only re-run the `recorded` (live-API) scenarios; the
@@ -273,19 +282,25 @@ for (const scenario of SCENARIOS) {
       }
 
       // Header-uniformity guard: the single pin is sound only while every
-      // session in the suite composes the SAME header. Assert it live — every
-      // request/header the run produced (parent, spawn child, fork child,
-      // initial or resume) must equal the pinned fixture's header after each
-      // side is normalized against its own volatile values. If this fails,
-      // either the header changed (update the pin: re-record or hand-edit the
-      // pinning scenario's fixture) or composition became session-dependent
-      // by design (give the divergent shape its own pinning scenario).
+      // session in the suite composes the SAME header and keeps it for the
+      // whole run. Assert both halves live. (1) Every request/header the run
+      // produced (parent, spawn child, fork child, initial or resume) must
+      // equal the pinned fixture's header after each side is normalized
+      // against its own volatile values. (2) No request/header-delta may
+      // appear at all — a mid-run header change diverges from the pin by
+      // construction, and its content would be invisible under the scrub. If
+      // either fails, either the header changed (update the pin: re-record or
+      // hand-edit the pinning scenario's fixture) or composition became
+      // session-dependent by design (give the divergent shape its own
+      // pinning scenario).
       if (scenario.pinsHeader !== true) {
         const pinnedFixture = await readFile(join(SNAPSHOTS_DIR, pinningScenario.name, 'session.jsonl'), 'utf8')
         const pinned = normalizedHeaders(pinnedFixture, fixtureContext(pinnedFixture))
         expect(pinned.length, `the pinning fixture (${pinningScenario.name}) must carry exactly one request/header`)
           .toBe(1)
         for (const log of result.sessionLogs) {
+          expect(headerDeltaCount(log.content), `session ${log.id}: a request/header-delta in a non-pinning scenario`)
+            .toBe(0)
           const headers = normalizedHeaders(log.content, ctx)
           for (const [k, header] of headers.entries()) {
             expect(header, `session ${log.id}: request/header #${k + 1} diverged from the pinned (${pinningScenario.name}) header`)

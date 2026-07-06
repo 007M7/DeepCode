@@ -135,13 +135,14 @@ describe('scrubRequestHeaders', () => {
     expect(out).not.toContain('{{tools}}')
   })
 
-  it('scrubs a header-delta system payload but keeps its line positions', () => {
+  it('scrubs a header-delta system payload but keeps its line positions and arity', () => {
     const delta = JSON.stringify({
       type: 'request/header-delta', seq: 8, time: 9,
-      data: { system: { keepStart: 1, keepEnd: 4, insert: ['leaked prompt line'] }, config: { model: 'm2' } },
+      data: { system: { keepStart: 1, keepEnd: 4, insert: ['leaked prompt line', 'second line'] }, config: { model: 'm2' } },
     })
     const out = scrubRequestHeaders(`${headerLine}\n${delta}\n`)
-    expect(out).toContain('"insert":"{{system}}"')
+    // One token PER inserted line: the edit's position AND extent survive.
+    expect(out).toContain('"insert":["{{system}}","{{system}}"]')
     expect(out).toContain('"keepStart":1')
     expect(out).toContain('"keepEnd":4')
     expect(out).toContain('"config":{"model":"m2"}')

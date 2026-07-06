@@ -126,10 +126,11 @@ export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): stri
  * keeping its structure: a `request/header` event's `data.header.system` →
  * `{{system}}` and `data.header.tools` → `{{tools}}`; a
  * `request/header-delta` event keeps every structural fact — the system
- * delta's `keepStart`/`keepEnd` line positions, the tools delta's
- * added/removed/changed tool NAMES — and tokenizes only the bulk (inserted
- * prompt lines → `{{system}}`; each added/changed schema's fields other than
- * `name` → `{{tools}}`), so two different deltas still compare different.
+ * delta's `keepStart`/`keepEnd` line positions and inserted-line COUNT (one
+ * `{{system}}` token per inserted line), the tools delta's
+ * added/removed/changed tool NAMES — and tokenizes only the bulk (prompt
+ * text; each added/changed schema's fields other than `name` → `{{tools}}`),
+ * so two different deltas still compare different.
  * Absent fields stay absent — WHETHER a header carried a system prompt or
  * tools is behavior and stays visible; `config` and `reason` are small and
  * stable, so they stay verbatim (a model swap churns every fixture by design
@@ -159,8 +160,8 @@ export function scrubRequestHeaders(rawLog: string): string {
     if (record.type === 'request/header-delta') {
       let touched = false
       const system = data.system as Record<string, unknown> | null | undefined
-      if (system !== null && typeof system === 'object' && 'insert' in system) {
-        system.insert = SYSTEM
+      if (system !== null && typeof system === 'object' && Array.isArray(system.insert)) {
+        system.insert = system.insert.map(() => SYSTEM)
         touched = true
       }
       const tools = data.tools as Record<string, unknown> | null | undefined
