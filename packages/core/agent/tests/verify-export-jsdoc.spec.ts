@@ -329,10 +329,43 @@ describe('verify-export-jsdoc fail-closed forms (review round 1)', () => {
     ])
   })
 
-  it('skips an export-import alias (the aliased definition owns the doc)', () => {
+  it('requires an export-import alias to document itself (its target may be unwalked)', () => {
     expect(collectExportJsdocViolations(make(
       '/** Holder. */\nexport namespace N {\n  /** The value. */\n  export const x = 1\n}\nexport import y = N.x\n',
+    ))).toEqual([expect.stringMatching(/exported alias 'y' .* has no JSDoc\./)])
+    expect(collectExportJsdocViolations(make(
+      'namespace N {\n  export const x = 1\n}\n/** Alias surfacing the internal counter. */\nexport import y = N.x\n',
     ))).toEqual([])
+  })
+
+  it('classifies wrapped function initializers and default exports (parens, satisfies)', () => {
+    expect(collectExportJsdocViolations(make(
+      'type Fn = (x: number) => number\n/** Wrapped. */\nexport const f = (((x: number): number => x)) satisfies Fn\n',
+    ))).toEqual([
+      expect.stringMatching(/exported const 'f' .* is missing @param x\./),
+      expect.stringMatching(/exported const 'f' .* is missing @returns \(return type: number\)\./),
+    ])
+    expect(collectExportJsdocViolations(make(
+      'type Fn = (x: number) => number\n/** Wrapped. */\nexport default (((x: number): number => x * 2) satisfies Fn)\n',
+    ))).toEqual([
+      expect.stringMatching(/default export .* is missing @param x\./),
+      expect.stringMatching(/default export .* is missing @returns \(return type: number\)\./),
+    ])
+  })
+
+  it('treats a single-call-signature type literal as the surface signature', () => {
+    expect(collectExportJsdocViolations(make(
+      '/** Maps. */\nexport declare const f: { (x: number): number }\n',
+    ))).toEqual([
+      expect.stringMatching(/exported const 'f' .* is missing @param x\./),
+      expect.stringMatching(/exported const 'f' .* is missing @returns \(return type: number\)\./),
+    ])
+  })
+
+  it('refuses a hybrid callable type literal instead of narrowing the check', () => {
+    expect(collectExportJsdocViolations(make(
+      '/** Hybrid. */\nexport declare const f: { (x: number): number; flush: () => void }\n',
+    ))).toEqual([expect.stringMatching(/exported const 'f'.*callable type literal is not gate-classifiable; extract a named type/)])
   })
 
   it('refuses an export-equals assignment instead of failing open', () => {
@@ -392,5 +425,23 @@ export class Impl extends Base {
   load(_cwd: string): number { return 1 }
 }
 `))).toEqual([])
+  })
+
+  it('flags a binding-pattern parameter an override adds beyond the base', () => {
+    expect(collectExportJsdocViolations(make(`
+/** Seam. */
+export abstract class Base {
+  /**
+   * Do it.
+   * @param x - input.
+   * @returns output.
+   */
+  abstract run(x: number): number
+}
+/** Impl. */
+export class Impl extends Base {
+  override run(x: number, { verbose }: { verbose?: boolean } = {}): number { return verbose ? x : -x }
+}
+`))).toEqual([expect.stringMatching(/exported class method 'Impl.run' .* is a binding pattern/)])
   })
 })

@@ -14,16 +14,20 @@
  * - Every exported name needs JSDoc with non-empty description prose (prose
  *   ends at the first block tag, standard JSDoc semantics).
  * - A function-like export (function declaration, a const with a function
- *   initializer or an INLINE function-type annotation, or a non-identifier
+ *   initializer or an INLINE callable annotation, or a non-identifier
  *   function default export) additionally needs a non-empty `@param` per
  *   parameter (`this` receiver annotations exempt; a stale `@param` errors)
  *   and a non-empty `@returns` unless the return type is `void` /
- *   `Promise<void>`. The walk classifies returns syntactically, so the return
- *   type must be ANNOTATED — except a const whose declarator is annotated
- *   with a NAMED type (e.g. `export const f: Handler = …`), where that type's
- *   own declaration owns the signature contract and `@returns` stays
- *   optional; an inline `(x: T) => U` annotation is the surface signature
- *   itself and gets the full contract.
+ *   `Promise<void>`. Wrapper expressions (parentheses, `as` / `satisfies`
+ *   casts, non-null assertions) are peeled before classifying. The walk
+ *   classifies returns syntactically, so the return type must be ANNOTATED —
+ *   except a const whose declarator is annotated with a NAMED type (e.g.
+ *   `export const f: Handler = …`), where that type's own declaration owns
+ *   the signature contract and `@returns` stays optional; an inline
+ *   `(x: T) => U` annotation or single-call-signature literal is the surface
+ *   signature itself and gets the full contract, and a literal mixing
+ *   call/construct signatures with anything else is refused (extract a named
+ *   type).
  * - An exported class needs class-level JSDoc; its public methods (static
  *   included — they are reachable on the exported name) follow the function
  *   contract, and public properties and accessors need description prose (on
@@ -56,10 +60,12 @@
  * - Overload groups: each overload signature carries its own docs; the
  *   implementation signature is exempt (callers never see it).
  * - Skipped: `declare module` / `declare global` augmentation bodies (the
- *   cordis gate's turf; an augmentation is not an export of the package),
- *   re-export statements with a module specifier (`export … from`) and
- *   `export import X = N.member` aliases — the defining module is walked on
- *   its own, and external definitions are not ours to document.
+ *   cordis gate's turf; an augmentation is not an export of the package) and
+ *   re-export statements with a module specifier (`export … from`) — the
+ *   defining module is walked on its own, and external definitions are not
+ *   ours to document. An `export import X = N.member` alias documents
+ *   ITSELF (its target may be a non-exported namespace member no walk
+ *   visits, so a skip would fail open).
  * - Everything else fails CLOSED: `export =` is refused outright, and an
  *   exported statement kind the dispatch does not recognize is itself a
  *   violation, so no export form can pass unchecked by omission.
@@ -113,6 +119,43 @@ function isStatic(member: ts.ClassElement): boolean {
 /** The `this`-receiver exemption every function-like check shares. */
 function thisReceiver(p: ts.ParameterDeclaration): boolean {
   return ts.isIdentifier(p.name) && p.name.text === 'this'
+}
+
+/**
+ * Peel wrapper expressions that carry no surface of their own — parentheses,
+ * `as` / `satisfies` / angle-bracket casts, non-null assertions — so a
+ * wrapped function expression is still classified as function-like.
+ * @param e - the expression to unwrap.
+ * @returns the innermost non-wrapper expression.
+ */
+function unwrapExpression(e: ts.Expression): ts.Expression {
+  let inner = e
+  while (
+    ts.isParenthesizedExpression(inner) || ts.isAsExpression(inner) || ts.isSatisfiesExpression(inner)
+    || ts.isNonNullExpression(inner) || ts.isTypeAssertionExpression(inner)
+  ) inner = inner.expression
+  return inner
+}
+
+/**
+ * Classify a declarator's type annotation for the function contract: an
+ * inline function type or a type literal that is EXACTLY one call signature
+ * is the surface signature itself; a literal mixing call/construct
+ * signatures with anything else cannot be classified syntactically and is
+ * refused (fail closed — extract a named type); everything else is a plain
+ * value shape.
+ * @param type - the declarator's type annotation.
+ * @returns the signature to check, 'refuse' for an unclassifiable callable literal, or null for a non-callable shape.
+ */
+function callableAnnotation(type: ts.TypeNode): ts.SignatureDeclarationBase | 'refuse' | null {
+  if (ts.isFunctionTypeNode(type)) return type
+  if (!ts.isTypeLiteralNode(type)) return null
+  const signatures = type.members.filter(m => ts.isCallSignatureDeclaration(m) || ts.isConstructSignatureDeclaration(m))
+  if (signatures.length === 0) return null
+  if (signatures.length === 1 && type.members.length === 1 && signatures[0] !== undefined && ts.isCallSignatureDeclaration(signatures[0])) {
+    return signatures[0]
+  }
+  return 'refuse'
 }
 
 /**
@@ -242,11 +285,12 @@ function checkClass(cls: ts.ClassDeclaration, name: string, w: Walk): void {
       const where = `exported class method '${name}.${mname}' (${pointer(w.rel, w.sf, m)})`
       if (exemption !== null) {
         // The heritage declaration owns prose and @returns; parameters the
-        // base never names are new surface and keep their @param duty.
+        // base never names — including binding patterns, which no base
+        // declaration can name — are new surface and keep their @param duty.
         const base = exemption.baseParams
         const inBase = (p: ts.ParameterDeclaration): boolean =>
           base !== null && ts.isIdentifier(p.name) && base.has(p.name.text.replace(/^_+/, ''))
-        if (base !== null && m.parameters.some(p => ts.isIdentifier(p.name) && p.name.text !== 'this' && !inBase(p))) {
+        if (base !== null && m.parameters.some(p => !thisReceiver(p) && !inBase(p))) {
           const { params } = parseTags(rawJsDoc(w.text, m))
           checkParams(where, 'export', m.parameters, params, w.sf,
             p => thisReceiver(p) || inBase(p), w.violations)
@@ -316,13 +360,19 @@ function checkDecl(
       const name = ts.isIdentifier(d.name) ? d.name.text : d.name.getText(w.sf)
       if (prefix === '' && PROTOCOL_EXPORTS.has(name)) continue // cordis plugin-protocol slot
       const where = `exported const '${prefix}${name}'${at(d)}`
-      const init = d.initializer
-      if (d.type !== undefined && ts.isFunctionTypeNode(d.type)) {
-        // An INLINE function-type annotation is the surface signature itself:
-        // its parameters and result need docs right here. (A NAMED reference
+      const annotation = d.type !== undefined ? callableAnnotation(d.type) : null
+      const init = d.initializer !== undefined ? unwrapExpression(d.initializer) : undefined
+      if (annotation === 'refuse') {
+        // A literal mixing call/construct signatures with other members (or
+        // overloading them) has no single signature the walk can hold the
+        // tags against — fail closed rather than silently narrow the check.
+        w.violations.push(`${where}: its callable type literal is not gate-classifiable; extract a named type and document it there.`)
+      } else if (annotation !== null) {
+        // An INLINE callable annotation is the surface signature itself: its
+        // parameters and result need docs right here. (A NAMED reference
         // type carries its docs at the type's own declaration instead.)
-        checkFunctionLike(where, raw, d.type.parameters, d.type.type, false, w)
-      } else if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
+        checkFunctionLike(where, raw, annotation.parameters, annotation.type, false, w)
+      } else if (init !== undefined && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
         // A named declarator type annotation (`const f: Handler = …`) hands
         // the return contract to the named type; the arrow's own annotation is
         // still checked when it is the only signature the reader has.
@@ -354,7 +404,11 @@ function checkDecl(
     return
   }
   if (ts.isImportEqualsDeclaration(stmt)) {
-    return // alias re-export (`export import X = N.member`): the aliased definition owns the doc, like `export … from`
+    // An alias (`export import X = N.member`) is a distinct exported name and
+    // its target may be a non-exported namespace member no walk ever visits,
+    // so a blanket skip would fail open — the alias documents itself.
+    checkDescribed(`exported alias '${prefix}${stmt.name.text}'${at(stmt)}`, rawJsDoc(w.text, stmt), w)
+    return
   }
   // Fail CLOSED: an exported statement kind this dispatch does not recognize
   // must never pass silently — the gate's whole promise is that unchecked
@@ -422,11 +476,11 @@ function checkScope(statements: readonly ts.Statement[], prefix: string, w: Walk
         continue
       }
       const where = `default export (${pointer(w.rel, w.sf, stmt)})`
-      if (ts.isIdentifier(stmt.expression)) {
-        for (const decl of byName.get(stmt.expression.text) ?? []) check(decl)
-      } else if (ts.isArrowFunction(stmt.expression) || ts.isFunctionExpression(stmt.expression)) {
-        const fn = stmt.expression
-        checkFunctionLike(where, rawJsDoc(w.text, stmt), fn.parameters, fn.type, false, w)
+      const expr = unwrapExpression(stmt.expression)
+      if (ts.isIdentifier(expr)) {
+        for (const decl of byName.get(expr.text) ?? []) check(decl)
+      } else if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) {
+        checkFunctionLike(where, rawJsDoc(w.text, stmt), expr.parameters, expr.type, false, w)
       } else {
         checkDescribed(where, rawJsDoc(w.text, stmt), w)
       }
