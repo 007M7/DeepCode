@@ -122,16 +122,19 @@ export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): stri
 }
 
 /**
- * Replace request-header CONTENT in a session JSONL with stable tokens: a
- * `request/header` event's `data.header.system` → `{{system}}` and
- * `data.header.tools` → `{{tools}}`, and a `request/header-delta` event's
- * `data.system`/`data.tools` payloads likewise (a delta embeds prompt/schema
- * fragments, so leaving it raw would reopen the churn this scrub closes).
+ * Replace request-header CONTENT in a session JSONL with stable tokens,
+ * keeping its structure: a `request/header` event's `data.header.system` →
+ * `{{system}}` and `data.header.tools` → `{{tools}}`; a
+ * `request/header-delta` event keeps every structural fact — the system
+ * delta's `keepStart`/`keepEnd` line positions, the tools delta's
+ * added/removed/changed tool NAMES — and tokenizes only the bulk (inserted
+ * prompt lines → `{{system}}`; each added/changed schema's fields other than
+ * `name` → `{{tools}}`), so two different deltas still compare different.
  * Absent fields stay absent — WHETHER a header carried a system prompt or
  * tools is behavior and stays visible; `config` and `reason` are small and
- * stable, so they stay verbatim (a model swap SHOULD churn every fixture — it
- * invalidates the recorded responses; a prompt/schema edit does NOT — replay
- * never reads this content, see dsh-llm-replay).
+ * stable, so they stay verbatim (a model swap churns every fixture by design
+ * — it invalidates the recorded responses; a prompt/schema edit churns none —
+ * replay never reads this content, see dsh-llm-replay).
  *
  * Only lines with something to scrub are re-serialized; every other line
  * passes through byte-for-byte, so the transform is idempotent and applying
@@ -154,12 +157,28 @@ export function scrubRequestHeaders(rawLog: string): string {
       return JSON.stringify(record)
     }
     if (record.type === 'request/header-delta') {
-      if (!('system' in data) && !('tools' in data)) return line
-      if ('system' in data) data.system = SYSTEM
-      if ('tools' in data) data.tools = TOOLS
-      return JSON.stringify(record)
+      let touched = false
+      const system = data.system as Record<string, unknown> | null | undefined
+      if (system !== null && typeof system === 'object' && 'insert' in system) {
+        system.insert = SYSTEM
+        touched = true
+      }
+      const tools = data.tools as Record<string, unknown> | null | undefined
+      if (tools !== null && typeof tools === 'object') {
+        if (Array.isArray(tools.added)) { tools.added = tools.added.map(scrubToolSchema); touched = true }
+        if (Array.isArray(tools.changed)) { tools.changed = tools.changed.map(scrubToolSchema); touched = true }
+      }
+      return touched ? JSON.stringify(record) : line
     }
     return line
   })
   return out.join('\n')
+}
+
+/** Tokenize one tool schema's bulk (description, parameters, anything else), keeping its identifying `name`. */
+function scrubToolSchema(tool: unknown): unknown {
+  if (tool === null || typeof tool !== 'object' || Array.isArray(tool)) return tool
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(tool)) out[k] = k === 'name' ? v : TOOLS
+  return out
 }

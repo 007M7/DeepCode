@@ -135,24 +135,50 @@ describe('scrubRequestHeaders', () => {
     expect(out).not.toContain('{{tools}}')
   })
 
-  it('scrubs a request/header-delta system/tools payload', () => {
+  it('scrubs a header-delta system payload but keeps its line positions', () => {
     const delta = JSON.stringify({
       type: 'request/header-delta', seq: 8, time: 9,
-      data: { system: { keepStart: 1, keepEnd: 0, insert: ['leaked prompt line'] }, config: { model: 'm2' } },
+      data: { system: { keepStart: 1, keepEnd: 4, insert: ['leaked prompt line'] }, config: { model: 'm2' } },
     })
     const out = scrubRequestHeaders(`${headerLine}\n${delta}\n`)
-    expect(out).toContain('"system":"{{system}}"')
+    expect(out).toContain('"insert":"{{system}}"')
+    expect(out).toContain('"keepStart":1')
+    expect(out).toContain('"keepEnd":4')
     expect(out).toContain('"config":{"model":"m2"}')
     expect(out).not.toContain('leaked prompt line')
     expect(out).not.toContain('{{tools}}') // no tools delta → none invented
   })
 
+  it('scrubs a header-delta tools payload but keeps the added/removed/changed names', () => {
+    const delta = JSON.stringify({
+      type: 'request/header-delta', seq: 8, time: 9,
+      data: {
+        tools: {
+          added: [{ name: 'grep', description: 'Search files.', parameters: { type: 'object' } }],
+          removed: ['bash_kill'],
+          changed: [{ name: 'read', description: 'Read v2.', parameters: { type: 'object' } }],
+        },
+      },
+    })
+    const out = scrubRequestHeaders(`${headerLine}\n${delta}\n`)
+    // WHICH tools changed is behavior and survives; their bulk does not.
+    expect(out).toContain('"added":[{"name":"grep","description":"{{tools}}","parameters":"{{tools}}"}]')
+    expect(out).toContain('"removed":["bash_kill"]')
+    expect(out).toContain('"changed":[{"name":"read","description":"{{tools}}","parameters":"{{tools}}"}]')
+    expect(out).not.toContain('Search files')
+    expect(out).not.toContain('Read v2')
+  })
+
   it('passes every other line through byte-for-byte and is idempotent', () => {
     const other = JSON.stringify({ type: 'assistant/chunk', seq: 4, time: 9, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'hi' } } })
-    const raw = `${headerLine}\n${headerEvent({ config: { model: 'm' }, system: 's', tools: [] })}\n${other}\n`
+    const delta = JSON.stringify({
+      type: 'request/header-delta', seq: 8, time: 9,
+      data: { system: { keepStart: 0, keepEnd: 0, insert: ['x'] }, tools: { added: [{ name: 't', description: 'd', parameters: {} }], removed: [], changed: [] } },
+    })
+    const raw = `${headerLine}\n${headerEvent({ config: { model: 'm' }, system: 's', tools: [] })}\n${delta}\n${other}\n`
     const once = scrubRequestHeaders(raw)
     expect(once.split('\n')[0]).toBe(headerLine)
-    expect(once.split('\n')[2]).toBe(other)
+    expect(once.split('\n')[3]).toBe(other)
     expect(scrubRequestHeaders(once)).toBe(once)
   })
 })

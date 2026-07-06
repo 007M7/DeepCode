@@ -20,7 +20,9 @@ import { type NormalizeContext, normalizeSessionLog, normalizeStdout, scrubReque
  * `request/header` events) is pinned by exactly ONE scenario — the one with
  * `pinsHeader` — and scrubbed to `{{system}}`/`{{tools}}` tokens in every
  * other fixture and compare, so a prompt or tool-schema edit churns one
- * committed line instead of every fixture (see the pinned-header RFC,
+ * committed line instead of every fixture. A per-run uniformity guard keeps
+ * the single pin sound: every live header must equal the pinned one (see the
+ * pinned-header RFC,
  * docs/rfc/implemented/testing/2026-07-06-pin-request-header-content-in-one-scenario.md).
  *
  * `pnpm run test:snapshot:record` (DSH_SNAPSHOT=record + -u) re-records the
@@ -69,11 +71,13 @@ interface Scenario {
    * scenario pins it; every other scenario stores and compares that content as
    * `{{system}}`/`{{tools}}` tokens ({@link scrubRequestHeaders}), so a system
    * prompt or tool-schema change shows up as ONE committed-fixture diff, not
-   * one per scenario. Today every fixture (parent, spawn child, fork child)
-   * carries the identical prompt-modulo-cwd and identical tools, so one pin
-   * covers the whole suite; if header composition ever becomes
-   * session-dependent (say, a restricted subagent toolset), pin one scenario
-   * per distinct header shape. Defaults to false.
+   * one per scenario. One pin suffices because header composition is
+   * suite-uniform (parent, spawn child, and fork child all compose the same
+   * prompt-modulo-cwd and the same tools) — and that premise is ASSERTED, not
+   * assumed: every non-pinning run's live headers must equal the pinned
+   * fixture's (normalized), so a session-dependent header (say, a restricted
+   * subagent toolset) fails loud until it gets its own pinning scenario.
+   * Defaults to false.
    */
   pinsHeader?: boolean
 }
@@ -143,6 +147,10 @@ const SCENARIOS: Scenario[] = [
   { name: 'hook-codex-stop-continue', hasModelTurn: true, recorded: true },
 ]
 
+/** The single header-pinning scenario. Guarded here (and by a meta-test) so the pin cannot silently vanish. */
+const pinningScenario = SCENARIOS.find(s => s.pinsHeader === true)
+if (pinningScenario === undefined) throw new Error('acp.snapshot: no scenario pins the request-header content')
+
 /** The sibling child-fixture paths for a scenario (`session.1.jsonl` …). */
 function childFixturePaths(dir: string, childSessions: number): string[] {
   return Array.from({ length: childSessions }, (_, i) => join(dir, `session.${i + 1}.jsonl`))
@@ -168,6 +176,22 @@ function fixtureContext(fixture: string): NormalizeContext {
     sessionIds: typeof header.id === 'string' ? [header.id] : [],
     cwd: typeof header.cwd === 'string' ? header.cwd : '\0no-cwd\0',
   }
+}
+
+/**
+ * The `data.header` payload of every `request/header` event in a session
+ * JSONL, in log order, with the log's volatile values scrubbed first
+ * ({@link normalizeSessionLog}) so headers harvested from different runs —
+ * each embedding its own temp cwd in the composed prompt — compare on equal
+ * footing.
+ */
+function normalizedHeaders(rawLog: string, ctx: NormalizeContext): unknown[] {
+  return normalizeSessionLog(rawLog, ctx)
+    .split('\n')
+    .filter(line => line.trim().length > 0)
+    .map(line => JSON.parse(line) as { type?: unknown; data?: { header?: unknown } })
+    .filter(record => record.type === 'request/header')
+    .map(record => record.data?.header)
 }
 
 for (const scenario of SCENARIOS) {
@@ -245,6 +269,28 @@ for (const scenario of SCENARIOS) {
           const fixture = scrub(await readFile(join(dir, fixtureFiles[i] as string), 'utf8'))
           expect(normalizeSessionLog(harvested, ctx), `${fixtureFiles[i]} mismatch`)
             .toEqual(normalizeSessionLog(fixture, fixtureContext(fixture)))
+        }
+      }
+
+      // Header-uniformity guard: the single pin is sound only while every
+      // session in the suite composes the SAME header. Assert it live — every
+      // request/header the run produced (parent, spawn child, fork child,
+      // initial or resume) must equal the pinned fixture's header after each
+      // side is normalized against its own volatile values. If this fails,
+      // either the header changed (update the pin: re-record or hand-edit the
+      // pinning scenario's fixture) or composition became session-dependent
+      // by design (give the divergent shape its own pinning scenario).
+      if (scenario.pinsHeader !== true) {
+        const pinnedFixture = await readFile(join(SNAPSHOTS_DIR, pinningScenario.name, 'session.jsonl'), 'utf8')
+        const pinned = normalizedHeaders(pinnedFixture, fixtureContext(pinnedFixture))
+        expect(pinned.length, `the pinning fixture (${pinningScenario.name}) must carry exactly one request/header`)
+          .toBe(1)
+        for (const log of result.sessionLogs) {
+          const headers = normalizedHeaders(log.content, ctx)
+          for (const [k, header] of headers.entries()) {
+            expect(header, `session ${log.id}: request/header #${k + 1} diverged from the pinned (${pinningScenario.name}) header`)
+              .toEqual(pinned[0])
+          }
         }
       }
     })
