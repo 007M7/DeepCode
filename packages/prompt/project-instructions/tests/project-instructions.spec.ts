@@ -15,6 +15,7 @@ import type {
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
+  FsPathInfo,
   FsTarget,
   FsWriteIntent,
   FsWriteOutcome,
@@ -41,6 +42,7 @@ async function write(path: string, content: string): Promise<void> {
 
 class RecordingFileSystem extends FileSystem {
   entries = new Map<string, { type: FsInfo['type']; content?: string }>()
+  lstatTypes = new Map<string, FsPathInfo['type']>()
   throwOnStat = new Set<string>()
   readTargets: string[] = []
 
@@ -59,6 +61,19 @@ class RecordingFileSystem extends FileSystem {
     }
     if (entry.content !== undefined) info.size = Buffer.byteLength(entry.content, 'utf8')
     return info
+  }
+
+  override async lstat(path: string, opts?: { cwd?: string }): Promise<FsPathInfo | undefined> {
+    const target = await this.resolve(path, opts)
+    const lstatType = this.lstatTypes.get(target.targetKey)
+    if (lstatType !== undefined) return { version: FsVersion(`lstat:${target.targetKey}`), type: lstatType }
+    const info = await this.stat(target)
+    if (info === undefined) return undefined
+    return {
+      version: info.version,
+      type: info.type,
+      ...(info.size !== undefined ? { size: info.size } : {}),
+    }
   }
 
   override async readText(target: FsTarget): Promise<string> {
@@ -243,6 +258,31 @@ describe('project instruction discovery', () => {
 
       expect(files).toEqual([])
       expect(loaded).toBeUndefined()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+      await rm(outside, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects symlinked instruction files through ctx.fs instead of following repository-controlled links', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const outside = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(outside, 'secret.txt'), 'outside secret')
+      await symlink(join(outside, 'secret.txt'), join(root, 'AGENTS.md'))
+      const ctx = new Context()
+      await mountProjectInstructions(ctx, { dshHome: home })
+
+      const request: GenerateOptions = {
+        model: 'mock',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
+      }
+      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+
+      expect(result.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }])
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -757,6 +797,33 @@ describe('project instruction request injection', () => {
       const fs = ctx.fs as RecordingFileSystem
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.entries.set(join(root, 'AGENTS.md'), { type: 'directory' })
+      await ctx.plugin(projectInstructions, { dshHome: home })
+
+      const request: GenerateOptions = {
+        model: 'mock',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }],
+      }
+      const result = await ctx.waterfall('agent/request', stubAgent(root), 1, 1, request, async () => request)
+
+      expect(result.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'actual prompt' }] }])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('skips provider-visible instruction candidates when ctx.fs stat disagrees after no-follow preflight', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'node fs rule')
+      const ctx = new Context()
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'AGENTS.md'), { type: 'directory' })
+      fs.lstatTypes.set(join(root, 'AGENTS.md'), 'file')
       await ctx.plugin(projectInstructions, { dshHome: home })
 
       const request: GenerateOptions = {

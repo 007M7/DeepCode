@@ -20,7 +20,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { chmod, mkdir, open, readFile, realpath, readdir, rename, rm, stat } from 'node:fs/promises'
+import { chmod, lstat, mkdir, open, readFile, realpath, readdir, rename, rm, stat } from 'node:fs/promises'
 import type { Dirent, Stats } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { TextDecoder } from 'node:util'
@@ -111,6 +111,14 @@ export interface PathInfo {
   size: number
 }
 
+/** Result of probing a path without following the final symlink component. */
+export interface PathLinkInfo {
+  version: FsVersion
+  mode: number
+  type: 'file' | 'directory' | 'symlink' | 'other'
+  size: number
+}
+
 /** One local directory child with a resolved target and cheap metadata. */
 export interface LocalDirEntry {
   name: string
@@ -165,19 +173,42 @@ export async function resolveLocalTarget(cwd: string, path: string): Promise<Loc
   }
 }
 
-/** Probe a path for its version, mode, type, and size. Null if absent. */
-export async function probe(absolutePath: string): Promise<PathInfo | null> {
+function pathType(info: Stats): PathInfo['type'] {
+  if (info.isFile()) return 'file'
+  if (info.isDirectory()) return 'directory'
+  return 'other'
+}
+
+function pathLinkType(info: Stats): PathLinkInfo['type'] {
+  if (info.isSymbolicLink()) return 'symlink'
+  return pathType(info)
+}
+
+async function probeStats(absolutePath: string, readStats: (path: string) => Promise<Stats>): Promise<Stats | null> {
   try {
-    const info = await stat(absolutePath)
-    const type = info.isFile() ? 'file' : info.isDirectory() ? 'directory' : 'other'
-    return { version: versionOf(info), mode: info.mode & 0o777, type, size: info.size }
+    return await readStats(absolutePath)
   } catch (error: unknown) {
     // ENOENT (no such file) and ENOTDIR (a parent segment is a file) both mean
-    // the target is absent; any other stat failure is a real permission/IO fault.
-    /* v8 ignore next -- a non-ENOENT/ENOTDIR stat failure needs a permission/IO fault; surface it. */
+    // the target is absent; any other metadata failure is a real permission/IO
+    // fault.
+    /* v8 ignore next -- a non-ENOENT/ENOTDIR metadata failure needs a permission/IO fault; surface it. */
     if (!isENOENT(error) && !isENOTDIR(error)) throw error
     return null
   }
+}
+
+/** Probe a path for its version, mode, type, and size. Null if absent. */
+export async function probe(absolutePath: string): Promise<PathInfo | null> {
+  const info = await probeStats(absolutePath, stat)
+  if (!info) return null
+  return { version: versionOf(info), mode: info.mode & 0o777, type: pathType(info), size: info.size }
+}
+
+/** Probe a path without following the final symlink component. Null if absent. */
+export async function probeNoFollow(absolutePath: string): Promise<PathLinkInfo | null> {
+  const info = await probeStats(absolutePath, lstat)
+  if (!info) return null
+  return { version: versionOf(info), mode: info.mode & 0o777, type: pathLinkType(info), size: info.size }
 }
 
 // --- Directory listing ---

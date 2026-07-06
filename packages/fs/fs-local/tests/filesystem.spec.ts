@@ -92,6 +92,29 @@ describe('stat', () => {
   })
 })
 
+describe('lstat', () => {
+  it('reports path metadata without following the final symlink component', async () => {
+    await writeFile(join(dir, 'real.txt'), 'hello')
+    await symlink(join(dir, 'real.txt'), join(dir, 'link.txt'))
+
+    expect((await fs.lstat('real.txt'))?.type).toBe('file')
+    expect((await fs.lstat('link.txt'))?.type).toBe('symlink')
+    expect(await fs.lstat('missing.txt')).toBeUndefined()
+  })
+
+  it('resolves relative paths against opts.cwd and honors a pre-aborted signal', async () => {
+    const other = await mkdtemp(join(tmpdir(), 'dsh-fs-other-'))
+    try {
+      await writeFile(join(other, 'x.txt'), 'in other')
+      expect((await fs.lstat('x.txt', { cwd: other }))?.type).toBe('file')
+      await expect(fs.lstat('x.txt', { cwd: other }, AbortSignal.abort())).rejects.toMatchObject({ code: 'FS_ABORTED' })
+      await expect(fs.lstat('   ')).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
+    } finally {
+      await rm(other, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('readText / streamText', () => {
   it('reads whole-file text', async () => {
     await writeFile(join(dir, 'a.txt'), 'one\ntwo\nthree')

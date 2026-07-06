@@ -1,6 +1,6 @@
 /**
  * Local-filesystem implementation of the `ctx.fs` provider seam.
- * {@link LocalFileSystem} subclasses {@link FileSystem} and backs the seven
+ * {@link LocalFileSystem} subclasses {@link FileSystem} and backs the eight
  * text-storage primitives with the host filesystem via
  * {@link module:@deepseek-ai/dsh-fs-local/fsio}. Path resolution uses
  * `realpath`, so the stable `targetKey` is the real file identity (two input
@@ -14,6 +14,7 @@
  */
 
 import { Context } from 'cordis'
+import { resolve } from 'node:path'
 import z from 'schemastery'
 import { FileSystem, FsError, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
@@ -21,6 +22,7 @@ import type {
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
+  FsPathInfo,
   FsTarget,
   FsWriteIntent,
   FsWriteOutcome,
@@ -30,6 +32,7 @@ import {
   listDirectory,
   normalizeLineEndings,
   probe,
+  probeNoFollow,
   readForEdit,
   readTextForDiff,
   readWholeText,
@@ -44,6 +47,7 @@ export {
   applyLiteralEdit,
   listDirectory,
   probe,
+  probeNoFollow,
   readForEdit,
   readTextForDiff,
   readWholeText,
@@ -52,7 +56,7 @@ export {
   streamWholeText,
   writeFileAtomic,
 } from './fsio.ts'
-export type { FsIoInternals, LineEndings, LocalDirEntry, LocalTarget, PathInfo } from './fsio.ts'
+export type { FsIoInternals, LineEndings, LocalDirEntry, LocalTarget, PathInfo, PathLinkInfo } from './fsio.ts'
 
 /** Configuration for the local filesystem backend. */
 export interface Config {
@@ -110,6 +114,14 @@ export class LocalFileSystem extends FileSystem {
   override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
     if (signal?.aborted) throw new FsError('stat aborted', 'FS_ABORTED')
     const info = await probe(target.targetKey)
+    if (!info) return undefined
+    return { version: info.version, type: info.type, size: info.size }
+  }
+
+  override async lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined> {
+    if (signal?.aborted) throw new FsError('lstat aborted', 'FS_ABORTED')
+    if (path.trim().length === 0) throw new FsError('file_path must be a non-empty string', 'FS_NOT_FOUND')
+    const info = await probeNoFollow(resolve(opts?.cwd ?? this.config.cwd, path))
     if (!info) return undefined
     return { version: info.version, type: info.type, size: info.size }
   }

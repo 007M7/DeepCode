@@ -18,6 +18,8 @@ The plugin is loaded by `@deepseek-ai/dsh-agent-core` so both product front door
 
 The implementation ships baseline loading plus structured file-tool nested loading. The baseline path is the user-global instruction file plus the ancestor chain from project root to the session cwd. When the real `read`, `write`, or `edit` tools successfully touch a descendant path, the plugin loads newly discovered instruction files between the session cwd and the touched file. It deliberately does not add a generic `contextPaths()` hook or parse arbitrary shell commands; those would add broader path-reporting semantics than this feature needs.
 
+Instruction file reads go through the optional `ctx.fs` provider seam. The plugin calls `ctx.fs.lstat` before `ctx.fs.resolve`, so repository-owned instruction symlinks are skipped rather than followed to another path. This preserves the safety property originally provided by host `lstat` checks while still allowing virtual/sandboxed providers to expose files that do not exist on the host filesystem.
+
 ### File names and precedence
 
 The native file name is `AGENTS.md`. `CLAUDE.md` is a compatibility fallback, not a parallel default. The default per-directory candidate list is `['AGENTS.md', 'CLAUDE.md']`; in any one directory, the plugin loads at most one instruction file by checking that list in order. With defaults, `AGENTS.md` wins; if absent, `CLAUDE.md` may load. This mirrors opencode's conflict-avoidance policy rather than Reasonix's "load everything" policy, because a repo carrying both names is likely in transition and the two files can duplicate or contradict each other.
@@ -123,6 +125,8 @@ Instruction conflicts are unavoidable when users keep multiple configured instru
 Repository instructions are not necessarily trusted. The fenced workspace-context role, lower-authority wording, and refusal to put repo text in the provider system field reduce the risk, but they do not make prompt injection disappear. Future permission/sandbox work should continue to treat repo content as untrusted input.
 
 Filesystem reads can fail between discovery and read. Missing/unreadable files should be skipped with debug logging, not fail the model turn. A disappearing file should not veto the model request.
+
+Repository-controlled symlinks are a trust-boundary risk. Instruction discovery rejects path entries reported as symlinks by the filesystem provider rather than following them into arbitrary external files.
 
 Multi-session isolation is load-bearing. Any implementation that stores the rendered block in a global system-prompt section is wrong for ACP and should be rejected in review.
 

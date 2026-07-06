@@ -154,6 +154,8 @@ async function nodeStatFile(path: string): Promise<FileSignature | undefined> {
 
 async function fsStatFile(path: string, fileSystem: FileSystem): Promise<DiscoveredInstructionFile['signature'] & { target: FsTarget } | undefined> {
   try {
+    const pathInfo = await fileSystem.lstat(path)
+    if (pathInfo?.type !== 'file') return undefined
     const target = await fileSystem.resolve(path)
     const info = await fileSystem.stat(target)
     if (info?.type !== 'file') return undefined

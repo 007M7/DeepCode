@@ -87,12 +87,13 @@ Source: [`packages/compact/compact/src/index.ts:63`](../../packages/compact/comp
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
-Abstract filesystem provider service. Subclass, implement the seven storage primitives, and load the subclass as a plugin — it registers as `ctx.fs` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+Abstract filesystem provider service. Subclass, implement the eight storage primitives, and load the subclass as a plugin — it registers as `ctx.fs` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
 
 Semantics every backend must honor:
 
 - resolve returns a stable FsTarget; the same underlying file reached by different input paths must yield the same `targetKey` so stale guards and target lookup agree across paths (e.g. through symlinks).
 - stat returns FsInfo metadata (never content) or `undefined` when the target is absent.
+- lstat returns path metadata without following the final path component if it is a symlink. Consumers that treat repository-owned symlinks as a trust-boundary hazard use this BEFORE resolve; ordinary target operations still use `resolve` + `stat`.
 - readText/streamText read the whole regular text file (the stream for large files); both own regular-file checks, UTF-8 decoding, binary/NUL rejection, and `FS_NOT_TEXT`.
 - listDir returns direct children of a directory in stable name order with resolved child targets and cheap metadata only. It never reads file contents. Missing targets throw `FS_NOT_FOUND`, non-directories throw `FS_NOT_DIRECTORY`, permission failures throw `FS_PERMISSION_DENIED`, and other backend I/O failures throw `FS_IO_ERROR`.
 - writeText is atomic temp-file + rename. `expected` is OPTIONAL: omit it for an unconditional create-or-overwrite (the bare-provider default), or supply a FsWriteIntent to guard the write.
@@ -101,6 +102,7 @@ Semantics every backend must honor:
 ```ts cordis-catalog
 abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>
 abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>
+abstract lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined>
 abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
 abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
 abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>
@@ -110,7 +112,7 @@ abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: F
 
 Types: [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:172`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:178`](../../packages/fs/fs/src/index.ts)
 
 ## `ctx.llm` — `LlmService`
 

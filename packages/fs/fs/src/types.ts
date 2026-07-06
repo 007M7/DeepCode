@@ -77,6 +77,21 @@ export interface FsInfo {
 }
 
 /**
+ * Metadata about a path without following the final path component when it is a
+ * symbolic link. Unlike {@link FsInfo}, this path-level probe can report
+ * `symlink` so consumers with trust-boundary rules can reject repository-owned
+ * links before resolving a target.
+ */
+export interface FsPathInfo {
+  /** Opaque freshness token of the path entry right now. */
+  version: FsVersion
+  /** Whether the path entry is a regular file, directory, symlink, or other. */
+  type: 'file' | 'directory' | 'symlink' | 'other'
+  /** Byte size of the path entry, when the backend can report it. */
+  size?: number
+}
+
+/**
  * One direct child returned by {@link FileSystem.listDir}. Listing returns
  * metadata and resolved targets only; it must not read file contents.
  */
