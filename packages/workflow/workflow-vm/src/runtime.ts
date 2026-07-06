@@ -17,10 +17,11 @@
  * realm-side until they cross through a hook or the final return.
  *
  * Failure discipline: fatal {@link WorkflowError}s (bad hook arguments,
- * unsupported options/schemas, tripped caps, seam start failures,
- * cancellation) ALWAYS propagate through `parallel`/`pipeline` — recognized
- * by host `instanceof`, which a script cannot forge — and the per-item `null`
- * is reserved for child-run failures and ordinary in-stage script errors.
+ * unsupported options/schemas, tripped caps, seam start failures and result
+ * rejections, cancellation) ALWAYS propagate through `parallel`/`pipeline` —
+ * recognized by host `instanceof`, which a script cannot forge — and the
+ * per-item `null` is reserved for child-run failures and ordinary in-stage
+ * script errors.
  * Every hook-returned promise gets a no-op rejection consumer attached, so a
  * script that drops a promise (fires an `agent()` without awaiting it) cannot
  * surface an unhandled rejection when cancellation rejects it — the app boot
@@ -207,6 +208,17 @@ export class WorkflowExecution {
   }
 
   /**
+   * Shared hook entry guard: after {@link cancel}, EVERY hook throws
+   * `CANCELLED` at its next call — cancellation is the next HOOK boundary,
+   * not just the next `agent()`, so a script that caught one cancelled
+   * rejection cannot keep emitting progress through `phase`/`log` or enter a
+   * combinator.
+   */
+  private throwIfCancelled(): void {
+    if (this.isCancelled()) throw this.cancelledError()
+  }
+
+  /**
    * Cancel the run: children abort (the shared signal), waiting `agent()`
    * slots reject, and every future hook call throws `CANCELLED` — the script
    * dies at its next await. A script that STILL has not settled after
@@ -358,7 +370,7 @@ export class WorkflowExecution {
 
   /** The `agent(prompt, opts)` hook. */
   private async agent(rawPrompt: unknown, rawOpts: unknown): Promise<unknown> {
-    if (this.isCancelled()) throw this.cancelledError()
+    this.throwIfCancelled()
     if (typeof rawPrompt !== 'string' || rawPrompt.length === 0) {
       throw new WorkflowError('agent() requires a non-empty prompt string', 'INVALID_ARGUMENT')
     }
@@ -381,7 +393,7 @@ export class WorkflowExecution {
       // after its release — a cancel() landing in either window must not
       // start a child (it would carry an ALREADY-aborted signal, which a
       // provider subscribing only to future abort events would never see).
-      if (this.isCancelled()) throw this.cancelledError()
+      this.throwIfCancelled()
       let run
       try {
         run = this.ctx.subagents.start(this.limits.provider, {
@@ -396,8 +408,30 @@ export class WorkflowExecution {
       }
       const info: WorkflowAgentInfo = { seq, label, ...phase !== undefined ? { phase } : {}, childId: run.id }
       this.observer.agentStart(info)
+      // Cancellation bridges to run.cancel() as well as the request signal:
+      // the seam leaves a provider free to honor either channel, so the
+      // consumer must drive both. The signal cannot be aborted yet (the block
+      // since the post-acquire check is synchronous), so the listener always
+      // arms; `once` plus the finally removal keep it leak-free.
+      const onAbort = (): void => { run.cancel(this.cancelReason) }
+      this.controller.signal.addEventListener('abort', onAbort, { once: true })
       try {
-        const result = await run.result
+        let result
+        try {
+          result = await run.result
+        } catch (error: unknown) {
+          // The seam allows `result` to reject for an INFRASTRUCTURE fault —
+          // distinct from a child that failed and resolved. Pair the
+          // lifecycle before propagating, and propagate FATAL: an ordinary
+          // throw would dissolve to a per-item null inside the combinators,
+          // and a broken provider must not read as a failed child.
+          if (this.isCancelled()) {
+            this.observer.agentEnd({ ...info, outcome: 'cancelled' })
+            throw this.cancelledError()
+          }
+          this.observer.agentEnd({ ...info, outcome: 'failed' })
+          throw new WorkflowError(`child agent run failed: ${renderThrown(error)}`, 'AGENT_RESULT', { cause: error })
+        }
         if (result.stopReason === 'completed') {
           if (opts.schema !== undefined) {
             // The provider honored outputSchema (capability-gated at start), so
@@ -421,6 +455,7 @@ export class WorkflowExecution {
         this.observer.agentEnd({ ...info, outcome: 'failed' })
         return null
       } finally {
+        this.controller.signal.removeEventListener('abort', onAbort)
         await run.dispose()
       }
     } finally {
@@ -476,6 +511,7 @@ export class WorkflowExecution {
 
   /** The `parallel(thunks)` hook: each thunk caught → `null`; fatal errors propagate. */
   private async parallel(rawThunks: unknown): Promise<unknown[]> {
+    this.throwIfCancelled()
     if (!Array.isArray(rawThunks)) {
       throw new WorkflowError('parallel() requires an array of zero-argument functions', 'INVALID_ARGUMENT')
     }
@@ -501,6 +537,7 @@ export class WorkflowExecution {
 
   /** The `pipeline(items, ...stages)` hook: per-item stage chains, NO cross-stage barrier. */
   private async pipeline(rawItems: unknown, rawStages: unknown[]): Promise<unknown[]> {
+    this.throwIfCancelled()
     if (!Array.isArray(rawItems)) {
       throw new WorkflowError('pipeline() requires an items array', 'INVALID_ARGUMENT')
     }
@@ -542,6 +579,7 @@ export class WorkflowExecution {
 
   /** The `phase(title)` hook: sets the current label for subsequent `agent()` calls and notifies observers. */
   private phase(title: unknown): void {
+    this.throwIfCancelled()
     if (typeof title !== 'string' || title.length === 0) {
       throw new WorkflowError('phase() requires a non-empty title string', 'INVALID_ARGUMENT')
     }
@@ -551,6 +589,7 @@ export class WorkflowExecution {
 
   /** The `log(message)` hook: narration to observers. */
   private log(message: unknown): void {
+    this.throwIfCancelled()
     if (typeof message !== 'string') {
       throw new WorkflowError('log() requires a message string', 'INVALID_ARGUMENT')
     }

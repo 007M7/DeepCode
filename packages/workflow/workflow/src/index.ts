@@ -127,6 +127,9 @@ export type WorkflowEventName =
  *   subset (see dsh-tools).
  * - `AGENT_CAP` / `ITEM_CAP` — the run/agent caps tripped.
  * - `AGENT_START` — the subagent seam refused to start a child.
+ * - `AGENT_RESULT` — a child's `result` REJECTED: an infrastructure fault at
+ *   the subagent seam, distinct from a child that failed and resolved (which
+ *   is the per-item `null`, never an error).
  * - `RESULT_UNSERIALIZABLE` — a value crossing the script/host value boundary
  *   is not plain JSON data.
  * - `CANCELLED` — the run was cancelled; pending and future hooks reject
@@ -141,6 +144,7 @@ export type WorkflowErrorCode =
   | 'AGENT_CAP'
   | 'ITEM_CAP'
   | 'AGENT_START'
+  | 'AGENT_RESULT'
   | 'RESULT_UNSERIALIZABLE'
   | 'CANCELLED'
 

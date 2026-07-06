@@ -459,7 +459,7 @@ describe('dsh-workflow-vm', () => {
       expect((result.value as { message: string }).message).toContain('"bogus" is not recognized')
     })
 
-    it('a non-WorkflowError host failure (a rejecting provider result) reaches the script raw', async () => {
+    it('a rejecting provider result is an infrastructure fault: fatal AGENT_RESULT, agent-end paired, no combinator dissolve', async () => {
       const ctx = new Context()
       await ctx.plugin(SubagentService)
       const provider: SubagentProvider = {
@@ -475,11 +475,22 @@ describe('dsh-workflow-vm', () => {
       }
       ctx.subagents.registerProvider(provider)
       await ctx.plugin(VmWorkflowEngine, { provider: 'rejecting' })
-      const result = await run(ctx, fakeParent(), script(`
-        try { await agent('p'); return 'unreachable' } catch (e) { return { name: e.name, message: e.message } }
+      const ends: unknown[] = []
+      ctx.on('workflow/agent-end', (_info, agent) => { ends.push(agent) })
+      // Direct await: the script reads the typed fields (a host object, so
+      // realm instanceof is false — same as every hook failure).
+      const direct = await run(ctx, fakeParent(), script(`
+        try { await agent('p'); return 'unreachable' } catch (e) { return { name: e.name, code: e.code, fatal: e.fatal, message: e.message } }
       `))
-      expect(result.value).toMatchObject({ name: 'Error' })
-      expect((result.value as { message: string }).message).toContain('backend exploded')
+      expect(direct.value).toMatchObject({ name: 'WorkflowError', code: 'AGENT_RESULT', fatal: true })
+      expect((direct.value as { message: string }).message).toContain('backend exploded')
+      // The child's lifecycle stays paired even though result never resolved.
+      expect(ends).toEqual([expect.objectContaining({ seq: 1, outcome: 'failed' })])
+      // Through a combinator the fault PROPAGATES (fatal) — a broken provider
+      // must not dissolve into the per-item null and read as a failed child.
+      const throughParallel = await run(ctx, fakeParent(), script("return await parallel([() => agent('p')])"))
+      expect(throughParallel.stopReason).toBe('error')
+      expect(throughParallel.error).toContain('backend exploded')
     })
 
     it('phase()/log() throw host WorkflowErrors synchronously on misuse', async () => {
@@ -539,6 +550,87 @@ describe('dsh-workflow-vm', () => {
       expect(result.stopReason).toBe('cancelled')
       expect(result.error).toContain('user stopped it')
       expect(provider.runs[0]!.disposed).toBe(true)
+      await handle.dispose()
+    })
+
+    it('cancellation bridges to run.cancel() on every in-flight child, not just the request signal', async () => {
+      const { ctx, parent, provider } = await setup({ manual: true })
+      const handle = ctx.workflows.start({
+        script: script("return await parallel([() => agent('a'), () => agent('b')])"),
+        parent,
+      })
+      await vi.waitFor(() => { expect(provider.runs.length).toBe(2) })
+      handle.cancel('bridged')
+      expect((await handle.result).stopReason).toBe('cancelled')
+      // The seam leaves a provider free to honor run.cancel() rather than the
+      // request signal, so the engine must drive BOTH channels per child.
+      expect(provider.runs.map(r => r.cancelled)).toEqual(['bridged', 'bridged'])
+      await handle.dispose()
+    })
+
+    it('a provider whose result REJECTS on abort still gets a paired cancelled agent-end, and the run reports cancelled', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SubagentService)
+      // The seam allows result to reject for infrastructure faults; a backend
+      // that tears down uncleanly on abort exercises the rejection path WHILE
+      // the run is cancelled — which must stay a cancellation, not AGENT_RESULT.
+      const provider: SubagentProvider = {
+        name: 'reject-on-abort',
+        capabilities: { outputSchema: true, depthLimit: true, toolFilter: true },
+        inheritsParentContext: false,
+        start: request => ({
+          id: AgentId('crashing-child'),
+          result: new Promise((_, reject) => {
+            request.signal?.addEventListener('abort', () => { reject(new Error('backend crashed on abort')) }, { once: true })
+          }),
+          cancel: () => { /* the signal listener above is the teardown */ },
+          dispose: () => Promise.resolve(),
+        }),
+      }
+      ctx.subagents.registerProvider(provider)
+      await ctx.plugin(VmWorkflowEngine, { provider: 'reject-on-abort' })
+      const starts: unknown[] = []
+      const ends: unknown[] = []
+      ctx.on('workflow/agent-start', (_info, agent) => { starts.push(agent) })
+      ctx.on('workflow/agent-end', (_info, agent) => { ends.push(agent) })
+      const handle = ctx.workflows.start({ script: script("return await agent('doomed')"), parent: fakeParent() })
+      await vi.waitFor(() => { expect(starts.length).toBe(1) })
+      handle.cancel('user aborted')
+      const result = await handle.result
+      expect(result.stopReason).toBe('cancelled')
+      expect(result.error).toContain('user aborted')
+      expect(ends).toEqual([expect.objectContaining({ seq: 1, outcome: 'cancelled' })])
+      await handle.dispose()
+    })
+
+    it('after cancellation EVERY hook throws at entry — phase/log/parallel/pipeline, not just agent()', async () => {
+      const { ctx, parent, provider } = await setup({ manual: true })
+      let cancelled = false
+      const postCancel: string[] = []
+      ctx.on('workflow/phase', (_info, title) => { if (cancelled) postCancel.push(`phase:${title}`) })
+      ctx.on('workflow/log', (_info, message) => { if (cancelled) postCancel.push(`log:${message}`) })
+      const handle = ctx.workflows.start({
+        // The script survives each throw by catching, so every guarded hook is
+        // actually ATTEMPTED after the cancel; the run still reports cancelled.
+        script: script(`
+          phase('before')
+          try { await agent('x') } catch (e) {}
+          try { phase('after') } catch (e) {}
+          try { log('after') } catch (e) {}
+          try { await parallel([() => 'ran']) } catch (e) {}
+          try { await pipeline(['item'], p => p) } catch (e) {}
+          return 'survived by catching'
+        `),
+        parent,
+      })
+      await vi.waitFor(() => { expect(provider.runs.length).toBe(1) })
+      cancelled = true
+      handle.cancel('stop everything')
+      const result = await handle.result
+      expect(result.stopReason).toBe('cancelled')
+      // No post-cancel progress ever reached observers, and no child started.
+      expect(postCancel).toEqual([])
+      expect(provider.runs.length).toBe(1)
       await handle.dispose()
     })
 
