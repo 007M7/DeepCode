@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from 'cordis'
@@ -61,6 +61,15 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   })
 }
 function events(agent: ReactLoopAgent): SessionEvent[] { return [...agent.session.events] }
+
+/** Poll `predicate` until true or the deadline passes (detached hook effects can't be awaited directly). */
+async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10): Promise<void> {
+  const deadline = Date.now() + timeout
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error('waitFor: condition not met before deadline')
+    await new Promise(r => setTimeout(r, interval))
+  }
+}
 
 describe('hooks-codex bridge', () => {
   it('a PreToolUse hook (exit 2) denies a tool the regex matcher matches as a substring', async () => {
@@ -157,6 +166,43 @@ describe('hooks-codex bridge', () => {
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1) // not blocked → the listener is gone
     expect(events(agent).some(e => e.type === 'hook/invoked')).toBe(false) // no hook ran
+  })
+
+  it('disposing the bridge aborts a still-running SessionStart hook and drains to quiescence', async () => {
+    const dir = configDir()
+    const pidFile = join(dir, 'pid')
+    const marker = join(dir, 'started')
+    // Record the hook shell's PID and touch the marker FIRST so the test can
+    // tell "the hook is genuinely mid-run", then sleep far past the suite
+    // timeout. Dispose must KILL the process (the tracker's abort signal wired
+    // through this bridge's runPoint), not await its exit.
+    const slow = script(dir, 'slow.sh', `#!/usr/bin/env bash\necho $$ > "${pidFile}"\ntouch "${marker}"\nsleep 30\n`)
+    writeHooks(dir, { SessionStart: [{ hooks: [{ type: 'command', command: slow }] }] })
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
+    const fiber = await ctx.plugin(HooksCodex, { configPath: join(dir, 'hooks.json'), model: 'm' })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([]))
+    const warn = vi.fn()
+    ctx.logger.warn = warn as never
+    ctx.agentLoop.create(AgentId('a1'), { model: 'mock' }) // fires agent/session-start
+    await waitFor(() => existsSync(marker))
+    const pid = Number(readFileSync(pidFile, 'utf8').trim())
+    await fiber.dispose()
+    // Quiescence, not just promptness: the drain resolves only after the run
+    // settled, and the run settles only after the killed process was reaped —
+    // so by the time dispose returns, the PID must be GONE (kill(pid, 0)
+    // throws ESRCH). An untracked fire-and-forget regression would leave the
+    // process alive (or unreaped) and fail this deterministically.
+    expect(() => process.kill(pid, 0)).toThrow()
+    // The aborted run resolves as a non-blocking error (runHook never rejects),
+    // so the drained continuation must NOT have logged a failure.
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('SessionStart hook failed'))
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/inject/apply', () => {

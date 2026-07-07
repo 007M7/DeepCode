@@ -48,6 +48,8 @@ The hooks themselves run in the agent's session workspace: for the agent-scoped 
 
 A tool call's payload carries the real `tool_name` (the same value the matcher tests) and Codex's `tool_input: { command }` shape (the `command` arg when present, else `''`). The matcher subject is the tool name (`PreToolUse`/`PostToolUse`) or the session source (`SessionStart`); `UserPromptSubmit`/`Stop` ignore matchers.
 
+`SessionStart` — the one emit point — runs detached; each run chain is tracked, and disposing the bridge aborts a still-running hook process, then drains the continuation before the dispose resolves (`createDetachedRuns` in `dsh-hook-protocol`).
+
 ## Context source
 
 Injected context carries an explicit `{ kind: 'plugin', plugin: 'hooks-codex' }` source (`agent.inject()` would otherwise default it to `{ kind: 'user' }`).
