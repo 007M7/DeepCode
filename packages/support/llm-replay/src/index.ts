@@ -12,7 +12,11 @@
  * `(turn, step)` reconstructs each `stream()` call's chunk sequence (one model
  * call per loop step — see packages/core/agent-loop/src/loop.ts). Recording is
  * therefore "run the real agent once and harvest the `.jsonl`", done by the
- * snapshot harness — this plugin does not record.
+ * snapshot harness — this plugin does not record. A fixture may carry its
+ * `request/header` content tokenized to `{{system}}`/`{{tools}}` (the harness
+ * pins that content in one scenario and scrubs the rest); replay is
+ * indifferent — derivation reads ONLY `assistant/chunk` events and the line-0
+ * session header.
  *
  * A NESTED-agent scenario records more than one log: the parent plus one per
  * in-process subagent (each subagent runs as its own {@link Session} on the same

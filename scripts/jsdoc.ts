@@ -1,12 +1,14 @@
 /**
  * Shared JSDoc parsing and completeness-check helpers for the documentation
  * gates: the cordis catalog generator (`scripts/gen-cordis-catalog.ts` — the
- * events + `ctx.<key>` service surface) and the export-surface gate
- * (`scripts/verify-export-jsdoc.ts` — every module-level export). One home for
- * the mechanics so "documented" means the same thing on every gated surface:
- * description prose ends at the first block tag; every checkable parameter
- * needs a non-empty `@param`; a non-void ANNOTATED return needs a non-empty
- * `@returns`; a stale `@param` naming no real parameter errors.
+ * events + `ctx.<key>` service surface), the plugin config catalog generator
+ * (`scripts/gen-config-catalog.ts`, which renders the parsed prose), and the
+ * export-surface gate (`scripts/verify-export-jsdoc.ts` — every module-level
+ * export). One home for the mechanics so "documented" means the same thing on
+ * every gated surface: description prose ends at the first block tag; every
+ * checkable parameter needs a non-empty `@param`; a non-void ANNOTATED return
+ * needs a non-empty `@returns`; a stale `@param` naming no real parameter
+ * errors.
  */
 
 import ts from 'typescript'

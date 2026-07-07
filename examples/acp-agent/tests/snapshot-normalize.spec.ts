@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type NormalizeContext, normalizeSessionLog, normalizeStdout } from '../tests/snapshot-normalize.ts'
+import { type NormalizeContext, normalizeSessionLog, normalizeStdout, scrubRequestHeaders } from '../tests/snapshot-normalize.ts'
 
 /**
  * Unit tests for the pure snapshot normalizers. Live as a *.spec.ts (runs in
@@ -106,5 +106,80 @@ describe('normalizeSessionLog', () => {
     const ev = JSON.stringify({ type: 'tool/result', seq: 2, time: 5, data: { durationMs: 88 } })
     const out = normalizeSessionLog(`${header({})}\n${ev}\n`, ctx)
     expect(out).toContain('"durationMs":88')
+  })
+})
+
+describe('scrubRequestHeaders', () => {
+  const headerLine = JSON.stringify({ type: 'session', version: 0, id: 's', createdAt: 1, cwd: '/w' })
+  const headerEvent = (header: object) =>
+    JSON.stringify({ type: 'request/header', seq: 3, time: 9, data: { header, reason: 'initial' } })
+
+  it('replaces header system and tools with tokens, keeping config and reason', () => {
+    const ev = headerEvent({
+      config: { model: 'm' },
+      system: 'You are an agent.\nBe brief.',
+      tools: [{ name: 'read', description: 'Read a file.', parameters: { type: 'object' } }],
+    })
+    const out = scrubRequestHeaders(`${headerLine}\n${ev}\n`)
+    expect(out).toContain('"system":"{{system}}"')
+    expect(out).toContain('"tools":"{{tools}}"')
+    expect(out).toContain('"config":{"model":"m"}')
+    expect(out).toContain('"reason":"initial"')
+    expect(out).not.toContain('You are an agent')
+    expect(out).not.toContain('Read a file')
+  })
+
+  it('keeps an absent system/tools absent (presence is behavior)', () => {
+    const out = scrubRequestHeaders(`${headerLine}\n${headerEvent({ config: { model: 'm' } })}\n`)
+    expect(out).not.toContain('{{system}}')
+    expect(out).not.toContain('{{tools}}')
+  })
+
+  it('scrubs a header-delta system payload but keeps its line positions and arity', () => {
+    const delta = JSON.stringify({
+      type: 'request/header-delta', seq: 8, time: 9,
+      data: { system: { keepStart: 1, keepEnd: 4, insert: ['leaked prompt line', 'second line'] }, config: { model: 'm2' } },
+    })
+    const out = scrubRequestHeaders(`${headerLine}\n${delta}\n`)
+    // One token PER inserted line: the edit's position AND extent survive.
+    expect(out).toContain('"insert":["{{system}}","{{system}}"]')
+    expect(out).toContain('"keepStart":1')
+    expect(out).toContain('"keepEnd":4')
+    expect(out).toContain('"config":{"model":"m2"}')
+    expect(out).not.toContain('leaked prompt line')
+    expect(out).not.toContain('{{tools}}') // no tools delta → none invented
+  })
+
+  it('scrubs a header-delta tools payload but keeps the added/removed/changed names', () => {
+    const delta = JSON.stringify({
+      type: 'request/header-delta', seq: 8, time: 9,
+      data: {
+        tools: {
+          added: [{ name: 'grep', description: 'Search files.', parameters: { type: 'object' } }],
+          removed: ['bash_kill'],
+          changed: [{ name: 'read', description: 'Read v2.', parameters: { type: 'object' } }],
+        },
+      },
+    })
+    const out = scrubRequestHeaders(`${headerLine}\n${delta}\n`)
+    // WHICH tools changed is behavior and survives; their bulk does not.
+    expect(out).toContain('"added":[{"name":"grep","description":"{{tools}}","parameters":"{{tools}}"}]')
+    expect(out).toContain('"removed":["bash_kill"]')
+    expect(out).toContain('"changed":[{"name":"read","description":"{{tools}}","parameters":"{{tools}}"}]')
+    expect(out).not.toContain('Search files')
+    expect(out).not.toContain('Read v2')
+  })
+
+  it('passes every other line through byte-for-byte and is idempotent', () => {
+    const other = JSON.stringify({ type: 'assistant/chunk', seq: 4, time: 9, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'hi' } } })
+    const delta = JSON.stringify({
+      type: 'request/header-delta', seq: 8, time: 9,
+      data: { system: { keepStart: 0, keepEnd: 0, insert: ['x'] }, tools: { added: [{ name: 't', description: 'd', parameters: {} }], removed: [], changed: [] } },
+    })
+    const raw = `${headerLine}\n${headerEvent({ config: { model: 'm' }, system: 's', tools: [] })}\n${delta}\n${other}\n`
+    const once = scrubRequestHeaders(raw)
+    expect(once.split('\n')[0]).toBe(headerLine)
+    expect(once.split('\n')[3]).toBe(other)
+    expect(scrubRequestHeaders(once)).toBe(once)
   })
 })
