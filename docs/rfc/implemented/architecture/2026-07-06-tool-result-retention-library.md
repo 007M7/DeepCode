@@ -1,6 +1,6 @@
 # RFC: Tool result retention library
 
-Status: proposed
+Status: implemented
 
 ## Problem
 
@@ -8,9 +8,9 @@ Several model-facing tools already bound the amount of context they return, but 
 
 The shared abstraction the tools need is **retention**, not generic collection. A caller feeds items or text chunks into a bounded object, receives a per-push decision about whether the upstream can stop, and later receives the retained content plus exact or partial omission metadata. Tool-specific code still owns business semantics: file grouping, line numbering, exit codes, provider error states, and model-facing prose. The common library owns only the mechanical question "what did we keep, what did we omit, and may the caller stop reading now?"
 
-## Proposal
+## Decision
 
-Add a small, dependency-light retention library under `packages/util/retention` (package name `@deepseek-ai/dsh-retention`). It exports pure item and text retainers plus notice helpers. It is not a Cordis service and registers no plugin; tool packages import it directly when they need bounded model-facing output.
+`@deepseek-ai/dsh-retention` lives under `packages/util/` (peer to `dsh-brand` and `dsh-timeout`) and owns bounded model-facing output. It is a library of pure classes and functions, **not** a Cordis service or plugin: it takes no `ctx`, registers nothing, holds no cross-call state, and emits no events. Tool packages import it directly when they need bounded output.
 
 The library has two independent retainers:
 
@@ -116,7 +116,7 @@ type TextRetentionStrategy =
 
 `grep` uses `ItemRetainer<FlatGrepMatch>` with `{ kind: 'head', maxItems: grepMaxMatches, stop: 'stopWhenFull' }` before grouping. The backend parses a ripgrep match record, maps the path, applies per-line preview truncation, then pushes a flat match. After `finish()`, the backend groups retained matches by file and sorts the returned subset. Grouping is not part of the retainer because the cap is total matches, not files; per-match preview truncation and `incomplete` are also separate from result-level retention.
 
-`bash` uses `TextRetainer` with `tail` or `headTail` and reads to process completion. It does not stop when full: stopping the read would lose the real tail and can create pipe backpressure. The bash executor still owns spill files, exit status, signal, timeout, and background-task behavior; the retention helper only replaces ad hoc in-memory head/tail accounting where that behavior is desired. Long-running task ownership remains orthogonal to the [generic long-running tool runtime](2026-06-20-generic-long-running-tool-runtime.md) proposal.
+`bash` uses `TextRetainer` with `tail` or `headTail` and reads to process completion. It does not stop when full: stopping the read would lose the real tail and can create pipe backpressure. The bash executor still owns spill files, exit status, signal, timeout, and background-task behavior; the retention helper only replaces ad hoc in-memory head/tail accounting where that behavior is desired. Long-running task ownership remains orthogonal to the [generic long-running tool runtime](../../proposed/architecture/2026-06-20-generic-long-running-tool-runtime.md) proposal.
 
 `web_fetch` can use `TextRetainer` with `head` when the provider exposes a stream, or keep provider-owned body caps when the provider must read and decode internally. Either way, the fetch result's `truncated` remains a provider/tool fact, and the library only supplies retained text and omission metadata.
 
@@ -147,6 +147,16 @@ The formatter hook is deliberately small: a tool turns a `RetentionNotice` into 
 
 `truncated` means the retainer omitted otherwise-available content because of a budget. It does not mean the upstream was incomplete. Tools keep separate fields for permission failures, skipped binary files, provider partial failures, unreadable candidates, invalid UTF-8, and any other "could not inspect" condition.
 
+## Consequences
+
+**What shipped.** `@deepseek-ai/dsh-retention` exports `ItemRetainer`, `TextRetainer`, the result types (`RetainedItems`, `RetainedText`), the strategy types (`ItemRetentionStrategy`, `TextRetentionStrategy`, `StopMode`), `Omitted`, `PushDecision`, `RetentionNotice`, and the neutral notice helpers `describeOmitted` / `formatRetentionNotice` — with no dependency on Cordis or any tool package. Unit tests cover item-head early stop with a probe item, item-head read-to-end with exact omission counts, text-head early stop, text-tail retention with exact omission counts, head-tail byte retention, zero budgets, UTF-8 boundary handling (2-, 3-, and 4-byte codepoints and invalid lead bytes at each cut), and the difference between `{ kind: 'atLeast', count: 1 }` and exact omission.
+
+**What is documented but not yet migrated.** `glob`, `grep`, `bash`, `web_fetch`, and `web_search` have their mappings documented in the [package README](../../../../packages/util/retention/README.md) — each stating whether it may stop upstream early — but no tool has been migrated onto the library in this change; migration is deliberately separate follow-up work. `glob` / `grep` do not yet exist as tools, so the `shouldStop` early-stop path has no in-repo caller until they land. `read` is documented as intentionally out of scope: its `read-render` line-window contract (`offset`/`limit`, `totalLines`, offset-range errors, per-line preview truncation, a byte cap over the selected window) is not generic retention, and one `Omitted` count cannot represent both sides of a line window.
+
+**Boundaries the library holds.** `truncated` means the retainer omitted otherwise-available content because of a budget; it never means the upstream was incomplete. Tool-specific states — `incomplete`, permission failures, provider partial failures, binary skips, bash spill-path recovery, invalid UTF-8 — stay in tool-domain fields, outside the retainer. When a future change migrates a tool, that package's README and tests must prove the model-facing result text is unchanged except for deliberate notice wording.
+
+**Tradeoffs accepted.** The v1 surface deliberately supports only item `head` retention and text `head` / `tail` / `headTail`; windows, grouped budgets, and sort-aware caps wait until a second consumer proves the need (the generic-collector alternative is why). Text retention counts bytes for process/body safety, leaving character- and line-level preview budgets as separate tool-owned concerns. `glob` / `grep` cannot report an exact omitted count once they stop the upstream at the first overflow item, so `Omitted.atLeast` exists and `describeOmitted` prints no number for it — formatters never claim "omitted 1" when the true count may be far larger.
+
 ## Alternatives considered
 
 **Post-hoc `truncate(text)` only.** Rejected: it matches Codex's history/tool-output truncation use case but fails the `glob` / `grep` resource model. The tool must stop ripgrep once the probe result proves truncation; collecting all output and trimming afterward defeats the point and can exceed the command runner's in-memory output cap.
@@ -158,18 +168,3 @@ The formatter hook is deliberately small: a tool turns a `RetentionNotice` into 
 **Make truncation part of `ToolExecutionResult`.** Rejected: the tool registry would have to understand tool-specific recovery guidance, grouping, line numbering, exit status, and provider semantics. Retention is a library used before a tool returns `ContentBlock[]`; the model-facing result remains tool-owned.
 
 **Expose limits in every model-facing tool schema.** Rejected as the default: Claude Code's grep exposes `head_limit` / `offset`, but this harness keeps routine budgets as deployment config unless the model genuinely needs pagination control. A future read-like continuation field can be added per tool; it does not belong in the shared retention primitive.
-
-## Acceptance criteria
-
-- A new `@deepseek-ai/dsh-retention` utility package exports `ItemRetainer`, `TextRetainer`, `RetainedItems`, `RetainedText`, the strategy types, `Omitted`, `PushDecision`, and neutral notice helpers without depending on Cordis or any tool package.
-- Unit tests cover item-head early stop with a probe item, item-head read-to-end with exact omission counts, text-head early stop, text-tail retention with exact omission counts, head-tail byte retention, zero budgets, UTF-8 boundary handling, and the difference between `{ kind: 'atLeast', count: 1 }` and exact omission.
-- `glob`, `grep`, `bash`, `web_fetch`, and `web_search` have documented mappings to the library before any broad migration begins; each mapping states whether it may stop upstream early. `read` is documented as intentionally out of scope for v1.
-- Existing tool-specific states such as `incomplete`, provider failures, binary skips, and bash spill-path recovery remain outside the retention library.
-- If the first implementation migrates an existing tool, that package's README and tests prove the model-facing result text is unchanged except for deliberate notice wording.
-
-## Risks
-
-- **Over-generalizing the v1 surface.** A generic callback-heavy collector would be harder to reason about than the duplicated code it replaces. The v1 surface deliberately supports only item `head` retention and text `head` / `tail` / `headTail`; windows, grouped budgets, and sort-aware caps can wait until a second consumer proves it needs them.
-- **Conflating truncation with incomplete execution.** The library name may invite callers to stuff permission or provider partial failures into `truncated`. Tests and README examples must keep the rule explicit: retention budgets omit available content; incomplete inspection is a tool-domain state.
-- **Byte-vs-character confusion.** Text retainers count bytes for process/body safety, while some model-facing previews care about characters or lines. The v1 API should make byte retention explicit and leave character-level preview helpers as separate functions.
-- **False precision after early stop.** `glob` and `grep` cannot report exact omitted counts when they stop the upstream at the first overflow item. The `Omitted.atLeast` variant exists so formatters do not claim "omitted 1" when the true count may be much larger.

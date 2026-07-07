@@ -23,6 +23,7 @@
     { "path": "./vendor/logger-console" },
     { "path": "./packages/util/brand" },
     { "path": "./packages/util/timeout" },
+    { "path": "./packages/util/retention" },
     { "path": "./packages/llm/llm" },
     { "path": "./packages/core/session" },
     { "path": "./packages/session-persistence/session-persistence" },

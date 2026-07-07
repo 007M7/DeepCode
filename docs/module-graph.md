@@ -9,6 +9,7 @@ Inter-package dependencies among the `@deepseek-ai/dsh-*` harness packages, deri
 flowchart TD
   subgraph group_util["packages/util"]
     pkg_brand["brand"]
+    pkg_retention["retention"]
     pkg_timeout["timeout"]
   end
   subgraph group_llm["packages/llm"]
@@ -208,6 +209,7 @@ flowchart TD
 | Package | Group | Depends on |
 | --- | --- | --- |
 | [`brand`](../packages/util/brand) | `util` | — |
+| [`retention`](../packages/util/retention) | `util` | — |
 | [`timeout`](../packages/util/timeout) | `util` | — |
 | [`app-boot`](../packages/ui/app-boot) | `ui` | — |
 | [`llm`](../packages/llm/llm) | `llm` | [`brand`](../packages/util/brand) |
