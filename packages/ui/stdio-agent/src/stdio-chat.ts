@@ -63,6 +63,10 @@ function isTTYPair(input: Readable, output: Writable): boolean {
  * directly with fakes. Returns nothing — all registration is via `ctx.on`/
  * `ctx.effect`, so fiber disposal tears every listener and the readline
  * interface down.
+ * @param ctx - the context supplying the `agents` service and the event feeds.
+ * @param config - the plugin config; defaults are re-applied here for direct
+ * callers that bypass Loader validation.
+ * @param runtime - the process-I/O seam (line source, render sink, exit hook).
  */
 export function createStdioChat(ctx: Context, config: Config, runtime: StdioRuntime): void {
   // Default here too (not just via schemastery's `.default()`): this helper is

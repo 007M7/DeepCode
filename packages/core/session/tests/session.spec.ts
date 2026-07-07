@@ -61,8 +61,10 @@ describe('Session', () => {
 
   it('replays identically from a seeded event log', () => {
     const original = new Session(SessionId('s3'))
+    original.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     original.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     original.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'a' }] }, { surfaceOp: 'append' })
+    original.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 
     const replayed = new Session(SessionId('s3-replay'), [...original.events])
     expect(replayed.deriveMessages()).toEqual(original.deriveMessages())
@@ -423,7 +425,9 @@ describe('todo/write event', () => {
 
   it('round-trips through a seeded replay identically (durable, no surfaceOp needed)', () => {
     const original = new Session(SessionId('t4'))
+    original.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     original.append('todo/write', { todos: [{ content: 'only', status: 'completed' }] })
+    original.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     // Seeding a non-surface event with no surfaceOp must not throw.
     const replayed = new Session(SessionId('t4-replay'), [...original.events])
     expect(replayed.events.findLast(e => e.type === 'todo/write')!.data.todos)
