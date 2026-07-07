@@ -49,17 +49,7 @@ permissions:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # The keyless ci.yml matrix runs the MOCK adapter (dsh-llm-replay); the
-        # real fetch + SSE-streaming adapter path runs ONLY here, so its
-        # node-version compat is covered nowhere else. Run the real-API suite on
-        # the engines floor AND the primary line to close that gap. 26 is left to
-        # the keyless matrix — floor + LTS is the meaningful pair for the live
-        # network path, and inference is cheap (we are DeepSeek).
-        node: ['22.18', 24]
-    name: e2e node ${{ matrix.node }}
+    name: e2e
     # Run on every trusted event. Skip untrusted PRs (forks + Dependabot) where
     # the secret is withheld — they would otherwise hard-fail the preflight.
     if: >-
@@ -73,7 +63,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 24
 
       - name: Enable corepack (pnpm)
         run: corepack enable
