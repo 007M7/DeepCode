@@ -9,14 +9,99 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
+env:
+  PRIMARY_NODE_VERSION: '24'
+
 jobs:
-  checks:
+  node-24:
     runs-on: ubuntu-latest
+    name: node 24 / ${{ matrix.lane }}
+    env:
+      DSH_GATE_CONCURRENCY: ${{ matrix.gate_concurrency }}
+      DSH_PUBLINT_CONCURRENCY: ${{ matrix.publint_concurrency }}
+      DSH_COVERAGE_MAX_WORKERS: ${{ matrix.coverage_max_workers }}
+      DSH_ESLINT_CACHE: ${{ matrix.eslint_cache }}
     strategy:
       fail-fast: false
       matrix:
-        node: [24, 26]
-    name: node ${{ matrix.node }}
+        include:
+          - lane: static
+            command: pnpm run check:ci:static
+            gate_concurrency: '4'
+            publint_concurrency: '8'
+            coverage_max_workers: ''
+            eslint_cache: ''
+          - lane: lint
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            publint_concurrency: '8'
+            coverage_max_workers: ''
+            eslint_cache: '1'
+          - lane: coverage
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            publint_concurrency: '8'
+            coverage_max_workers: '4'
+            eslint_cache: ''
+          - lane: snapshot
+            command: pnpm run check:ci:snapshot
+            gate_concurrency: '1'
+            publint_concurrency: '8'
+            coverage_max_workers: ''
+            eslint_cache: ''
+          - lane: artifacts
+            command: pnpm run check:ci:artifacts
+            gate_concurrency: '3'
+            publint_concurrency: '8'
+            coverage_max_workers: ''
+            eslint_cache: ''
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - uses: actions/cache@v4
+        if: matrix.lane == 'lint'
+        with:
+          path: .cache/eslint
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-
+
+      - name: Run gates
+        run: ${{ matrix.command }}
+
+  node-compat:
+    runs-on: ubuntu-latest
+    name: node 26
+    env:
+      DSH_GATE_CONCURRENCY: '2'
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [26]
     steps:
       - uses: actions/checkout@v6
 
@@ -27,78 +112,19 @@ jobs:
       - name: Enable corepack (pnpm)
         run: corepack enable
 
+      - name: Resolve pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-${{ matrix.node }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ matrix.node }}-pnpm-
+
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
 
-      - name: Constraints
-        run: pnpm run constraints
-
-      # Before lint: root typecheck validates the package/vendor reference graph
-      # and refreshes TSC intermediates so type-aware ESLint sees the same project
-      # boundaries as the build.
-      - name: Typecheck (src + tests + examples)
-        run: pnpm run typecheck
-
-      # Type-aware ESLint loads every package tsconfig through the project
-      # service and peaks at ~3.4GB; the default V8 old-space ceiling (~2GB)
-      # OOMs it (exit 134). Raise the ceiling well above the peak.
-      - name: Lint
-        run: pnpm run lint
-        env:
-          NODE_OPTIONS: --max-old-space-size=8192
-
-      # Doc-sync gates (doc-sync-enforcement RFC). doc-typecheck compiles the
-      # fenced ts blocks against the root project-reference graph. The cordis
-      # catalog freshness check, type-equiv check, Mermaid syntax check, and
-      # markdown wrap/link checks only read source. Same `doc-sync` script the pre-push hook runs
-      # (quality-gates RFC: one source of truth).
-      - name: Doc-sync gates (doc code blocks + catalogs + mermaid + markdown)
-        run: pnpm run doc-sync
-
-      # Module-graph freshness: regenerate docs/module-graph.md from the
-      # packages' peerDependencies and fail if it differs from the committed
-      # file. Only reads source package.json — no build needed.
-      - name: Module-graph freshness
-        run: pnpm run verify-module-graph
-
-      - name: Tests with coverage gate (per-file 100%)
-        run: pnpm run test:coverage
-
-      # ACP snapshot tests (acp-snapshot-tests RFC): boot the real acp-agent
-      # subprocess and replay recorded session-log fixtures, diffing the
-      # normalized stdout transcript + re-persisted log against committed
-      # goldens. KEYLESS by design — the same `test:snapshot` script the pre-push
-      # hook runs (one source of truth), so the full-transcript regression net
-      # is part of every PR gate, not just local pre-push.
-      - name: Snapshot tests (ACP transcript replay)
-        run: pnpm run test:snapshot
-
-      # Before hygiene: publint validates the packed artifacts (lib/index.js),
-      # which only the tsdown bundling step emits, and verify-node-next-types
-      # validates the built declarations.
-      - name: Build (tsc -b + tsdown bundles)
-        run: pnpm run build
-
-      - name: Hygiene (knip + publint + constraints + NodeNext types)
-        run: pnpm run hygiene
-
-      - name: Demo smoke test
-        run: |
-          set -euo pipefail
-          out=$(printf 'echo ci smoke\n' | timeout 60 pnpm run demo:echo 2>&1)
-          echo "$out"
-          echo "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
-          echo "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
-          # The JSONL backend (root ./.sessions, no cwd → _no-cwd bucket) writes a
-          # per-run session log named main-session-<uuid>.jsonl. Assert one exists.
-          ls .sessions/_no-cwd/main-session-*.jsonl >/dev/null
-          rm -rf .sessions
-
-      # The published `bin` is `lib/bin.js`, run under plain `node` by a real
-      # consumer — NOT the tsx dev path the demo smoke and demo:* scripts use.
-      # These keyless smokes boot the BUILT bins (this step runs AFTER the build)
-      # in a temp dir that mirrors a real install, catching a regression in the
-      # published artifact that tsx would mask. They self-skip if lib/ is absent,
-      # so the e2e job (which does not build) does not run them.
-      - name: Built-bin smoke test (published lib/bin.js under node)
-        run: pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts
+      - name: Run compatibility gates
+        run: pnpm run check:node-compat

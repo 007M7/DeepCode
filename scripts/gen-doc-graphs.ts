@@ -4,7 +4,7 @@
  * This is the relationship layer above the existing catalogs:
  * - module-graph.md answers "which packages depend on which packages?"
  * - cordis-catalog/ answers "which events and services exist?"
- * - tool-catalog/ answers "which tools does the model see?"
+ * - tool-catalog.md answers "which tools does the model see?"
  * - generated relationship diagrams answer "how do those pieces fit together?"
  *
  * Generated pages discover the enumerable facts from source. Hybrid pages use
@@ -724,7 +724,7 @@ function renderIndex(docs: GraphDoc[]): string {
   }
   const rows = [
     '| [module dependency graph](module-graph.md) | `generated` |',
-    '| [tool schema catalog and package map](tool-catalog/tools.md) | `generated` |',
+    '| [tool schema catalog and package map](tool-catalog.md) | `generated` |',
     ...docs.map((doc) => {
       const link = graphIndexLink(doc.rel)
       return `| [${labels[doc.rel] ?? link}](${link}) | \`${modes[doc.rel] ?? 'generated'}\` |`
@@ -733,7 +733,7 @@ function renderIndex(docs: GraphDoc[]): string {
   const maintenance = 'mixed: each linked page declares generated, hybrid, or curated mode'
   return [
     ...generatedHeader('Documentation Graph Index'),
-    'These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, [tool-catalog/](tool-catalog/tools.md), and [core-data-structures/](core-data-structures/core.md).',
+    'These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, [tool-catalog.md](tool-catalog.md), and [core-data-structures/](core-data-structures/core.md).',
     '',
     'The process decision behind this index is recorded in [the documentation graph RFC](rfc/implemented/process/2026-07-03-documentation-graph-atlas.md).',
     '',

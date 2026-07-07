@@ -1,0 +1,38 @@
+# RFC: Generated plugin config catalog
+
+Status: implemented
+
+## Problem
+
+The config surface — the exact set of fields a `cordis.yml` entry's `config:` block can set for each plugin, with types, defaults, and semantics — had no reference page. A deployment author assembling a config tree had to open every plugin's source (or trust its README) to learn what is settable. The per-package README `## Config` sections cover parts of it by hand, in formats that diverged package-by-package (a key/default table here, an annotated YAML snippet there) and with no gate tying them to source. Nothing enumerated which packages are loadable at all — plugin vs abstract seam vs plain library — and nothing verified that the runtime schemastery schema and the documented `Config` interface agree, so a schema-validated field could exist with no documentation anywhere.
+
+## Decision
+
+Generate the catalog from source: `scripts/gen-config-catalog.ts` emits [docs/config-catalog.md](../../../config-catalog.md), one section per configurable package containing the VERBATIM config declaration — the `export interface Config` (or equivalently named type) with its JSDoc, pasted as-is in a ` ```ts config-catalog ` fence — plus a `Requires:` line (the plugin's `inject`), a `Depends on:` line resolving every type name the paste references, and a source pointer. The paste is the plugin's full declared config type: a field the runtime schema deliberately excludes is a runtime-only seam, marked as such by its own JSDoc, not a `cordis.yml`-settable knob. Package-local referenced types are pasted transitively into the same fence; another plugin's config type links to that plugin's section; names in the cordis catalog's shared `LINK_MAP` link to core-data-structures; any other workspace type links to its source; an external type is named with its module. It mirrors the `gen-cordis-catalog` pattern exactly: `--write` regenerates, `--check` (`verify-config-catalog`, inside `doc-sync`) fails if the committed file is stale, output is deterministic, the file is a build artifact never hand-edited.
+
+Pure AST generation is correct here for the same reason it is for the events/services catalog and NOT for the tool catalog: a config type is a static declaration and every schemastery schema in the repo is a static `z.object`/`z.intersect` literal, so the source is the whole truth — nothing about the config surface is runtime-composed.
+
+Specific choices:
+
+- **The config type is the second-parameter type.** What the catalog documents is the declared type of `apply(ctx, config)` / the service constructor's `(ctx, config)` — the value cordis actually passes — not a `Config` export located by naming convention. This is what makes the walk total: it works for interfaces named `AcpConfig` or `BasicCompactConfig`, for types declared in a sibling file, and for plugins with no validating schema at all.
+- **Classification is total.** Every `packages/<group>/<pkg>` entry resolves, mirroring the Loader's `unwrapExports` (`exports.default ?? exports`), to a configurable plugin, a config-free plugin, an abstract seam class, or a library — each rendered in its own section — and an unclassifiable entry hard-errors. A new package cannot be silently undocumented.
+- **Per-field JSDoc is enforced.** Every property of a pasted declaration (nested type literals included) needs non-empty JSDoc prose, or generation fails. The paste IS the documentation, so this is the same forcing function the events catalog applies via `@mode`: thin source docs fail the gate rather than yielding a thin catalog.
+- **The schema is cross-checked, one-directionally, nested keys included.** When a plugin declares a schemastery schema (`export const Config` / `static Config`), the generator walks it statically — object-literal keys and their nested object/array compositions as key paths (`agents[].id`), chained refinements, and `z.intersect` composition across workspace packages — and every schema-validated key path must be locatable on the declared config type, resolving package-local and workspace-imported types (re-export chains included), intersections, unions, utility wrappers, and indexed access. So the paste cannot hide a loader-accepted field, top-level or nested. The check is presence-only and fails loud only on a definite miss: a path crossing a type the walk cannot enumerate (an external package's type) is skipped rather than mis-reported, and dynamic-key shapes (`z.dict`) or union alternatives contribute no nested paths. The reverse direction is deliberately unchecked: a declared field may be a runtime-only seam the schema excludes (the ACP bridge's test-injected `stream`).
+- **A dedicated fence.** Pasted declarations use a ` ```ts config-catalog ` info string that `doc-typecheck` skips (a lone declaration referencing imported types is not standalone-compilable), excluded from the opt-out ratio — the same treatment the `cordis-catalog` and `persistence-catalog` fences get.
+- **A single file at `docs/config-catalog.md`**, not a one-file directory: the page serves one audience (the `cordis.yml` author) with one axis, unlike `cordis-catalog/`, which holds two sibling pages.
+
+The package README `## Config` sections stay. The overlap is accepted deliberately: the README is the curated per-package contract (config semantics in deployment context, alongside limitations and extension points), the catalog is the exhaustive generated enumeration. Because the catalog is generated, a disagreement between the two indicts the README, and the fix is a README edit — the catalog cannot drift.
+
+## Alternatives considered
+
+- **Synthesized per-field rendering** — a bullet list, table, or annotated-YAML snippet per field, assembled from parsed JSDoc plus schema metadata. Rejected for the verbatim paste: the interface with its JSDoc is already the authored contract in its authored form, and a synthesizing renderer re-formats prose it does not own, adding a rendering layer that can misrepresent it.
+- **Runtime boot + schema introspection, as the tool catalog does** — rejected: nothing here is runtime-composed, and the schema alone under-documents the surface (prose-documented defaults, runtime-only fields, plugins with no schema at all). Booting would add fragility without adding truth.
+- **Two-directional schema/interface equality** — rejected for the subset check: the declared type legitimately carries members the schema refuses to accept from config (runtime-only seams).
+- **Retiring the README `## Config` sections in the same change** — rejected: the accepted duplication keeps the per-package contract readable in place, and a sweep would have to fold each README's extra facts into field JSDoc first — separable work the catalog does not depend on.
+
+## Consequences
+
+- The catalog cannot drift: a source change the committed file does not reflect fails `verify-config-catalog` in pre-push and CI. An undocumented config field, an unresolvable referenced type name, or a schema key missing from the config type fails the generator outright.
+- Config prose now has a forcing function at the declaration: writing a new config field means writing its JSDoc, which becomes the catalog entry verbatim.
+- The generator hard-errors on shapes it cannot walk statically — an aliased package-local config import, a schema built by anything other than `object`/`intersect` composition, an unlisted global type name. Introducing such a shape includes teaching the generator (or the shape stays out of the repo), which is the point: the catalog stays the whole truth.
+- `gen-cordis-catalog.ts` exports its JSDoc/pointer helpers and `LINK_MAP` for reuse, so the two catalogs cross-link types identically and a link-map addition serves both.

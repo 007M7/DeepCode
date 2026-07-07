@@ -21,7 +21,7 @@ createAgent(options: CreateAgentOptions): AgentHandle
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:63`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:64`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
