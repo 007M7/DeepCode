@@ -25,11 +25,12 @@ import {
   type StructuredAcquisition,
 } from './structured.ts'
 
+// The runtime itself (acquire/attach/release) is package-internal: runs
+// acquire it inside startInProcessRun, and no other package drives it. Only
+// the model-facing vocabulary is public.
 export {
-  acquireStructuredRuntime,
   STRUCTURED_OUTPUT_TOOL,
   STRUCTURED_OUTPUT_INSTRUCTION,
-  type StructuredAcquisition,
 } from './structured.ts'
 
 declare module '@deepseek-ai/dsh-agent' {
@@ -110,15 +111,18 @@ export function startInProcessRun(
   if (request.maxDepth !== undefined && childDepth > request.maxDepth) {
     throw new SubagentDepthError(childDepth, request.maxDepth)
   }
-  // Snapshot, then assert, the schema subset BEFORE any child exists (the
+  // Assert, then snapshot, the schema subset BEFORE any child exists (the
   // service has already capability-gated; this rejects a schema outside the
-  // enforced subset loud). The snapshot is load-bearing: the caller keeps its
-  // reference, so validating and attaching the ORIGINAL would let a
-  // post-start() mutation drift the enforced schema away from the asserted
-  // one — the clone pins assertion, the model-visible parameters, and
-  // validateStructuredValue to the same isolation-immutable value.
+  // enforced subset loud). Assertion comes FIRST so a hostile value fails as
+  // OutputSchemaError, never as structuredClone's raw DataCloneError — the
+  // asserted subset is plain JSON data, which always clones. The snapshot is
+  // load-bearing: the caller keeps its reference, so attaching the ORIGINAL
+  // would let a post-start() mutation drift the enforced schema away from the
+  // asserted one — the clone (taken synchronously with the assertion, no
+  // interleaving possible) pins assertion, the model-visible parameters, and
+  // validateStructuredValue to one isolation-immutable value.
+  if (request.outputSchema !== undefined) assertSupportedOutputSchema(request.outputSchema)
   const schema = request.outputSchema === undefined ? undefined : structuredClone(request.outputSchema)
-  if (schema !== undefined) assertSupportedOutputSchema(schema)
 
   const childId = AgentId(randomUUID())
   // The child's OWN events begin after the seed (fork seeds the parent's

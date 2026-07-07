@@ -91,9 +91,20 @@ const ANNOTATION_KEYWORDS = new Set(['description', 'title', 'default', 'example
 
 const SCHEMA_TYPES: readonly StructuredSchemaType[] = ['object', 'array', 'string', 'number', 'integer', 'boolean', 'null']
 
-/** Whether a value is a non-null, non-array object (structural, realm-agnostic). */
+/**
+ * Whether a value is a PLAIN JSON object — non-null, non-array, and with a
+ * prototype chain of at most one link (`null`-proto, or any realm's
+ * `Object.prototype`, whose own prototype is `null`). Realm-agnostic on
+ * purpose: a schema materialized in another realm carries THAT realm's
+ * `Object.prototype`, which an identity check would wrongly reject. Exotic
+ * hosts (`Date`, `Map`, class instances) have longer chains and are rejected —
+ * they would serialize lossily (`Date` → string, `Map` → `{}`) instead of
+ * failing loud.
+ */
 function isObjectLike(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const proto: unknown = Object.getPrototypeOf(value)
+  return proto === null || Object.getPrototypeOf(proto) === null
 }
 
 /** Whether a value is a supported scalar (`enum`/`const` member): string, finite number, boolean, or null. */
@@ -116,6 +127,9 @@ function isJsonData(value: unknown, seen: Set<object>): boolean {
   seen.add(value)
   try {
     if (Array.isArray(value)) return value.every(entry => isJsonData(entry, seen))
+    // A non-plain object (Date, Map, class instance) is NOT JSON data even when
+    // it has no enumerable values — it would serialize lossily, not loudly.
+    if (!isObjectLike(value)) return false
     return Object.values(value).every(entry => isJsonData(entry, seen))
   } finally {
     seen.delete(value)
@@ -194,8 +208,11 @@ function checkSchemaNode(node: unknown, path: string, violations: string[], seen
           violations.push(`${path}.required must be an array of strings`)
         } else {
           const declared = isObjectLike(properties) ? properties : {}
-          for (const key of required) {
-            if (!(key in declared)) violations.push(`${path}.required names "${key}" which is not in properties`)
+          // The guard above proved every entry is a string.
+          for (const key of required as string[]) {
+            // Own-property check: `in` would let inherited names (`toString`)
+            // satisfy the declared-in-properties contract via the prototype.
+            if (!Object.hasOwn(declared, key)) violations.push(`${path}.required names "${key}" which is not in properties`)
           }
         }
       }
@@ -256,16 +273,20 @@ function checkValue(node: StructuredSchemaNode, value: unknown, path: string): s
       if (!isObjectLike(value)) return [`"${path}" must be an object`]
       const violations: string[] = []
       const properties = node.properties ?? {}
+      // Own-property discipline throughout: JSON carries own enumerable
+      // properties only, so an inherited `toString` must not satisfy
+      // `required`, dodge `additionalProperties: false`, or be validated as if
+      // the value carried it.
       for (const key of node.required ?? []) {
-        if (value[key] === undefined) violations.push(`missing required property "${path}.${key}"`)
+        if (!Object.hasOwn(value, key) || value[key] === undefined) violations.push(`missing required property "${path}.${key}"`)
       }
       for (const [key, child] of Object.entries(properties)) {
-        if (value[key] === undefined) continue
+        if (!Object.hasOwn(value, key) || value[key] === undefined) continue
         violations.push(...checkValue(child, value[key], `${path}.${key}`))
       }
       if (node.additionalProperties === false) {
         for (const key of Object.keys(value)) {
-          if (!(key in properties)) violations.push(`"${path}.${key}" is not a declared property (additionalProperties: false)`)
+          if (!Object.hasOwn(properties, key)) violations.push(`"${path}.${key}" is not a declared property (additionalProperties: false)`)
         }
       }
       return violations
