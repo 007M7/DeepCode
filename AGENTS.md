@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This is the monorepo of the DeepSeek Harness group; it hosts **DeepSeek Harness SDK**, a plugin-based SDK for building agent harnesses. The codebase is built on the vendored Cordis framework, microkernel-style: **everything is a plugin**. Read [docs/architecture.md](docs/architecture.md) before changing `packages/`; the documentation standard is [docs/AGENTS.md](docs/AGENTS.md).
+The DeepSeek Harness group monorepo, hosting **DeepSeek Harness SDK** — a plugin-based SDK for building agent harnesses on the vendored Cordis framework, microkernel-style: **everything is a plugin**. Read [docs/architecture.md](docs/architecture.md) before changing `packages/`; the documentation standard is [docs/AGENTS.md](docs/AGENTS.md).
 
 ## Pre-release stance: foundation over blast radius
 
-**This applies only while the harness is unreleased — remove this section at the first tagged release.** There are no external consumers, so optimize for the correct foundation, not a small diff: move files, rename public symbols, repackage plugins, and update every reference in the same change. No backward-compat shims, deprecation aliases, or re-export stubs. On-disk formats need no migrations — a backend REJECTS anything not at the current version. Two sanctioned version stances: monotonic bump-and-reject (the SQLite backend's `SCHEMA_VERSION`), and a pinned `0` that absorbs all shape churn (`SESSION_FORMAT_VERSION` in `dsh-session`, documented "no compatibility implied"). Real version policy begins at the first release.
+**Applies only while the harness is unreleased — remove this section at the first tagged release.** With no external consumers, optimize for the correct foundation, not a small diff: move files, rename public symbols, repackage plugins, and update every reference in the same change. No backward-compat shims, deprecation aliases, or re-export stubs. On-disk formats need no migrations — a backend REJECTS anything not at the current version. Two sanctioned version stances: monotonic bump-and-reject (the SQLite backend's `SCHEMA_VERSION`), and a pinned `0` that absorbs all shape churn (`SESSION_FORMAT_VERSION` in `dsh-session`, documented "no compatibility implied"). Real version policy begins at the first release.
 
 ## Repository layout
 
