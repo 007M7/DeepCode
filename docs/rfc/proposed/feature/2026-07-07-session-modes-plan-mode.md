@@ -2,6 +2,8 @@
 
 Status: proposed
 
+English | [中文](2026-07-07-session-modes-plan-mode.zh.md)
+
 ## Problem
 
 The harness has no way to put an agent into a reduced-authority working state. The canonical feature that needs one is plan mode — the agent explores and designs under a read-only tool policy, produces a reviewable plan, and crosses back into full authority only through an explicit approval. [The extension cookbook](../../../cookbook/extension-cookbook.md) already reserves the row ("Plan mode — `tools/pre-execute` (deny writes) + a mode prompt section"), and [the ACP feature matrix](../../../../packages/ui/acp/acp-feature-support.md) records session modes as a known gap both reference adapters ship (Claude's plan auto-mode, Codex's read-only / agent / full-access presets). Neither says where the mode STATE lives, how it survives resume and fork, or how its model-visible consequences stay honest with the session log.
