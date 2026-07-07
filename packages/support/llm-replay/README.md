@@ -6,7 +6,7 @@ Its consumer is the ACP snapshot harness in `examples/acp-agent`, which loads th
 
 ## How the fixture works
 
-The fixture IS the persisted session log (`<scenario>/session.jsonl`). Its `assistant/chunk` events carry every `StreamChunk`, so grouping them by `(turn, step)` reconstructs each `stream()` call's chunk sequence (one model call per loop step). Recording is therefore "run the real agent once and harvest the `.jsonl`", done by the snapshot harness — this plugin does not record.
+The fixture IS the persisted session log (`<scenario>/session.jsonl`). Its `assistant/chunk` events carry every `StreamChunk`, so grouping them by `(turn, step)` reconstructs each `stream()` call's chunk sequence (one model call per loop step). Recording is therefore "run the real agent once and harvest the `.jsonl`", done by the snapshot harness — this plugin does not record. A fixture may carry its `request/header` content tokenized to `{{system}}`/`{{tools}}` (the harness pins that content in one scenario and scrubs the rest); replay is indifferent — derivation reads only `assistant/chunk` events and the line-0 session header.
 
 Two failure modes are not reconstructable from `assistant/chunk` alone — a pure throw before any chunk (e.g. an HTTP 401, where the log holds only a `turn/end {error}` and no chunks) and a cancel/hang (timing, not chunk content). A scenario that needs those supplies an optional sidecar (`<scenario>/replay.override.json`: a `ReplayEntry[]`) that REPLACES the derived script.
 
