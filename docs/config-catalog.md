@@ -582,10 +582,13 @@ export interface Config {
    * exactly once, no duplicate names, and no name without a registered tool —
    * a misconfigured order blocks work instead of silently reaching a model
    * request: shape violations throw at load, and an unregistered name rejects
-   * every assembly (failing the turn before any model request — the earliest
-   * moment the registered tool set exists to check against, since tool
-   * plugins register after this service constructs). When omitted, tools are
-   * ordered lexicographically by name. Applied to the tools
+   * every assembly. `TOOL_ORDER_REST` is reserved for the list marker and may
+   * not be a collected tool name; such a provider output also rejects the
+   * assembly. The single assembly-time validation rejects either failure
+   * before any model request — the earliest moment the registered tool set
+   * exists to check against, since tool plugins register after this service
+   * constructs. When omitted, tools are ordered lexicographically by name.
+   * Applied to the tools
    * {@link SystemPrompt.assemble} collects, BEFORE the
    * `system-prompt/assemble` waterfall — like the sections' `order` sort, it
    * canonicalizes what the registry contributed (registration order is a
@@ -597,7 +600,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:175`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:179`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-fs`
 

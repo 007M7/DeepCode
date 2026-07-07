@@ -114,8 +114,8 @@ const GROUP_AT = /^\{\{([^{}]*)\}\}/
 /**
  * The rest entry for {@link Config.toolOrder}: the position where registered
  * tools not named in the list are inserted (in lexicographic name order).
- * Deliberately not a valid model-facing tool name, so it can never collide
- * with a real tool.
+ * Reserved: collected tool schemas using this name are rejected before
+ * ordering, so the marker can never collide with a real model-facing tool.
  */
 export const TOOL_ORDER_REST = '<unlisted-tools>'
 
@@ -154,6 +154,10 @@ function validateToolOrder(toolOrder: string[] | undefined): string[] | undefine
  * name keep their collection order.
  */
 function orderTools(tools: ToolSchema[], toolOrder: string[] | undefined): ToolSchema[] {
+  const reserved = tools.find(tool => tool.name === TOOL_ORDER_REST)
+  if (reserved !== undefined) {
+    throw new Error(`tool provider returned reserved tool name "${TOOL_ORDER_REST}" (reserved for toolOrder's rest entry)`)
+  }
   if (toolOrder === undefined) return tools.sort(compareToolNames)
   const registered = new Set(tools.map(tool => tool.name))
   const unknown = toolOrder.filter(name => name !== TOOL_ORDER_REST && !registered.has(name))
@@ -194,10 +198,13 @@ export interface Config {
    * exactly once, no duplicate names, and no name without a registered tool —
    * a misconfigured order blocks work instead of silently reaching a model
    * request: shape violations throw at load, and an unregistered name rejects
-   * every assembly (failing the turn before any model request — the earliest
-   * moment the registered tool set exists to check against, since tool
-   * plugins register after this service constructs). When omitted, tools are
-   * ordered lexicographically by name. Applied to the tools
+   * every assembly. `TOOL_ORDER_REST` is reserved for the list marker and may
+   * not be a collected tool name; such a provider output also rejects the
+   * assembly. The single assembly-time validation rejects either failure
+   * before any model request — the earliest moment the registered tool set
+   * exists to check against, since tool plugins register after this service
+   * constructs. When omitted, tools are ordered lexicographically by name.
+   * Applied to the tools
    * {@link SystemPrompt.assemble} collects, BEFORE the
    * `system-prompt/assemble` waterfall — like the sections' `order` sort, it
    * canonicalizes what the registry contributed (registration order is a
@@ -356,7 +363,10 @@ export class SystemPrompt extends Service {
   /**
    * Contribute a tool-schema provider that is evaluated at each assembly
    * call (so it can reflect the live registry state). The provider is
-   * removed when the calling fiber is disposed. Emits `system-prompt/change`.
+   * removed when the calling fiber is disposed. A provider must not return a
+   * schema named {@link TOOL_ORDER_REST}; that name is reserved for
+   * {@link Config.toolOrder}'s rest entry and rejects the assembly. Emits
+   * `system-prompt/change`.
    * @param provider - evaluated at every {@link assemble} for fresh schemas.
    * @returns the disposer that removes the provider.
    */

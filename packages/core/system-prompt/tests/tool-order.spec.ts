@@ -61,6 +61,16 @@ describe('SystemPrompt tool order', () => {
       'toolOrder lists unregistered tool "ghost"; registered tools: (none)')
   })
 
+  it.each([
+    ['without an explicit toolOrder', undefined],
+    ['with only the rest entry configured', [TOOL_ORDER_REST]],
+  ])('rejects a provider tool named like the reserved rest entry %s', async (_case, toolOrder) => {
+    const ctx = await mount(toolOrder === undefined ? {} : { toolOrder })
+    ctx.systemPrompt.tools(() => [tool(TOOL_ORDER_REST)])
+    await expect(ctx.systemPrompt.assemble()).rejects.toThrow(
+      `tool provider returned reserved tool name "${TOOL_ORDER_REST}"`)
+  })
+
   it('keeps collection order between tools that share a name (stable sort)', async () => {
     const ctx = await mount()
     ctx.systemPrompt.tools(() => [tool('dup', 'first'), tool('anchor'), tool('dup', 'second')])
