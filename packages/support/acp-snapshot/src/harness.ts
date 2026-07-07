@@ -224,7 +224,12 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
       sessionUpdate(params: SessionNotification): Promise<void> {
         for (let i = updateWaiters.length - 1; i >= 0; i--) {
           const waiter = updateWaiters[i]
-          if (waiter !== undefined && waiter.match(params.update)) {
+          // The index is always in-bounds (i only decreases; splice removes at
+          // i, so lower entries stay valid); the guard satisfies
+          // noUncheckedIndexedAccess.
+          /* v8 ignore next 1 -- unreachable in-bounds guard, see above */
+          if (waiter === undefined) continue
+          if (waiter.match(params.update)) {
             updateWaiters.splice(i, 1)
             waiter.resolve()
           }
@@ -351,6 +356,10 @@ async function runStep(
 
 /** Resolve once the child process exits (any code/signal). */
 function waitForExit(child: ChildProcessWithoutNullStreams): Promise<void> {
+  // Race guard: both call sites run within one synchronous frame of
+  // stdin.end()/kill(), so the exit event cannot have been delivered yet;
+  // kept for any future caller that awaits in between.
+  /* v8 ignore next 1 -- unreachable race guard, see above */
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
   return new Promise<void>(resolve => child.once('exit', () => { resolve() }))
 }

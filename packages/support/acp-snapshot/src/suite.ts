@@ -101,8 +101,14 @@ export interface SnapshotSuiteOptions {
   mode: 'replay' | 'record'
 }
 
-/** The sibling child-fixture paths for a scenario (`session.1.jsonl` …). */
-function childFixturePaths(dir: string, childSessions: number): string[] {
+/**
+ * The sibling child-fixture paths for a scenario (`session.1.jsonl` …).
+ *
+ * @param dir The scenario's snapshots directory (`<snapshotsDir>/<name>`).
+ * @param childSessions How many subagent child sessions the scenario records.
+ * @returns One path per child, 1-based, in fixture order.
+ */
+export function childFixturePaths(dir: string, childSessions: number): string[] {
   return Array.from({ length: childSessions }, (_, i) => join(dir, `session.${i + 1}.jsonl`))
 }
 
@@ -118,8 +124,11 @@ function childFixturePaths(dir: string, childSessions: number): string[] {
  * is an idempotent no-op. A header with no `cwd` falls back to a sentinel that
  * cannot occur in a log (NOT `''`, which `String.split` would match on every
  * character boundary and corrupt the output).
+ *
+ * @param fixture The committed `session.jsonl` content.
+ * @returns The fixture's own volatile values, ready for {@link normalizeSessionLog}.
  */
-function fixtureContext(fixture: string): NormalizeContext {
+export function fixtureContext(fixture: string): NormalizeContext {
   const firstLine = fixture.split('\n').find(line => line.trim().length > 0) ?? '{}'
   const header = JSON.parse(firstLine) as { id?: unknown; cwd?: unknown }
   return {
@@ -134,8 +143,12 @@ function fixtureContext(fixture: string): NormalizeContext {
  * ({@link normalizeSessionLog}) so headers harvested from different runs —
  * each embedding its own temp cwd in the composed prompt — compare on equal
  * footing.
+ *
+ * @param rawLog The session `.jsonl` content to extract headers from.
+ * @param ctx The volatile values of the run that produced it.
+ * @returns The normalized `data.header` payloads, in log order.
  */
-function normalizedHeaders(rawLog: string, ctx: NormalizeContext): unknown[] {
+export function normalizedHeaders(rawLog: string, ctx: NormalizeContext): unknown[] {
   return normalizeSessionLog(rawLog, ctx)
     .split('\n')
     .filter(line => line.trim().length > 0)
@@ -144,8 +157,13 @@ function normalizedHeaders(rawLog: string, ctx: NormalizeContext): unknown[] {
     .map(record => record.data?.header)
 }
 
-/** Count the `request/header-delta` events in a session JSONL. */
-function headerDeltaCount(rawLog: string): number {
+/**
+ * Count the `request/header-delta` events in a session JSONL.
+ *
+ * @param rawLog The session `.jsonl` content.
+ * @returns How many `request/header-delta` events the log carries.
+ */
+export function headerDeltaCount(rawLog: string): number {
   return rawLog.split('\n')
     .filter(line => line.trim().length > 0)
     .filter(line => (JSON.parse(line) as { type?: unknown }).type === 'request/header-delta')

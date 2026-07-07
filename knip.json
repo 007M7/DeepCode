@@ -22,7 +22,7 @@
       "ignoreDependencies": ["cordis"]
     },
     "packages/support/acp-snapshot": {
-      "entry": ["tests/**/*.spec.ts"],
+      "entry": ["tests/**/*.spec.ts", "tests/fixtures/fake-acp-agent.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"],
       "ignoreDependencies": ["cordis"]
     },
