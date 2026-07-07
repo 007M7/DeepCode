@@ -52,6 +52,7 @@
         "./packages/session-persistence/*/src",
         "./packages/ui/*/src",
         "./packages/util/*/src",
+        "./packages/mcp/*/src",
         "./packages/support/*/src"
       ]
     }

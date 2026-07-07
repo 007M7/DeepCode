@@ -353,6 +353,49 @@ export interface Config {
 
 Source: [`packages/support/llm-replay/src/index.ts:429`](../packages/support/llm-replay/src/index.ts)
 
+## `@deepseek-ai/dsh-mcp-client`
+
+Requires: `tools`
+
+```ts config-catalog
+/** Discriminated union of all supported MCP transport configurations. */
+export type Config = StdioConfig | StreamableHttpConfig
+
+/** Config for connecting to an MCP server via a spawned child process over stdio. */
+export interface StdioConfig {
+  /** Transport type: spawn a child process and communicate over stdio. */
+  transport: 'stdio'
+  /** Executable to spawn. */
+  command: string
+  /** Arguments passed to the command. */
+  args: string[]
+  /** Extra env vars merged on top of scrubbed ambient env. */
+  env: Record<string, string>
+  /** Working directory for the child process. */
+  cwd: string
+  /** Prefix prepended to each tool name before registration. */
+  toolPrefix: string
+  /** Timeout per callTool invocation (ms). */
+  toolCallTimeoutMs: number
+}
+
+/** Config for connecting to an MCP server over Streamable HTTP (SSE). */
+export interface StreamableHttpConfig {
+  /** Transport type: connect to an MCP server over Streamable HTTP (SSE). */
+  transport: 'streamable-http'
+  /** MCP server URL. */
+  url: string
+  /** Extra headers (e.g. auth tokens). */
+  headers: Record<string, string>
+  /** Prefix prepended to each tool name before registration. */
+  toolPrefix: string
+  /** Timeout per callTool invocation (ms). */
+  toolCallTimeoutMs: number
+}
+```
+
+Source: [`packages/mcp/mcp-client/src/index.ts:66`](../packages/mcp/mcp-client/src/index.ts)
+
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 
 Requires: `sessions`
