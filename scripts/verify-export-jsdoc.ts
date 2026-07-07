@@ -321,6 +321,11 @@ function checkClass(cls: ts.ClassDeclaration, name: string, w: Walk): void {
  * @param byName - this scope's named declarations (for namespace/sibling-merge lookups).
  * @param ambient - whether the enclosing scope is ambient (`declare`), where members export implicitly.
  * @param w - the walk state violations append to.
+ * @param only - for a multi-declarator variable statement reached through an
+ *   export list (or a default-export identifier), the declarator names that
+ *   are actually exported; `null` means the whole statement is surface
+ *   (direct `export` modifier or ambient scope). Non-variable statements
+ *   declare exactly one name, so the filter never applies to them.
  */
 function checkDecl(
   stmt: ts.Statement,
@@ -329,6 +334,7 @@ function checkDecl(
   byName: Map<string, ts.Statement[]>,
   ambient: boolean,
   w: Walk,
+  only: ReadonlySet<string> | null = null,
 ): void {
   const at = (n: ts.Node): string => ` (${pointer(w.rel, w.sf, n)})`
   if (ts.isFunctionDeclaration(stmt)) {
@@ -359,6 +365,7 @@ function checkDecl(
     const raw = rawJsDoc(w.text, stmt) // JSDoc sits on the statement, not the declarator
     for (const d of stmt.declarationList.declarations) {
       const name = ts.isIdentifier(d.name) ? d.name.text : d.name.getText(w.sf)
+      if (only !== null && !only.has(name)) continue // sibling declarator the export list never named: not surface
       if (prefix === '' && PROTOCOL_EXPORTS.has(name)) continue // cordis plugin-protocol slot
       const where = `exported const '${prefix}${name}'${at(d)}`
       const annotation = d.type !== undefined ? callableAnnotation(d.type) : null
@@ -462,11 +469,25 @@ function checkScope(statements: readonly ts.Statement[], prefix: string, w: Walk
       }
     }
   }
-  const checked = new Set<ts.Statement>()
-  const check = (stmt: ts.Statement): void => {
-    if (checked.has(stmt)) return
-    checked.add(stmt)
-    checkDecl(stmt, prefix, overloadSigs, byName, ambient, w)
+  // Two-phase dispatch. Phase one accumulates WHICH statements are surface
+  // and, for a variable statement reached by name (an export list or a
+  // default-export identifier), which of its declarators the exports actually
+  // name — `null` marks the whole statement as surface (a direct `export`
+  // modifier, or an ambient scope). Requests for the same statement merge:
+  // `null` absorbs any name set, and name sets union, so
+  // `export { a }; export { b }` over one `const a = …, b = …` checks both
+  // declarators while a never-exported sibling stays out of the surface.
+  // Phase two runs each surfaced statement exactly once. (Checking a
+  // statement eagerly per request would either re-check on the second list or
+  // — deduplicated — silently drop the second list's declarators.)
+  const requested = new Map<ts.Statement, Set<string> | null>()
+  const request = (stmt: ts.Statement, name: string | null): void => {
+    const prior = requested.get(stmt)
+    if (name === null || prior === null) {
+      requested.set(stmt, null)
+      return
+    }
+    requested.set(stmt, prior === undefined ? new Set([name]) : prior.add(name))
   }
   for (const stmt of statements) {
     if (ts.isModuleDeclaration(stmt)
@@ -477,7 +498,8 @@ function checkScope(statements: readonly ts.Statement[], prefix: string, w: Walk
       if (stmt.moduleSpecifier) continue // re-export: the defining module is walked on its own
       if (stmt.exportClause && ts.isNamedExports(stmt.exportClause)) {
         for (const el of stmt.exportClause.elements) {
-          for (const decl of byName.get((el.propertyName ?? el.name).text) ?? []) check(decl)
+          const local = (el.propertyName ?? el.name).text
+          for (const decl of byName.get(local) ?? []) request(decl, local)
           // a name with no local declaration is an imported binding re-exported
           // without a specifier — its defining module is walked on its own
         }
@@ -494,7 +516,7 @@ function checkScope(statements: readonly ts.Statement[], prefix: string, w: Walk
       const where = `default export (${pointer(w.rel, w.sf, stmt)})`
       const expr = unwrapExpression(stmt.expression)
       if (ts.isIdentifier(expr)) {
-        for (const decl of byName.get(expr.text) ?? []) check(decl)
+        for (const decl of byName.get(expr.text) ?? []) request(decl, expr.text)
       } else if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) {
         checkFunctionLike(where, rawJsDoc(w.text, stmt), expr.parameters, expr.type, false, w)
       } else {
@@ -502,7 +524,11 @@ function checkScope(statements: readonly ts.Statement[], prefix: string, w: Walk
       }
       continue
     }
-    if (isExported(stmt) || (ambient && !ts.isImportDeclaration(stmt))) check(stmt)
+    if (isExported(stmt) || (ambient && !ts.isImportDeclaration(stmt))) request(stmt, null)
+  }
+  for (const stmt of statements) {
+    const only = requested.get(stmt)
+    if (only !== undefined) checkDecl(stmt, prefix, overloadSigs, byName, ambient, w, only)
   }
 }
 

@@ -160,6 +160,36 @@ describe('verify-export-jsdoc export forms', () => {
     ))).toEqual([expect.stringMatching(/exported function 'f' .* has no JSDoc\./)])
   })
 
+  it('does not treat a never-exported sibling declarator as surface (review round 2)', () => {
+    // `export { publicValue }` resolves to the whole variable statement; only
+    // the named declarator is surface — the gate must not demand JSDoc for
+    // the private sibling sharing the statement.
+    expect(collectExportJsdocViolations(make(
+      '/** The public knob. */\nconst publicValue = 1, privateHelper = 2\nexport { publicValue }\nvoid privateHelper\n',
+    ))).toEqual([])
+  })
+
+  it('unions declarators across multiple export lists over one statement (review round 2)', () => {
+    // Two lists each name one declarator of the same undocumented statement:
+    // both are surface (deduplicating on first resolution would drop `b`),
+    // while the never-exported `c` stays out.
+    const violations = collectExportJsdocViolations(make(
+      'const a = 1, b = 2, c = 3\nexport { a }\nexport { b }\nvoid c\n',
+    ))
+    expect(violations).toEqual([
+      expect.stringMatching(/exported const 'a' .* has no JSDoc\./),
+      expect.stringMatching(/exported const 'b' .* has no JSDoc\./),
+    ])
+  })
+
+  it('scopes a default-export identifier to its own declarator (review round 2)', () => {
+    // `export default` of an identifier reaches the statement through the
+    // same name lookup as an export list; the sibling stays private.
+    expect(collectExportJsdocViolations(make(
+      '/** The app entry. */\nconst app = 1, scratch = 2\nexport default app\nvoid scratch\n',
+    ))).toEqual([])
+  })
+
   it('reports a re-exported module once, at its defining file', () => {
     const violations = collectExportJsdocViolations(fixture({
       'index.ts': "export * from './other.ts'\n",
