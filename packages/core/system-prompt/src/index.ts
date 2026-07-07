@@ -117,11 +117,11 @@ const GROUP_AT = /^\{\{([^{}]*)\}\}/
  * Deliberately not a valid model-facing tool name, so it can never collide
  * with a real tool.
  */
-export const TOOL_ORDER_REST = '...'
+export const TOOL_ORDER_REST = '<unlisted-tools>'
 
 /**
- * Validate a configured tool-order list at service construction: `'...'`
- * ({@link TOOL_ORDER_REST}) exactly once, no duplicate names. Returns the list
+ * Validate a configured tool-order list at service construction: the
+ * {@link TOOL_ORDER_REST} rest entry exactly once, no duplicate names. Returns the list
  * (or undefined when unconfigured); throws otherwise, failing the service at
  * load — a bad order config must never reach an assembly.
  */
@@ -141,7 +141,7 @@ function validateToolOrder(toolOrder: string[] | undefined): string[] | undefine
 /**
  * Order collected tool schemas by the validated policy: with no configured
  * list, plain lexicographic name order; with one, listed names take their
- * listed position and every unlisted tool lands at the `'...'` entry in
+ * listed position and every unlisted tool lands at the {@link TOOL_ORDER_REST} rest entry in
  * lexicographic name order. Never drops a tool, and both sorts are stable, so
  * tools sharing a name keep their collection order.
  */
@@ -176,8 +176,8 @@ export interface Config {
    * Explicit model-facing tool order, as a list of `ToolSchema.name`s: listed
    * tools take their listed position, names with no registered tool are
    * ignored, and tools absent from the list are inserted at the
-   * {@link TOOL_ORDER_REST} (`'...'`) entry in lexicographic name order. A
-   * configured list must contain `'...'` exactly once and no duplicate names —
+   * {@link TOOL_ORDER_REST} (`'<unlisted-tools>'`) entry in lexicographic name order. A
+   * configured list must contain the rest entry exactly once and no duplicate names —
    * anything else throws at load; a bad order config must never reach a
    * model request. When omitted, tools are ordered lexicographically by name.
    * Applied to the tools {@link SystemPrompt.assemble} collects, BEFORE the
@@ -264,8 +264,8 @@ export class SystemPrompt extends Service {
     persona: z.string().default(''),
     // A schemastery array defaults to [] when omitted, but an omitted
     // toolOrder must stay absent ("lexicographic order"), not become an
-    // explicitly-configured empty list (which is invalid — it lacks the '...'
-    // entry). Forcing the default to undefined keeps the key out of the
+    // explicitly-configured empty list (which is invalid — it lacks the
+    // rest entry). Forcing the default to undefined keeps the key out of the
     // validated config; the cast is needed because .default() expects the
     // array type.
     toolOrder: z.array(z.string()).default(undefined as unknown as string[]),

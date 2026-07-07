@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
+import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as acpAgent from '../src/index.ts'
 
 /**
@@ -55,7 +56,7 @@ describe('dsh-acp-agent composition', () => {
   it('forwards toolOrder through agent-core to the system-prompt assembly', async () => {
     const ctx = await mount({
       model: 'mock',
-      toolOrder: ['zulu', '...'],
+      toolOrder: ['zulu', TOOL_ORDER_REST],
       persistenceRoot: '/tmp/dsh-acp-agent-test-tool-order',
     })
     // The bundle's own bash tools pend on the absent `ctx.bash` executor in

@@ -560,8 +560,8 @@ export interface Config {
    * Explicit model-facing tool order, as a list of `ToolSchema.name`s: listed
    * tools take their listed position, names with no registered tool are
    * ignored, and tools absent from the list are inserted at the
-   * {@link TOOL_ORDER_REST} (`'...'`) entry in lexicographic name order. A
-   * configured list must contain `'...'` exactly once and no duplicate names —
+   * {@link TOOL_ORDER_REST} (`'<unlisted-tools>'`) entry in lexicographic name order. A
+   * configured list must contain the rest entry exactly once and no duplicate names —
    * anything else throws at load; a bad order config must never reach a
    * model request. When omitted, tools are ordered lexicographically by name.
    * Applied to the tools {@link SystemPrompt.assemble} collects, BEFORE the

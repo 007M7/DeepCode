@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { AgentId } from '@deepseek-ai/dsh-agent'
+import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as stdioAgent from '../src/index.ts'
 
 /**
@@ -77,7 +78,7 @@ describe('dsh-stdio-agent app', () => {
   it('forwards toolOrder through agent-core to the system-prompt assembly', async () => {
     const ctx = await mount({
       model: 'mock',
-      toolOrder: ['zulu', '...'],
+      toolOrder: ['zulu', TOOL_ORDER_REST],
       persistenceRoot: '/tmp/dsh-stdio-agent-spec-tool-order',
     })
     // The bundle's own bash tools pend on the absent `ctx.bash` executor in

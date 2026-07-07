@@ -18,8 +18,8 @@ function names(assembly: PromptAssembly): string[] {
 }
 
 describe('SystemPrompt tool order', () => {
-  it('exports the rest entry as "..."', () => {
-    expect(TOOL_ORDER_REST).toBe('...')
+  it('exports the rest entry as "<unlisted-tools>"', () => {
+    expect(TOOL_ORDER_REST).toBe('<unlisted-tools>')
   })
 
   it('assembles tools in lexicographic name order when no toolOrder is configured', async () => {
@@ -40,7 +40,7 @@ describe('SystemPrompt tool order', () => {
     expect(names(await backward.systemPrompt.assemble())).toEqual(['alpha', 'zulu'])
   })
 
-  it('applies a configured toolOrder: listed positions, rest at "..." lexicographically, absent names ignored', async () => {
+  it('applies a configured toolOrder: listed positions, rest at the rest entry lexicographically, absent names ignored', async () => {
     const ctx = await mount({ toolOrder: ['todo_write', 'ghost', TOOL_ORDER_REST, 'bash'] })
     ctx.systemPrompt.tools(() => [tool('bash'), tool('echo_b'), tool('todo_write'), tool('echo_a')])
     expect(names(await ctx.systemPrompt.assemble())).toEqual(['todo_write', 'echo_a', 'echo_b', 'bash'])
@@ -73,8 +73,8 @@ describe('SystemPrompt tool order', () => {
   it.each([
     ['an empty list', []],
     ['a list without the rest entry', ['bash', 'todo_write']],
-  ])('rejects %s at load (the "..." rest entry is required)', async (_case, toolOrder) => {
-    await expect(new Context().plugin(SystemPrompt, { toolOrder })).rejects.toThrow('must contain the "..." rest entry')
+  ])('rejects %s at load (the rest entry is required)', async (_case, toolOrder) => {
+    await expect(new Context().plugin(SystemPrompt, { toolOrder })).rejects.toThrow(`must contain the "${TOOL_ORDER_REST}" rest entry`)
   })
 
   it.each([
