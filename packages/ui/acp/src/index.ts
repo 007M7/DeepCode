@@ -77,6 +77,8 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import {
   UserInteractionError,
   type AskUserQuestionAnswer,
+  type AskUserQuestionAnswerItem,
+  type AskUserQuestionItem,
   type AskUserQuestionOption,
   type AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
@@ -120,25 +122,10 @@ function sameWorkspaceCwd(left: string, right: string): boolean {
   return resolvePath(left) === resolvePath(right)
 }
 
-function optionAnswer(option: AskUserQuestionOption): string {
-  return option.value ?? option.label
-}
-
-function orderedOptions(options: readonly AskUserQuestionOption[] | undefined): AskUserQuestionOption[] {
-  return [...(options ?? [])].sort((a, b) => Number(Boolean(b.recommended)) - Number(Boolean(a.recommended)))
-}
-
 function optionDescription(option: AskUserQuestionOption): string {
   return option.description === undefined
     ? option.label
     : `${option.label}: ${option.description}`
-}
-
-function selectedOption(
-  options: readonly AskUserQuestionOption[],
-  answer: string,
-): AskUserQuestionOption | undefined {
-  return options.find(option => optionAnswer(option) === answer)
 }
 
 function requireStringContent(
@@ -177,60 +164,72 @@ function withAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Pro
 
 function elicitationForQuestion(
   sessionId: SessionId,
-  request: AskUserQuestionRequest,
+  question: AskUserQuestionItem,
   options: AskUserQuestionOption[],
 ): CreateElicitationRequest {
-  const allowCustom = options.length === 0 || (request.allowCustom ?? true)
-  const title = request.header ?? 'Question'
+  const title = question.header ?? 'Question'
   if (options.length === 0) {
     return {
       sessionId,
       mode: 'form',
-      message: request.question,
+      message: question.question,
       requestedSchema: {
         type: 'object',
         title,
         properties: {
-          answer: { type: 'string', title: request.question },
+          custom: { type: 'string', title: question.question },
         },
-        required: ['answer'],
+        required: ['custom'],
       },
     }
   }
 
   const choiceOptions: EnumOption[] = options.map(option => ({
-    const: optionAnswer(option),
+    const: option.label,
     title: optionDescription(option),
   }))
-  const recommended = options.find(option => option.recommended)
+  const choice = question.multiSelect === true
+    ? {
+      type: 'array' as const,
+      title: question.question,
+      description: 'Choose one or more options, or fill a custom answer below.',
+      items: {
+        anyOf: choiceOptions,
+      },
+    }
+    : {
+      type: 'string' as const,
+      title: question.question,
+      description: 'Choose one option, or fill a custom answer below.',
+      oneOf: choiceOptions,
+    }
   return {
     sessionId,
     mode: 'form',
-    message: request.question,
+    message: question.question,
     requestedSchema: {
       type: 'object',
       title,
       properties: {
-        choice: {
+        choice,
+        custom: {
           type: 'string',
-          title: request.question,
-          description: allowCustom ? 'Choose one option, or fill a custom answer below.' : 'Choose one option.',
-          oneOf: choiceOptions,
-          ...recommended !== undefined ? { default: optionAnswer(recommended) } : {},
+          title: 'Custom answer',
+          description: 'Optional free-form answer. Leave empty to use the selected option.',
         },
-        ...allowCustom
-          ? {
-            custom_answer: {
-              type: 'string' as const,
-              title: 'Custom answer',
-              description: 'Optional free-form answer. Leave empty to use the selected option.',
-            },
-          }
-          : {},
       },
-      required: allowCustom ? [] : ['choice'],
+      required: [],
     },
   }
+}
+
+function stringArrayContent(
+  content: Record<string, ElicitationContentValue> | null | undefined,
+  key: string,
+): string[] {
+  const value = content?.[key]
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && item.length > 0)
+  return typeof value === 'string' && value.length > 0 ? [value] : []
 }
 
 /** Plugin config: the agent template ACP sessions are created from. */
@@ -373,25 +372,30 @@ export function apply(ctx: Context, config: AcpConfig): void {
       if (sessionId === undefined) {
         throw new UserInteractionError('ACP user question has no matching session', 'NO_SESSION')
       }
-      const options = orderedOptions(request.options)
-      const response = await withAbort(conn.unstable_createElicitation(
-        elicitationForQuestion(sessionId, request, options),
-      ), request.signal).catch((error: unknown) => {
-        if (error instanceof UserInteractionError) throw error
-        throw new UserInteractionError('ACP elicitation request failed', 'ASK_FAILED', { cause: error })
-      })
-      if (response.action !== 'accept') {
-        throw new UserInteractionError('ask_user_question was cancelled by the user', 'ASK_CANCELLED')
+      const answers: AskUserQuestionAnswerItem[] = []
+      for (const question of request.questions) {
+        const options = question.options ?? []
+        const response = await withAbort(conn.unstable_createElicitation(
+          elicitationForQuestion(sessionId, question, options),
+        ), request.signal).catch((error: unknown) => {
+          if (error instanceof UserInteractionError) throw error
+          throw new UserInteractionError('ACP elicitation request failed', 'ASK_FAILED', { cause: error })
+        })
+        if (response.action !== 'accept') {
+          throw new UserInteractionError('ask_user_question was cancelled by the user', 'ASK_CANCELLED')
+        }
+        const custom = requireStringContent(response.content, 'custom')
+        const selected = stringArrayContent(response.content, 'choice')
+        if (custom === undefined && selected.length === 0) {
+          throw new UserInteractionError('ask_user_question returned no answer', 'NO_ANSWER')
+        }
+        answers.push({
+          id: question.id,
+          selected: custom === undefined ? selected : [],
+          ...custom !== undefined ? { custom } : {},
+        })
       }
-      const customAnswer = requireStringContent(response.content, 'custom_answer')
-      if (customAnswer !== undefined) return { answer: customAnswer }
-
-      const answer = requireStringContent(response.content, options.length === 0 ? 'answer' : 'choice')
-      if (answer === undefined) {
-        throw new UserInteractionError('ask_user_question returned no answer', 'NO_ANSWER')
-      }
-      const option = selectedOption(options, answer)
-      return option === undefined ? { answer } : { answer, option }
+      return { answers }
     },
   })
 

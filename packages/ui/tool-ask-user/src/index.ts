@@ -8,56 +8,64 @@
 
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type {} from '@deepseek-ai/dsh-user-interaction'
+import '@deepseek-ai/dsh-user-interaction'
 
 export const name = 'tool-ask-user'
 export const inject = ['tools', 'userInteraction']
 
 const description = 'Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding. '
-  + 'Use options when possible; mark the recommended option when one is safest.'
+  + 'Send one or more questions, each with a stable id that will be echoed in the answer.'
 
 export function apply(ctx: Context): void {
   ctx.tools.register(defineTool({
     name: 'ask_user_question',
     description,
     parameters: {
-      header: {
-        type: 'string',
-        description: 'Optional short heading for the question, such as "Confirm" or "Choose Mode".',
-      },
-      question: {
-        type: 'string',
-        required: true,
-        description: 'The specific question to ask the user.',
-      },
-      options: {
+      questions: {
         type: 'array',
-        description: 'Optional mutually exclusive choices to show the user.',
+        required: true,
+        description: 'Questions to ask the user before continuing.',
         items: {
           type: 'object',
           properties: {
-            label: { type: 'string', required: true, description: 'Short user-facing option label.' },
-            value: { type: 'string', description: 'Answer text returned to you if this option is selected. Defaults to label.' },
-            description: { type: 'string', description: 'One sentence explaining the tradeoff or impact.' },
-            recommended: { type: 'boolean', description: 'True for the recommended/default option.' },
+            id: { type: 'string', required: true, description: 'Stable id for this question; echoed in the answer.' },
+            question: { type: 'string', required: true, description: 'The specific question to ask the user.' },
+            header: {
+              type: 'string',
+              description: 'Optional short heading for the question, such as "Confirm" or "Choose Mode".',
+            },
+            options: {
+              type: 'array',
+              description: 'Optional choices to show the user.',
+              items: {
+                type: 'object',
+                properties: {
+                  label: { type: 'string', required: true, description: 'Short user-facing option label.' },
+                  description: { type: 'string', description: 'One sentence explaining the tradeoff or impact.' },
+                },
+              },
+            },
+            multi_select: {
+              type: 'boolean',
+              description: 'Whether the user may select more than one option. Defaults to false.',
+            },
           },
         },
-      },
-      allow_custom: {
-        type: 'boolean',
-        description: 'Whether the user may type a free-form answer instead of selecting an option. Defaults to true.',
       },
     },
     async execute(args, exec) {
       const result = await ctx.userInteraction.ask({
-        question: args.question,
-        ...args.header !== undefined ? { header: args.header } : {},
-        ...args.options !== undefined ? { options: args.options } : {},
-        ...args.allow_custom !== undefined ? { allowCustom: args.allow_custom } : {},
+        questions: args.questions.map(question => ({
+          id: question.id,
+          question: question.question,
+          ...question.header !== undefined ? { header: question.header } : {},
+          ...question.options !== undefined ? { options: question.options } : {},
+          ...question.multi_select !== undefined ? { multiSelect: question.multi_select } : {},
+        })),
         ...exec.agent !== undefined ? { agent: exec.agent } : {},
         ...exec.signal !== undefined ? { signal: exec.signal } : {},
       })
-      return [{ type: 'text', text: result.answer }]
+      return [{ type: 'text', text: JSON.stringify(result) }]
     },
   }))
 }

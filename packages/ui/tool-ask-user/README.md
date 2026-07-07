@@ -6,12 +6,14 @@ Model-facing `ask_user_question` tool over `ctx.userInteraction`. It lets the mo
 
 `ask_user_question` accepts:
 
-- `question` — required question text.
+- `questions` — required non-empty array of question objects.
+- `id` — required stable id on each question, echoed in the answer.
+- `question` — required question text for each question.
 - `header` — optional short heading.
-- `options` — optional choices with `label`, `value`, `description`, and `recommended`.
-- `allow_custom` — whether free-form answers are allowed; defaults to the provider's normal `true` behavior.
+- `options` — optional choices with `label` and `description`.
+- `multi_select` — whether that question may return more than one selected option.
 
-The tool calls `ctx.userInteraction.ask()` and returns the selected option value or custom answer as a text tool result.
+The tool calls `ctx.userInteraction.ask()` and returns JSON text shaped as `{ "answers": [{ "id": "...", "selected": ["..."], "custom": "..." }] }`. `selected` contains option labels; `custom` is present only for a free-form answer and overrides selected choices.
 
 ## Role
 

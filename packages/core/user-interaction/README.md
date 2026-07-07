@@ -11,11 +11,13 @@ Abstract user-interaction seam. It owns `ctx.userInteraction`, the service a mod
 
 ### Key Types
 
-- `AskUserQuestionRequest` — `{ question, header?, options?, allowCustom?, agent?, signal? }`.
-- `AskUserQuestionOption` — `{ label, value?, description?, recommended? }`.
-- `AskUserQuestionAnswer` — `{ answer, option? }`.
+- `AskUserQuestionRequest` — `{ questions: [{ id, question, header?, options?, multiSelect? }], agent?, signal? }`.
+- `AskUserQuestionOption` — `{ label, description? }`.
+- `AskUserQuestionAnswer` — `{ answers: [{ id, selected, custom? }] }`.
 - `UserInteractionProvider` — UI implementation with `ask(request)`.
-- `UserInteractionError` — `HarnessError` subclass with codes such as `NO_PROVIDER`, `DUPLICATE_PROVIDER`, and `ASK_ABORTED`.
+- `UserInteractionError` — `HarnessError` subclass with codes such as `EMPTY_QUESTIONS`, `NO_PROVIDER`, `DUPLICATE_PROVIDER`, and `ASK_ABORTED`.
+
+When an answer includes `custom`, `selected` is empty; custom text is an override rather than a supplement to selected choices.
 
 ## Role
 

@@ -45,7 +45,9 @@
     { "doc": "docs/core-data-structures/tools.md", "symbol": "PostToolDecision", "source": "packages/core/tools/src/index.ts" },
 
     { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "AskUserQuestionOption", "source": "packages/core/user-interaction/src/index.ts" },
+    { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "AskUserQuestionItem", "source": "packages/core/user-interaction/src/index.ts" },
     { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "AskUserQuestionRequest", "source": "packages/core/user-interaction/src/index.ts" },
+    { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "AskUserQuestionAnswerItem", "source": "packages/core/user-interaction/src/index.ts" },
     { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "AskUserQuestionAnswer", "source": "packages/core/user-interaction/src/index.ts" },
     { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "UserInteractionProvider", "source": "packages/core/user-interaction/src/index.ts" },
     { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "UserInteractionError", "source": "packages/core/user-interaction/src/index.ts" },

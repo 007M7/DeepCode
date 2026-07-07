@@ -30,7 +30,7 @@ The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 
 | `session/prompt` | `agent.send()` | supports ACP `text` and `resource_link` blocks; rejects image/audio/embedded resource and empty prompts; one in-flight prompt PER session (independent); settles on the OWNING turn's end (a turn that ends in `error` rejects the RPC) |
 | `session/cancel` | `agent.cancel()` | the queue-aware cancel: aborts a running step, clears queued + steering work, and drops a turn about to start, then settles the prompt `cancelled` — for ONLY that session (a cancel never touches another session's stream or prompt) |
 | `session/update` | `session/event` | `agent_message_chunk` (text-delta), `agent_thought_chunk` (reasoning-delta), `user_message_chunk` (load replay), `tool_call`/`tool_call_update` (the render intent — a `card`-tagged `ToolCallView`/`ToolResultView` — owned by the TOOL via `presentCall`/`presentResult`, which the bridge switches on to build the wire shape — see Tool-call presentation) |
-| `elicitation/create` | `ctx.userInteraction.ask()` | maps `ask_user_question` requests to ACP form elicitations; recommended options become defaults, option descriptions are shown in enum titles, optionless requests remain free-form even when `allowCustom` is false |
+| `elicitation/create` | `ctx.userInteraction.ask()` | maps `ask_user_question` questions to ACP form elicitations; option descriptions are shown in enum titles, `multi_select` uses ACP array enums, optionless requests use a required `custom` field, and a non-empty custom answer overrides any selected choice |
 
 ## Multi-session
 

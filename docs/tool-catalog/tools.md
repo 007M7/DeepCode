@@ -26,55 +26,64 @@ This table connects model-visible tool names to the plugin package and service s
 
 ### `ask_user_question`
 
-Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding. Use options when possible; mark the recommended option when one is safest.
+Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding. Send one or more questions, each with a stable id that will be echoed in the answer.
 
 ```json
 {
   "type": "object",
   "properties": {
-    "header": {
-      "type": "string",
-      "description": "Optional short heading for the question, such as \"Confirm\" or \"Choose Mode\"."
-    },
-    "question": {
-      "type": "string",
-      "description": "The specific question to ask the user."
-    },
-    "options": {
+    "questions": {
       "type": "array",
-      "description": "Optional mutually exclusive choices to show the user.",
+      "description": "Questions to ask the user before continuing.",
       "items": {
         "type": "object",
         "properties": {
-          "label": {
+          "id": {
             "type": "string",
-            "description": "Short user-facing option label."
+            "description": "Stable id for this question; echoed in the answer."
           },
-          "value": {
+          "question": {
             "type": "string",
-            "description": "Answer text returned to you if this option is selected. Defaults to label."
+            "description": "The specific question to ask the user."
           },
-          "description": {
+          "header": {
             "type": "string",
-            "description": "One sentence explaining the tradeoff or impact."
+            "description": "Optional short heading for the question, such as \"Confirm\" or \"Choose Mode\"."
           },
-          "recommended": {
+          "options": {
+            "type": "array",
+            "description": "Optional choices to show the user.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "description": "Short user-facing option label."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "One sentence explaining the tradeoff or impact."
+                }
+              },
+              "required": [
+                "label"
+              ]
+            }
+          },
+          "multi_select": {
             "type": "boolean",
-            "description": "True for the recommended/default option."
+            "description": "Whether the user may select more than one option. Defaults to false."
           }
         },
         "required": [
-          "label"
+          "id",
+          "question"
         ]
       }
-    },
-    "allow_custom": {
-      "type": "boolean",
-      "description": "Whether the user may type a free-form answer instead of selecting an option. Defaults to true."
     }
   },
   "required": [
-    "question"
+    "questions"
   ]
 }
 ```

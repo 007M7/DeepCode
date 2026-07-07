@@ -12,7 +12,7 @@ function provider(answer = 'approved'): UserInteractionProvider & { seen: AskUse
     seen,
     async ask(request) {
       seen.push(request)
-      return { answer }
+      return { answers: [{ id: request.questions[0]?.id ?? 'missing', selected: [answer] }] }
     },
   }
 }
@@ -24,17 +24,17 @@ describe('UserInteractionService', () => {
     const p = provider('yes')
     ctx.userInteraction.registerProvider(p)
 
-    const result = await ctx.userInteraction.ask({ question: 'Proceed?' })
+    const result = await ctx.userInteraction.ask({ questions: [{ id: 'confirm', question: 'Proceed?' }] })
 
-    expect(result).toEqual({ answer: 'yes' })
-    expect(p.seen).toEqual([{ question: 'Proceed?' }])
+    expect(result).toEqual({ answers: [{ id: 'confirm', selected: ['yes'] }] })
+    expect(p.seen).toEqual([{ questions: [{ id: 'confirm', question: 'Proceed?' }] }])
   })
 
   it('rejects ask requests when no provider is registered', async () => {
     const ctx = new Context()
     await ctx.plugin(UserInteractionService)
 
-    await expect(ctx.userInteraction.ask({ question: 'Proceed?' }))
+    await expect(ctx.userInteraction.ask({ questions: [{ id: 'confirm', question: 'Proceed?' }] }))
       .rejects.toMatchObject({ name: 'UserInteractionError', code: 'NO_PROVIDER' })
   })
 
@@ -47,7 +47,7 @@ describe('UserInteractionService', () => {
     dispose()
     dispose()
 
-    await expect(ctx.userInteraction.ask({ question: 'Proceed?' }))
+    await expect(ctx.userInteraction.ask({ questions: [{ id: 'confirm', question: 'Proceed?' }] }))
       .rejects.toMatchObject({ code: 'NO_PROVIDER' })
   })
 
@@ -63,13 +63,24 @@ describe('UserInteractionService', () => {
   it('fails before reaching the provider when the signal is already aborted', async () => {
     const ctx = new Context()
     await ctx.plugin(UserInteractionService)
-    const p = { ask: vi.fn(async () => ({ answer: 'too late' })) }
+    const p = { ask: vi.fn(async () => ({ answers: [{ id: 'confirm', selected: ['too late'] }] })) }
     ctx.userInteraction.registerProvider(p)
     const controller = new AbortController()
     controller.abort()
 
-    await expect(ctx.userInteraction.ask({ question: 'Proceed?', signal: controller.signal }))
+    await expect(ctx.userInteraction.ask({ questions: [{ id: 'confirm', question: 'Proceed?' }], signal: controller.signal }))
       .rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    expect(p.ask).not.toHaveBeenCalled()
+  })
+
+  it('rejects empty question batches before reaching the provider', async () => {
+    const ctx = new Context()
+    await ctx.plugin(UserInteractionService)
+    const p = { ask: vi.fn(async () => ({ answers: [] })) }
+    ctx.userInteraction.registerProvider(p)
+
+    await expect(ctx.userInteraction.ask({ questions: [] }))
+      .rejects.toMatchObject({ name: 'UserInteractionError', code: 'EMPTY_QUESTIONS' })
     expect(p.ask).not.toHaveBeenCalled()
   })
 })

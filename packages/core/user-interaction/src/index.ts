@@ -21,36 +21,48 @@ declare module 'cordis' {
 export interface AskUserQuestionOption {
   /** User-facing label. */
   label: string
-  /** Value returned to the model when selected. Defaults to `label`. */
-  value?: string
   /** Optional extra context rendered by capable UIs. */
   description?: string
-  /** Marks the recommended/default option. */
-  recommended?: boolean
 }
 
-/** Request for a human answer. */
-export interface AskUserQuestionRequest {
+/** One question in an ask_user_question request. */
+export interface AskUserQuestionItem {
+  /** Stable model-provided question id, echoed in the answer. */
+  id: string
   /** The question to display. */
   question: string
   /** Optional short heading/group label. */
   header?: string
   /** Optional choices the UI can render as a menu. */
   options?: AskUserQuestionOption[]
-  /** Whether free-form answers are accepted. Defaults to `true`. */
-  allowCustom?: boolean
+  /** Whether more than one option may be selected. Defaults to single-select. */
+  multiSelect?: boolean
+}
+
+/** Request for a human answer. */
+export interface AskUserQuestionRequest {
+  /** Questions to display. */
+  questions: AskUserQuestionItem[]
   /** Calling agent, when the request came from an agent tool call. */
   agent?: Agent
   /** Abort signal for the owning tool/step. */
   signal?: AbortSignal
 }
 
+/** Answer to one question. */
+export interface AskUserQuestionAnswerItem {
+  /** The answered question id. */
+  id: string
+  /** Selected option labels. Empty when the answer is purely custom text. */
+  selected: string[]
+  /** Optional free-text "Other" answer. */
+  custom?: string
+}
+
 /** The human's answer. */
 export interface AskUserQuestionAnswer {
-  /** Model-facing answer text. */
-  answer: string
-  /** The selected option, when the answer came from `options`. */
-  option?: AskUserQuestionOption
+  /** Structured answers keyed by question id. */
+  answers: AskUserQuestionAnswerItem[]
 }
 
 /** UI-side provider for user questions. */
@@ -96,12 +108,15 @@ export class UserInteractionService extends Service {
   /**
    * Ask the active UI provider and wait for the user's answer.
    *
-   * @param request Question, options, owner agent, and abort signal.
+   * @param request Questions, owner agent, and abort signal.
    * @returns The answer chosen or typed by the human.
    */
   async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer> {
     if (request.signal?.aborted) {
       throw new UserInteractionError('ask_user_question was aborted before the user answered', 'ASK_ABORTED')
+    }
+    if (request.questions.length === 0) {
+      throw new UserInteractionError('ask_user_question requires at least one question', 'EMPTY_QUESTIONS')
     }
     if (this.provider === undefined) {
       throw new UserInteractionError('no user-interaction provider is registered', 'NO_PROVIDER')

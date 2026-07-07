@@ -6,35 +6,44 @@ Source: [`packages/core/user-interaction/src/index.ts`](../../packages/core/user
 
 ## Question options
 
-`AskUserQuestionOption` is the selectable-choice shape. `label` is user-facing, while `value` is the model-facing answer returned when the option is selected; when omitted, providers use the label.
+`AskUserQuestionOption` is the selectable-choice shape. `label` is the user-facing option text and also the model-facing selected value; `description` is optional UI help text.
 
 ```ts type-equiv
 interface AskUserQuestionOption {
   /** User-facing label. */
   label: string
-  /** Value returned to the model when selected. Defaults to `label`. */
-  value?: string
   /** Optional extra context rendered by capable UIs. */
   description?: string
-  /** Marks the recommended/default option. */
-  recommended?: boolean
 }
 ```
 
-## Ask request
+## Question item
 
-`AskUserQuestionRequest` is the cross-package request. `options` being absent means free-form input; an optionless request remains free-form even when a caller sets `allowCustom: false`, because there is no selectable option to constrain the answer to.
+`AskUserQuestionItem` is one question in a request. The model supplies a stable `id`, which is echoed back with the answer so batched questions remain routable.
 
 ```ts type-equiv
-interface AskUserQuestionRequest {
+interface AskUserQuestionItem {
+  /** Stable model-provided question id, echoed in the answer. */
+  id: string
   /** The question to display. */
   question: string
   /** Optional short heading/group label. */
   header?: string
   /** Optional choices the UI can render as a menu. */
   options?: AskUserQuestionOption[]
-  /** Whether free-form answers are accepted. Defaults to `true`. */
-  allowCustom?: boolean
+  /** Whether more than one option may be selected. Defaults to single-select. */
+  multiSelect?: boolean
+}
+```
+
+## Ask request
+
+`AskUserQuestionRequest` is the cross-package request. `questions` is an array so a UI can present related prompts in one flow while preserving a stable id per answer.
+
+```ts type-equiv
+interface AskUserQuestionRequest {
+  /** Questions to display. */
+  questions: AskUserQuestionItem[]
   /** Calling agent, when the request came from an agent tool call. */
   agent?: Agent
   /** Abort signal for the owning tool/step. */
@@ -44,14 +53,23 @@ interface AskUserQuestionRequest {
 
 ## Answer
 
-Providers return the model-facing `answer` text and optionally echo the chosen option as metadata. Consumers should use `answer`; the option is for UI/session metadata and diagnostics.
+Providers return one answer per answered question id. `selected` contains selected option labels, and `custom` carries a free-form "Other" answer when the user typed one. When `custom` is present, `selected` is empty; custom text is an answer override, not a supplement to selected choices.
+
+```ts type-equiv
+interface AskUserQuestionAnswerItem {
+  /** The answered question id. */
+  id: string
+  /** Selected option labels. Empty when the answer is purely custom text. */
+  selected: string[]
+  /** Optional free-text "Other" answer. */
+  custom?: string
+}
+```
 
 ```ts type-equiv
 interface AskUserQuestionAnswer {
-  /** Model-facing answer text. */
-  answer: string
-  /** The selected option, when the answer came from `options`. */
-  option?: AskUserQuestionOption
+  /** Structured answers keyed by question id. */
+  answers: AskUserQuestionAnswerItem[]
 }
 ```
 
@@ -67,7 +85,7 @@ interface UserInteractionProvider {
 
 ## Errors
 
-`UserInteractionError` extends `HarnessError`, so `ctx.tools.execute()` preserves `{ name, code }` for model-facing tool failures such as `NO_PROVIDER`, `ASK_ABORTED`, or ACP-side cancellation.
+`UserInteractionError` extends `HarnessError`, so `ctx.tools.execute()` preserves `{ name, code }` for model-facing tool failures such as `EMPTY_QUESTIONS`, `NO_PROVIDER`, `ASK_ABORTED`, or ACP-side cancellation.
 
 ```ts type-equiv
 class UserInteractionError extends HarnessError {

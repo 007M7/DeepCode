@@ -9,9 +9,15 @@ import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 
 interface OptionSchemaShape {
   properties: {
-    options: {
+    questions: {
       items: {
-        properties: Record<string, { type: string }>
+        properties: {
+          options: {
+            items: {
+              properties: Record<string, { type: string }>
+            }
+          }
+        } & Record<string, unknown>
       }
     }
   }
@@ -36,29 +42,35 @@ describe('ask_user_question tool', () => {
       parameters: {
         type: 'object',
         properties: {
-          question: { type: 'string' },
-          options: { type: 'array' },
-          allow_custom: { type: 'boolean' },
+          questions: { type: 'array' },
         },
-        required: ['question'],
+        required: ['questions'],
       },
     })
     const parameters = schema?.parameters as unknown as OptionSchemaShape
-    expect(parameters.properties.options.items.properties).toMatchObject({
-      description: { type: 'string' },
-      recommended: { type: 'boolean' },
+    expect(parameters.properties.questions.items.properties).toMatchObject({
+      id: { type: 'string' },
+      question: { type: 'string' },
+      header: { type: 'string' },
+      options: { type: 'array' },
+      multi_select: { type: 'boolean' },
     })
-    expect(parameters.properties.options.items.properties).not.toHaveProperty('desc')
+    expect(parameters.properties.questions.items.properties.options.items.properties).toMatchObject({
+      label: { type: 'string' },
+      description: { type: 'string' },
+    })
+    expect(parameters.properties.questions.items.properties.options.items.properties).not.toHaveProperty('value')
+    expect(parameters.properties.questions.items.properties.options.items.properties).not.toHaveProperty('recommended')
+    expect(parameters.properties.questions.items.properties.options.items.properties).not.toHaveProperty('preview')
   })
 
-  it('asks the registered user-interaction provider and returns the answer text', async () => {
+  it('asks the registered user-interaction provider and projects structured answers to text', async () => {
     const ctx = await setup()
     const seen: AskUserQuestionRequest[] = []
     ctx.userInteraction.registerProvider({
       async ask(request) {
         seen.push(request)
-        const option = request.options?.[0]
-        return option === undefined ? { answer: 'Use pnpm' } : { answer: 'Use pnpm', option }
+        return { answers: [{ id: 'pkg', selected: ['pnpm'] }] }
       },
     })
 
@@ -66,20 +78,59 @@ describe('ask_user_question tool', () => {
       callId: CallId('ask-1'),
       name: 'ask_user_question',
       arguments: {
-        question: 'Which package manager should I use?',
-        options: [{ label: 'pnpm', value: 'Use pnpm', recommended: true }],
-        allow_custom: false,
+        questions: [{
+          id: 'pkg',
+          question: 'Which package manager should I use?',
+          options: [{ label: 'pnpm', description: 'Use pnpm workspaces.' }],
+        }],
       },
     })
 
     expect(result).toMatchObject({
       isError: false,
-      content: [{ type: 'text', text: 'Use pnpm' }],
+      content: [{ type: 'text', text: '{"answers":[{"id":"pkg","selected":["pnpm"]}]}' }],
     })
     expect(seen).toMatchObject([{
-      question: 'Which package manager should I use?',
-      options: [{ label: 'pnpm', value: 'Use pnpm', recommended: true }],
-      allowCustom: false,
+      questions: [{
+        id: 'pkg',
+        question: 'Which package manager should I use?',
+        options: [{ label: 'pnpm', description: 'Use pnpm workspaces.' }],
+      }],
+    }])
+  })
+
+  it('projects custom answers and multi-select choices', async () => {
+    const ctx = await setup()
+    ctx.userInteraction.registerProvider({
+      async ask() {
+        return {
+          answers: [
+            { id: 'targets', selected: ['tests', 'docs'] },
+            { id: 'notes', selected: [], custom: 'ship today' },
+          ],
+        }
+      },
+    })
+
+    const result = await ctx.tools.execute({
+      callId: CallId('ask-multi'),
+      name: 'ask_user_question',
+      arguments: {
+        questions: [
+          {
+            id: 'targets',
+            question: 'What should I update?',
+            options: [{ label: 'tests' }, { label: 'docs' }],
+            multi_select: true,
+          },
+          { id: 'notes', question: 'Any note?' },
+        ],
+      },
+    })
+
+    expect(result.content).toEqual([{
+      type: 'text',
+      text: '{"answers":[{"id":"targets","selected":["tests","docs"]},{"id":"notes","selected":[],"custom":"ship today"}]}',
     }])
   })
 
@@ -89,7 +140,7 @@ describe('ask_user_question tool', () => {
     ctx.userInteraction.registerProvider({
       async ask(request) {
         seen.push(request)
-        return { answer: 'ok' }
+        return { answers: [{ id: 'continue', selected: ['ok'] }] }
       },
     })
     const controller = new AbortController()
@@ -97,7 +148,7 @@ describe('ask_user_question tool', () => {
     await ctx.tools.execute({
       callId: CallId('ask-2'),
       name: 'ask_user_question',
-      arguments: { question: 'Continue?' },
+      arguments: { questions: [{ id: 'continue', question: 'Continue?' }] },
       signal: controller.signal,
     })
 
@@ -110,7 +161,7 @@ describe('ask_user_question tool', () => {
     ctx.userInteraction.registerProvider({
       async ask(request) {
         seen.push(request)
-        return { answer: 'ok' }
+        return { answers: [{ id: 'continue', selected: ['ok'] }] }
       },
     })
     const agent = { id: 'main' } as unknown as Agent
@@ -118,12 +169,12 @@ describe('ask_user_question tool', () => {
     const result = await ctx.tools.execute({
       callId: CallId('ask-3'),
       name: 'ask_user_question',
-      arguments: { header: 'Confirm', question: 'Continue?' },
+      arguments: { questions: [{ id: 'continue', header: 'Confirm', question: 'Continue?' }] },
       agent,
     })
 
-    expect(result.content).toEqual([{ type: 'text', text: 'ok' }])
-    expect(seen[0]).toMatchObject({ header: 'Confirm', agent })
+    expect(result.content).toEqual([{ type: 'text', text: '{"answers":[{"id":"continue","selected":["ok"]}]}' }])
+    expect(seen[0]).toMatchObject({ questions: [{ id: 'continue', header: 'Confirm', question: 'Continue?' }], agent })
   })
 
   it('returns structured user-interaction errors through tool execution', async () => {
@@ -132,7 +183,7 @@ describe('ask_user_question tool', () => {
     const result = await ctx.tools.execute({
       callId: CallId('ask-no-provider'),
       name: 'ask_user_question',
-      arguments: { question: 'Continue?' },
+      arguments: { questions: [{ id: 'continue', question: 'Continue?' }] },
     })
 
     expect(result).toMatchObject({
@@ -141,48 +192,19 @@ describe('ask_user_question tool', () => {
     })
   })
 
-  it('uses an option label when the selected option has no explicit value', async () => {
+  it('returns a structured error for empty question batches', async () => {
     const ctx = await setup()
-    ctx.userInteraction.registerProvider({
-      async ask(request) {
-        const option = request.options?.[0]
-        if (option === undefined) throw new Error('missing option')
-        return { answer: option.label, option }
-      },
-    })
 
     const result = await ctx.tools.execute({
-      callId: CallId('ask-4'),
+      callId: CallId('ask-empty'),
       name: 'ask_user_question',
-      arguments: {
-        question: 'Pick one',
-        options: [{ label: 'Fallback label' }],
-      },
+      arguments: { questions: [] },
     })
 
-    expect(result.content).toEqual([{ type: 'text', text: 'Fallback label' }])
-  })
-
-  it('returns the provider-computed answer even when option metadata is present', async () => {
-    const ctx = await setup()
-    ctx.userInteraction.registerProvider({
-      async ask(request) {
-        const option = request.options?.[0]
-        if (option === undefined) throw new Error('missing option')
-        return { answer: `selected ${option.value}`, option }
-      },
+    expect(result).toMatchObject({
+      isError: true,
+      error: { name: 'UserInteractionError', code: 'EMPTY_QUESTIONS' },
     })
-
-    const result = await ctx.tools.execute({
-      callId: CallId('ask-5'),
-      name: 'ask_user_question',
-      arguments: {
-        question: 'Pick one',
-        options: [{ label: 'A', value: 'a' }],
-      },
-    })
-
-    expect(result.content).toEqual([{ type: 'text', text: 'selected a' }])
   })
 
   it('unregisters the tool when its plugin fiber is disposed', async () => {

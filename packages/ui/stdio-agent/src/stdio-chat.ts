@@ -23,6 +23,8 @@ import { AgentId } from '@deepseek-ai/dsh-agent'
 import {
   UserInteractionError,
   type AskUserQuestionAnswer,
+  type AskUserQuestionAnswerItem,
+  type AskUserQuestionItem,
   type AskUserQuestionOption,
   type AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
@@ -63,26 +65,19 @@ function isTTYPair(input: Readable, output: Writable): boolean {
   return Boolean((input as { isTTY?: boolean }).isTTY && (output as { isTTY?: boolean }).isTTY)
 }
 
-function optionAnswer(option: AskUserQuestionOption): string {
-  return option.value ?? option.label
-}
-
-function displayOptions(options: AskUserQuestionOption[] = []): AskUserQuestionOption[] {
-  return options
-    .map((option, index) => ({ option, index }))
-    .sort((left, right) => {
-      if (left.option.recommended === right.option.recommended) return left.index - right.index
-      return left.option.recommended ? -1 : 1
-    })
-    .map(({ option }) => option)
-}
-
 interface PendingQuestion {
   request: AskUserQuestionRequest
+  questionIndex: number
+  answers: AskUserQuestionAnswerItem[]
   resolve(answer: AskUserQuestionAnswer): void
   reject(error: unknown): void
   onAbort: () => void
 }
+
+type OptionSelection =
+  | { kind: 'selected'; options: AskUserQuestionOption[] }
+  | { kind: 'custom' }
+  | { kind: 'invalid' }
 
 /**
  * The plugin body, parameterized over its I/O runtime. `apply` is the thin
@@ -205,12 +200,16 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       if (status === 'idle') maybeExit()
     })
 
+    const activeQuestionItem = (pending: PendingQuestion): AskUserQuestionItem =>
+      pending.request.questions[pending.questionIndex] as AskUserQuestionItem
+
     const renderQuestion = (pending: PendingQuestion): void => {
-      const { request } = pending
+      const question = activeQuestionItem(pending)
+      const options = question.options ?? []
       output.write('\n')
-      output.write(request.header ? `[${request.header}] ${request.question}\n` : `[question] ${request.question}\n`)
-      displayOptions(request.options).forEach((option, index) => {
-        output.write(`  ${index + 1}. ${option.label}${option.recommended ? ' (recommended)' : ''}\n`)
+      output.write(question.header ? `[${question.header}] ${question.question}\n` : `${question.question}\n`)
+      options.forEach((option, index) => {
+        output.write(`  ${index + 1}. ${option.label}\n`)
         if (option.description) output.write(`     ${option.description}\n`)
       })
       output.write('> ')
@@ -249,41 +248,64 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       }
     }
 
-    const finishQuestion = (pending: PendingQuestion, answer: AskUserQuestionAnswer): void => {
-      removeAbortListener(pending)
+    const finishQuestion = (pending: PendingQuestion): void => {
       activeQuestion = undefined
-      pending.resolve(answer)
+      removeAbortListener(pending)
+      pending.resolve({ answers: pending.answers })
       output.write('\n')
       startNextQuestion()
     }
 
+    const answerCurrentQuestion = (pending: PendingQuestion, answer: AskUserQuestionAnswerItem): void => {
+      pending.answers.push(answer)
+      pending.questionIndex += 1
+      if (pending.questionIndex >= pending.request.questions.length) {
+        finishQuestion(pending)
+        return
+      }
+      renderQuestion(pending)
+    }
+
+    const selectedOptions = (text: string, options: AskUserQuestionOption[], multiSelect: boolean): OptionSelection => {
+      if (text === '') return { kind: 'invalid' }
+      if (!multiSelect) {
+        if (!/^\d+$/.test(text)) return { kind: 'custom' }
+        const selected = options[Number(text) - 1]
+        return selected === undefined ? { kind: 'invalid' } : { kind: 'selected', options: [selected] }
+      }
+      const indices = text.split(/[,\s]+/).filter(Boolean)
+      if (indices.length === 0) return { kind: 'invalid' }
+      if (indices.some(part => !/^\d+$/.test(part))) return { kind: 'custom' }
+      const uniqueIndices = [...new Set(indices)]
+      const selected = uniqueIndices.map(part => options[Number(part) - 1])
+      return selected.some(option => option === undefined)
+        ? { kind: 'invalid' }
+        : { kind: 'selected', options: selected as AskUserQuestionOption[] }
+    }
+
     const answerQuestion = (line: string): void => {
       const pending = activeQuestion as PendingQuestion
+      const question = activeQuestionItem(pending)
 
       const text = line.trim()
-      const options = displayOptions(pending.request.options)
-      const selectedIndex = /^\d+$/.test(text) ? Number(text) - 1 : -1
-      const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined
-      if (selected !== undefined) {
-        finishQuestion(pending, { answer: optionAnswer(selected), option: selected })
+      const options = question.options ?? []
+      const selection = options.length > 0
+        ? selectedOptions(text, options, question.multiSelect ?? false)
+        : { kind: text === '' ? 'invalid' : 'custom' } as OptionSelection
+      if (selection.kind === 'selected') {
+        answerCurrentQuestion(pending, { id: question.id, selected: selection.options.map(option => option.label) })
         return
       }
 
-      const recommended = options.find(option => option.recommended)
-      if (text === '' && recommended !== undefined) {
-        finishQuestion(pending, { answer: optionAnswer(recommended), option: recommended })
-        return
-      }
-
-      const allowCustom = options.length === 0 || (pending.request.allowCustom ?? true)
-      if (allowCustom && text !== '') {
-        finishQuestion(pending, { answer: text })
+      if (selection.kind === 'custom' && text !== '') {
+        answerCurrentQuestion(pending, { id: question.id, selected: [], custom: text })
         return
       }
 
       output.write(options.length > 0
         ? 'Please enter one of the option numbers'
-          + (allowCustom ? ' or a custom answer' : '')
+          + (question.multiSelect ? ' (comma or space separated)' : '')
+          + ' or a custom answer'
           + '.\n> '
         : 'Please enter an answer.\n> ')
     }
@@ -298,6 +320,8 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
         return new Promise<AskUserQuestionAnswer>((resolve, reject) => {
           const pending: PendingQuestion = {
             request,
+            questionIndex: 0,
+            answers: [],
             resolve,
             reject,
             onAbort: () => {
