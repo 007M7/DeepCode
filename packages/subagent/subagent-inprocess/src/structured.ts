@@ -36,14 +36,20 @@
  * closes the within-step window the continuation veto cannot: a
  * `tools/pre-execute` deny for any call arriving after the agent's capture, so
  * a response that lists `structured_output` before further tool calls cannot
- * run side effects after the final answer was accepted.
+ * run side effects after the final answer was accepted. A fourth,
+ * `tools/post-execute`, is the capture COMMIT: the tool body only stages the
+ * validated value, and it becomes the run's captured result only when the
+ * final post-execute decision accepts the call — a blocking hook downstream
+ * yields `isError` in the log, and the run must not report success for it.
  *
- * Lifetime is refcounted with two kinds of holder: each backend acquires for
- * its plugin lifetime (so the tool exists before any run), and each structured
- * RUN acquires from start to settle (so a backend hot-reload mid-run cannot
- * unregister the capture tool out from under a live child). Registrations are
- * effects on the ROOT context — their natural upper bound is app teardown — and
- * the refcount disposes them when the last holder releases.
+ * Lifetime is refcounted by structured RUNS: each acquires from start to
+ * settle, so the registrations exist exactly while at least one structured
+ * child is live — a plain deployment that never passes `outputSchema` carries
+ * no always-on global state, and a backend hot-reload mid-run cannot
+ * unregister the capture tool out from under a live child (the run holds its
+ * own acquisition). Registrations land on the ROOT context and the refcount
+ * disposes them when the last run settles; the next structured run
+ * re-registers them.
  *
  * @module @deepseek-ai/dsh-subagent-inprocess/structured
  */
@@ -53,7 +59,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { ContinuationDecision } from '@deepseek-ai/dsh-agent'
 import type { AssembleContext, PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
-import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
+import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { ToolArgsError, validateStructuredValue, type StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
 
 /** The model-facing tool name a structured child must call to finish. */
@@ -75,6 +81,15 @@ export const STRUCTURED_OUTPUT_INSTRUCTION
 /** One structured run's state: the schema to enforce and the captured value, once recorded. */
 interface RunState {
   readonly schema: StructuredOutputSchema
+  /**
+   * A validated value awaiting the post-execute verdict on ITS OWN call. Set
+   * by the capture tool's body, promoted to {@link RunState.captured} only
+   * when the final `tools/post-execute` decision accepts the call — a
+   * downstream block turns the logged result into `isError`, and a value
+   * committed at body time would let the run report success for a call the
+   * model saw fail.
+   */
+  pending?: { value: unknown }
   captured?: { value: unknown }
 }
 
@@ -106,7 +121,7 @@ export interface StructuredAcquisition {
 
 /**
  * Acquire the per-root-context structured runtime, registering the capture tool
- * and the two waterfall listeners on the FIRST acquisition. See the module doc
+ * and the runtime's listeners on the FIRST acquisition. See the module doc
  * for the enforcement and lifetime design.
  * @param ctx - any context of the app; the runtime keys off `ctx.root`.
  * @returns this holder's handle (attach/captured/detach + idempotent release).
@@ -179,7 +194,9 @@ function registerRuntime(root: Context, runtime: StructuredRuntime): void {
         // ToolArgsError → isError result with INVALID_ARGS: the model retries
         // within the same turn, exactly like a schema-validated defineTool call.
         if (violations.length > 0) throw new ToolArgsError(violations)
-        state.captured = { value: args }
+        // Two-phase commit: the body only STAGES the value; the post-execute
+        // listener below promotes it once the final decision accepts the call.
+        state.pending = { value: args }
         return Promise.resolve([{ type: 'text', text: 'Structured output recorded.' }])
       },
     })
@@ -241,6 +258,33 @@ function registerRuntime(root: Context, runtime: StructuredRuntime): void {
   ): Promise<ContinuationDecision> {
     if (runtime.states.get(agent)?.captured) return Promise.resolve({ action: 'stop' })
     return next()
+  }, { prepend: true }))
+
+  // The capture COMMIT: promote the staged value only when the final
+  // post-execute decision accepts the call. The capture tool's body cannot
+  // decide — `tools/post-execute` runs after it, and a blocking listener (a
+  // PostToolUse hook) turns the logged result into `isError` feedback; a value
+  // committed at body time would make readResult report `structured` success
+  // for a call whose result the model and session log saw fail. `prepend:
+  // true` = outermost at registration time, so `await next()` returns the
+  // COMPOSED downstream decision — the same final verdict the registry maps
+  // onto the result. (A later-registered outer listener that blocks without
+  // delegating skips this commit entirely: the staged value is dropped and the
+  // run errors — failure-safe in the same direction.) The staging slot clears
+  // on every path, including a rejecting downstream listener.
+  runtime.disposers.push(root.on('tools/post-execute', async function (
+    this: unknown, exec: ToolExecution, _result: ToolExecutionResult, next: () => Promise<PostToolDecision>,
+  ): Promise<PostToolDecision> {
+    const state = exec.agent ? runtime.states.get(exec.agent) : undefined
+    if (!state || exec.name !== STRUCTURED_OUTPUT_TOOL || state.pending === undefined) return next()
+    const pending = state.pending
+    try {
+      const decision = await next()
+      if (decision.kind === 'accept') state.captured = pending
+      return decision
+    } finally {
+      delete state.pending
+    }
   }, { prepend: true }))
 
   // Terminal means terminal WITHIN the step, not only at its end: the
