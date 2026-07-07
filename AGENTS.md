@@ -91,6 +91,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY` (and optional `DEEPSEEK_BASE_UR
 - **Capability seams are three packages** — interface / implementation / consumer; don't split preemptively.
 - **Explicit > implicit at package seams**: defaulting is an explicit `resolve(request): Spec` step in the owning implementation, never a hidden `?? default` inside `run()` (the `dsh-bash` request/spec split is the template).
 - **No hardcoded tunables in plugins**: anything two deployments could want different — timeouts, caps, model names, base URLs — is a defaulted, validated `Config` field, not a literal; a `DEFAULT_*` constant or test-only seam is not configurability. The test: changeable from `cordis.yml`, no code edit. Protocol/wire constants, external-spec values, security invariants stay hardcoded.
+- **Misconfiguration fails loud**: a config value referencing something that does not exist (a `toolOrder` tool name, a plugin path) throws — at load when the check is self-contained, else at the earliest moment the referent exists (for `toolOrder`, every prompt assembly) — never a silent skip.
 - **Opaque cross-boundary ids are branded** (`Branded<B>` from `dsh-brand`), never bare `string`.
 - **An empty `catch` names what it swallows** and why nothing else can reach it; keep the `try` to one statement.
 - **Symmetry is usually more correct**: parallel values get parallel form; asymmetry smells of a missed extraction.
