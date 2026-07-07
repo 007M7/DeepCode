@@ -168,7 +168,11 @@ export class WorkflowError extends HarnessError {
   }
 }
 
-/** Whether combinators must re-throw `error` instead of mapping the item to `null`. */
+/**
+ * Whether combinators must re-throw `error` instead of mapping the item to `null`.
+ * @param error - any thrown value; fatality is host `instanceof` (unforgeable from a script realm).
+ * @returns true iff `error` is a {@link WorkflowError} whose `fatal` flag is set.
+ */
 export function isFatalWorkflowError(error: unknown): boolean {
   return error instanceof WorkflowError && error.fatal
 }

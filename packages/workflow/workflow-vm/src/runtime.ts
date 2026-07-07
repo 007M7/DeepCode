@@ -225,6 +225,8 @@ export class WorkflowExecution {
    * `disposeGraceMs` (parked on a promise no hook owns) is abandoned so
    * `result` settles regardless (see {@link abandoned}). Idempotent; the
    * first reason wins.
+   * @param reason - human-readable cause, carried on the CANCELLED error and
+   * into child `run.cancel()` calls (default `'workflow cancelled'`).
    */
   cancel(reason?: string): void {
     if (this.cancelReason !== undefined) return
@@ -244,6 +246,8 @@ export class WorkflowExecution {
    * cancellation (or outlived its post-cancel grace and was abandoned — see
    * {@link abandoned}). After settlement, any stray children a script fired
    * without awaiting are aborted (their `agent()` wrappers dispose them).
+   * @returns the settled outcome — this promise NEVER rejects (the seam's
+   * `result`-never-rejects contract); every failure maps to a variant.
    */
   async drive(): Promise<WorkflowResult> {
     try {
