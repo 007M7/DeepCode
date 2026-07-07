@@ -218,7 +218,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-claude/src/index.ts:55`](../packages/hooks/hooks-claude/src/index.ts)
+Source: [`packages/hooks/hooks-claude/src/index.ts:56`](../packages/hooks/hooks-claude/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-codex`
 
@@ -243,7 +243,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-codex/src/index.ts:42`](../packages/hooks/hooks-codex/src/index.ts)
+Source: [`packages/hooks/hooks-codex/src/index.ts:43`](../packages/hooks/hooks-codex/src/index.ts)
 
 ## `@deepseek-ai/dsh-invariants`
 
