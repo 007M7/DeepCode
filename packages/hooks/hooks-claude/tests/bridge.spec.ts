@@ -298,6 +298,14 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     await waitFor(() => existsSync(startMarker) && existsSync(stopMarker))
     expect(existsSync(startMarker)).toBe(true)
     expect(existsSync(stopMarker)).toBe(true)
+    // The markers are touched MID-script, so runPoint's continuation chain
+    // (child-exit event → merge → the listener's detached .then) can still be
+    // in flight when the poll resolves. Drain two macrotask rounds so the
+    // short-circuit path of the SubagentStart inject condition executes before
+    // this worker can exit — observed as a CI-only 99.03% branch-coverage
+    // flake on hooks-claude when the worker won the race.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await new Promise(resolve => setTimeout(resolve, 0))
   })
 })
 
