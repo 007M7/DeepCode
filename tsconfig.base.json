@@ -43,6 +43,7 @@
         "./packages/core/*/src",
         "./packages/llm/*/src",
         "./packages/bash/*/src",
+        "./packages/code-runtime/*/src",
         "./packages/fs/*/src",
         "./packages/compact/*/src",
         "./packages/subagent/*/src",

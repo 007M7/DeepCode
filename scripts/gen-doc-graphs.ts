@@ -150,6 +150,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors can replace bash-local.',
   },
   {
+    key: 'codeRuntime',
+    pkg: 'code-runtime',
+    title: 'Code-execution seam',
+    mode: 'seam',
+    implementations: [],
+    consumers: [],
+    note: 'Runs one model-written program against host-provided async bindings; backends differ by substrate and language (the Code Mode RFC specifies the worker-thread backend and the tool-registry consumer).',
+  },
+  {
     key: 'fs',
     pkg: 'fs',
     title: 'Filesystem provider seam',
