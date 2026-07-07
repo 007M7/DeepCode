@@ -41,6 +41,7 @@ export type PerplexityRecency = 'day' | 'week' | 'month' | 'year'
 /** Attribution header sent on every request. Bump with the package version. */
 const USER_AGENT = 'deepseek-harness/0.0.1'
 
+/** Resolved provider options (the plugin's `apply` supplies env-var and constant defaults). */
 export interface PerplexitySearchProviderOptions {
   /** Perplexity API key. Empty/absent → `status()` reports `missing-credential`. */
   apiKey: string
@@ -54,7 +55,12 @@ export interface PerplexitySearchProviderOptions {
   searchRecency?: PerplexityRecency
 }
 
-/** Map one structured Perplexity search result to a normalized source. */
+/**
+ * Map one structured Perplexity search result to a normalized source.
+ *
+ * @param result - one entry of the response's `search_results[]`.
+ * @returns the normalized source; blank fields are omitted rather than set empty.
+ */
 export function mapPerplexityResult(result: PerplexitySearchResult): WebSearchSource {
   return {
     url: result.url,
@@ -68,6 +74,10 @@ export function mapPerplexityResult(result: PerplexitySearchResult): WebSearchSo
  * Map a Perplexity response envelope to a normalized search result. Prefers
  * structured `search_results[]`; falls back to URL-only `citations[]` (those
  * sources carry just a `url`) only when `search_results` is absent.
+ *
+ * @param query - the original request query, echoed on the result.
+ * @param response - the parsed chat-completions response body.
+ * @returns the normalized result; `content` is omitted when the answer is empty.
  */
 export function mapPerplexityResponse(query: string, response: PerplexityResponse): WebSearchResult {
   const content = response.choices?.[0]?.message?.content

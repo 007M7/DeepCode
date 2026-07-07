@@ -44,6 +44,10 @@ function safeFromCodePoint(code: number, fallback: string): string {
  * Convert an HTML document to a readable markdown-ish text approximation.
  * Best-effort and lossy by design — fidelity is the job of a future heavier
  * converter, not this fallback.
+ *
+ * @param html - the raw HTML source.
+ * @returns plain text with markdown headings, list bullets, and links;
+ *   whitespace collapsed to at most one blank line and trimmed.
  */
 export function htmlToMarkdown(html: string): string {
   let text = html

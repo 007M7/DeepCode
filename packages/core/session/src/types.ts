@@ -4,7 +4,11 @@ import type { CallId, ContentBlock, LlmCallConfig, MessageSource, StreamChunk, T
 /** Identifies one session in the store (and its persistence artifacts). */
 export type SessionId = Branded<'SessionId'>
 
-/** Brand a string as a {@link SessionId}. */
+/**
+ * Brand a string as a {@link SessionId}.
+ * @param id - the raw session id string.
+ * @returns the same string, branded (a compile-time cast — no runtime cost).
+ */
 export function SessionId(id: string): SessionId {
   return id as SessionId
 }
@@ -102,6 +106,7 @@ export interface TurnTriggerMap {
   injection: { kind: 'injection'; source: MessageSource }
 }
 
+/** The union over {@link TurnTriggerMap} — what started a turn; plugins extend it by merging variants into the map. */
 export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap]
 
 /**
@@ -156,6 +161,7 @@ export interface TurnEndReasonMap {
   interrupted: { kind: 'interrupted' }
 }
 
+/** The union over {@link TurnEndReasonMap} — why a turn ended; plugins extend it by merging variants into the map. */
 export type TurnEndReason = TurnEndReasonMap[keyof TurnEndReasonMap]
 
 /**
@@ -361,6 +367,7 @@ export interface SessionEventMap {
   'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig }
 }
 
+/** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */
 export type SessionEventType = keyof SessionEventMap
 
 /**
