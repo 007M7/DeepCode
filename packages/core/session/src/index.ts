@@ -365,19 +365,6 @@ export class Session {
 /** A fork source: either the live session object or its live store id. */
 export type SessionForkSource = Session | SessionId
 
-/** Inputs for live session forking. */
-export interface ForkSessionOptions {
-  /** Live source session object or id. */
-  source: SessionForkSource
-  /**
-   * Inclusive source event seq to fork through. Omitted means the source's
-   * current last event; omitted on an empty source forks an empty child.
-   */
-  boundary?: number
-  /** Optional child session id; omitted delegates to SessionStore's id policy. */
-  childSessionId?: SessionId
-}
-
 export type SessionForkErrorCode =
   | 'SESSION_NOT_FOUND'
   | 'SESSION_NOT_LIVE'
@@ -533,20 +520,25 @@ export class SessionStore extends Service {
    * `boundary` is an inclusive source event seq; omitted means the source's
    * current last event. A non-empty selected slice must end at `turn/end`.
    *
-   * @param options Source, optional boundary, and optional child id for the fork.
+   * @param source - Live source session object or id.
+   * @param boundary - Inclusive source event seq to fork through; omitted means
+   *   the source's current last event, and omitted on an empty source forks an
+   *   empty child.
+   * @param childSessionId - Optional child session id; omitted delegates to
+   *   `SessionStore`'s id policy.
    * @returns The created live child session.
    */
-  fork(options: ForkSessionOptions): Session {
-    if (options.childSessionId !== undefined && this.get(options.childSessionId) !== undefined) {
-      throw new SessionForkError(`session "${options.childSessionId}" already exists`, 'SESSION_ALREADY_EXISTS')
+  fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session {
+    if (childSessionId !== undefined && this.get(childSessionId) !== undefined) {
+      throw new SessionForkError(`session "${childSessionId}" already exists`, 'SESSION_ALREADY_EXISTS')
     }
-    const source = this._resolveForkSource(options.source)
-    const seed = this._forkSeed(source, options.boundary)
-    return this.create(options.childSessionId, {
+    const liveSource = this._resolveForkSource(source)
+    const seed = this._forkSeed(liveSource, boundary)
+    return this.create(childSessionId, {
       seed,
       meta: {
-        ...source.header.cwd !== undefined ? { cwd: source.header.cwd } : {},
-        parentSession: source.id,
+        ...liveSource.header.cwd !== undefined ? { cwd: liveSource.header.cwd } : {},
+        parentSession: liveSource.id,
         seedLength: seed.length,
       },
     })

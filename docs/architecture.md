@@ -143,6 +143,6 @@ New behavior should attach to a documented seam; changing the shipped loop requi
 | Intercept prompts, requests, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` waterfall |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
 | Add durable session state | add a `SessionEventMap` member and render/replay from the log |
-| Fork a live session | use `ctx.sessions.fork({ source, boundary?, childSessionId? })` |
+| Fork a live session | use `ctx.sessions.fork(source, boundary?, childSessionId?)` |
 
 The [extension cookbook](cookbook/extension-cookbook.md) carries plugin skeletons and the feature-to-seam map; step-by-step guides cover [packages](cookbook/adding-a-package.md), [tools](cookbook/adding-a-tool.md), [LLM adapters](cookbook/adding-an-llm-adapter.md), and [vendored packages](cookbook/adding-a-vendored-package.md).

@@ -17,14 +17,8 @@ The store exposes one operation:
 ```ts ignore-check
 type SessionForkSource = Session | SessionId
 
-interface ForkSessionOptions {
-  source: SessionForkSource
-  boundary?: number
-  childSessionId?: SessionId
-}
-
 class SessionStore extends Service {
-  fork(options: ForkSessionOptions): Session
+  fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 }
 ```
 

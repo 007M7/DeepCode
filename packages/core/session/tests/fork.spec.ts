@@ -49,7 +49,7 @@ describe('SessionStore.fork', () => {
     const { ctx, sessions } = await setup()
     const source = ctx.sessions.create(SessionId('empty-parent'), { meta: { cwd: '/workspace' } })
 
-    const child = sessions.fork({ source, childSessionId: SessionId('empty-child') })
+    const child = sessions.fork(source, undefined, SessionId('empty-child'))
 
     expect(child.events).toEqual([])
     expect(child.header).toMatchObject({
@@ -65,7 +65,7 @@ describe('SessionStore.fork', () => {
     const source = ctx.sessions.create(SessionId('parent'), { meta: { cwd: '/workspace' } })
     appendClosedTurn(source, 1, 'hello')
 
-    const child = sessions.fork({ source: SessionId('parent'), childSessionId: SessionId('child') })
+    const child = sessions.fork(SessionId('parent'), undefined, SessionId('child'))
 
     expect(child.events).toEqual(source.events)
     expect(child.events).not.toBe(source.events)
@@ -88,11 +88,7 @@ describe('SessionStore.fork', () => {
     appendClosedTurn(source, 2, 'second')
     appendOpenTurn(source, 3)
 
-    const child = sessions.fork({
-      source,
-      boundary: firstBoundary,
-      childSessionId: SessionId('child-from-first'),
-    })
+    const child = sessions.fork(source, firstBoundary, SessionId('child-from-first'))
 
     expect(child.events).toEqual(source.events.slice(0, firstBoundary + 1))
     expect(child.header.seedLength).toBe(firstBoundary + 1)
@@ -114,11 +110,7 @@ describe('SessionStore.fork', () => {
       const source = ctx.sessions.create(SessionId(`parent-${reason.kind}`))
       appendClosedTurn(source, 1, reason.kind, reason)
 
-      const child = sessions.fork({
-        source,
-        boundary: lastSeq(source),
-        childSessionId: SessionId(`child-${reason.kind}`),
-      })
+      const child = sessions.fork(source, lastSeq(source), SessionId(`child-${reason.kind}`))
 
       expect(child.events.at(-1)?.type).toBe('turn/end')
       expect(child.header.seedLength).toBe(source.events.length)
@@ -128,19 +120,19 @@ describe('SessionStore.fork', () => {
   it('rejects invalid boundaries before creating a child', async () => {
     const { ctx, sessions } = await setup()
     const empty = ctx.sessions.create(SessionId('empty'))
-    expect(() => sessions.fork({ source: empty, boundary: 0, childSessionId: SessionId('empty-child') }))
+    expect(() => sessions.fork(empty, 0, SessionId('empty-child')))
       .toThrow(new SessionForkError('fork boundary 0 does not exist in session "empty" (last seq: none)', 'INVALID_BOUNDARY'))
     expect(ctx.sessions.get(SessionId('empty-child'))).toBeUndefined()
 
     const source = ctx.sessions.create(SessionId('parent'))
     appendClosedTurn(source, 1)
-    expect(() => sessions.fork({ source, boundary: -1, childSessionId: SessionId('negative') }))
+    expect(() => sessions.fork(source, -1, SessionId('negative')))
       .toThrow(/non-negative safe integer/)
-    expect(() => sessions.fork({ source, boundary: 0.5, childSessionId: SessionId('fraction') }))
+    expect(() => sessions.fork(source, 0.5, SessionId('fraction')))
       .toThrow(/non-negative safe integer/)
-    expect(() => sessions.fork({ source, boundary: Number.MAX_SAFE_INTEGER + 1, childSessionId: SessionId('unsafe') }))
+    expect(() => sessions.fork(source, Number.MAX_SAFE_INTEGER + 1, SessionId('unsafe')))
       .toThrow(/non-negative safe integer/)
-    expect(() => sessions.fork({ source, boundary: source.seq, childSessionId: SessionId('past-end') }))
+    expect(() => sessions.fork(source, source.seq, SessionId('past-end')))
       .toThrow(new SessionForkError(`fork boundary ${source.seq} does not exist in session "parent" (last seq: ${source.seq - 1})`, 'INVALID_BOUNDARY'))
   })
 
@@ -151,7 +143,7 @@ describe('SessionStore.fork', () => {
     const mutableLog = (source as unknown as { log: SessionEvent[] }).log
     mutableLog[2] = { ...mutableLog[2]!, seq: 99 }
 
-    expect(() => sessions.fork({ source, boundary: 2, childSessionId: SessionId('corrupt-child') }))
+    expect(() => sessions.fork(source, 2, SessionId('corrupt-child')))
       .toThrow(new SessionForkError('fork boundary 2 does not match a contiguous event seq in session "corrupt-parent"', 'INVALID_BOUNDARY'))
     expect(ctx.sessions.get(SessionId('corrupt-child'))).toBeUndefined()
   })
@@ -159,7 +151,7 @@ describe('SessionStore.fork', () => {
   it('rejects an unknown live session id', async () => {
     const { sessions } = await setup()
 
-    expect(() => sessions.fork({ source: SessionId('missing') }))
+    expect(() => sessions.fork(SessionId('missing')))
       .toThrow(new SessionForkError('session "missing" not found', 'SESSION_NOT_FOUND'))
   })
 
@@ -167,7 +159,7 @@ describe('SessionStore.fork', () => {
     const { sessions } = await setup()
     const detached = new Session(SessionId('detached'))
 
-    expect(() => sessions.fork({ source: detached }))
+    expect(() => sessions.fork(detached))
       .toThrow(new SessionForkError('session "detached" not found', 'SESSION_NOT_FOUND'))
   })
 
@@ -176,7 +168,7 @@ describe('SessionStore.fork', () => {
     ctx.sessions.create(SessionId('same-id'))
     const stale = new Session(SessionId('same-id'))
 
-    expect(() => sessions.fork({ source: stale }))
+    expect(() => sessions.fork(stale))
       .toThrow(new SessionForkError('session "same-id" is not the live store instance', 'SESSION_NOT_LIVE'))
   })
 
@@ -221,7 +213,7 @@ describe('SessionStore.fork', () => {
       const source = ctx.sessions.create(SessionId(`open-${lastType}`))
       const boundary = build(source)
 
-      expect(() => sessions.fork({ source, boundary }))
+      expect(() => sessions.fork(source, boundary))
         .toThrow(new SessionForkError(`fork boundary ${boundary} in session "open-${lastType}" must be turn/end, got ${lastType}`, 'OPEN_TURN'))
     }
   })
@@ -232,7 +224,7 @@ describe('SessionStore.fork', () => {
     appendClosedTurn(source, 1)
     ctx.sessions.create(SessionId('child'))
 
-    expect(() => sessions.fork({ source, childSessionId: SessionId('child') }))
+    expect(() => sessions.fork(source, undefined, SessionId('child')))
       .toThrow(new SessionForkError('session "child" already exists', 'SESSION_ALREADY_EXISTS'))
   })
 
@@ -242,7 +234,7 @@ describe('SessionStore.fork', () => {
     source.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     ctx.sessions.create(SessionId('child'))
 
-    expect(() => sessions.fork({ source, childSessionId: SessionId('child') }))
+    expect(() => sessions.fork(source, undefined, SessionId('child')))
       .toThrow(new SessionForkError('session "child" already exists', 'SESSION_ALREADY_EXISTS'))
   })
 })
