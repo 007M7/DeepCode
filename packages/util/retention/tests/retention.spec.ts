@@ -223,8 +223,10 @@ describe('TextRetainer — UTF-8 boundary handling', () => {
     const result = r.finish()
     expect(result.text).toBe('a') // partial '€' dropped, no U+FFFD
     expect(result.text).not.toContain('�')
-    // Omission counts BYTES not kept by retention: 5 total − 2 prefix = 3.
-    expect(result.omittedBytes).toEqual<Omitted>({ kind: 'exact', count: 3 })
+    // Omission counts bytes ACTUALLY absent from the returned text, including
+    // the partial 'E2' the boundary trim dropped: 5 total − 1 retained = 4
+    // (not the pre-trim budget of 3, which would overstate what was kept).
+    expect(result.omittedBytes).toEqual<Omitted>({ kind: 'exact', count: 4 })
   })
 
   it('trims a leading partial codepoint at the tail cut', () => {
@@ -236,6 +238,21 @@ describe('TextRetainer — UTF-8 boundary handling', () => {
     const result = r.finish()
     expect(result.text).toBe('b') // partial '€' at the front dropped
     expect(result.text).not.toContain('�')
+    // Honest count: 5 total − 1 retained ('b') = 4, including the trimmed AC.
+    expect(result.omittedBytes).toEqual<Omitted>({ kind: 'exact', count: 4 })
+  })
+
+  it('omitted count matches the bytes actually absent, across a headTail boundary trim', () => {
+    // Regression: the exact count must equal total − retained (post-trim), never
+    // the pre-trim budget. 'a€€b' is 8 bytes (61 E2828C… ×2 61? no: 61 E2 82 AC
+    // E2 82 AC 62). headBytes 2 keeps 'a'+partial-E2 → trims to 'a' (1 byte);
+    // tailBytes 2 keeps partial-AC+'b' → trims to 'b' (1 byte). Retained text is
+    // 2 bytes, so omitted must be 8 − 2 = 6 — not the budget's 8 − 2 − 2 = 4.
+    const r = new TextRetainer({ kind: 'headTail', headBytes: 2, tailBytes: 2 })
+    r.push('a€€b')
+    const result = r.finish()
+    const retainedBytes = new TextEncoder().encode(result.text).length
+    expect(result.omittedBytes).toEqual<Omitted>({ kind: 'exact', count: 8 - retainedBytes })
   })
 
   it('preserves a whole multibyte codepoint that fits exactly', () => {

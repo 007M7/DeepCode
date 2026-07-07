@@ -388,22 +388,32 @@ export class TextRetainer {
   finish(): RetainedText {
     const prefixLen = Math.min(this.total, this.prefixCap)
     const suffixLen = Math.min(this.total - prefixLen, this.suffixCap)
-    const omitted = this.omittedAt(this.total)
-    const truncated = omitted > 0
 
     const prefix = concat(this.prefixChunks) // exactly prefixLen bytes (prefixHeld === prefixLen)
     const suffix = concat(this.suffixChunks).subarray(this.suffixHeld - suffixLen)
 
-    // With nothing omitted, prefix and suffix are ADJACENT slices of one stream
-    // (prefixLen + suffixLen === total), so the head|tail split is artificial: a
-    // codepoint may span it. Decode the contiguous whole as one buffer — trimming
-    // or decoding the halves separately here would corrupt a boundary-spanning
-    // codepoint though no content was actually dropped. Only a real omitted gap
-    // makes each side a true cut: trim each to a UTF-8 boundary and decode
-    // separately so a codepoint is never reconstructed across the gap.
-    const text = truncated
-      ? decoder.decode(trimTrailingPartialUtf8(prefix)) + decoder.decode(trimLeadingContinuationUtf8(suffix))
+    // With nothing omitted by budget, prefix and suffix are ADJACENT slices of
+    // one stream (prefixLen + suffixLen === total), so the head|tail split is
+    // artificial: a codepoint may span it. Decode the contiguous whole as one
+    // buffer — trimming or decoding the halves separately here would corrupt a
+    // boundary-spanning codepoint though no content was dropped. Only a real
+    // omitted gap makes each side a true cut: trim each to a UTF-8 boundary and
+    // decode separately so a codepoint is never reconstructed across the gap.
+    const budgetOmitted = this.omittedAt(this.total)
+    const [keptPrefix, keptSuffix] = budgetOmitted > 0
+      ? [trimTrailingPartialUtf8(prefix), trimLeadingContinuationUtf8(suffix)]
+      : [prefix, suffix]
+    const text = budgetOmitted > 0
+      ? decoder.decode(keptPrefix) + decoder.decode(keptSuffix)
       : decoder.decode(concat([prefix, suffix]))
+
+    // Report omission against the bytes ACTUALLY returned, not the pre-trim
+    // budget: a boundary trim drops partial-codepoint bytes too, so an exact
+    // count derived from the budget alone would overstate the retained text (and
+    // any "Omitted N bytes" notice built from it would be a lie). total_seen −
+    // retained stays a valid lower bound under `atLeast` (true total ≥ seen).
+    const omitted = this.total - keptPrefix.length - keptSuffix.length
+    const truncated = omitted > 0
 
     return {
       text,
