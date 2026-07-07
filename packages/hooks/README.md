@@ -4,7 +4,7 @@ The hooks subsystem lets users extend the agent at lifecycle points the way Clau
 
 | Package | Role | Shape |
 |---|---|---|
-| `hook-protocol/` | Shared wire-protocol core: matcher primitive, exit-code/stdout codec, `runHook` (via `ctx.bash`), most-restrictive merge, `hook/*` session events | library (no plugin) |
+| `hook-protocol/` | Shared wire-protocol core: matcher primitive, exit-code/stdout codec, `runHook` (via `ctx.bash`), most-restrictive merge, `hook/*` session events, detached-run quiescence | library (no plugin) |
 | `hooks-claude/` | Bridge for a Claude Code `hooks.json` / settings | plugin |
 | `hooks-codex/` | Bridge for a Codex `hooks.json` | plugin |
 
