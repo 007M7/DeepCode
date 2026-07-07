@@ -22,11 +22,11 @@ Newly stale history splits into chunks by deterministic policy: accumulate towar
 - a keyword line of low-frequency literal anchors — exact error strings, values, config keys — grouped by kind;
 - a code-composed footer: `[checkpoint c<summarySeq>: shadows conversation span #<start>–#<end>; originals retrievable via history_read]`. Pointers are assembled from provenance, never model-authored.
 
-A committed stub is never rewritten and never re-enters a later compaction region. A slice consisting of recalled content is stubbed by code alone — a pointer line, no LLM call. A failed stub call degrades the same way: its slice gets a code-only pointer stub and the pass continues, making the state rewrite the only hard LLM dependency in a pass.
+A committed stub is never rewritten and never re-enters a later compaction region. A stub call's input is layered: the fixed preamble and the byte-identical pass-start state checkpoint (the shared prefix across all calls in the phase), then the keyword lines of all previously committed stubs — so a new entry indexes what is distinctive to its chunk instead of repeating the directory — the one or two most recent committed stubs for chronological continuity, and the slice itself. Sibling stubs from the same pass are not inputs (the concurrent phase forbids it; turn-aligned boundaries carry local continuity instead), and the state checkpoint is background only, never material to summarize into the stub. A slice consisting of recalled content is stubbed by code alone — a pointer line, no LLM call. A failed stub call degrades the same way: its slice gets a code-only pointer stub and the pass continues, making the state rewrite the only hard LLM dependency in a pass.
 
 ### The state checkpoint
 
-One mutable working-memory document (at most one; zero before the first pass), positioned after all stubs and before the retained tail. Each pass rewrites it from the previous state plus this pass's staled content — O(previous + new), under the merge-don't-restate rule already in the summarization prompt — covering decisions, current state, constraints, and next steps. It carries its own footer and a size cap at the scale of today's summary. Stub calls receive the pass-start state as background, context only.
+One mutable working-memory document (at most one; zero before the first pass), positioned after all stubs and before the retained tail. Each pass rewrites it from the previous state plus this pass's staled content — O(previous + new), under the merge-don't-restate rule already in the summarization prompt — covering decisions, current state, constraints, and next steps. It carries its own footer and a size cap at the scale of today's summary.
 
 An inflation guard bounds the whole pass: if the post-compaction size is not strictly below the pre-compaction size, nothing commits and the turn proceeds; the attempt defers until more stale history accumulates. The guard compares one metric on both sides — provider-reported usage (the counters PR #197 introduces), falling back to the character estimator on both sides.
 
@@ -70,6 +70,7 @@ Specified during review, deferred until observation calls for them:
 - Periodic state refresh from chunk originals — on observed drift in the handoff probe.
 - `stateFallbackThreshold` (full-detail state prompt below a stub count) — on short-session regression.
 - Lazy registration of the recall tools — on measured context tax in never-compacting sessions.
+- Amortized stub drafting at pre-step: as soon as stale-but-uncompacted content accumulates past `chunkTokens`, draft that chunk's stub at the next pre-step (a log-only draft event, written while the chunk's surrounding context is still live) and let the compaction pass commit drafts instead of summarizing in bulk — the deterministic, replay-exact equivalent of background compaction (the Claude Code session-memory pattern; OpenClaw demonstrates the synchronous semantics are identical). Trigger: observed pass latency, or stub-quality gains from drafting near-live proving out.
 - Split summarizer models; model-chosen chunk boundaries; cross-session recall; semantic search fallback — each behind its own evidence.
 
 ## Alternatives considered
