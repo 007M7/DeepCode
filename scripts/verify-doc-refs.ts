@@ -26,9 +26,8 @@
  * Run: `tsx scripts/verify-doc-refs.ts`.
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, globSync, readFileSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
-import { glob } from 'node:fs/promises'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -77,7 +76,7 @@ function findViolations(absPath: string): Violation[] {
 const all: Violation[] = []
 let checked = 0
 for (const pattern of PATTERNS) {
-  for await (const match of glob(pattern, { cwd: root })) {
+  for (const match of globSync(pattern, { cwd: root })) {
     if (isExcluded(match)) continue
     checked++
     all.push(...findViolations(resolve(root, match)))
