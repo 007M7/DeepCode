@@ -256,6 +256,8 @@ function checkSchemaNode(node: unknown, path: string, violations: string[], seen
  * (`UNSUPPORTED_SCHEMA`) listing EVERY violation; returns (and narrows) on
  * success. Call this at the seam boundary, before any child is created.
  * @param schema - the caller-supplied schema (unknown until asserted).
+ * @returns nothing — the assertion signature narrows `schema` to
+ * {@link StructuredOutputSchema} in the caller's scope on normal return.
  */
 export function assertSupportedOutputSchema(schema: unknown): asserts schema is StructuredOutputSchema {
   const violations: string[] = []
