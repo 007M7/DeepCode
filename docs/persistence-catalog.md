@@ -3,11 +3,11 @@
 
 # Persistence Log Event Catalog
 
-Every event type that can appear in a session's durable event log: each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge in this repo — with the payload it carries, its surface badge, and the declaration it comes from. It complements [session.md](../core-data-structures/session.md) (the `SessionEvent` envelope, surface list, and `deriveMessages()` projection), [persistence.md](../core-data-structures/persistence.md) (how the log is made durable), and the [cordis events catalog](../cordis-catalog/events.md) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).
+Every event type that can appear in a session's durable event log: each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge in this repo — with the payload it carries, its surface badge, and the declaration it comes from. It complements [session.md](core-data-structures/session.md) (the `SessionEvent` envelope, surface list, and `deriveMessages()` projection), [persistence.md](core-data-structures/persistence.md) (how the log is made durable), and the [cordis events catalog](cordis-catalog/events.md) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).
 
-This file is GENERATED from source (`scripts/gen-persistence-catalog.ts`) and verified fresh by `pnpm run verify-persistence-catalog` (part of `doc-sync`) — do not edit it by hand. Payload blocks use a `ts persistence-catalog` fence (skipped by doc-typecheck, since a bare payload fragment is not standalone-compilable). Type names in a payload link to the page that documents them. See [the persistence-log-catalog RFC](../rfc/implemented/process/2026-07-04-persistence-log-catalog.md).
+This file is GENERATED from source (`scripts/gen-persistence-catalog.ts`) and verified fresh by `pnpm run verify-persistence-catalog` (part of `doc-sync`) — do not edit it by hand. Payload blocks use a `ts persistence-catalog` fence (skipped by doc-typecheck, since a bare payload fragment is not standalone-compilable). Type names in a payload link to the page that documents them. See [the persistence-log-catalog RFC](rfc/implemented/process/2026-07-04-persistence-log-catalog.md).
 
-The on-disk envelope around every payload is `SessionEvent` — `type`, monotonic `seq`, epoch-ms `time`, the `data` documented here, plus `surfaceOp`/`sourceEventSeqs` on **surface** events only ([envelope](../core-data-structures/session.md#sessioneventt--one-log-entry)). **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`), and the whole format is pinned at `SESSION_FORMAT_VERSION = 0` — pre-release, no compatibility implied ([the version stance](../core-data-structures/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further event types, which are outside this catalog by construction.
+The on-disk envelope around every payload is `SessionEvent` — `type`, monotonic `seq`, epoch-ms `time`, the `data` documented here, plus `surfaceOp`/`sourceEventSeqs` on **surface** events only ([envelope](core-data-structures/session.md#sessioneventt--one-log-entry)). **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`), and the whole format is pinned at `SESSION_FORMAT_VERSION = 0` — pre-release, no compatibility implied ([the version stance](core-data-structures/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further event types, which are outside this catalog by construction.
 
 ## Events
 
@@ -21,9 +21,9 @@ Raw stream chunk — token-level replay fidelity.
 'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
 ```
 
-Types: [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:298`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:298`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -33,9 +33,9 @@ Assembled assistant message for one step (derived history uses this). Carries th
 'assistant/message': { turn: number; step: number; content: ContentBlock[]; usage?: TokenUsage }
 ```
 
-Types: [ContentBlock](../core-data-structures/core.md) · [TokenUsage](../core-data-structures/llm-streaming.md)
+Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:305`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:305`](../packages/core/session/src/types.ts)
 
 ### `compact/*`
 
@@ -47,7 +47,7 @@ Marks the end of a compaction — log-only, releases the lock. `error` set if su
 'compact/end': { turn: number; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:46`](../../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:46`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
@@ -57,7 +57,7 @@ Marks the start of a compaction — log-only, holds the lock until `compact/end`
 'compact/start': { turn: number }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:23`](../../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:23`](../packages/compact/compact/src/types.ts)
 
 #### `compact/summary` — log-only
 
@@ -67,9 +67,9 @@ Provenance record of a completed summarization — log-only, no surfaceOp. The s
 'compact/summary': { summary: ContentBlock[]; shadowedRange: { start: number; end: number }; shadowedSeqs: number[]; shadowedTokenCount: number; model: string; maxTokens?: number }
 ```
 
-Types: [ContentBlock](../core-data-structures/core.md)
+Types: [ContentBlock](core-data-structures/core.md)
 
-Source: [`packages/compact/compact/src/types.ts:30`](../../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:30`](../packages/compact/compact/src/types.ts)
 
 ### `context/*`
 
@@ -81,9 +81,9 @@ In-session context injection (file-change notices, subdir AGENTS.md, skill conte
 'context/message': { content: ContentBlock[]; source: MessageSource }
 ```
 
-Types: [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
+Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:296`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:296`](../packages/core/session/src/types.ts)
 
 ### `hook/*`
 
@@ -95,7 +95,7 @@ A hook command was invoked at a hook point — log-only provenance (like `compac
 'hook/invoked': { turn: number; point: string; dialect: HookDialect; matcher?: string; handlerId: string }
 ```
 
-Source: [`packages/hooks/hook-protocol/src/types.ts:27`](../../packages/hooks/hook-protocol/src/types.ts)
+Source: [`packages/hooks/hook-protocol/src/types.ts:27`](../packages/hooks/hook-protocol/src/types.ts)
 
 #### `hook/result` — log-only
 
@@ -105,7 +105,7 @@ A hook command's outcome — log-only, paired with a prior `hook/invoked` (same 
 'hook/result': { turn: number; point: string; handlerId: string; decision: string; exitCode?: number; stderrSummary?: string; durationMs: number }
 ```
 
-Source: [`packages/hooks/hook-protocol/src/types.ts:45`](../../packages/hooks/hook-protocol/src/types.ts)
+Source: [`packages/hooks/hook-protocol/src/types.ts:45`](../packages/hooks/hook-protocol/src/types.ts)
 
 ### `prompt/*`
 
@@ -117,9 +117,9 @@ A queued prompt an `agent/prompt-submit` listener VETOED — the durable record 
 'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
 ```
 
-Types: [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
+Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:290`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:290`](../packages/core/session/src/types.ts)
 
 ### `request/*`
 
@@ -131,7 +131,7 @@ Full snapshot of the EpochHeader the NEXT request is built under, with the Reque
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:350`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:350`](../packages/core/session/src/types.ts)
 
 #### `request/header-delta` — log-only
 
@@ -141,7 +141,7 @@ Amendment to the folded EpochHeader: at least one of a SystemDelta, a ToolsDelta
 'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig }
 ```
 
-Source: [`packages/core/session/src/types.ts:361`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:361`](../packages/core/session/src/types.ts)
 
 ### `steering/*`
 
@@ -153,9 +153,9 @@ Steering content injected between steps of a running turn.
 'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
 ```
 
-Types: [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
+Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:323`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:323`](../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -167,7 +167,7 @@ Closes step `step` of turn `turn`.
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:277`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:277`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -177,7 +177,7 @@ Opens step `step` of turn `turn` — one model call plus the tool executions it 
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:275`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:275`](../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
@@ -191,9 +191,9 @@ NOT a SurfaceEventType: it produces no LLM message and never reaches `deriveMess
 'todo/write': { todos: TodoItem[] }
 ```
 
-Types: [TodoItem](../core-data-structures/session.md)
+Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:337`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:337`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -205,9 +205,9 @@ The model requested one tool invocation: `name` with the raw `arguments` JSON st
 'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
 ```
 
-Types: [CallId](../core-data-structures/core.md)
+Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:311`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:311`](../packages/core/session/src/types.ts)
 
 #### `tool/result` — surface
 
@@ -217,9 +217,9 @@ A completed tool call's model-facing result, plus an optional tool-private `meta
 'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string }; meta?: unknown }
 ```
 
-Types: [CallId](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md)
+Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:321`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:321`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -231,9 +231,9 @@ Closes turn `turn` with the TurnEndReason that ended it. The loop fires the awai
 'turn/end': { turn: number; reason: TurnEndReason }
 ```
 
-Types: [TurnEndReason](../core-data-structures/session.md)
+Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:273`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:273`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -243,9 +243,9 @@ Opens turn `turn`. `trigger` records what started it — a drained message batch
 'turn/start': { turn: number; trigger: TurnTrigger }
 ```
 
-Types: [TurnTrigger](../core-data-structures/session.md)
+Types: [TurnTrigger](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:267`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:267`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -257,6 +257,6 @@ A user-visible prompt (queued message drained at turn start).
 'user/message': { content: ContentBlock[]; source: MessageSource }
 ```
 
-Types: [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
+Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:279`](../../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:279`](../packages/core/session/src/types.ts)

@@ -12,11 +12,21 @@
  * `durationMs` (wall-clock hook runtime) → 0. NOT scrubbed: the log's `seq`
  * (deterministic — `seq = log.length`, part of the event-log contract).
  *
+ * A separate, composable normalizer — {@link scrubRequestHeaders} — replaces
+ * the bulky request-header CONTENT (the composed system prompt and the tool
+ * schema list) with `{{system}}`/`{{tools}}` tokens. It is deliberately NOT
+ * folded into {@link normalizeSessionLog}: the one header-pinning scenario
+ * compares that content verbatim, every other scenario composes the scrub in
+ * (the `pinsHeader` flag in acp.snapshot.ts; see the pinned-header RFC,
+ * docs/rfc/implemented/testing/2026-07-06-pin-request-header-content-in-one-scenario.md).
+ *
  * See docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  */
 
 const SESSION_ID = '{{sessionId}}'
 const CWD = '{{cwd}}'
+const SYSTEM = '{{system}}'
+const TOOLS = '{{tools}}'
 
 /** A UUID v4 string, the shape `randomUUID()` produces for session ids. */
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
@@ -109,4 +119,67 @@ export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): stri
     return scrubValue(record, ctx) as Record<string, unknown>
   })
   return records.map(r => JSON.stringify(r)).join('\n') + '\n'
+}
+
+/**
+ * Replace request-header CONTENT in a session JSONL with stable tokens,
+ * keeping its structure: a `request/header` event's `data.header.system` →
+ * `{{system}}` and `data.header.tools` → `{{tools}}`; a
+ * `request/header-delta` event keeps every structural fact — the system
+ * delta's `keepStart`/`keepEnd` line positions and inserted-line COUNT (one
+ * `{{system}}` token per inserted line), the tools delta's
+ * added/removed/changed tool NAMES — and tokenizes only the bulk (prompt
+ * text; each added/changed schema's fields other than `name` → `{{tools}}`),
+ * so two different deltas still compare different.
+ * Absent fields stay absent — WHETHER a header carried a system prompt or
+ * tools is behavior and stays visible; `config` and `reason` are small and
+ * stable, so they stay verbatim (a model swap churns every fixture by design
+ * — it invalidates the recorded responses; a prompt/schema edit churns none —
+ * replay never reads this content, see dsh-llm-replay).
+ *
+ * Only lines with something to scrub are re-serialized; every other line
+ * passes through byte-for-byte, so the transform is idempotent and applying
+ * it to an already-scrubbed fixture is a no-op — the on-disk-fixtures guard
+ * in acp.snapshot.ts relies on exactly that.
+ */
+export function scrubRequestHeaders(rawLog: string): string {
+  const lines = rawLog.split('\n')
+  const out = lines.map((line) => {
+    if (line.trim().length === 0) return line
+    const record = JSON.parse(line) as Record<string, unknown>
+    const data = record.data as Record<string, unknown> | null | undefined
+    if (data === null || typeof data !== 'object') return line
+    if (record.type === 'request/header') {
+      const header = data.header as Record<string, unknown> | null | undefined
+      if (header === null || typeof header !== 'object') return line
+      if (!('system' in header) && !('tools' in header)) return line
+      if ('system' in header) header.system = SYSTEM
+      if ('tools' in header) header.tools = TOOLS
+      return JSON.stringify(record)
+    }
+    if (record.type === 'request/header-delta') {
+      let touched = false
+      const system = data.system as Record<string, unknown> | null | undefined
+      if (system !== null && typeof system === 'object' && Array.isArray(system.insert)) {
+        system.insert = system.insert.map(() => SYSTEM)
+        touched = true
+      }
+      const tools = data.tools as Record<string, unknown> | null | undefined
+      if (tools !== null && typeof tools === 'object') {
+        if (Array.isArray(tools.added)) { tools.added = tools.added.map(scrubToolSchema); touched = true }
+        if (Array.isArray(tools.changed)) { tools.changed = tools.changed.map(scrubToolSchema); touched = true }
+      }
+      return touched ? JSON.stringify(record) : line
+    }
+    return line
+  })
+  return out.join('\n')
+}
+
+/** Tokenize one tool schema's bulk (description, parameters, anything else), keeping its identifying `name`. */
+function scrubToolSchema(tool: unknown): unknown {
+  if (tool === null || typeof tool !== 'object' || Array.isArray(tool)) return tool
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(tool)) out[k] = k === 'name' ? v : TOOLS
+  return out
 }
