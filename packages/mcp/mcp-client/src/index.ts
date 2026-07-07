@@ -73,28 +73,18 @@ export const Config = z.union([
     env: z.dict(String).default({}),
     cwd: z.string().default(''),
     toolPrefix: z.string().default(''),
-    toolCallTimeoutMs: z.natural().min(1).default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
+    toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
   }),
   z.object({
     transport: z.const('streamable-http'),
     url: z.string().required(),
     headers: z.dict(String).default({}),
     toolPrefix: z.string().default(''),
-    toolCallTimeoutMs: z.natural().min(1).default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
+    toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
   }),
 ]) as unknown as z<Config>
 
 // ---- Plugin apply ----
-
-/** Mutable state shared between the async connect path, notification handler, and disposers. */
-interface PluginState {
-  /** Current generation of tool disposers (keyed by registered name). */
-  disposers: Map<string, () => void>
-  /** Whether a syncTools call is currently in-flight. */
-  syncing: boolean
-  /** Whether another tools/list_changed arrived while syncing (coalesce flag). */
-  pendingResync: boolean
-}
 
 export function apply(ctx: Context, config: Config): void {
   const transport = createTransport(config)
@@ -103,64 +93,36 @@ export function apply(ctx: Context, config: Config): void {
     { capabilities: {} },
   )
 
-  const state: PluginState = { disposers: new Map(), syncing: false, pendingResync: false }
-
-  const opts = { toolPrefix: config.toolPrefix, toolCallTimeoutMs: config.toolCallTimeoutMs }
-
-  /** Dispose all currently registered tools. */
-  function disposeTools(): void {
-    for (const dispose of state.disposers.values()) dispose()
-    state.disposers = new Map()
-  }
-
-  /** Run syncTools with latest-wins coalescing. */
-  async function resync(): Promise<void> {
-    if (state.syncing) {
-      state.pendingResync = true
-      return
-    }
-    state.syncing = true
-    try {
-      state.disposers = await syncTools(client, ctx, opts, state.disposers)
-    } finally {
-      state.syncing = false
-    }
-    // If another notification arrived while we were syncing, run once more.
-    if (state.pendingResync) {
-      state.pendingResync = false
-      await resync()
-    }
-  }
-
-  // When the connection closes (server crash or intentional close), unregister
-  // all tools so the model no longer sees them in the system prompt.
-  client.onclose = () => {
-    disposeTools()
-    ctx.logger.info('mcp-client: connection closed, tools unregistered')
-  }
-
   // Connect and set up tools. Errors during connect are logged, not thrown
-  // (the plugin simply has no tools registered). The IIFE is fire-and-forget;
-  // disposal closes the client directly without waiting for startup.
-  void (async () => {
+  // (the plugin simply has no tools registered).
+  const ready = (async () => {
     await client.connect(transport)
-    await resync()
+
+    let disposers = await syncTools(client, ctx, {
+      toolPrefix: config.toolPrefix,
+      toolCallTimeoutMs: config.toolCallTimeoutMs,
+    }, new Map())
 
     client.setNotificationHandler(
       ToolListChangedNotificationSchema,
       async () => {
         ctx.logger.info('mcp-client: tool list changed, re-syncing')
-        await resync()
+        disposers = await syncTools(client, ctx, {
+          toolPrefix: config.toolPrefix,
+          toolCallTimeoutMs: config.toolCallTimeoutMs,
+        }, disposers)
       },
     )
+
+    return disposers
   })().catch((error: unknown) => {
     ctx.logger.error(`mcp-client: failed to connect: ${String(error)}`)
+    return new Map<string, () => void>()
   })
 
-  // Fiber disposal: close the client immediately (triggers onclose → tools
-  // unregistered). No `await ready` — if connect is still pending, close aborts
-  // it promptly rather than blocking until the SDK request times out.
   ctx.effect(() => async () => {
-    try { await client.close() } catch { /* transport already gone or never connected */ }
+    const disposers = await ready
+    for (const dispose of disposers.values()) dispose()
+    try { await client.close() } catch { /* transport already gone */ }
   }, 'mcp-client.connection')
 }

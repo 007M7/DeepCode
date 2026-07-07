@@ -85,6 +85,9 @@ flowchart TD
   subgraph group_code_runtime["packages/code-runtime"]
     pkg_code_runtime["code-runtime"]
   end
+  subgraph group_mcp["packages/mcp"]
+    pkg_mcp_client["mcp-client"]
+  end
   pkg_llm --> pkg_brand
   pkg_bash --> pkg_brand
   pkg_llm_deepseek --> pkg_llm

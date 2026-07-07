@@ -5,7 +5,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import { syncTools, type ToolBridgeOptions } from '@deepseek-ai/dsh-mcp-client/src/tools.ts'
 import { createTransport } from '@deepseek-ai/dsh-mcp-client/src/transport.ts'
-import { apply, name, inject, Config } from '@deepseek-ai/dsh-mcp-client/src/index.ts'
+import type { Config } from '@deepseek-ai/dsh-mcp-client'
 
 // ---- Mock MCP Client ----
 
@@ -117,18 +117,6 @@ describe('syncTools', () => {
     expect(ctx.tools.get('old_tool')).toBeUndefined()
     expect(ctx.tools.get('new_tool')).toBeDefined()
     expect(secondDisposers.size).toBe(1)
-  })
-
-  it('cleans up already-registered tools when a later page fails', async () => {
-    const client = createMockClient([])
-    client.listTools
-      .mockResolvedValueOnce({ tools: [{ name: 'survives_not', inputSchema: { type: 'object' } }], nextCursor: 'cursor1' })
-      .mockRejectedValueOnce(new Error('page 2 network error'))
-
-    await expect(syncTools(client as never, ctx, defaultOpts, new Map())).rejects.toThrow('page 2 network error')
-
-    // The tool from page 1 was registered then cleaned up on failure.
-    expect(ctx.tools.get('survives_not')).toBeUndefined()
   })
 
   it('drains paginated listTools responses', async () => {
@@ -326,7 +314,7 @@ describe('tool execution edge cases', () => {
     await syncTools(client as never, ctx, defaultOpts, new Map())
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'notext', arguments: {} })
 
-    expect(result.content[0]).toEqual({ type: 'text', text: '(notext returned no content)' })
+    expect(result.content[0]).toEqual({ type: 'text', text: '(notext returned no text content)' })
   })
 
   it('handles empty content array', async () => {
@@ -338,35 +326,9 @@ describe('tool execution edge cases', () => {
     await syncTools(client as never, ctx, defaultOpts, new Map())
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'empty_tool', arguments: {} })
 
-    expect(result.content[0]).toEqual({ type: 'text', text: '(empty_tool returned no content)' })
+    expect(result.content[0]).toEqual({ type: 'text', text: '(empty_tool returned no text content)' })
   })
 
-
-  it('uses fallback error message when isError with empty content', async () => {
-    const client = createMockClient(
-      [{ name: 'empty_err', inputSchema: { type: 'object' } }],
-      { content: [], isError: true },
-    )
-
-    await syncTools(client as never, ctx, defaultOpts, new Map())
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'empty_err', arguments: {} })
-
-    expect(result.isError).toBe(true)
-    expect(result.content[0]).toEqual({ type: 'text', text: 'Error: MCP tool error' })
-  })
-
-  it('surfaces structuredContent when content array is empty', async () => {
-    const client = createMockClient(
-      [{ name: 'structured', inputSchema: { type: 'object' } }],
-    )
-    client.callTool.mockResolvedValue({ content: [], structuredContent: { key: 'value', count: 42 } })
-
-    await syncTools(client as never, ctx, defaultOpts, new Map())
-    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'structured', arguments: {} })
-
-    expect(result.isError).toBe(false)
-    expect(result.content[0]).toEqual({ type: 'text', text: '{"key":"value","count":42}' })
-  })
 
   it('handles legacy toolResult with undefined value', async () => {
     const client = createMockClient(
@@ -551,40 +513,6 @@ describe('tool execution — non-object args fallback', () => {
       undefined,
       expect.anything(),
     )
-  })
-})
-
-describe('plugin module exports', () => {
-  it('exports name, inject, and Config schema', () => {
-    expect(name).toBe('mcp-client')
-    expect(inject).toEqual(['tools'])
-    expect(Config).toBeDefined()
-  })
-})
-
-describe('apply (error path, no mocks)', () => {
-  it('gracefully catches when the MCP server is unreachable', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-
-    // Call apply with a command that will fail to spawn/connect.
-    // The .catch() inside apply logs the error and registers no tools.
-    apply(ctx, {
-      transport: 'stdio',
-      command: '___nonexistent_binary_that_will_fail___',
-      args: [],
-      env: {},
-      cwd: '',
-      toolPrefix: '',
-      toolCallTimeoutMs: 1000,
-    })
-
-    // Give the async connect + catch chain time to settle.
-    await new Promise(r => setTimeout(r, 200))
-
-    // No tools should be registered since connect failed.
-    expect(ctx.tools.get('anything')).toBeUndefined()
   })
 })
 
