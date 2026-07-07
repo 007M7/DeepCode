@@ -510,15 +510,17 @@ function checkScope(statements: readonly ts.Statement[], prefix: string, w: Walk
  * Compiler options for the walk's program. The real repo hands over its
  * tsconfig.base.json (whose `paths` map resolves cross-package imports to
  * source, so heritage-member lookups see seam types); a fixture root without
- * one gets bare defaults — fixtures are single-file and self-contained.
- * Emit-side options are stripped: the walk never emits or asks for
- * diagnostics, it only binds types on demand.
+ * one gets `noLib` + no `@types` — fixtures are single-file and
+ * self-contained, nothing in the walk resolves a lib symbol, and default-lib
+ * parsing is ~99% of per-program cost (it made the fixture spec time out
+ * under CI coverage instrumentation). Emit-side options are stripped: the
+ * walk never emits or asks for diagnostics, it only binds types on demand.
  * @param scanRoot - the root being scanned.
  * @returns compiler options for ts.createProgram.
  */
 function loadCompilerOptions(scanRoot: string): ts.CompilerOptions {
   const cfgPath = resolve(scanRoot, 'tsconfig.base.json')
-  if (!existsSync(cfgPath)) return { skipLibCheck: true }
+  if (!existsSync(cfgPath)) return { skipLibCheck: true, noLib: true, types: [] }
   const cfg = ts.readConfigFile(cfgPath, ts.sys.readFile.bind(ts.sys)) as { config?: unknown }
   const parsed = ts.parseJsonConfigFileContent(cfg.config ?? {}, ts.sys, scanRoot)
   return {
