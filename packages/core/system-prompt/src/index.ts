@@ -88,7 +88,8 @@ export interface AssembledSection {
  *
  * Tool schemas are part of the assembly by design: "what the model is told it
  * can do" is one coherent thing managed here, even though adapters transmit
- * `tools` as a separate wire field rather than prompt text.
+ * `tools` as a separate wire field rather than prompt text. They arrive in
+ * the canonical model-facing order (see {@link Config.toolOrder}).
  *
  * `variables` carries every registered prompt variable resolved against this
  * assembly's context — key present means registered, `undefined` value means
@@ -110,6 +111,70 @@ const VARIABLE_NAME = /^[a-z][a-z0-9_]*$/
 /** A complete `{{...}}` reference group at the scan position (validated after). */
 const GROUP_AT = /^\{\{([^{}]*)\}\}/
 
+/**
+ * The rest entry for {@link Config.toolOrder}: the position where registered
+ * tools not named in the list are inserted (in lexicographic name order).
+ * Reserved: collected tool schemas using this name are rejected before
+ * ordering, so the marker can never collide with a real model-facing tool.
+ */
+export const TOOL_ORDER_REST = '<unlisted-tools>'
+
+/**
+ * Validate a configured tool-order list's shape at service construction:
+ * the {@link TOOL_ORDER_REST} rest entry exactly once, no duplicate names.
+ * Returns the list (or undefined when unconfigured); throws otherwise,
+ * failing the service at load — a bad order config must never reach an
+ * assembly. Whether every listed name matches a registered tool is checked
+ * at each assembly instead ({@link orderTools}): tool plugins register after
+ * this service constructs, so the tool set does not exist yet here.
+ */
+function validateToolOrder(toolOrder: string[] | undefined): string[] | undefined {
+  if (toolOrder === undefined) return undefined
+  const seen = new Set<string>()
+  for (const name of toolOrder) {
+    if (seen.has(name)) throw new Error(`toolOrder lists "${name}" more than once`)
+    seen.add(name)
+  }
+  if (!seen.has(TOOL_ORDER_REST)) {
+    throw new Error(`toolOrder must contain the "${TOOL_ORDER_REST}" rest entry (where unlisted tools are inserted)`)
+  }
+  return toolOrder
+}
+
+/**
+ * Order collected tool schemas by the validated policy: with no configured
+ * list, plain lexicographic name order; with one, listed names take their
+ * listed position and every unlisted tool lands at the
+ * {@link TOOL_ORDER_REST} rest entry in lexicographic name order. A listed
+ * name with no collected tool throws — misconfiguration fails loud, and this
+ * is the earliest moment the registered tool set exists to check against
+ * (tool plugins register after the service constructs, so load time is too
+ * early): the assembly rejects, failing the caller's turn before any model
+ * request. Never drops a tool, and both sorts are stable, so tools sharing a
+ * name keep their collection order.
+ */
+function orderTools(tools: ToolSchema[], toolOrder: string[] | undefined): ToolSchema[] {
+  const reserved = tools.find(tool => tool.name === TOOL_ORDER_REST)
+  if (reserved !== undefined) {
+    throw new Error(`tool provider returned reserved tool name "${TOOL_ORDER_REST}" (reserved for toolOrder's rest entry)`)
+  }
+  if (toolOrder === undefined) return tools.sort(compareToolNames)
+  const registered = new Set(tools.map(tool => tool.name))
+  const unknown = toolOrder.filter(name => name !== TOOL_ORDER_REST && !registered.has(name))
+  if (unknown.length > 0) {
+    throw new Error(`toolOrder lists unregistered tool${unknown.length > 1 ? 's' : ''} ${unknown.map(name => `"${name}"`).join(', ')}; registered tools: ${[...registered].sort().join(', ') || '(none)'}`)
+  }
+  const listed = new Set(toolOrder)
+  const rest = tools.filter(tool => !listed.has(tool.name)).sort(compareToolNames)
+  return toolOrder.flatMap(name =>
+    name === TOOL_ORDER_REST ? rest : tools.filter(tool => tool.name === name))
+}
+
+/** Lexicographic (code-unit) name comparison — locale-independent, so the order is identical on every machine. */
+function compareToolNames(a: ToolSchema, b: ToolSchema): number {
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+}
+
 /** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.persona} for its contract). */
 export interface Config {
   /**
@@ -125,6 +190,29 @@ export interface Config {
    * deployment opens with the harness identity alone.
    */
   persona?: string
+  /**
+   * Explicit model-facing tool order, as a list of `ToolSchema.name`s: listed
+   * tools take their listed position, and tools absent from the list are
+   * inserted at the {@link TOOL_ORDER_REST} (`'<unlisted-tools>'`) entry in
+   * lexicographic name order. A configured list must contain the rest entry
+   * exactly once, no duplicate names, and no name without a registered tool —
+   * a misconfigured order blocks work instead of silently reaching a model
+   * request: shape violations throw at load, and an unregistered name rejects
+   * every assembly. `TOOL_ORDER_REST` is reserved for the list marker and may
+   * not be a collected tool name; such a provider output also rejects the
+   * assembly. The single assembly-time validation rejects either failure
+   * before any model request — the earliest moment the registered tool set
+   * exists to check against, since tool plugins register after this service
+   * constructs. When omitted, tools are ordered lexicographically by name.
+   * Applied to the tools
+   * {@link SystemPrompt.assemble} collects, BEFORE the
+   * `system-prompt/assemble` waterfall — like the sections' `order` sort, it
+   * canonicalizes what the registry contributed (registration order is a
+   * plugin-load artifact); a waterfall listener that mutates the tool list
+   * owns the determinism of what it emits. Rationale (and why not per-plugin
+   * weights): docs/rfc/implemented/feature/2026-07-06-explicit-tool-order.md.
+   */
+  toolOrder?: string[]
 }
 
 /**
@@ -203,14 +291,23 @@ function interpolate(section: AssembledSection, variables: Record<string, string
 export class SystemPrompt extends Service {
   static Config: z<Config> = z.object({
     persona: z.string().default(''),
+    // A schemastery array defaults to [] when omitted, but an omitted
+    // toolOrder must stay absent ("lexicographic order"), not become an
+    // explicitly-configured empty list (which is invalid — it lacks the
+    // rest entry). Forcing the default to undefined keeps the key out of the
+    // validated config; the cast is needed because .default() expects the
+    // array type.
+    toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   })
 
   private sections: PromptSection[] = []
   private toolProviders: (() => ToolSchema[])[] = []
   private variableProviders = new Map<string, (context: AssembleContext) => string | undefined>()
+  private readonly toolOrder: string[] | undefined
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'systemPrompt')
+    this.toolOrder = validateToolOrder(config.toolOrder)
     // The harness-owned openers. They live HERE (not on the loop plugin) so a
     // deployment that swaps in a different loop keeps them: the identity is a
     // harness fact stated ahead of everything, and the persona is the
@@ -266,7 +363,10 @@ export class SystemPrompt extends Service {
   /**
    * Contribute a tool-schema provider that is evaluated at each assembly
    * call (so it can reflect the live registry state). The provider is
-   * removed when the calling fiber is disposed. Emits `system-prompt/change`.
+   * removed when the calling fiber is disposed. A provider must not return a
+   * schema named {@link TOOL_ORDER_REST}; that name is reserved for
+   * {@link Config.toolOrder}'s rest entry and rejects the assembly. Emits
+   * `system-prompt/change`.
    * @param provider - evaluated at every {@link assemble} for fresh schemas.
    * @returns the disposer that removes the provider.
    */
@@ -323,19 +423,28 @@ export class SystemPrompt extends Service {
 
   /**
    * Assemble the current prompt for one caller: section texts are resolved
-   * against `context` and sorted by order, tools collected from all
-   * providers, and every registered variable resolved against `context` into
-   * `assembly.variables`. Tool schemas are deep-cloned because adapters and
-   * request waterfalls may mutate schema objects. Runs through the
-   * `system-prompt/assemble` waterfall, giving listeners the opportunity to
-   * mutate or replace the assembly before it reaches the model. Await the
-   * result before reading the assembly values — waterfall listeners may be
-   * async. Interpolation happens later, in {@link renderPrompt}.
+   * against `context` and sorted by order, tools collected from all providers
+   * and put in the canonical model-facing order ({@link Config.toolOrder}, or
+   * lexicographic name order when unconfigured — provider registration order
+   * is a plugin-load artifact and never reaches the assembly; a configured
+   * order naming a tool no provider contributed rejects the assembly), and every
+   * registered variable resolved against `context` into `assembly.variables`.
+   * Tool schemas are deep-cloned because adapters and request waterfalls may
+   * mutate schema objects. Runs through the `system-prompt/assemble`
+   * waterfall, giving listeners the opportunity to mutate or replace the
+   * assembly before it reaches the model — like the sections' `order` sort,
+   * tool canonicalization happens on the initial assembly, and a listener
+   * owns the determinism of whatever it emits. Await the result before
+   * reading the assembly values — waterfall listeners may be async.
+   * Interpolation happens later, in {@link renderPrompt}.
    * @param context - what this assembly is for (defaults to an empty context;
    *   see {@link AssembleContext}).
    * @returns the assembly after the waterfall has run.
    */
-  assemble(context: AssembleContext = {}): Promise<PromptAssembly> {
+  // async so the misconfigured-toolOrder throw in orderTools surfaces as a
+  // rejection: a Promise-returning method must not throw synchronously
+  // (`assemble().catch(...)` would miss it).
+  async assemble(context: AssembleContext = {}): Promise<PromptAssembly> {
     const variables: Record<string, string | undefined> = {}
     for (const [name, provider] of this.variableProviders) {
       variables[name] = provider(context)
@@ -348,8 +457,10 @@ export class SystemPrompt extends Service {
           text: typeof section.text === 'function' ? section.text(context) : section.text,
         }))
         .sort((a, b) => a.order - b.order),
-      tools: this.toolProviders.flatMap(provider =>
-        provider().map(tool => ({ ...tool, parameters: structuredClone(tool.parameters) }))),
+      tools: orderTools(
+        this.toolProviders.flatMap(provider =>
+          provider().map(tool => ({ ...tool, parameters: structuredClone(tool.parameters) }))),
+        this.toolOrder),
       variables,
     }
     return this.ctx.waterfall(this, 'system-prompt/assemble', assembly, context, () => Promise.resolve(assembly))
