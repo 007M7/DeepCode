@@ -1,6 +1,6 @@
 /**
  * `LocalFetchProvider`: a `WebFetchProvider` that retrieves a concrete public
- * HTTP(S) URL with the platform-native `fetch` (Node 24) and returns a status
+ * HTTP(S) URL with platform-native `fetch` at the repo's Node floor and returns a status
  * code plus bounded decoded content. It owns SAFE RESOURCE RETRIEVAL — URL
  * validation, redirect policy, timeout, abort, byte caps, charset decoding,
  * content-type classification, binary rejection — but NOT presentation

@@ -2,11 +2,11 @@
 
 [English](development.md) | 中文
 
-本指南覆盖参与 DeepSeek Harness 开发所需的本地环境搭建，并帮助你理解本地钩子、日常检查与 CI 门禁。
+本文面向参与项目开发的贡献者，帮助你上手本地环境、日常工作流和 CI 流程。相关设计考量和技术取舍参见 RFC，不在这里展开。
 
 ## 前置条件
 
-- Node.js 24 或更新版本。仓库声明 `node >=24`；CI 在 Node 24 和 26 上跑矩阵。
+- Node.js 支持 22.19+ 和 24+。CI 覆盖 22.19、24、26；见 [Node engine floor RFC](rfc/implemented/process/2026-07-06-node-engine-floor.md)。
 - 启用了 Corepack 的 pnpm。仓库在 `package.json` 中钉住 `pnpm@11.7.0`；如果 `pnpm --version` 无法通过 Corepack 解析，先运行 `corepack enable`。
 - Git。
 - 可选：一个 DeepSeek API key，用于 REPL/ACP agent（智能体）演示和真实 API 的 e2e 测试。
@@ -63,11 +63,11 @@ lefthook 在 `lefthook.yml` 中配置，作为评审前的本地早期检查点�
 
 vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `vendor/README.md` manifest 更新一起暂存。编辑 vendor 代码前先看 `vendor/README.md`。
 
-这些钩子并不与 CI 完全一致。特别是：`pre-push` 跑不带覆盖率的单元测试，而 CI 跑 `pnpm run test:coverage`；CI 还会跑 echo-agent 和 built-bin 冒烟测试，并在 Node 24 和 26 上跑矩阵。
+这些钩子并不与 CI 完全一致。特别是：`pre-push` 跑不带覆盖率的单元测试，而 CI 跑 `pnpm run test:coverage`；CI 还会跑 echo-agent 和 built-bin 冒烟测试，并在 Node 22.19、24 和 26 上跑兼容性矩阵。
 
 ## CI 门禁
 
-keyless GitHub 工作流有六个 job：五个 Node 24 lane 分别运行 static gates、lint、coverage、snapshot replay 和 artifact gates，Node 26 兼容性 job 运行 `pnpm run check:node-compat`。各 lane 调度器并发运行来自 `package.json` 的独立门禁：constraints、typecheck、lint、coverage、snapshot replay、`doc-sync` 成员、module graph 新鲜度、`knip` 和 echo-agent 冒烟测试。
+keyless GitHub 工作流有八个 job：五个 Node 24 lane 分别运行 static gates、lint、coverage、snapshot replay 和 artifact gates，三个兼容性 job 在 Node 22.19、24 和 26 上运行 `pnpm run check:node-compat`。各 lane 调度器并发运行来自 `package.json` 的独立门禁：constraints、typecheck、lint、coverage、snapshot replay、`doc-sync` 成员、module graph 新鲜度、`knip` 和 echo-agent 冒烟测试。
 
 `pnpm run build` 供给 artifact lane，`publint`、`verify-node-next-types` 和 built-bin 冒烟测试等待 build 输出。单独的真实 API 工作流带密钥运行 `pnpm run test:e2e`，并设置 `DSH_E2E_MAX_WORKERS=14`。
 

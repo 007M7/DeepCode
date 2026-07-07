@@ -44,9 +44,8 @@
  */
 
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, globSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
-import { glob } from 'node:fs/promises'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
 import { gfm } from 'micromark-extension-gfm'
@@ -211,7 +210,7 @@ function parse(content: string): Nodes {
 // Enumerate the scope once.
 const files = new Set<string>()
 for (const pattern of SCOPE_PATTERNS) {
-  for await (const match of glob(pattern, { cwd: root })) files.add(match)
+  for (const match of globSync(pattern, { cwd: root })) files.add(match)
 }
 const translations = [...files].filter(f => f.endsWith('.zh.md')).sort()
 const metas = [...files].filter(f => f.endsWith('.i18n.yaml')).sort()
