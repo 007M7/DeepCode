@@ -418,6 +418,29 @@ describe('agent/request-messages (RequestMessages)', () => {
     expect(adapter.requests[0]!.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }])
   })
 
+  it('the read-only boundary context rejects in-place mutation before the request is built', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    let mutationError: unknown
+    ctx.on('agent/request-messages', async (_agent, _turn, _step, _messages, context, next): Promise<RequestMessages> => {
+      try {
+        const mutableBoundary = context.boundaryMessages as Message[]
+        mutableBoundary.push({ role: 'user', content: [{ type: 'text', text: 'smuggled' }] })
+      } catch (error: unknown) {
+        mutationError = error
+      }
+      return next()
+    })
+
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    expect(mutationError).toBeInstanceOf(TypeError)
+    expect(adapter.requests[0]!.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }])
+  })
+
   it('a per-step contribution change is logged as a header delta, so every request stays reconstructable', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'echo', { text: 'ping' }),

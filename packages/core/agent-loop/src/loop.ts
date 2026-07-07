@@ -727,9 +727,10 @@ async function runStep(
   // so a listener's session append lands past the boundary and joins the NEXT
   // request — the same window rule as the `agent/request` waterfall.
   const emptyRequestMessages: RequestMessages = deepFreeze({ before: [], after: [] })
+  const requestMessagesBoundary = deepFreeze([...boundaryMessages])
   const requestMessages = await ctx.waterfall(
     'agent/request-messages', agent, turn, step, emptyRequestMessages,
-    { system, assembly, boundaryMessages, signal },
+    { system, assembly, boundaryMessages: requestMessagesBoundary, signal },
     () => Promise.resolve(emptyRequestMessages),
   )
 
