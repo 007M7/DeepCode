@@ -35,6 +35,7 @@ export const name = 'web-search-exa'
 /** The web seam this provider registers into. */
 export const inject = ['web']
 
+/** Plugin config (all optional — `apply` fills env-var and constant defaults). */
 export interface Config {
   /** Exa API key. Falls back to `$EXA_API_KEY`. Empty → provider unavailable. */
   apiKey?: string

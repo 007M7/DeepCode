@@ -74,6 +74,12 @@ function nodeDelta(event: SessionEvent): number {
  * surface successor (`SurfaceNode.next`), or `null` when `end` is the tail —
  * for the cut after `end`.
  *
+ * @param nodes - the surface linked list in head→tail order.
+ * @param events - the session log each node's `seq` indexes into.
+ * @param beforeSeq - names the cut (the node it sits immediately before);
+ *   `null` — or any seq not on the surface — means the after-tail cut.
+ * @returns true when every `tool-call` before the cut is answered before it
+ *   (the unanswered-call depth at the cut is zero).
  * @throws if the surface prefix drives the unanswered-call depth negative — a
  *   `tool/result` with no preceding open `tool-call` on the surface. That is a
  *   corrupt surface (a structural invariant violation), surfaced loudly here

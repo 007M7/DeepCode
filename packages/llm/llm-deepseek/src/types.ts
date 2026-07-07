@@ -48,12 +48,18 @@ export interface WireToolMessage {
   content: string
 }
 
+/** One entry of the request `messages` array, discriminated on `role`. */
 export type WireMessage =
   | WireSystemMessage
   | WireUserMessage
   | WireAssistantMessage
   | WireToolMessage
 
+/**
+ * Assistant-role history message. The harness replays `content: ""` (never
+ * null) on tool-call-only turns — some gateways reject null — and sends null
+ * only when the turn carried neither text nor tool calls.
+ */
 export interface WireAssistantMessage {
   role: 'assistant'
   content: string | null
@@ -66,12 +72,14 @@ export interface WireAssistantMessage {
   tool_calls?: WireToolCall[]
 }
 
+/** A completed tool call replayed on an assistant history message; `arguments` is the raw JSON string. */
 export interface WireToolCall {
   id: string
   type: 'function'
   function: { name: string; arguments: string }
 }
 
+/** One entry of the request `tools` array; `parameters` is a JSON Schema object. */
 export interface WireTool {
   type: 'function'
   function: {
@@ -88,11 +96,13 @@ export interface WireChunk {
   usage?: WireUsage | null
 }
 
+/** One streamed choice (requests always ask for a single one); `finish_reason` is non-null only on its terminal chunk. */
 export interface WireChoice {
   delta?: WireDelta
   finish_reason?: string | null
 }
 
+/** The incremental content of one streamed choice; any subset of fields may be present per chunk. */
 export interface WireDelta {
   role?: string
   /** Visible text. Null/empty on reasoning/tool-call chunks. */
@@ -105,6 +115,7 @@ export interface WireDelta {
   tool_calls?: WireToolCallDelta[]
 }
 
+/** A streamed fragment of one tool call; fragments sharing an `index` concatenate into one call. */
 export interface WireToolCallDelta {
   /** Disambiguates parallel tool calls; stable across a call's deltas. */
   index: number
@@ -119,6 +130,13 @@ export interface WireToolCallDelta {
   }
 }
 
+/**
+ * Wire token accounting. `prompt_tokens` INCLUDES cache hits (it equals
+ * `prompt_cache_hit_tokens + prompt_cache_miss_tokens`); `mapUsage` subtracts
+ * them to keep the harness convention of disjoint counts.
+ * `prompt_tokens_details.cached_tokens` is the OpenAI-compat spelling of the
+ * hit count.
+ */
 export interface WireUsage {
   prompt_tokens: number
   completion_tokens: number
