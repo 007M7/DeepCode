@@ -36,9 +36,11 @@
  *   the doc's one home, the IDE inherits it, and re-documenting every
  *   implementation invites drift — UNLESS the override grows surface the
  *   base never documented: a protected-only base member does not exempt a
- *   public override, and parameters the base never names keep their `@param`
- *   duty. This is the one question the walk asks the TYPE CHECKER (heritage
- *   members live across package boundaries); everything else is pure AST.
+ *   public override, parameters the base never names keep their `@param`
+ *   duty, and a concrete result above a void base return keeps its
+ *   `@returns` duty. Heritage members (and classifying an unannotated
+ *   override's inferred return above a void base) are the questions the walk
+ *   asks the TYPE CHECKER; everything else is pure AST.
  *   Constructors are exempt like the cordis gate's: plugin classes are
  *   framework-constructed, and the class doc owns the story.
  * - Exported interfaces, type aliases, enums: description prose on the
@@ -165,29 +167,31 @@ function callableAnnotation(type: ts.TypeNode): ts.SignatureDeclarationBase | 'r
  * is the doc's one home (the IDE inherits it on hover) and the member needs no
  * doc of its own — EXCEPT where the override grows public surface the base
  * never documented: a base member that is protected on every declaration does
- * not exempt a public override (consumers could not call it before), and
+ * not exempt a public override (consumers could not call it before);
  * parameters the base never names keep their own `@param` duty (the caller
  * reads the seam doc, which cannot describe them; an underscore-prefixed
  * rename of a base parameter — the deliberately-unused marker — is the same
- * parameter, not new surface). Static members are looked
- * up on the base CONSTRUCTOR type (only an `extends` expression has one; an
- * unresolvable or interface expression yields no property and therefore no
- * exemption).
+ * parameter, not new surface); and a void base return carried no `@returns`
+ * duty, so an override returning a concrete result documents it itself.
+ * Static members are looked up on the base CONSTRUCTOR type (only an
+ * `extends` expression has one; an unresolvable or interface expression
+ * yields no property and therefore no exemption).
  * @param cls - the class whose heritage to search.
  * @param name - the member name to look up.
  * @param staticSide - whether to search the constructor side instead of the instance side.
  * @param checker - the program's type checker.
  * @returns null when no exemption applies; otherwise the parameter names the
- * base declarations carry (`baseParams: null` means the base's parameters are
- * not syntactically recoverable — a complex heritage type — and the member is
- * exempt in full).
+ * base declarations carry (`baseParams: null` when not syntactically
+ * recoverable — a complex heritage type — exempting all parameters) plus
+ * whether every recoverable base return annotation is `void`-like
+ * (`baseVoidReturn: null` when none is recoverable, exempting the result).
  */
 function heritageExemption(
   cls: ts.ClassDeclaration,
   name: string,
   staticSide: boolean,
   checker: ts.TypeChecker,
-): { baseParams: Set<string> | null } | null {
+): { baseParams: Set<string> | null; baseVoidReturn: boolean | null } | null {
   const isProtected = (d: ts.Declaration): boolean =>
     (ts.canHaveModifiers(d) ? ts.getModifiers(d) : undefined)?.some(m => m.kind === ts.SyntaxKind.ProtectedKeyword) ?? false
   for (const clause of cls.heritageClauses ?? []) {
@@ -198,22 +202,48 @@ function heritageExemption(
       const decls = prop.declarations ?? []
       if (decls.length > 0 && decls.every(isProtected)) continue // public override of a protected base: new surface
       let baseParams: Set<string> | null = null
+      let baseVoidReturn: boolean | null = null
       for (const d of decls) {
         let params: readonly ts.ParameterDeclaration[] | undefined
-        if (ts.isMethodDeclaration(d) || ts.isMethodSignature(d)) params = d.parameters
-        else if ((ts.isPropertySignature(d) || ts.isPropertyDeclaration(d)) && d.type !== undefined && ts.isFunctionTypeNode(d.type)) {
+        let returnType: ts.TypeNode | undefined
+        if (ts.isMethodDeclaration(d) || ts.isMethodSignature(d)) {
+          params = d.parameters
+          returnType = d.type
+        } else if ((ts.isPropertySignature(d) || ts.isPropertyDeclaration(d)) && d.type !== undefined && ts.isFunctionTypeNode(d.type)) {
           params = d.type.parameters
+          returnType = d.type.type
         } else continue
         baseParams ??= new Set()
         // Leading underscores are the deliberately-unused marker (eslint
         // argsIgnorePattern), not a rename: `_cwd` overriding `cwd` is the
         // same parameter, so compare underscore-stripped on both sides.
         for (const p of params) if (ts.isIdentifier(p.name)) baseParams.add(p.name.text.replace(/^_+/, ''))
+        if (returnType !== undefined) {
+          const voidish = /^(void|Promise<void>)$/.test(returnType.getText(d.getSourceFile()).replace(/\s+/g, ' '))
+          baseVoidReturn = (baseVoidReturn ?? true) && voidish
+        }
       }
-      return { baseParams }
+      return { baseParams, baseVoidReturn }
     }
   }
   return null
+}
+
+/**
+ * True when a method's INFERRED return type is void-like (void, undefined,
+ * never, or a promise of one) — the one return the walk asks the checker to
+ * classify: an unannotated override above a void heritage member, where
+ * demanding an annotation just to prove faithfulness would be boilerplate.
+ * @param m - a method declaration with no return type annotation.
+ * @param checker - the program's type checker.
+ * @returns true when the inferred result carries nothing to document.
+ */
+function inferredReturnIsVoidish(m: ts.MethodDeclaration, checker: ts.TypeChecker): boolean {
+  const sig = checker.getSignatureFromDeclaration(m)
+  if (sig === undefined) return true // no callable signature: nothing classifiable to document
+  const returned = checker.getReturnTypeOfSignature(sig)
+  const awaited = checker.getAwaitedType(returned) ?? returned
+  return (awaited.flags & (ts.TypeFlags.Void | ts.TypeFlags.Undefined | ts.TypeFlags.Never)) !== 0
 }
 
 /**
@@ -285,16 +315,28 @@ function checkClass(cls: ts.ClassDeclaration, name: string, w: Walk): void {
       if (m.body && overloadSigs.has(mname)) continue // overload implementation: the signatures carry the docs
       const where = `exported class method '${name}.${mname}' (${pointer(w.rel, w.sf, m)})`
       if (exemption !== null) {
-        // The heritage declaration owns prose and @returns; parameters the
-        // base never names — including binding patterns, which no base
-        // declaration can name — are new surface and keep their @param duty.
+        const raw = rawJsDoc(w.text, m)
+        // The heritage declaration owns the prose; parameters the base never
+        // names — including binding patterns, which no base declaration can
+        // name — are new surface and keep their @param duty.
         const base = exemption.baseParams
         const inBase = (p: ts.ParameterDeclaration): boolean =>
           base !== null && ts.isIdentifier(p.name) && base.has(p.name.text.replace(/^_+/, ''))
         if (base !== null && m.parameters.some(p => !thisReceiver(p) && !inBase(p))) {
-          const { params } = parseTags(rawJsDoc(w.text, m))
-          checkParams(where, 'export', m.parameters, params, w.sf,
+          checkParams(where, 'export', m.parameters, parseTags(raw).params, w.sf,
             p => thisReceiver(p) || inBase(p), w.violations)
+        }
+        // A void base return carried no @returns duty, so an override growing
+        // a concrete result documents it itself. An annotated override runs
+        // the standard check; an inferred one is classified by the checker
+        // (this branch is already the checker's domain), so a faithful void
+        // override stays exempt without a boilerplate annotation.
+        if (exemption.baseVoidReturn === true) {
+          if (m.type !== undefined) {
+            checkReturns(where, m.type, parseTags(raw).returns, w.sf, w.violations)
+          } else if (!inferredReturnIsVoidish(m, w.checker)) {
+            w.violations.push(`${where} returns a non-void result its heritage declaration does not document; annotate the return type and add @returns.`)
+          }
         }
         continue
       }

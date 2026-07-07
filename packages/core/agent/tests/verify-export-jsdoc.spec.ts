@@ -487,4 +487,69 @@ export class Impl extends Base {
 }
 `))).toEqual([expect.stringMatching(/exported class method 'Impl.run' .* is a binding pattern/)])
   })
+
+  it('revives the @returns duty when an override grows a concrete result over a void base', () => {
+    const voidBase = `
+/** Seam. */
+export abstract class Base {
+  /** Do it (fire-and-forget). */
+  abstract run(): void
+}
+`
+    expect(collectExportJsdocViolations(make(`${voidBase}
+/** Impl. */
+export class Impl extends Base {
+  override run(): number { return 1 }
+}
+`))).toEqual([expect.stringMatching(/exported class method 'Impl.run' .* is missing @returns \(return type: number\)\./)])
+    expect(collectExportJsdocViolations(make(`${voidBase}
+/** Impl. */
+export class Impl extends Base {
+  /**
+   * Do it and count.
+   * @returns how many were done.
+   */
+  override run(): number { return 1 }
+}
+`))).toEqual([])
+  })
+
+  it('classifies an unannotated override return over a void base via the checker', () => {
+    const voidBase = `
+/** Seam. */
+export abstract class Base {
+  /** Do it (fire-and-forget). */
+  abstract run(): void
+}
+`
+    expect(collectExportJsdocViolations(make(`${voidBase}
+/** Impl. */
+export class Impl extends Base {
+  override run() { return 1 }
+}
+`))).toEqual([expect.stringMatching(/exported class method 'Impl.run' .* non-void result its heritage declaration does not document/)])
+    expect(collectExportJsdocViolations(make(`${voidBase}
+/** Impl (faithful void, no annotation needed). */
+export class Impl extends Base {
+  override run() {}
+}
+`))).toEqual([])
+  })
+
+  it('keeps the full exemption when the base return already carries the @returns duty', () => {
+    expect(collectExportJsdocViolations(make(`
+/** Seam. */
+export abstract class Base {
+  /**
+   * Count things.
+   * @returns the count.
+   */
+  abstract run(): number
+}
+/** Impl. */
+export class Impl extends Base {
+  override run(): number { return 1 }
+}
+`))).toEqual([])
+  })
 })

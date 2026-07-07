@@ -373,6 +373,14 @@ export class Session {
 /** A fork source: either the live session object or its live store id. */
 export type SessionForkSource = Session | SessionId
 
+/**
+ * Rejection codes for session forking: the fork source id is unknown to the
+ * live store (`SESSION_NOT_FOUND`) or names a session object that is not the
+ * store's live instance (`SESSION_NOT_LIVE`); the requested child id is
+ * already taken (`SESSION_ALREADY_EXISTS`); the boundary is not a contiguous
+ * existing seq (`INVALID_BOUNDARY`); or the boundary event is not a
+ * `turn/end` — a fork must cut on a closed turn (`OPEN_TURN`).
+ */
 export type SessionForkErrorCode =
   | 'SESSION_NOT_FOUND'
   | 'SESSION_NOT_LIVE'

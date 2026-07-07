@@ -164,7 +164,7 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:397`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:405`](../../packages/core/session/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 
