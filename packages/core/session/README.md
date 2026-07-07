@@ -9,6 +9,7 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 ### Public API
 
 - `ctx.sessions.create(id?: SessionId, options?: { seed?: SessionEvent[]; meta?: { cwd?: string; parentSession?: SessionId; createdAt?: number; seedLength?: number } }): Session` — Create a session. `options.seed` replays/forks an existing event log; `options.meta` attaches creation metadata (validated absolute `cwd`, `parentSession` lineage, seed boundary) as the immutable `SessionHeader`. The store fills `version`/`id` and defaults `createdAt` to now; a caller reconstructing a persisted session passes the original `createdAt` and persisted `seedLength` to preserve them. Disposed with the calling fiber.
+- `ctx.sessions.fork(source, boundary?, childSessionId?): Session` — Resolve a live session object or id, select a seed through the inclusive `boundary` event seq (default: current last event), require that boundary to be `turn/end`, and create a live child session with lineage metadata.
 - `ctx.sessions.get(id: SessionId): Session | undefined`
 - `ctx.sessions.list(): Session[]`
 
@@ -72,9 +73,9 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 ### Extension points
 
 - Persistence plugins: subscribe to `session/event` (write-behind) and drain on `session/flush` (awaited) and fiber dispose. A durable backend reads the log and reloads it into a live session; the metadata seam (`SessionHeader`, `session.header`) is what such a backend stores beside the log.
-- Replay/fork: `ctx.sessions.create(id, { seed })` seeds a new session with an existing event log. The surface rebuilds deterministically from `surfaceOp` markers in the seeded events. The seed is validated to the SAME invariants `append` enforces — including that every surface-eligible event (`SurfaceEventType`) carries a `surfaceOp` marker — so a marker-less message event is rejected at construction rather than silently vanishing from `deriveMessages()` (the surface is the sole derivation path) on resume.
+- Replay/fork: `ctx.sessions.create(id, { seed })` seeds a new session with an existing event log. The surface rebuilds deterministically from `surfaceOp` markers in the seeded events. The seed is validated to the SAME always-on invariants `append` enforces — contiguous seqs, JSON-serializable data, and required `surfaceOp` markers on surface-eligible events — so marker-less message events are rejected at construction rather than silently vanishing from `deriveMessages()`. Broader turn-enclosure checks stay in `dsh-invariants` and persistence repair. Ordinary live-session forks use `ctx.sessions.fork(source, boundary?, childSessionId?)`, where `boundary` is the inclusive source event seq to fork through.
 - Compaction: the `dsh-compact-basic` plugin appends a `user/message` with `surfaceOp: { op: 'replace', start, end }` to shadow old surface nodes behind a summary checkpoint.
 
 ### What is NOT here (TODO)
 
-- **Session branching/tree** (pi-style entry tree) — deferred unless needed beyond seed-based forking.
+- **Session branching/tree** (pi-style entry tree) — deferred unless needed beyond boundary-based `fork()`.
