@@ -23,7 +23,7 @@ An agent was registered in the AgentRegistry and is ready to receive messages.
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:248`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:292`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -35,7 +35,7 @@ An agent was disposed and removed from the registry; its fiber and any in-flight
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:255`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:299`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -47,7 +47,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:404`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:490`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -61,7 +61,7 @@ Serial (awaited in registration order), not a waterfall: a listener mutates the 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:333`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:377`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -73,7 +73,7 @@ Waterfall: decide what happens to ONE drained queued message before it becomes a
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:346`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:390`](../../packages/core/agent/src/types.ts)
 
 ### `agent/queued` — emit
 
@@ -85,11 +85,11 @@ A message entered the agent's inbox (queued or steering). `source` is the resolv
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:273`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:317`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
-Waterfall: shape the step's call configuration — model switching, sampling overrides — by returning a replacement LlmCallConfig (the frozen seed is the config the loop would otherwise use). Config is ALL a listener shapes here: every request is a pure function of the session log (the reconstructability RFC), so model-visible content flows through the log channels — `inject()`, steering, prompt-submit `additionalContext`, prompt sections via `system-prompt/assemble` — never through request mutation, and the loop records whatever config the request actually uses as a `request/header*` event before dispatch. The step's messages are already snapshotted when this fires (the `step/start` boundary): an `inject()` from a listener here lands in the log but joins the NEXT request. For surface mutation that must precede the snapshot (compaction), use agent/pre-step. Call `next()` to delegate, or return an LlmCallConfig without it to short-circuit.
+Waterfall: shape the step's call configuration — model switching, sampling overrides — by returning a replacement LlmCallConfig (the frozen seed is the config the loop would otherwise use). Config is ALL a listener shapes here: every request is a pure function of the session log (the reconstructability RFC), so model-visible content flows through the log channels — `inject()`, steering, prompt-submit `additionalContext`, prompt sections via `system-prompt/assemble`, or header-logged request-only messages via agent/request-messages — never through request mutation, and the loop records whatever config the request actually uses as a `request/header*` event before dispatch. The step's messages are already snapshotted when this fires (the `step/start` boundary): an `inject()` from a listener here lands in the log but joins the NEXT request. For surface mutation that must precede the snapshot (compaction), use agent/pre-step. Call `next()` to delegate, or return an LlmCallConfig without it to short-circuit.
 
 ```ts cordis-catalog
 'agent/request'(agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
@@ -97,7 +97,23 @@ Waterfall: shape the step's call configuration — model switching, sampling ove
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:369`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:414`](../../packages/core/agent/src/types.ts)
+
+### `agent/request-messages` — waterfall
+
+Waterfall: contribute request-ONLY messages around the derived history — a RequestMessages whose `before` messages precede the boundary snapshot in `GenerateOptions.messages` and whose `after` messages follow it. Fires once per step, inside the open step, after the agent/request config waterfall and before the loop logs the request header. This is the seam for per-request advisory context the model must see NOW but that must NOT become durable history (a skills catalog, an environment reminder): contributions are recorded on the request's `request/header*` event (`EpochHeader.messagePrefix` / `messageSuffix`) — never as session messages — so `Session.deriveMessages()` stays untouched and the request remains reconstructable from the log.
+
+The seed is frozen and empty; a contributing listener returns a NEW RequestMessages extending `await next()` (spread its arrays — never mutate them), so contributions compose across plugins in registration order. The boundary snapshot is already taken when this fires: a `session.append`/`inject()` from a listener here lands in the log but joins the NEXT request — contribute through the returned value, not the session. Call `next()` to delegate, or return a RequestMessages without it to short-circuit.
+
+Pick the channel by change frequency (the cost model): a contribution rides the request's uncached tail, re-tokenized at full price on EVERY request it appears in — cheap only while small. Session-FROZEN content belongs in `before`, where it extends the cacheable prefix at zero marginal cost (but changing it mid-session invalidates the provider cache for the entire history after it). A LOW-FREQUENCY change notice belongs in durable history via `agent.inject()` — appended once, prefix-cached thereafter. Reserve `after` for small, frequently refreshed state snapshots, where a durable chain of stale copies would bloat the log and mislead the model.
+
+```ts cordis-catalog
+'agent/request-messages'(agent: Agent, turn: number, step: number, messages: RequestMessages, context: RequestMessagesContext, next: () => Promise<RequestMessages>): Promise<RequestMessages>
+```
+
+Types: [Agent](../core-data-structures/core.md)
+
+Source: [`packages/core/agent/src/types.ts:455`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -109,7 +125,7 @@ The agent's session lifecycle began, fired once before its first turn. `source` 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:288`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:332`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -121,7 +137,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive lifecycle 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:264`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:308`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step-result` — waterfall
 
@@ -133,7 +149,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:379`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:465`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -145,7 +161,7 @@ Waterfall: override the turn-continuation decision via a typed ContinuationDecis
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:392`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:478`](../../packages/core/agent/src/types.ts)
 
 ## `fs/*`
 

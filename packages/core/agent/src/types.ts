@@ -17,7 +17,8 @@
  *   consumer that wants the live transcript subscribes here.
  * - **`agent/*`** (this module) — the LIVE runtime surface. Always carries the
  *   live `Agent`. Two shapes: INTERCEPTION seams (the `agent/prompt-submit`/
- *   `agent/request`/`agent/step-result`/`agent/turn-continuation` waterfalls and
+ *   `agent/request`/`agent/request-messages`/`agent/step-result`/
+ *   `agent/turn-continuation` waterfalls and
  *   the serial `agent/pre-step`) that mutate/veto, and TRANSIENT emits
  *   (`agent/status`, `agent/error`, `agent/created`/
  *   `agent/disposed`, `agent/queued`, `agent/session-start`)
@@ -45,7 +46,7 @@
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock, LlmCallConfig, Message, MessageSource } from '@deepseek-ai/dsh-llm'
-import type {} from '@deepseek-ai/dsh-system-prompt'
+import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 
 /** Identifies one live agent in the registry. */
 export type AgentId = Branded<'AgentId'>
@@ -137,6 +138,49 @@ export type PromptDecision =
 export type ContinuationDecision =
   | { action: 'stop' }
   | { action: 'continue'; reason?: HookContext }
+
+/**
+ * Request-ONLY messages an `agent/request-messages` waterfall listener
+ * contributes around the derived history of ONE LLM request: `before` messages
+ * precede the derived history in `GenerateOptions.messages`, `after` messages
+ * follow it. They are NOT session events — nothing here enters the session log
+ * as durable history, `Session.deriveMessages()` never returns them, and the
+ * next step recomputes them from scratch. The loop records the non-empty
+ * arrays on the request's `request/header*` event (`EpochHeader.messagePrefix`
+ * / `messageSuffix`), so the request stays reconstructable from the log (the
+ * reconstructability RFC). For content that must become durable conversation
+ * history, use the log channels instead: `agent.inject()`, steering, or
+ * prompt-submit `additionalContext`.
+ */
+export interface RequestMessages {
+  /** Messages placed before the derived history in the request. */
+  before: Message[]
+  /** Messages placed after the derived history in the request. */
+  after: Message[]
+}
+
+/**
+ * Read-only facts about the request an `agent/request-messages` listener is
+ * contributing to. Everything here is already fixed when the seam fires: the
+ * step is open, the boundary snapshot is taken, and the system prompt is
+ * assembled — a listener uses these to DECIDE what to contribute (e.g. render
+ * a workspace-dependent reminder, or skip one already present in history),
+ * never to mutate them.
+ */
+export interface RequestMessagesContext {
+  /** The rendered system prompt this request will carry. */
+  system: string
+  /** The prompt assembly the system prompt was rendered from (sections + tools). */
+  assembly: PromptAssembly
+  /**
+   * The boundary snapshot: the derived history this request will carry between
+   * `before` and `after`. A frozen snapshot — treat it as read-only; content
+   * for the NEXT request flows through the log channels.
+   */
+  boundaryMessages: readonly Message[]
+  /** Aborts in-flight listener work when the step is torn down. */
+  signal: AbortSignal
+}
 
 /**
  * Why an agent's session lifecycle began, carried by `agent/session-start`. A
@@ -351,8 +395,9 @@ declare module 'cordis' {
      * ALL a listener shapes here: every request is a pure function of the
      * session log (the reconstructability RFC), so model-visible content
      * flows through the log channels — `inject()`, steering, prompt-submit
-     * `additionalContext`, prompt sections via `system-prompt/assemble` —
-     * never through request mutation, and the loop records whatever config
+     * `additionalContext`, prompt sections via `system-prompt/assemble`, or
+     * header-logged request-only messages via {@link agent/request-messages}
+     * — never through request mutation, and the loop records whatever config
      * the request actually uses as a `request/header*` event before dispatch.
      * The step's messages are already snapshotted when this fires (the
      * `step/start` boundary): an `inject()` from a listener here lands in the
@@ -367,6 +412,47 @@ declare module 'cordis' {
      * @mode waterfall
      */
     'agent/request'(agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
+    /**
+     * Waterfall: contribute request-ONLY messages around the derived history —
+     * a {@link RequestMessages} whose `before` messages precede the boundary
+     * snapshot in `GenerateOptions.messages` and whose `after` messages follow
+     * it. Fires once per step, inside the open step, after the
+     * {@link agent/request} config waterfall and before the loop logs the
+     * request header. This is the seam for per-request advisory context the
+     * model must see NOW but that must NOT become durable history (a skills
+     * catalog, an environment reminder): contributions are recorded on the
+     * request's `request/header*` event (`EpochHeader.messagePrefix` /
+     * `messageSuffix`) — never as session messages — so
+     * `Session.deriveMessages()` stays untouched and the request remains
+     * reconstructable from the log.
+     *
+     * The seed is frozen and empty; a contributing listener returns a NEW
+     * {@link RequestMessages} extending `await next()` (spread its arrays —
+     * never mutate them), so contributions compose across plugins in
+     * registration order. The boundary snapshot is already taken when this
+     * fires: a `session.append`/`inject()` from a listener here lands in the
+     * log but joins the NEXT request — contribute through the returned value,
+     * not the session. Call `next()` to delegate, or return a
+     * {@link RequestMessages} without it to short-circuit.
+     *
+     * Pick the channel by change frequency (the cost model): a contribution
+     * rides the request's uncached tail, re-tokenized at full price on EVERY
+     * request it appears in — cheap only while small. Session-FROZEN content
+     * belongs in `before`, where it extends the cacheable prefix at zero
+     * marginal cost (but changing it mid-session invalidates the provider
+     * cache for the entire history after it). A LOW-FREQUENCY change notice
+     * belongs in durable history via `agent.inject()` — appended once,
+     * prefix-cached thereafter. Reserve `after` for small, frequently
+     * refreshed state snapshots, where a durable chain of stale copies would
+     * bloat the log and mislead the model.
+     * @param agent - the agent making the model call.
+     * @param turn - the open turn number.
+     * @param step - the step whose request this is.
+     * @param messages - the frozen empty seed; return an extended replacement to contribute.
+     * @param context - read-only request facts ({@link RequestMessagesContext}).
+     * @mode waterfall
+     */
+    'agent/request-messages'(agent: Agent, turn: number, step: number, messages: RequestMessages, context: RequestMessagesContext, next: () => Promise<RequestMessages>): Promise<RequestMessages>
     /**
      * Waterfall: post-process the assembled assistant {@link Message} before
      * tool dispatch (validation, content rewriting, …).

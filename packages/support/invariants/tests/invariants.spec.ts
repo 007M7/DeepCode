@@ -707,6 +707,22 @@ describe('request-reconstruction cross-check (llm/stream)', () => {
     expect(() => { dispatch(ctx, options) }).not.toThrow()
   })
 
+  it('expects the folded header\'s request-only messages to frame the derivation (prefix + derived + suffix)', async () => {
+    const { ctx, session, boundary } = await requestSetup()
+    const prefix = { role: 'user' as const, content: [{ type: 'text' as const, text: '<system-reminder>catalog</system-reminder>' }] }
+    const suffix = { role: 'user' as const, content: [{ type: 'text' as const, text: 'trailing note' }] }
+    session.append('request/header-delta', { messagePrefix: [prefix], messageSuffix: [suffix] })
+    // The framed request matches the fold…
+    const framed = Object.freeze({ model: 'm', messages: Object.freeze([prefix, ...boundary, suffix]), sessionId: session.id })
+    expect(() => { dispatch(ctx, framed) }).not.toThrow()
+    // …a request that DROPPED the logged framing diverges…
+    const bare = Object.freeze({ model: 'm', messages: Object.freeze([...boundary]), sessionId: session.id })
+    expect(() => { dispatch(ctx, bare) }).toThrow(/diverges from the boundary derivation/)
+    // …and so does one that misplaced it (suffix sent as a prefix).
+    const misplaced = Object.freeze({ model: 'm', messages: Object.freeze([suffix, prefix, ...boundary]), sessionId: session.id })
+    expect(() => { dispatch(ctx, misplaced) }).toThrow(/diverges from the boundary derivation/)
+  })
+
   it('rejects a frozen request whose messages diverge from the boundary derivation', async () => {
     const { ctx, session, boundary } = await requestSetup()
     const messages = [...boundary, { role: 'user', content: [{ type: 'text', text: 'phantom' }] }]

@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
-import SessionStore, { type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import LlmService, { CallId, type Message } from '@deepseek-ai/dsh-llm'
+import SessionStore, { foldRequestHeader, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, {
   AgentId,
   type ContinuationDecision,
   type PromptDecision,
+  type RequestMessages,
   type SessionStartSource,
 } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
@@ -307,6 +308,145 @@ describe('agent/session-start', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1)
+  })
+})
+
+describe('agent/request-messages (RequestMessages)', () => {
+  it('frames the derived history: before precedes it, after follows it, and the header records both', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    const reminder: Message = { role: 'user', content: [{ type: 'text', text: '<system-reminder>catalog</system-reminder>' }] }
+    const trailer: Message = { role: 'user', content: [{ type: 'text', text: 'trailing note' }] }
+    ctx.on('agent/request-messages', async (_agent, _turn, _step, _messages, _context, next): Promise<RequestMessages> => {
+      const result = await next()
+      return { before: [...result.before, reminder], after: [...result.after, trailer] }
+    })
+
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    // The request carries before + derived history + after, in that order…
+    const request = adapter.requests[0]!
+    expect(request.messages).toEqual([
+      reminder,
+      { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+      trailer,
+    ])
+    // …the header event is their durable record…
+    const headerEvent = events(agent).find(e => e.type === 'request/header')
+    expect(headerEvent?.type === 'request/header' && headerEvent.data.header.messagePrefix).toEqual([reminder])
+    expect(headerEvent?.type === 'request/header' && headerEvent.data.header.messageSuffix).toEqual([trailer])
+    // …and they never become session history.
+    expect(agent.session.deriveMessages()).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+    ])
+  })
+
+  it('contributions compose across listeners and see the read-only request facts', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    const seen: { system: string; boundaryRoles: string[]; sectionCount: number }[] = []
+    ctx.on('agent/request-messages', async (_agent, _turn, _step, _messages, context, next): Promise<RequestMessages> => {
+      const result = await next()
+      seen.push({
+        system: context.system,
+        boundaryRoles: context.boundaryMessages.map(m => m.role),
+        sectionCount: context.assembly.sections.length,
+      })
+      return { before: [{ role: 'user', content: [{ type: 'text', text: 'first' }] }, ...result.before], after: result.after }
+    })
+    ctx.on('agent/request-messages', async (_agent, _turn, _step, _messages, _context, next): Promise<RequestMessages> => {
+      const result = await next()
+      return { before: [...result.before, { role: 'user', content: [{ type: 'text', text: 'second' }] }], after: result.after }
+    })
+
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    // Registration order composes: the first listener runs last on the way
+    // out (waterfall), so its prepend lands first.
+    const texts = adapter.requests[0]!.messages.map(m => m.content[0]?.type === 'text' ? m.content[0].text : '')
+    expect(texts).toEqual(['first', 'second', 'hi'])
+    // The context carried the request facts: the rendered system prompt, the
+    // boundary snapshot (exactly the drained user prompt), and the assembly.
+    expect(seen).toHaveLength(1)
+    expect(seen[0]!.boundaryRoles).toEqual(['user'])
+    expect(typeof seen[0]!.system).toBe('string')
+  })
+
+  it('with no contributions the header omits both fields and the request is the bare derivation', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    // A listener that delegates without contributing — the canonical no-op.
+    ctx.on('agent/request-messages', async (_agent, _turn, _step, _messages, _context, next) => next())
+
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    const headerEvent = events(agent).find(e => e.type === 'request/header')
+    expect(headerEvent?.type === 'request/header' && 'messagePrefix' in headerEvent.data.header).toBe(false)
+    expect(headerEvent?.type === 'request/header' && 'messageSuffix' in headerEvent.data.header).toBe(false)
+    expect(adapter.requests[0]!.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }])
+  })
+
+  it('the frozen seed rejects in-place mutation — a contribution is a returned extension', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    let mutationError: unknown
+    ctx.on('agent/request-messages', async (_agent, _turn, _step, messages, _context, next): Promise<RequestMessages> => {
+      try {
+        messages.before.push({ role: 'user', content: [{ type: 'text', text: 'smuggled' }] })
+      } catch (error: unknown) {
+        mutationError = error
+      }
+      return next()
+    })
+
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    expect(mutationError).toBeInstanceOf(TypeError)
+    expect(adapter.requests[0]!.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }])
+  })
+
+  it('a per-step contribution change is logged as a header delta, so every request stays reconstructable', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'echo', { text: 'ping' }),
+      textResponse('done'),
+    ])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineTool({
+      name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
+      async execute(args) { return [{ type: 'text', text: String(args.text) }] },
+    }))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    let step = 0
+    ctx.on('agent/request-messages', async (_agent, _turn, _step, _messages, _context, next): Promise<RequestMessages> => {
+      const result = await next()
+      step += 1
+      return { before: [...result.before, { role: 'user', content: [{ type: 'text', text: `reminder v${step}` }] }], after: result.after }
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests[0]!.messages[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'reminder v1' }] })
+    expect(adapter.requests[1]!.messages[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'reminder v2' }] })
+    // Step 2's changed prefix rides a request/header-delta whose fold matches
+    // what the second request actually sent.
+    const delta = events(agent).find(e => e.type === 'request/header-delta')
+    expect(delta?.type === 'request/header-delta' && delta.data.messagePrefix).toEqual([{ role: 'user', content: [{ type: 'text', text: 'reminder v2' }] }])
+    expect(foldRequestHeader(agent.session.events)?.messagePrefix).toEqual([{ role: 'user', content: [{ type: 'text', text: 'reminder v2' }] }])
   })
 })
 
