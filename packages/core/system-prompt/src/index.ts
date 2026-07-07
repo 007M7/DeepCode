@@ -171,6 +171,7 @@ function compareToolNames(a: ToolSchema, b: ToolSchema): number {
   return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
 }
 
+/** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.persona} for its contract). */
 export interface Config {
   /**
    * The deployment's persona — the ONE deployment-authored fragment of the
@@ -219,6 +220,10 @@ export interface Config {
  * while a `}}` still follows (e.g. `{{{model}}}`, `{{a{b}}`) all throw. A
  * lone `{{` with no `}}` anywhere after it is ordinary prose and passes
  * through verbatim. Substituted values are never re-scanned.
+ * @param assembly - the assembly to render (typically the awaited result of
+ *   {@link SystemPrompt.assemble}); only `sections` and `variables` are read.
+ * @returns the full system prompt text; `''` when every section renders empty
+ *   (the caller then sends no system prompt at all).
  */
 export function renderPrompt(assembly: PromptAssembly): string {
   return assembly.sections

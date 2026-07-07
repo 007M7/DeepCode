@@ -90,6 +90,10 @@ Source: [`packages/core/agent-core/src/index.ts:69`](../packages/core/agent-core
 Requires: `agents` · `sessions` · `llm` · `tools` · `systemPrompt`
 
 ```ts config-catalog
+/**
+ * Plugin config: the agents to create — or resume, via `resumeSessionId` —
+ * declaratively at startup, so a cordis.yml deployment needs no code.
+ */
 export interface Config {
   /** Agents created from configuration at startup. */
   agents: (AgentOptions & {
@@ -115,7 +119,7 @@ export interface Config {
 
 Depends on: [`AgentId`](../packages/core/agent/src/index.ts) · [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
 
-Source: [`packages/core/agent-loop/src/index.ts:32`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:36`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -274,6 +278,12 @@ Source: [`packages/support/invariants/src/index.ts:45`](../packages/support/inva
 Requires: `llm`
 
 ```ts config-catalog
+/**
+ * Plugin config, validated by the same-named schemastery schema. Every field
+ * is optional in yml: credentials/endpoint fall back to the environment (a
+ * missing API key fails plugin load, not the first call), and omitted
+ * thinking fields send nothing on the wire, so the provider default applies.
+ */
 export interface Config {
   /** API key; falls back to $DEEPSEEK_API_KEY. Required one way or the other. */
   apiKey?: string
@@ -288,13 +298,18 @@ export interface Config {
 }
 ```
 
-Source: [`packages/llm/llm-deepseek/src/index.ts:37`](../packages/llm/llm-deepseek/src/index.ts)
+Source: [`packages/llm/llm-deepseek/src/index.ts:43`](../packages/llm/llm-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-pi-ai`
 
 Requires: `llm`
 
 ```ts config-catalog
+/**
+ * Plugin config, validated by the same-named schemastery schema. Every field
+ * is optional in yml: credentials/endpoint fall back to the environment (a
+ * missing API key fails plugin load, not the first call).
+ */
 export interface Config {
   /** API key; falls back to $DEEPSEEK_API_KEY. Required one way or the other. */
   apiKey?: string
@@ -314,13 +329,14 @@ export interface Config {
 export type PiAiReasoning = 'off' | 'high' | 'xhigh'
 ```
 
-Source: [`packages/llm/llm-pi-ai/src/index.ts:32`](../packages/llm/llm-pi-ai/src/index.ts)
+Source: [`packages/llm/llm-pi-ai/src/index.ts:37`](../packages/llm/llm-pi-ai/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-replay`
 
 Requires: `llm`
 
 ```ts config-catalog
+/** Plugin config: the {@link ReplayConfig} inputs, each defaulting to its `DSH_SNAPSHOT_*` env var in `apply`. */
 export interface Config {
   /** Override the fixture path; defaults to `$DSH_SNAPSHOT_FILE`. */
   file?: string
@@ -335,13 +351,14 @@ export interface Config {
 }
 ```
 
-Source: [`packages/support/llm-replay/src/index.ts:415`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:429`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 
 Requires: `sessions`
 
 ```ts config-catalog
+/** Plugin config: where the JSONL backend keeps its session logs (`root` is required — no default). */
 export interface Config {
   /**
    * Root directory for all session files. Required (no default): a default of
@@ -352,7 +369,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:34`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:35`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-sqlite`
 
@@ -542,6 +559,7 @@ Source: [`packages/subagent/subagent-spawn/src/index.ts:26`](../packages/subagen
 ## `@deepseek-ai/dsh-system-prompt`
 
 ```ts config-catalog
+/** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.persona} for its contract). */
 export interface Config {
   /**
    * The deployment's persona — the ONE deployment-authored fragment of the
@@ -637,6 +655,7 @@ Source: [`packages/subagent/tool-subagent/src/index.ts:44`](../packages/subagent
 Requires: `tools` · `web` · `systemPrompt`
 
 ```ts config-catalog
+/** Plugin config: which web tools to register, and the `web_search` source cap. */
 export interface Config {
   /** Register `web_search`. Defaults to true. */
   search?: boolean
@@ -647,7 +666,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/tool-web/src/index.ts:36`](../packages/web/tool-web/src/index.ts)
+Source: [`packages/web/tool-web/src/index.ts:37`](../packages/web/tool-web/src/index.ts)
 
 ## `@deepseek-ai/dsh-web`
 
@@ -673,6 +692,7 @@ Source: [`packages/web/web/src/index.ts:68`](../packages/web/web/src/index.ts)
 Requires: `web`
 
 ```ts config-catalog
+/** Plugin config: the provider's transport and size limits plus its `User-Agent` (all defaulted). */
 export interface Config {
   /** Maximum accepted request URL length. */
   maxUrlLength?: number
@@ -691,13 +711,14 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-fetch-local/src/index.ts:33`](../packages/web/web-fetch-local/src/index.ts)
+Source: [`packages/web/web-fetch-local/src/index.ts:34`](../packages/web/web-fetch-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-search-deepseek`
 
 Requires: `web`
 
 ```ts config-catalog
+/** Plugin config (all optional — `apply` fills env-var and constant defaults). */
 export interface Config {
   /** DeepSeek API key. Falls back to `$DEEPSEEK_API_KEY`. Empty → unavailable. */
   apiKey?: string
@@ -714,13 +735,14 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-search-deepseek/src/index.ts:47`](../packages/web/web-search-deepseek/src/index.ts)
+Source: [`packages/web/web-search-deepseek/src/index.ts:48`](../packages/web/web-search-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-search-exa`
 
 Requires: `web`
 
 ```ts config-catalog
+/** Plugin config (all optional — `apply` fills env-var and constant defaults). */
 export interface Config {
   /** Exa API key. Falls back to `$EXA_API_KEY`. Empty → provider unavailable. */
   apiKey?: string
@@ -735,13 +757,14 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-search-exa/src/index.ts:38`](../packages/web/web-search-exa/src/index.ts)
+Source: [`packages/web/web-search-exa/src/index.ts:39`](../packages/web/web-search-exa/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-search-perplexity`
 
 Requires: `web`
 
 ```ts config-catalog
+/** Plugin config (all optional — `apply` fills env-var and constant defaults). */
 export interface Config {
   /** Perplexity API key. Falls back to `$PERPLEXITY_API_KEY`. Empty → unavailable. */
   apiKey?: string
@@ -756,7 +779,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-search-perplexity/src/index.ts:32`](../packages/web/web-search-perplexity/src/index.ts)
+Source: [`packages/web/web-search-perplexity/src/index.ts:33`](../packages/web/web-search-perplexity/src/index.ts)
 
 ## Loadable plugins with no config
 

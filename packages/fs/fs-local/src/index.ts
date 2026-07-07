@@ -73,6 +73,7 @@ export class LocalFileSystem extends FileSystem {
     cwd: z.string().default(process.cwd()),
   })
 
+  /** Validated config (schemastery applied the defaults before construction). */
   readonly config: ResolvedConfig
   /** Test seam forwarded to fsio (force streaming path, pin temp names). */
   internals: FsIoInternals = {}

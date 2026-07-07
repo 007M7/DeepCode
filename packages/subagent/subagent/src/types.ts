@@ -93,6 +93,7 @@ export interface SubagentStopReasonMap {
   refusal: 'refusal'
 }
 
+/** The union over {@link SubagentStopReasonMap} — widens automatically as backends merge in variants. */
 export type SubagentStopReason = SubagentStopReasonMap[keyof SubagentStopReasonMap]
 
 /**

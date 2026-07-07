@@ -99,6 +99,8 @@ function streamText(output: CollectedOutput): string {
  * stderr section, then exit-status markers. Non-zero exits are REPORTED, not
  * errored — the model decides how to react; only infrastructure failures
  * (spawn errors, aborts) surface as isError results.
+ * @param result - the completed foreground run from the executor.
+ * @returns the model-facing text: output body (or `(no output)`), then any timeout/signal/exit markers, each on its own line.
  */
 export function renderResult(result: BashRunResult): string {
   const out = streamText(result.stdout)
