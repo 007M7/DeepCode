@@ -21,6 +21,13 @@
  * returning a replacement assembly — see the waterfall composition caveat in
  * docs/architecture.md.)
  *
+ * FIXME: the whole enforcement dance above exists because the tool registry
+ * and prompt assembly are context-global. If they become per-agent or
+ * per-session scoped, a structured run just registers its own schema'd tool on
+ * the child's scope and this module reduces to the capture tool plus the
+ * turn-stop — no placeholder, no final-assembly swap, no strip-for-everyone-
+ * else, no global-registration lifetime dance.
+ *
  * A companion `agent/turn-continuation` listener stops a child's turn once its
  * output is captured — without it, the loop's default "had tool calls ⇒
  * continue" buys a wasted extra model step per structured child. It is also
@@ -64,11 +71,6 @@ export const STRUCTURED_OUTPUT_INSTRUCTION
   = 'When you have your final answer, you MUST report it by calling the '
     + `\`${STRUCTURED_OUTPUT_TOOL}\` tool with arguments matching its parameter schema exactly. `
     + 'Do not finish with a plain text answer: only the tool call counts as your result.'
-
-/** The nudge sent when a structured child finishes cleanly without calling the tool. */
-export const STRUCTURED_OUTPUT_NUDGE
-  = `You finished without calling \`${STRUCTURED_OUTPUT_TOOL}\`. `
-    + `Call \`${STRUCTURED_OUTPUT_TOOL}\` now with your final result matching its parameter schema.`
 
 /** One structured run's state: the schema to enforce and the captured value, once recorded. */
 interface RunState {

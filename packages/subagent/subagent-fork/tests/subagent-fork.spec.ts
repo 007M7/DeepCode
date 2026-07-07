@@ -37,7 +37,7 @@ async function setup(script: Script) {
   await ctx.plugin(Invariants)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
-  await ctx.plugin(fork, { providerName: 'fork', structuredNudgeRetries: 1 })
+  await ctx.plugin(fork, { providerName: 'fork' })
   ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
   const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
   return { ctx, parent }
@@ -176,7 +176,7 @@ describe('dsh-subagent-fork', () => {
     // the registries are loaded here so the runtime registers eagerly anyway.
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    const fiber = await ctx.plugin(fork, { providerName: 'fork', structuredNudgeRetries: 1 })
+    const fiber = await ctx.plugin(fork, { providerName: 'fork' })
     expect(ctx.subagents.list()).toEqual(['fork'])
     await fiber.dispose()
     expect(ctx.subagents.list()).toEqual([])

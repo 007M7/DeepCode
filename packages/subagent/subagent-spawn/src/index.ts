@@ -32,20 +32,14 @@ export const name = 'subagent-spawn'
 // structured output existed.
 export const inject = ['subagents', 'agents']
 
-/** Config: the registry name to register the provider under, plus structured-run tuning. */
+/** Config: the registry name to register the provider under. */
 export interface Config {
   /** Provider name on `ctx.subagents` (default `spawn`). */
   providerName: string
-  /**
-   * How many times a structured run re-prompts a child that finished cleanly
-   * without calling `structured_output` before giving up (default 1).
-   */
-  structuredNudgeRetries: number
 }
 
 export const Config: z<Config> = z.object({
   providerName: z.string().default('spawn'),
-  structuredNudgeRetries: z.natural().default(1),
 })
 
 /**
@@ -59,20 +53,13 @@ class SpawnProvider implements SubagentProvider {
   // Context contract: a spawned child starts fresh — it never sees the parent conversation.
   readonly inheritsParentContext = false
 
-  constructor(
-    readonly name: string,
-    private readonly ctx: Context,
-    private readonly structuredNudgeRetries: number,
-  ) {}
+  constructor(readonly name: string, private readonly ctx: Context) {}
 
   start(request: SubagentStartRequest) {
     // Fresh child: no seed. The shared driver mints ids, stamps cwd/lineage/
-    // depth, drives the one-shot (including the structured capture/nudge loop
-    // when the request carries an outputSchema), and maps the result.
-    return startInProcessRun(this.ctx, request, {
-      providerName: this.name,
-      structuredNudgeRetries: this.structuredNudgeRetries,
-    })
+    // depth, drives the one-shot (including the structured capture when the
+    // request carries an outputSchema), and maps the result.
+    return startInProcessRun(this.ctx, request, { providerName: this.name })
   }
 }
 
@@ -85,5 +72,5 @@ export function apply(ctx: Context, config: Config): void {
     const acquisition = acquireStructuredRuntime(ctx)
     return () => { acquisition.release() }
   }, 'subagent-spawn structured runtime')
-  ctx.subagents.registerProvider(new SpawnProvider(config.providerName, ctx, config.structuredNudgeRetries))
+  ctx.subagents.registerProvider(new SpawnProvider(config.providerName, ctx))
 }

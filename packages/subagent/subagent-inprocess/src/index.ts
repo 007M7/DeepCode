@@ -22,7 +22,6 @@ import { assertSupportedOutputSchema } from '@deepseek-ai/dsh-tools'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
 import {
   acquireStructuredRuntime,
-  STRUCTURED_OUTPUT_NUDGE,
   type StructuredAcquisition,
 } from './structured.ts'
 
@@ -30,7 +29,6 @@ export {
   acquireStructuredRuntime,
   STRUCTURED_OUTPUT_TOOL,
   STRUCTURED_OUTPUT_INSTRUCTION,
-  STRUCTURED_OUTPUT_NUDGE,
   type StructuredAcquisition,
 } from './structured.ts'
 
@@ -90,13 +88,6 @@ export interface InProcessRunOptions {
    * parent's log (FORK), or `undefined` for a fresh child (SPAWN).
    */
   readonly seed?: SessionEvent[]
-  /**
-   * How many times a structured run re-prompts a child that finished a turn
-   * cleanly WITHOUT calling `structured_output` (see the structured module).
-   * REQUIRED, resolved from the backend's validated Config — per the explicit-
-   * defaulting rule, the driver never fills it with a hidden fallback.
-   */
-  readonly structuredNudgeRetries: number
 }
 
 /**
@@ -178,7 +169,7 @@ export function startInProcessRun(
   let cancelled = false
   // An accessor, not an inline read: `cancelled` mutates from closures (the
   // abort listener, run.cancel), which control-flow narrowing cannot see — an
-  // inline `!cancelled` in the nudge condition reads as always-true.
+  // inline read at the result mapping would narrow to the initializer.
   const isCancelled = (): boolean => cancelled
   const requestCancel = (reason: string): void => {
     cancelled = true
@@ -196,28 +187,9 @@ export function startInProcessRun(
       if (request.signal?.aborted) return { output: [], stopReason: 'aborted' }
       child.send(request.prompt)
       await child.whenIdle()
-      if (structured) {
-        // Nudge loop: a child that finished a turn CLEANLY without calling
-        // structured_output gets re-prompted, up to the backend-configured
-        // retry count. An errored/aborted turn is not nudged — its failure is
-        // the honest result (a cancelled turn ends `aborted`, and a pre-turn
-        // cancel leaves no `turn/end` at all, so neither reads `completed`).
-        // `!cancelled` closes the remaining window: a cancel landing AFTER a
-        // clean turn end clears nothing — `child.cancel()` only kills
-        // queued/running work — so without it the next `send` would spend a
-        // fresh post-cancellation turn; the condition re-evaluates after
-        // every `whenIdle()`, so a mid-nudge cancel stops the loop at the
-        // next boundary too.
-        let nudges = options.structuredNudgeRetries
-        while (
-          !isCancelled() && structured.captured(child) === undefined && nudges > 0
-          && lastOwnTurnEnd(child, seedLength)?.data.reason.kind === 'completed'
-        ) {
-          nudges -= 1
-          child.send([{ type: 'text', text: STRUCTURED_OUTPUT_NUDGE }])
-          await child.whenIdle()
-        }
-      }
+      // Deliberately NO re-prompt when a structured child finishes cleanly
+      // without calling structured_output: readResult maps that to `error` —
+      // the shortfall goes to the parent instead of buying extra model turns.
       return readResult(child, seedLength, isCancelled(), structured ? { captured: structured.captured(child) } : undefined)
     } finally {
       request.signal?.removeEventListener('abort', onAbort)
@@ -239,12 +211,6 @@ export function startInProcessRun(
       await handle.dispose()
     },
   }
-}
-
-/** The child's OWN last `turn/end` event (events at or after `seedLength`), if any. */
-function lastOwnTurnEnd(child: Agent, seedLength: number): SessionEvent<'turn/end'> | undefined {
-  return child.session.events.slice(seedLength)
-    .findLast((e): e is SessionEvent<'turn/end'> => e.type === 'turn/end')
 }
 
 /**

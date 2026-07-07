@@ -32,7 +32,7 @@ const SCHEMA: StructuredOutputSchema = {
  * structured runtime at apply, exactly as shipped). The mock model script
  * drives the child's structured_output calls.
  */
-async function setup(script: Script, options?: { nudges?: number; withFork?: boolean }) {
+async function setup(script: Script, options?: { withFork?: boolean }) {
   const ctx = new Context()
   const adapter = new MockAdapter(script)
   await ctx.plugin(LlmService)
@@ -43,9 +43,9 @@ async function setup(script: Script, options?: { nudges?: number; withFork?: boo
   await ctx.plugin(Invariants)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
-  const fiber = await ctx.plugin(spawn, { providerName: 'spawn', structuredNudgeRetries: options?.nudges ?? 1 })
+  const fiber = await ctx.plugin(spawn, { providerName: 'spawn' })
   const forkFiber = options?.withFork
-    ? await ctx.plugin(fork, { providerName: 'fork', structuredNudgeRetries: options?.nudges ?? 1 })
+    ? await ctx.plugin(fork, { providerName: 'fork' })
     : undefined
   ctx.llm.registerAdapter(['mock'], adapter)
   const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
@@ -215,47 +215,25 @@ describe('in-process structured output', () => {
     await run.dispose()
   })
 
-  it('nudges a child that finished cleanly without calling the tool, then captures', async () => {
-    const { ctx, parent } = await setup([
-      textResponse('here is my answer in prose'),
-      toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 3 }),
-    ])
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
-    const result = await run.result
-    expect(result.structured).toEqual({ answer: 3 })
-    expect(result.stopReason).toBe('completed')
-    // The nudge is a real user-visible message in the child's log.
-    const child = ctx.agents.get(run.id)!
-    const users = child.session.events.filter(e => e.type === 'user/message')
-    expect(users.length).toBe(2)
-    await run.dispose()
-  })
-
-  it('settles error when the nudges run out without a capture', async () => {
+  it('a clean finish without a capture is an immediate error to the parent — deliberately NO re-prompt', async () => {
     const { ctx, parent, adapter } = await setup([
-      textResponse('prose only'),
-      textResponse('still prose'),
-    ], { nudges: 1 })
+      textResponse('here is my answer in prose'),
+      textResponse('MUST NOT BE CONSUMED'),
+    ])
     const run = ctx.subagents.start('spawn', structuredRequest(parent))
     const result = await run.result
     expect(result.stopReason).toBe('error')
     expect(result.structured).toBeUndefined()
-    expect(adapter.requests.length).toBe(2)
-    await run.dispose()
-  })
-
-  it('zero nudge retries fails immediately after the first clean prose finish', async () => {
-    const { ctx, parent, adapter } = await setup([textResponse('prose')], { nudges: 0 })
-    const run = ctx.subagents.start('spawn', structuredRequest(parent))
-    const result = await run.result
-    expect(result.stopReason).toBe('error')
+    // Exactly one model request and one user message: no nudge turn exists.
     expect(adapter.requests.length).toBe(1)
+    const child = ctx.agents.get(run.id)!
+    expect(child.session.events.filter(e => e.type === 'user/message').length).toBe(1)
     await run.dispose()
   })
 
-  it('a child that errored is NOT nudged (its failure is the honest result)', async () => {
+  it('an errored child keeps its honest error result (no capture expected)', async () => {
     // Script exhaustion on the first call → the child turn errors.
-    const { ctx, parent, adapter } = await setup([], { nudges: 3 })
+    const { ctx, parent, adapter } = await setup([])
     const run = ctx.subagents.start('spawn', structuredRequest(parent))
     const result = await run.result
     expect(result.stopReason).toBe('error')
@@ -263,22 +241,17 @@ describe('in-process structured output', () => {
     await run.dispose()
   })
 
-  it('a cancel landing after a clean turn end stops the nudge loop: no post-cancellation turn is spent', async () => {
-    const { ctx, parent, adapter } = await setup([textResponse('prose, no capture')], { nudges: 3 })
+  it('a cancel landing after a clean capture-less turn settles aborted, not error', async () => {
+    const { ctx, parent } = await setup([textResponse('prose, no capture')])
     const run = ctx.subagents.start('spawn', structuredRequest(parent))
     const child = ctx.agents.get(run.id)!
-    // Cancel synchronously inside the first turn's end recording — after the
-    // turn reads `completed`, before the nudge continuation resumes. The turn
-    // state alone cannot see this cancel (`child.cancel()` only clears
-    // queued/running work), so without the loop's own cancelled check the
-    // next send would spend a fresh child turn after the caller cancelled.
+    // Cancel synchronously inside the turn's end recording: the cancel
+    // contract outranks the schema shortfall, so the result maps to aborted.
     ctx.on('session/event', (session, event) => {
-      if (session === child.session && event.type === 'turn/end') run.cancel('cancelled between turn end and nudge')
+      if (session === child.session && event.type === 'turn/end') run.cancel('cancelled at turn end')
     })
     const result = await run.result
     expect(result.stopReason).toBe('aborted')
-    // Exactly one model request: the nudge turn never ran.
-    expect(adapter.requests.length).toBe(1)
     await run.dispose()
   })
 

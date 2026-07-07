@@ -6,7 +6,7 @@ The run mechanics live in the shared [`@deepseek-ai/dsh-subagent-inprocess`](../
 
 ## What it does
 
-`start(request)` delegates to `startInProcessRun(ctx, request, { providerName, structuredNudgeRetries })` with no seed: a fresh child agent with the parent's `cwd`/`parentSession` lineage and (by default) the parent's model. See the [driver README](../subagent-inprocess/README.md) for the full lifecycle (depth check, one-shot drive, result read, dispose).
+`start(request)` delegates to `startInProcessRun(ctx, request, { providerName })` with no seed: a fresh child agent with the parent's `cwd`/`parentSession` lineage and (by default) the parent's model. See the [driver README](../subagent-inprocess/README.md) for the full lifecycle (depth check, one-shot drive, result read, dispose).
 
 ## Capabilities
 
@@ -17,4 +17,3 @@ The run mechanics live in the shared [`@deepseek-ai/dsh-subagent-inprocess`](../
 | Key | Meaning |
 |---|---|
 | `providerName` | Registry name on `ctx.subagents` (default `spawn`). |
-| `structuredNudgeRetries` | How many times a structured run re-prompts a child that finished cleanly without calling `structured_output` (default 1). |

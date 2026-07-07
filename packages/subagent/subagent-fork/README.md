@@ -19,6 +19,5 @@ The seam this rides on: `CreateAgentOptions.seed` (added on `dsh-agent`, threade
 | Key | Meaning |
 |---|---|
 | `providerName` | Registry name on `ctx.subagents` (default `fork`). |
-| `structuredNudgeRetries` | How many times a structured run re-prompts a child that finished cleanly without calling `structured_output` (default 1). |
 
 See [`dsh-subagent-spawn`](../subagent-spawn/README.md) for the run lifecycle, model inheritance, and depth tracking — all shared.
