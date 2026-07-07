@@ -131,9 +131,19 @@ export interface BashRunResult {
   exitCode: number | null
   /** Terminating signal (e.g. 'SIGTERM'); null on normal exit. */
   signal: NodeJS.Signals | null
-  /** True when the executor's own timeout killed the command. */
+  /**
+   * True when the executor's own timeout was the FIRST cause to cut the command
+   * short. Mutually exclusive with {@link aborted}: one fused deadline drives
+   * both the timeout and the caller's cancellation, so a timeout and an abort
+   * racing before process close report the single first-abort cause, not both
+   * (see the [timeout-library RFC](../../../../docs/rfc/implemented/architecture/2026-07-06-timeout-deadline-library.md)).
+   */
   timedOut: boolean
-  /** True when the caller's AbortSignal killed the command. */
+  /**
+   * True when the caller's `AbortSignal` was the FIRST cause to kill the command
+   * (and it was not the executor's own timeout). Mutually exclusive with
+   * {@link timedOut} — see there for the first-cause classification.
+   */
   aborted: boolean
   /** The effective timeout applied to this run (after defaulting/capping). */
   timeoutMs: number
