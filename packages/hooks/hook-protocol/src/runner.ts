@@ -70,6 +70,11 @@ export interface RunHookResult {
  * `exitCode: undefined`, so the caller's merge logic treats it as a
  * non-blocking error rather than crashing the turn. `now` is injected for
  * testable durations.
+ * @param bash - the executor seam the command runs through.
+ * @param hook - the configured command; its `timeoutSec` (wire unit: seconds) overrides the default timeout.
+ * @param options - the invocation's payload, env, cwd, signal, stdin framing, and default timeout.
+ * @param now - millisecond clock used for the reported duration.
+ * @returns the decoded output plus the run's wall-clock duration.
  */
 export async function runHook(
   bash: BashExecutor,

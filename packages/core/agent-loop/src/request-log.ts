@@ -19,7 +19,10 @@ export interface TransmissionLog {
   loggedHeader: boolean
 }
 
-/** Fresh bookkeeping for a newly-started loop instance. */
+/**
+ * Fresh bookkeeping for a newly-started loop instance.
+ * @returns state with `loggedHeader` false, so the instance's first request appends an anchoring snapshot.
+ */
 export function createTransmissionLog(): TransmissionLog {
   return { loggedHeader: false }
 }

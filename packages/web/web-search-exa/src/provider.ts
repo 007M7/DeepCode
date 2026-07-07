@@ -37,6 +37,7 @@ export const EXA_DEFAULT_HIGHLIGHTS_PER_RESULT = 1
 /** Attribution header sent on every request. Bump with the package version. */
 const USER_AGENT = 'deepseek-harness/0.0.1'
 
+/** Resolved provider options (the plugin's `apply` supplies env-var and constant defaults). */
 export interface ExaSearchProviderOptions {
   /** Exa API key. Empty/absent → `status()` reports `missing-credential`. */
   apiKey: string
@@ -54,6 +55,10 @@ export interface ExaSearchProviderOptions {
  * Map one Exa result to a normalized source, or `undefined` when it carries no
  * portable snippet (an entry with no highlight is dropped — the seam has no
  * other field to derive a snippet from, and inventing one would lie).
+ *
+ * @param result - one entry of Exa's `results[]`.
+ * @returns the normalized source, or `undefined` when the entry has no
+ *   non-blank highlight.
  */
 export function mapExaResult(result: ExaResult): WebSearchSource | undefined {
   const snippet = result.highlights?.find(highlight => highlight.trim().length > 0)
@@ -66,7 +71,14 @@ export function mapExaResult(result: ExaResult): WebSearchSource | undefined {
   }
 }
 
-/** Map an Exa response envelope to a normalized search result. */
+/**
+ * Map an Exa response envelope to a normalized search result.
+ *
+ * @param query - the original request query, echoed on the result.
+ * @param response - the parsed `POST /search` response body.
+ * @returns the normalized result; snippet-less entries are dropped
+ *   ({@link mapExaResult}).
+ */
 export function mapExaResponse(query: string, response: ExaSearchResponse): WebSearchResult {
   const sources = (response.results ?? [])
     .map(mapExaResult)

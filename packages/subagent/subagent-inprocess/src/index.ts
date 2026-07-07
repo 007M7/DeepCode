@@ -34,7 +34,11 @@ declare module '@deepseek-ai/dsh-agent' {
   }
 }
 
-/** Read an agent's delegation depth (absent ⇒ a top-level agent, depth 0). */
+/**
+ * Read an agent's delegation depth (absent ⇒ a top-level agent, depth 0).
+ * @param agent - the agent whose options may carry `subagentDepth`.
+ * @returns 0 for a top-level agent, its parent's depth + 1 for a subagent.
+ */
 export function depthOf(agent: Agent): number {
   return agent.options.subagentDepth ?? 0
 }
@@ -88,6 +92,13 @@ export interface InProcessRunOptions {
  * the matching `turn/end.reason` the stop reason. `dispose()` delegates to the
  * factory's {@link AgentHandle.dispose} (stop loop → await quiescence → remove
  * session); `cancel()` cancels the child's in-flight turn.
+ *
+ * Throws {@link SubagentDepthError} before creating anything when the child's
+ * depth (parent depth + 1) would exceed `request.maxDepth`.
+ * @param ctx - the context whose `agents` factory creates and owns the child.
+ * @param request - the start request (prompt, parent, signal, per-child options).
+ * @param options - the backend's inputs: provider name plus the optional seed.
+ * @returns the live run handle for the child agent.
  */
 export function startInProcessRun(
   ctx: Context,

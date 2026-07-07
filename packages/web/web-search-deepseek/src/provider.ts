@@ -62,6 +62,7 @@ export const DEEPSEEK_DEFAULT_MAX_USES = 5
 /** Attribution header sent on every request. Bump with the package version. */
 const USER_AGENT = 'deepseek-harness/0.0.1'
 
+/** Resolved provider options (the plugin's `apply` supplies env-var and constant defaults). */
 export interface DeepSeekSearchProviderOptions {
   /** DeepSeek API key. Empty/absent → `status()` reports `missing-credential`. */
   apiKey: string
@@ -82,6 +83,9 @@ export interface DeepSeekSearchProviderOptions {
  * is the snippet surface: Anthropic `web_search_result` items carry
  * `url`/`title`/`page_age` but typically NO inline snippet — the excerpt lives
  * in a separate `text` block's citation, keyed by `url` (first occurrence wins).
+ *
+ * @param blocks - the response's content blocks; non-`text` blocks are skipped.
+ * @returns the `url → cited_text` map (empty when no citations are present).
  */
 export function citationSnippets(blocks: readonly ContentBlock[]): Map<string, string> {
   const map = new Map<string, string>()
@@ -106,6 +110,10 @@ export function citationSnippets(blocks: readonly ContentBlock[]): Map<string, s
  * Throws `WEB_PROVIDER_ERROR` (strict mode) when no `web_search_tool_result`
  * block is present — native search did not trigger, and prose-scraping is not a
  * fallback.
+ *
+ * @param query - the original request query, echoed on the result.
+ * @param response - the parsed Messages response body.
+ * @returns the normalized result with deduped, snippet-joined sources.
  */
 export function mapAnthropicResponse(query: string, response: AnthropicResponse): WebSearchResult {
   const blocks = response.content ?? []
