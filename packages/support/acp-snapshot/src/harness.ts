@@ -97,7 +97,9 @@ export interface InputScript {
    * kind → the offered `optionId` at answer time. A request beyond the queue
    * (or with no queue at all) is answered `cancelled` — the stub behavior a
    * scenario without approvals relies on. A scripted kind the request does
-   * not offer fails loud: the scenario scripted an impossible click.
+   * not offer REJECTS the run: the scenario scripted an impossible click,
+   * and {@link runScenario} throws once the in-flight step settles (the
+   * agent itself just sees `cancelled`, so it cannot absorb the bug).
    */
   permissionAnswers?: PermissionAnswer[]
 }
@@ -240,6 +242,14 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     // Permission answers are consumed FIFO across the whole run; exhaustion
     // falls back to `cancelled` so approval-free scenarios keep the plain stub.
     const permissionQueue = [...input.permissionAnswers ?? []]
+    // A scenario bug detected inside a client callback (a scripted permission
+    // kind the agent never offered). It cannot fail the run from in there: a
+    // callback throw only becomes a JSON-RPC error RESPONSE to the agent, and
+    // a tolerant agent treats that as a denial and carries on — the run (or
+    // worse, a record) would absorb the impossible click silently. So the
+    // callback answers `cancelled` (a well-defined path for the agent),
+    // captures the error here, and the step loop fails the run on it.
+    let scriptError: Error | undefined
     const makeClient = (_agent: AcpAgent): Client => ({
       sessionUpdate(params: SessionNotification): Promise<void> {
         for (let i = updateWaiters.length - 1; i >= 0; i--) {
@@ -262,12 +272,13 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
         const option = params.options.find(o => o.kind === answer.kind)
         if (option === undefined) {
           // The scenario scripted a click the agent never offered — a scenario
-          // bug. Throwing here surfaces as a JSON-RPC error on the permission
-          // request, which the transcript (and usually the run) fails on.
-          throw new Error(
+          // bug. Captured (last one wins; same bug class either way) and
+          // answered `cancelled`; the step loop rejects the run on it.
+          scriptError = new Error(
             `snapshot-harness: scripted permission answer ${answer.kind} not among `
             + `the offered options [${params.options.map(o => o.kind).join(', ')}]`,
           )
+          return Promise.resolve({ outcome: { outcome: 'cancelled' } })
         }
         return Promise.resolve({ outcome: { outcome: 'selected', optionId: option.optionId } })
       },
@@ -276,6 +287,11 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
 
     for (const step of input.steps) {
       await runStep(client, step, cwd, waitForUpdate, () => sessionId, (id) => { sessionId = id })
+      // A permission exchange happens while a step's request is in flight, so
+      // by the time the step settles any script bug it exposed is captured —
+      // fail the run HERE, as a harness error, rather than hoping the agent's
+      // reaction to the answer perturbs the transcript.
+      if (scriptError !== undefined) throw scriptError
     }
     // Done driving: close stdin so the server disposes gracefully (flushing
     // persistence) and exits. Then await exit so the harvested log is complete.

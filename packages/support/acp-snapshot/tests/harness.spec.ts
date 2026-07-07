@@ -257,16 +257,16 @@ describe('runScenario', () => {
     expect(result.rawStdout).toContain('permission:{\\"outcome\\":\\"selected\\",\\"optionId\\":\\"opt-reject\\"}')
   })
 
-  it('fails loud on a scripted permission kind the agent never offered', { timeout: 20_000 }, async () => {
+  it('rejects the run on a scripted permission kind the agent never offered', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({ permissionProbe: true })
     // The fake bin offers allow_once/reject_once; scripting allow_always is a
-    // scenario bug. The client handler throws, the SDK surfaces it as a
-    // JSON-RPC error on the permission request, and the fake bin echoes the
-    // missing outcome as null.
-    const result = await runScenario(
+    // scenario bug. The agent is answered `cancelled` (it must not be able to
+    // absorb the bug as an error-means-denial), and the RUN fails: a callback
+    // throw would only reach the agent as a JSON-RPC error response, letting
+    // a tolerant agent carry on and the scenario pass — or record.
+    await expect(runScenario(
       { steps: [...boot, { op: 'prompt', text: 'impossible click' }], permissionAnswers: [{ kind: 'allow_always' }] },
       { agent: AGENT, mode: 'replay', fixtureFile },
-    )
-    expect(result.rawStdout).toContain('permission:null')
+    )).rejects.toThrow(/allow_always not among the offered options \[allow_once, reject_once\]/)
   })
 })
