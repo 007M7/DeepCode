@@ -1,4 +1,4 @@
-# RFC: 会话模式——plan mode 作为日志化的每-agent 策略态
+# RFC: Plan mode——日志化的每-agent 会话模式
 
 Status: proposed
 
@@ -14,7 +14,7 @@ harness 目前没有办法把一个 agent 置入低权限的工作状态。最�
 
 ## 提案
 
-**会话模式（session mode）**是一个命名的、日志化的、每-agent 的策略状态。模式定义——哪些工具保持可见、渲染哪段指导 section——是部署配置；对某个 agent **生效中**的模式则是会话状态，从它的日志 fold 出来。一个新的 product 包 `@deepseek-ai/dsh-mode`（位于 `packages/mode/mode/`，新顶层组，`packages/approval/` 的形态）拥有事件词汇、一个薄薄的 `ctx.modes` 服务和全部策略 listener；loop 不改。harness 只内置一个定义：`plan`。
+交付物是 **plan mode**。它以第一个**会话模式（session mode）**的形态发布——一个命名的、日志化的、每-agent 的策略状态：模式定义——哪些工具保持可见、渲染哪段指导 section——是部署配置，对某个 agent **生效中**的模式则是会话状态，从它的日志 fold 出来。一个新的 product 包 `@deepseek-ai/dsh-mode`（位于 `packages/mode/mode/`，新顶层组，`packages/approval/` 的形态）拥有事件词汇、一个薄薄的 `ctx.modes` 服务和全部策略 listener；loop 不改。`plan` 是唯一发布的定义——模式形态的词汇存在是为了第二个模式到来时不必重命名持久事件类型，不是为了现在就发布更多模式。
 
 ### 模式状态是一条会话事件
 
@@ -140,7 +140,7 @@ plan mode 是一个 feature，就作为一个整体落地。一个能被锁进�
 
 **计划文件存储（`.plans/` 目录）。**为日志已能可回放地携带的东西建第二个持久之家；想要文件的部署可以后加一个写文件的工具。一个事实一个家。
 
-**用布尔 `planMode` 而不是命名模式。**对仓库已经跟踪的表面太窄（ACP 通告的是模式**列表**；Codex 发布三个），日后泛化还要重命名事件词汇。通用机制现在零额外成本；只有 `plan` 作为定义发布。
+**用布尔 `planMode` 而不是命名模式。**对仓库已经跟踪的表面太窄：ACP 通告的是模式**列表**，Claude Code 的选择器里 `plan` 与 `acceptEdits` 并列，而 Codex——它的 plan 功能是 `/plan`——用自己的审批预设（read-only / agent / full-access）填充列表；日后泛化还要重命名持久事件词汇。字符串形态的机制现在零额外成本；只有 `plan` 作为定义发布。
 
 **工具策略栈服务（对 Pi 批评的对症药）。**专门的工具策略组合服务为时过早：waterfall listener 靠构造可组合，deny-by-default 硬闸门让过滤顺序竞争无法被利用。真冲突出现再机制化。
 

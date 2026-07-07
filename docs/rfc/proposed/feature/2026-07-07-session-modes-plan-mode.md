@@ -1,4 +1,4 @@
-# RFC: Session modes — plan mode as logged per-agent policy state
+# RFC: Plan mode — a logged per-agent session mode
 
 Status: proposed
 
@@ -14,7 +14,7 @@ The ecosystems that leave modes to convention show the failure shapes to avoid. 
 
 ## Proposal
 
-A **session mode** is a named, logged, per-agent policy state. Mode definitions — which tools stay visible, what guidance section renders — are deployment config; the mode IN FORCE for an agent is session state, folded from its log. One new product package, `@deepseek-ai/dsh-mode` at `packages/mode/mode/` (a new top-level group, the `packages/approval/` shape), owns the event vocabulary, a thin `ctx.modes` service, and every policy listener; the loop does not change. The harness ships exactly one built-in definition: `plan`.
+The deliverable is **plan mode**. It ships as the first **session mode** — a named, logged, per-agent policy state: mode definitions — which tools stay visible, what guidance section renders — are deployment config, and the mode IN FORCE for an agent is session state, folded from its log. One new product package, `@deepseek-ai/dsh-mode` at `packages/mode/mode/` (a new top-level group, the `packages/approval/` shape), owns the event vocabulary, a thin `ctx.modes` service, and every policy listener; the loop does not change. `plan` is the only shipped definition — the mode-shaped vocabulary exists so a second mode never renames durable event types, not because more modes ship now.
 
 ### The mode state is a session event
 
@@ -140,7 +140,7 @@ Deferred beyond this landing, each behind its own decision: subagent mode inheri
 
 **A plan-file store (`.plans/` directory).** A second durable home for what the log already carries replayably; a deployment wanting files can add a tool that writes them. One home per fact.
 
-**A boolean `planMode` instead of named modes.** Too narrow for the surface the repo already tracks (ACP advertises a mode LIST; Codex ships three), and generalizing later would rename the event vocabulary. The generic mechanism costs nothing extra now; only `plan` ships as a definition.
+**A boolean `planMode` instead of named modes.** Too narrow for the surface the repo already tracks: ACP advertises a mode LIST, Claude Code's picker lists `plan` beside `acceptEdits`, and Codex — whose plan feature is `/plan` — fills its list with its approval presets (read-only / agent / full-access); generalizing later would rename durable event vocabulary. The string-shaped mechanism costs nothing extra now; only `plan` ships as a definition.
 
 **A tool-policy-stack service (the Pi-critique remedy).** A dedicated composition service for tool policies is premature: waterfall listeners compose by construction, and the deny-by-default hard gate makes filter-order races non-exploitable. Formalize only if real conflicts appear.
 
