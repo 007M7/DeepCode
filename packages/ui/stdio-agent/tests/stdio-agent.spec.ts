@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { AgentId } from '@deepseek-ai/dsh-agent'
+import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as stdioAgent from '../src/index.ts'
 
 /**
@@ -72,6 +73,27 @@ describe('dsh-stdio-agent app', () => {
   it('exposes its name and Config schema', () => {
     expect(stdioAgent.name).toBe('stdio-agent')
     expect(stdioAgent.Config).toBeDefined()
+  })
+
+  it('forwards toolOrder through agent-core to the system-prompt assembly', async () => {
+    const ctx = await mount({
+      model: 'mock',
+      toolOrder: ['zulu', TOOL_ORDER_REST],
+      persistenceRoot: '/tmp/dsh-stdio-agent-spec-tool-order',
+    })
+    // The bundle's own bash tools pend on the absent `ctx.bash` executor in
+    // this providerless mount, so register two plain tools to order.
+    for (const name of ['alpha', 'zulu']) {
+      ctx.get('tools')!.register({
+        name,
+        description: name,
+        parameters: {},
+        execute: async () => [],
+      })
+    }
+    const assembly = await ctx.get('systemPrompt')!.assemble()
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha'])
+    await ctx.fiber.dispose()
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/Config/apply', () => {
