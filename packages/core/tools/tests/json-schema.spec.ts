@@ -154,6 +154,30 @@ describe('assertSupportedOutputSchema', () => {
     const leaf = { type: 'string' }
     asserted({ type: 'object', properties: { a: leaf, b: leaf } })
   })
+
+  it('required cannot be satisfied by INHERITED names — `toString` is not a declared property', () => {
+    // `'toString' in {}` is true via Object.prototype; the declared-property
+    // contract must be an own-property check.
+    expect(violationsOf({ type: 'object', properties: {}, required: ['toString'] }))
+      .toEqual(['schema.required names "toString" which is not in properties'])
+  })
+
+  it('rejects exotic host objects where the subset expects plain JSON structure', () => {
+    // A Map as `properties` has no own enumerable entries: structurally it
+    // would read as "no properties" and serialize to {} — lossy, not loud.
+    expect(violationsOf({ type: 'object', properties: new Map() }))
+      .toEqual(['schema.properties must be an object of schemas'])
+    // A Date node is not a schema object even though Object.values(date) is [].
+    expect(violationsOf({ type: 'object', properties: { at: new Date(0) } }))
+      .toEqual(['schema.properties.at must be a schema object'])
+  })
+
+  it('rejects exotic annotation payloads that would serialize lossily', () => {
+    expect(violationsOf({ type: 'object', default: new Date(0) }))
+      .toEqual(['schema.default annotation must be JSON data'])
+    expect(violationsOf({ type: 'object', examples: [new Map()] }))
+      .toEqual(['schema.examples annotation must be JSON data'])
+  })
 })
 
 describe('validateStructuredValue', () => {
@@ -221,6 +245,32 @@ describe('validateStructuredValue', () => {
 
   it('a required key present-but-undefined counts as missing', () => {
     expect(validateStructuredValue(schema, { file: undefined })).toEqual(['missing required property "value.file"'])
+  })
+
+  it('inherited properties satisfy nothing: required, additionalProperties, and recursion are own-property only', () => {
+    // required: ['toString'] must NOT be satisfied by Object.prototype.toString.
+    expect(validateStructuredValue(
+      asserted({ type: 'object', properties: { toString: { type: 'string' } }, required: ['toString'] }),
+      {},
+    )).toEqual(['missing required property "value.toString"'])
+    // additionalProperties: false must flag an OWN `toString` key even though
+    // `'toString' in properties` is true via the prototype.
+    expect(validateStructuredValue(
+      asserted({ type: 'object', additionalProperties: false }),
+      { toString: 1 },
+    )).toEqual(['"value.toString" is not a declared property (additionalProperties: false)'])
+    // A declared property the value does NOT carry must not be validated
+    // against the value's INHERITED member (constructor is a function on
+    // every plain object's prototype, not a carried property).
+    expect(validateStructuredValue(
+      asserted({ type: 'object', properties: { constructor: { type: 'string' } } }),
+      {},
+    )).toEqual([])
+  })
+
+  it('a non-plain object value is not an object in the JSON sense', () => {
+    expect(validateStructuredValue(asserted({ type: 'object' }), new Date(0)))
+      .toEqual(['"value" must be an object'])
   })
 
   it('collects multiple violations across branches in one pass', () => {

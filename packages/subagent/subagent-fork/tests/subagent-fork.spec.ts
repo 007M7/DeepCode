@@ -9,9 +9,10 @@ import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService from '@deepseek-ai/dsh-subagent'
-import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as fork from '../src/index.ts'
+import { STRUCTURED_OUTPUT_TOOL } from '@deepseek-ai/dsh-subagent-inprocess'
 import { completedTurnPrefix } from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
@@ -141,6 +142,26 @@ describe('dsh-subagent-fork', () => {
     await run.dispose()
   })
 
+  it('captures structured output through the shipped plugin (seeded child, driver runtime)', async () => {
+    const { ctx, parent } = await setup([
+      textResponse('parent turn'),
+      toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 9 }),
+    ])
+    parent.send([{ type: 'text', text: 'warm up' }])
+    await parent.whenIdle()
+    const run = ctx.subagents.start('fork', {
+      prompt: [{ type: 'text', text: 'report structured' }],
+      parent,
+      outputSchema: { type: 'object', properties: { answer: { type: 'number' } }, required: ['answer'] },
+    })
+    const result = await run.result
+    expect(result.stopReason).toBe('completed')
+    expect(result.structured).toEqual({ answer: 9 })
+    // Run-scoped runtime: nothing stays registered after the settle.
+    expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
+    await run.dispose()
+  })
+
   it('does NOT return the seeded parent output when the child produces no message of its own', async () => {
     // Regression: readResult must scope to the child's OWN events (after the
     // seed). The parent completes a turn with a distinctive assistant message,
@@ -170,12 +191,6 @@ describe('dsh-subagent-fork', () => {
     const ctx = new Context()
     await ctx.plugin(SubagentService)
     await ctx.plugin(AgentRegistry)
-    // The backend does NOT inject 'tools' (the structured runtime gates its
-    // capture-tool registration on tools availability itself, keeping backend
-    // apply timing — and the delegation tool's prompt position — unchanged);
-    // the registries are loaded here so the runtime registers eagerly anyway.
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
     const fiber = await ctx.plugin(fork, { providerName: 'fork' })
     expect(ctx.subagents.list()).toEqual(['fork'])
     await fiber.dispose()
