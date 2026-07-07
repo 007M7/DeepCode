@@ -391,21 +391,22 @@ export class TextRetainer {
     const omitted = this.omittedAt(this.total)
     const truncated = omitted > 0
 
-    // A cut exists at the prefix end only if content followed it (moved to the
-    // suffix or omitted); likewise the suffix start is a cut only if content
-    // preceded it. When the whole stream fits in one side, pass bytes through
-    // untrimmed so valid output is never altered.
-    let prefix = concat(this.prefixChunks)
-    if (suffixLen > 0 || omitted > 0) prefix = trimTrailingPartialUtf8(prefix)
+    const prefix = concat(this.prefixChunks) // exactly prefixLen bytes (prefixHeld === prefixLen)
+    const suffix = concat(this.suffixChunks).subarray(this.suffixHeld - suffixLen)
 
-    const suffixBuf = concat(this.suffixChunks)
-    let suffix = suffixBuf.subarray(this.suffixHeld - suffixLen)
-    if (prefixLen > 0 || omitted > 0) suffix = trimLeadingContinuationUtf8(suffix)
+    // With nothing omitted, prefix and suffix are ADJACENT slices of one stream
+    // (prefixLen + suffixLen === total), so the head|tail split is artificial: a
+    // codepoint may span it. Decode the contiguous whole as one buffer — trimming
+    // or decoding the halves separately here would corrupt a boundary-spanning
+    // codepoint though no content was actually dropped. Only a real omitted gap
+    // makes each side a true cut: trim each to a UTF-8 boundary and decode
+    // separately so a codepoint is never reconstructed across the gap.
+    const text = truncated
+      ? decoder.decode(trimTrailingPartialUtf8(prefix)) + decoder.decode(trimLeadingContinuationUtf8(suffix))
+      : decoder.decode(concat([prefix, suffix]))
 
     return {
-      // Decode the two sides separately so a codepoint is never reconstructed
-      // across the omitted middle.
-      text: decoder.decode(prefix) + decoder.decode(suffix),
+      text,
       truncated,
       omittedBytes: truncated
         ? { kind: this.allowStop ? 'atLeast' : 'exact', count: omitted }

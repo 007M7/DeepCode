@@ -156,6 +156,32 @@ describe('TextRetainer — headTail (prefix + suffix, omit the middle)', () => {
     expect(result.truncated).toBe(false)
     expect(result.omittedBytes).toEqual<Omitted>({ kind: 'none' })
   })
+
+  it('does not drop a codepoint that spans the head|tail split when nothing is omitted', () => {
+    // Regression: with head+tail covering the whole stream, the split is
+    // artificial — a multibyte codepoint may straddle it. 'éab' is C3 A9 61 62
+    // (4 bytes); headBytes 1 + tailBytes 3 covers all 4 with omitted === 0, but
+    // the split falls INSIDE 'é'. The bytes are contiguous, so the full 'éab'
+    // must survive — not be trimmed to 'ab'.
+    const r = new TextRetainer({ kind: 'headTail', headBytes: 1, tailBytes: 3 })
+    r.push('éab')
+    const result = r.finish()
+    expect(result.text).toBe('éab')
+    expect(result.truncated).toBe(false)
+    expect(result.omittedBytes).toEqual<Omitted>({ kind: 'none' })
+  })
+
+  it('still trims boundary partials once a real middle is omitted', () => {
+    // With a genuine gap the two sides ARE true cuts: '€' (3 bytes) split across
+    // the omitted middle must not resurface as a replacement char on either side.
+    const r = new TextRetainer({ kind: 'headTail', headBytes: 2, tailBytes: 2 })
+    r.push('a€€b') // 8 bytes; head 'a'+partial, tail partial+'b', middle omitted
+    const result = r.finish()
+    expect(result.truncated).toBe(true)
+    expect(result.text).not.toContain('�')
+    expect(result.text.startsWith('a')).toBe(true)
+    expect(result.text.endsWith('b')).toBe(true)
+  })
 })
 
 describe('TextRetainer — zero budgets', () => {
