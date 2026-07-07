@@ -42,7 +42,8 @@ export const name = 'acp-agent'
  * App config: the swappable per-deployment values. `model` configures the
  * agent template the ACP bridge creates each session's agent from (NOT a
  * pre-created agent — ACP creates agents at `session/new`); `persona` is the
- * deployment persona (forwarded to the system-prompt plugin);
+ * deployment persona (forwarded to the system-prompt plugin); `toolOrder` is
+ * the explicit model-facing tool order (forwarded to the system-prompt plugin);
  * `persistenceRoot` is the JSONL backend's directory.
  */
 export interface Config {
@@ -50,6 +51,8 @@ export interface Config {
   model: string
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
+  /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
+  toolOrder?: string[]
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
 }
@@ -57,6 +60,10 @@ export interface Config {
 export const Config: z<Config> = z.object({
   model: z.string().required(),
   persona: z.string(),
+  // The array default is forced to undefined: ABSENT means "lexicographic
+  // order" (the owning dsh-system-prompt schema does the same), while
+  // schemastery's native [] default would read as an invalid configured list.
+  toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   persistenceRoot: z.string().default('./.sessions'),
 })
 
@@ -70,6 +77,7 @@ export const Config: z<Config> = z.object({
 export function apply(ctx: Context, config: Config): void {
   ctx.plugin(agentCore, {
     ...config.persona !== undefined ? { persona: config.persona } : {},
+    ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
   })
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
   ctx.plugin(acp, { model: config.model })

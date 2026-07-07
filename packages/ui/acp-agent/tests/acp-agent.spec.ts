@@ -52,6 +52,27 @@ describe('dsh-acp-agent composition', () => {
     expect(acpAgent.Config).toBeDefined()
   })
 
+  it('forwards toolOrder through agent-core to the system-prompt assembly', async () => {
+    const ctx = await mount({
+      model: 'mock',
+      toolOrder: ['zulu', '...'],
+      persistenceRoot: '/tmp/dsh-acp-agent-test-tool-order',
+    })
+    // The bundle's own bash tools pend on the absent `ctx.bash` executor in
+    // this providerless mount, so register two plain tools to order.
+    for (const name of ['alpha', 'zulu']) {
+      ctx.get('tools')!.register({
+        name,
+        description: name,
+        parameters: {},
+        execute: async () => [],
+      })
+    }
+    const assembly = await ctx.get('systemPrompt')!.assemble()
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha'])
+    await ctx.fiber.dispose()
+  })
+
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/Config/apply', () => {
     // Postmortem 0001 guard: a stray `export default apply` makes the Loader's
     // `unwrapExports` (`exports.default ?? exports`) collapse the module to the

@@ -67,6 +67,23 @@ describe('dsh-agent-core bundle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('forwards toolOrder to the system-prompt assembly', async () => {
+    const ctx = await mount({ toolOrder: ['zulu', '...'] })
+    // The bundle's own bash tools pend on the absent `ctx.bash` executor in
+    // this providerless mount, so register two plain tools to order.
+    for (const name of ['alpha', 'zulu']) {
+      ctx.get('tools')!.register({
+        name,
+        description: name,
+        parameters: {},
+        execute: async () => [],
+      })
+    }
+    const assembly = await ctx.get('systemPrompt')!.assemble()
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha'])
+    await ctx.fiber.dispose()
+  })
+
   it('re-exports the loop config schema as its own', () => {
     expect(agentCore.Config).toBeDefined()
     expect(agentCore.name).toBe('agent-core')

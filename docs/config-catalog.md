@@ -40,7 +40,8 @@ Source: [`packages/ui/acp/src/index.ts:115`](../packages/ui/acp/src/index.ts)
  * App config: the swappable per-deployment values. `model` configures the
  * agent template the ACP bridge creates each session's agent from (NOT a
  * pre-created agent — ACP creates agents at `session/new`); `persona` is the
- * deployment persona (forwarded to the system-prompt plugin);
+ * deployment persona (forwarded to the system-prompt plugin); `toolOrder` is
+ * the explicit model-facing tool order (forwarded to the system-prompt plugin);
  * `persistenceRoot` is the JSONL backend's directory.
  */
 export interface Config {
@@ -48,12 +49,14 @@ export interface Config {
   model: string
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
+  /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
+  toolOrder?: string[]
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
 }
 ```
 
-Source: [`packages/ui/acp-agent/src/index.ts:48`](../packages/ui/acp-agent/src/index.ts)
+Source: [`packages/ui/acp-agent/src/index.ts:49`](../packages/ui/acp-agent/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-core`
 
@@ -61,23 +64,26 @@ Source: [`packages/ui/acp-agent/src/index.ts:48`](../packages/ui/acp-agent/src/i
 /**
  * Bundle config: each field forwarded verbatim to the child that owns it —
  * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
- * bridge, simply omits it), `persona` to the system-prompt plugin (the
- * deployment's persona section). Both are optional INPUT here because each
- * owner's schema supplies the default (`[]` / `''`); the schema is the
- * INTERSECTION of the owners' own schemas, so validation and defaulting can
- * never drift from them.
+ * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
+ * plugin (the deployment's persona section and the explicit model-facing tool
+ * order). Every field is optional INPUT here because each owner's schema
+ * supplies the default (`[]` / `''` / absent — lexicographic); the schema is
+ * the INTERSECTION of the owners' own schemas, so validation and defaulting
+ * can never drift from them.
  */
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
   agents?: AgentLoopConfig['agents']
   /** The deployment persona (see dsh-system-prompt's `Config`). */
   persona?: SystemPromptConfig['persona']
+  /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
+  toolOrder?: SystemPromptConfig['toolOrder']
 }
 ```
 
 Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt)
 
-Source: [`packages/core/agent-core/src/index.ts:68`](../packages/core/agent-core/src/index.ts)
+Source: [`packages/core/agent-core/src/index.ts:69`](../packages/core/agent-core/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -218,7 +224,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-claude/src/index.ts:55`](../packages/hooks/hooks-claude/src/index.ts)
+Source: [`packages/hooks/hooks-claude/src/index.ts:56`](../packages/hooks/hooks-claude/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-codex`
 
@@ -243,7 +249,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-codex/src/index.ts:42`](../packages/hooks/hooks-codex/src/index.ts)
+Source: [`packages/hooks/hooks-codex/src/index.ts:43`](../packages/hooks/hooks-codex/src/index.ts)
 
 ## `@deepseek-ai/dsh-invariants`
 
@@ -329,7 +335,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/support/llm-replay/src/index.ts:411`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:415`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 
@@ -390,7 +396,8 @@ Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:5
  * App config: the swappable per-demo values, each routed to where the app wires
  * it. `model`/`resumeSessionId` configure the pre-created `main` agent (through
  * {@link @deepseek-ai/dsh-agent-core}'s forwarded `agents` list); `persona` is
- * the deployment persona (forwarded to the system-prompt plugin);
+ * the deployment persona (forwarded to the system-prompt plugin); `toolOrder`
+ * is the explicit model-facing tool order (forwarded to the system-prompt plugin);
  * `persistenceRoot` is the JSONL backend's directory; `welcome` is the UI banner.
  */
 export interface Config {
@@ -398,6 +405,8 @@ export interface Config {
   model: string
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
+  /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
+  toolOrder?: string[]
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
@@ -411,7 +420,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/ui/stdio-agent/src/index.ts:59`](../packages/ui/stdio-agent/src/index.ts)
+Source: [`packages/ui/stdio-agent/src/index.ts:60`](../packages/ui/stdio-agent/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-acp`
 
@@ -547,10 +556,26 @@ export interface Config {
    * deployment opens with the harness identity alone.
    */
   persona?: string
+  /**
+   * Explicit model-facing tool order, as a list of `ToolSchema.name`s: listed
+   * tools take their listed position, names with no registered tool are
+   * ignored, and tools absent from the list are inserted at the
+   * {@link TOOL_ORDER_REST} (`'...'`) entry in lexicographic name order. A
+   * configured list must contain `'...'` exactly once and no duplicate names —
+   * anything else throws at load; a bad order config must never reach a
+   * model request. When omitted, tools are ordered lexicographically by name.
+   * Applied to the tools {@link SystemPrompt.assemble} collects, BEFORE the
+   * `system-prompt/assemble` waterfall — like the sections' `order` sort, it
+   * canonicalizes what the registry contributed (registration order is a
+   * plugin-load artifact); a waterfall listener that mutates the tool list
+   * owns the determinism of what it emits. Rationale (and why not per-plugin
+   * weights): docs/rfc/implemented/feature/2026-07-06-explicit-tool-order.md.
+   */
+  toolOrder?: string[]
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:113`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:161`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-fs`
 

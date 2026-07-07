@@ -7,6 +7,7 @@ System prompt assembly registry. Plugins contribute ordered text sections, tool-
 | Key | Default | Meaning |
 |---|---|---|
 | `persona` | `''` | The deployment persona: the ONE deployment-authored prompt fragment, rendered as the order-0 `deployment:persona` section and shared by every agent in the context (subagents included). A template — complete `{{…}}` groups are interpreted strictly against the registered variables (the shipped loop registers `{{model}}`/`{{cwd}}`), with no escape syntax for literal braces yet. Empty ⇒ the section is dropped at render. |
+| `toolOrder` | — | Explicit model-facing tool order, as a list of `ToolSchema.name`s with one `'...'` rest entry (`TOOL_ORDER_REST`): listed tools take their listed position, names with no registered tool are ignored, unlisted tools land at `'...'` in lexicographic name order. Absent ⇒ plain lexicographic name order. Applied to the collected tools BEFORE the `system-prompt/assemble` waterfall — like the sections' `order` sort, it canonicalizes what the registry contributed (registration order is a plugin-load artifact), and a waterfall listener that mutates the list owns the determinism of what it emits. A list without exactly one `'...'`, or with duplicates, throws at load. Why a central list and not per-plugin weights: [Explicit model-facing tool order](../../../docs/rfc/implemented/feature/2026-07-06-explicit-tool-order.md). |
 
 ## Service: `SystemPrompt` (ctx key: `systemPrompt`)
 
