@@ -18,7 +18,20 @@ import type { Context } from 'cordis'
 import { AgentId, type Agent, type AgentHandle, type AgentOptions } from '@deepseek-ai/dsh-agent'
 import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { assertSupportedOutputSchema } from '@deepseek-ai/dsh-tools'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
+import {
+  acquireStructuredRuntime,
+  type StructuredAcquisition,
+} from './structured.ts'
+
+// The runtime itself (acquire/attach/release) is package-internal: runs
+// acquire it inside startInProcessRun, and no other package drives it. Only
+// the model-facing vocabulary is public.
+export {
+  STRUCTURED_OUTPUT_TOOL,
+  STRUCTURED_OUTPUT_INSTRUCTION,
+} from './structured.ts'
 
 declare module '@deepseek-ai/dsh-agent' {
   interface AgentOptions {
@@ -109,6 +122,18 @@ export function startInProcessRun(
   if (request.maxDepth !== undefined && childDepth > request.maxDepth) {
     throw new SubagentDepthError(childDepth, request.maxDepth)
   }
+  // Assert, then snapshot, the schema subset BEFORE any child exists (the
+  // service has already capability-gated; this rejects a schema outside the
+  // enforced subset loud). Assertion comes FIRST so a hostile value fails as
+  // OutputSchemaError, never as structuredClone's raw DataCloneError — the
+  // asserted subset is plain JSON data, which always clones. The snapshot is
+  // load-bearing: the caller keeps its reference, so attaching the ORIGINAL
+  // would let a post-start() mutation drift the enforced schema away from the
+  // asserted one — the clone (taken synchronously with the assertion, no
+  // interleaving possible) pins assertion, the model-visible parameters, and
+  // validateStructuredValue to one isolation-immutable value.
+  if (request.outputSchema !== undefined) assertSupportedOutputSchema(request.outputSchema)
+  const schema = request.outputSchema === undefined ? undefined : structuredClone(request.outputSchema)
 
   const childId = AgentId(randomUUID())
   // The child's OWN events begin after the seed (fork seeds the parent's
@@ -120,12 +145,19 @@ export function startInProcessRun(
   // Inherit the parent's model by default (a child with no model cannot run);
   // an explicit `request.agentOptions.model` overrides it. The persona needs
   // no inheritance: the deployment persona is a context-wide prompt section,
-  // so parent and child render the same one.
+  // so parent and child render the same one. A structured run's
+  // structured_output instruction is NOT prompt state either — the structured
+  // runtime's final-request listener appends it per request (see structured.ts).
   const agentOptions: AgentOptions = {
     ...request.parent.options.model !== undefined ? { model: request.parent.options.model } : {},
     ...request.agentOptions,
     subagentDepth: childDepth,
   }
+
+  // The structured runtime is held for the WHOLE run (acquired before the child
+  // exists, released when the result settles), so a backend hot-reload mid-run
+  // cannot unregister the capture tool out from under this live child.
+  const structured: StructuredAcquisition | undefined = schema !== undefined ? acquireStructuredRuntime(ctx) : undefined
 
   const handle: AgentHandle = ctx.agents.create({
     agentId: childId,
@@ -141,6 +173,7 @@ export function startInProcessRun(
     agentOptions,
   })
   const child = handle.agent
+  if (structured && schema !== undefined) structured.attach(child, schema)
 
   // Bridge the request's abort signal to the child (the consumer also bridges
   // its own exec.signal, but a backend-level bridge keeps the contract local).
@@ -149,6 +182,10 @@ export function startInProcessRun(
   // `turn/end` is logged — settles as `aborted` (honoring the cancel contract)
   // rather than falling through to the no-turn `error` mapping.
   let cancelled = false
+  // An accessor, not an inline read: `cancelled` mutates from closures (the
+  // abort listener, run.cancel), which control-flow narrowing cannot see — an
+  // inline read at the result mapping would narrow to the initializer.
+  const isCancelled = (): boolean => cancelled
   const requestCancel = (reason: string): void => {
     cancelled = true
     child.cancel(reason)
@@ -165,9 +202,16 @@ export function startInProcessRun(
       if (request.signal?.aborted) return { output: [], stopReason: 'aborted' }
       child.send(request.prompt)
       await child.whenIdle()
-      return readResult(child, seedLength, cancelled)
+      // Deliberately NO re-prompt when a structured child finishes cleanly
+      // without calling structured_output: readResult maps that to `error` —
+      // the shortfall goes to the parent instead of buying extra model turns.
+      return readResult(child, seedLength, isCancelled(), structured ? { captured: structured.captured(child) } : undefined)
     } finally {
       request.signal?.removeEventListener('abort', onAbort)
+      if (structured) {
+        structured.detach(child)
+        structured.release()
+      }
     }
   })()
 
@@ -195,12 +239,32 @@ export function startInProcessRun(
  * logged (a cancel landed in the pre-turn window, before any turn ran), the
  * run settles `aborted` per the {@link SubagentRun.cancel} contract rather than
  * the generic no-turn `error`.
+ *
+ * A structured run (`structured` present) additionally reports the captured
+ * value on {@link SubagentResult.structured}. A structured child that finished
+ * CLEANLY without ever capturing (the nudges ran out) settles `error` — a clean
+ * finish without the demanded structured result is a failure, not a success
+ * with a missing field; a non-`completed` reason keeps its own honest mapping.
  */
-function readResult(child: Agent, seedLength: number, cancelled: boolean): SubagentResult {
+function readResult(
+  child: Agent,
+  seedLength: number,
+  cancelled: boolean,
+  structured?: { captured?: { value: unknown } | undefined },
+): SubagentResult {
   const own = child.session.events.slice(seedLength)
   const lastMessage = own.findLast((e): e is SessionEvent<'assistant/message'> => e.type === 'assistant/message')
   const lastEnd = own.findLast((e): e is SessionEvent<'turn/end'> => e.type === 'turn/end')
   const output: ContentBlock[] = lastMessage ? structuredClone(lastMessage.data.content) : []
-  if (lastEnd === undefined && cancelled) return { output, stopReason: 'aborted' }
-  return { output, stopReason: toStopReason(lastEnd?.data.reason) }
+  const stopReason: SubagentStopReason = lastEnd === undefined && cancelled
+    ? 'aborted'
+    : toStopReason(lastEnd?.data.reason)
+  if (structured) {
+    if (structured.captured) return { output, structured: structured.captured.value, stopReason }
+    // No capture on a cleanly-completed turn: an ERROR when the run was left
+    // to finish (the nudges ran out), but ABORTED when a cancel is why the
+    // nudging stopped — the cancel contract outranks the schema shortfall.
+    if (stopReason === 'completed') return { output, stopReason: cancelled ? 'aborted' : 'error' }
+  }
+  return { output, stopReason }
 }

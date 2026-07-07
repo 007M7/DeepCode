@@ -205,7 +205,7 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:268`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:278`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.web` — `WebService`
 
