@@ -1,0 +1,19 @@
+# @deepseek-ai/dsh-code-runtime
+
+The **code-execution seam**: an abstract `CodeRuntime` service (`ctx.codeRuntime`) defining WHAT a code runtime does — run one model-written program against a set of host-provided async bindings and report `{ value, logs, error? }` — without saying HOW.
+
+This package is the interface third of the capability (the bash trio is the template — see [capability seams](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md)): implementations subclass `CodeRuntime` and register the service; the consumer is the tool registry's Code Mode, which generates the model-facing SDK and bridges tool dispatch — both specified in the [Code Mode RFC](../../../docs/rfc/proposed/feature/2026-06-15-code-mode.md), whose first implementation is a Node worker-thread backend. The runtime knows nothing about tools or sessions: it is handed named async functions and a program string, and everything tool-shaped stays with the consumer.
+
+## Service API (`ctx.codeRuntime`)
+
+| Member | Semantics |
+|---|---|
+| `run(request)` | Execute one program against the request's bindings. **Resolves with an error FIELD for every program outcome** — parse/transform failure, thrown exception, budget expiry, abort, substrate death (`CodeRunFailure`'s orthogonal `kind` taxonomy); it rejects only for caller misuse of the seam itself (e.g. a run submitted after disposal). The program runs as the body of an async function: top-level `await`/`return` work, and the completion value becomes `result.value` when it survives the serialization boundary. |
+| `language` | Readonly descriptor: the source language `run` expects (`'typescript'` is the well-known value). Informational, not gating — a consumer that generates language-specific presentation switches on it and fails loud on a language it cannot present. |
+| `isolation` | Readonly descriptor: the execution substrate (`'worker-thread'`, `'process'`, `'container'`). A label for deployments and diagnostics, **not a security claim**. |
+
+Semantics every implementation must honor (contract details in the class JSDoc): binding calls bridge to the caller's functions verbatim with structured-cloneable arguments/resolutions; the program is treated as a hostile peer (arbitrary binding names are own properties, malformed traffic never crashes the host); no state survives between runs; disposal terminates in-flight runs AND awaits their exit before completing.
+
+## Vocabulary
+
+`CodeRunRequest` (`program`, `bindings`, `signal?`) carries everything the runtime acts on — defaulting (time budgets, output caps) is the implementation's validated config, never a hidden `??` inside `run()`. `bindings` is a list of `CodeBindingNamespace`s (`global` + `functions`), each exposed to the program as one global object of async callables. `CodeRunResult` reports the completion `value?`, the ordered `logs` (`CodeLogEntry`: `console`/`stdout`/`stderr` source, console `level`, capped text), and the `error?` (`CodeRunFailure`: `kind` + model-feedable `message`). See `src/types.ts` for the full contracts.
