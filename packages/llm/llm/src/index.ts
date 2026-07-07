@@ -73,7 +73,11 @@ export class LlmError extends HarnessError {
  * same value to the wire.
  */
 export abstract class LlmAdapter {
-  /** Stream one model call as raw chunks. The only required method. */
+  /**
+   * Stream one model call as raw chunks. The only required method.
+   * @param options - the fully-assembled request; implementations must honor `options.signal`.
+   * @returns the chunk stream, obeying the adapter contract documented on `StreamChunk`.
+   */
   abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 }
 

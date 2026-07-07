@@ -34,6 +34,10 @@ const CLAUDE_LITERAL = /^[A-Za-z0-9_|]+$/
  * pattern exact-matches the query (splitting `|` into alternatives); every other
  * `claude` pattern and ALL `codex` patterns are tested as an unanchored regex.
  * An invalid regex matches nothing (never throws).
+ * @param matcher - the configured pattern; absent/empty/`'*'` are the match-all sentinels.
+ * @param query - the candidate value (a tool name, a session source, …).
+ * @param mode - the dialect deciding literal-vs-regex interpretation of the pattern.
+ * @returns `true` when the pattern selects the query; `false` on a non-match or an invalid regex.
  */
 export function matchesMatcher(matcher: string | undefined, query: string, mode: MatcherMode): boolean {
   if (isMatchAll(matcher)) return true

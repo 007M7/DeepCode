@@ -47,6 +47,8 @@ export const Config: z<Config> = z.object({
  * empty — i.e. fresh — child). The result is contiguous from seq 0 (the live
  * log keeps `seq === index`), so it is a valid session seed; the in-flight,
  * unbalanced turn is dropped so the invariants replay accepts it.
+ * @param parent - the agent whose session log to slice.
+ * @returns the seed events, contiguous from seq 0; empty when no turn has completed.
  */
 export function completedTurnPrefix(parent: Agent): SessionEvent[] {
   const events = parent.session.events

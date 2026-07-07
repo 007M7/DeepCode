@@ -44,6 +44,7 @@ export const name = 'web-search-deepseek'
 /** The web seam this provider registers into. */
 export const inject = ['web']
 
+/** Plugin config (all optional — `apply` fills env-var and constant defaults). */
 export interface Config {
   /** DeepSeek API key. Falls back to `$DEEPSEEK_API_KEY`. Empty → unavailable. */
   apiKey?: string
