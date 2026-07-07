@@ -38,11 +38,71 @@ The model-facing **`exit_plan_mode`** tool closes the loop, visible only in plan
 
 `dsh-mode` is one product package, not a capability-seam trio — there is no swappable implementation; the variable parts are config values and the fixed listeners ([capability seams](../../implemented/architecture/2026-06-13-capability-seams.md): don't split preemptively; the approval seam made the same call). It is more than an [fs-policy-style](../../../../packages/fs/fs-policy/README.md) pure event-gate plugin only because UIs need a call surface: `ctx.modes` exposes `list()` (the configured definitions, for a mode picker), `get(agent)` (the fold plus any pending intent), and `set(agent, mode)` (validate against config, record intent, flush at the boundary). Everything else participates through listeners, so dropping the package gracefully removes modes rather than breaking a consumer.
 
-Mode definitions are validated plugin Config — per repo convention (changeable from `cordis.yml`, no code edit): each names its tool allowlist and its section text, and `plan`'s shipped default allowlist is the read-only surface (`read`, `grep`-family, `web_search`/`web_fetch`, `todo_write`, `exit_plan_mode`) with `bash` and `subagent` excluded until the sandbox family can actually confine them. `AgentOptions` is merge-extensible, so `dsh-mode` declares an optional `mode` field: a creator (or a subagent provider forwarding its parent's mode) seeds the child's initial mode, applied through the same pending-intent flush on the first turn.
+Mode definitions are validated plugin Config — per repo convention (changeable from `cordis.yml`, no code edit): each names its tool allowlist and its section text, and `plan`'s shipped default allowlist is the read-only surface (`read`, `todo_write`, `web_search`/`web_fetch`, `exit_plan_mode`) with `bash` and `subagent` excluded until the sandbox family can actually confine them. `AgentOptions` is merge-extensible, so `dsh-mode` declares an optional `mode` field: a creator (or a subagent provider forwarding its parent's mode) seeds the child's initial mode, applied through the same pending-intent flush on the first turn.
 
 ### Protocol and UI surfaces
 
 The stdio app gains a mode toggle command, a banner line, and a readline answerer on the approval waterfall, so the exit approval prompts right in the terminal (the approval seam's one-terminal-answerer-per-deployment convention). The ACP bridge maps the existing protocol surface: `available_modes`/`current_mode_id` from `ctx.modes.list()`/`get()`, `session/set_mode` → `ctx.modes.set()`, and a `current_mode_update` notification off each logged `mode/set`. The exit tool's approval needs no new ACP work at all — it rides the approval seam's answerer.
+
+## Detailed design
+
+### Vocabulary
+
+```text
+'mode/set': { mode: string }        // SessionEventMap merge in dsh-mode: log-only, non-surface,
+                                    // whole-value replace — the last one in the log wins
+DEFAULT_MODE = 'default'            // the fold of a log with no mode/set; reserved, not definable
+```
+
+The payload carries no reason/provenance field: a tool-driven flip sits next to its `tool/call` in the log and a user flip sits at its turn boundary, so the cause is log-adjacent — the same "narrative fields are derivable" call the [reconstructability RFC](../../implemented/architecture/2026-07-05-reconstructable-requests.md) made for header deltas. Mode names are config-declared vocabulary, not opaque cross-boundary ids, so they stay bare strings (no `Branded<B>`).
+
+### Config and the resolve step
+
+```text
+interface ModeDefinition { section: string; tools: string[] }   // prompt text; allowlist of tool NAMES
+interface ModeConfig { modes?: Record<string, ModeDefinition> } // plan's built-in definition merged unless overridden
+resolveConfig(config): ResolvedModes                            // explicit resolve (the dsh-bash template), fail-loud:
+                                                                // 'default' as a key rejected; allowlists may name
+                                                                // not-yet-registered tools (registration is dynamic)
+```
+
+### The fold, the service, and the flush
+
+`foldMode(events)` is pure (exported for reconstructors and tests); the service tracks it per session with a lazy cursor in a `WeakMap<Session, { cursor, mode }>` — O(new events) per read, never invalidated, because the log is append-only and `mode/set` is not a surface node (compaction cannot rewrite it). `ctx.modes` (a cordis Service, key `modes`) exposes `list()` — the synthetic `default` entry plus the configured definitions, for pickers — `get(agent): { current, pending? }`, and `set(agent, mode)`, which validates the name against config, drops a no-op (target equals pending ?? current), and otherwise records the intent in a `WeakMap<Session, string>`. A contained `session/event` listener ([defensive patterns](../../../defensive-patterns.md): a policy plugin must not kill the feed) flushes the pending intent as a `mode/set` append on the next `turn/start` or `step/end` — both sit outside the step's tool-execution window, so the executions of a step always run under the mode its assembly folded. Seeding rides `agent/created`: a declaration-merged `AgentOptions.mode` becomes a pending intent, so explicit options beat the logged baseline on create AND resume — the same precedence the call-config seed follows — while a fork child needs no mechanism at all (the parent's `mode/set` is inside the seeded prefix).
+
+### The soft layer: a computed section and a post-`next()` filter
+
+The guidance section is an ordinary registered section, `{ name: 'mode:policy', order: 50, text: context => … }` — order 50 sits after the persona (0) and before tool guidance (100–199); it resolves to the folded mode's configured text and to `''` (dropped at render) for the default mode or an agent-less assembly. The tool filter is a `system-prompt/assemble` waterfall listener that wraps: it awaits `next()` and filters the RETURNED assembly's `tools`, so additions made anywhere inside its wrap are covered. The filter enforces one rule in every mode: `exit_plan_mode` is visible IFF the agent's folded mode is `plan` — which is also what keeps a default-mode assembly byte-identical to a no-`dsh-mode` deployment even though the tool is always registered. In a non-default mode it additionally intersects with the mode's allowlist.
+
+### The hard layer: the gate
+
+```text
+tools/pre-execute: no exec.agent → next()          // agent-less calls have no session to fold
+                   folded mode = default → next()
+                   exec.name = exit_plan_mode:
+                     plan mode → { kind: 'ask' }    // the approval moment; the registry routes it
+                     otherwise → deny
+                   allowlisted → next()
+                   otherwise → deny                 // reason names the mode and points at exit_plan_mode
+```
+
+The gate folds the LOGGED mode only, never the pending intent — enforcement judges by the same state the request's header shipped under. Because the `ask` is produced here and resolved by `ToolRegistry.execute()` through `ctx.approval`, `dsh-mode` takes no dependency on the approval package; a deployment without the seam gets the registry's fail-closed degrade.
+
+### `exit_plan_mode`
+
+`defineTool` with one required `plan: string` argument. `execute` rejects an agent-less call (the [`todo_write` precedent](../../implemented/feature/2026-06-29-todo-write-tool.md)), re-checks the folded mode as defense in depth, appends `mode/set { mode: 'default' }` in-turn, and returns a short confirmation; the next step's assembly restores the full toolset and logs the widening `request/header-delta`. `presentCall` is a `generic` card carrying the plan markdown as content — the approval prompt attaches to this already-streamed call by `callId`, so what the human approves is exactly the logged artifact. A rejection reaches the model as the registry's "user rejected" `isError`, and it revises and re-presents.
+
+### Dependencies and surfaces
+
+`dsh-mode` peers on `cordis`, `dsh-session`, `dsh-agent`, `dsh-tools`, `dsh-system-prompt` (manifest shape mirrors `dsh-tool-todo`), injects `['tools', 'systemPrompt']`, and depends on neither the approval package nor any UI. The stdio app adds a `/mode [name]` line-handler branch (print or switch + banner, never sent to the model) and the readline answerer for its own agent. The ACP bridge consumes `ctx.modes` opportunistically (`ctx.get`, the `tool-bash` pattern): `session/new`/`session/load` responses include `{ currentModeId: pending ?? current, availableModes: list() }` when the service is mounted, `session/set_mode` calls `set()` and notifies `current_mode_update` optimistically (the pending mode IS the user's selection; the logged `mode/set` follows at the boundary), and a `session/event` listener re-notifies on each logged flip that differs from the last sent.
+
+### The recorded scenario and the harness op
+
+`input.json` gains one step op, `{ "op": "setMode", "mode": "plan" }`, driven through the real `session/set_mode` RPC. The `plan-mode` scenario: initialize → newSession → setMode(plan) → a prompt that explores and attempts a `write` (denied by the gate, pinned verbatim) → the model presents the plan via `exit_plan_mode` → a scripted `permissionAnswers` approve → a follow-up prompt that writes for real. Because the mode is set before turn 1, the FIRST `request/header` snapshot is already in plan shape (filtered tools + section, reason `initial`) — the widening delta appears at the exit; the scenario pins both, plus the `mode/set` pair. A sibling `plan-mode-reject` scenario scripts the reject and pins the corrective result. Both need a with-key recording session; the deny/reject texts are meanwhile pinned at the unit tier (the approval RFC's same stance).
+
+### The mechanical tail
+
+No new cordis event is declared (`mode/set` rides `session/event`; the listeners attach to existing waterfalls), so the events catalog is untouched; regenerated in the same change: the persistence log catalog (`mode/set`), the services catalog (`ctx.modes`, JSDoc-complete), the config catalog (`ModeConfig`), the tool catalog (`exit_plan_mode`), the producer/consumer map and doc graphs, and the module graph. Repo plumbing: a root tsconfig `paths` entry, the new group's README plus a [packages map](../../../../packages/README.md) row (a new top-level group is the deliberate act that table names), an `architecture.md` capability-services row for `ctx.modes` (budget-checked), and the cookbook row upgrade.
 
 ## Roadmap
 
@@ -93,4 +153,4 @@ Deferred beyond this landing, each behind its own decision: subagent mode inheri
 
 ## Risks
 
-A pending user flip set while idle is lost if the process dies before the next turn — accepted (the UI re-applies; the idle-record primitive is the escape hatch if this bites in practice). Every mode transition is a logged header change and therefore a prefix-cache reset at the provider — inherent, visible in per-step usage, and an argument against mode-flapping UIs, not against the design. Sibling-listener order is not deterministic, so a foreign assemble listener could re-widen filtered schemas — the hard gate keeps that non-executable, but the model would see tools it cannot use; the convention (mode filter last, or accept the gate's deny text as the corrective) is documented rather than mechanized. Plan mode's shipped allowlist excludes `bash` and `subagent`, which costs real exploration power (no `git log`, no read-only delegate) until the sandbox family and mode inheritance land — a deployment that accepts the risk can widen its own config today. The whole landing gates on the approval seam merging first — a deliberate schedule coupling accepted in place of shipping the mode core alone (an incomplete feature, per the roadmap); the seam is implemented on its branch, and this stack bases on it meanwhile. A deployment that composes no answerer keeps a safe but manual plan mode (`ask` → `unavailable` → deny), and the mode section tells the model to present its plan through `exit_plan_mode` — and to ask the user if that is denied — so it never thrashes against the gate. Branch-heavy policy code under the per-file 100% coverage gate is real work, accepted as the ACP bridge did.
+A pending user flip set while idle is lost if the process dies before the next turn — accepted (the UI re-applies; the idle-record primitive is the escape hatch if this bites in practice). Every mode transition is a logged header change and therefore a prefix-cache reset at the provider — inherent, visible in per-step usage, and an argument against mode-flapping UIs, not against the design. Sibling-listener order is not deterministic, so a foreign assemble listener wrapping OUTSIDE the mode listener could re-widen filtered schemas — the filter runs on the assembly `next()` returns (so everything inside its wrap is covered), and the hard gate keeps anything re-widened non-executable; the residual cost is cosmetic (the model sees a tool it cannot use), accepted rather than mechanized. Plan mode's shipped allowlist excludes `bash` and `subagent`, which costs real exploration power (no `git log`, no read-only delegate) until the sandbox family and mode inheritance land — a deployment that accepts the risk can widen its own config today. The whole landing gates on the approval seam merging first — a deliberate schedule coupling accepted in place of shipping the mode core alone (an incomplete feature, per the roadmap); the seam is implemented on its branch, and this stack bases on it meanwhile. A deployment that composes no answerer keeps a safe but manual plan mode (`ask` → `unavailable` → deny), and the mode section tells the model to present its plan through `exit_plan_mode` — and to ask the user if that is denied — so it never thrashes against the gate. Branch-heavy policy code under the per-file 100% coverage gate is real work, accepted as the ACP bridge did.
