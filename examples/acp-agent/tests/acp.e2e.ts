@@ -92,6 +92,46 @@ function spawnAcpAgent(cwd: string, env: NodeJS.ProcessEnv = process.env): Spawn
 let spawned: Spawned | undefined
 let workdir: string | undefined
 
+function hasStdoutLine(out: string[]): boolean {
+  return out.join('').split('\n').some(line => line.trim().length > 0)
+}
+
+async function waitForStdoutLine(child: ChildProcessWithoutNullStreams, out: string[], stderr: string[], timeoutMs: number): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeout)
+      child.stdout.off('data', onData)
+      child.off('exit', onExit)
+      child.off('error', onError)
+    }
+    const pass = () => {
+      cleanup()
+      resolve()
+    }
+    const fail = (reason: string) => {
+      cleanup()
+      reject(new Error(`${reason}; stderr: ${stderr.join('')}`))
+    }
+    const onData = () => {
+      if (hasStdoutLine(out)) pass()
+    }
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      fail(`ACP child exited before emitting a stdout frame (code ${code ?? 'null'}, signal ${signal ?? 'null'})`)
+    }
+    const onError = (error: Error) => {
+      fail(`ACP child failed before emitting a stdout frame: ${error.message}`)
+    }
+    const timeout = setTimeout(() => {
+      fail(`ACP child did not emit a stdout frame within ${timeoutMs}ms`)
+    }, timeoutMs)
+
+    child.stdout.on('data', onData)
+    child.on('exit', onExit)
+    child.on('error', onError)
+    onData()
+  })
+}
+
 afterEach(async () => {
   if (spawned) {
     spawned.child.kill('SIGKILL')
@@ -114,16 +154,21 @@ describe('acp-agent over real stdio (no key required)', () => {
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     const out: string[] = []
+    const stderr: string[] = []
     child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
     child.stdout.on('data', (c: string) => out.push(c))
+    child.stderr.on('data', (c: string) => stderr.push(c))
 
     // Send a single initialize request as a newline-delimited JSON-RPC frame.
     const req = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} } })
     child.stdin.write(req + '\n')
 
-    // Give it a moment to boot + reply, then inspect stdout.
-    await new Promise(r => setTimeout(r, 4000))
-    child.kill('SIGKILL')
+    try {
+      await waitForStdoutLine(child, out, stderr, 15_000)
+    } finally {
+      child.kill('SIGKILL')
+    }
 
     const lines = out.join('').split('\n').filter(l => l.trim().length > 0)
     expect(lines.length).toBeGreaterThan(0)

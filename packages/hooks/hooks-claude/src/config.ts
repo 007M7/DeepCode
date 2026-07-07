@@ -43,7 +43,12 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
-/** Apply `${CLAUDE_PLUGIN_ROOT}` / `${CLAUDE_PROJECT_DIR}` substitution to a command string. */
+/**
+ * Apply `${CLAUDE_PLUGIN_ROOT}` / `${CLAUDE_PROJECT_DIR}` substitution to a command string.
+ * @param command - the raw command from config.
+ * @param vars - the substitution values; a token whose variable is unset stays verbatim.
+ * @returns the command with every occurrence of each set token replaced.
+ */
 export function substituteCommand(command: string, vars: SubstitutionVars): string {
   let out = command
   if (vars.pluginRoot !== undefined) out = out.split('${CLAUDE_PLUGIN_ROOT}').join(vars.pluginRoot)
@@ -57,6 +62,9 @@ export function substituteCommand(command: string, vars: SubstitutionVars): stri
  * Non-command hooks and malformed entries are dropped (recorded in `skipped` /
  * silently ignored) rather than throwing — a bad hook config must not crash boot.
  * `vars` are substituted into every surviving `command`.
+ * @param raw - the parsed JSON config: a settings object with a `hooks` key, or the bare event map.
+ * @param vars - substitution values applied to every surviving `command` (defaults to none).
+ * @returns the runnable per-event groups plus the skipped non-command hooks.
  */
 export function parseClaudeConfig(raw: unknown, vars: SubstitutionVars = {}): ParsedClaudeConfig {
   const config: ClaudeHookConfig = {}

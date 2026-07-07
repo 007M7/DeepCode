@@ -17,7 +17,11 @@ import type { Branded } from '@deepseek-ai/dsh-brand'
  */
 export type CallId = Branded<'CallId'>
 
-/** Brand a string as a {@link CallId}. */
+/**
+ * Brand a string as a {@link CallId}.
+ * @param id - the provider-issued (or synthesized) call id.
+ * @returns the same string, branded; no validation is performed.
+ */
 export function CallId(id: string): CallId {
   return id as CallId
 }

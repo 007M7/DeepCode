@@ -26,6 +26,9 @@
  * variant was added without updating the switch (compile error at the call
  * site — the desired outcome) or a value escaped its type (runtime throw
  * with diagnostics — the safety net).
+ * @param value - the impossible value; typed `never` so an unhandled variant fails compilation at the call site.
+ * @param context - optional label (e.g. the switch site) prefixed into the throw message.
+ * @returns never — it always throws, with the offending value JSON-rendered in the message.
  */
 export function assertNever(value: never, context?: string): never {
   // JSON.stringify is typed string but returns undefined for undefined input;

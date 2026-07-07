@@ -9,15 +9,17 @@
  * opts out with an explicit ` ```ts ignore-check ` info string — the opt-out
  * is visible in the source, and this script reports the ratio so the escape
  * hatch can't quietly become the norm. A third info string,
- * doc-typecheck.ts recognizes three more fence variants and skips all three (each
+ * doc-typecheck.ts recognizes four more fence variants and skips all four (each
  * is a separately-checked category, not an unchecked sketch, so none counts in
  * the opt-out ratio): ` ```ts type-equiv ` is a verbatim source-type paste that
  * `scripts/verify-type-equiv.ts` drift-checks, ` ```ts cordis-catalog ` is a
  * generated event/service signature fragment in the cordis catalog (a bare
  * signature is not standalone-compilable; the catalog is generated and frozen by
- * `scripts/gen-cordis-catalog.ts` + its `--check` freshness gate), and
+ * `scripts/gen-cordis-catalog.ts` + its `--check` freshness gate),
  * ` ```ts persistence-catalog ` is a generated log-event payload fragment in the
- * persistence catalog (same reasoning, frozen by `scripts/gen-persistence-catalog.ts`).
+ * persistence catalog (same reasoning, frozen by `scripts/gen-persistence-catalog.ts`),
+ * and ` ```ts config-catalog ` is a generated verbatim config declaration in the
+ * plugin config catalog (same reasoning, frozen by `scripts/gen-config-catalog.ts`).
  *
  * Run: `tsx scripts/doc-typecheck.ts`.
  */
@@ -49,8 +51,12 @@ const root = resolve(import.meta.dirname, '..')
  *   log-event payload fragment in the persistence catalog. Same treatment for
  *   the same reason; frozen by `scripts/gen-persistence-catalog.ts` + its
  *   `--check` freshness gate.
+ * - `config-catalog` (` ```ts config-catalog `) — a generated verbatim config
+ *   declaration in the plugin config catalog (a lone declaration referencing
+ *   imported types does not stand alone). Same treatment for the same reason;
+ *   frozen by `scripts/gen-config-catalog.ts` + its `--check` freshness gate.
  */
-type BlockKind = 'check' | 'ignore' | 'type-equiv' | 'cordis-catalog' | 'persistence-catalog'
+type BlockKind = 'check' | 'ignore' | 'type-equiv' | 'cordis-catalog' | 'persistence-catalog' | 'config-catalog'
 
 /** One extracted code block. */
 interface Block {
@@ -62,7 +68,7 @@ interface Block {
 }
 
 /** Extract every ts / ts ignore-check / ts type-equiv / ts cordis-catalog /
- * ts persistence-catalog block from one Markdown file. */
+ * ts persistence-catalog / ts config-catalog block from one Markdown file. */
 function extractBlocks(absPath: string): Block[] {
   const text = readFileSync(absPath, 'utf8')
   const lines = text.split('\n')
@@ -90,7 +96,8 @@ function extractBlocks(absPath: string): Block[] {
           : info === 'ts type-equiv' ? 'type-equiv'
             : info === 'ts cordis-catalog' ? 'cordis-catalog'
               : info === 'ts persistence-catalog' ? 'persistence-catalog'
-                : null
+                : info === 'ts config-catalog' ? 'config-catalog'
+                  : null
     if (kind) open = { line: i + 1, kind, body: [] }
   })
   return blocks
