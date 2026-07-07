@@ -2,11 +2,11 @@
 
 [English](development.md) | 中文
 
-本指南覆盖参与 DeepSeek Harness 开发所需的本地环境搭建，并帮助你理解本地钩子、日常检查与 CI 门禁。
+本文面向参与项目开发的贡献者，帮助你上手本地环境、日常工作流和 CI 流程。相关设计考量和技术取舍参见 RFC，不在这里展开。
 
 ## 前置条件
 
-- Node.js `^22.19.0 || >=24.0.0`（即 LTS 线的 22.19+，或 24+）。LTS floor 匹配 `@earendil-works/pi-ai` 的 Node 22.19 依赖 floor。排除 Node 23 线：那里 `node:sqlite`（要到 23.4）和原生 TS 类型剥离（要到 23.6）仍需 flag，且 23 是非 LTS、已 EOL。CI 在 Node 22.19、24 和 26 上跑兼容性矩阵。
+- Node.js 支持 22.19+ 和 24+。CI 覆盖 22.19、24、26；见 [Node engine floor RFC](rfc/implemented/process/2026-07-06-node-engine-floor.md)。
 - 启用了 Corepack 的 pnpm。仓库在 `package.json` 中钉住 `pnpm@11.7.0`；如果 `pnpm --version` 无法通过 Corepack 解析，先运行 `corepack enable`。
 - Git。
 - 可选：一个 DeepSeek API key，用于 REPL/ACP agent（智能体）演示和真实 API 的 e2e 测试。
