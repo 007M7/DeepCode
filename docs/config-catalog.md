@@ -329,7 +329,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/support/llm-replay/src/index.ts:411`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:415`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 
