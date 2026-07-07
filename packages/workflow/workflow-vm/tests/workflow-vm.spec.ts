@@ -413,16 +413,7 @@ describe('dsh-workflow-vm', () => {
     })
   })
 
-  describe('determinism bans and the value boundary', () => {
-    it('Date.now, Math.random, and argless new Date throw; parameterized Date stays usable', async () => {
-      const { ctx, parent } = await setup()
-      expect((await run(ctx, parent, script('return Date.now()'))).error).toContain('Date.now() is not available')
-      expect((await run(ctx, parent, script('return Math.random()'))).error).toContain('Math.random() is not available')
-      expect((await run(ctx, parent, script('return new Date().toISOString()'))).error).toContain('argless new Date()')
-      const ok = await run(ctx, parent, script('return new Date(0).getTime()'))
-      expect(ok.value).toBe(0)
-    })
-
+  describe('the value boundary', () => {
     it('args are cloned at start: a script scribbling on them cannot mutate the caller\'s object', async () => {
       const { ctx, parent } = await setup()
       const hostArgs = { files: ['a.ts'], nested: { deep: [1, 2] } }

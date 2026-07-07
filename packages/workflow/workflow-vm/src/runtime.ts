@@ -75,25 +75,6 @@ const SUPPORTED_AGENT_OPTIONS = new Set(['label', 'phase', 'schema', 'model'])
 /** Deferred Claude Code options we name explicitly in the rejection message. */
 const DEFERRED_AGENT_OPTIONS = new Set(['effort', 'isolation', 'agentType'])
 
-/** The in-context prelude that bans the nondeterminism sources (kept even though resume is deferred, so scripts stay resume-compatible). */
-const DETERMINISM_PRELUDE = `
-{
-  const banned = (name) => () => {
-    throw new Error(name + ' is not available in workflow scripts (runs must stay deterministic for future resume support; pass timestamps in via args)')
-  }
-  Math.random = banned('Math.random()')
-  Date.now = banned('Date.now()')
-  const RealDate = Date
-  globalThis.Date = new Proxy(RealDate, {
-    construct(target, args, newTarget) {
-      if (args.length === 0) banned('argless new Date()')()
-      return Reflect.construct(target, args, newTarget)
-    },
-    apply: banned('Date()'),
-  })
-}
-`
-
 /** Flatten a child's final output blocks to text (the non-schema `agent()` result). */
 function outputText(blocks: ContentBlock[]): string {
   return blocks
@@ -167,7 +148,6 @@ export class WorkflowExecution {
     }
 
     this.context = vm.createContext({}, { name: `workflow:${meta.name}` })
-    vm.runInContext(DETERMINISM_PRELUDE, this.context)
     // A run that settles without ever being abandoned leaves `abandoned`
     // permanently pending or rejecting into the void — consume it so a late
     // grace timer cannot surface an unhandled rejection.

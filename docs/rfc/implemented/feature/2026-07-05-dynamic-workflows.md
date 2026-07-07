@@ -12,7 +12,7 @@ A workflow capability family at `packages/workflow/` in the bash seam shape (int
 
 ### The script contract (Claude Code-compatible)
 
-A script is `export const meta = {...}` (a PURE object literal: `name`, `description`, optional `whenToUse`/`phases`) followed by a plain-JS body with top-level `await`, ending in `return <json-value>`. The body sees exactly: `agent(prompt, {label, phase, schema, model})`, `parallel(thunks)`, `pipeline(items, ...stages)` (NO cross-stage barrier; `(prev, item, index)` callbacks), `phase(title)`, `log(message)`, and `args`. CC semantics are preserved where they matter to script authors: a failed child resolves `null` (scripts `.filter(Boolean)`); an ordinary stage throw nulls the ITEM and skips its remaining stages; `Date.now()`/`Math.random()`/argless `new Date()` throw (kept banned so future resume support cannot break script compatibility).
+A script is `export const meta = {...}` (a PURE object literal: `name`, `description`, optional `whenToUse`/`phases`) followed by a plain-JS body with top-level `await`, ending in `return <json-value>`. The body sees exactly: `agent(prompt, {label, phase, schema, model})`, `parallel(thunks)`, `pipeline(items, ...stages)` (NO cross-stage barrier; `(prev, item, index)` callbacks), `phase(title)`, `log(message)`, and `args`. CC semantics are preserved where they matter to script authors: a failed child resolves `null` (scripts `.filter(Boolean)`); an ordinary stage throw nulls the ITEM and skips its remaining stages. CC's determinism bans (`Date.now()`/`Math.random()`/argless `new Date()` throwing) are NOT enforced — they exist for CC's journaling/resume, which this cut defers — so a CC-authored script runs unchanged while scripts written here may freely read the clock.
 
 One deliberate strictness DIVERGENCE from CC: hook misuse — unknown or deferred options (`effort`/`isolation`/`agentType`), malformed arguments, schemas outside the supported subset, tripped caps, seam start failures — throws a `WorkflowError` with `fatal: true`, and the combinators RE-THROW fatal errors instead of nulling the item. Without this, a typo'd option dissolves into a `null` indistinguishable from a child failure — the accepted-then-ignored failure mode this repo bans. One addition: the tool's `args` parameter is a JSON OBJECT (a bare list is wrapped as a field) so the wire schema stays honest.
 
@@ -41,7 +41,7 @@ A `workflow` tool mirroring `dsh-tool-subagent`'s synchronous shape: start, awai
 ## Deferred (documented non-goals of this cut)
 
 - **Background collection** (start tool → run id → completion notice → collect), designed alongside bash/subagent background unification.
-- **Journaling + resume** (`resumeFromRunId`, cached agent() prefixes) — the determinism bans already keep scripts resume-compatible.
+- **Journaling + resume** (`resumeFromRunId`, cached agent() prefixes) — implementing it reintroduces CC's determinism bans as a script-contract tightening (scripts may read the clock today).
 - **Saved/bundled workflows** (a `.deepseek/workflows/` registry, slash-command surface) and **script persistence to a run directory** (the tool-call event already records the script durably).
 - **Nested `workflow()`**, **token `budget`**, and the `effort`/`isolation`/`agentType` agent options (each rejects loud with a message naming it deferred).
 - **An overall run wall-clock timeout** — cancellation always frees the caller (result settles within the grace), so a cap on total run time is a policy knob for the background redesign, not a correctness need here.

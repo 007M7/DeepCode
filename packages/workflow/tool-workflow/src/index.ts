@@ -51,8 +51,8 @@ export const Config: z<Config> = z.object({
 
 /**
  * The script-authoring contract, embedded in the tool description. This IS the
- * model-facing spec: the meta block, the hooks and their exact semantics, the
- * determinism bans, and the supported schema subset.
+ * model-facing spec: the meta block, the hooks and their exact semantics, and
+ * the supported schema subset.
  */
 const DESCRIPTION = `Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn.
 
@@ -66,7 +66,7 @@ Script-body hooks:
 
 Misused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) throw errors that ALWAYS kill the script — they never dissolve into a per-item \`null\`.
 
-Constraints: concurrency and total-agent caps apply; \`Date.now()\`, \`Math.random()\`, and argless \`new Date()\` throw (pass timestamps via \`args\`); no filesystem, network, timers, or Node.js APIs are provided — the agents do the work, the script only coordinates them. The run executes in the foreground: this call returns when the whole script finishes.`
+Constraints: concurrency and total-agent caps apply; no filesystem, network, timers, or Node.js APIs are provided — the agents do the work, the script only coordinates them. The run executes in the foreground: this call returns when the whole script finishes.`
 
 type WorkflowCallArgs = { script: string; args?: Record<string, unknown> }
 
