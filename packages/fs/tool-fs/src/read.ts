@@ -58,7 +58,12 @@ function parsePositiveInteger(value: number, name: string): number {
   return value
 }
 
-/** Validate value constraints the schema DSL can't express. `maxLimit` is the deployment's line cap. */
+/**
+ * Validate value constraints the schema DSL can't express. `maxLimit` is the deployment's line cap.
+ * @param args - the schema-validated raw tool arguments; `offset`/`limit` must be positive integers when given.
+ * @param maxLimit - the configured line cap: both the default `limit` and the largest one accepted.
+ * @returns the validated input with `offset` defaulted to 1 and `limit` to `maxLimit`.
+ */
 export function parseReadArgs(args: { file_path: string; offset?: number; limit?: number }, maxLimit: number): ReadInput {
   if (args.file_path.trim().length === 0) throw new Error('file_path must be a non-empty string')
   const offset = args.offset === undefined ? 1 : parsePositiveInteger(args.offset, 'offset')
@@ -67,7 +72,11 @@ export function parseReadArgs(args: { file_path: string; offset?: number; limit?
   return { filePath: args.file_path, offset, limit }
 }
 
-/** Register the `read` tool and its system-prompt guidance. */
+/**
+ * Register the `read` tool and its system-prompt guidance.
+ * @param ctx - the plugin context; registrations are effects scoped to it, and execution uses its `fs` service.
+ * @param caps - the deployment's resolved read caps (plugin config after defaulting).
+ */
 export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
   ctx.systemPrompt.section({
     name: 'tool:read',

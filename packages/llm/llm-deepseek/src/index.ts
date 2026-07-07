@@ -34,6 +34,12 @@ export type * from './types.ts'
 export const name = 'llm-deepseek'
 export const inject = ['llm']
 
+/**
+ * Plugin config, validated by the same-named schemastery schema. Every field
+ * is optional in yml: credentials/endpoint fall back to the environment (a
+ * missing API key fails plugin load, not the first call), and omitted
+ * thinking fields send nothing on the wire, so the provider default applies.
+ */
 export interface Config {
   /** API key; falls back to $DEEPSEEK_API_KEY. Required one way or the other. */
   apiKey?: string

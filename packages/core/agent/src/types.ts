@@ -51,7 +51,11 @@ import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 /** Identifies one live agent in the registry. */
 export type AgentId = Branded<'AgentId'>
 
-/** Brand a string as an {@link AgentId}. */
+/**
+ * Brand a string as an {@link AgentId}.
+ * @param id - the raw agent id string.
+ * @returns the same string, branded (a compile-time cast — no runtime cost).
+ */
 export function AgentId(id: string): AgentId {
   return id as AgentId
 }
@@ -81,10 +85,22 @@ export interface AgentOptions {
   model?: string
 }
 
+/**
+ * Options for {@link Agent.send}/{@link Agent.steer}/{@link Agent.inject}. An
+ * absent `source` resolves to `{ kind: 'user' }`, so a plugin supplying content
+ * must label itself here or its message is recorded as a user prompt (see
+ * {@link HookContext} on why that label is load-bearing).
+ */
 export interface SendOptions {
   source?: MessageSource
 }
 
+/**
+ * An agent's lifecycle state, emitted on every transition as `agent/status`:
+ * `idle` (parked, waiting for queued work), `running` (a turn is in progress),
+ * `disposed` (terminal — no transition leaves it, and `send`/`steer`/`inject`
+ * throw).
+ */
 export type AgentStatus = 'idle' | 'running' | 'disposed'
 
 /**

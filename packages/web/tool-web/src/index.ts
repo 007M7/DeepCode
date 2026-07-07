@@ -33,6 +33,7 @@ export const name = 'tool-web'
 /** Services required by the web tool suite. */
 export const inject = ['tools', 'web', 'systemPrompt']
 
+/** Plugin config: which web tools to register, and the `web_search` source cap. */
 export interface Config {
   /** Register `web_search`. Defaults to true. */
   search?: boolean

@@ -23,7 +23,7 @@ An agent was registered in the AgentRegistry and is ready to receive messages.
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:292`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:308`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -35,7 +35,7 @@ An agent was disposed and removed from the registry; its fiber and any in-flight
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:299`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:315`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -47,7 +47,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:490`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:506`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -61,7 +61,7 @@ Serial (awaited in registration order), not a waterfall: a listener mutates the 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:377`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:393`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -73,7 +73,7 @@ Waterfall: decide what happens to ONE drained queued message before it becomes a
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:390`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:406`](../../packages/core/agent/src/types.ts)
 
 ### `agent/queued` — emit
 
@@ -85,7 +85,7 @@ A message entered the agent's inbox (queued or steering). `source` is the resolv
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:317`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:333`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -97,7 +97,7 @@ Waterfall: shape the step's call configuration — model switching, sampling ove
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:414`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:430`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request-messages` — waterfall
 
@@ -113,7 +113,7 @@ Pick the channel by change frequency (the cost model): a contribution rides the 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:455`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:471`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -125,7 +125,7 @@ The agent's session lifecycle began, fired once before its first turn. `source` 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:332`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:348`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -137,7 +137,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive lifecycle 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:308`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:324`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step-result` — waterfall
 
@@ -149,7 +149,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:465`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:481`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -161,7 +161,7 @@ Waterfall: override the turn-continuation decision via a typed ContinuationDecis
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:478`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:494`](../../packages/core/agent/src/types.ts)
 
 ## `fs/*`
 

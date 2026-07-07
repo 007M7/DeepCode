@@ -55,6 +55,8 @@ function parseArguments(raw: string): Record<string, unknown> {
  * NAME (pi-ai's `toolName`), which the harness doesn't carry on the result
  * block — it is recovered from the preceding assistant tool-call with the
  * same id.
+ * @param options - the harness request; `options.system` maps to pi-ai's single `systemPrompt` slot.
+ * @returns the pi-ai context; `tools` is omitted entirely when the request declares none.
  */
 export function toPiContext(options: GenerateOptions): PiContext {
   const toolNames = new Map<CallId, string>()
@@ -159,7 +161,11 @@ function emptyPiUsage(): PiUsage {
   }
 }
 
-/** Map pi-ai usage (reasoning folded into output by pi-ai). */
+/**
+ * Map pi-ai usage (reasoning folded into output by pi-ai).
+ * @param usage - cumulative usage from the terminal pi-ai event.
+ * @returns harness counts; cache fields appear only when non-zero (pi-ai reports zeros, not absence).
+ */
 export function mapUsage(usage: PiUsage): TokenUsage {
   return {
     inputTokens: usage.input,
@@ -177,7 +183,11 @@ function classifyPiAiError(message: string): string {
   return 'PI_AI_ERROR'
 }
 
-/** Map a terminal pi-ai event to the harness finish reason. */
+/**
+ * Map a terminal pi-ai event to the harness finish reason.
+ * @param message - the assistant message carried by the `done` or `error` event.
+ * @returns the harness reason; `error` yields `{kind: 'error'}` with a code classified from the error text.
+ */
 export function mapStopReason(message: AssistantMessage): FinishReason {
   switch (message.stopReason) {
     case 'stop': return { kind: 'stop' }
@@ -195,6 +205,9 @@ export function mapStopReason(message: AssistantMessage): FinishReason {
  * Translate the pi-ai event stream into StreamChunks. pi-ai never throws
  * mid-stream — failures arrive as `error` events, which become error/aborted
  * `finish` chunks (the harness protocol's other error-delivery style).
+ * @param events - one assistant turn's pi-ai event stream.
+ * @returns the harness chunks, ending with `usage` then `finish`; throws
+ *   `LlmError` (`STREAM_CLOSED`) if the source ends without a terminal event.
  */
 export async function* toStreamChunks(events: AsyncIterable<AssistantMessageEvent>): AsyncGenerator<StreamChunk> {
   // pi-ai contentIndex ↔ our block index map 1:1 (both count blocks from 0

@@ -70,7 +70,9 @@ export interface ContentBlockMap {
   'tool-result': ToolResultBlock
 }
 
+/** The block `type` tag vocabulary; widens as plugins merge new shapes into {@link ContentBlockMap}. */
 export type ContentBlockType = keyof ContentBlockMap
+/** Any known content block, derived from {@link ContentBlockMap}; switch on `type` and fall through unknowns (merge-extensible). */
 export type ContentBlock = ContentBlockMap[ContentBlockType]
 
 /** A single message in a conversation history. */
@@ -88,6 +90,7 @@ export interface MessageSourceMap {
   plugin: { kind: 'plugin'; plugin: string }
 }
 
+/** Any known message source, derived from {@link MessageSourceMap}; switch on `kind` and fall through unknowns (merge-extensible). */
 export type MessageSource = MessageSourceMap[keyof MessageSourceMap]
 
 /**
@@ -102,6 +105,7 @@ export interface FinishReasonMap {
   'error': { kind: 'error'; message: string; code?: string }
 }
 
+/** Any known finish reason, derived from {@link FinishReasonMap}; switch on `kind` and fall through unknowns (merge-extensible). */
 export type FinishReason = FinishReasonMap[keyof FinishReasonMap]
 
 /**

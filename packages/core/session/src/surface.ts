@@ -29,6 +29,8 @@ const SURFACE_EVENT_TYPES = new Set<string>([
  * surface-eligible event that is MISSING its mandatory marker (e.g. validating
  * a seed/load log); use {@link isSurfaceEvent} to narrow to a fully-formed
  * {@link SurfaceEvent} with `surfaceOp` present.
+ * @param type - the event type string to test.
+ * @returns true when the type is one of the five message-producing types.
  */
 export function isSurfaceEligibleType(type: string): boolean {
   return SURFACE_EVENT_TYPES.has(type)
@@ -38,6 +40,8 @@ export function isSurfaceEligibleType(type: string): boolean {
  * Narrow a {@link SessionEvent} to {@link SurfaceEvent}: checks that the
  * event's `type` is surface-eligible AND that `surfaceOp` is present.
  * The narrowed type has mandatory {@link SurfaceOp}.
+ * @param event - the event to narrow.
+ * @returns true when the event is surface-eligible and carries its `surfaceOp` marker.
  */
 export function isSurfaceEvent(event: SessionEvent): event is SurfaceEvent {
   if (!SURFACE_EVENT_TYPES.has(event.type)) return false

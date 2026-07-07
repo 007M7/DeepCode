@@ -76,6 +76,9 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
  * is the merged layout carrying every column; bumping past the collided v3
  * makes the version check reject both sibling v3 databases instead of opening
  * one against columns it does not have.
+ * @param path - the SQLite database file to open (created when absent).
+ * @param journalMode - the journal pragma to apply — a closed in-code union, validated by the plugin Config.
+ * @returns the open handle with pragmas applied and both tables ensured.
  */
 export function openDatabase(path: string, journalMode: JournalMode): DatabaseSync {
   const db = new DatabaseSync(path)
@@ -120,7 +123,11 @@ export function openDatabase(path: string, journalMode: JournalMode): DatabaseSy
   return db
 }
 
-/** Reconstruct the {@link SessionHeader} from a `sessions` row. */
+/**
+ * Reconstruct the {@link SessionHeader} from a `sessions` row.
+ * @param row - the `sessions` table row.
+ * @returns the header, `NULL` columns mapped to omitted optional fields.
+ */
 export function rowToMeta(row: SessionRow): SessionHeader {
   return {
     version: row.version,
@@ -132,7 +139,12 @@ export function rowToMeta(row: SessionRow): SessionHeader {
   }
 }
 
-/** Reconstruct a {@link SessionEvent} from an `events` row (parses `data`). */
+/**
+ * Reconstruct a {@link SessionEvent} from an `events` row (parses `data`).
+ * @param row - the `events` table row; `data` and the surface columns hold JSON text.
+ * @returns the reconstructed event; throws when a JSON column fails to parse
+ *   ({@link scanRows} treats that as a hole, not corruption, in the tail).
+ */
 export function rowToEvent(row: EventRow): SessionEvent {
   // Surface-metadata fields are conditional on the event type in the type
   // system; spread them so each variant gets only the fields it declares.
@@ -172,6 +184,9 @@ export function rowToEvent(row: EventRow): SessionEvent {
  * This relies on the session-log invariant that every event lives inside a turn
  * (`Session.append` enforces it): only the final turn can be open, so the
  * preserved tail is at most one unclosed turn.
+ * @param rows - one session's event rows, ordered by seq ascending.
+ * @returns the preserved event prefix, plus `tornFrom` — the seq the physical
+ *   delete starts at — when a torn tail exists.
  */
 export function scanRows(rows: readonly EventRow[]): { preserved: SessionEvent[]; tornFrom?: number } {
   // Pass 1: parse each row's data; a row whose data is not valid JSON is a hole.

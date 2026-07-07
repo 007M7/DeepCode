@@ -7,18 +7,18 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 
 | Event | Mode | Declared in | Dispatchers | Listeners |
 | --- | --- | --- | --- | --- |
-| `agent/created` | `emit` | [`packages/core/agent/src/types.ts:292`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`emit`) | [`stdio-agent`](../packages/ui/stdio-agent) |
-| `agent/disposed` | `emit` | [`packages/core/agent/src/types.ts:299`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`emit`) | [`stdio-agent`](../packages/ui/stdio-agent) |
-| `agent/error` | `emit` | [`packages/core/agent/src/types.ts:490`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | - |
-| `agent/pre-step` | `serial` | [`packages/core/agent/src/types.ts:377`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`serial`) | [`compact-basic`](../packages/compact/compact-basic) |
-| `agent/prompt-submit` | `waterfall` | [`packages/core/agent/src/types.ts:390`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
-| `agent/queued` | `emit` | [`packages/core/agent/src/types.ts:317`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | - |
-| `agent/request` | `waterfall` | [`packages/core/agent/src/types.ts:414`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | - |
-| `agent/request-messages` | `waterfall` | [`packages/core/agent/src/types.ts:455`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | - |
-| `agent/session-start` | `emit` | [`packages/core/agent/src/types.ts:332`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
-| `agent/status` | `emit` | [`packages/core/agent/src/types.ts:308`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`acp`](../packages/ui/acp), [`invariants`](../packages/support/invariants), [`stdio-agent`](../packages/ui/stdio-agent) |
-| `agent/step-result` | `waterfall` | [`packages/core/agent/src/types.ts:465`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | - |
-| `agent/turn-continuation` | `waterfall` | [`packages/core/agent/src/types.ts:478`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
+| `agent/created` | `emit` | [`packages/core/agent/src/types.ts:308`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`emit`) | [`stdio-agent`](../packages/ui/stdio-agent) |
+| `agent/disposed` | `emit` | [`packages/core/agent/src/types.ts:315`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`emit`) | [`stdio-agent`](../packages/ui/stdio-agent) |
+| `agent/error` | `emit` | [`packages/core/agent/src/types.ts:506`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | - |
+| `agent/pre-step` | `serial` | [`packages/core/agent/src/types.ts:393`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`serial`) | [`compact-basic`](../packages/compact/compact-basic) |
+| `agent/prompt-submit` | `waterfall` | [`packages/core/agent/src/types.ts:406`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
+| `agent/queued` | `emit` | [`packages/core/agent/src/types.ts:333`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | - |
+| `agent/request` | `waterfall` | [`packages/core/agent/src/types.ts:430`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | - |
+| `agent/request-messages` | `waterfall` | [`packages/core/agent/src/types.ts:471`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | - |
+| `agent/session-start` | `emit` | [`packages/core/agent/src/types.ts:348`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
+| `agent/status` | `emit` | [`packages/core/agent/src/types.ts:324`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`acp`](../packages/ui/acp), [`invariants`](../packages/support/invariants), [`stdio-agent`](../packages/ui/stdio-agent) |
+| `agent/step-result` | `waterfall` | [`packages/core/agent/src/types.ts:481`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | - |
+| `agent/turn-continuation` | `waterfall` | [`packages/core/agent/src/types.ts:494`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
 | `fs/edit-intent` | `waterfall` | [`packages/fs/fs/src/index.ts:123`](../packages/fs/fs/src/index.ts) | [`tool-fs`](../packages/fs/tool-fs) (`waterfall`) | [`fs-policy`](../packages/fs/fs-policy) |
 | `fs/observed` | `emit` | [`packages/fs/fs/src/index.ts:138`](../packages/fs/fs/src/index.ts) | [`tool-fs`](../packages/fs/tool-fs) (`emit`) | [`fs-policy`](../packages/fs/fs-policy) |
 | `fs/write-intent` | `waterfall` | [`packages/fs/fs/src/index.ts:109`](../packages/fs/fs/src/index.ts) | [`tool-fs`](../packages/fs/tool-fs) (`waterfall`) | [`fs-policy`](../packages/fs/fs-policy) |

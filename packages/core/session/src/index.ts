@@ -153,10 +153,15 @@ export class Session {
     this.header = header ?? { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now() }
   }
 
+  /**
+   * The append-only event log, exposed live by reference (readonly-typed, not
+   * a snapshot): later appends are visible through the same array.
+   */
   get events(): readonly SessionEvent[] {
     return this.log
   }
 
+  /** The next event's sequence number — always the log length (the `seq = log.length` contiguity contract). */
   get seq(): number {
     return this.log.length
   }
@@ -175,6 +180,9 @@ export class Session {
    *   declare how it joins the surface, the sole source of derived history) and
    *   rejected by the compiler for non-surface types like `turn/start` or
    *   `assistant/chunk`.
+   * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of
+   *   `data` that entered the log, so reading `event.data` back sees the logged
+   *   value, never the caller's still-mutable input.
    * @throws if `data` is not losslessly JSON-serializable (BigInt, function,
    *   symbol, undefined, non-finite number, circular ref, or an exotic object
    *   like Map/Set/Date). The event log is the durable source of truth, so this
@@ -365,6 +373,14 @@ export class Session {
 /** A fork source: either the live session object or its live store id. */
 export type SessionForkSource = Session | SessionId
 
+/**
+ * Rejection codes for session forking: the fork source id is unknown to the
+ * live store (`SESSION_NOT_FOUND`) or names a session object that is not the
+ * store's live instance (`SESSION_NOT_LIVE`); the requested child id is
+ * already taken (`SESSION_ALREADY_EXISTS`); the boundary is not a contiguous
+ * existing seq (`INVALID_BOUNDARY`); or the boundary event is not a
+ * `turn/end` — a fork must cut on a closed turn (`OPEN_TURN`).
+ */
 export type SessionForkErrorCode =
   | 'SESSION_NOT_FOUND'
   | 'SESSION_NOT_LIVE'
