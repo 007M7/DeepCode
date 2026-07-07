@@ -73,11 +73,13 @@ type Mode = 'emit' | 'waterfall' | 'parallel' | 'serial'
  * that manifest documents the `…Map` symbols (`ContentBlockMap`) while
  * signatures reference the derived UNION names (`ContentBlock`), and it lists a
  * few symbols on two pages. Here each name resolves to exactly one PRIMARY page.
+ * Shared with `gen-config-catalog.ts` (each caller prefixes its own relative
+ * path to `core-data-structures/`), so both catalogs cross-link identically.
  * TODO(catalog-type-links): add a verifier or generator for link-map coverage
  * so new hook-era decision types like `PromptDecision` / `PreToolDecision` do
  * not silently appear in signatures without a "Types:" link.
  */
-const LINK_MAP: Record<string, string> = {
+export const LINK_MAP: Record<string, string> = {
   Agent: 'core.md',
   ContentBlock: 'core.md',
   Message: 'core.md',
@@ -146,14 +148,16 @@ interface InheritedEntry {
   source: string
 }
 
-/** Repo-relative source pointer `file:line` for a node's first character. */
-function pointer(rel: string, sf: ts.SourceFile, node: ts.Node): string {
+/** Repo-relative source pointer `file:line` for a node's first character.
+ * Shared with `gen-config-catalog.ts`. */
+export function pointer(rel: string, sf: ts.SourceFile, node: ts.Node): string {
   const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
   return `${rel}:${line + 1}`
 }
 
-/** The raw `/** … *​/` JSDoc block immediately preceding a node, or '' if none. */
-function rawJsDoc(text: string, node: ts.Node): string {
+/** The raw `/** … *​/` JSDoc block immediately preceding a node, or '' if none.
+ * Shared with `gen-config-catalog.ts`. */
+export function rawJsDoc(text: string, node: ts.Node): string {
   const ranges = ts.getLeadingCommentRanges(text, node.getFullStart()) ?? []
   const jsdoc = ranges.filter(r => text.slice(r.pos, r.pos + 3) === '/**').at(-1)
   return jsdoc ? text.slice(jsdoc.pos, jsdoc.end) : ''
@@ -167,9 +171,10 @@ function rawJsDoc(text: string, node: ts.Node): string {
  * (continuation lines folded in). `{@link Foo}` unwraps to `Foo`. Description
  * prose ends at the FIRST block tag (standard JSDoc semantics): tag lines and
  * their continuation lines are never prose, so `@param`/`@returns` blocks are
- * invisible to the rendered catalog.
+ * invisible to the rendered catalog. Shared with `gen-config-catalog.ts`
+ * (which uses only the prose-presence half).
  */
-function parseJsDoc(raw: string): { doc: string; mode: Mode | null } {
+export function parseJsDoc(raw: string): { doc: string; mode: Mode | null } {
   const inner = raw
     .replace(/^\/\*\*/, '')
     .replace(/\*\/$/, '')
