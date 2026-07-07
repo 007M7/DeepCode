@@ -10,7 +10,7 @@ The run mechanics live in the shared [`@deepseek-ai/dsh-subagent-inprocess`](../
 
 ## Capabilities
 
-`{ outputSchema: true, depthLimit: true, toolFilter: false }`. It constructs the child, so it enforces a recursion cap, and it supports structured output via the driver's shared [structured runtime](../subagent-inprocess/README.md) (the backend acquires it for its plugin lifetime; each structured run holds its own acquisition until it settles). Tool-scoping is deferred (the service rejects a request needing it before `start` runs).
+`{ outputSchema: true, depthLimit: true, toolFilter: false }`. It constructs the child, so it enforces a recursion cap, and it supports structured output via the driver's [structured runtime](../subagent-inprocess/README.md) (acquired per structured run inside the driver — this backend registers nothing at apply). Tool-scoping is deferred (the service rejects a request needing it before `start` runs).
 
 ## Config
 

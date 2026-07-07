@@ -25,13 +25,13 @@ import z from 'schemastery'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
-import { acquireStructuredRuntime, startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
+import { startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
 
 export const name = 'subagent-fork'
 // `tools` is deliberately NOT injected — same rationale as subagent-spawn: the
-// structured runtime gates its capture-tool registration on `tools` itself, so
-// this backend's apply timing (and the delegation tool's position in the
-// model-visible tool list) is unchanged by structured output.
+// per-run structured runtime gates its capture-tool registration on `tools`
+// itself, so this backend's apply timing (and the delegation tool's position
+// in the model-visible tool list) is unchanged by structured output.
 export const inject = ['subagents', 'agents']
 
 /** Config: the registry name to register the provider under. */
@@ -84,12 +84,5 @@ class ForkProvider implements SubagentProvider {
 }
 
 export function apply(ctx: Context, config: Config): void {
-  // Hold the structured runtime for the plugin's lifetime (see the spawn
-  // backend — same two-level lifetime: backends for availability, runs for
-  // mid-run survival across a backend unload).
-  ctx.effect(() => {
-    const acquisition = acquireStructuredRuntime(ctx)
-    return () => { acquisition.release() }
-  }, 'subagent-fork structured runtime')
   ctx.subagents.registerProvider(new ForkProvider(config.providerName, ctx))
 }

@@ -22,14 +22,14 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
-import { acquireStructuredRuntime, startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
+import { startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
 
 export const name = 'subagent-spawn'
-// `tools` is deliberately NOT injected: the structured runtime gates its own
-// capture-tool registration on `tools` availability internally, so this
-// backend's apply timing — and with it the provider-mirroring delegation
-// tool's position in the model-visible tool list — stays what it was before
-// structured output existed.
+// `tools` is deliberately NOT injected: the shared driver's structured runtime
+// (acquired per structured RUN, not at apply) gates its own capture-tool
+// registration on `tools` availability, so this backend's apply timing — and
+// with it the provider-mirroring delegation tool's position in the
+// model-visible tool list — stays what it was before structured output existed.
 export const inject = ['subagents', 'agents']
 
 /** Config: the registry name to register the provider under. */
@@ -64,13 +64,5 @@ class SpawnProvider implements SubagentProvider {
 }
 
 export function apply(ctx: Context, config: Config): void {
-  // Hold the structured runtime for the plugin's lifetime, so the capture tool
-  // and its request-shaping listeners are registered before the first
-  // structured run and torn down when the last backend unloads (live runs hold
-  // their own acquisitions, so an unload mid-run cannot strand a child).
-  ctx.effect(() => {
-    const acquisition = acquireStructuredRuntime(ctx)
-    return () => { acquisition.release() }
-  }, 'subagent-spawn structured runtime')
   ctx.subagents.registerProvider(new SpawnProvider(config.providerName, ctx))
 }
