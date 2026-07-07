@@ -91,4 +91,27 @@ describe('loop-level canonical tool order', () => {
     expect(adapter.requests[0]?.tools?.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'mike'])
     expect(Object.isFrozen(adapter.requests[0])).toBe(true)
   })
+
+  it('fails the turn — no model request — when toolOrder names an unregistered tool', async () => {
+    // The assemble rejection escapes to runTurn's outer catch: the open turn
+    // closes with an `error` reason (agent/error mirrors it), no step opens,
+    // no request/header is logged, the adapter never sees a request, and the
+    // agent returns to idle — a misconfigured deployment fails every turn
+    // deterministically instead of silently reordering nothing.
+    const adapter = new MockAdapter([textResponse('never sent')])
+    const ctx = await harness(adapter, ['ghost', TOOL_ORDER_REST])
+    registerNamed(ctx, 'alpha')
+    const errors: Error[] = []
+    ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }])
+    await waitForIdle(ctx, agent)
+    expect(adapter.requests).toHaveLength(0)
+    expect(errors.map(e => e.message)).toEqual(['toolOrder lists unregistered tool "ghost"; registered tools: alpha'])
+    expect(foldRequestHeader(agent.session.events)).toBeUndefined()
+    const end = agent.session.events.find(e => e.type === 'turn/end')
+    expect(end?.type === 'turn/end' && end.data.reason).toMatchObject({ kind: 'error', step: 1 })
+    // The turn is balanced (turn/start → turn/end) with no step events inside.
+    expect(agent.session.events.some(e => e.type === 'step/start')).toBe(false)
+  })
 })

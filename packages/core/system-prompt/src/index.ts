@@ -120,10 +120,13 @@ const GROUP_AT = /^\{\{([^{}]*)\}\}/
 export const TOOL_ORDER_REST = '<unlisted-tools>'
 
 /**
- * Validate a configured tool-order list at service construction: the
- * {@link TOOL_ORDER_REST} rest entry exactly once, no duplicate names. Returns the list
- * (or undefined when unconfigured); throws otherwise, failing the service at
- * load — a bad order config must never reach an assembly.
+ * Validate a configured tool-order list's shape at service construction:
+ * the {@link TOOL_ORDER_REST} rest entry exactly once, no duplicate names.
+ * Returns the list (or undefined when unconfigured); throws otherwise,
+ * failing the service at load — a bad order config must never reach an
+ * assembly. Whether every listed name matches a registered tool is checked
+ * at each assembly instead ({@link orderTools}): tool plugins register after
+ * this service constructs, so the tool set does not exist yet here.
  */
 function validateToolOrder(toolOrder: string[] | undefined): string[] | undefined {
   if (toolOrder === undefined) return undefined
@@ -141,12 +144,22 @@ function validateToolOrder(toolOrder: string[] | undefined): string[] | undefine
 /**
  * Order collected tool schemas by the validated policy: with no configured
  * list, plain lexicographic name order; with one, listed names take their
- * listed position and every unlisted tool lands at the {@link TOOL_ORDER_REST} rest entry in
- * lexicographic name order. Never drops a tool, and both sorts are stable, so
- * tools sharing a name keep their collection order.
+ * listed position and every unlisted tool lands at the
+ * {@link TOOL_ORDER_REST} rest entry in lexicographic name order. A listed
+ * name with no collected tool throws — misconfiguration fails loud, and this
+ * is the earliest moment the registered tool set exists to check against
+ * (tool plugins register after the service constructs, so load time is too
+ * early): the assembly rejects, failing the caller's turn before any model
+ * request. Never drops a tool, and both sorts are stable, so tools sharing a
+ * name keep their collection order.
  */
 function orderTools(tools: ToolSchema[], toolOrder: string[] | undefined): ToolSchema[] {
   if (toolOrder === undefined) return tools.sort(compareToolNames)
+  const registered = new Set(tools.map(tool => tool.name))
+  const unknown = toolOrder.filter(name => name !== TOOL_ORDER_REST && !registered.has(name))
+  if (unknown.length > 0) {
+    throw new Error(`toolOrder lists unregistered tool${unknown.length > 1 ? 's' : ''} ${unknown.map(name => `"${name}"`).join(', ')}; registered tools: ${[...registered].sort().join(', ') || '(none)'}`)
+  }
   const listed = new Set(toolOrder)
   const rest = tools.filter(tool => !listed.has(tool.name)).sort(compareToolNames)
   return toolOrder.flatMap(name =>
@@ -174,13 +187,17 @@ export interface Config {
   persona?: string
   /**
    * Explicit model-facing tool order, as a list of `ToolSchema.name`s: listed
-   * tools take their listed position, names with no registered tool are
-   * ignored, and tools absent from the list are inserted at the
-   * {@link TOOL_ORDER_REST} (`'<unlisted-tools>'`) entry in lexicographic name order. A
-   * configured list must contain the rest entry exactly once and no duplicate names —
-   * anything else throws at load; a bad order config must never reach a
-   * model request. When omitted, tools are ordered lexicographically by name.
-   * Applied to the tools {@link SystemPrompt.assemble} collects, BEFORE the
+   * tools take their listed position, and tools absent from the list are
+   * inserted at the {@link TOOL_ORDER_REST} (`'<unlisted-tools>'`) entry in
+   * lexicographic name order. A configured list must contain the rest entry
+   * exactly once, no duplicate names, and no name without a registered tool —
+   * a misconfigured order blocks work instead of silently reaching a model
+   * request: shape violations throw at load, and an unregistered name rejects
+   * every assembly (failing the turn before any model request — the earliest
+   * moment the registered tool set exists to check against, since tool
+   * plugins register after this service constructs). When omitted, tools are
+   * ordered lexicographically by name. Applied to the tools
+   * {@link SystemPrompt.assemble} collects, BEFORE the
    * `system-prompt/assemble` waterfall — like the sections' `order` sort, it
    * canonicalizes what the registry contributed (registration order is a
    * plugin-load artifact); a waterfall listener that mutates the tool list
@@ -394,7 +411,8 @@ export class SystemPrompt extends Service {
    * against `context` and sorted by order, tools collected from all providers
    * and put in the canonical model-facing order ({@link Config.toolOrder}, or
    * lexicographic name order when unconfigured — provider registration order
-   * is a plugin-load artifact and never reaches the assembly), and every
+   * is a plugin-load artifact and never reaches the assembly; a configured
+   * order naming a tool no provider contributed rejects the assembly), and every
    * registered variable resolved against `context` into `assembly.variables`.
    * Tool schemas are deep-cloned because adapters and request waterfalls may
    * mutate schema objects. Runs through the `system-prompt/assemble`
@@ -408,7 +426,10 @@ export class SystemPrompt extends Service {
    *   see {@link AssembleContext}).
    * @returns the assembly after the waterfall has run.
    */
-  assemble(context: AssembleContext = {}): Promise<PromptAssembly> {
+  // async so the misconfigured-toolOrder throw in orderTools surfaces as a
+  // rejection: a Promise-returning method must not throw synchronously
+  // (`assemble().catch(...)` would miss it).
+  async assemble(context: AssembleContext = {}): Promise<PromptAssembly> {
     const variables: Record<string, string | undefined> = {}
     for (const [name, provider] of this.variableProviders) {
       variables[name] = provider(context)

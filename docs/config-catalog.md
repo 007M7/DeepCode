@@ -558,13 +558,17 @@ export interface Config {
   persona?: string
   /**
    * Explicit model-facing tool order, as a list of `ToolSchema.name`s: listed
-   * tools take their listed position, names with no registered tool are
-   * ignored, and tools absent from the list are inserted at the
-   * {@link TOOL_ORDER_REST} (`'<unlisted-tools>'`) entry in lexicographic name order. A
-   * configured list must contain the rest entry exactly once and no duplicate names —
-   * anything else throws at load; a bad order config must never reach a
-   * model request. When omitted, tools are ordered lexicographically by name.
-   * Applied to the tools {@link SystemPrompt.assemble} collects, BEFORE the
+   * tools take their listed position, and tools absent from the list are
+   * inserted at the {@link TOOL_ORDER_REST} (`'<unlisted-tools>'`) entry in
+   * lexicographic name order. A configured list must contain the rest entry
+   * exactly once, no duplicate names, and no name without a registered tool —
+   * a misconfigured order blocks work instead of silently reaching a model
+   * request: shape violations throw at load, and an unregistered name rejects
+   * every assembly (failing the turn before any model request — the earliest
+   * moment the registered tool set exists to check against, since tool
+   * plugins register after this service constructs). When omitted, tools are
+   * ordered lexicographically by name. Applied to the tools
+   * {@link SystemPrompt.assemble} collects, BEFORE the
    * `system-prompt/assemble` waterfall — like the sections' `order` sort, it
    * canonicalizes what the registry contributed (registration order is a
    * plugin-load artifact); a waterfall listener that mutates the tool list
@@ -575,7 +579,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:161`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:174`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-fs`
 

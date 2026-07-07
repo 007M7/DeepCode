@@ -18,6 +18,8 @@ function names(assembly: PromptAssembly): string[] {
 }
 
 describe('SystemPrompt tool order', () => {
+  // The ONE place the public constant's value is pinned; everything else
+  // (tests and deployment configs alike) references TOOL_ORDER_REST.
   it('exports the rest entry as "<unlisted-tools>"', () => {
     expect(TOOL_ORDER_REST).toBe('<unlisted-tools>')
   })
@@ -40,10 +42,23 @@ describe('SystemPrompt tool order', () => {
     expect(names(await backward.systemPrompt.assemble())).toEqual(['alpha', 'zulu'])
   })
 
-  it('applies a configured toolOrder: listed positions, rest at the rest entry lexicographically, absent names ignored', async () => {
-    const ctx = await mount({ toolOrder: ['todo_write', 'ghost', TOOL_ORDER_REST, 'bash'] })
+  it('applies a configured toolOrder: listed positions, rest at the rest entry lexicographically', async () => {
+    const ctx = await mount({ toolOrder: ['todo_write', TOOL_ORDER_REST, 'bash'] })
     ctx.systemPrompt.tools(() => [tool('bash'), tool('echo_b'), tool('todo_write'), tool('echo_a')])
     expect(names(await ctx.systemPrompt.assemble())).toEqual(['todo_write', 'echo_a', 'echo_b', 'bash'])
+  })
+
+  it('rejects the assembly when toolOrder names a tool that is not registered (misconfiguration blocks work)', async () => {
+    const ctx = await mount({ toolOrder: ['todo_write', 'ghost', TOOL_ORDER_REST, 'wraith'] })
+    ctx.systemPrompt.tools(() => [tool('bash'), tool('todo_write')])
+    await expect(ctx.systemPrompt.assemble()).rejects.toThrow(
+      'toolOrder lists unregistered tools "ghost", "wraith"; registered tools: bash, todo_write')
+  })
+
+  it('names the single unregistered tool when no tools are registered at all', async () => {
+    const ctx = await mount({ toolOrder: ['ghost', TOOL_ORDER_REST] })
+    await expect(ctx.systemPrompt.assemble()).rejects.toThrow(
+      'toolOrder lists unregistered tool "ghost"; registered tools: (none)')
   })
 
   it('keeps collection order between tools that share a name (stable sort)', async () => {
