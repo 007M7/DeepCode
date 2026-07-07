@@ -6,7 +6,7 @@ This guide covers the local setup needed to work on DeepSeek Harness and underst
 
 ## Prerequisites
 
-- Node.js `^22.18.0 || >=24.0.0` (22.18+ on the LTS line, or 24+). The Node 23 line is excluded: `node:sqlite` (until 23.4) and native TS type-stripping (until 23.6) are still flagged there, and 23 is non-LTS/EOL. CI runs the matrix on Node 22.18, 24, and 26.
+- Node.js `^22.19.0 || >=24.0.0` (22.19+ on the LTS line, or 24+). The LTS floor matches `@earendil-works/pi-ai`'s Node 22.19 dependency floor. The Node 23 line is excluded: `node:sqlite` (until 23.4) and native TS type-stripping (until 23.6) are still flagged there, and 23 is non-LTS/EOL. CI runs the compatibility matrix on Node 22.19, 24, and 26.
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
 - Git.
 - Optional: a DeepSeek API key for the REPL/ACP agent demos and real-API e2e tests.
@@ -63,11 +63,11 @@ lefthook is configured in `lefthook.yml` as an early local checkpoint before rev
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 
-These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests without coverage, while CI runs `pnpm run test:coverage`; CI also runs echo-agent and built-bin smoke tests and exercises the matrix on Node 22.18, 24, and 26.
+These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests without coverage, while CI runs `pnpm run test:coverage`; CI also runs echo-agent and built-bin smoke tests and exercises the compatibility matrix on Node 22.19, 24, and 26.
 
 ## CI gates
 
-The keyless GitHub workflow has six jobs: five Node 24 lanes run static gates, lint, coverage, snapshot replay, and artifact gates separately, and the Node 26 compatibility job runs `pnpm run check:node-compat`. The lane schedulers fan out independent gates from `package.json`: constraints, typecheck, lint, coverage, snapshot replay, `doc-sync` members, module-graph freshness, `knip`, and the echo-agent smoke test.
+The keyless GitHub workflow has eight jobs: five Node 24 lanes run static gates, lint, coverage, snapshot replay, and artifact gates separately, and three compatibility jobs run `pnpm run check:node-compat` on Node 22.19, 24, and 26. The lane schedulers fan out independent gates from `package.json`: constraints, typecheck, lint, coverage, snapshot replay, `doc-sync` members, module-graph freshness, `knip`, and the echo-agent smoke test.
 
 `pnpm run build` feeds the artifact lane, and `publint`, `verify-node-next-types`, and built-bin smoke tests wait for build output. The separate real-API workflow runs `pnpm run test:e2e` with a secret and `DSH_E2E_MAX_WORKERS=14`.
 

@@ -77,7 +77,7 @@ async function makeConsumer(welcome: string, disabledBrokenEntry = false): Promi
     await symlink(abs, target)
   }
   // The example's mock model + echo tool are example-local TS plugins (Node
-  // 22.18+ — the engines floor — strips types natively, so plain `node` loads
+  // 22.19+ — the engines floor — strips types natively, so plain `node` loads
   // them); they import the workspace packages the symlinked node_modules now
   // provides.
   await cp(join(repoRoot, 'examples/echo-agent/src'), join(dir, 'src'), { recursive: true })
