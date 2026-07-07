@@ -161,9 +161,10 @@ enter(session: Session): () => void
 announce(session: Session): void
 get(id: SessionId): Session | undefined
 list(): Session[]
+fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:379`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:397`](../../packages/core/session/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 
