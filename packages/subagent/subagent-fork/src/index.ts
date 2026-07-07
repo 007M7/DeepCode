@@ -34,20 +34,14 @@ export const name = 'subagent-fork'
 // model-visible tool list) is unchanged by structured output.
 export const inject = ['subagents', 'agents']
 
-/** Config: the registry name to register the provider under, plus structured-run tuning. */
+/** Config: the registry name to register the provider under. */
 export interface Config {
   /** Provider name on `ctx.subagents` (default `fork`). */
   providerName: string
-  /**
-   * How many times a structured run re-prompts a child that finished cleanly
-   * without calling `structured_output` before giving up (default 1).
-   */
-  structuredNudgeRetries: number
 }
 
 export const Config: z<Config> = z.object({
   providerName: z.string().default('fork'),
-  structuredNudgeRetries: z.natural().default(1),
 })
 
 /**
@@ -76,17 +70,12 @@ class ForkProvider implements SubagentProvider {
   // Context contract: a forked child IS seeded with the parent's completed-turn prefix.
   readonly inheritsParentContext = true
 
-  constructor(
-    readonly name: string,
-    private readonly ctx: Context,
-    private readonly structuredNudgeRetries: number,
-  ) {}
+  constructor(readonly name: string, private readonly ctx: Context) {}
 
   start(request: SubagentStartRequest) {
     const seed = completedTurnPrefix(request.parent)
     return startInProcessRun(this.ctx, request, {
       providerName: this.name,
-      structuredNudgeRetries: this.structuredNudgeRetries,
       // Only pass a seed when there's a completed turn to inherit; an empty seed
       // is equivalent to a fresh child, so omit it to keep the session unseeded.
       ...seed.length > 0 ? { seed } : {},
@@ -102,5 +91,5 @@ export function apply(ctx: Context, config: Config): void {
     const acquisition = acquireStructuredRuntime(ctx)
     return () => { acquisition.release() }
   }, 'subagent-fork structured runtime')
-  ctx.subagents.registerProvider(new ForkProvider(config.providerName, ctx, config.structuredNudgeRetries))
+  ctx.subagents.registerProvider(new ForkProvider(config.providerName, ctx))
 }

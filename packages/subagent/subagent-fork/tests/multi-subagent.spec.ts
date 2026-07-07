@@ -30,8 +30,8 @@ async function setup(script: Script) {
   await ctx.plugin(Invariants)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
-  await ctx.plugin(Spawn, { providerName: 'spawn', structuredNudgeRetries: 1 })
-  await ctx.plugin(fork, { providerName: 'fork', structuredNudgeRetries: 1 })
+  await ctx.plugin(Spawn, { providerName: 'spawn' })
+  await ctx.plugin(fork, { providerName: 'fork' })
   ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
   const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
   return { ctx, parent }
