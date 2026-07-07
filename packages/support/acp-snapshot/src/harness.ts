@@ -1,16 +1,19 @@
 /**
- * Shared harness for the ACP snapshot tests. A plain module (NOT a *.spec.ts /
- * *.snapshot.ts) so importing it never re-registers another file's tests.
+ * Shared subprocess harness for ACP snapshot suites. A library module driven by
+ * the suite factory in ./suite.ts (and directly by harness-level specs); each
+ * example's `*.snapshot.ts` names its own agent-under-test paths.
  *
- * It boots the REAL examples/acp-agent subprocess via the cordis Loader (so the
+ * It boots the REAL agent bin subprocess via the cordis Loader (so the
  * export-shape bug class stays guarded — see docs/postmortem/0001), drives it
  * over real ACP JSON-RPC stdio with a deterministic input script, tees raw
  * stdout (for the golden + a purity check) into an SDK `ClientSideConnection`,
  * and — in record mode — harvests the persisted session JSONL after a graceful
- * shutdown flush. Two pure normalizers turn the captured stdout frames and the
- * session-log events into stable, snapshot-able text.
+ * shutdown flush. The pure normalizers in ./normalize.ts turn the captured
+ * stdout frames and the session-log events into stable, snapshot-able text.
  *
  * See docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
+ *
+ * @module @deepseek-ai/dsh-acp-snapshot/harness
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
@@ -31,19 +34,36 @@ import {
   type SessionNotification,
 } from '@agentclientprotocol/sdk'
 
-// The dsh-acp-agent bin (the demo:acp entry) and this example's cordis.yml.
-// The bin resolves its config-path arg from CWD and, under DSH_SNAPSHOT=replay,
-// swaps it for the sibling cordis.snapshot.yml. The child's cwd is a temp dir
-// OUTSIDE the repo, so pass the example config's ABSOLUTE path.
-const binScript = fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url))
-const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
+// Resolve tsx's ESM loader to an ABSOLUTE path once: the child runs with its
+// cwd in a temp dir OUTSIDE the repo, where a bare `--import tsx` would not
+// resolve from node_modules. import.meta.resolve gives this package's tsx
+// regardless of the child cwd.
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
-// The repo-root tsconfig: dev/test run UNBUILT and the `@deepseek-ai/dsh-*`
-// imports resolve through its `paths` map. The child's cwd is a temp dir
-// OUTSIDE the repo, so tsx's upward search would miss it — point tsx at the
-// repo tsconfig explicitly (same fix the e2e harness uses). Repo root is four
-// levels up from this file (examples/acp-agent/tests).
-const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
+
+/**
+ * The agent composition a scenario runs against: which bin to boot and which
+ * leaf config it loads. All paths are ABSOLUTE — the subprocess cwd is a temp
+ * dir outside the repo, so relative resolution would miss; a suite resolves
+ * them from its own `import.meta.url`.
+ */
+export interface AgentUnderTest {
+  /** The agent bin entry (e.g. `packages/ui/acp-agent/src/bin.ts`), run unbuilt via tsx. */
+  binScript: string
+  /**
+   * The example's live `cordis.yml`. Under `DSH_SNAPSHOT=replay` the bin swaps
+   * it for the sibling `cordis.snapshot.yml` (the keyless replay overlay), so
+   * one path serves both modes.
+   */
+  configPath: string
+  /**
+   * The repo-root tsconfig whose `paths` map resolves the unbuilt workspace
+   * imports. Passed to the child as `TSX_TSCONFIG_PATH`: tsx finds a tsconfig
+   * by searching UP from the child's cwd — a temp dir outside the repo — so
+   * without the explicit pin the dsh-* imports fail before the bin writes a
+   * byte.
+   */
+  tsconfigPath: string
+}
 
 /**
  * One step of a scenario's deterministic input script (`input.json`). The
@@ -57,7 +77,7 @@ const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta
  * the only way to exercise a cancel deterministically (a plain `prompt` step
  * awaits the response, which a cancel/hang scenario would block on forever).
  */
-type InputStep =
+export type InputStep =
   | { op: 'initialize'; terminalOutput?: boolean }
   | { op: 'newSession' }
   | { op: 'newSessionExpectError'; additionalDirectories?: string[] }
@@ -102,7 +122,10 @@ export interface RunResult {
   sessionLogs: HarvestedLog[]
 }
 
-interface RunOptions {
+/** How to run one scenario: the agent to boot, the mode, and the fixture wiring. */
+export interface RunOptions {
+  /** The agent composition to boot. */
+  agent: AgentUnderTest
   /** `replay` (default, keyless) or `record` (real API, harvests the log). */
   mode: 'replay' | 'record'
   /** The recorded session JSONL fixture path (replay reads it; record writes near it). */
@@ -130,6 +153,10 @@ interface RunOptions {
  * Run a scenario end-to-end against a freshly-spawned subprocess. Owns the
  * child and its temp dirs; always tears them down. Returns the captured stdout
  * and (record mode) the harvested session-log path.
+ *
+ * @param input The scenario's input script (steps + optional permission answers).
+ * @param opts The agent to boot, the mode, and the fixture wiring.
+ * @returns The captured stdout/stderr, session id, temp cwd, and harvested logs.
  */
 export async function runScenario(input: InputScript, opts: RunOptions): Promise<RunResult> {
   const cwd = await mkdtemp(join(tmpdir(), 'acp-snap-cwd-'))
@@ -151,7 +178,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     }
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      TSX_TSCONFIG_PATH: repoTsconfig,
+      TSX_TSCONFIG_PATH: opts.agent.tsconfigPath,
       DSH_SNAPSHOT: opts.mode,
       DSH_SNAPSHOT_FILE: opts.fixtureFile,
       DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
@@ -163,7 +190,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
 
     child = spawn(
       process.execPath,
-      ['--import', tsxLoader, binScript, configPath],
+      ['--import', tsxLoader, opts.agent.binScript, opts.agent.configPath],
       { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] },
     )
 
@@ -302,9 +329,9 @@ async function runStep(
       // its own). To pin frame order deterministically, wait until the client
       // has OBSERVED the hang's streamed agent_message_chunk before cancelling —
       // so those update frames always precede the cancelled prompt response in
-      // the transcript (without this, the late chunk and the response race; see
-      // the Codex review of commit 5). Then cancel and await the prompt, which
-      // the bridge settles as `cancelled` once the abort propagates.
+      // the transcript (without this, the late chunk and the response race).
+      // Then cancel and await the prompt, which the bridge settles as
+      // `cancelled` once the abort propagates.
       const promptDone = client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
       await waitForUpdate(u => u.sessionUpdate === 'agent_message_chunk')
       await client.cancel({ sessionId })
@@ -335,8 +362,8 @@ function waitForExit(child: ChildProcessWithoutNullStreams): Promise<void> {
  *
  * The JSONL backend lays sessions out as `<root>/<cwd-bucket>/<encoded-id>.jsonl`
  * (one bucket per cwd), so a parent and its same-cwd in-process child land in
- * the SAME bucket — collecting all files across all buckets catches both (the
- * old first-match short-circuit silently dropped the child). Returns `[]` if no
+ * the SAME bucket — collecting all files across all buckets catches both (a
+ * first-match short-circuit would silently drop the child). Returns `[]` if no
  * log was produced (a no-session scenario).
  */
 async function harvestSessionLogs(root: string): Promise<HarvestedLog[]> {

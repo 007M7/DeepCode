@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { type NormalizeContext, normalizeSessionLog, normalizeStdout, scrubRequestHeaders } from '../tests/snapshot-normalize.ts'
+import { type NormalizeContext, normalizeSessionLog, normalizeStdout, scrubRequestHeaders } from '../src/normalize.ts'
 
 /**
  * Unit tests for the pure snapshot normalizers. Live as a *.spec.ts (runs in
- * the default unit gate) and import the harness-side normalizers directly.
+ * the default unit gate) and import the normalizers directly.
  */
 
 const ctx: NormalizeContext = {
