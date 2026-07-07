@@ -39,7 +39,7 @@ async function harness(): Promise<Context> {
   await built.plugin(AgentLoop, { agents: [] })
   await built.plugin(LlmDeepSeek, { models: ['deepseek-v4-flash'] })
   await built.plugin(SubagentService)
-  await built.plugin(Spawn, { providerName: 'spawn', structuredNudgeRetries: 1 })
+  await built.plugin(Spawn, { providerName: 'spawn' })
   await built.plugin(VmWorkflowEngine, { provider: 'spawn' })
   await built.plugin(ToolWorkflow, {})
   return built
