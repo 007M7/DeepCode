@@ -97,6 +97,8 @@ export const LINK_MAP: Record<string, string> = {
   BashRunResult: 'bash.md',
   BashTask: 'bash.md',
   BashTaskRead: 'bash.md',
+  CodeRunRequest: 'code-runtime.md',
+  CodeRunResult: 'code-runtime.md',
   FsEditOutcome: 'filesystem.md',
   FsEditRequest: 'filesystem.md',
   FsInfo: 'filesystem.md',
