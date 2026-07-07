@@ -21,6 +21,7 @@ export {
   type HarvestedLog,
   type InputScript,
   type InputStep,
+  type PermissionAnswer,
   type RunOptions,
   type RunResult,
 } from './harness.ts'

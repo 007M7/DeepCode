@@ -230,4 +230,43 @@ describe('runScenario', () => {
     )
     expect(result.sessionLogs).toHaveLength(0)
   })
+
+  it('answers permission requests from the scripted queue by option kind, falling back to cancelled', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({ permissionProbe: true })
+    // Two prompts → two permission round-trips; one scripted answer, so the
+    // second request exercises the exhausted-queue fallback.
+    const result = await runScenario(
+      {
+        steps: [...boot, { op: 'prompt', text: 'one' }, { op: 'prompt', text: 'two' }],
+        permissionAnswers: [{ kind: 'allow_once' }],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    const first = result.rawStdout.indexOf('permission:{\\"outcome\\":\\"selected\\",\\"optionId\\":\\"opt-allow\\"}')
+    const second = result.rawStdout.indexOf('permission:{\\"outcome\\":\\"cancelled\\"}')
+    expect(first).toBeGreaterThanOrEqual(0)
+    expect(second).toBeGreaterThan(first)
+  })
+
+  it('selects a non-first offered option by kind', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({ permissionProbe: true })
+    const result = await runScenario(
+      { steps: [...boot, { op: 'prompt', text: 'deny it' }], permissionAnswers: [{ kind: 'reject_once' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    expect(result.rawStdout).toContain('permission:{\\"outcome\\":\\"selected\\",\\"optionId\\":\\"opt-reject\\"}')
+  })
+
+  it('fails loud on a scripted permission kind the agent never offered', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({ permissionProbe: true })
+    // The fake bin offers allow_once/reject_once; scripting allow_always is a
+    // scenario bug. The client handler throws, the SDK surfaces it as a
+    // JSON-RPC error on the permission request, and the fake bin echoes the
+    // missing outcome as null.
+    const result = await runScenario(
+      { steps: [...boot, { op: 'prompt', text: 'impossible click' }], permissionAnswers: [{ kind: 'allow_always' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    expect(result.rawStdout).toContain('permission:null')
+  })
 })

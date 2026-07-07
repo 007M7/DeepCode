@@ -89,6 +89,23 @@ export type InputStep =
 /** A scenario's `input.json`: an ordered list of input steps. */
 export interface InputScript {
   steps: InputStep[]
+  /**
+   * Ordered answers for the agent's `session/request_permission` round-trips,
+   * consumed FIFO — the Nth request gets the Nth answer. Each answer selects
+   * by option KIND: option ids are agent-issued randoms a committed script
+   * cannot know, while kinds are the ACP-stable vocabulary, so the client maps
+   * kind → the offered `optionId` at answer time. A request beyond the queue
+   * (or with no queue at all) is answered `cancelled` — the stub behavior a
+   * scenario without approvals relies on. A scripted kind the request does
+   * not offer fails loud: the scenario scripted an impossible click.
+   */
+  permissionAnswers?: PermissionAnswer[]
+}
+
+/** One scripted answer to a permission request: which offered option kind to select. */
+export interface PermissionAnswer {
+  /** The `PermissionOption.kind` to select (`allow_once`, `reject_always`, …). */
+  kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always'
 }
 
 /** One harvested session log plus the identifying facts off its header line. */
@@ -220,6 +237,9 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     const waitForUpdate = (match: (u: SessionNotification['update']) => boolean): Promise<void> =>
       new Promise<void>(resolve => updateWaiters.push({ match, resolve }))
 
+    // Permission answers are consumed FIFO across the whole run; exhaustion
+    // falls back to `cancelled` so approval-free scenarios keep the plain stub.
+    const permissionQueue = [...input.permissionAnswers ?? []]
     const makeClient = (_agent: AcpAgent): Client => ({
       sessionUpdate(params: SessionNotification): Promise<void> {
         for (let i = updateWaiters.length - 1; i >= 0; i--) {
@@ -236,8 +256,20 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
         }
         return Promise.resolve()
       },
-      requestPermission(_params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-        return Promise.resolve({ outcome: { outcome: 'cancelled' } })
+      requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+        const answer = permissionQueue.shift()
+        if (answer === undefined) return Promise.resolve({ outcome: { outcome: 'cancelled' } })
+        const option = params.options.find(o => o.kind === answer.kind)
+        if (option === undefined) {
+          // The scenario scripted a click the agent never offered — a scenario
+          // bug. Throwing here surfaces as a JSON-RPC error on the permission
+          // request, which the transcript (and usually the run) fails on.
+          throw new Error(
+            `snapshot-harness: scripted permission answer ${answer.kind} not among `
+            + `the offered options [${params.options.map(o => o.kind).join(', ')}]`,
+          )
+        }
+        return Promise.resolve({ outcome: { outcome: 'selected', optionId: option.optionId } })
       },
     })
     const client = new ClientSideConnection(makeClient, stream)
