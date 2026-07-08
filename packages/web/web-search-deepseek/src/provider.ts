@@ -12,7 +12,7 @@
  * `web_search_tool_result` block (native search did not trigger), it throws
  * `WEB_PROVIDER_ERROR` rather than degrading to prose-scraping.
  *
- * Network requests use platform-native `fetch` (Node 24), mirroring
+ * Network requests use platform-native `fetch` at the repo's Node floor, mirroring
  * `@deepseek-ai/dsh-llm-deepseek`'s adapter — not a cordis HTTP-client service.
  * The Anthropic wire shape is a provider-private detail and does NOT make this
  * provider depend on `ctx.llm`.

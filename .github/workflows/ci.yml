@@ -95,13 +95,13 @@ jobs:
 
   node-compat:
     runs-on: ubuntu-latest
-    name: node 26
+    name: node ${{ matrix.node }}
     env:
       DSH_GATE_CONCURRENCY: '2'
     strategy:
       fail-fast: false
       matrix:
-        node: [26]
+        node: ['22.19', 24, 26]
     steps:
       - uses: actions/checkout@v6
 

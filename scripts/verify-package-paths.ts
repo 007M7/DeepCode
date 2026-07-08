@@ -39,9 +39,8 @@
  * Run: `tsx scripts/verify-package-paths.ts`.
  */
 
-import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, globSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
-import { glob } from 'node:fs/promises'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -144,7 +143,7 @@ const all: Violation[] = []
 let checked = 0
 const seen = new Set<string>()
 for (const pattern of PATTERNS) {
-  for await (const match of glob(pattern, { cwd: root })) {
+  for (const match of globSync(pattern, { cwd: root })) {
     if (isExcluded(match)) continue
     // Dedup by real path: the root/packages CLAUDE.md are symlinks to AGENTS.md.
     const real = realpathSync(resolve(root, match))

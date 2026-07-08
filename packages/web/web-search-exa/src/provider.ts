@@ -6,7 +6,7 @@
  * `title`, the first highlight as `snippet`, and `publishedDate` as
  * `publishedAt`.
  *
- * Network requests use platform-native `fetch` (Node 24), mirroring
+ * Network requests use platform-native `fetch` at the repo's Node floor, mirroring
  * `@deepseek-ai/dsh-llm-deepseek`'s adapter — not a cordis HTTP-client service.
  *
  * @module @deepseek-ai/dsh-web-search-exa/provider

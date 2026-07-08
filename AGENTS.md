@@ -34,7 +34,7 @@ Per-package map: the group READMEs, indexed from [packages/README.md](packages/R
 ## Commands
 
 ```sh
-pnpm install            # pnpm workspaces, node >= 24
+pnpm install            # pnpm workspaces, node ^22.19 || >=24
 pnpm run test           # vitest unit tests
 pnpm run test:coverage  # THE gating test run: per-file 100% coverage on packages/*/*/src
 pnpm run test:e2e       # real-API tests; self-skip without DEEPSEEK_API_KEY

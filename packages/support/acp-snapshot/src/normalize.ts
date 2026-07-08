@@ -15,12 +15,15 @@
  * A separate, composable normalizer — {@link scrubRequestHeaders} — replaces
  * the bulky request-header CONTENT (the composed system prompt and the tool
  * schema list) with `{{system}}`/`{{tools}}` tokens. It is deliberately NOT
- * folded into {@link normalizeSessionLog}: the one header-pinning scenario
- * compares that content verbatim, every other scenario composes the scrub in
- * (the `pinsHeader` flag in acp.snapshot.ts; see the pinned-header RFC,
+ * folded into {@link normalizeSessionLog}: each suite's one header-pinning
+ * scenario compares that content verbatim, every other scenario composes the
+ * scrub in (the `pinsHeader` flag on the scenario table, consumed by the suite
+ * factory in ./suite.ts; see the pinned-header RFC,
  * docs/rfc/implemented/testing/2026-07-06-pin-request-header-content-in-one-scenario.md).
  *
  * See docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
+ *
+ * @module @deepseek-ai/dsh-acp-snapshot/normalize
  */
 
 const SESSION_ID = '{{sessionId}}'
@@ -69,6 +72,10 @@ function scrubValue(value: unknown, ctx: NormalizeContext): unknown {
  * (1, 2, 3, …) and all volatile strings scrubbed. Throws if any non-empty line
  * is not valid JSON — that doubles as the stdout-purity check (no logger leaked
  * onto the protocol).
+ *
+ * @param rawStdout The captured stdout bytes, decoded utf8.
+ * @param ctx The run's volatile values to scrub.
+ * @returns The normalized NDJSON transcript, one frame per line.
  */
 export function normalizeStdout(rawStdout: string, ctx: NormalizeContext): string {
   const lines = rawStdout.split('\n').filter(line => line.trim().length > 0)
@@ -97,6 +104,10 @@ export function normalizeStdout(rawStdout: string, ctx: NormalizeContext): strin
  * zeroed/scrubbed, all volatile strings scrubbed, and `seq` is LEFT INTACT
  * (deterministic by contract). Output is JSONL in the same shape as the input —
  * one compact record per line.
+ *
+ * @param rawLog The raw session `.jsonl` content.
+ * @param ctx The run's volatile values to scrub.
+ * @returns The normalized JSONL log, one record per line.
  */
 export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): string {
   const lines = rawLog.split('\n').filter(line => line.trim().length > 0)
@@ -140,7 +151,10 @@ export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): stri
  * Only lines with something to scrub are re-serialized; every other line
  * passes through byte-for-byte, so the transform is idempotent and applying
  * it to an already-scrubbed fixture is a no-op — the on-disk-fixtures guard
- * in acp.snapshot.ts relies on exactly that.
+ * in ./suite.ts relies on exactly that.
+ *
+ * @param rawLog The raw session `.jsonl` content.
+ * @returns The JSONL with header content tokenized, other lines byte-identical.
  */
 export function scrubRequestHeaders(rawLog: string): string {
   const lines = rawLog.split('\n')

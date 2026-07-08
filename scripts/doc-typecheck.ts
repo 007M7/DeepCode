@@ -25,9 +25,8 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { globSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
-import { glob } from 'node:fs/promises'
 import ts from 'typescript'
 
 const root = resolve(import.meta.dirname, '..')
@@ -139,7 +138,7 @@ const markdownGlobs = ['README.md', 'docs/**/*.md', 'packages/*/*.md', 'packages
 
 const files: string[] = []
 for (const pattern of markdownGlobs) {
-  for await (const match of glob(pattern, { cwd: root })) files.push(resolve(root, match))
+  for (const match of globSync(pattern, { cwd: root })) files.push(resolve(root, match))
 }
 files.sort()
 

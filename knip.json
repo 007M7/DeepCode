@@ -9,7 +9,7 @@
         "examples/echo-agent/tests/**/*.e2e.ts",
         "examples/coding-agent/tests/**/*.e2e.ts",
         "examples/acp-agent/tests/**/*.e2e.ts",
-        "examples/acp-agent/tests/**/*.snapshot.ts"
+        "examples/*/tests/**/*.snapshot.ts"
       ],
       "project": ["scripts/**/*.ts", "examples/**/*.ts"]
     },
@@ -19,6 +19,11 @@
     },
     "packages/util/brand": {
       "project": ["src/**/*.ts"],
+      "ignoreDependencies": ["cordis"]
+    },
+    "packages/support/acp-snapshot": {
+      "entry": ["tests/**/*.spec.ts", "tests/fixtures/fake-acp-agent.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"],
       "ignoreDependencies": ["cordis"]
     },
     "packages/core/agent-loop": {

@@ -31,8 +31,8 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `subagent/start` | `emit` | [`packages/subagent/subagent/src/index.ts:91`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude) |
 | `system-prompt/assemble` | `waterfall` | [`packages/core/system-prompt/src/index.ts:38`](../packages/core/system-prompt/src/index.ts) | [`system-prompt`](../packages/core/system-prompt) (`waterfall`) | - |
 | `system-prompt/change` | `emit` | [`packages/core/system-prompt/src/index.ts:44`](../packages/core/system-prompt/src/index.ts) | [`system-prompt`](../packages/core/system-prompt) (`emit`) | - |
-| `tools/change` | `emit` | [`packages/core/tools/src/index.ts:87`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`emit`) | - |
-| `tools/post-execute` | `waterfall` | [`packages/core/tools/src/index.ts:82`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
-| `tools/pre-execute` | `waterfall` | [`packages/core/tools/src/index.ts:66`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
+| `tools/change` | `emit` | [`packages/core/tools/src/index.ts:97`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`emit`) | - |
+| `tools/post-execute` | `waterfall` | [`packages/core/tools/src/index.ts:92`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
+| `tools/pre-execute` | `waterfall` | [`packages/core/tools/src/index.ts:76`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
 
 Maintenance mode: hybrid generated: Cordis event declarations and most producer/listener edges are AST-scanned; dynamic dispatch sites are classified in `scripts/gen-doc-graphs.ts`.
