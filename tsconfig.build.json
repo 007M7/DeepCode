@@ -23,6 +23,7 @@
     { "path": "./packages/core/agent-core" },
     { "path": "./packages/bash/bash" },
     { "path": "./packages/code-runtime/code-runtime" },
+    { "path": "./packages/code-runtime/code-runtime-worker" },
     { "path": "./packages/compact/compact" },
     { "path": "./packages/compact/compact-basic" },
     { "path": "./packages/llm/llm-deepseek" },
