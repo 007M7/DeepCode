@@ -184,6 +184,9 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
       if (decision.kind === 'accept') captured = { value: staged.value }
       return decision
     } finally {
+      /* v8 ignore next -- defensive false branch: a concurrent re-stage
+       * would need a second capture call INSIDE the first's post-execute
+       * chain */
       if (pending === staged) pending = undefined
     }
   }, { prepend: true })

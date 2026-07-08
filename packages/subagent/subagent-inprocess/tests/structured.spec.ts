@@ -489,4 +489,45 @@ describe('in-process structured output', () => {
     expect(result.isError).toBe(true)
     expect(result.error?.code).toBe('UNKNOWN_TOOL')
   })
+
+  it('drops a stale stage from a short-circuited chain: a later call never promotes it (call-keyed commit)', async () => {
+    const { ctx, parent } = await setup([
+      toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 1 }),
+    ])
+    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const child = ctx.agents.get(run.id)!
+    // An OUTER post-execute listener (registered after attach, prepend ⇒
+    // outermost) that BLOCKS the first capture WITHOUT delegating: the commit
+    // listener never runs for c1, so its staged value would linger.
+    let blocks = 1
+    ctx.on('tools/post-execute', (exec, _result, next) => {
+      if (exec.name === STRUCTURED_OUTPUT_TOOL && blocks > 0) {
+        blocks -= 1
+        return Promise.resolve({ kind: 'block' as const, feedback: [{ type: 'text' as const, text: 'rejected' }] })
+      }
+      return next()
+    }, { prepend: true })
+    const result = await run.result
+    // The blocked capture must NOT surface as structured success…
+    expect(result.stopReason).toBe('error')
+    expect(result.structured).toBeUndefined()
+    // …and a LATER invalid call (its own body staged nothing) must not
+    // resurrect c1's orphaned value: drive the pipeline directly.
+    const invalid = await ctx.tools.execute({
+      callId: 'c2' as never,
+      name: STRUCTURED_OUTPUT_TOOL,
+      arguments: { answer: 'not-a-number' },
+      agent: child,
+    })
+    expect(invalid.isError).toBe(true)
+    // A fresh valid call still captures ITS OWN value.
+    const valid = await ctx.tools.execute({
+      callId: 'c3' as never,
+      name: STRUCTURED_OUTPUT_TOOL,
+      arguments: { answer: 9 },
+      agent: child,
+    })
+    expect(valid.isError).toBeFalsy()
+    await run.dispose()
+  })
 })

@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { InvariantError } from '@deepseek-ai/dsh-invariants'
 
@@ -797,6 +797,37 @@ describe('scoped-dispatch invariants', () => {
       .toThrow(/dispatched without a scope carrier/)
   })
 
+  it('accepts a matching carrier and rejects a mismatched one for EVERY agent-subject event', async () => {
+    const ctx = await scopedCtx()
+    // Real Session objects: the session-start tracker WeakSet-keys them.
+    const agent = { id: 'a1', session: new Session(SessionId('a1-s')) } as unknown as Agent
+    const other = { id: 'a2', session: new Session(SessionId('a2-s')) } as unknown as Agent
+    // One dispatch per table row keeps every subject extractor covered: the
+    // matching carrier passes, the foreign-keyed one throws.
+    const rows: [string, unknown[]][] = [
+      ['agent/created', [agent]],
+      ['agent/disposed', [agent]],
+      ['agent/status', [agent, 'idle']],
+      ['agent/queued', [agent, [], { source: { kind: 'user' }, steering: false }]],
+      ['agent/session-start', [agent, 'startup']],
+      ['agent/pre-step', [agent, 1, 1, '', new AbortController().signal]],
+      ['agent/prompt-submit', [agent, [], { kind: 'user' }, () => Promise.resolve({ kind: 'allow' })]],
+      ['agent/request', [agent, 1, 1, { model: 'm' }, () => Promise.resolve({ model: 'm' })]],
+      ['agent/step-result', [agent, 1, 1, { role: 'assistant', content: [] }, () => Promise.resolve({ role: 'assistant', content: [] })]],
+      ['agent/turn-continuation', [agent, 1, { action: 'stop' }, () => Promise.resolve({ action: 'stop' })]],
+      ['agent/error', [agent, 1, 0, new Error('x')]],
+      ['tools/pre-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ kind: 'allow' })]],
+      ['tools/post-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, { callId: 'c', content: [], isError: false }, () => Promise.resolve({ kind: 'accept' })]],
+    ]
+    for (const [event, args] of rows) {
+      const subject = event.startsWith('tools/') ? agent : agent
+      expect(() => { (ctx.emit as (...a: unknown[]) => void)(scopeTarget(agent, subject), event, ...args) },
+        `${event} with matching carrier`).not.toThrow()
+      expect(() => { (ctx.emit as (...a: unknown[]) => void)(scopeTarget(agent, other), event, ...args) },
+        `${event} with foreign carrier`).toThrow(/DIFFERENT subject/)
+    }
+  })
+
   it('rejects a carrier keyed to a different subject than the arguments name', async () => {
     const ctx = await scopedCtx()
     const agent = { id: 'a1' } as unknown as Agent
@@ -841,6 +872,20 @@ describe('scoped-dispatch invariants', () => {
     expect(() => {
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+    }).not.toThrow()
+  })
+
+  it('marks sessions of agents that predate the plugin as started (HMR re-apply safety)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('pre-s'))
+    const agent = { id: 'pre', session } as unknown as Agent
+    ctx.root.provide('agents', { list: () => [agent] } as never)
+    // Invariants apply AFTER the agent exists: its ordering is unknowable, so
+    // a turn opening without an observed session-start must NOT false-positive.
+    await ctx.plugin(Invariants)
+    expect(() => {
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     }).not.toThrow()
   })
 })

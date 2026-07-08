@@ -148,6 +148,7 @@ describe('restrict()', () => {
     expect(() => ctx.tools.restrict({ deny: ['real'] })).toThrow(/requires a scoped context/)
     expect(() => scope.ctx.tools.restrict({})).toThrow(/no-op/)
     expect(() => scope.ctx.tools.restrict({ allow: ['reall'] })).toThrow(/unknown tool "reall"; known tools for this scope: real/)
+    expect(() => scope.ctx.tools.restrict({ deny: ['ghost', 'wraith'] })).toThrow(/unknown tools "ghost", "wraith"/)
   })
 })
 

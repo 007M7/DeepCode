@@ -283,7 +283,11 @@ export async function scopeHost(ctx: Context, services: string[]): Promise<Scope
     // callback. Name the absentees and unwind the pending fiber.
     const missing = services.filter(name => ctx.get(name) === undefined)
     await fiber.dispose()
-    throw new Error(`scopeHost: service${missing.length === 1 ? '' : 's'} ${missing.map(name => `"${name}"`).join(', ') || '(unknown)'} not available on this context — load the providing plugin(s) before minting scopes`)
+    /* v8 ignore next -- the '(unknown)' fallback is defensive: a pending
+     * fiber with zero absent services cannot occur (an all-present inject
+     * list runs the callback) */
+    const named = missing.map(name => `"${name}"`).join(', ') || '(unknown)'
+    throw new Error(`scopeHost: service${missing.length === 1 ? '' : 's'} ${named} not available on this context — load the providing plugin(s) before minting scopes`)
   }
   const host = hostCtx
   return {

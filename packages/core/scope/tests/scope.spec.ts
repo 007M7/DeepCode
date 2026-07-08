@@ -227,4 +227,9 @@ describe('scopeHost', () => {
     await expect(scopeHost(ctx, ['tools', 'systemPrompt']))
       .rejects.toThrow('scopeHost: services "tools", "systemPrompt" not available')
   })
+
+  it('names a single absent service in the singular', async () => {
+    const ctx = new Context()
+    await expect(scopeHost(ctx, ['tools'])).rejects.toThrow('scopeHost: service "tools" not available')
+  })
 })

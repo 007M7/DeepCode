@@ -451,4 +451,37 @@ describe('dsh-tool-subagent', () => {
     expect(typeof unwrapped.apply).toBe('function')
     expect(unwrapped.Config).toBeDefined()
   })
+
+  it('passes persona/toolFilter/maxDepth config through to the start request', async () => {
+    let seen: { persona?: string; toolFilter?: unknown; maxDepth?: number } | undefined
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'capture2',
+      capabilities: { outputSchema: false, depthLimit: true, toolFilter: true, persona: true },
+      inheritsParentContext: false,
+      start: (request) => {
+        seen = request
+        return {
+          id: AgentId('capture2-child'),
+          result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
+          cancel() {},
+          dispose: async () => {},
+        }
+      },
+    })
+    await ctx.plugin(tool, {
+      provider: 'capture2',
+      persona: 'You are the child.',
+      toolFilter: { deny: ['subagent'] },
+      maxDepth: 2,
+    })
+
+    await callSubagent(ctx, { description: 'd', prompt: 'p' })
+    expect(seen?.persona).toBe('You are the child.')
+    expect(seen?.toolFilter).toMatchObject({ deny: ['subagent'] })
+    expect(seen?.maxDepth).toBe(2)
+  })
 })

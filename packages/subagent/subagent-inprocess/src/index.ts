@@ -203,6 +203,8 @@ export function startInProcessRun(
   try {
     unlink = request.parent.ctx.effect(() => () => handle.dispose())
   } catch (error: unknown) {
+    // Fire-and-forget: start() must rethrow synchronously; the child's
+    // teardown (stop → unregister → detach) reaches quiescence on its own.
     void handle.dispose()
     throw error
   }

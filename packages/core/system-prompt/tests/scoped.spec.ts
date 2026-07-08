@@ -100,6 +100,19 @@ describe('scoped tool providers and toolOrder × restriction', () => {
     expect(global.tools.map(t => t.name)).toEqual(['global_tool'])
   })
 
+  it('disposing a scoped tool provider empties its layer without residue', async () => {
+    const ctx = await mount()
+    const scope = await mintScope(ctx, 'child')
+    const dispose = scope.ctx.systemPrompt.tools(() => ({ schemas: [schema('scoped_tool')] }))
+    dispose()
+    const after = await ctx.systemPrompt.assemble({ scope: scopeKeyOf(scope) })
+    expect(after.tools.map(t => t.name)).toEqual([])
+    // Re-registering through the same scope starts a fresh layer.
+    scope.ctx.systemPrompt.tools(() => ({ schemas: [schema('again')] }))
+    const again = await ctx.systemPrompt.assemble({ scope: scopeKeyOf(scope) })
+    expect(again.tools.map(t => t.name)).toEqual(['again'])
+  })
+
   it('a toolOrder entry restricted away for a scope is a normal absence, while a typo still throws', async () => {
     const ctx = await mount({ toolOrder: ['bash', TOOL_ORDER_REST] })
     // A provider mimicking the registry's restriction split: bash exists

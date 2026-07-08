@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import LlmService from '@deepseek-ai/dsh-llm'
@@ -376,5 +376,24 @@ describe('dsh-subagent-spawn', () => {
       })).toThrow(/unknown tool "no_such_tool"/)
       expect(ctx.agents.list().length).toBe(before)
     })
+  })
+
+  it('spawning from a DISPOSING parent fails loud with no orphaned child (INACTIVE_EFFECT teaching error)', async () => {
+    const { ctx } = await setup([])
+    // A handle-owned parent we can dispose (config agents dispose with the loop fiber).
+    const parentHandle = ctx.agents.create({
+      agentId: AgentId('doomed-parent'),
+      sessionId: SessionId('doomed-s'),
+      agentOptions: { model: 'mock' },
+    })
+    await parentHandle.dispose()
+    const before = ctx.agents.list().length
+    expect(() => ctx.subagents.start('spawn', {
+      prompt: [{ type: 'text', text: 'do X' }],
+      parent: parentHandle.agent,
+    })).toThrow(/inactive context/)
+    // The freshly created child's disposal was initiated before the rethrow
+    // (fire-and-forget — start() throws synchronously); quiescence follows.
+    await vi.waitFor(() => { expect(ctx.agents.list().length).toBe(before) })
   })
 })
