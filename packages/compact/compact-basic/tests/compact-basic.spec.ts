@@ -557,6 +557,29 @@ describe('BasicCompactService.compactIfNeeded', () => {
     expect(result!.shadowedSeqs.length).toBeGreaterThan(0)
   })
 
+  it('counts the logged session prefix toward pressure (every request carries it in front of the history)', async () => {
+    const svc = createTestService({ contextWindow: 200, thresholdRatio: 0.5, retainTokens: 10 })
+    const session = multiTurnSession(3, 1) // 6 derived messages ≈ 84 estimated tokens — under the 100 threshold alone
+    expect(await compactIfNeeded(svc, session, '', 'm', SIGNAL)).toBeNull()
+
+    // The loop records the composed agent/session-prefix product on the
+    // request header; it rides every request, so pressure must include it.
+    session.append('request/header', {
+      header: {
+        config: { model: 'm' },
+        messagePrefix: [
+          { role: 'user', content: [{ type: 'text', text: `opener one.${LONG_FIXTURE_TEXT}` }] },
+          { role: 'user', content: [{ type: 'text', text: `opener two.${LONG_FIXTURE_TEXT}` }] },
+        ],
+      },
+      reason: 'initial',
+    })
+    const result = await compactIfNeeded(svc, session, '', 'm', SIGNAL)
+    expect(result).not.toBeNull()
+    // The prefix itself is NOT history: compaction shadowed surface nodes only.
+    expect(session.requestHeader()?.messagePrefix).toHaveLength(2)
+  })
+
   it('returns the first compaction result when a zero-retry pass converges after the loop', async () => {
     // With compactionRetries=0 there is no next-loop threshold check after the
     // first mutation, so the success path is the post-loop `return result`.

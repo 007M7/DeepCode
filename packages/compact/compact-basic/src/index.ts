@@ -187,7 +187,7 @@ export class BasicCompactService extends CompactService {
         try {
           const result = await this.compactIfNeeded(agent, fullSystemPrompt, signal)
           if (result) {
-            const after = this.estimateTokens(agent.session.deriveMessages(), fullSystemPrompt)
+            const after = this.estimatePressure(agent.session, fullSystemPrompt)
             ctx.logger.info(
               `compaction: shadowed ${result.shadowedSeqs.length} surface nodes ` +
               `(seqs ${result.shadowedRange.start}-${result.shadowedRange.end}, ` +
@@ -359,11 +359,19 @@ export class BasicCompactService extends CompactService {
   // ---- Core API (implements the abstract contract) ----
 
   /**
-   * The sole token-pressure gate: estimate the current surface-derived history,
-   * and if it exceeds the threshold (`contextWindow * thresholdRatio`), compact
+   * The sole token-pressure gate: estimate the NEXT request's pressure — the
+   * logged session prefix + the surface-derived history + the system prompt
+   * ({@link estimatePressure}) — and if it exceeds the threshold
+   * (`contextWindow * thresholdRatio`), compact
    * the oldest surface nodes outside the `retainTokens` budget. The auto-
    * compaction listener delegates here rather than pre-checking, so this is the
-   * only place the decision lives.
+   * only place the decision lives. The prefix counts because every request
+   * carries it in front of the history (`EpochHeader.messagePrefix`) even
+   * though it is not derived history — omitting it would under-estimate by
+   * exactly the prefix and let a deployment at the window edge skip
+   * compaction, then ship an over-window request. Compaction itself can only
+   * shrink HISTORY: a prefix that alone approaches the window is a
+   * configuration error no compactor fixes.
    *
    * Retention is a UNIFORM tail→head walk over the whole surface — turn
    * boundaries play NO role. Walking node-by-node from the tail and summing
@@ -393,7 +401,7 @@ export class BasicCompactService extends CompactService {
     const threshold = Math.floor(this.config.contextWindow * this.config.thresholdRatio)
     let result: CompactionResult | null = null
     for (let attempt = 0; attempt <= this.config.compactionRetries; attempt++) {
-      const totalTokens = this.estimateTokens(session.deriveMessages(), fullSystemPrompt)
+      const totalTokens = this.estimatePressure(session, fullSystemPrompt)
       if (totalTokens < threshold) return result
 
       const range = this._compactableRange(session)
@@ -407,13 +415,30 @@ export class BasicCompactService extends CompactService {
       result = await this.compactRegion(session, range.start, range.end, agent, signal)
     }
 
-    const totalTokens = this.estimateTokens(session.deriveMessages(), fullSystemPrompt)
+    const totalTokens = this.estimatePressure(session, fullSystemPrompt)
     if (totalTokens < threshold) return result
 
     throw new Error(
       `compaction still above threshold after ${this.config.compactionRetries + 1} compaction attempts `
       + `(${totalTokens} estimated tokens >= threshold ${threshold})`,
     )
+  }
+
+  /**
+   * Estimated token pressure of the NEXT request: the logged session prefix
+   * (`EpochHeader.messagePrefix` from the header fold — request-only messages
+   * the loop sends in front of the derived history), the derived history, and
+   * the system prompt. The fold is exact from the loop instance's second
+   * request on (and from a resumed instance's first — the previous instance
+   * logged its prefix); it is absent only before a fresh session's first
+   * request, where the history is a single prompt and compaction is moot.
+   * @param session - the session whose next request is being estimated.
+   * @param fullSystemPrompt - the assembled system prompt (counts toward pressure).
+   * @returns the estimated token total the next request will carry.
+   */
+  estimatePressure(session: Session, fullSystemPrompt: string): number {
+    const sessionPrefix = session.requestHeader()?.messagePrefix ?? []
+    return this.estimateTokens([...sessionPrefix, ...session.deriveMessages()], fullSystemPrompt)
   }
 
   override async compactRegion(
