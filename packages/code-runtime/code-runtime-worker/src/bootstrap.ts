@@ -98,6 +98,10 @@ export function makeConsoleShim(logs: LogBuffer): Record<(typeof CONSOLE_LEVELS)
  * Redirect a stream's `write` into the log buffer (the program-visible
  * `process.stdout`/`process.stderr` in the real worker), so raw writes land
  * in emission order alongside console output instead of racing down a pipe.
+ * The shim keeps Node's `write(chunk[, encoding][, callback])` contract: the
+ * callback fires asynchronously once the chunk is admitted (a program
+ * awaiting flush completion must complete, not sit until the wall timeout),
+ * even for writes the exhausted budget drops.
  * @param logs - the buffer captured writes are pushed into.
  * @param stream - the stream whose `write` slot is patched.
  * @param source - the log source the captured writes are attributed to.
@@ -109,8 +113,14 @@ export function captureStreamWrites(logs: LogBuffer, stream: PatchableStream, so
   // detached, so the unbound-method concern does not apply.
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const original = stream.write
-  stream.write = (chunk: unknown): boolean => {
+  stream.write = (chunk: unknown, ...rest: unknown[]): boolean => {
     logs.push({ source, text: typeof chunk === 'string' ? chunk : String(chunk) })
+    // Node's optional-encoding shape: the callback is whichever of the next
+    // two positions holds a function (a non-function there is the encoding).
+    const callback = [rest[0], rest[1]].find(
+      (arg): arg is (error?: Error | null) => void => typeof arg === 'function',
+    )
+    if (callback) queueMicrotask(() => { callback(null) })
     return true
   }
   return () => { stream.write = original }
@@ -120,15 +130,38 @@ export function captureStreamWrites(logs: LogBuffer, stream: PatchableStream, so
 const INSPECT_OPTIONS = { depth: 4, maxArrayLength: 100, maxStringLength: 10_000 } as const
 
 /**
+ * The longest prefix of `text` whose UTF-8 encoding fits `maxBytes`, cut at
+ * a code-point boundary (never mid-surrogate-pair). The byte caps are BYTE
+ * caps — `String.prototype.slice` counts UTF-16 code units, up to 3× smaller
+ * than what a multibyte string actually costs across the boundary.
+ * @param text - the string to bound.
+ * @param maxBytes - the UTF-8 byte budget the prefix must fit.
+ * @returns the prefix (all of `text` when it already fits).
+ */
+export function truncateUtf8Bytes(text: string, maxBytes: number): string {
+  if (Buffer.byteLength(text, 'utf8') <= maxBytes) return text
+  let bytes = 0
+  let end = 0
+  for (const char of text) {
+    const cost = Buffer.byteLength(char, 'utf8')
+    if (bytes + cost > maxBytes) break
+    bytes += cost
+    end += char.length
+  }
+  return text.slice(0, end)
+}
+
+/**
  * Prepare the program's completion value for the done message: a value whose
  * MEASURED cross-boundary size fits `maxValueBytes` crosses raw — exact
  * bytes for a string, the structured-clone wire size (`v8.serialize`) for
  * everything else, so a huge container whose BOUNDED inspect rendering
  * happens to be small cannot smuggle itself past the cap. Anything else
  * (non-cloneable, or oversized) is REPLACED by its bounded `util.inspect`
- * rendering, truncated with an in-band marker — the seam contract's "a
- * non-transferable value is replaced by a string rendering", extended to
- * oversized ones so a huge return cannot flood the host.
+ * rendering, byte-truncated ({@link truncateUtf8Bytes}) with an in-band
+ * marker — the seam contract's "a non-transferable value is replaced by a
+ * string rendering", extended to oversized ones so a huge return cannot
+ * flood the host.
  * @param value - the program's completion value.
  * @param maxValueBytes - the byte cap for the value.
  * @returns the done-message fragment: `{}` for `undefined`, else `{ value }`.
@@ -150,7 +183,9 @@ export function prepareValue(value: unknown, maxValueBytes: number): { value?: u
     if (size !== undefined && size <= maxValueBytes) return { value }
   }
   const rendered = typeof value === 'string' ? value : inspect(value, INSPECT_OPTIONS)
-  const capped = rendered.length > maxValueBytes ? `${rendered.slice(0, maxValueBytes)}… [truncated]` : rendered
+  const capped = Buffer.byteLength(rendered, 'utf8') > maxValueBytes
+    ? `${truncateUtf8Bytes(rendered, maxValueBytes)}… [truncated]`
+    : rendered
   return { value: capped }
 }
 

@@ -18,7 +18,7 @@ import { Context } from 'cordis'
 import z from 'schemastery'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeBindingFunction, CodeLogEntry, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
-import { prepareValue } from './bootstrap.ts'
+import { prepareValue, truncateUtf8Bytes } from './bootstrap.ts'
 import { logTruncationMarker } from './protocol.ts'
 import type { ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
 
@@ -166,9 +166,8 @@ function parseWorkerMessage(raw: unknown): WorkerToHost | undefined {
 /**
  * Headroom the host's value re-cap grants over `maxValueBytes`: exactly the
  * truncation suffix {@link prepareValue} appends, so a value the WORKER
- * already capped passes through unchanged instead of being marked twice.
- * (A multibyte rendering the worker sliced by characters can still exceed
- * this and pick up a second marker — bounded and harmless.)
+ * already capped (byte-exact prefix + this marker) passes through unchanged
+ * instead of being marked twice.
  */
 const VALUE_RENDER_SLACK = Buffer.byteLength('… [truncated]', 'utf8')
 
@@ -357,7 +356,7 @@ export class WorkerCodeRuntime extends CodeRuntime {
         // unchanged (see VALUE_RENDER_SLACK); the error text is bounded too.
         finish({
           ...prepareValue(message.value, this.config.maxValueBytes + VALUE_RENDER_SLACK),
-          ...message.error ? { error: { kind: 'exception' as const, message: message.error.message.slice(0, this.config.maxValueBytes) } } : {},
+          ...message.error ? { error: { kind: 'exception' as const, message: truncateUtf8Bytes(message.error.message, this.config.maxValueBytes) } } : {},
         })
       }
 

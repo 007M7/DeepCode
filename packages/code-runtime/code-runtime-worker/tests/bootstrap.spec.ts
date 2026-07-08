@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { EventEmitter } from 'node:events'
-import { LogBuffer, makeConsoleShim, makeNamespaces, captureStreamWrites, prepareValue, runWorkerMain, wireReplies } from '@deepseek-ai/dsh-code-runtime-worker/src/bootstrap.ts'
+import { LogBuffer, makeConsoleShim, makeNamespaces, captureStreamWrites, prepareValue, runWorkerMain, truncateUtf8Bytes, wireReplies } from '@deepseek-ai/dsh-code-runtime-worker/src/bootstrap.ts'
 import type { BootstrapPort, PatchableStream, PendingCall } from '@deepseek-ai/dsh-code-runtime-worker/src/bootstrap.ts'
 import type { ReplyMessage, WorkerToHost } from '@deepseek-ai/dsh-code-runtime-worker/src/protocol.ts'
 import type { CodeLogEntry } from '@deepseek-ai/dsh-code-runtime'
@@ -90,6 +90,27 @@ describe('captureStreamWrites', () => {
     expect(seen[0]).toMatchObject({ source: 'stdout' })
     expect(underlying).toBe('after')
   })
+
+  it('invokes the write callback asynchronously, in both optional-encoding shapes', async () => {
+    const buffer = new LogBuffer(1_000, () => {})
+    const stream: PatchableStream = { write: () => true }
+    captureStreamWrites(buffer, stream, 'stdout')
+    const calls: (Error | null | undefined)[] = []
+    stream.write('two-arg', (error?: Error | null) => calls.push(error))
+    stream.write('three-arg', 'utf8', (error?: Error | null) => calls.push(error))
+    // Node's contract: the callback fires after the write call returns.
+    expect(calls).toEqual([])
+    await new Promise<void>(resolve => stream.write('awaited flush', resolve))
+    expect(calls).toEqual([null, null])
+  })
+
+  it('still fires the callback for a write the exhausted budget drops', async () => {
+    const buffer = new LogBuffer(4, () => {})
+    const stream: PatchableStream = { write: () => true }
+    captureStreamWrites(buffer, stream, 'stdout')
+    stream.write('this write overflows the budget and is dropped')
+    await new Promise<void>(resolve => stream.write('also dropped', resolve))
+  })
 })
 
 describe('prepareValue', () => {
@@ -117,6 +138,34 @@ describe('prepareValue', () => {
     const { value } = prepareValue(huge, 1_000)
     expect(typeof value).toBe('string')
     expect(value).toContain('more items')
+  })
+
+  it('caps a multibyte string by UTF-8 bytes, not UTF-16 length', () => {
+    // 4 code units but 12 UTF-8 bytes: a length-counting cap would pass the
+    // full string through untruncated.
+    expect(prepareValue('€€€€', 4)).toEqual({ value: '€… [truncated]' })
+  })
+
+  it('caps a multibyte rendering by UTF-8 bytes too', () => {
+    // Wire size (24-byte string inside an array) exceeds the cap, so the
+    // value crosses as its rendering — whose truncation must also be
+    // byte-exact: "[ '" (3 bytes) + two € (6 bytes) = 9; a third € would
+    // overflow the 10-byte budget.
+    expect(prepareValue(['€€€€€€€€'], 10)).toEqual({ value: "[ '€€… [truncated]" })
+  })
+})
+
+describe('truncateUtf8Bytes', () => {
+  it('returns a fitting string whole', () => {
+    expect(truncateUtf8Bytes('fits', 4)).toBe('fits')
+  })
+
+  it('cuts at a code-point boundary, never mid-surrogate-pair', () => {
+    // Each 😀 is one code point, two code units, four UTF-8 bytes: a 5-byte
+    // budget fits exactly one — and never leaves a lone surrogate behind.
+    const cut = truncateUtf8Bytes('😀😀', 5)
+    expect(cut).toBe('😀')
+    expect(Buffer.byteLength(truncateUtf8Bytes('😀😀', 3), 'utf8')).toBe(0)
   })
 })
 
