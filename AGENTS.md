@@ -19,11 +19,12 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   compact/     compaction seam + basic backend
   subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
   todo/        the todo_write tool
+  guard/       loop-hygiene plugins
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
   ui/          ACP bridge + app-boot glue + the stdio/ACP app bins
-  support/     dev/test infrastructure: invariants, llm-replay, subagent-mock
-  util/        zero-dependency utilities (Branded<B>)
+  support/     dev/test infrastructure packages
+  util/        zero-dependency utilities
 examples/    Runnable demos: thin cordis.yml leaves over the app packages (see examples/AGENTS.md)
 docs/        architecture, generated catalogs, RFCs, postmortems, cookbook (see docs/AGENTS.md)
 scripts/     repo gates and generators

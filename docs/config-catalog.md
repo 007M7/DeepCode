@@ -353,6 +353,38 @@ export interface Config {
 
 Source: [`packages/support/llm-replay/src/index.ts:429`](../packages/support/llm-replay/src/index.ts)
 
+## `@deepseek-ai/dsh-repeat-tool-guard`
+
+```ts config-catalog
+/**
+ * Plugin config, validated by the same-named schemastery schema plus the
+ * load-time checks in `apply` (misconfiguration fails loud: an empty
+ * `thresholds` list, a non-integer, a value below 2, or a duplicate throws at
+ * plugin load, never a silent fall-back). `include`/`exclude` entries are
+ * `*`-wildcard predicates over tool names at call time, not references to
+ * registry entries — a pattern matching no currently registered tool is valid
+ * (`exclude: [mcp_*]` must stay legal in a deployment that loads no MCP tools).
+ */
+export interface Config {
+  /** Consecutive-repeat counts that trigger a reminder (default `[3, 5, 8]`). */
+  thresholds?: number[]
+  /** Tool-name patterns to track; empty means every tool is tracked. */
+  include?: string[]
+  /** Tool-name patterns transparent to the chain (neither count nor reset). */
+  exclude?: string[]
+  /**
+   * Maximum characters of canonical arguments quoted in the DETAILED reminder
+   * (default 500). Large payloads (a `write` body, a long command) would
+   * otherwise ride into the next request unbounded — precisely in a loop
+   * scenario; the cap bounds the reminder, never the detection (the chain key
+   * always compares the FULL canonical string).
+   */
+  argumentsPreviewChars?: number
+}
+```
+
+Source: [`packages/guard/repeat-tool-guard/src/index.ts:55`](../packages/guard/repeat-tool-guard/src/index.ts)
+
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 
 Requires: `sessions`
