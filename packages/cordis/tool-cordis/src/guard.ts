@@ -1,19 +1,27 @@
 /**
  * The registration boundary between sandboxed mount code and the real runtime:
- * SchemaSpec validation with teaching errors, the marker-guarded
- * `harness.defineTool` / `harness.registerTool` pair, the guarded `ctx` proxy a
- * mounted plugin receives, and the plugin-shape helpers the mount lifecycle
- * narrows sandbox return values with.
+ * SchemaSpec normalization + validation with teaching errors, the
+ * marker-guarded `harness.defineTool` / `harness.registerTool` pair, the
+ * guarded `ctx` proxy a mounted plugin receives, and the plugin-shape helpers
+ * the mount lifecycle narrows sandbox return values with.
  *
  * Two realm facts drive the design. Objects built inside the vm carry the vm
  * realm's `Object.prototype`, and the session log's append-time plainness check
  * (`dsh-session`'s `isJsonValue`, a prototype-identity comparison) rejects
  * foreign-realm data — so every dynamic tool's `execute` return is JSON
- * round-tripped into the host realm before it reaches the registry. And a
- * malformed tool schema must fail at REGISTRATION, not when a later request
- * assembles it — so dynamic `ctx.tools.register` calls accept only definitions
- * produced by the sandbox's `harness.defineTool`, which asserts the SchemaSpec
- * DSL up front.
+ * round-tripped into the host realm before it reaches the registry, and the
+ * schema itself is rebuilt as fresh host-realm objects. And a malformed tool
+ * schema must fail at REGISTRATION, not when a later request assembles it — so
+ * dynamic `ctx.tools.register` calls accept only definitions produced by the
+ * sandbox's `harness.defineTool`, which normalizes `parameters` up front.
+ *
+ * Normalize, don't lecture, where the input has exactly one meaning: models
+ * write the JSON-Schema dialect by strong prior (the `{ type: 'object',
+ * properties, required: […] }` wrapper, `type: 'integer'`, `required: false`),
+ * and each rejection costs a model turn — so those convert to the SchemaSpec
+ * DSL silently, and only genuinely meaningless input (an unknown type, a
+ * non-boolean `required`) is rejected, with the error enumerating the valid
+ * vocabulary.
  *
  * @module @deepseek-ai/dsh-tool-cordis/guard
  */
@@ -24,6 +32,7 @@ import type { ToolDefinition, ToolExecuteReturn } from '@deepseek-ai/dsh-tools'
 
 const DYNAMIC_TOOL = Symbol('tool-cordis.dynamic-tool')
 const SCHEMA_TYPES = new Set<unknown>(['string', 'number', 'boolean', 'object', 'array'])
+const VALID_TYPES = '\'string\' | \'number\' | \'boolean\' | \'object\' | \'array\''
 
 type DynamicToolDefinition = ToolDefinition & { [DYNAMIC_TOOL]: true }
 type DynamicToolMarker = { [DYNAMIC_TOOL]?: unknown }
@@ -32,47 +41,70 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Object.prototype.toString.call(value) === '[object Object]'
 }
 
-/** Assert a sandbox-provided `parameters` value is a SchemaSpec object, with a teaching error for the common JSON-Schema mistake. */
-function assertSchemaSpec(value: unknown): void {
+/**
+ * Normalize a sandbox-provided `parameters` value into a fresh host-realm
+ * SchemaSpec. Accepts the DSL directly, or the JSON-Schema-style
+ * `{ type: 'object', properties, required: […] }` wrapper models write by
+ * prior — the wrapper unwraps and its `required` array becomes per-property
+ * flags (see the module doc).
+ */
+function normalizeSchemaSpec(value: unknown, path = 'parameters'): Record<string, unknown> {
   if (!isPlainRecord(value)) {
-    throw new Error('harness.defineTool parameters must be a SchemaSpec object')
+    throw new Error(`harness.defineTool ${path} must be a SchemaSpec object`)
   }
+  let entries = value
+  const requiredNames = new Set<unknown>()
   if (value.type === 'object' && isPlainRecord(value.properties)) {
-    throw new Error(
-      'harness.defineTool parameters use the SchemaSpec DSL (NOT JSON Schema).\n'
-      + '  ✗ { type: \'object\', properties: { name: { type: \'string\' } }, required: [\'name\'] }\n'
-      + '  ✓ { name: { type: \'string\', required: true } }\n'
-      + 'Remove the outer { type: \'object\', properties, required } wrapper; '
-      + 'each key IS a property directly on the parameters object.',
-    )
+    if (Array.isArray(value.required)) {
+      for (const name of value.required) requiredNames.add(name)
+    }
+    entries = value.properties
   }
-  for (const [key, prop] of Object.entries(value)) {
-    assertSchemaProp(prop, `parameters.${key}`)
+  const spec: Record<string, unknown> = {}
+  for (const [key, prop] of Object.entries(entries)) {
+    spec[key] = normalizeSchemaProp(prop, `${path}.${key}`, requiredNames.has(key))
   }
+  return spec
 }
 
-function assertSchemaProp(value: unknown, path: string): void {
+/** Normalize one property: `integer` → `number`, `required: false` → absent, nested wrappers unwrapped recursively. */
+function normalizeSchemaProp(value: unknown, path: string, forceRequired = false): Record<string, unknown> {
   if (!isPlainRecord(value)) {
     throw new Error(`harness.defineTool ${path} must be a SchemaSpec property object`)
   }
-  if (!SCHEMA_TYPES.has(value.type)) {
-    throw new Error(`harness.defineTool ${path} must declare a valid type`)
+  const type = value.type === 'integer' ? 'number' : value.type
+  if (!SCHEMA_TYPES.has(type)) {
+    throw new Error(`harness.defineTool ${path} must declare a valid type: ${VALID_TYPES} (got ${JSON.stringify(value.type)})`)
   }
-  if (value.required !== undefined && value.required !== true) {
-    throw new Error(`harness.defineTool ${path}.required must be true when present`)
+  // On an object property a JSON-Schema-style `required` ARRAY names required
+  // children (handled by the nested unwrap below); everywhere else `required`
+  // must be a boolean, and `false` simply reads as optional.
+  const nestedRequiredArray = type === 'object' && Array.isArray(value.required)
+  if (value.required !== undefined && typeof value.required !== 'boolean' && !nestedRequiredArray) {
+    throw new Error(`harness.defineTool ${path}.required must be a boolean when present`)
   }
+  const prop: Record<string, unknown> = { type }
+  if (forceRequired || value.required === true) prop.required = true
+  if (typeof value.description === 'string') prop.description = value.description
+  if (Array.isArray(value.enum)) prop.enum = [...value.enum as unknown[]]
+  if (value.default !== undefined) prop.default = value.default
   if (value.properties !== undefined) {
-    if (value.type !== 'object') {
+    if (type !== 'object') {
       throw new Error(`harness.defineTool ${path}.properties is only valid for type "object"`)
     }
-    assertSchemaSpec(value.properties)
+    // Re-wrap so the nested unwrap applies a nested `required` array too.
+    prop.properties = normalizeSchemaSpec(
+      { type: 'object', properties: value.properties, required: value.required },
+      `${path}.properties`,
+    )
   }
   if (value.items !== undefined) {
-    if (value.type !== 'array') {
+    if (type !== 'array') {
       throw new Error(`harness.defineTool ${path}.items is only valid for type "array"`)
     }
-    assertSchemaProp(value.items, `${path}.items`)
+    prop.items = normalizeSchemaProp(value.items, `${path}.items`)
   }
+  return prop
 }
 
 function markDynamicTool(tool: ToolDefinition): DynamicToolDefinition {
@@ -87,17 +119,19 @@ function assertDynamicTool(tool: unknown): asserts tool is DynamicToolDefinition
 }
 
 /**
- * The `harness.defineTool` handed into the sandbox: the real DSL, with the
+ * The `harness.defineTool` handed into the sandbox: the real DSL, with
+ * `parameters` normalized into a fresh host-realm SchemaSpec (JSON-Schema
+ * wrapper unwrapped, `integer` mapped, `required: false` dropped) and the
  * tool's `execute` return normalized into the host realm via a JSON round-trip
  * (see the module doc). The round-trip also projects the return onto exactly
  * what the log would durably store, so a non-JSON-serializable return surfaces
  * as that one call's error instead of poisoning the turn.
- * @param options - the standard `defineTool` options, with `parameters` asserted against the SchemaSpec DSL before the DSL sees them.
+ * @param options - the standard `defineTool` options; `parameters` may be the SchemaSpec DSL or a JSON-Schema-style wrapper.
  * @returns the marker-tagged definition `harness.registerTool` (and the guarded `ctx.tools.register`) accepts.
  */
 export function sandboxDefineTool(options: Parameters<typeof defineTool>[0]): ToolDefinition {
-  assertSchemaSpec((options as { parameters?: unknown }).parameters)
-  const tool = defineTool(options)
+  const parameters = normalizeSchemaSpec((options as { parameters?: unknown }).parameters)
+  const tool = defineTool({ ...options, parameters } as Parameters<typeof defineTool>[0])
   const execute = tool.execute.bind(tool)
   return markDynamicTool({
     ...tool,

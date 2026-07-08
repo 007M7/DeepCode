@@ -60,39 +60,85 @@ describe('cordis_mount', () => {
     expect(isJsonValue({ content: reversed.content, isError: reversed.isError })).toBe(true)
   })
 
-  it('rejects JSON Schema passed to harness.defineTool with the SchemaSpec teaching error', async () => {
+  it('accepts a JSON-Schema-style parameters wrapper and normalizes it to the DSL', async () => {
+    // The dialect models write by strong prior: the { type:'object',
+    // properties, required: […] } wrapper, `type: 'integer'`, and
+    // `required: false`. All of it has exactly one meaning — normalize instead
+    // of burning a model turn on a lecture.
     const ctx = await setup()
     const result = await call(ctx, 'cordis_mount', {
       code: `
         return {
-          name: 'bad-json-schema-tool',
+          name: 'json-schema-tool',
           inject: ['tools'],
           apply(ctx) {
             harness.registerTool(ctx, harness.defineTool({
-              name: 'bad_json_schema_tool',
-              description: 'bad',
+              name: 'json_schema_tool',
+              description: 'written in the JSON-Schema dialect',
               parameters: {
                 type: 'object',
-                properties: { text: { type: 'string' } },
+                properties: {
+                  text: { type: 'string', description: 'the text' },
+                  count: { type: 'integer', default: 1 },
+                  mode: { type: 'string', enum: ['fast', 'slow'] },
+                  extra: { type: 'string', required: false },
+                },
                 required: ['text'],
               },
-              async execute() { return [{ type: 'text', text: 'bad' }] },
+              async execute(args) { return [{ type: 'text', text: args.text + ':' + (args.count ?? 0) }] },
             }))
           },
         }
       `,
     })
+    expect(result.isError).toBe(false)
 
-    expect(result.isError).toBe(true)
-    expect(text(result)).toContain('harness.defineTool parameters use the SchemaSpec DSL')
-    expect(ctx.tools.get('bad_json_schema_tool')).toBeUndefined()
+    // The registered schema is canonical JSON Schema derived from the DSL:
+    // the required array survived, integer became number, extra is optional.
+    const schema = ctx.tools.schemas().find(s => s.name === 'json_schema_tool')!
+    const parameters = schema.parameters as { properties: Record<string, { type: string; enum?: string[] }>; required?: string[] }
+    expect(parameters.required).toEqual(['text'])
+    expect(parameters.properties.count!.type).toBe('number')
+    expect(parameters.properties.mode!.enum).toEqual(['fast', 'slow'])
+    // Arg validation enforces the normalized spec: text required, extra not.
+    expect((await call(ctx, 'json_schema_tool', { count: 2 })).isError).toBe(true)
+    expect(text(await call(ctx, 'json_schema_tool', { text: 'ok', count: 2 }))).toBe('ok:2')
+  })
+
+  it('normalizes a nested object property carrying a JSON-Schema required array', async () => {
+    // On an object PROPERTY, a JSON-Schema-style `required` array names the
+    // required children — the nested unwrap converts it just like the top level.
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'nested-json-schema',
+          inject: ['tools'],
+          apply(ctx) {
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'nested_json_schema_tool',
+              description: 'nested dialect',
+              parameters: {
+                cfg: { type: 'object', properties: { label: { type: 'string' } }, required: ['label'] },
+              },
+              async execute(args) { return [{ type: 'text', text: args.cfg.label }] },
+            }))
+          },
+        }
+      `,
+    })
+    expect(result.isError).toBe(false)
+    const schema = ctx.tools.schemas().find(s => s.name === 'nested_json_schema_tool')!
+    const cfg = (schema.parameters as { properties: { cfg: { required?: string[] } } }).properties.cfg
+    expect(cfg.required).toEqual(['label'])
+    expect(text(await call(ctx, 'nested_json_schema_tool', { cfg: { label: 'hi' } }))).toBe('hi')
   })
 
   it.each([
     ['parameters: 42', 'must be a SchemaSpec object'],
     ['parameters: { text: 42 }', 'parameters.text must be a SchemaSpec property object'],
-    ['parameters: { text: { type: \'str\' } }', 'parameters.text must declare a valid type'],
-    ['parameters: { text: { type: \'string\', required: false } }', 'parameters.text.required must be true when present'],
+    ['parameters: { text: { type: \'str\' } }', 'parameters.text must declare a valid type: \'string\' | \'number\' | \'boolean\' | \'object\' | \'array\' (got "str")'],
+    ['parameters: { text: { type: \'string\', required: \'yes\' } }', 'parameters.text.required must be a boolean when present'],
     ['parameters: { text: { type: \'string\', properties: {} } }', 'parameters.text.properties is only valid for type "object"'],
     ['parameters: { text: { type: \'string\', items: { type: \'string\' } } }', 'parameters.text.items is only valid for type "array"'],
   ])('rejects a malformed SchemaSpec (%s) with a teaching error', async (parameters, message) => {
