@@ -14,7 +14,13 @@ import { assertNever } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { htmlToMarkdown } from './html.ts'
 
-/** Validate value constraints the schema DSL can't express. */
+/**
+ * Validate value constraints the schema DSL can't express: a non-blank `url`,
+ * and a positive `timeout_ms` when present. Throws a plain `Error` otherwise.
+ *
+ * @param args - the schema-validated `web_fetch` arguments.
+ * @returns the arguments renamed to the seam's camelCase request fields.
+ */
 export function parseFetchArgs(args: { url: string; timeout_ms?: number }): { url: string; timeoutMs?: number } {
   if (args.url.trim().length === 0) throw new Error('url must be a non-empty string')
   if (args.timeout_ms !== undefined && (!Number.isFinite(args.timeout_ms) || args.timeout_ms <= 0)) {
@@ -23,7 +29,13 @@ export function parseFetchArgs(args: { url: string; timeout_ms?: number }): { ur
   return { url: args.url, ...args.timeout_ms !== undefined ? { timeoutMs: args.timeout_ms } : {} }
 }
 
-/** Render a fetched body to model-facing markdown text. */
+/**
+ * Render a fetched body to model-facing markdown text.
+ *
+ * @param body - the decoded body; `html` is converted via
+ *   {@link htmlToMarkdown}, `text` passes through verbatim.
+ * @returns the text for the tool's output block.
+ */
 export function renderBody(body: WebFetchBody): string {
   switch (body.kind) {
     case 'html':
@@ -36,19 +48,35 @@ export function renderBody(body: WebFetchBody): string {
   }
 }
 
-/** Format a fetch result as one model-facing text block. */
+/**
+ * Format a fetch result as one model-facing text block.
+ *
+ * @param result - the seam's fetch outcome.
+ * @returns a `Fetched <url> (HTTP <status>)` header, the rendered body, and a
+ *   fetch-something-narrower notice when the provider truncated the content.
+ */
 export function formatFetchOutput(result: WebFetchResult): string {
   const header = `Fetched ${result.url} (HTTP ${result.statusCode})`
   const footer = result.truncated ? '\n\n(Content truncated. Fetch a more specific URL or section for the full text.)' : ''
   return `${header}\n\n${renderBody(result.body)}${footer}`
 }
 
-/** Pending-call presentation: a fetch card titled by the URL. */
+/**
+ * Pending-call presentation: a fetch card titled by the URL.
+ *
+ * @param args - the raw tool arguments; only `url` feeds the view.
+ * @returns the generic card view (`kind: 'fetch'`) shown while the call runs.
+ */
 export function presentFetchCall(args: { url: string; timeout_ms?: number }): GenericCallView {
   return { card: 'generic', title: args.url, kind: 'fetch', rawInput: args.url }
 }
 
-/** Register the `web_fetch` tool and its system-prompt guidance. */
+/**
+ * Register the `web_fetch` tool and its system-prompt guidance.
+ *
+ * @param ctx - context whose `tools` and `systemPrompt` registries receive the
+ *   registrations; both are effect-scoped and unregister on plugin dispose.
+ */
 export function applyWebFetchTool(ctx: Context): void {
   ctx.systemPrompt.section({
     name: 'tool:web_fetch',

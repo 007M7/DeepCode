@@ -40,7 +40,8 @@ Source: [`packages/ui/acp/src/index.ts:236`](../packages/ui/acp/src/index.ts)
  * App config: the swappable per-deployment values. `model` configures the
  * agent template the ACP bridge creates each session's agent from (NOT a
  * pre-created agent — ACP creates agents at `session/new`); `persona` is the
- * deployment persona (forwarded to the system-prompt plugin);
+ * deployment persona (forwarded to the system-prompt plugin); `toolOrder` is
+ * the explicit model-facing tool order (forwarded to the system-prompt plugin);
  * `persistenceRoot` is the JSONL backend's directory.
  */
 export interface Config {
@@ -48,12 +49,14 @@ export interface Config {
   model: string
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
+  /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
+  toolOrder?: string[]
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
 }
 ```
 
-Source: [`packages/ui/acp-agent/src/index.ts:50`](../packages/ui/acp-agent/src/index.ts)
+Source: [`packages/ui/acp-agent/src/index.ts:51`](../packages/ui/acp-agent/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-core`
 
@@ -61,29 +64,36 @@ Source: [`packages/ui/acp-agent/src/index.ts:50`](../packages/ui/acp-agent/src/i
 /**
  * Bundle config: each field forwarded verbatim to the child that owns it —
  * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
- * bridge, simply omits it), `persona` to the system-prompt plugin (the
- * deployment's persona section). Both are optional INPUT here because each
- * owner's schema supplies the default (`[]` / `''`); the schema is the
- * INTERSECTION of the owners' own schemas, so validation and defaulting can
- * never drift from them.
+ * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
+ * plugin (the deployment's persona section and the explicit model-facing tool
+ * order). Every field is optional INPUT here because each owner's schema
+ * supplies the default (`[]` / `''` / absent — lexicographic); the schema is
+ * the INTERSECTION of the owners' own schemas, so validation and defaulting
+ * can never drift from them.
  */
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
   agents?: AgentLoopConfig['agents']
   /** The deployment persona (see dsh-system-prompt's `Config`). */
   persona?: SystemPromptConfig['persona']
+  /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
+  toolOrder?: SystemPromptConfig['toolOrder']
 }
 ```
 
 Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt)
 
-Source: [`packages/core/agent-core/src/index.ts:68`](../packages/core/agent-core/src/index.ts)
+Source: [`packages/core/agent-core/src/index.ts:69`](../packages/core/agent-core/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
 Requires: `agents` · `sessions` · `llm` · `tools` · `systemPrompt`
 
 ```ts config-catalog
+/**
+ * Plugin config: the agents to create — or resume, via `resumeSessionId` —
+ * declaratively at startup, so a cordis.yml deployment needs no code.
+ */
 export interface Config {
   /** Agents created from configuration at startup. */
   agents: (AgentOptions & {
@@ -109,7 +119,7 @@ export interface Config {
 
 Depends on: [`AgentId`](../packages/core/agent/src/index.ts) · [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
 
-Source: [`packages/core/agent-loop/src/index.ts:32`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:36`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -268,6 +278,12 @@ Source: [`packages/support/invariants/src/index.ts:45`](../packages/support/inva
 Requires: `llm`
 
 ```ts config-catalog
+/**
+ * Plugin config, validated by the same-named schemastery schema. Every field
+ * is optional in yml: credentials/endpoint fall back to the environment (a
+ * missing API key fails plugin load, not the first call), and omitted
+ * thinking fields send nothing on the wire, so the provider default applies.
+ */
 export interface Config {
   /** API key; falls back to $DEEPSEEK_API_KEY. Required one way or the other. */
   apiKey?: string
@@ -282,13 +298,18 @@ export interface Config {
 }
 ```
 
-Source: [`packages/llm/llm-deepseek/src/index.ts:37`](../packages/llm/llm-deepseek/src/index.ts)
+Source: [`packages/llm/llm-deepseek/src/index.ts:43`](../packages/llm/llm-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-pi-ai`
 
 Requires: `llm`
 
 ```ts config-catalog
+/**
+ * Plugin config, validated by the same-named schemastery schema. Every field
+ * is optional in yml: credentials/endpoint fall back to the environment (a
+ * missing API key fails plugin load, not the first call).
+ */
 export interface Config {
   /** API key; falls back to $DEEPSEEK_API_KEY. Required one way or the other. */
   apiKey?: string
@@ -308,13 +329,14 @@ export interface Config {
 export type PiAiReasoning = 'off' | 'high' | 'xhigh'
 ```
 
-Source: [`packages/llm/llm-pi-ai/src/index.ts:32`](../packages/llm/llm-pi-ai/src/index.ts)
+Source: [`packages/llm/llm-pi-ai/src/index.ts:37`](../packages/llm/llm-pi-ai/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-replay`
 
 Requires: `llm`
 
 ```ts config-catalog
+/** Plugin config: the {@link ReplayConfig} inputs, each defaulting to its `DSH_SNAPSHOT_*` env var in `apply`. */
 export interface Config {
   /** Override the fixture path; defaults to `$DSH_SNAPSHOT_FILE`. */
   file?: string
@@ -329,13 +351,14 @@ export interface Config {
 }
 ```
 
-Source: [`packages/support/llm-replay/src/index.ts:415`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:429`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 
 Requires: `sessions`
 
 ```ts config-catalog
+/** Plugin config: where the JSONL backend keeps its session logs (`root` is required — no default). */
 export interface Config {
   /**
    * Root directory for all session files. Required (no default): a default of
@@ -346,7 +369,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:34`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:35`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-sqlite`
 
@@ -390,7 +413,8 @@ Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:5
  * App config: the swappable per-demo values, each routed to where the app wires
  * it. `model`/`resumeSessionId` configure the pre-created `main` agent (through
  * {@link @deepseek-ai/dsh-agent-core}'s forwarded `agents` list); `persona` is
- * the deployment persona (forwarded to the system-prompt plugin);
+ * the deployment persona (forwarded to the system-prompt plugin); `toolOrder`
+ * is the explicit model-facing tool order (forwarded to the system-prompt plugin);
  * `persistenceRoot` is the JSONL backend's directory; `welcome` is the UI banner.
  */
 export interface Config {
@@ -398,6 +422,8 @@ export interface Config {
   model: string
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
+  /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
+  toolOrder?: string[]
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
@@ -411,7 +437,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/ui/stdio-agent/src/index.ts:61`](../packages/ui/stdio-agent/src/index.ts)
+Source: [`packages/ui/stdio-agent/src/index.ts:62`](../packages/ui/stdio-agent/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-acp`
 
@@ -481,7 +507,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/subagent/subagent-fork/src/index.ts:34`](../packages/subagent/subagent-fork/src/index.ts)
+Source: [`packages/subagent/subagent-fork/src/index.ts:38`](../packages/subagent/subagent-fork/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-mock`
 
@@ -528,11 +554,12 @@ export interface Config {
 }
 ```
 
-Source: [`packages/subagent/subagent-spawn/src/index.ts:26`](../packages/subagent/subagent-spawn/src/index.ts)
+Source: [`packages/subagent/subagent-spawn/src/index.ts:36`](../packages/subagent/subagent-spawn/src/index.ts)
 
 ## `@deepseek-ai/dsh-system-prompt`
 
 ```ts config-catalog
+/** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.persona} for its contract). */
 export interface Config {
   /**
    * The deployment's persona — the ONE deployment-authored fragment of the
@@ -547,10 +574,33 @@ export interface Config {
    * deployment opens with the harness identity alone.
    */
   persona?: string
+  /**
+   * Explicit model-facing tool order, as a list of `ToolSchema.name`s: listed
+   * tools take their listed position, and tools absent from the list are
+   * inserted at the {@link TOOL_ORDER_REST} (`'<unlisted-tools>'`) entry in
+   * lexicographic name order. A configured list must contain the rest entry
+   * exactly once, no duplicate names, and no name without a registered tool —
+   * a misconfigured order blocks work instead of silently reaching a model
+   * request: shape violations throw at load, and an unregistered name rejects
+   * every assembly. `TOOL_ORDER_REST` is reserved for the list marker and may
+   * not be a collected tool name; such a provider output also rejects the
+   * assembly. The single assembly-time validation rejects either failure
+   * before any model request — the earliest moment the registered tool set
+   * exists to check against, since tool plugins register after this service
+   * constructs. When omitted, tools are ordered lexicographically by name.
+   * Applied to the tools
+   * {@link SystemPrompt.assemble} collects, BEFORE the
+   * `system-prompt/assemble` waterfall — like the sections' `order` sort, it
+   * canonicalizes what the registry contributed (registration order is a
+   * plugin-load artifact); a waterfall listener that mutates the tool list
+   * owns the determinism of what it emits. Rationale (and why not per-plugin
+   * weights): docs/rfc/implemented/feature/2026-07-06-explicit-tool-order.md.
+   */
+  toolOrder?: string[]
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:113`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:179`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-fs`
 
@@ -608,6 +658,7 @@ Source: [`packages/subagent/tool-subagent/src/index.ts:44`](../packages/subagent
 Requires: `tools` · `web` · `systemPrompt`
 
 ```ts config-catalog
+/** Plugin config: which web tools to register, and the `web_search` source cap. */
 export interface Config {
   /** Register `web_search`. Defaults to true. */
   search?: boolean
@@ -618,7 +669,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/tool-web/src/index.ts:36`](../packages/web/tool-web/src/index.ts)
+Source: [`packages/web/tool-web/src/index.ts:37`](../packages/web/tool-web/src/index.ts)
 
 ## `@deepseek-ai/dsh-web`
 
@@ -644,6 +695,7 @@ Source: [`packages/web/web/src/index.ts:68`](../packages/web/web/src/index.ts)
 Requires: `web`
 
 ```ts config-catalog
+/** Plugin config: the provider's transport and size limits plus its `User-Agent` (all defaulted). */
 export interface Config {
   /** Maximum accepted request URL length. */
   maxUrlLength?: number
@@ -662,13 +714,14 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-fetch-local/src/index.ts:33`](../packages/web/web-fetch-local/src/index.ts)
+Source: [`packages/web/web-fetch-local/src/index.ts:34`](../packages/web/web-fetch-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-search-deepseek`
 
 Requires: `web`
 
 ```ts config-catalog
+/** Plugin config (all optional — `apply` fills env-var and constant defaults). */
 export interface Config {
   /** DeepSeek API key. Falls back to `$DEEPSEEK_API_KEY`. Empty → unavailable. */
   apiKey?: string
@@ -685,13 +738,14 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-search-deepseek/src/index.ts:47`](../packages/web/web-search-deepseek/src/index.ts)
+Source: [`packages/web/web-search-deepseek/src/index.ts:48`](../packages/web/web-search-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-search-exa`
 
 Requires: `web`
 
 ```ts config-catalog
+/** Plugin config (all optional — `apply` fills env-var and constant defaults). */
 export interface Config {
   /** Exa API key. Falls back to `$EXA_API_KEY`. Empty → provider unavailable. */
   apiKey?: string
@@ -706,13 +760,14 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-search-exa/src/index.ts:38`](../packages/web/web-search-exa/src/index.ts)
+Source: [`packages/web/web-search-exa/src/index.ts:39`](../packages/web/web-search-exa/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-search-perplexity`
 
 Requires: `web`
 
 ```ts config-catalog
+/** Plugin config (all optional — `apply` fills env-var and constant defaults). */
 export interface Config {
   /** Perplexity API key. Falls back to `$PERPLEXITY_API_KEY`. Empty → unavailable. */
   apiKey?: string
@@ -727,7 +782,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-search-perplexity/src/index.ts:32`](../packages/web/web-search-perplexity/src/index.ts)
+Source: [`packages/web/web-search-perplexity/src/index.ts:33`](../packages/web/web-search-perplexity/src/index.ts)
 
 ## Loadable plugins with no config
 

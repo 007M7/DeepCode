@@ -40,12 +40,14 @@ async function readUntil(
 ): Promise<BashTaskRead> {
   const deadline = Date.now() + timeoutMs
   let last: BashTaskRead | undefined
+  let delta = ''
   while (Date.now() < deadline) {
     last = bash.readOutput(id)
-    if (last.delta.includes(expected)) return last
+    delta += last.delta
+    if (delta.includes(expected)) return { ...last, delta }
     await new Promise(resolve => setTimeout(resolve, 20))
   }
-  throw new Error(`task ${id} output did not include ${JSON.stringify(expected)}; last delta was ${JSON.stringify(last?.delta ?? '')}`)
+  throw new Error(`task ${id} output did not include ${JSON.stringify(expected)}; output was ${JSON.stringify(delta)}, last delta was ${JSON.stringify(last?.delta ?? '')}`)
 }
 
 describe('LocalBashExecutor.run', () => {
@@ -90,8 +92,8 @@ describe('LocalBashExecutor.run', () => {
 
   it('kill escalation uses the configured graceMs (a TERM-trapping task dies by SIGKILL)', async () => {
     const { bash } = await setup() // setup pins graceMs: 200 via config
-    const task = bash.start(bash.resolve({ command: 'trap \'\' TERM; sleep 60' }))
-    await new Promise(resolve => setTimeout(resolve, 100))
+    const task = bash.start(bash.resolve({ command: 'trap \'\' TERM; echo trap-ready; sleep 60' }))
+    await readUntil(bash, task.id, 'trap-ready')
     bash.kill(task.id)
     await task.done
     expect(task.signal).toBe('SIGKILL')

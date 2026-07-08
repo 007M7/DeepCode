@@ -12,7 +12,7 @@ The seam this rides on: `CreateAgentOptions.seed` (added on `dsh-agent`, threade
 
 ## Capabilities
 
-`{ outputSchema: false, depthLimit: true, toolFilter: false }` — identical to spawn (the depth/model/output behavior is the shared driver's).
+`{ outputSchema: true, depthLimit: true, toolFilter: false }` — identical to spawn (the depth/model/structured-output behavior is the shared driver's).
 
 ## Config
 

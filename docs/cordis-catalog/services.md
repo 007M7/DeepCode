@@ -21,7 +21,7 @@ createAgent(options: CreateAgentOptions): AgentHandle
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:64`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:68`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -124,7 +124,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:84`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:88`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 
@@ -146,7 +146,7 @@ abstract list(): Promise<SessionHeader[]>
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:98`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:102`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessions` — `SessionStore`
 
@@ -164,7 +164,7 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:389`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:405`](../../packages/core/session/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 
@@ -187,10 +187,10 @@ Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections,
 section(section: PromptSection): () => void
 tools(provider: () => ToolSchema[]): () => void
 variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void
-assemble(context: AssembleContext = {}): Promise<PromptAssembly>
+async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:198`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:291`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 
@@ -205,7 +205,7 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:268`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:278`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

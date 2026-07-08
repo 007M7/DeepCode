@@ -43,6 +43,10 @@
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionResult", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "PreToolDecision", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "PostToolDecision", "source": "packages/core/tools/src/index.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "StructuredScalar", "source": "packages/core/tools/src/json-schema.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "StructuredSchemaType", "source": "packages/core/tools/src/json-schema.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "StructuredSchemaNode", "source": "packages/core/tools/src/json-schema.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "StructuredOutputSchema", "source": "packages/core/tools/src/json-schema.ts" },
 
     { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "AskUserQuestionOption", "source": "packages/core/user-interaction/src/index.ts" },
     { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "AskUserQuestionItem", "source": "packages/core/user-interaction/src/index.ts" },

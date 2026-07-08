@@ -29,6 +29,11 @@ export { mapStopReason, mapUsage, toPiContext, toStreamChunks } from './convert.
 export const name = 'llm-pi-ai'
 export const inject = ['llm']
 
+/**
+ * Plugin config, validated by the same-named schemastery schema. Every field
+ * is optional in yml: credentials/endpoint fall back to the environment (a
+ * missing API key fails plugin load, not the first call).
+ */
 export interface Config {
   /** API key; falls back to $DEEPSEEK_API_KEY. Required one way or the other. */
   apiKey?: string

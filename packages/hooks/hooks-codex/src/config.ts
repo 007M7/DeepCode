@@ -41,6 +41,8 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
  * `type !== 'command'` and `async: true` command hooks are skipped (recorded in
  * `skipped`). Malformed entries are ignored rather than thrown — a bad config
  * must not crash boot. No command substitution (Codex does none).
+ * @param raw - the parsed JSON config: a `{ hooks: … }` wrapper or the bare event map.
+ * @returns the runnable per-event groups plus the skipped hooks with their reasons.
  */
 export function parseCodexConfig(raw: unknown): ParsedCodexConfig {
   const config: CodexHookConfig = {}

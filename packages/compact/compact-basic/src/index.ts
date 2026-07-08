@@ -216,6 +216,11 @@ export class BasicCompactService extends CompactService {
    * Estimate the token count of content blocks — chars divided by the
    * `charsPerToken` config, with per-block overhead. Override in a subclass to
    * plug in a real tokenizer.
+   *
+   * @param blocks - the blocks to estimate; `tool-result` blocks recurse into
+   *   their nested content, and unknown (merge-extended) types fall back to
+   *   their JSON-stringified length.
+   * @returns the estimated token count.
    */
   estimateContentTokens(blocks: readonly ContentBlock[]): number {
     const { charsPerToken } = this.config
@@ -246,6 +251,11 @@ export class BasicCompactService extends CompactService {
   /**
    * Estimate token count for a single session event. Returns 0 for non-message
    * event types (boundaries, chunks, usage, errors, compact markers).
+   *
+   * @param event - any session event; only the message-bearing types carry
+   *   content to count.
+   * @returns the estimated token count of the event's content, or 0 for a
+   *   non-message event.
    */
   estimateEventTokens(event: SessionEvent): number {
     switch (event.type) {
@@ -260,7 +270,14 @@ export class BasicCompactService extends CompactService {
     }
   }
 
-  /** Estimate total tokens across a list of messages plus optional system prompt. */
+  /**
+   * Estimate total tokens across a list of messages plus optional system prompt.
+   *
+   * @param messages - the derived conversation messages; each adds a fixed
+   *   role-framing overhead on top of its content estimate.
+   * @param systemPrompt - counted at chars / `charsPerToken` when provided.
+   * @returns the estimated token footprint of the whole request.
+   */
   estimateTokens(messages: readonly Message[], systemPrompt?: string): number {
     let total = 0
     for (const msg of messages) {
@@ -293,6 +310,13 @@ export class BasicCompactService extends CompactService {
    * used (`model`, `maxTokens`) — the caller logs the envelope on the
    * `compact/summary` provenance event, so an overriding subclass (template
    * or remote summarizer) reports its own envelope honestly.
+   *
+   * @param text - plain-text rendering of the conversation region to condense.
+   * @param agent - supplies the fallback model and the session id stamped on
+   *   the call; throws when neither it nor the config names a model.
+   * @param signal - optional abort signal, forwarded into the model call.
+   * @returns the text-only summary blocks plus the call envelope used
+   *   (`model`, and `maxTokens` when the summarizer has a cap).
    */
   async summarize(
     text: string, agent: Agent, signal?: AbortSignal,

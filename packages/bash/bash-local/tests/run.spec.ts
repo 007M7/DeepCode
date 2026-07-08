@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -54,6 +54,15 @@ async function waitForStdout(running: RunningBash, expected: string, timeoutMs =
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   throw new Error(`stdout did not include ${JSON.stringify(expected)} after ${timeoutMs}ms`)
+}
+
+async function waitForFile(file: string, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (existsSync(file)) return
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  throw new Error(`${file} did not exist after ${timeoutMs}ms`)
 }
 
 describe('runBash', () => {
@@ -119,7 +128,7 @@ describe('runBash', () => {
     // group must take the sleep down with bash.
     const pidFile = join(spillDir, `grandchild-${Date.now()}.pid`)
     const running = runBash(spec(`sleep 60 & echo $! > ${pidFile}; wait`))
-    await new Promise(resolve => setTimeout(resolve, 300))
+    await waitForFile(pidFile)
     const grandchild = Number(readFileSync(pidFile, 'utf8').trim())
     expect(grandchild).toBeGreaterThan(0)
 
