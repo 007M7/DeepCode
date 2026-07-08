@@ -11,6 +11,7 @@
  */
 
 import { inspect } from 'node:util'
+import { serialize } from 'node:v8'
 import type { CodeLogEntry } from '@deepseek-ai/dsh-code-runtime'
 import { logTruncationMarker } from './protocol.ts'
 import type { DoneMessage, ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
@@ -119,29 +120,36 @@ export function captureStreamWrites(logs: LogBuffer, stream: PatchableStream, so
 const INSPECT_OPTIONS = { depth: 4, maxArrayLength: 100, maxStringLength: 10_000 } as const
 
 /**
- * Prepare the program's completion value for the done message: a
- * structured-clone-safe value whose rendering fits `maxValueBytes` crosses
- * raw; anything else (non-cloneable, or oversized) is REPLACED by its
- * bounded `util.inspect` rendering, truncated with an in-band marker — the
- * seam contract's "a non-transferable value is replaced by a string
- * rendering", extended to oversized ones so a huge return cannot flood the
- * host.
+ * Prepare the program's completion value for the done message: a value whose
+ * MEASURED cross-boundary size fits `maxValueBytes` crosses raw — exact
+ * bytes for a string, the structured-clone wire size (`v8.serialize`) for
+ * everything else, so a huge container whose BOUNDED inspect rendering
+ * happens to be small cannot smuggle itself past the cap. Anything else
+ * (non-cloneable, or oversized) is REPLACED by its bounded `util.inspect`
+ * rendering, truncated with an in-band marker — the seam contract's "a
+ * non-transferable value is replaced by a string rendering", extended to
+ * oversized ones so a huge return cannot flood the host.
  * @param value - the program's completion value.
- * @param maxValueBytes - the byte cap for the rendered value.
+ * @param maxValueBytes - the byte cap for the value.
  * @returns the done-message fragment: `{}` for `undefined`, else `{ value }`.
  */
 export function prepareValue(value: unknown, maxValueBytes: number): { value?: unknown } {
   if (value === undefined) return {}
-  const rendered = typeof value === 'string' ? value : inspect(value, INSPECT_OPTIONS)
-  let cloneable = true
-  try {
-    structuredClone(value)
-  } catch {
-    // Only the verdict matters: the value has parts structured clone rejects
-    // (functions, classes, …) and must cross as its rendering instead.
-    cloneable = false
+  if (typeof value === 'string') {
+    if (Buffer.byteLength(value, 'utf8') <= maxValueBytes) return { value }
+  } else {
+    let size: number | undefined
+    try {
+      size = serialize(value).byteLength
+    } catch {
+      // Only the verdict matters: the value has parts the structured-clone
+      // algorithm rejects (functions, classes, …) and must cross as its
+      // rendering instead.
+      size = undefined
+    }
+    if (size !== undefined && size <= maxValueBytes) return { value }
   }
-  if (cloneable && Buffer.byteLength(rendered, 'utf8') <= maxValueBytes) return { value }
+  const rendered = typeof value === 'string' ? value : inspect(value, INSPECT_OPTIONS)
   const capped = rendered.length > maxValueBytes ? `${rendered.slice(0, maxValueBytes)}… [truncated]` : rendered
   return { value: capped }
 }

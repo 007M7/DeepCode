@@ -221,6 +221,14 @@ describe('WorkerCodeRuntime — budgets and containment (real workers)', () => {
     expect(result.value).toBe(`${'y'.repeat(64)}… [truncated]`)
   })
 
+  it('caps a huge container whose bounded rendering is small (wire size, not rendering, is what counts)', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({ program: 'return new Array(50_000).fill(7)', bindings: [] })
+    expect(result.error).toBeUndefined()
+    expect(typeof result.value).toBe('string')
+    expect(result.value).toContain('more items')
+  })
+
   it('captures pipe writes that bypass the patched write slot as stray logs, capped by the same budget', async () => {
     const { runtime } = await setup({ maxLogBytes: 4 })
     const result = await runtime.run({
