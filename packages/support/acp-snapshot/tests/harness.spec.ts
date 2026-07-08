@@ -72,7 +72,11 @@ describe('runScenario', () => {
     expect(result.sessionLogs[0]?.createdAt).toBe(42)
     expect(result.sessionLogs[0]?.content).toContain('turn/start')
     // The harvested log embeds the run's REAL temp cwd (template-substituted).
-    expect(result.sessionLogs[0]?.content).toContain(result.cwd)
+    // The cwd is JSON-encoded in the log line, so compare the parsed field
+    // rather than substring-matching a raw path (which breaks when the path
+    // separator is escaped inside JSON text on Windows).
+    const sessionLine = result.sessionLogs[0]?.content.split('\n').find(l => l.includes('"type":"session"')) ?? '{}'
+    expect((JSON.parse(sessionLine) as { cwd?: string }).cwd).toBe(result.cwd)
   })
 
   it('forwards override/child fixture paths into the child env and captures stderr', { timeout: 20_000 }, async () => {
@@ -93,7 +97,17 @@ describe('runScenario', () => {
     expect(result.stderr).toContain('fake bin booted')
     expect(result.rawStdout).toContain('replay.override.json')
     // Child paths ride one env var, joined with the platform delimiter.
-    expect(result.rawStdout).toContain(JSON.stringify(childFiles.join(delimiter)).slice(1, -1))
+    // Parse the fake bin's env-probe chunk rather than substring-matching a
+    // JSON-encoded path (the escaping breaks raw-substring compares on Windows).
+    const envChunk = result.rawStdout.split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0)
+      .map(l => JSON.parse(l) as { params?: { update?: { content?: { text?: string } } } })
+      .find(f => f.params?.update?.content?.text?.startsWith('env:'))
+    const env = JSON.parse((envChunk?.params?.update?.content?.text ?? 'env:{}').slice('env:'.length)) as {
+      childFiles: string | null
+    }
+    expect(env.childFiles).toBe(childFiles.join(delimiter))
   })
 
   it('seeds the workspace dir into the temp cwd before the run', { timeout: 20_000 }, async () => {

@@ -181,7 +181,7 @@ describe('defineAcpSnapshotSuite: registration contract', () => {
 
 describe('childFixturePaths', () => {
   it('yields one sibling path per child, 1-based', () => {
-    expect(childFixturePaths('/snap/s', 2)).toEqual(['/snap/s/session.1.jsonl', '/snap/s/session.2.jsonl'])
+    expect(childFixturePaths('/snap/s', 2)).toEqual([join('/snap/s', 'session.1.jsonl'), join('/snap/s', 'session.2.jsonl')])
   })
 
   it('yields nothing for a single-session scenario', () => {
