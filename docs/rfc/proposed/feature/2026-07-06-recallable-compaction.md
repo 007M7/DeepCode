@@ -28,7 +28,7 @@ A committed stub is never rewritten and never re-enters a later compaction regio
 
 One mutable working-memory document (at most one; zero before the first pass), positioned after all stubs and before the retained tail. Each pass rewrites it from the previous state plus this pass's staled content — O(previous + new), under the merge-don't-restate rule already in the summarization prompt — covering decisions, current state, constraints, and next steps. It carries its own footer and a size cap at the scale of today's summary.
 
-An inflation guard bounds the whole pass: if the post-compaction size is not strictly below the pre-compaction size, nothing commits and the turn proceeds; the attempt defers until more stale history accumulates. The guard compares one metric on both sides — provider-reported usage (the counters PR #197 introduces), falling back to the character estimator on both sides.
+An inflation guard bounds the whole pass: if the post-compaction size is not strictly below the pre-compaction size, nothing commits and the turn proceeds; the attempt defers until more stale history accumulates. The guard compares one metric on both sides — provider-reported usage from the request path, falling back to the character estimator on both sides.
 
 ### Pass execution
 
@@ -56,8 +56,8 @@ The design ships as a new backend `dsh-compact-recallable` on the existing `ctx.
 
 ### Relation to in-flight work
 
-- **Tool-result pruning (PR #113)**: its replacement nodes carry `sourceEventSeqs`; the same registry fold lists pruned results as recallable. Follow-up scope; neither blocks the other.
-- **Provider-usage token pressure (PR #197)**: supplies the guard's accounting; the implementation stacks after it.
+- **Tool-result pruning** (the in-flight pruning service): its replacement nodes carry `sourceEventSeqs`; the same registry fold lists pruned results as recallable. Follow-up scope; neither blocks the other.
+- **Provider-usage token accounting** (the in-flight move of compaction pressure onto provider-reported usage): supplies the guard's accounting; the implementation stacks after it.
 - **"Query sessions" backlog item**: the cross-session generalization; this RFC scopes to the live session with tool names and rendering chosen so that work extends rather than collides.
 - **Training**: when to recall is a learned behavior. The deterministic footers and keyword anchors give training a stable target, and recall usage is fully visible in the session log for trajectory export; benchmark and RL design proceed with the post-training side.
 
@@ -72,6 +72,7 @@ Specified during review, deferred until observation calls for them:
 - Lazy registration of the recall tools — on measured context tax in never-compacting sessions.
 - Amortized stub drafting at pre-step: as soon as stale-but-uncompacted content accumulates past `chunkTokens`, draft that chunk's stub at the next pre-step (a log-only draft event, written while the chunk's surrounding context is still live) and let the compaction pass commit drafts instead of summarizing in bulk — the deterministic, replay-exact equivalent of background compaction (the Claude Code session-memory pattern; OpenClaw demonstrates the synchronous semantics are identical). Trigger: observed pass latency, or stub-quality gains from drafting near-live proving out.
 - Split summarizer models; model-chosen chunk boundaries; cross-session recall; semantic search fallback — each behind its own evidence.
+- Richer `history_search` query forms — regex, and structured queries over logged JSON tool results (sql/jq-style, or agent-authored queries against an indexed store) — on demand from observed search misses; literal matching ships first because the recall path stays a pure function of the log.
 
 ## Alternatives considered
 
