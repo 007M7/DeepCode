@@ -62,6 +62,17 @@ describe('ToolRegistry', () => {
     expect(schema.execute).toBeUndefined()
   })
 
+  it('schemas() excludes timeoutMs — the budget must never reach the model', async () => {
+    const ctx = await setup()
+    ctx.tools.register(defineTool({
+      name: 'budgeted', description: 'has a budget', parameters: {}, timeoutMs: 5_000,
+      async execute() { return [{ type: 'text' as const, text: 'ok' }] },
+    }))
+    const schema = ctx.tools.schemas().find(s => s.name === 'budgeted')
+    expect(schema).toBeDefined()
+    expect('timeoutMs' in (schema as object)).toBe(false)
+  })
+
   it('executes a tool and returns its content', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
@@ -1130,6 +1141,38 @@ describe('defineTool validation (the runtime-validation RFC, part 1)', () => {
     // this reaches execute rather than being rejected by the harness.
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'raw', arguments: {} })
     expect(result.isError).toBe(false)
+  })
+
+  it('attaches a positive-finite timeoutMs to the definition', () => {
+    const tool = defineTool({
+      name: 'x', description: 'd', parameters: {}, timeoutMs: 30_000,
+      async execute() { return [{ type: 'text' as const, text: 'ok' }] },
+    })
+    expect(tool.timeoutMs).toBe(30_000)
+  })
+
+  it('omits timeoutMs when not declared', () => {
+    const tool = defineTool({
+      name: 'x', description: 'd', parameters: {},
+      async execute() { return [{ type: 'text' as const, text: 'ok' }] },
+    })
+    expect(tool.timeoutMs).toBeUndefined()
+  })
+
+  it('throws when timeoutMs is zero or negative', () => {
+    const make = (ms: number) => defineTool({
+      name: 'x', description: 'd', parameters: {}, timeoutMs: ms,
+      async execute() { return [{ type: 'text' as const, text: 'ok' }] },
+    })
+    expect(() => make(0)).toThrow('timeoutMs must be a positive finite number')
+    expect(() => make(-5)).toThrow('positive finite number')
+  })
+
+  it('throws when timeoutMs is non-finite', () => {
+    expect(() => defineTool({
+      name: 'x', description: 'd', parameters: {}, timeoutMs: Infinity,
+      async execute() { return [{ type: 'text' as const, text: 'ok' }] },
+    })).toThrow('positive finite number')
   })
 })
 

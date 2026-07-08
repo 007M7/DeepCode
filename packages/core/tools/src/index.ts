@@ -139,6 +139,14 @@ export type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta
 export interface ToolDefinition extends ToolSchema {
   execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn>
   /**
+   * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
+   * Enforced by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute` wrapper); it
+   * is NEVER sent to the model — `schemas()` whitelists only name/description/
+   * parameters. Declaring it asserts this tool forwards `exec.signal` to a
+   * cooperative implementation that can reach quiescence when the signal aborts.
+   */
+  timeoutMs?: number
+  /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
    * its own input). Returns a {@link ToolCallView} (a `card`-tagged render intent),
