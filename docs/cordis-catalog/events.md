@@ -47,7 +47,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:455`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:460`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -105,7 +105,7 @@ Waterfall: compose the SESSION PREFIX — request-only messages placed in front 
 
 This is the home for session-stable openers the model must always see but that must NOT become durable history — a skills catalog, an AGENTS.md digest, a workspace baseline: `Session.deriveMessages()` never returns the prefix, and the header events are its only durable record, so the request stays reconstructable from the log. Content that CHANGES mid-session belongs in the append-only history channels instead — `agent.inject()`, a `tools/post-execute` decision's `additionalContext`, prompt-submit `additionalContext` — each a durable `context/message` paid once and prefix-cached thereafter.
 
-The seed is a frozen empty list; a contributing listener returns a NEW array extending `await next()` (`[...prefix, mine]` — never an in-place push), so contributions compose across plugins in registration order and compose deterministically for a fixed plugin set. Call `next()` to delegate, or return a list without it to short-circuit.
+The seed is a frozen empty list; a contributing listener returns a NEW array — never an in-place push. The canonical contribution is a PREPEND, `[mine, ...await next()]`: the waterfall unwinds innermost-first (the LAST-registered listener's `next()` resolves first), so prepending yields registration order on the wire, and every plugin using it composes deterministically. The append form `[...await next(), mine]` is legal but places a contribution AFTER every later-registered plugin's — reverse registration order when all contributors append. Call `next()` to delegate, or return a list without it to short-circuit.
 
 ```ts cordis-catalog
 'agent/session-prefix'(agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>
@@ -113,7 +113,7 @@ The seed is a frozen empty list; a contributing listener returns a NEW array ext
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:420`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:425`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -149,7 +149,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:430`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:435`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -161,7 +161,7 @@ Waterfall: override the turn-continuation decision via a typed ContinuationDecis
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:443`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:448`](../../packages/core/agent/src/types.ts)
 
 ## `fs/*`
 

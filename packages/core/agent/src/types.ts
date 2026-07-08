@@ -408,9 +408,14 @@ declare module 'cordis' {
      * durable `context/message` paid once and prefix-cached thereafter.
      *
      * The seed is a frozen empty list; a contributing listener returns a NEW
-     * array extending `await next()` (`[...prefix, mine]` — never an in-place
-     * push), so contributions compose across plugins in registration order
-     * and compose deterministically for a fixed plugin set. Call `next()` to
+     * array — never an in-place push. The canonical contribution is a
+     * PREPEND, `[mine, ...await next()]`: the waterfall unwinds
+     * innermost-first (the LAST-registered listener's `next()` resolves
+     * first), so prepending yields registration order on the wire, and every
+     * plugin using it composes deterministically. The append form
+     * `[...await next(), mine]` is legal but places a contribution AFTER
+     * every later-registered plugin's — reverse registration order when all
+     * contributors append. Call `next()` to
      * delegate, or return a list without it to short-circuit.
      * @param agent - the agent whose session prefix is being composed.
      * @param prefix - the frozen empty seed; return an extended replacement to contribute.

@@ -13,8 +13,9 @@
  * (deterministic — `seq = log.length`, part of the event-log contract).
  *
  * A separate, composable normalizer — {@link scrubRequestHeaders} — replaces
- * the bulky request-header CONTENT (the composed system prompt and the tool
- * schema list) with `{{system}}`/`{{tools}}` tokens. It is deliberately NOT
+ * the bulky request-header CONTENT (the composed system prompt, the tool
+ * schema list, and the session prefix) with
+ * `{{system}}`/`{{tools}}`/`{{messagePrefix}}` tokens. It is deliberately NOT
  * folded into {@link normalizeSessionLog}: each suite's one header-pinning
  * scenario compares that content verbatim, every other scenario composes the
  * scrub in (the `pinsHeader` flag on the scenario table, consumed by the suite
@@ -30,6 +31,7 @@ const SESSION_ID = '{{sessionId}}'
 const CWD = '{{cwd}}'
 const SYSTEM = '{{system}}'
 const TOOLS = '{{tools}}'
+const MESSAGE_PREFIX = '{{messagePrefix}}'
 
 /** A UUID v4 string, the shape `randomUUID()` produces for session ids. */
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
@@ -135,15 +137,22 @@ export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): stri
 /**
  * Replace request-header CONTENT in a session JSONL with stable tokens,
  * keeping its structure: a `request/header` event's `data.header.system` →
- * `{{system}}` and `data.header.tools` → `{{tools}}`; a
+ * `{{system}}`, `data.header.tools` → `{{tools}}`, and
+ * `data.header.messagePrefix` → one `{{messagePrefix}}` token per message
+ * (the session prefix is model-visible bulk — an AGENTS digest, a skills
+ * catalog — so its COUNT stays a structural fact while its text never lands
+ * in a fixture); a
  * `request/header-delta` event keeps every structural fact — the system
  * delta's `keepStart`/`keepEnd` line positions and inserted-line COUNT (one
  * `{{system}}` token per inserted line), the tools delta's
- * added/removed/changed tool NAMES — and tokenizes only the bulk (prompt
- * text; each added/changed schema's fields other than `name` → `{{tools}}`),
+ * added/removed/changed tool NAMES, the prefix replacement's message COUNT —
+ * and tokenizes only the bulk (prompt
+ * text; each added/changed schema's fields other than `name` → `{{tools}}`;
+ * each replacement prefix message → `{{messagePrefix}}`),
  * so two different deltas still compare different.
- * Absent fields stay absent — WHETHER a header carried a system prompt or
- * tools is behavior and stays visible; `config` and `reason` are small and
+ * Absent fields stay absent — WHETHER a header carried a system prompt,
+ * tools, or a prefix is behavior and stays visible; `config` and `reason`
+ * are small and
  * stable, so they stay verbatim (a model swap churns every fixture by design
  * — it invalidates the recorded responses; a prompt/schema edit churns none —
  * replay never reads this content, see dsh-llm-replay).
@@ -166,9 +175,10 @@ export function scrubRequestHeaders(rawLog: string): string {
     if (record.type === 'request/header') {
       const header = data.header as Record<string, unknown> | null | undefined
       if (header === null || typeof header !== 'object') return line
-      if (!('system' in header) && !('tools' in header)) return line
+      if (!('system' in header) && !('tools' in header) && !('messagePrefix' in header)) return line
       if ('system' in header) header.system = SYSTEM
       if ('tools' in header) header.tools = TOOLS
+      if (Array.isArray(header.messagePrefix)) header.messagePrefix = header.messagePrefix.map(() => MESSAGE_PREFIX)
       return JSON.stringify(record)
     }
     if (record.type === 'request/header-delta') {
@@ -182,6 +192,10 @@ export function scrubRequestHeaders(rawLog: string): string {
       if (tools !== null && typeof tools === 'object') {
         if (Array.isArray(tools.added)) { tools.added = tools.added.map(scrubToolSchema); touched = true }
         if (Array.isArray(tools.changed)) { tools.changed = tools.changed.map(scrubToolSchema); touched = true }
+      }
+      if (Array.isArray(data.messagePrefix)) {
+        data.messagePrefix = data.messagePrefix.map(() => MESSAGE_PREFIX)
+        touched = true
       }
       return touched ? JSON.stringify(record) : line
     }

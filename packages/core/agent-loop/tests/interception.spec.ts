@@ -352,23 +352,24 @@ describe('agent/session-prefix', () => {
     expect(agent.session.deriveMessages()[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'go' }] })
   })
 
-  it('contributions compose across listeners in registration order', async () => {
+  it('the canonical prepend pattern composes contributions in registration order', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
+    // Both listeners use the canonical `[mine, ...await next()]` prepend: the
+    // waterfall unwinds innermost-first (the second listener's array is built
+    // first), so prepending puts the FIRST-registered contribution first.
     ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => {
       return [{ role: 'user', content: [{ type: 'text', text: 'first' }] }, ...await next()]
     })
     ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => {
-      return [...await next(), { role: 'user', content: [{ type: 'text', text: 'second' }] }]
+      return [{ role: 'user', content: [{ type: 'text', text: 'second' }] }, ...await next()]
     })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
 
-    // Registration order composes: the first listener runs last on the way
-    // out (waterfall), so its prepend lands first.
     const texts = adapter.requests[0]!.messages.map(m => m.content[0]?.type === 'text' ? m.content[0].text : '')
     expect(texts).toEqual(['first', 'second', 'hi'])
   })
