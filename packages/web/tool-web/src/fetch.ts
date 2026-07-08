@@ -3,6 +3,12 @@
  * Execution goes through `ctx.web` — this module owns the model-facing schema,
  * argument validation, and PRESENTATION (HTML→markdown, truncation formatting),
  * while the fetch provider owns safe retrieval (transport, redirects, caps).
+ *
+ * The model-facing schema exposes NO timeout knob: the tool-call budget is
+ * deployment policy owned by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute`
+ * wrapper), matching the reference-agent `WebFetch` shape. This tool just
+ * forwards the (possibly deadline-derived) `exec.signal` to `ctx.web`; the
+ * provider keeps its own timeout only as a resource backstop for direct callers.
  */
 
 import type { Context } from 'cordis'
@@ -15,12 +21,9 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import { htmlToMarkdown } from './html.ts'
 
 /** Validate value constraints the schema DSL can't express. */
-export function parseFetchArgs(args: { url: string; timeout_ms?: number }): { url: string; timeoutMs?: number } {
+export function parseFetchArgs(args: { url: string }): { url: string } {
   if (args.url.trim().length === 0) throw new Error('url must be a non-empty string')
-  if (args.timeout_ms !== undefined && (!Number.isFinite(args.timeout_ms) || args.timeout_ms <= 0)) {
-    throw new Error('timeout_ms must be a positive number')
-  }
-  return { url: args.url, ...args.timeout_ms !== undefined ? { timeoutMs: args.timeout_ms } : {} }
+  return { url: args.url }
 }
 
 /** Render a fetched body to model-facing markdown text. */
@@ -44,7 +47,7 @@ export function formatFetchOutput(result: WebFetchResult): string {
 }
 
 /** Pending-call presentation: a fetch card titled by the URL. */
-export function presentFetchCall(args: { url: string; timeout_ms?: number }): GenericCallView {
+export function presentFetchCall(args: { url: string }): GenericCallView {
   return { card: 'generic', title: args.url, kind: 'fetch', rawInput: args.url }
 }
 
@@ -61,12 +64,11 @@ export function applyWebFetchTool(ctx: Context): void {
     description: 'Fetch the content of a specific HTTP(S) URL and return it decoded to text.',
     parameters: {
       url: { type: 'string', required: true, description: 'The HTTP(S) URL to fetch.' },
-      timeout_ms: { type: 'number', description: 'Optional fetch timeout in milliseconds (capped by the provider).' },
     },
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseFetchArgs(args)
       const result = await ctx.web.fetch(
-        { url: input.url, ...input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {} },
+        { url: input.url },
         exec.signal ? { signal: exec.signal } : undefined,
       )
       return [{ type: 'text', text: formatFetchOutput(result) }]

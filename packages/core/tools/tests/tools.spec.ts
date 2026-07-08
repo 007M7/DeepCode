@@ -272,6 +272,148 @@ describe('ToolRegistry', () => {
     expect(order).toEqual(['pre:before', 'pre:after', 'post:before', 'post:after'])
   })
 
+  it('runs tools/execute after an allowed pre-execute, around dispatch, and before post-execute', async () => {
+    const ctx = await setup()
+    const order: string[] = []
+    ctx.tools.register(defineTool({
+      name: 'traced',
+      description: 'echo',
+      parameters: { text: { type: 'string' } },
+      async execute(args) {
+        order.push('dispatch')
+        return [{ type: 'text' as const, text: args.text ?? '' }]
+      },
+    }))
+
+    ctx.on('tools/pre-execute', async (_exec, next) => { order.push('pre'); return next() })
+    ctx.on('tools/execute', async (_exec, next) => {
+      order.push('execute:before')
+      const result = await next()
+      order.push('execute:after')
+      return result
+    })
+    ctx.on('tools/post-execute', async (_exec, _result, next) => { order.push('post'); return next() })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'traced', arguments: { text: 'hi' } })
+    expect(result).toEqual({ callId: CallId('c1'), content: [{ type: 'text', text: 'hi' }], isError: false })
+    // The around seam wraps dispatch; pre gates before it, post runs over its result.
+    expect(order).toEqual(['pre', 'execute:before', 'dispatch', 'execute:after', 'post'])
+  })
+
+  it('a pre-execute deny short-circuits before tools/execute (the seam never runs)', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+
+    let entered = false
+    ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'deny', reason: 'nope' }))
+    ctx.on('tools/execute', async (_exec, next) => { entered = true; return next() })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({ text: 'Error: nope' })
+    expect(entered).toBe(false) // a denied call never enters the around-dispatch seam
+  })
+
+  it('a thrown tool is normalized to an isError result BEFORE a tools/execute listener sees next()', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'boom',
+      async execute() { throw new HarnessError('kaboom', 'BOOM') },
+    })
+
+    let seen: { isError: boolean; error?: unknown } | undefined
+    ctx.on('tools/execute', async (_exec, next) => {
+      const result = await next()
+      // The base next() IS dispatch-with-normalization: the wrapper sees the
+      // normalized isError result, never a raw throw from the tool body.
+      seen = { isError: result.isError, error: result.error }
+      return result
+    })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'boom', arguments: {} })
+    expect(seen).toEqual({ isError: true, error: { name: 'HarnessError', code: 'BOOM' } })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({ text: 'Error: kaboom' })
+  })
+
+  it('a thrown tool normalized inside tools/execute still reaches post-execute', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'boom',
+      async execute() { throw new Error('exploded') },
+    })
+
+    let postSaw: boolean | undefined
+    ctx.on('tools/execute', async (_exec, next) => next())
+    ctx.on('tools/post-execute', async (_exec, result, next) => {
+      postSaw = result.isError
+      return next()
+    })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'boom', arguments: {} })
+    expect(postSaw).toBe(true) // the normalized isError still flows through post-execute
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toMatchObject({ text: 'Error: exploded' })
+  })
+
+  it('a tools/execute listener can replace exec.signal for the dispatched tool (deadline pattern)', async () => {
+    const ctx = await setup()
+    let seenSignal: AbortSignal | undefined
+    ctx.tools.register({
+      ...echoTool,
+      name: 'signal-probe',
+      async execute(_args, exec) {
+        seenSignal = exec.signal
+        return [{ type: 'text' as const, text: 'ok' }]
+      },
+    })
+
+    const upstream = new AbortController().signal
+    const replacement = new AbortController().signal
+    ctx.on('tools/execute', async (exec, next) => {
+      expect(exec.signal).toBe(upstream)
+      // Cordis next() ignores passed arguments, so a wrapper mutates exec in
+      // place (the documented "mutate the shared object, then delegate" idiom).
+      exec.signal = replacement
+      return next()
+    })
+
+    await ctx.tools.execute({ callId: CallId('c1'), name: 'signal-probe', arguments: {}, signal: upstream })
+    expect(seenSignal).toBe(replacement) // dispatch saw the wrapper's replacement, not the upstream
+  })
+
+  it('a tools/execute listener can short-circuit dispatch by returning a result without next()', async () => {
+    const ctx = await setup()
+    let dispatched = false
+    ctx.tools.register({
+      ...echoTool,
+      name: 'never-runs',
+      async execute() { dispatched = true; return [] },
+    })
+
+    ctx.on('tools/execute', async (exec, _next): Promise<import('@deepseek-ai/dsh-tools').ToolExecutionResult> =>
+      ({ callId: exec.callId, content: [{ type: 'text', text: 'short-circuited' }], isError: false }))
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'never-runs', arguments: {} })
+    expect(dispatched).toBe(false) // returning without next() skips core dispatch
+    expect(result.content[0]).toMatchObject({ text: 'short-circuited' })
+  })
+
+  it('returns an isError result when a tools/execute listener throws', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    ctx.on('tools/execute', async () => { throw new Error('wrapper broke') })
+
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
+    expect(result).toEqual({
+      callId: CallId('c1'),
+      content: [{ type: 'text', text: 'Error: wrapper broke' }],
+      isError: true,
+    })
+  })
+
   it('returns an isError result when a tools/pre-execute listener throws', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)
