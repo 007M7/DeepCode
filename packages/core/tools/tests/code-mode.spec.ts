@@ -119,6 +119,26 @@ describe('mode-aware wire contribution', () => {
     expect(assembly.sections.some(section => section.name === 'tools:sdk')).toBe(true)
   })
 
+  it("never exposes run_code to programs, even under mode 'both' (no recursive dispatch path)", async () => {
+    const { ctx, runtime } = await setup({ mode: 'both' })
+    registerEcho(ctx)
+    runtime.behavior = (request) => {
+      const functions = request.bindings[0]!.functions
+      return Promise.resolve({
+        logs: [],
+        value: JSON.stringify({
+          names: Object.keys(functions).sort(),
+          // Own-property AND prototype-chain reads both come back empty —
+          // there is no handle a program could re-enter run_code through.
+          runCode: String(functions[RUN_CODE_NAME]),
+        }),
+      })
+    }
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual({ names: ['echo'], runCode: 'undefined' })
+  })
+
   it('renders byte-identical SDK text across consecutive assemblies of an unchanged tool set', async () => {
     const { ctx, systemPrompt } = await setup({ mode: 'code' })
     registerEcho(ctx)

@@ -259,6 +259,10 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
         // an in-flight sub-dispatch, abandoning queued ones), then await the
         // queue's drain — an aborted sub-call still settles and logs its
         // event INSIDE the open turn; nothing can append after we return.
+        // `queue` is the FOLDED tail (every link swallows its rejection into
+        // undefined), so this await cannot itself reject — an abandoned
+        // queued call can never mask the runtime's own `result.error` below;
+        // rejections surface only on the per-call promises the program holds.
         runController.abort('run_code settled')
         await queue
 
