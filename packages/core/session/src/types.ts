@@ -203,7 +203,7 @@ export interface EpochHeader {
   tools?: ToolSchema[]
   /**
    * Request-only messages sent BEFORE the derived history (the
-   * `agent/request-messages` waterfall's `before` contributions). Not session
+   * `agent/request-advice` waterfall's `before` contributions). Not session
    * history — `deriveMessages()` never returns them — so the header is their
    * only durable record; absent when the request carried none.
    */

@@ -17,7 +17,7 @@
  *   consumer that wants the live transcript subscribes here.
  * - **`agent/*`** (this module) — the LIVE runtime surface. Always carries the
  *   live `Agent`. Two shapes: INTERCEPTION seams (the `agent/prompt-submit`/
- *   `agent/request`/`agent/request-messages`/`agent/step-result`/
+ *   `agent/request`/`agent/request-advice`/`agent/step-result`/
  *   `agent/turn-continuation` waterfalls and
  *   the serial `agent/pre-step`) that mutate/veto, and TRANSIENT emits
  *   (`agent/status`, `agent/error`, `agent/created`/
@@ -156,34 +156,39 @@ export type ContinuationDecision =
   | { action: 'continue'; reason?: HookContext }
 
 /**
- * Request-ONLY messages an `agent/request-messages` waterfall listener
- * contributes around the derived history of ONE LLM request: `before` messages
- * precede the derived history in `GenerateOptions.messages`, `after` messages
- * follow it. They are NOT session events — nothing here enters the session log
- * as durable history, `Session.deriveMessages()` never returns them, and the
- * next step recomputes them from scratch. The loop records the non-empty
- * arrays on the request's `request/header*` event (`EpochHeader.messagePrefix`
- * / `messageSuffix`), so the request stays reconstructable from the log (the
- * reconstructability RFC). For content that must become durable conversation
- * history, use the log channels instead: `agent.inject()`, steering, or
- * prompt-submit `additionalContext`.
+ * The request-only ADVICE an `agent/request-advice` waterfall listener weaves
+ * around the derived history of ONE LLM request — advice in both senses:
+ * advisory content for the model, attached before/after the join point like
+ * AOP advice, never modifying the history itself. In
+ * `GenerateOptions.messages` the `before` messages sit in front of the ENTIRE
+ * derived history (directly after the provider's system slot) and the `after`
+ * messages follow its last message (the newest user prompt on a turn's first
+ * step, the previous step's tool results afterwards). Advice is NOT session
+ * state — nothing here enters the session log as durable history,
+ * `Session.deriveMessages()` never returns it, and the next step recomputes
+ * it from scratch. The loop records the non-empty arrays on the request's
+ * `request/header*` event (`EpochHeader.messagePrefix` / `messageSuffix`), so
+ * the request stays reconstructable from the log (the reconstructability
+ * RFC). For content that must become durable conversation history, use the
+ * log channels instead: `agent.inject()`, steering, or prompt-submit
+ * `additionalContext`.
  */
-export interface RequestMessages {
-  /** Messages placed before the derived history in the request. */
+export interface RequestAdvice {
+  /** Before-advice: messages placed ahead of the entire derived history. */
   before: Message[]
-  /** Messages placed after the derived history in the request. */
+  /** After-advice: messages placed after the derived history's last message. */
   after: Message[]
 }
 
 /**
- * Read-only facts about the request an `agent/request-messages` listener is
+ * Read-only facts about the request an `agent/request-advice` listener is
  * contributing to. Everything here is already fixed when the seam fires: the
  * step is open, the boundary snapshot is taken, and the system prompt is
  * assembled — a listener uses these to DECIDE what to contribute (e.g. render
  * a workspace-dependent reminder, or skip one already present in history),
  * never to mutate them.
  */
-export interface RequestMessagesContext {
+export interface RequestAdviceContext {
   /** The rendered system prompt this request will carry. */
   system: string
   /** The prompt assembly the system prompt was rendered from (sections + tools). */
@@ -412,7 +417,7 @@ declare module 'cordis' {
      * session log (the reconstructability RFC), so model-visible content
      * flows through the log channels — `inject()`, steering, prompt-submit
      * `additionalContext`, prompt sections via `system-prompt/assemble`, or
-     * header-logged request-only messages via {@link agent/request-messages}
+     * header-logged request-only messages via {@link agent/request-advice}
      * — never through request mutation, and the loop records whatever config
      * the request actually uses as a `request/header*` event before dispatch.
      * The step's messages are already snapshotted when this fires (the
@@ -429,10 +434,11 @@ declare module 'cordis' {
      */
     'agent/request'(agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
     /**
-     * Waterfall: contribute request-ONLY messages around the derived history —
-     * a {@link RequestMessages} whose `before` messages precede the boundary
-     * snapshot in `GenerateOptions.messages` and whose `after` messages follow
-     * it. Fires once per step, inside the open step, after the
+     * Waterfall: weave request-ONLY advice around the derived history — a
+     * {@link RequestAdvice} whose `before` messages sit in front of the
+     * ENTIRE boundary snapshot in `GenerateOptions.messages` and whose
+     * `after` messages follow its last message. Fires once per step, inside
+     * the open step, after the
      * {@link agent/request} config waterfall and before the loop logs the
      * request header. This is the seam for per-request advisory context the
      * model must see NOW but that must NOT become durable history (a skills
@@ -443,13 +449,13 @@ declare module 'cordis' {
      * reconstructable from the log.
      *
      * The seed is frozen and empty; a contributing listener returns a NEW
-     * {@link RequestMessages} extending `await next()` (spread its arrays —
+     * {@link RequestAdvice} extending `await next()` (spread its arrays —
      * never mutate them), so contributions compose across plugins in
      * registration order. The boundary snapshot is already taken when this
      * fires: a `session.append`/`inject()` from a listener here lands in the
      * log but joins the NEXT request — contribute through the returned value,
      * not the session. Call `next()` to delegate, or return a
-     * {@link RequestMessages} without it to short-circuit.
+     * {@link RequestAdvice} without it to short-circuit.
      *
      * Pick the channel by change frequency (the cost model): a contribution
      * rides the request's uncached tail, re-tokenized at full price on EVERY
@@ -464,11 +470,11 @@ declare module 'cordis' {
      * @param agent - the agent making the model call.
      * @param turn - the open turn number.
      * @param step - the step whose request this is.
-     * @param messages - the frozen empty seed; return an extended replacement to contribute.
-     * @param context - read-only request facts ({@link RequestMessagesContext}).
+     * @param advice - the frozen empty seed; return an extended replacement to contribute.
+     * @param context - read-only request facts ({@link RequestAdviceContext}).
      * @mode waterfall
      */
-    'agent/request-messages'(agent: Agent, turn: number, step: number, messages: RequestMessages, context: RequestMessagesContext, next: () => Promise<RequestMessages>): Promise<RequestMessages>
+    'agent/request-advice'(agent: Agent, turn: number, step: number, advice: RequestAdvice, context: RequestAdviceContext, next: () => Promise<RequestAdvice>): Promise<RequestAdvice>
     /**
      * Waterfall: post-process the assembled assistant {@link Message} before
      * tool dispatch (validation, content rewriting, …).

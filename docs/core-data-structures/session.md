@@ -111,7 +111,7 @@ export interface EpochHeader {
   tools?: ToolSchema[]
   /**
    * Request-only messages sent BEFORE the derived history (the
-   * `agent/request-messages` waterfall's `before` contributions). Not session
+   * `agent/request-advice` waterfall's `before` contributions). Not session
    * history — `deriveMessages()` never returns them — so the header is their
    * only durable record; absent when the request carried none.
    */
@@ -121,7 +121,7 @@ export interface EpochHeader {
 }
 ```
 
-Canonical form: an empty system prompt, an empty tool list, and empty request-only message arrays are ABSENT fields, matching how requests are built. `messagePrefix`/`messageSuffix` are the durable record of the `agent/request-messages` waterfall's contributions (the request is `messagePrefix + derived history + messageSuffix`); their deltas replace the array whole, an empty array encoding the transition back to absence. The other delta payloads (`SystemDelta` — a common-prefix/suffix line trim; `ToolsDelta` — name-keyed added/removed/changed) live beside the events in [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts).
+Canonical form: an empty system prompt, an empty tool list, and empty request-only message arrays are ABSENT fields, matching how requests are built. `messagePrefix`/`messageSuffix` are the durable record of the `agent/request-advice` waterfall's contributions (the request is `messagePrefix + derived history + messageSuffix`); their deltas replace the array whole, an empty array encoding the transition back to absence. The other delta payloads (`SystemDelta` — a common-prefix/suffix line trim; `ToolsDelta` — name-keyed added/removed/changed) live beside the events in [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts).
 
 ## `SessionEvent<T>` — one log entry
 

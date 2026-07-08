@@ -15,8 +15,8 @@
     { "doc": "docs/core-data-structures/core.md", "symbol": "PromptDecision", "source": "packages/core/agent/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "ContinuationDecision", "source": "packages/core/agent/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "SessionStartSource", "source": "packages/core/agent/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "RequestMessages", "source": "packages/core/agent/src/types.ts" },
-    { "doc": "docs/core-data-structures/core.md", "symbol": "RequestMessagesContext", "source": "packages/core/agent/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "RequestAdvice", "source": "packages/core/agent/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "RequestAdviceContext", "source": "packages/core/agent/src/types.ts" },
 
     { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "StreamChunk", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/llm-streaming.md", "symbol": "TokenUsage", "source": "packages/llm/llm/src/types.ts" },

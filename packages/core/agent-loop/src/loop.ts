@@ -10,7 +10,7 @@
 import type { Context } from 'cordis'
 import type { FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
 import { BlockAssembler, HarnessError, deepFreeze } from '@deepseek-ai/dsh-llm'
-import type { ContinuationDecision, HookContext, PromptDecision, RequestMessages } from '@deepseek-ai/dsh-agent'
+import type { ContinuationDecision, HookContext, PromptDecision, RequestAdvice } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { createTransmissionLog, recordRequestHeader } from './request-log.ts'
@@ -161,7 +161,7 @@ export interface LoopHandle {
  *       boundary = session.deriveMessages()           ⟵ the reconstruction boundary: snapshot in the
  *       session('step/start')                            same sync frame, strictly before step/start
  *       config = waterfall agent/request(config)      ⟵ frozen seed; a returned replacement switches
- *       reqMsgs = waterfall agent/request-messages    ⟵ request-only before/after messages; logged on
+ *       advice = waterfall agent/request-advice       ⟵ request-only before/after advice; logged on
  *                                                        the header, never session history
  *       session('request/header'|'request/header-delta')  ⟵ the header event this request owes the
  *                                                        log (initial/resume anchor, delta, fallback)
@@ -720,32 +720,35 @@ async function runStep(
     throw new Error(`agent "${agent.id}" has no model: set AgentOptions.model or supply one via the agent/request waterfall`)
   }
 
-  // Collect request-ONLY messages: `before` contributions precede the boundary
-  // snapshot in the request, `after` contributions follow it. They are not
-  // session history — the header event below is their only durable record
-  // (EpochHeader.messagePrefix/messageSuffix), which keeps the request a pure
-  // function of the log. The frozen empty seed serves both the listener chain
-  // and the no-listener fallback: a contribution is a RETURNED extension of
-  // `await next()`, never an in-place push. Fired AFTER the boundary snapshot,
-  // so a listener's session append lands past the boundary and joins the NEXT
+  // Collect the request-ONLY advice: `before` messages go in front of the
+  // entire boundary snapshot, `after` messages follow its last message. Advice
+  // is not session history — the header event below is its only durable
+  // record (EpochHeader.messagePrefix/messageSuffix), which keeps the request
+  // a pure function of the log. The frozen empty seed serves both the
+  // listener chain and the no-listener fallback: a contribution is a RETURNED
+  // extension of `await next()`, never an in-place push. The context gets a
+  // frozen COPY of the boundary (the request is built from the internal
+  // snapshot), so a listener cannot smuggle unlogged content into the request
+  // by mutating what it was shown. Fired AFTER the boundary snapshot, so a
+  // listener's session append lands past the boundary and joins the NEXT
   // request — the same window rule as the `agent/request` waterfall.
-  const emptyRequestMessages: RequestMessages = deepFreeze({ before: [], after: [] })
-  const requestMessagesBoundary = deepFreeze([...boundaryMessages])
-  const requestMessages = await ctx.waterfall(
-    'agent/request-messages', agent, turn, step, emptyRequestMessages,
-    { system, assembly, boundaryMessages: requestMessagesBoundary, signal },
-    () => Promise.resolve(emptyRequestMessages),
+  const emptyRequestAdvice: RequestAdvice = deepFreeze({ before: [], after: [] })
+  const requestAdviceBoundary = deepFreeze([...boundaryMessages])
+  const requestAdvice = await ctx.waterfall(
+    'agent/request-advice', agent, turn, step, emptyRequestAdvice,
+    { system, assembly, boundaryMessages: requestAdviceBoundary, signal },
+    () => Promise.resolve(emptyRequestAdvice),
   )
 
   // The request header (the log's request/header* vocabulary): canonical form,
   // recorded before dispatch so the log always explains the request —
-  // including the request-only messages, which no other event carries.
+  // including the request-only advice, which no other event carries.
   const header = canonicalHeader({
     config,
     ...system ? { system } : {},
     ...assembly.tools.length > 0 ? { tools: assembly.tools } : {},
-    ...requestMessages.before.length > 0 ? { messagePrefix: requestMessages.before } : {},
-    ...requestMessages.after.length > 0 ? { messageSuffix: requestMessages.after } : {},
+    ...requestAdvice.before.length > 0 ? { messagePrefix: requestAdvice.before } : {},
+    ...requestAdvice.after.length > 0 ? { messageSuffix: requestAdvice.after } : {},
   })
   recordRequestHeader(session, transmission, header)
 

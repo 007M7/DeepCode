@@ -193,9 +193,9 @@ The model-facing `ToolSchema` is the wire shape; the registered `ToolDefinition`
 
 ### The request envelope: `LlmCallConfig` and the logged header
 
-Requests are built by the loop, not shaped per call: the non-history half of a request — the `EpochHeader`: this call configuration plus the rendered system prompt, assembled tool schemas, and any request-only messages — is logged session state (`request/header` snapshot and delta events, [session.md](session.md#the-request-header-events-requestheader-and-requestheader-delta)), so every conversation request is a pure function of the session log ([reconstructability RFC](../rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)). The `agent/request` waterfall receives a frozen `LlmCallConfig` seed and a listener returns a replacement to switch model or sampling; the `agent/request-messages` waterfall contributes request-only messages framing the derived history (recorded as the header's `messagePrefix`/`messageSuffix`) — the loop logs whatever the request actually uses. Loop-built requests arrive at `llm/stream` deep-frozen; mutation throws.
+Requests are built by the loop, not shaped per call: the non-history half of a request — the `EpochHeader`: this call configuration plus the rendered system prompt, assembled tool schemas, and any request-only messages — is logged session state (`request/header` snapshot and delta events, [session.md](session.md#the-request-header-events-requestheader-and-requestheader-delta)), so every conversation request is a pure function of the session log ([reconstructability RFC](../rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)). The `agent/request` waterfall receives a frozen `LlmCallConfig` seed and a listener returns a replacement to switch model or sampling; the `agent/request-advice` waterfall weaves request-only advice around the derived history (recorded as the header's `messagePrefix`/`messageSuffix`) — the loop logs whatever the request actually uses. Loop-built requests arrive at `llm/stream` deep-frozen; mutation throws.
 
-On the wire, a loop-built request reads in this order: the `system` slot (the rendered prompt assembly) → `messagePrefix` (request-only `before` contributions) → the derived history — the boundary snapshot, whose tail is the newest `user/message` on a turn's first step and the previous step's tool results on later steps — → `messageSuffix` (request-only `after` contributions, the last thing the model reads). The framing arrays never enter the derived history; their durable record is the header events, and the dev invariant recomputes exactly this equation against every loop-built request.
+On the wire, a loop-built request reads in this order: the `system` slot (the rendered prompt assembly) → `messagePrefix` (the request-only `before` advice) → the derived history — the boundary snapshot, whose tail is the newest `user/message` on a turn's first step and the previous step's tool results on later steps — → `messageSuffix` (the request-only `after` advice, the last thing the model reads). The advice arrays never enter the derived history; their durable record is the header events, and the dev invariant recomputes exactly this equation against every loop-built request.
 
 FIXME(call-config-shape): revisit the exact definition of this type — which fields are genuinely epoch-level for cache purposes (`model` certainly; the sampling scalars sit here out of caution), and where provider-specific extras (reasoning options, extra body params) belong when an adapter needs them.
 
@@ -328,7 +328,7 @@ interface Agent {
 }
 ```
 
-`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`) is merge-extensible — plugins add creation options by declaration merging; the persona is NOT an agent option but the `dsh-system-prompt` plugin's `persona` config, shared context-wide. The `agent/*` event taxonomy (lifecycle emits incl. `agent/session-start`, the serial `agent/pre-step` surface-mutation seam, and the `agent/prompt-submit`/`agent/request`/`agent/request-messages`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy); turn/step boundaries are durable `session/event` records, not `agent/*` emits.
+`AgentStatus` is `'idle' | 'running' | 'disposed'`. `AgentId` is a branded string. `AgentOptions` (`model?`) is merge-extensible — plugins add creation options by declaration merging; the persona is NOT an agent option but the `dsh-system-prompt` plugin's `persona` config, shared context-wide. The `agent/*` event taxonomy (lifecycle emits incl. `agent/session-start`, the serial `agent/pre-step` surface-mutation seam, and the `agent/prompt-submit`/`agent/request`/`agent/request-advice`/`agent/step-result`/`agent/turn-continuation` waterfalls) is in [architecture.md § Event taxonomy](../architecture.md#event-taxonomy); turn/step boundaries are durable `session/event` records, not `agent/*` emits.
 
 ## Interception decisions
 
@@ -365,21 +365,21 @@ type ContinuationDecision =
 type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 ```
 
-`agent/request-messages` returns a `RequestMessages` — request-only `before`/`after` messages framing the derived history for ONE request. Not a Decision union: the seam contributes content instead of vetoing, so the shape is the contribution itself; the loop records the non-empty arrays as the header's `messagePrefix`/`messageSuffix` ([the request envelope](#the-request-envelope-llmcallconfig-and-the-logged-header)), and `deriveMessages()` never returns them:
+`agent/request-advice` returns a `RequestAdvice` — the request-only advice woven around the derived history for ONE request (advice in both senses: advisory content for the model, attached before/after the join point like AOP advice, never modifying the history itself). Concretely, per request: `before` messages sit in front of the ENTIRE derived history, directly after the system slot — the conventional home for session-stable openers like an AGENTS.md digest or a skills catalog, re-contributed identically every step so the provider prefix cache holds; `after` messages follow the history's last message, closing the request. Not a Decision union: the seam contributes content instead of vetoing, so the shape is the contribution itself; the loop records the non-empty arrays as the header's `messagePrefix`/`messageSuffix` ([the request envelope](#the-request-envelope-llmcallconfig-and-the-logged-header)), and `deriveMessages()` never returns them:
 
 ```ts type-equiv
-interface RequestMessages {
-  /** Messages placed before the derived history in the request. */
+interface RequestAdvice {
+  /** Before-advice: messages placed ahead of the entire derived history. */
   before: Message[]
-  /** Messages placed after the derived history in the request. */
+  /** After-advice: messages placed after the derived history's last message. */
   after: Message[]
 }
 ```
 
-Listeners read the already-fixed request facts from a `RequestMessagesContext` (decide what to contribute from these; never mutate them):
+Listeners read the already-fixed request facts from a `RequestAdviceContext` (decide what to contribute from these; never mutate them):
 
 ```ts type-equiv
-interface RequestMessagesContext {
+interface RequestAdviceContext {
   /** The rendered system prompt this request will carry. */
   system: string
   /** The prompt assembly the system prompt was rendered from (sections + tools). */

@@ -72,7 +72,7 @@ forever:
       agent/pre-step
       'step/start'
       snapshot the derived messages (the reconstruction boundary)
-      agent/request (config only) -> agent/request-messages -> log request/header -> llm/stream (frozen)
+      agent/request (config only) -> agent/request-advice -> log request/header -> llm/stream (frozen)
         'assistant/chunk'
       agent/step-result
       'assistant/message'
@@ -141,7 +141,7 @@ New behavior should attach to a documented seam; changing the shipped loop requi
 | Add command execution | implement and register a `ctx.bash` backend |
 | Add filesystem access or policy | implement a `ctx.fs` provider or listen on `fs/*` policy events |
 | Intercept prompts, requests, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` waterfall |
-| Add per-request context that must not become history | contribute request-only messages on `agent/request-messages`; logged on the request header |
+| Add per-request context that must not become history | contribute request-only messages on `agent/request-advice`; logged on the request header |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
 | Add durable session state | add a `SessionEventMap` member and render/replay from the log |
 | Fork a live session | use `ctx.sessions.fork(source, boundary?, childSessionId?)` |

@@ -368,7 +368,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   // be EXACTLY what the session log reconstructs:
   //
   // - messages: the folded header's request-only messages (messagePrefix /
-  //   messageSuffix — the `agent/request-messages` contributions, logged on
+  //   messageSuffix — the `agent/request-advice` contributions, logged on
   //   the header because no session event carries them) framing the
   //   derivation over the log prefix strictly before the in-flight step's
   //   `step/start` (the reconstruction boundary). The derivation is compared

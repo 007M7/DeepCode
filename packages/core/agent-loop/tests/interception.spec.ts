@@ -8,7 +8,7 @@ import AgentRegistry, {
   AgentId,
   type ContinuationDecision,
   type PromptDecision,
-  type RequestMessages,
+  type RequestAdvice,
   type SessionStartSource,
 } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
@@ -311,7 +311,7 @@ describe('agent/session-start', () => {
   })
 })
 
-describe('agent/request-messages (RequestMessages)', () => {
+describe('agent/request-advice (RequestAdvice)', () => {
   it('frames the derived history: before precedes it, after follows it, and the header records both', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
@@ -319,7 +319,7 @@ describe('agent/request-messages (RequestMessages)', () => {
 
     const reminder: Message = { role: 'user', content: [{ type: 'text', text: '<system-reminder>catalog</system-reminder>' }] }
     const trailer: Message = { role: 'user', content: [{ type: 'text', text: 'trailing note' }] }
-    ctx.on('agent/request-messages', async (_agent, _turn, _step, _messages, _context, next): Promise<RequestMessages> => {
+    ctx.on('agent/request-advice', async (_agent, _turn, _step, _messages, _context, next): Promise<RequestAdvice> => {
       const result = await next()
       return { before: [...result.before, reminder], after: [...result.after, trailer] }
     })
@@ -351,7 +351,7 @@ describe('agent/request-messages (RequestMessages)', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     const seen: { system: string; boundaryRoles: string[]; sectionCount: number }[] = []
-    ctx.on('agent/request-messages', async (_agent, _turn, _step, _messages, context, next): Promise<RequestMessages> => {
+    ctx.on('agent/request-advice', async (_agent, _turn, _step, _messages, context, next): Promise<RequestAdvice> => {
       const result = await next()
       seen.push({
         system: context.system,
@@ -360,7 +360,7 @@ describe('agent/request-messages (RequestMessages)', () => {
       })
       return { before: [{ role: 'user', content: [{ type: 'text', text: 'first' }] }, ...result.before], after: result.after }
     })
-    ctx.on('agent/request-messages', async (_agent, _turn, _step, _messages, _context, next): Promise<RequestMessages> => {
+    ctx.on('agent/request-advice', async (_agent, _turn, _step, _messages, _context, next): Promise<RequestAdvice> => {
       const result = await next()
       return { before: [...result.before, { role: 'user', content: [{ type: 'text', text: 'second' }] }], after: result.after }
     })
@@ -385,7 +385,7 @@ describe('agent/request-messages (RequestMessages)', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     // A listener that delegates without contributing — the canonical no-op.
-    ctx.on('agent/request-messages', async (_agent, _turn, _step, _messages, _context, next) => next())
+    ctx.on('agent/request-advice', async (_agent, _turn, _step, _messages, _context, next) => next())
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
@@ -402,7 +402,7 @@ describe('agent/request-messages (RequestMessages)', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let mutationError: unknown
-    ctx.on('agent/request-messages', async (_agent, _turn, _step, messages, _context, next): Promise<RequestMessages> => {
+    ctx.on('agent/request-advice', async (_agent, _turn, _step, messages, _context, next): Promise<RequestAdvice> => {
       try {
         messages.before.push({ role: 'user', content: [{ type: 'text', text: 'smuggled' }] })
       } catch (error: unknown) {
@@ -424,7 +424,7 @@ describe('agent/request-messages (RequestMessages)', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let mutationError: unknown
-    ctx.on('agent/request-messages', async (_agent, _turn, _step, _messages, context, next): Promise<RequestMessages> => {
+    ctx.on('agent/request-advice', async (_agent, _turn, _step, _messages, context, next): Promise<RequestAdvice> => {
       try {
         const mutableBoundary = context.boundaryMessages as Message[]
         mutableBoundary.push({ role: 'user', content: [{ type: 'text', text: 'smuggled' }] })
@@ -454,7 +454,7 @@ describe('agent/request-messages (RequestMessages)', () => {
     const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
 
     let step = 0
-    ctx.on('agent/request-messages', async (_agent, _turn, _step, _messages, _context, next): Promise<RequestMessages> => {
+    ctx.on('agent/request-advice', async (_agent, _turn, _step, _messages, _context, next): Promise<RequestAdvice> => {
       const result = await next()
       step += 1
       return { before: [...result.before, { role: 'user', content: [{ type: 'text', text: `reminder v${step}` }] }], after: result.after }
