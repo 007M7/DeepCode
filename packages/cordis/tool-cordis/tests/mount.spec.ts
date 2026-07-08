@@ -1,0 +1,409 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { isJsonValue } from '@deepseek-ai/dsh-session'
+import { syntaxErrorContext } from '../src/sandbox.ts'
+import { call, dummyTool, LISTENER_CODE, REVERSE_TOOL_CODE, setup, text } from './helpers.ts'
+
+/**
+ * The `cordis_mount` success/failure family: real plugins land on a genuine
+ * cordis fiber tree, their registrations are observable through the real
+ * registry/event bus, and every rejection path teaches the fix.
+ */
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+describe('cordis_mount', () => {
+  it('mounts a listener plugin that observes real events, tagged-logging through to the host console', async () => {
+    const ctx = await setup()
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const result = await call(ctx, 'cordis_mount', { code: LISTENER_CODE })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('mounted dyn-1 (plugin "change-logger", state: active)')
+
+    // Fire a REAL tools/change by registering a tool; the mounted listener logs.
+    ctx.tools.register(dummyTool('trigger_a'))
+    expect(log).toHaveBeenCalledWith('[cordis:dyn-1]', 'tools changed')
+  })
+
+  it('mounts a bare-function plugin as <anonymous>, and a named function under its name', async () => {
+    const ctx = await setup()
+    const anonymous = await call(ctx, 'cordis_mount', { code: 'return (ctx) => { ctx.on(\'tools/change\', () => {}) }' })
+    expect(anonymous.isError).toBe(false)
+    expect(text(anonymous)).toContain('plugin "<anonymous>"')
+    const named = await call(ctx, 'cordis_mount', { code: 'return function watcher(ctx) {}' })
+    expect(text(named)).toContain('plugin "watcher"')
+  })
+
+  it('lets the agent give ITSELF a new tool, immediately callable through the registry', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', { code: REVERSE_TOOL_CODE })
+    expect(result.isError).toBe(false)
+
+    expect(ctx.tools.schemas().map(schema => schema.name)).toContain('reverse_text')
+    const reversed = await call(ctx, 'reverse_text', { text: 'harness' })
+    expect(reversed.isError).toBe(false)
+    expect(text(reversed)).toBe('ssenrah')
+  })
+
+  it('normalizes a self-made tool\'s result into the host realm, so the session log accepts it', async () => {
+    // The model's execute builds its content blocks INSIDE the vm, where
+    // Object.prototype is a different object — dsh-session's isJsonValue (the
+    // gate every `tool/result` append runs through) compares prototype
+    // IDENTITY, so a raw foreign-realm result would error the whole turn the
+    // first time the self-made tool runs. harness.defineTool round-trips the
+    // return into host-realm JSON before it reaches the registry.
+    const ctx = await setup()
+    await call(ctx, 'cordis_mount', { code: REVERSE_TOOL_CODE })
+    const reversed = await call(ctx, 'reverse_text', { text: 'harness' })
+    expect(isJsonValue({ content: reversed.content, isError: reversed.isError })).toBe(true)
+  })
+
+  it('rejects JSON Schema passed to harness.defineTool with the SchemaSpec teaching error', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'bad-json-schema-tool',
+          inject: ['tools'],
+          apply(ctx) {
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'bad_json_schema_tool',
+              description: 'bad',
+              parameters: {
+                type: 'object',
+                properties: { text: { type: 'string' } },
+                required: ['text'],
+              },
+              async execute() { return [{ type: 'text', text: 'bad' }] },
+            }))
+          },
+        }
+      `,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('harness.defineTool parameters use the SchemaSpec DSL')
+    expect(ctx.tools.get('bad_json_schema_tool')).toBeUndefined()
+  })
+
+  it.each([
+    ['parameters: 42', 'must be a SchemaSpec object'],
+    ['parameters: { text: 42 }', 'parameters.text must be a SchemaSpec property object'],
+    ['parameters: { text: { type: \'str\' } }', 'parameters.text must declare a valid type'],
+    ['parameters: { text: { type: \'string\', required: false } }', 'parameters.text.required must be true when present'],
+    ['parameters: { text: { type: \'string\', properties: {} } }', 'parameters.text.properties is only valid for type "object"'],
+    ['parameters: { text: { type: \'string\', items: { type: \'string\' } } }', 'parameters.text.items is only valid for type "array"'],
+  ])('rejects a malformed SchemaSpec (%s) with a teaching error', async (parameters, message) => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'bad-schema',
+          inject: ['tools'],
+          apply(ctx) {
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'bad_schema_tool',
+              description: 'bad',
+              ${parameters},
+              async execute() { return [] },
+            }))
+          },
+        }
+      `,
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain(message)
+  })
+
+  it('accepts a nested object/array SchemaSpec (the DSL recursion)', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'nested-schema',
+          inject: ['tools'],
+          apply(ctx) {
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'nested_schema_tool',
+              description: 'nested',
+              parameters: {
+                item: { type: 'object', required: true, properties: { label: { type: 'string', required: true } } },
+                tags: { type: 'array', items: { type: 'string' } },
+              },
+              async execute(args) { return [{ type: 'text', text: args.item.label }] },
+            }))
+          },
+        }
+      `,
+    })
+    expect(result.isError).toBe(false)
+    const echoed = await call(ctx, 'nested_schema_tool', { item: { label: 'ok' }, tags: ['a'] })
+    expect(text(echoed)).toBe('ok')
+  })
+
+  it('rejects raw dynamic ctx.tools.register calls that bypass harness helpers', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'raw-register',
+          inject: ['tools'],
+          apply(ctx) {
+            ctx.tools.register({
+              name: 'raw_dynamic_tool',
+              description: 'raw',
+              parameters: { type: 'object', properties: {} },
+              async execute() { return [] },
+            })
+          },
+        }
+      `,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('dynamic tool registration must use a tool returned by harness.defineTool')
+    expect(ctx.tools.get('raw_dynamic_tool')).toBeUndefined()
+  })
+
+  it('guards the registry reached through ctx.get(\'tools\') identically', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'raw-register-get',
+          apply(ctx) {
+            const sp = ctx.get('systemPrompt')
+            console.log('systemPrompt is', typeof sp)
+            ctx.get('tools').register({ name: 'raw_via_get', description: 'raw', parameters: {}, async execute() { return [] } })
+          },
+        }
+      `,
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('dynamic tool registration must use a tool returned by harness.defineTool')
+    expect(ctx.tools.get('raw_via_get')).toBeUndefined()
+  })
+
+  it('passes non-register registry members through the guard with correct binding', async () => {
+    const ctx = await setup()
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'schema-reader',
+          inject: ['tools'],
+          apply(ctx) {
+            console.log('sees', ctx.tools.schemas().length, 'tools; mount is', typeof ctx.tools.get('cordis_mount'))
+          },
+        }
+      `,
+    })
+    expect(result.isError).toBe(false)
+    expect(log).toHaveBeenCalledWith('[cordis:dyn-1]', 'sees', 3, 'tools; mount is', 'object')
+  })
+
+  it('keeps a plugin with unsatisfied inject mounted as pending and names what it waits for', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: 'return { name: \'waiter\', inject: [\'no-such-service\'], apply(ctx) {} }',
+    })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('state: pending')
+    expect(text(result)).toContain('waiting for service(s): no-such-service')
+    // Unmounting a pending mount works like any other.
+    const unmounted = await call(ctx, 'cordis_unmount', { id: 'dyn-1' })
+    expect(unmounted.isError).toBe(false)
+  })
+
+  it('rejects code that throws, leaving nothing mounted', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', { code: 'throw new Error(\'boom in sandbox\')' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('boom in sandbox')
+    expect(text(await call(ctx, 'cordis_inspect', { what: 'dynamic' }))).toContain('(no dynamic plugins mounted)')
+  })
+
+  it('passes non-Error and null throws through untouched (no SyntaxError misclassification)', async () => {
+    const ctx = await setup()
+    const primitive = await call(ctx, 'cordis_mount', { code: 'throw \'plain-string-throw\'' })
+    expect(primitive.isError).toBe(true)
+    expect(text(primitive)).toContain('plain-string-throw')
+    const nullish = await call(ctx, 'cordis_mount', { code: 'throw null' })
+    expect(nullish.isError).toBe(true)
+  })
+
+  it('rejects code that does not return a plugin', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', { code: 'return 42' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('must `return` a plugin')
+  })
+
+  it('answers a missing return with the two valid plugin forms', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', { code: 'const plugin = (ctx) => {}' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('did you forget `return`?')
+  })
+
+  it('disposes a plugin whose apply throws, and reports the error', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: 'return { name: \'broken\', apply(ctx) { throw new Error(\'apply exploded\') } }',
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('apply exploded')
+    expect(text(await call(ctx, 'cordis_inspect', { what: 'dynamic' }))).toContain('(no dynamic plugins mounted)')
+  })
+
+  it('rolls back a plugin that collides with an existing tool name, keeping the original tool intact', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'usurper',
+          inject: ['tools'],
+          apply(ctx) {
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'cordis_mount',
+              description: 'dup',
+              parameters: {},
+              async execute() { return [] },
+            }))
+          },
+        }
+      `,
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('already registered')
+    expect(text(result)).toContain('first cordis_unmount')
+    // The original cordis_mount still dispatches — the failed fiber is gone.
+    const retry = await call(ctx, 'cordis_mount', { code: LISTENER_CODE })
+    expect(retry.isError).toBe(false)
+  })
+
+  it('isolates sandbox globals: no process/require, and globalThis writes do not leak to the host', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        globalThis.__cordis_tool_leak = 'leaked'
+        return { name: 'probe-' + typeof process + '-' + typeof require, apply(ctx) {} }
+      `,
+    })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('plugin "probe-undefined-undefined"')
+    expect((globalThis as Record<string, unknown>).__cordis_tool_leak).toBeUndefined()
+  })
+
+  it('provides btoa/atob and the tagged console variants inside the sandbox', async () => {
+    const ctx = await setup()
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        console.warn('warned')
+        console.error('errored')
+        const round = atob(btoa('hi'))
+        const bytes = new TextEncoder().encode(round)
+        return { name: 'codec-' + new TextDecoder().decode(bytes), apply(ctx) { console.log('applied', typeof ctx.fiber) } }
+      `,
+    })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('plugin "codec-hi"')
+    expect(log).toHaveBeenCalledWith('[cordis:dyn-1]', 'warned')
+    expect(log).toHaveBeenCalledWith('[cordis:dyn-1]', 'applied', 'object')
+    expect(error).toHaveBeenCalledWith('[cordis:dyn-1]', 'errored')
+  })
+
+  it('answers TypeScript syntax in the plain-JS sandbox with the fix', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: 'return { name: \'ts\' as const, apply(ctx) {} }',
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('plain JavaScript, not TypeScript')
+  })
+
+  it('surfaces the offending line + caret and the bracket-balance hint on a syntax error', async () => {
+    const ctx = await setup()
+    // The canonical model mistake: closing the returned object with `});` as
+    // if it were a callback argument. The word "as" in a STRING elsewhere must
+    // not trigger the TypeScript hint — the heuristic reads the failing line.
+    const result = await call(ctx, 'cordis_mount', {
+      code: 'const note = \'treat pattern as regex\'\nreturn {\n  name: \'oops\',\n  apply(ctx) {}\n});',
+    })
+    expect(result.isError).toBe(true)
+    const message = text(result)
+    expect(message).toContain('failed to parse')
+    expect(message).toContain('});')
+    expect(message).toContain('^')
+    expect(message).toContain('BODY of an async function')
+    expect(message).not.toContain('TypeScript')
+  })
+
+  it('syntaxErrorContext falls back to String(error) when the stack has no vm prelude', () => {
+    const doctored = new SyntaxError('boom')
+    delete (doctored as { stack?: string }).stack
+    expect(syntaxErrorContext(doctored)).toBe('SyntaxError: boom')
+    const plain = new SyntaxError('bang')
+    plain.stack = 'not-a-vm-stack'
+    expect(syntaxErrorContext(plain)).toBe('SyntaxError: bang')
+  })
+
+  it('handles a runtime-thrown SyntaxError (no source-line prelude) with the generic hint', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', { code: 'throw new SyntaxError(\'user-crafted\')' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('failed to parse')
+    expect(text(result)).toContain('user-crafted')
+  })
+
+  it('honors the configured vmTimeoutMs for the synchronous portion', async () => {
+    const ctx = await setup({ vmTimeoutMs: 50 })
+    const result = await call(ctx, 'cordis_mount', { code: 'while (true) {}' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toMatch(/timed? ?out/i)
+    expect(text(await call(ctx, 'cordis_inspect', { what: 'dynamic' }))).toContain('(no dynamic plugins mounted)')
+  })
+
+  it('makes instanceof inside the sandbox see BOTH realms (patched vm constructors, host untouched)', async () => {
+    // The args a tool's execute receives are HOST-realm objects; without the
+    // dual-realm Symbol.hasInstance prelude, `args.items instanceof Array` in
+    // sandbox code is silently false. The patch lives on the vm realm's own
+    // constructors only — the host realm's must stay pristine.
+    const ctx = await setup()
+    await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'probe-instanceof',
+          inject: ['tools'],
+          apply(ctx) {
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'probe_instanceof',
+              description: 'report instanceof checks across realms',
+              parameters: { items: { type: 'array', required: true, items: { type: 'string' } } },
+              async execute(args) {
+                const checks = {
+                  hostArray: args.items instanceof Array,
+                  hostObject: args instanceof Object,
+                  vmArray: [] instanceof Array,
+                  vmObject: ({}) instanceof Object,
+                }
+                return [{ type: 'text', text: JSON.stringify(checks) }]
+              },
+            }))
+          },
+        }
+      `,
+    })
+    const probed = await call(ctx, 'probe_instanceof', { items: ['a'] })
+    expect(probed.isError).toBe(false)
+    expect(JSON.parse(text(probed))).toEqual({ hostArray: true, hostObject: true, vmArray: true, vmObject: true })
+    // The host realm's constructors keep their default instanceof: no own
+    // Symbol.hasInstance was added to them.
+    expect(Object.getOwnPropertySymbols(Object)).not.toContain(Symbol.hasInstance)
+    expect(Object.getOwnPropertySymbols(Array)).not.toContain(Symbol.hasInstance)
+  })
+})
