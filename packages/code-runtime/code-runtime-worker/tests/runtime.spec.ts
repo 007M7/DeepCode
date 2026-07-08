@@ -101,6 +101,13 @@ describe('WorkerCodeRuntime — programs and bindings (real workers)', () => {
     expect(typeof result.value).toBe('string')
   })
 
+  it('completes a program that returns nothing with no value at all', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({ program: 'const x = 1', bindings: [] })
+    expect(result.error).toBeUndefined()
+    expect('value' in result).toBe(false)
+  })
+
   it('keeps logs streamed before a failure', async () => {
     const { runtime } = await setup()
     const result = await runtime.run({
@@ -253,6 +260,76 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
     })
     expect(result.error).toBeUndefined()
     expect(result.value).toBe('still-works')
+  })
+
+  it('survives arbitrary junk on the port: non-objects, junk types, malformed calls, logs, and dones', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({
+      program: `
+        const { parentPort } = await import('node:worker_threads');
+        for (const junk of [
+          null, 42, 'junk', [],
+          { type: 'nope' },
+          { type: 'call' },
+          { type: 'call', id: 'x', global: 'tools', name: 'real', args: {} },
+          { type: 'call', id: 1e9, global: 7, name: 'real', args: {} },
+          { type: 'call', id: 1e9, global: 'tools', name: 7, args: {} },
+          { type: 'log' },
+          { type: 'log', entry: null },
+          { type: 'log', entry: { source: 'stdout', text: 7 } },
+          { type: 'log', entry: { source: 'nope', text: 'x' } },
+          { type: 'log', entry: { source: 'console', level: 'nope', text: 'x' } },
+          { type: 'log', entry: { source: 'console', level: 7, text: 'x' } },
+          { type: 'done', error: 5 },
+          { type: 'done', error: { message: 5 } },
+        ]) parentPort.postMessage(junk);
+        return await tools.real({});
+      `,
+      bindings: tools({ real: async () => 'still-works' }),
+    })
+    expect(result.error).toBeUndefined()
+    expect(result.value).toBe('still-works')
+    expect(result.logs).toEqual([])
+  })
+
+  it('caps forged log floods and forged done values at the configured budgets, dropping forged extra fields', async () => {
+    const { runtime } = await setup({ maxLogBytes: 200, maxValueBytes: 64 })
+    const result = await runtime.run({
+      // Forged messages bypass the worker-side LogBuffer and prepareValue
+      // entirely — only the host-side ledger and re-cap stand between model
+      // code and an unbounded result.
+      program: `
+        const { parentPort } = await import('node:worker_threads');
+        for (let i = 0; i < 50; i++) parentPort.postMessage({ type: 'log', entry: { source: 'stdout', text: 'F'.repeat(100), forged: true } });
+        parentPort.postMessage({ type: 'done', value: 'V'.repeat(100000) });
+        for (;;) {}
+      `,
+      bindings: [],
+    })
+    expect(typeof result.value).toBe('string')
+    const value = result.value as string
+    expect(value.startsWith('V'.repeat(64))).toBe(true)
+    expect(value.endsWith('… [truncated]')).toBe(true)
+    expect(value.length).toBeLessThan(120)
+    const marker = '[dsh-code-runtime-worker] log capture truncated at 200 bytes'
+    const total = result.logs.reduce((sum, entry) => sum + Buffer.byteLength(entry.text, 'utf8'), 0)
+    expect(total).toBeLessThanOrEqual(200 + Buffer.byteLength(marker, 'utf8'))
+    expect(result.logs.at(-1)?.text).toBe(marker)
+    expect(result.logs.every(entry => !('forged' in entry))).toBe(true)
+  })
+
+  it('accepts a forged done carrying both value and error (self-sabotage, contained)', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({
+      program: `
+        const { parentPort } = await import('node:worker_threads');
+        parentPort.postMessage({ type: 'done', value: 'lied', error: { message: 'fake failure' } });
+        for (;;) {}
+      `,
+      bindings: [],
+    })
+    expect(result.value).toBe('lied')
+    expect(result.error).toEqual({ kind: 'exception', message: 'fake failure' })
   })
 
   it('answers a binding whose resolution cannot be cloned with a failure reply', async () => {

@@ -12,6 +12,7 @@
 
 import { inspect } from 'node:util'
 import type { CodeLogEntry } from '@deepseek-ai/dsh-code-runtime'
+import { logTruncationMarker } from './protocol.ts'
 import type { DoneMessage, ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
 
 /** The port surface the bootstrap needs — satisfied by `parentPort` and by the tests' fake. */
@@ -62,7 +63,7 @@ export class LogBuffer {
     const cost = Buffer.byteLength(entry.text, 'utf8')
     if (cost > this.remaining) {
       this.truncated = true
-      this.sink({ source: 'stderr', text: `[dsh-code-runtime-worker] log capture truncated at ${this.maxBytes} bytes` })
+      this.sink({ source: 'stderr', text: logTruncationMarker(this.maxBytes) })
       return
     }
     this.remaining -= cost

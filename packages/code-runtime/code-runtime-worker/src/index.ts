@@ -18,6 +18,8 @@ import { Context } from 'cordis'
 import z from 'schemastery'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeBindingFunction, CodeLogEntry, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import { prepareValue } from './bootstrap.ts'
+import { logTruncationMarker } from './protocol.ts'
 import type { ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
 
 export type { BootstrapPort, PatchableStream } from './bootstrap.ts'
@@ -107,6 +109,64 @@ const WORKER_URL = new URL(new URL(import.meta.url).pathname.endsWith('.ts') ? '
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
+
+/** The log sources / console levels the seam vocabulary admits, as runtime sets for inbound-message validation. */
+const LOG_SOURCES = new Set<string>(['console', 'stdout', 'stderr'])
+const LOG_LEVELS = new Set<string>(['log', 'info', 'warn', 'error', 'debug'])
+
+/**
+ * Runtime shape gate for inbound port traffic. The peer runs MODEL CODE and
+ * can post anything — `null`, primitives, objects with poisoned fields — so
+ * the compile-time `WorkerToHost` type means nothing here: everything is
+ * re-validated and REBUILT field by field (a forged extra field never rides
+ * along; a non-number call id can never be echoed into a reply). Junk returns
+ * `undefined` and is dropped — a throw in the host's `message` listener would
+ * crash the host process.
+ */
+function parseWorkerMessage(raw: unknown): WorkerToHost | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const m = raw as Record<string, unknown>
+  switch (m.type) {
+    case 'call': {
+      if (typeof m.id !== 'number' || typeof m.global !== 'string' || typeof m.name !== 'string') return undefined
+      return { type: 'call', id: m.id, global: m.global, name: m.name, args: m.args }
+    }
+    case 'log': {
+      const entry = m.entry
+      if (typeof entry !== 'object' || entry === null) return undefined
+      const e = entry as Record<string, unknown>
+      if (typeof e.text !== 'string') return undefined
+      if (typeof e.source !== 'string' || !LOG_SOURCES.has(e.source)) return undefined
+      if (e.level !== undefined && (typeof e.level !== 'string' || !LOG_LEVELS.has(e.level))) return undefined
+      return {
+        type: 'log',
+        entry: {
+          source: e.source as CodeLogEntry['source'],
+          ...e.level !== undefined ? { level: e.level as Exclude<CodeLogEntry['level'], undefined> } : {},
+          text: e.text,
+        },
+      }
+    }
+    case 'done': {
+      if (m.error === undefined) return { type: 'done', ...m.value !== undefined ? { value: m.value } : {} }
+      const error = m.error
+      if (typeof error !== 'object' || error === null) return undefined
+      const message = (error as Record<string, unknown>).message
+      if (typeof message !== 'string') return undefined
+      return { type: 'done', ...m.value !== undefined ? { value: m.value } : {}, error: { message } }
+    }
+    default: return undefined
+  }
+}
+
+/**
+ * Headroom the host's value re-cap grants over `maxValueBytes`: exactly the
+ * truncation suffix {@link prepareValue} appends, so a value the WORKER
+ * already capped passes through unchanged instead of being marked twice.
+ * (A multibyte rendering the worker sliced by characters can still exceed
+ * this and pick up a second marker — bounded and harmless.)
+ */
+const VALUE_RENDER_SLACK = Buffer.byteLength('… [truncated]', 'utf8')
 
 /**
  * The shipped {@link CodeRuntime} backend (`ctx.codeRuntime`). Registers as
@@ -234,13 +294,32 @@ export class WorkerCodeRuntime extends CodeRuntime {
       const answered = new Set<number>()
       const logs: CodeLogEntry[] = []
       const strayLogs: CodeLogEntry[] = []
-      let strayBudget = this.config.maxLogBytes
 
+      // ONE host-side ledger for everything that lands in `logs`/`strayLogs`,
+      // whatever the path: honest port entries, FORGED port entries (model
+      // code posting `log` messages directly, bypassing the worker-side
+      // LogBuffer), and stray pipe bytes. On the first overflow it emits the
+      // same in-band marker the worker's LogBuffer would and drops the rest,
+      // so the documented cap is one shared `maxLogBytes` however it is hit.
+      let logBudget = this.config.maxLogBytes
+      let logsTruncated = false
+      const admit = (entry: CodeLogEntry, sink: CodeLogEntry[]): void => {
+        if (logsTruncated) return
+        const cost = Buffer.byteLength(entry.text, 'utf8')
+        if (cost > logBudget) {
+          logsTruncated = true
+          sink.push({ source: 'stderr', text: logTruncationMarker(this.config.maxLogBytes) })
+          return
+        }
+        logBudget -= cost
+        sink.push(entry)
+      }
+
+      // No settled guard: `finish` snapshots the arrays when it resolves, so
+      // a chunk flushing after settlement mutates only the discarded buffers,
+      // and the ledger bounds that growth until the pipes close.
       const captureStray = (source: 'stdout' | 'stderr') => (chunk: Buffer) => {
-        if (settled || strayBudget <= 0) return
-        const text = chunk.toString('utf8').slice(0, strayBudget)
-        strayBudget -= Buffer.byteLength(text, 'utf8')
-        strayLogs.push({ source, text })
+        admit({ source, text: chunk.toString('utf8') }, strayLogs)
       }
       worker.stdout.on('data', captureStray('stdout'))
       worker.stderr.on('data', captureStray('stderr'))
@@ -267,9 +346,14 @@ export class WorkerCodeRuntime extends CodeRuntime {
 
       const onDone = (message: WorkerToHost): void => {
         if (message.type !== 'done') return
+        // Re-cap the completion value HOST-side: the honest path already
+        // capped it in the worker (prepareValue there), but a forged done
+        // message bypasses the bootstrap entirely — without this, model code
+        // could flood the host past maxValueBytes. Honest values pass
+        // unchanged (see VALUE_RENDER_SLACK); the error text is bounded too.
         finish({
-          ...message.value !== undefined ? { value: message.value } : {},
-          ...message.error ? { error: { kind: 'exception' as const, message: message.error.message } } : {},
+          ...prepareValue(message.value, this.config.maxValueBytes + VALUE_RENDER_SLACK),
+          ...message.error ? { error: { kind: 'exception' as const, message: message.error.message.slice(0, this.config.maxValueBytes) } } : {},
         })
       }
 
@@ -308,8 +392,12 @@ export class WorkerCodeRuntime extends CodeRuntime {
         })()
       }
 
-      worker.on('message', (message: WorkerToHost) => {
-        if (message.type === 'log' && !settled) logs.push(message.entry)
+      worker.on('message', (raw: unknown) => {
+        // Parse before touching: the peer can post ANY shape, and a throw in
+        // this listener would crash the host process. Junk drops silently.
+        const message = parseWorkerMessage(raw)
+        if (!message) return
+        if (message.type === 'log' && !settled) admit(message.entry, logs)
         onCall(message)
         onDone(message)
       })

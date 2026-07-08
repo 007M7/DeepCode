@@ -63,3 +63,16 @@ export type WorkerToHost = CallMessage | LogMessage | DoneMessage
 export type ReplyMessage =
   | { type: 'reply'; id: number; ok: true; value: unknown }
   | { type: 'reply'; id: number; ok: false; message: string }
+
+/**
+ * The in-band marker entry text announcing that log capture stopped at the
+ * byte budget. Shared wire vocabulary: the worker's LogBuffer emits it when
+ * ITS budget exhausts, and the host emits the identical text when its own
+ * ledger drops an entry first (forged port traffic, stray pipe bytes) — so
+ * a truncated run reads the same however the cap was hit.
+ * @param maxBytes - the configured `maxLogBytes` the marker names.
+ * @returns the marker line.
+ */
+export function logTruncationMarker(maxBytes: number): string {
+  return `[dsh-code-runtime-worker] log capture truncated at ${maxBytes} bytes`
+}
