@@ -1,10 +1,10 @@
 /**
- * The providerless, executor-less, UI-less agent spine as ONE bundle plugin.
+ * The default executor-less, UI-less agent spine as ONE bundle plugin.
  *
  * Loads the fixed set of services every harness agent needs — `timer`, the LLM
  * service, the session store, system-prompt assembly, the tool registry, the
- * skill registry, the agent registry, the dev-mode invariants, the model-facing
- * `bash` and `skill` tool schemas, and the concrete `agent-loop` — and forwards the loop's `agents`
+ * skill registry plus local skill provider, the agent registry, the dev-mode
+ * invariants, the model-facing `bash` and `skill` tool schemas, and the concrete `agent-loop` — and forwards the loop's `agents`
  * list as its OWN config (default `[]`), so each app supplies its own
  * pre-created agents.
  *
@@ -19,6 +19,9 @@
  *    (a console logger, `hmr`) — these are the coupled "front-door cluster" the
  *    app packages ({@link @deepseek-ai/dsh-stdio-agent},
  *    {@link @deepseek-ai/dsh-acp-agent}) bake in, NOT the shared spine.
+ *  - additional SKILL PROVIDERS; the bundle ships the local filesystem provider
+ *    because local skills are default agent behavior, while embedded or remote
+ *    providers remain deployment choices.
  *
  * This is the interface/implementation/consumer seam at the composition level:
  * the bundle owns the shared spine, the leaf owns the backends, the app package
@@ -49,7 +52,8 @@ import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt, { type Config as SystemPromptConfig } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import SkillService, { type Config as SkillConfig } from '@deepseek-ai/dsh-skill'
+import SkillService, { type Config as SkillRegistryConfig } from '@deepseek-ai/dsh-skill'
+import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import * as invariants from '@deepseek-ai/dsh-invariants'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
@@ -58,12 +62,20 @@ import AgentLoop, { type Config as AgentLoopConfig } from '@deepseek-ai/dsh-agen
 
 export const name = 'agent-core'
 
+/** Skill bundle config forwarded to the registry and the local provider. */
+export interface SkillConfig {
+  /** Registry-level prompt/cache settings. */
+  registry?: SkillRegistryConfig
+  /** Local filesystem skill provider settings. */
+  local?: SkillLocal.Config
+}
+
 /**
  * Bundle config: each field forwarded verbatim to the child that owns it —
  * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
  * bridge, simply omits it), `persona` to the system-prompt plugin (the
- * deployment's persona section), and `skills` to the skill service. All three
- * are optional INPUT here because each owner's schema supplies the default
+ * deployment's persona section), and `skills` to the skill registry/local
+ * provider. All three are optional INPUT here because each owner's schema supplies the default
  * (`[]` / `''` / the DSH skill roots); the schema is the INTERSECTION of the
  * owners' own schemas, so validation and defaulting can never drift from them.
  */
@@ -72,12 +84,15 @@ export interface Config {
   agents?: AgentLoopConfig['agents']
   /** The deployment persona (see dsh-system-prompt's `Config`). */
   persona?: SystemPromptConfig['persona']
-  /** Skill discovery roots, system-skill installation, and prompt/cache bounds. */
+  /** Skill registry and local provider config. */
   skills?: SkillConfig
 }
 
 /** The skill config schema exported for app packages that forward `skills`. */
-export const SkillConfigSchema = SkillService.Config
+export const SkillConfigSchema: z<SkillConfig> = z.object({
+  registry: SkillService.Config,
+  local: SkillLocal.Config,
+})
 
 /** Intersect the owners' schemas so validation + defaulting stay identical. */
 export const Config = z.intersect([
@@ -105,12 +120,11 @@ export function apply(ctx: Context, config: Config): void {
   // introduce different ones.
   ctx.plugin(SystemPrompt, { persona: config.persona ?? '' })
   ctx.plugin(ToolRegistry)
-  ctx.plugin(SkillService, config.skills ?? {})
+  ctx.plugin(SkillService, config.skills?.registry ?? {})
+  ctx.plugin(SkillLocal, config.skills?.local ?? {})
   ctx.plugin(AgentRegistry)
   ctx.plugin(invariants)
   ctx.plugin(toolBash)
   ctx.plugin(toolSkill)
   ctx.plugin(AgentLoop, { agents: config.agents ?? [] })
 }
-
-export type { SkillConfig }

@@ -17,7 +17,7 @@ The default distribution is a composition, not a hierarchy. `packages/core/` is 
 | `ctx.sessions` | `dsh-session` | in-memory event-sourced sessions |
 | `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and prompt variables |
 | `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
-| `ctx.skills` | `dsh-skill` | project/user/system skill discovery and request-time guidance |
+| `ctx.skills` | `dsh-skill` | provider registry for skills and request-time guidance |
 | `ctx.agents` | `dsh-agent` | live agent registry, public `Agent` handle, `agent/*` vocabulary |
 | `ctx.agentLoop` | `dsh-agent-loop` | shipped `ReactLoopAgent` driver |
 
@@ -125,11 +125,11 @@ Streaming is a raw chunk protocol (`block-start` through `finish`) with `BlockAs
 
 A swappable capability usually splits into **interface / implementation / consumer**: the interface owns the `ctx` key and vocabulary; an implementation registers a backend; a consumer exposes model-facing behavior through `ctx.tools` or prompt assembly. The bash trio is the reference shape, and the [capability seam graph](capability-seams.md) shows the current package families.
 
-Some seams bend the template deliberately. LLM keeps interface and consumer vocabulary together because adapters are the implementations. Filesystem adds policy as event gates around provider primitives. Web is one service with search and fetch provider registries, so provider swaps do not rename model tools. Subagents use a named provider registry because multiple delegation backends can coexist; `spawn` starts fresh, `fork` seeds from the parent's completed-turn prefix, and ACP can drive an out-of-process child ([subagent.md](core-data-structures/subagent.md)).
+Some seams bend the template deliberately. LLM keeps interface and consumer vocabulary together because adapters are the implementations. Filesystem adds policy gates around provider primitives. Web is one service with search and fetch provider registries, so provider swaps do not rename model tools. Skills and subagents use named provider registries; local skills scan project/user roots, and other providers can add embedded or remote catalogs without registry/tool changes. Subagents spawn fresh, fork from the parent's completed-turn prefix, or use ACP children ([subagent.md](core-data-structures/subagent.md)).
 
 ### Bundles And Apps
 
-`dsh-agent-core` is the default composition bundle: one plugin loading the providerless spine as code ([README](../packages/core/agent-core/README.md)). App packages compose it with a front door and own the boot `bin`: `dsh-stdio-agent` for the terminal REPL, and `dsh-acp-agent` for ACP over JSON-RPC stdio with no stdout logger ([ui/](../packages/ui/README.md)). A deployment is a thin `cordis.yml` leaf: swappable backends, one app entry, and optional product tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
+`dsh-agent-core` is the default composition bundle: one plugin loading the shared spine ([README](../packages/core/agent-core/README.md)). App packages compose it with a front door and boot `bin`: `dsh-stdio-agent` for terminal REPL, and `dsh-acp-agent` for ACP over JSON-RPC stdio with no stdout logger ([ui/](../packages/ui/README.md)). A deployment is a thin `cordis.yml` leaf: swappable backends, one app entry, and optional product tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
 
 ### Where New Behavior Goes
 

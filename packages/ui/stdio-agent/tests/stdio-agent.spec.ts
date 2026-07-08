@@ -34,7 +34,7 @@ async function mount(config: stdioAgent.Config): Promise<Context> {
 
 async function isolatedSkillsConfig(): Promise<NonNullable<stdioAgent.Config['skills']>> {
   const home = await mkdtemp(join(tmpdir(), 'dsh-stdio-agent-skills-'))
-  return { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false }
+  return { local: { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents') } }
 }
 
 async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
@@ -93,10 +93,7 @@ describe('dsh-stdio-agent app', () => {
       stdioAgent.apply(ctx, { model: 'mock' })
       await new Promise(resolve => setTimeout(resolve, 80))
       expect(ctx.skills).toBeDefined()
-      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(expect.arrayContaining([
-        'dsh-plugin-creator',
-        'dsh-skill-creator',
-      ]))
+      expect(await ctx.skills.list()).toEqual([])
       await ctx.fiber.dispose()
     })
   })

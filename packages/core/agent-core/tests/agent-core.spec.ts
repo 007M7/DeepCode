@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
@@ -9,7 +9,7 @@ import { AgentId } from '@deepseek-ai/dsh-agent'
 
 /**
  * Unit coverage for the @deepseek-ai/dsh-agent-core bundle: mounting it brings
- * up the whole providerless spine in one `ctx.plugin`, and the forwarded
+ * up the whole default spine in one `ctx.plugin`, and the forwarded
  * `agents` config reaches the loop (default `[]`, or a pre-created agent).
  *
  * The bundle is exercised through `ctx.plugin(agentCore, …)` — the NAMESPACE
@@ -65,7 +65,7 @@ async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
 }
 
 describe('dsh-agent-core bundle', () => {
-  it('brings up the full providerless spine', async () => {
+  it('brings up the full default spine', async () => {
     const ctx = await mount()
     // One service from each layer of the spine proves the children loaded.
     expect(ctx.get('timer')).toBeDefined()
@@ -79,15 +79,12 @@ describe('dsh-agent-core bundle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('includes the default skill system and skill tool', async () => {
+  it('includes the skill registry, local provider, and skill tool without builtin skills', async () => {
     const ctx = await mount()
 
     expect(ctx.skills).toBeDefined()
     expect(ctx.tools.schemas().map(tool => tool.name)).toContain('skill')
-    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(expect.arrayContaining([
-      'dsh-plugin-creator',
-      'dsh-skill-creator',
-    ]))
+    expect(await ctx.skills.list()).toEqual([])
 
     await ctx.fiber.dispose()
   })
@@ -122,18 +119,25 @@ describe('dsh-agent-core bundle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('forwards skill config to the skill service', async () => {
+  it('forwards skill config to the registry and local provider', async () => {
     const home = await mkdtemp(join(tmpdir(), 'dsh-agent-core-skill-home-'))
     const agentsHome = await mkdtemp(join(tmpdir(), 'dsh-agent-core-skill-agents-'))
+    const custom = await mkdtemp(join(tmpdir(), 'dsh-agent-core-skill-custom-'))
+    await mkdir(custom, { recursive: true })
+    await writeFile(join(custom, 'custom-skill.md'), '---\nname: custom-skill\ndescription: Custom skill\n---\n\nCustom body.\n')
     const ctx = await mount({
       agents: [],
       skills: {
-        dshHome: join(home, '.dsh'),
-        agentsHome: join(agentsHome, '.agents'),
-        installSystemSkills: false,
+        registry: { promptFieldMaxLength: 6 },
+        local: {
+          dshHome: join(home, '.dsh'),
+          agentsHome: join(agentsHome, '.agents'),
+          customSkillDirs: [custom],
+        },
       },
     })
-    expect(await ctx.skills.list()).toEqual([])
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['custom-skill'])
+    expect(await ctx.skills.renderModelListing()).toContain('description: Cus...')
     await ctx.fiber.dispose()
   })
 
@@ -143,10 +147,7 @@ describe('dsh-agent-core bundle', () => {
       agentCore.apply(ctx, { agents: [] })
       await new Promise(resolve => setTimeout(resolve, 50))
       expect(ctx.skills).toBeDefined()
-      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(expect.arrayContaining([
-        'dsh-plugin-creator',
-        'dsh-skill-creator',
-      ]))
+      expect(await ctx.skills.list()).toEqual([])
       await ctx.fiber.dispose()
     })
   })

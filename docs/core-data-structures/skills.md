@@ -1,36 +1,46 @@
 # Skills
 
-The skill stack is split across two core packages: the service ([dsh-skill](../../packages/core/skill), `ctx.skills`) discovers and parses local `SKILL.md` instructions, injects a stable request-time listing, and exposes full skill bodies on demand; the consumer ([dsh-tool-skill](../../packages/core/tool-skill), model-facing `skill`) loads one complete body for progressive disclosure. Skills are optional instructions, not session events, so their vocabulary lives here rather than in [core.md](core.md).
+The skill stack is split across three core packages: the registry ([dsh-skill](../../packages/core/skill), `ctx.skills`) merges provider catalogs and renders request-time guidance; the local provider ([dsh-skill-local](../../packages/core/skill-local)) scans project/custom/user directories; the consumer ([dsh-tool-skill](../../packages/core/tool-skill), model-facing `skill`) loads one complete body for progressive disclosure. Skills are optional instructions, not session events, so their vocabulary lives here rather than in [core.md](core.md).
 
-Source: [`packages/core/skill/src/index.ts`](../../packages/core/skill/src/index.ts) and [`packages/core/tool-skill/src/index.ts`](../../packages/core/tool-skill/src/index.ts).
+Source: [`packages/core/skill/src/index.ts`](../../packages/core/skill/src/index.ts), [`packages/core/skill-local/src/index.ts`](../../packages/core/skill-local/src/index.ts), and [`packages/core/tool-skill/src/index.ts`](../../packages/core/tool-skill/src/index.ts).
 
-## Discovery priority
+## Provider registry
 
-For a request with a cwd, `ctx.skills` finds the nearest git root and scans roots in first-wins order:
+`ctx.skills` is a multi-provider registry. Providers can represent local directories, embedded plugin data, HTTP catalogs, or another source. The registry validates candidates, resolves duplicate skill names first-wins by rank/provider order/local order, and sorts the final model-visible catalog by `name` for deterministic prompt text. A provider `list()` rejection is logged and skipped without caching the degraded catalog; malformed candidates still fail fast because they violate the provider contract.
 
-| Priority | Source | Root |
+```ts type-equiv
+interface SkillProvider {
+  name: string
+  list(options: SkillLookupOptions): Promise<SkillCandidate[]>
+  get(candidate: SkillCandidate, options: SkillLookupOptions): Promise<SkillDefinition | undefined>
+}
+```
+
+## Local discovery priority
+
+The shipped local provider scans roots in rank order:
+
+| Rank | Source | Root |
 |---|---|---|
-| 1 | `project-dsh` | `<projectRoot>/.dsh/skills` |
-| 2 | `project-agents` | `<projectRoot>/.agents/skills` |
-| 3 | `runtime` | `ctx.skills.register(...)` |
-| 4 | `user-dsh` | `~/.dsh/skills` |
-| 5 | `user-agents` | `~/.agents/skills` |
-| 6 | `extra` | `Config.extraRoots` |
-| 7 | `system` | `~/.dsh/skills/.system` |
+| 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
+| 200 | `project-agents` | `<projectRoot>/.agents/skills` |
+| 300 | `custom` | `Config.customSkillDirs` |
+| 400 | `user-dsh` | `<dshHome>/skills` |
+| 500 | `user-agents` | `<agentsHome>/skills` |
 
-The user DSH root skips its `.system` child during normal scanning so built-in skills are discovered exactly once. Same-name skills keep the highest-priority copy and log a warning for later duplicates. After this priority pass, model-visible summaries are sorted by `name` before prompt rendering so the `## Skills` fragment is deterministic and friendly to provider prefix caches.
+The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary. The user DSH root skips its `.system` child, and DeepSeek Harness no longer ships built-in system skills from the local provider. Additional built-ins can be supplied later by another provider.
 
 ## Skill identity
 
-Skill names are kebab-case (`^[a-z0-9]+(?:-[a-z0-9]+)*$`). A skill can be a directory bundle (`<name>/SKILL.md`) or a flat Markdown file (`<name>.md`). Nested recursive `**/SKILL.md` discovery is intentionally outside v1.
+Skill names are kebab-case (`^[a-z0-9]+(?:-[a-z0-9]+)*$`). The local provider accepts directory bundles (`<name>/SKILL.md`) and flat Markdown files (`<name>.md`). Nested recursive `**/SKILL.md` discovery is intentionally outside v1.
 
 ```ts type-equiv
-type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | 'user-agents' | 'extra' | 'system'
+type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | 'user-agents' | 'custom' | (string & {})
 ```
 
-## Summaries and complete definitions
+## Summaries, candidates, and complete definitions
 
-`SkillSummary` is the model-visible shape: the request prompt gets the name, source, description, and optional routing hint, but never the body or absolute file path. `disableModelInvocation` hides a skill from listings while allowing trusted code to load it by name.
+`SkillSummary` is the model-visible shape: the request prompt gets name, source, provider, description, and optional routing hint, but never the body or absolute file path. `disableModelInvocation` hides a skill from listings while allowing trusted code to load it by name.
 
 ```ts type-equiv
 interface SkillSummary {
@@ -38,12 +48,31 @@ interface SkillSummary {
   description: string
   whenToUse?: string
   disableModelInvocation?: boolean
-  directory: string
   source: SkillSource
+  provider: string
+  resourceBase?: SkillResourceBase
 }
 ```
 
-`SkillDefinition` is the complete parsed result returned by `ctx.skills.get()` and used by the `skill` tool. `directory` is the base directory for resolving relative references in the skill body; `path` is present for disk skills; `metadata` preserves optional frontmatter for future consumers without changing v1 routing behavior.
+`SkillCandidate` is the provider-to-registry shape. `locator` is opaque provider state; the registry only stores it and gives it back to the winning provider's `get()`.
+
+```ts type-equiv
+interface SkillCandidate extends SkillSummary {
+  rank: number
+  locator: unknown
+  path?: string
+  metadata?: Record<string, unknown>
+}
+```
+
+`SkillDefinition` is the complete parsed result returned by `ctx.skills.get()` and used by the `skill` tool. `resourceBase` tells the tool how to render relative-resource guidance for local, URL, or provider-managed skills.
+
+```ts type-equiv
+type SkillResourceBase =
+  | { kind: 'directory'; path: string }
+  | { kind: 'url'; url: string }
+  | { kind: 'opaque'; description: string }
+```
 
 ```ts type-equiv
 interface SkillDefinition extends SkillSummary {
@@ -56,14 +85,14 @@ interface SkillDefinition extends SkillSummary {
 Runtime skills use the same complete shape and participate in the same first-wins collection order. The returned disposer removes the contribution and invalidates discovery caches.
 
 ```ts type-equiv
-type SkillRegistration = Omit<SkillDefinition, 'disableModelInvocation'> & {
-  disableModelInvocation?: boolean
+type SkillRegistration = Omit<SkillDefinition, 'provider'> & {
+  provider?: string
 }
 ```
 
 ## Lookup and configuration
 
-Skill lookup is cwd-sensitive because project skill roots are relative to the current workspace. If no git root is found, the supplied cwd itself is the project root. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary.
+Skill lookup is cwd-sensitive because providers may expose workspace-local skills. If no git root is found, the local provider treats the supplied cwd itself as the project root.
 
 ```ts type-equiv
 interface SkillLookupOptions {
@@ -71,14 +100,10 @@ interface SkillLookupOptions {
 }
 ```
 
-The service can be pointed at alternate user roots in tests or deployments. `installSystemSkills` controls whether bundled system skills are materialized under `<dshHome>/skills/.system` on startup. `promptFieldMaxLength` must be at least `3`, matching the `...` truncation suffix reserved in rendered prompt fields.
+The registry owns prompt/cache bounds. The local provider owns filesystem roots (`dshHome`, `agentsHome`, and `customSkillDirs`).
 
 ```ts type-equiv
 interface Config {
-  dshHome?: string
-  agentsHome?: string
-  extraRoots?: string[]
-  installSystemSkills?: boolean
   promptFieldMaxLength?: number
   collectCacheMaxEntries?: number
 }
@@ -86,6 +111,6 @@ interface Config {
 
 ## Prompt and tool contract
 
-`ctx.skills.renderModelListing()` returns a `## Skills` fragment wrapped in `<available_skills>`. Descriptions and `whenToUse` are whitespace-normalized, length-capped, and XML-escaped before rendering. The listing is appended as a late `system-prompt/assemble` section for the calling agent, so it remains cwd-sensitive while still flowing through the reconstructable system-prompt path.
+`ctx.skills.renderModelListing()` returns a `## Skills` fragment wrapped in `<available_skills>`. Descriptions and `whenToUse` are whitespace-normalized, length-capped, XML-escaped, and have `{{` / `}}` split before rendering so skill metadata cannot be parsed as prompt-template variables. The listing is appended as a late `system-prompt/assemble` section for the calling agent, so it remains cwd-sensitive while still flowing through the reconstructable system-prompt path.
 
-The model-facing `skill({ name })` tool validates the kebab-case name, loads the complete definition for the calling agent cwd, rejects unknown or `disableModelInvocation` skills, and returns a `<skill_content name="...">` block with the body plus base-directory and relative-path guidance. The tool result is the only v1 path that exposes full skill instructions to the model.
+The model-facing `skill({ name })` tool validates the kebab-case name, loads the complete definition for the calling agent cwd, rejects unknown or `disableModelInvocation` skills, and returns a `<skill_content name="...">` block with the body plus provider resource guidance. The tool result is the only v1 path that exposes full skill instructions to the model.

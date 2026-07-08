@@ -47,6 +47,7 @@ import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentMock from '@deepseek-ai/dsh-subagent-mock'
 import SkillService from '@deepseek-ai/dsh-skill'
+import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -138,10 +139,10 @@ const TOOL_PACKAGES: ToolPackage[] = [
     requires: ['ctx.tools', 'ctx.skills'],
     writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
-      await ctx.plugin(SkillService, {
+      await ctx.plugin(SkillService)
+      await ctx.plugin(SkillLocal, {
         dshHome: resolve(root, '.tmp/tool-catalog/.dsh'),
         agentsHome: resolve(root, '.tmp/tool-catalog/.agents'),
-        installSystemSkills: false,
       })
       await ctx.plugin(ToolSkill)
     },

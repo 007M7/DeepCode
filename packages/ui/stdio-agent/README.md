@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-stdio-agent
 
-The **terminal stdio chat app**: a Cordis app plugin that composes the providerless agent spine ([`@deepseek-ai/dsh-agent-core`](../../core/agent-core/README.md)) with the front-door cluster a terminal chat needs, and a `bin` that boots a leaf `cordis.yml`.
+The **terminal stdio chat app**: a Cordis app plugin that composes the default agent spine ([`@deepseek-ai/dsh-agent-core`](../../core/agent-core/README.md)) with the front-door cluster a terminal chat needs, and a `bin` that boots a leaf `cordis.yml`.
 
 It is the readline counterpart to [`@deepseek-ai/dsh-acp-agent`](../acp-agent/README.md): both consume the same spine, but each bakes in the OPPOSITE front-door cluster.
 

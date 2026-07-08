@@ -6,6 +6,7 @@
 
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { assertNever } from '@deepseek-ai/dsh-llm'
 import { isSkillName, type SkillDefinition } from '@deepseek-ai/dsh-skill'
 
 export const name = 'tool-skill'
@@ -39,14 +40,34 @@ export function apply(ctx: Context): void {
 }
 
 function renderSkillContent(skill: SkillDefinition): string {
+  const resourceHint = renderResourceHint(skill)
   return [
     `<skill_content name="${skill.name}">`,
     `# Skill: ${skill.name}`,
     '',
     skill.content,
     '',
-    `Base directory for this skill: ${skill.directory}`,
-    'Resolve relative files mentioned by this skill against the base directory before using them.',
+    ...resourceHint,
     '</skill_content>',
   ].join('\n')
+}
+
+function renderResourceHint(skill: SkillDefinition): string[] {
+  const base = skill.resourceBase
+  if (base === undefined) {
+    return [`Resources for this skill are managed by provider "${skill.provider}".`]
+  }
+  switch (base.kind) {
+    case 'directory':
+      return [
+        `Base directory for this skill: ${base.path}`,
+        'Resolve relative files mentioned by this skill against the base directory before using them.',
+      ]
+    case 'url':
+      return [`Base URL for this skill: ${base.url}`]
+    case 'opaque':
+      return [`Resources for this skill: ${base.description}`]
+    default:
+      return assertNever(base, 'SkillResourceBase.kind')
+  }
 }

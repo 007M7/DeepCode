@@ -1,6 +1,6 @@
 {
-  "name": "@deepseek-ai/dsh-skill",
-  "description": "Agent skill provider registry and prompt listing for the DeepSeek Harness",
+  "name": "@deepseek-ai/dsh-skill-local",
+  "description": "Local filesystem skill provider for the DeepSeek Harness",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -22,16 +22,17 @@
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
-    "@deepseek-ai/dsh-agent": "^0.0.1",
-    "@deepseek-ai/dsh-system-prompt": "^0.0.1",
+    "@deepseek-ai/dsh-fs": "^0.0.1",
+    "@deepseek-ai/dsh-skill": "^0.0.1",
     "cordis": "^4.0.0-rc.6"
   },
   "dependencies": {
-    "schemastery": "^3.18.0"
+    "schemastery": "^3.18.0",
+    "yaml": "^2.4.2"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-agent": "workspace:^",
-    "@deepseek-ai/dsh-system-prompt": "workspace:^",
+    "@deepseek-ai/dsh-fs": "workspace:^",
+    "@deepseek-ai/dsh-skill": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }
 }

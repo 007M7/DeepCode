@@ -31,6 +31,7 @@
     { "path": "./packages/core/agent" },
     { "path": "./packages/core/tools" },
     { "path": "./packages/core/skill" },
+    { "path": "./packages/core/skill-local" },
     { "path": "./packages/core/tool-skill" },
     { "path": "./packages/core/agent-loop" },
     { "path": "./packages/core/agent-core" },

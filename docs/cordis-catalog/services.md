@@ -167,16 +167,17 @@ Source: [`packages/core/session/src/index.ts:371`](../../packages/core/session/s
 
 ## `ctx.skills` — `SkillService`
 
-Skill discovery service. It scans project/user/system skill roots, exposes model-visible summaries, loads full skill bodies on demand, and injects the stable `## Skills` listing into each agent request.
+Registry of skill providers. It merges provider catalogs with stable first-wins duplicate handling, exposes sorted model-visible summaries, loads full skill bodies on demand, and renders the request-time catalog fragment.
 
 ```ts cordis-catalog
+registerProvider(provider: SkillProvider): () => void
 register(skill: SkillRegistration): () => void
 async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
 async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
 async renderModelListing(options: SkillLookupOptions = {}): Promise<string>
 ```
 
-Source: [`packages/core/skill/src/index.ts:134`](../../packages/core/skill/src/index.ts)
+Source: [`packages/core/skill/src/index.ts:154`](../../packages/core/skill/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 

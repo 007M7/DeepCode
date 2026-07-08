@@ -1,5 +1,5 @@
 /**
- * The stdio chat app: the providerless agent spine ({@link
+ * The stdio chat app: the default agent spine ({@link
  * @deepseek-ai/dsh-agent-core}) plus the coupled front-door cluster a terminal
  * chat needs — a console logger, the readline UI (the in-package `stdio-chat`
  * module), JSONL session
@@ -67,7 +67,7 @@ export interface Config {
   persistenceRoot?: string
   /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
   welcome?: string
-  /** Skill discovery config forwarded to the shared agent-core spine. */
+  /** Skill registry/local-provider config forwarded to the shared agent-core spine. */
   skills?: agentCore.SkillConfig
   /**
    * If set, the `main` agent RESUMES this persisted session id instead of

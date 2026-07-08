@@ -127,10 +127,10 @@ const SERVICE_ROLES: ServiceRole[] = [
   {
     key: 'skills',
     pkg: 'skill',
-    title: 'Skill discovery registry',
+    title: 'Skill provider registry',
     mode: 'core',
-    consumers: ['agent-core', 'tool-skill'],
-    note: 'Discovers project/user/system skills, injects request-time listings, and serves full skill bodies to the skill tool.',
+    consumers: ['agent-core', 'skill-local', 'tool-skill'],
+    note: 'Merges provider skill catalogs, injects request-time listings, and serves full skill bodies to the skill tool.',
   },
   {
     key: 'agents',

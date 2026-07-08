@@ -1,54 +1,38 @@
 # @deepseek-ai/dsh-skill
 
-Agent skill discovery and model-facing skill guidance.
+Agent skill provider registry and model-facing skill guidance.
+
+This package owns the `ctx.skills` interface. It does not know whether skills come from local files, embedded plugin data, HTTP, or another backend; providers register those sources with `ctx.skills.registerProvider(...)`. The shipped local implementation is [`@deepseek-ai/dsh-skill-local`](../skill-local).
 
 ## Service: `SkillService` (ctx key: `skills`)
 
 ### Public API
 
-- `ctx.skills.list({ cwd? })` Returns model-invocable skill summaries for the current workspace.
-- `ctx.skills.get(name, { cwd? })` Returns the full skill, including disabled-for-model skills.
-- `ctx.skills.register(skill): () => void` Registers a runtime skill, disposed with the calling fiber. Same-name runtime registrations are first-wins: a duplicate logs a warning and gets a no-op disposer.
+- `ctx.skills.registerProvider(provider): () => void` Registers a provider by unique `provider.name`. Duplicate provider names throw, and `runtime` is reserved for `ctx.skills.register(...)`. The registration is effect-scoped and HMR-safe.
+- `ctx.skills.list({ cwd? })` Returns model-invocable skill summaries for the current workspace, merged across providers.
+- `ctx.skills.get(name, { cwd? })` Returns the full winning skill, including disabled-for-model skills.
+- `ctx.skills.register(skill): () => void` Registers a runtime embedded skill. Same-name runtime registrations are first-wins: a duplicate logs a warning and gets a no-op disposer.
+- `ctx.skills.renderModelListing({ cwd? })` Renders the request-time `## Skills` catalog.
 
 ### Config
 
 | Field | Default | Meaning |
 |---|---|---|
-| `dshHome` | `$DSH_HOME` or `~/.dsh` | DeepSeek Harness config root; system skills live under `skills/.system`. |
-| `agentsHome` | `$DSH_AGENTS_HOME` or `~/.agents` | Shared agent config root scanned for compatible skills. |
-| `extraRoots` | `[]` | Additional skill roots scanned after user roots and before system skills. |
-| `installSystemSkills` | `true` | Whether startup materializes bundled system skills under `dshHome`. |
 | `promptFieldMaxLength` | `500` | Maximum rendered `description` / `whenToUse` length in the prompt listing; must be at least `3` because truncated fields reserve `...`. |
-| `collectCacheMaxEntries` | `128` | Maximum cwd/root discovery promises kept in memory. |
+| `collectCacheMaxEntries` | `128` | Maximum cwd/provider discovery promises kept in memory. |
 
-### Discovery
+## Provider Contract
 
-Default roots are resolved in this conflict priority order:
+A provider returns `SkillCandidate[]` from `list(options)` and later receives the winning candidate back in `get(candidate, options)`. The candidate's `locator` is opaque to the registry, so a local provider can store a file path while a future HTTP provider can store a URL, id, or version token.
 
-| Source | Path |
-|---|---|
-| Project DSH | `<projectRoot>/.dsh/skills` |
-| Project agents | `<projectRoot>/.agents/skills` |
-| Runtime | `ctx.skills.register(...)` |
-| User DSH | `~/.dsh/skills` |
-| User agents | `~/.agents/skills` |
-| Extra | `Config.extraRoots` |
-| System | `~/.dsh/skills/.system` |
+The registry validates candidate names, descriptions, ranks, and provider ownership. Candidate contract violations fail fast because the provider plugin is malformed; a provider `list()` rejection is treated as a transient source failure, logged, skipped for that request, and not cached. Duplicate skill names are resolved first-wins by `rank`, provider registration order, then the provider's own local order. The final model-visible summary list is sorted by skill `name` for deterministic prompt text and provider prefix-cache friendliness.
 
-The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. When `ctx.fs` is available, that ancestor lookup probes `.git` through the filesystem service rather than the host filesystem so remote or sandboxed workspaces keep their own project boundary. The user DSH root skips `.system` during normal user scanning so system skills are read exactly once. Same-name skills keep the highest-priority copy, then model-visible summaries are sorted by skill name for stable prompts and provider prefix-cache friendliness.
+## Runtime Skills
 
-When `ctx.fs` is available, discovery lists roots through `ctx.fs.listDir`, reads skill files through `ctx.fs.readText`, and installs system skills through `ctx.fs.writeText`. Without a filesystem service, the package falls back to Node filesystem I/O for project-root lookup, discovery, reads, and installation so the service can still run in minimal test contexts. Missing, unreadable, or malformed skill files warn and skip instead of failing the whole request.
-
-Discovery is memoized per resolved root set and runtime-skill revision. Runtime `register()` and active disposer calls invalidate the cache; duplicate runtime registrations do not alter the active set. Disk-only changes are picked up on the next invalidation or process restart.
-
-## Skill Format
-
-Skills can be single-level directory bundles (`<name>/SKILL.md`) or flat Markdown files (`<name>.md`). Nested `**/SKILL.md` discovery is intentionally not part of v1. Frontmatter is parsed as YAML with the `yaml` package; it requires `name` and `description`, while `whenToUse`, `disableModelInvocation`, and `metadata` are optional. Names must be kebab-case.
+`ctx.skills.register(...)` is a convenience for embedded runtime skills. Runtime skills use rank `250`: project providers can override them, while they override the shipped local provider's custom and user roots. Runtime registration is also first-wins within runtime contributions, so a duplicate contribution cannot remove the active one through its disposer.
 
 ## Prompt Integration
 
-The service listens on `system-prompt/assemble` and appends a short `## Skills` section to the calling agent's assembled system prompt. The listing contains only stable routing metadata (`name`, `source`, `description`, and optional `whenToUse`), not skill bodies or local absolute paths. `description` and `whenToUse` are whitespace-normalized and capped in the listing so one pathological skill cannot bloat every model request. Models load full instructions through the `skill` tool.
+The service listens on `system-prompt/assemble` and appends a short `## Skills` section to the calling agent's assembled system prompt. The listing contains only stable routing metadata (`name`, `source`, `description`, and optional `whenToUse`), not skill bodies or absolute local paths. `description` and `whenToUse` are whitespace-normalized, capped, XML-escaped, and have `{{` / `}}` delimiters split so provider text cannot trip prompt-variable interpolation. Models load full instructions through the `skill` tool.
 
-## System Skills
-
-On startup, the service ensures bundled system skills exist under `~/.dsh/skills/.system` unless `installSystemSkills: false` is configured. Project, runtime, user, and extra-root skills can override system skills by name.
+The prompt-injection surface is intentionally separate from provider loading: changing where skills come from means adding or swapping providers, not changing prompt assembly or the `skill` tool.

@@ -36,6 +36,9 @@
       "path": "../../core/skill"
     },
     {
+      "path": "../../core/skill-local"
+    },
+    {
       "path": "../../core/tool-skill"
     },
     {

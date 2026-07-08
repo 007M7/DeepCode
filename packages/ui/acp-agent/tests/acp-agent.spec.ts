@@ -27,7 +27,7 @@ async function mount(config: acpAgent.Config): Promise<Context> {
 
 async function isolatedSkillsConfig(): Promise<NonNullable<acpAgent.Config['skills']>> {
   const home = await mkdtemp(join(tmpdir(), 'dsh-acp-agent-skills-'))
-  return { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), installSystemSkills: false }
+  return { local: { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents') } }
 }
 
 async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
@@ -83,10 +83,7 @@ describe('dsh-acp-agent composition', () => {
       acpAgent.apply(ctx, { model: 'mock' })
       await new Promise(resolve => setTimeout(resolve, 50))
       expect(ctx.skills).toBeDefined()
-      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(expect.arrayContaining([
-        'dsh-plugin-creator',
-        'dsh-skill-creator',
-      ]))
+      expect(await ctx.skills.list()).toEqual([])
       await ctx.fiber.dispose()
     })
   })

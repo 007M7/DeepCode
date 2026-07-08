@@ -1,5 +1,5 @@
 /**
- * The ACP server app: the providerless agent spine ({@link
+ * The ACP server app: the default agent spine ({@link
  * @deepseek-ai/dsh-agent-core}) plus the coupled front-door cluster an ACP
  * server needs — JSONL session persistence and the {@link @deepseek-ai/dsh-acp}
  * bridge, and DELIBERATELY NOTHING that writes to stdout.
@@ -52,7 +52,7 @@ export interface Config {
   persona?: string
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
-  /** Skill discovery config forwarded to the shared agent-core spine. */
+  /** Skill registry/local-provider config forwarded to the shared agent-core spine. */
   skills?: agentCore.SkillConfig
 }
 
