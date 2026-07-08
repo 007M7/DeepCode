@@ -211,6 +211,28 @@ describe('toolTimeoutResult', () => {
   })
 })
 
+describe('timeout-policy disposal (HMR safety)', () => {
+  it('removes its tools/execute listener when the plugin fiber disposes', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    let seenSignal: AbortSignal | undefined
+    ctx.tools.register({ ...fastTool, name: 'probe', async execute(_a, exec) { seenSignal = exec.signal; return [{ type: 'text' as const, text: 'ok' }] } })
+
+    // Mount the policy on its OWN fiber so disposing it removes only the wrapper.
+    const fiber = await ctx.plugin(timeoutPolicy, { tools: { probe: { timeoutMs: 10_000 } } })
+    const upstream = new AbortController().signal
+    await ctx.tools.execute({ callId: CallId('c1'), name: 'probe', arguments: {}, signal: upstream })
+    expect(seenSignal).not.toBe(upstream) // wrapper live: dispatch saw the derived deadline signal
+
+    await fiber.dispose()
+    // Listener gone: the tool now receives the caller's own signal unwrapped. A
+    // leaked stale wrapper would still derive a deadline and fail this.
+    await ctx.tools.execute({ callId: CallId('c2'), name: 'probe', arguments: {}, signal: upstream })
+    expect(seenSignal).toBe(upstream)
+  })
+})
+
 describe('dsh-timeout-policy real-load-path guard', () => {
   it('has no default export and keeps name/Config through unwrapExports', () => {
     expect('default' in timeoutPolicy).toBe(false)
