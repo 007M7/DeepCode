@@ -31,7 +31,7 @@ Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator 
 setFactory(factory: AgentFactory): () => void
 create(options: CreateAgentOptions): AgentHandle
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
-register(agent: Agent): () => void
+register(agent: Agent): () => Promise<void> | void
 get(id: AgentId): Agent | undefined
 list(): Agent[]
 ```
