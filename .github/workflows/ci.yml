@@ -161,7 +161,7 @@ jobs:
         run: uv run --python 3.10 --group test --project python/sdk pytest
 
   # Blocking Windows build lane: keep the already-green native build protected
-  # while the broader observational gate job below exposes the remaining
+  # while the broader observational gate matrix below exposes the remaining
   # portability work without blocking mainline merges.
   windows-build:
     runs-on: windows-2025
@@ -182,10 +182,12 @@ jobs:
       - name: Build (tsc -b + tsdown)
         run: pnpm run build
 
-  # Observational Windows mirror of the Linux gate lanes. Snapshot stays
-  # Linux-only while its replay goldens remain platform-specific. The wrapper
-  # runs from native PowerShell 7 so an MSYS parent cannot leak into the suite.
+  # Observational, non-blocking Windows mirror of the Linux gate lanes. Snapshot
+  # stays Linux-only while its replay goldens remain platform-specific. Run the
+  # gates from native PowerShell: an MSYS parent would change the environment
+  # being measured. This job intentionally stays out of all-checks-passed.needs.
   windows-gates:
+    continue-on-error: true
     runs-on: windows-2025
     name: windows node 24 / ${{ matrix.lane }}
     env:
@@ -244,7 +246,6 @@ jobs:
         run: '"path=$(pnpm store path --silent)" >> $env:GITHUB_OUTPUT'
 
       - uses: actions/cache@v4
-        if: matrix.lane == 'lint'
         with:
           path: ${{ steps.pnpm-store.outputs.path }}
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
@@ -256,6 +257,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - uses: actions/cache@v4
+        if: matrix.lane == 'lint'
         with:
           path: .cache/eslint
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
@@ -264,12 +266,7 @@ jobs:
 
       - name: Run gates
         shell: pwsh
-        run: |
-          ${{ matrix.command }}
-          if ($LASTEXITCODE -ne 0) {
-            Write-Output "::warning::Windows lane '${{ matrix.lane }}' failed (exit $LASTEXITCODE) — observational, does not block merge. See logs above."
-          }
-          exit 0
+        run: ${{ matrix.command }}
 
   # Single stable required check for branch protection: require "all checks
   # passed" instead of enumerating matrix legs whose names change as lanes and
