@@ -43,6 +43,7 @@ import ConsoleExporter from '@cordisjs/plugin-logger-console'
 import z from 'schemastery'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import * as agentCore from '@deepseek-ai/dsh-agent-core'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as uiStdio from './stdio-chat.ts'
@@ -64,6 +65,8 @@ export interface Config {
   persona?: string
   /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
   toolOrder?: string[]
+  /** Tool-registry config — its presentation `mode` (forwarded through agent-core; see dsh-tools). */
+  tools?: ToolsConfig
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
@@ -83,6 +86,7 @@ export const Config: z<Config> = z.object({
   // order" (the owning dsh-system-prompt schema does the same), while
   // schemastery's native [] default would read as an invalid configured list.
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
+  tools: ToolRegistry.Config,
   persistenceRoot: z.string().default('./.sessions'),
   welcome: z.string().default('ready.'),
   resumeSessionId: z.string(),
@@ -100,6 +104,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(agentCore, {
     ...config.persona !== undefined ? { persona: config.persona } : {},
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
+    ...config.tools !== undefined ? { tools: config.tools } : {},
     agents: [{
       id: AgentId('main'),
       model: config.model,

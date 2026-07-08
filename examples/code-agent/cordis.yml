@@ -1,0 +1,84 @@
+# The code-agent plugin tree: the Code Mode demo. The same spine as
+# examples/coding-agent — the DeepSeek adapter, local bash, filesystem and
+# todo tool stacks over the stdio chat app — with TWO differences that turn
+# it into Cloudflare-style Code Mode:
+#
+#   1. `code-runtime` loads the worker-thread code-execution backend
+#      (`ctx.codeRuntime`): one fresh Node worker per run, TypeScript in.
+#   2. `stdio-agent` sets `tools: { mode: code }`, so the model is offered
+#      exactly ONE wire tool — `run_code` — plus a generated TypeScript SDK
+#      prompt section declaring bash/read/write/edit/todo_write; the model
+#      composes them by WRITING A PROGRAM, and only what it prints or
+#      returns re-enters its context.
+#
+# Requires DEEPSEEK_API_KEY (and optionally DEEPSEEK_BASE_URL) in the
+# environment — the dsh-stdio-agent bin loads the gitignored repo-root .env
+# first. cordis.yml reads them via the `!!js` tag.
+
+# Hot-module reload for the dev/demo loop (needs `node --expose-internals`).
+- id: hmr
+  name: '@cordisjs/plugin-hmr'
+  config:
+    root: ['.']
+
+# The DeepSeek adapter.
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    apiKey: !!js process.env.DEEPSEEK_API_KEY
+    baseURL: !!js process.env.DEEPSEEK_BASE_URL
+    models:
+      - deepseek-v4-pro
+      - deepseek-v4-flash
+
+# Local bash executor for the spine's `bash` tool schemas.
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+  config:
+    timeoutMs: 60000
+
+# The code-execution backend: `run_code` programs execute here, in one fresh
+# worker thread per run with an empty environment, port-bridged tool
+# bindings, and busy-time/wall-clock/heap caps (all overridable here).
+- id: code-runtime
+  name: '@deepseek-ai/dsh-code-runtime-worker'
+
+# The stdio chat app with the registry flipped to Code Mode: the wire tool
+# list collapses to [run_code] and the `tools:sdk` prompt section carries the
+# generated TypeScript declarations for every other registered tool.
+- id: stdio-agent
+  name: '@deepseek-ai/dsh-stdio-agent'
+  config:
+    model: deepseek-v4-flash
+    tools:
+      mode: code
+    # Set RESUME_SESSION_ID to continue a prior persisted session (the ids
+    # live under ./.sessions); unset starts a fresh session each run.
+    resumeSessionId: !!js process.env.RESUME_SESSION_ID
+    persistenceRoot: './.sessions'
+    welcome: 'code-mode agent ready. Give it a multi-tool task.'
+    persona: |
+      You are code-agent, a coding assistant powered by the {{model}} model.
+
+      You work by writing TypeScript programs for run_code: batch related
+      tool work into one program, loop and branch where it helps, and print
+      or return ONLY the findings that matter.
+
+# The model-facing todo_write tool: whole-list task tracking written to the
+# session log (todo/write), rendered as a stdio checklist.
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+
+# Filesystem capability stack: local provider, read-before-write/edit policy
+# gate, then the model-facing read/write/edit tools — all reachable from a
+# run_code program as `tools.read(...)` / `tools.write(...)` / `tools.edit(...)`.
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
+  config:
+    cwd: !!js process.cwd()
+
+- id: fs-policy
+  name: '@deepseek-ai/dsh-fs-policy'
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'

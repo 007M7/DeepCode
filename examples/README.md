@@ -19,6 +19,12 @@ A REPL agent demo: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + th
 
 Run with: `pnpm run demo:repl` (needs `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [coding-agent/README.md](coding-agent/README.md) for details.
 
+## code-agent
+
+The coding agent flipped to **Code Mode**: the worker-thread code runtime is loaded and the tool registry runs `mode: code`, so the model gets exactly one wire tool — `run_code` — plus a generated TypeScript SDK section, and composes bash/read/write/edit/todo_write by writing a program whose output it curates.
+
+Run with: `pnpm run demo:code` (needs `DEEPSEEK_API_KEY`). See [code-agent/README.md](code-agent/README.md) for what to try and how it differs from coding-agent.
+
 ## acp-agent
 
 An agent demo exposed as an **Agent Client Protocol (ACP)** server over JSON-RPC stdio, via the [`@deepseek-ai/dsh-acp-agent`](../packages/ui/acp-agent) app — drive it from Zed or any other ACP client. Also the home of the keyless snapshot tests.

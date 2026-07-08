@@ -69,18 +69,36 @@ interface Scenario {
    * Whether THIS scenario's fixtures keep the full request-header content (the
    * composed system prompt and tool schema list on `request/header` /
    * `request/header-delta` events) and compare it verbatim. Exactly one
-   * scenario pins it; every other scenario stores and compares that content as
+   * scenario pins it PER HEADER CLASS ({@link headerClass}); every other
+   * scenario of that class stores and compares that content as
    * `{{system}}`/`{{tools}}` tokens ({@link scrubRequestHeaders}), so a system
-   * prompt or tool-schema change shows up as ONE committed-fixture diff, not
-   * one per scenario. One pin suffices because header composition is
-   * suite-uniform (parent, spawn child, and fork child all compose the same
-   * prompt-modulo-cwd and the same tools) — and that premise is ASSERTED, not
-   * assumed: every non-pinning run's live headers must equal the pinned
-   * fixture's (normalized), so a session-dependent header (say, a restricted
-   * subagent toolset) fails loud until it gets its own pinning scenario.
+   * prompt or tool-schema change shows up as ONE committed-fixture diff per
+   * class, not one per scenario. One pin per class suffices because header
+   * composition is class-uniform (parent, spawn child, and fork child all
+   * compose the same prompt-modulo-cwd and the same tools) — and that premise
+   * is ASSERTED, not assumed: every non-pinning run's live headers must equal
+   * its class's pinned fixture's (normalized), so a session-dependent header
+   * (say, a restricted subagent toolset) fails loud until it gets its own
+   * pinning scenario.
    * Defaults to false.
    */
   pinsHeader?: boolean
+  /**
+   * Which header-composition class this scenario belongs to. Scenarios that
+   * boot the same config compose the same header; each class has exactly one
+   * {@link pinsHeader} scenario, and the uniformity guard compares every
+   * other member against ITS class's pin. Defaults to `'default'` (the
+   * example's stock `cordis.yml`); the Code Mode scenarios — booting overlay
+   * configs whose tool list and prompt sections differ by construction —
+   * carry their own classes.
+   */
+  headerClass?: string
+  /**
+   * Alternate live-config basename under `examples/acp-agent/` for this
+   * scenario's boot (the replay swap derives `*cordis.snapshot.yml` from it).
+   * Defaults to `cordis.yml`.
+   */
+  configBase?: string
 }
 
 const SCENARIOS: Scenario[] = [
@@ -146,11 +164,28 @@ const SCENARIOS: Scenario[] = [
   { name: 'hook-codex-posttool-block', hasModelTurn: true, recorded: true },
   { name: 'hook-codex-posttool-context', hasModelTurn: true, recorded: true },
   { name: 'hook-codex-stop-continue', hasModelTurn: true, recorded: true },
+  // Code Mode: the registry in `mode: code` — the wire tool list collapses to
+  // [run_code], the tools:sdk section rides in the prompt, and the program's
+  // tool calls land as tool/code-dispatch events. Each mode boots its own
+  // overlay config, composes a different header by construction, and
+  // therefore pins its own class.
+  { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configBase: 'code-mode.cordis.yml' },
+  { name: 'both-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'both', configBase: 'both-mode.cordis.yml' },
 ]
 
-/** The single header-pinning scenario. Guarded here (and by a meta-test) so the pin cannot silently vanish. */
-const pinningScenario = SCENARIOS.find(s => s.pinsHeader === true)
-if (pinningScenario === undefined) throw new Error('acp.snapshot: no scenario pins the request-header content')
+/** Each header class's single pinning scenario. Guarded here (and by a meta-test) so a pin cannot silently vanish. */
+const pinningByClass = new Map<string, Scenario>()
+for (const scenario of SCENARIOS) {
+  if (scenario.pinsHeader !== true) continue
+  const cls = scenario.headerClass ?? 'default'
+  const existing = pinningByClass.get(cls)
+  if (existing) throw new Error(`acp.snapshot: header class "${cls}" pinned by both ${existing.name} and ${scenario.name}`)
+  pinningByClass.set(cls, scenario)
+}
+for (const scenario of SCENARIOS) {
+  const cls = scenario.headerClass ?? 'default'
+  if (!pinningByClass.has(cls)) throw new Error(`acp.snapshot: no scenario pins the request-header content of class "${cls}" (needed by ${scenario.name})`)
+}
 
 /** The sibling child-fixture paths for a scenario (`session.1.jsonl` …). */
 function childFixturePaths(dir: string, childSessions: number): string[] {
@@ -221,6 +256,11 @@ for (const scenario of SCENARIOS) {
         // replays from its own script. In RECORD they are harvested, not read.
         ...!RECORDING && childSessions > 0 ? { childFiles: childFixturePaths(dir, childSessions) } : {},
         ...existsSync(workspaceDir) ? { workspaceDir } : {},
+        // A scenario booting an overlay tree passes its live config; the bin's
+        // replay swap derives the sibling `*cordis.snapshot.yml` from it.
+        ...scenario.configBase !== undefined
+          ? { configPath: join(SNAPSHOTS_DIR, '..', '..', scenario.configBase) }
+          : {},
       })
 
       // Scrub every volatile id the run produced: the ACP server-issued session
@@ -281,19 +321,20 @@ for (const scenario of SCENARIOS) {
         }
       }
 
-      // Header-uniformity guard: the single pin is sound only while every
-      // session in the suite composes the SAME header and keeps it for the
-      // whole run. Assert both halves live. (1) Every request/header the run
-      // produced (parent, spawn child, fork child, initial or resume) must
-      // equal the pinned fixture's header after each side is normalized
-      // against its own volatile values. (2) No request/header-delta may
-      // appear at all — a mid-run header change diverges from the pin by
-      // construction, and its content would be invisible under the scrub. If
-      // either fails, either the header changed (update the pin: re-record or
-      // hand-edit the pinning scenario's fixture) or composition became
-      // session-dependent by design (give the divergent shape its own
-      // pinning scenario).
+      // Header-uniformity guard: a class's single pin is sound only while
+      // every session in that class composes the SAME header and keeps it for
+      // the whole run. Assert both halves live. (1) Every request/header the
+      // run produced (parent, spawn child, fork child, initial or resume)
+      // must equal the CLASS's pinned fixture's header after each side is
+      // normalized against its own volatile values. (2) No
+      // request/header-delta may appear at all — a mid-run header change
+      // diverges from the pin by construction, and its content would be
+      // invisible under the scrub. If either fails, either the header changed
+      // (update the pin: re-record or hand-edit the pinning scenario's
+      // fixture) or composition became session-dependent by design (give the
+      // divergent shape its own pinning scenario and class).
       if (scenario.pinsHeader !== true) {
+        const pinningScenario = pinningByClass.get(scenario.headerClass ?? 'default')!
         const pinnedFixture = await readFile(join(SNAPSHOTS_DIR, pinningScenario.name, 'session.jsonl'), 'utf8')
         const pinned = normalizedHeaders(pinnedFixture, fixtureContext(pinnedFixture))
         expect(pinned.length, `the pinning fixture (${pinningScenario.name}) must carry exactly one request/header`)
@@ -350,10 +391,21 @@ describe('snapshot fixtures', () => {
     }
   })
 
-  it('exactly one scenario pins the request-header content', () => {
-    // Zero pins would drop the prompt/schema surface from the suite entirely;
-    // two would split it. The single pin is the design (pinned-header RFC).
-    expect(SCENARIOS.filter(s => s.pinsHeader === true).map(s => s.name)).toEqual(['text-turn'])
+  it('exactly one scenario pins the request-header content of each header class', () => {
+    // Zero pins would drop a class's prompt/schema surface from the suite
+    // entirely; two would split it. One pin per class is the design
+    // (pinned-header RFC; the Code Mode classes compose different headers by
+    // construction, so each carries its own pin).
+    const pins = new Map<string, string[]>()
+    for (const scenario of SCENARIOS.filter(s => s.pinsHeader === true)) {
+      const cls = scenario.headerClass ?? 'default'
+      pins.set(cls, [...pins.get(cls) ?? [], scenario.name])
+    }
+    expect(Object.fromEntries(pins)).toEqual({
+      'default': ['text-turn'],
+      'code': ['code-mode-turn'],
+      'both': ['both-mode-turn'],
+    })
   })
 
   it('committed fixtures carry request-header content ONLY in the pinning scenario', async () => {
