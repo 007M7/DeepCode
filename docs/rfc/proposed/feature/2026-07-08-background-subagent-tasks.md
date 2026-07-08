@@ -16,7 +16,7 @@ Add a background mode to the existing model-facing subagent tools and add three 
 
 `dsh-tool-subagent` becomes a single multi-tool consumer plugin instead of one plugin instance per provider. Its config maps model-facing tool names to provider names, so one plugin instance can register `subagent`, `subagent_fork`, and any deployment-specific aliases such as `subagent_acp`, plus the shared background control tools. Providers remain named implementations on `ctx.subagents`: `spawn`, `fork`, `acp`, or future backends. This keeps provider implementation and model-facing exposure separate while avoiding a failure mode where one `subagent` tool exposes `run_in_background` but the companion wait/output/stop tools were never loaded.
 
-The background task is scoped to the owner session, not durable across session closure. A background subagent starts only from a model-driven call with `exec.agent`; the service stores the caller's `session.header.id` as the owner token. `subagent_output`, `subagent_wait`, and `subagent_stop` compare that stored token with the caller's session id and reject cross-session access. When the owner agent is disposed, the service cancels any running background subagent tasks for that owner and discards their retained snapshots after quiescence. Completion notices are best-effort: if the owner agent is still registered, `dsh-tool-subagent` injects a short `context/message`; if the owner is gone, no notice is written.
+The background task is scoped to the owner session, not durable across session closure. A background subagent starts only from a model-driven call with `exec.agent`; the service stores the caller's `session.header.id` as the owner token. `subagent_output`, `subagent_wait`, and `subagent_stop` compare that stored token with the caller's session id and reject cross-session access. When the owner agent is disposed, an awaited owner-cleanup path cancels any running background subagent tasks for that owner and waits for their settlement/dispose before the owner handle reports quiescence. Completion notices are best-effort: if the owner agent is still registered, `dsh-tool-subagent` injects a short `context/message`; if the owner is gone, no notice is written.
 
 ## Tool surface
 
@@ -38,7 +38,7 @@ The registry owns task settlement. It attaches one continuation to `run.result`;
 
 The registry is runtime-global because `ctx.subagents` is a service shared by all live agents in the Cordis context. Session isolation is therefore explicit owner-token authorization, not an assumption about separate service instances. This mirrors the bash background-task fence: predictable ids are safe only when read/stop operations check the caller's owner token.
 
-Owner disposal is a hard lifecycle boundary. `SubagentService` listens to `agent/disposed`, finds tasks owned by that agent's session id, and cancels running tasks. It does not attempt to persist unfinished task state, resume children, or inject into disposed sessions. A future durable job system can extend this boundary, but this feature intentionally keeps background subagents tied to live sessions.
+Owner disposal is a hard lifecycle boundary, but `agent/disposed` alone is not the cleanup mechanism. The current agent registry emits `agent/disposed` synchronously after removing the agent, and `AgentHandle.dispose()` does not await asynchronous listener work. This feature therefore also adds an awaited owner-cleanup seam: background task registration attaches an owner-scoped disposer that runs in the owning agent's disposal chain before that handle resolves. That disposer finds tasks owned by the agent's session id, requests cancellation, waits for each task's settlement path to record the terminal snapshot, and awaits `run.dispose()`. The existing `agent/disposed` event may still be used as a best-effort notification/fallback, but it must not be the path that promises child quiescence. The service does not attempt to persist unfinished task state, resume children, or inject into disposed sessions. A future durable job system can extend this boundary, but this feature intentionally keeps background subagents tied to live sessions.
 
 ## Model guidance
 
@@ -51,7 +51,7 @@ Owner disposal is a hard lifecycle boundary. `SubagentService` listens to `agent
 - Call `subagent_stop` for a background task that is no longer needed.
 - End without collecting a task only when its result is irrelevant or the task was explicitly stopped.
 
-This prompt guidance is not the enforcement boundary. Runtime enforcement is owner-token authorization and cancellation on owner disposal. The guidance keeps ordinary model behavior from accidentally abandoning relevant work while still allowing explicit stop or irrelevance.
+This prompt guidance is not the enforcement boundary. Runtime enforcement is owner-token authorization and the awaited owner-cleanup path. The guidance keeps ordinary model behavior from accidentally abandoning relevant work while still allowing explicit stop or irrelevance.
 
 ## Relationship to generic long-running tools
 
@@ -69,7 +69,7 @@ A separate plugin has the same half-loaded failure mode: `subagent` could advert
 
 ### Why not let background subagents survive owner session closure?
 
-Survival after owner closure requires durable task state, child-session recovery, a way to surface late results into a reopened session, and policy for tasks whose owning client never returns. The current agent runtime unregisters disposed agents, and `agent.inject()` intentionally rejects disposed targets. Tying background tasks to live owner sessions makes the v1 lifecycle explicit and avoids orphaned child agents.
+Survival after owner closure requires durable task state, child-session recovery, a way to surface late results into a reopened session, and policy for tasks whose owning client never returns. The current agent runtime unregisters disposed agents, and `agent.inject()` intentionally rejects disposed targets. Tying background tasks to an awaited owner-cleanup path makes the v1 lifecycle explicit and avoids orphaned child agents.
 
 ### Why not skip owner-token checks because ACP sessions are isolated?
 
@@ -86,13 +86,13 @@ The child session is already the trace for internal reasoning, tool calls, and i
 - A background call returns a task id immediately and the parent can continue using other tools before collecting the result.
 - `subagent_output`, `subagent_wait`, and `subagent_stop` enforce owner-token access and reject cross-session task ids.
 - A task that finishes while the owner agent is live injects a durable completion notice into the owner session; a task whose owner is disposed does not throw while trying to notify.
-- Disposing the owner agent cancels all of that owner's running background subagent tasks and reaches quiescence without leaking child agents.
+- Disposing the owner agent runs an awaited owner-cleanup path that cancels all of that owner's running background subagent tasks and reaches quiescence without leaking child agents; tests prove `agent/disposed` alone is not relied on for this guarantee.
 - Snapshot coverage proves the changed tool schemas and the completion-notice path; unit coverage pins foreground compatibility, background settlement, timeout, stop, owner isolation, and owner-disposal cleanup.
 
 ## Risks
 
 The multi-tool config reshapes how deployments expose provider aliases, so examples and generated tool catalogs must move together with the implementation. The pre-release policy allows this churn, but the migration must update every shipped config in one change.
 
-The prompt guidance can reduce abandoned tasks but cannot force a model to collect every background result. Runtime cleanup on owner disposal is the hard stop; a future planner or guard could enforce "no final answer with relevant running tasks" more strongly if the prompt proves insufficient.
+The prompt guidance can reduce abandoned tasks but cannot force a model to collect every background result. Runtime cleanup through the awaited owner-disposal path is the hard stop; a future planner or guard could enforce "no final answer with relevant running tasks" more strongly if the prompt proves insufficient.
 
 The task registry duplicates some concepts named by the generic long-running-tool RFC. Keeping the subagent registry final-output-only and service-local limits that duplication, but a later generic runtime extraction will still need a careful migration.
