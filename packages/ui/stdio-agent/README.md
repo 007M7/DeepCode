@@ -25,6 +25,7 @@ The leaf `cordis.yml` supplies only the **swappable backends** — an LLM adapte
 |---|---|---|
 | `model` | (required) | the pre-created `main` agent's model |
 | `persona` | — | the deployment persona template (may reference `{{model}}`), routed to `dsh-system-prompt` |
+| `toolOrder` | — | explicit model-facing tool order (a name list with one `'<unlisted-tools>'` rest entry; absent — lexicographic; an unregistered name fails each turn at prompt assembly), routed to `dsh-system-prompt` |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
 | `welcome` | `ready.` | the stdin-chat banner |
 | `resumeSessionId` | — | resume a persisted session id instead of starting fresh (sourced from an env var in the leaf) |

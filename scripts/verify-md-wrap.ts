@@ -25,9 +25,8 @@
  * Run: `tsx scripts/verify-md-wrap.ts`.
  */
 
-import { readFileSync, realpathSync } from 'node:fs'
+import { globSync, readFileSync, realpathSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
-import { glob } from 'node:fs/promises'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
 import { gfm } from 'micromark-extension-gfm'
@@ -76,7 +75,7 @@ const seen = new Set<string>()
 const all: Violation[] = []
 let checked = 0
 for (const pattern of PATTERNS) {
-  for await (const match of glob(pattern, { cwd: root })) {
+  for (const match of globSync(pattern, { cwd: root })) {
     const abs = resolve(root, match)
     // CLAUDE.md symlinks resolve onto AGENTS.md; dedupe by real path so a file
     // matched twice (or via symlink) is checked once.

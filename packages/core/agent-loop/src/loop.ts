@@ -185,6 +185,9 @@ export interface LoopHandle {
  *     re-enqueue leftover steering as queued          ⟵ steering is never stranded
  *   idle (emit agent/status) unless more queued
  * ```
+ * @param ctx - the plugin context the loop reaches events (agent/…, session/flush) and services (systemPrompt, llm, tools) through.
+ * @param agent - the agent this invocation drives for its whole lifetime (its inbox, session, and options).
+ * @param handle - the bridge to the agent's mutable state: status/abort setters plus the disposal and cancel-marker reads.
  */
 export async function runLoop(ctx: Context, agent: ReactLoopAgent, handle: LoopHandle): Promise<void> {
   // Per-instance transmission bookkeeping: whether THIS loop instance has
@@ -875,7 +878,11 @@ function withoutToolCalls(message: Message): Message {
   return { ...message, content: message.content.filter(block => block.type !== 'tool-call') }
 }
 
-/** The last turn number in a (possibly seeded) session log, or 0. */
+/**
+ * The last turn number in a (possibly seeded) session log, or 0.
+ * @param session - the session whose log is scanned for the latest `turn/start`.
+ * @returns the latest `turn/start`'s turn number, or 0 when the log has none (the next turn is this plus one).
+ */
 export function lastTurnNumber(session: Session): number {
   const lastStart = session.events.findLast(event => event.type === 'turn/start')
   return lastStart?.data.turn ?? 0
@@ -889,6 +896,8 @@ export function lastTurnNumber(session: Session): number {
  * returns to idle), so status is not a reliable open-turn signal. Used by
  * `inject()` to choose between appending into an open turn vs. wrapping the
  * injection in its own one-shot turn (the turn-enclosure RFC).
+ * @param session - the session whose log is inspected.
+ * @returns true when the log's last turn boundary is a `turn/start` with no matching `turn/end` yet.
  */
 export function isTurnOpen(session: Session): boolean {
   const last = session.events.findLast(e => e.type === 'turn/start' || e.type === 'turn/end')

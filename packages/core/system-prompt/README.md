@@ -7,15 +7,16 @@ System prompt assembly registry. Plugins contribute ordered text sections, tool-
 | Key | Default | Meaning |
 |---|---|---|
 | `persona` | `''` | The deployment persona: the ONE deployment-authored prompt fragment, rendered as the order-0 `deployment:persona` section and shared by every agent in the context (subagents included). A template — complete `{{…}}` groups are interpreted strictly against the registered variables (the shipped loop registers `{{model}}`/`{{cwd}}`), with no escape syntax for literal braces yet. Empty ⇒ the section is dropped at render. |
+| `toolOrder` | — | Explicit model-facing tool order, as a list of `ToolSchema.name`s with one `'<unlisted-tools>'` rest entry (`TOOL_ORDER_REST`): listed tools take their listed position, unlisted tools land at the rest entry in lexicographic name order. Absent ⇒ plain lexicographic name order. Applied to the collected tools BEFORE the `system-prompt/assemble` waterfall — like the sections' `order` sort, it canonicalizes what the registry contributed (registration order is a plugin-load artifact), and a waterfall listener that mutates the list owns the determinism of what it emits. Misconfiguration fails loud: a list without exactly one rest entry, or with duplicates, throws at load; a listed name with no registered tool rejects every `assemble()`; a tool provider returning the reserved rest-entry name also rejects. Under the shipped loop the turn fails before any model request. Why a central list and not per-plugin weights: [Explicit model-facing tool order](../../../docs/rfc/implemented/feature/2026-07-06-explicit-tool-order.md). |
 
 ## Service: `SystemPrompt` (ctx key: `systemPrompt`)
 
 ### Public API
 
 - `ctx.systemPrompt.section(section: PromptSection): () => void` Contribute a section. Duplicate names throw. Disposed with the calling fiber.
-- `ctx.systemPrompt.tools(provider: () => ToolSchema[]): () => void` Contribute tool schemas (evaluated at each assembly). Disposed with the calling fiber.
+- `ctx.systemPrompt.tools(provider: () => ToolSchema[]): () => void` Contribute tool schemas (evaluated at each assembly). A provider must not return a schema named `TOOL_ORDER_REST`; that name is reserved for `toolOrder`'s rest entry. Disposed with the calling fiber.
 - `ctx.systemPrompt.variable(name: string, provider: (context) => string | undefined): () => void` Contribute a prompt variable, referenced from section text as `{{name}}`. Duplicate or unreferenceable names throw; `undefined` means "no value for this assembly". Disposed with the calling fiber.
-- `ctx.systemPrompt.assemble(context?: AssembleContext): Promise<PromptAssembly>` Assemble the prompt for one caller. Runs through the `system-prompt/assemble` waterfall.
+- `ctx.systemPrompt.assemble(context?: AssembleContext): Promise<PromptAssembly>` Assemble the prompt for one caller. Runs through the `system-prompt/assemble` waterfall. Rejects when a configured `toolOrder` names a tool no provider contributed, or when a provider returns the reserved rest-entry name.
 
 ### Events
 

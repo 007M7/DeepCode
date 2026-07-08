@@ -155,6 +155,9 @@ export interface JsonSchemaObject {
  * `properties`, `required` array).
  *
  * This is a plain function — no schemastery or other framework dependency.
+ * @param spec - the author-facing per-property schema to convert.
+ * @returns the wire-format JSON Schema; the top-level `required` array is
+ *   omitted entirely when no property is marked required.
  */
 export function schemaSpecToJsonSchema(spec: SchemaSpec): JsonSchemaObject {
   const properties: Record<string, unknown> = {}
@@ -269,6 +272,9 @@ function checkSpec(spec: SchemaSpec, value: unknown, path: string): string[] {
  * keys are allowed (no `additionalProperties: false`); `default` is not
  * applied; an `object`/`array` prop without `properties`/`items` only
  * type-checks; `enum` is membership (strings only).
+ * @param spec - the declared parameter schema to validate against.
+ * @param args - the model-generated arguments, however malformed.
+ * @returns the violation messages in declaration order; empty means valid.
  */
 export function validateArgs(spec: SchemaSpec, args: unknown): string[] {
   return checkSpec(spec, args, '')
@@ -340,6 +346,13 @@ export interface DefineToolOptions<S extends SchemaSpec> {
  * Raw JSON-Schema tool definitions (from MCP servers) are still accepted
  * by `ToolRegistry.register()` directly — `defineTool` is sugar for
  * first-party plugin authors.
+ * @param options - the tool's name, description, typed parameter schema,
+ *   execute body, and optional presenters.
+ * @returns a registry-ready {@link ToolDefinition}: its `execute` validates the
+ *   raw args first (throwing {@link ToolArgsError} on mismatch, which the
+ *   registry turns into an isError result), and its presenters validate softly
+ *   (returning undefined on mismatch, since replay may feed them older-schema
+ *   args).
  */
 export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>): ToolDefinition {
   // Object-literal execute methods don't use `this`; the reference is safe.

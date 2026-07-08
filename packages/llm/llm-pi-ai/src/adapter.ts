@@ -21,14 +21,22 @@ import { toPiContext, toStreamChunks } from './convert.ts'
 /** Reasoning levels surfaced by this adapter (DeepSeek wire: high|max). */
 export type PiAiReasoning = 'off' | 'high' | 'xhigh'
 
+/** Constructor options for {@link PiAiAdapter}; the plugin's `apply` resolves them from Config + environment. */
 export interface PiAiAdapterOptions {
+  /** Bearer token pi-ai sends on every request. */
   apiKey: string
+  /** Endpoint base; `/chat/completions` is appended. */
   baseURL: string
   /** Thinking level applied to every request ('off' disables thinking). */
   reasoning?: PiAiReasoning | undefined
 }
 
-/** Build the inline pi-ai model descriptor for one DeepSeek model name. */
+/**
+ * Build the inline pi-ai model descriptor for one DeepSeek model name.
+ * @param modelId - harness model name; sent verbatim on the wire.
+ * @param options - adapter options; only `baseURL` is read here (key and reasoning apply per request, not per descriptor).
+ * @returns a descriptor with every DeepSeek compat flag explicit — pi-ai's URL-based auto-detection is never relied on.
+ */
 export function buildModel(modelId: string, options: PiAiAdapterOptions): Model<'openai-completions'> {
   return {
     id: modelId,

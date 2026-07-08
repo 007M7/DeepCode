@@ -35,11 +35,11 @@ This is the [interface/implementation/consumer seam](../../../docs/rfc/implement
 
 ```ts
 import type { Config } from '@deepseek-ai/dsh-agent-core'
-// { agents?, persona? } — the schema is z.intersect([AgentLoop.Config, SystemPrompt.Config]),
+// { agents?, persona?, toolOrder? } — the schema is z.intersect([AgentLoop.Config, SystemPrompt.Config]),
 // so validation and defaulting can never drift from the owners'.
 ```
 
-The bundle FORWARDS each field to the child that owns it: `agents` to `agent-loop` (default `[]`), so each app supplies its own pre-created agents — a stdio app pre-creates a `main`; the ACP app pre-creates none (it creates agents on demand at `session/new`) — and `persona` to `dsh-system-prompt` (default `''`), the deployment's persona section. Forwarding is exactly why the owners can live in the shared spine even though the apps disagree on what to configure.
+The bundle FORWARDS each field to the child that owns it: `agents` to `agent-loop` (default `[]`), so each app supplies its own pre-created agents — a stdio app pre-creates a `main`; the ACP app pre-creates none (it creates agents on demand at `session/new`) — `persona` to `dsh-system-prompt` (default `''`), the deployment's persona section — and `toolOrder` to `dsh-system-prompt` (absent — lexicographic), the explicit model-facing tool order. Forwarding is exactly why the owners can live in the shared spine even though the apps disagree on what to configure.
 
 ## Why a code bundle, not a shared YAML include
 

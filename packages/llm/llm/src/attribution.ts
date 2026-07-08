@@ -54,6 +54,8 @@ export const APP_IDENTITY: AppIdentity = {
  * The standard `User-Agent` value: `product/version (+url)`. The
  * parenthesized `+url` comment is the conventional self-identification form
  * (RFC 9110 §10.1.5 product + comment syntax).
+ * @param identity - the identity to render; defaults to {@link APP_IDENTITY}.
+ * @returns the ready-to-send header value.
  */
 export function userAgent(identity: AppIdentity = APP_IDENTITY): string {
   return `${identity.product}/${identity.version} (+${identity.url})`
@@ -63,6 +65,8 @@ export function userAgent(identity: AppIdentity = APP_IDENTITY): string {
  * Build the attribution headers an adapter must send on every provider
  * request. Header names are lowercase (HTTP field names are case-insensitive
  * on the wire).
+ * @param identity - the identity to send; defaults to {@link APP_IDENTITY} — omission cannot suppress attribution.
+ * @returns headers to merge into the provider request (currently just `user-agent`).
  */
 export function attributionHeaders(
   identity: AppIdentity = APP_IDENTITY,

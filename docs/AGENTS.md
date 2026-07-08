@@ -16,7 +16,7 @@ Every fact has exactly one home — the tier whose job it is — and every other
 | [postmortem/](postmortem/README.md) | Incident stories — the only tier where war-story narrative belongs | — |
 | [cookbook/](cookbook/adding-a-package.md) | Step-by-step how-tos with numbered verify steps | Design rationale (→ the RFC each guide links) |
 | Package README | The per-package contract: config, semantics, limitations, extension points | JSDoc restatement, generated-catalog restatement (event/tool tables), other packages' concerns |
-| [development.md](development.md) | Human-facing setup and daily workflow; a bilingual pair under the [i18n contract](i18n/README.md) | Gate-by-gate enumerations that drift from `package.json` scripts |
+| [development.md](development.md) | First-stop contributor onboarding: local setup, daily workflow, and CI shape at summary level; a bilingual pair under the [i18n contract](i18n/README.md) | Runtime/version rationale (→ RFCs), gate-by-gate enumerations that drift from `package.json` scripts |
 | Generated catalogs: [cordis events](cordis-catalog/events.md), [cordis services](cordis-catalog/services.md), [tool-catalog](tool-catalog.md), [config-catalog](config-catalog.md), [persistence-catalog](persistence-catalog.md), [module-graph.md](module-graph.md) | Exhaustive enumerations regenerated from source, freshness-gated | Hand edits of any kind |
 | Skills (`.agents/skills/`) | Workflows: how to carry out a recurring task against the contracts | The contracts themselves (→ docs) |
 

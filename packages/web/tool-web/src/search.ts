@@ -20,7 +20,13 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
  */
 export const WEB_SEARCH_MAX_RESULTS = 8
 
-/** Validate value constraints the schema DSL can't express. */
+/**
+ * Validate value constraints the schema DSL can't express: a non-blank
+ * `query`. Throws a plain `Error` otherwise.
+ *
+ * @param args - the schema-validated `web_search` arguments.
+ * @returns the accepted arguments, passed through unchanged.
+ */
 export function parseSearchArgs(args: { query: string }): { query: string } {
   if (args.query.trim().length === 0) throw new Error('query must be a non-empty string')
   return { query: args.query }
@@ -38,7 +44,14 @@ function sourceLabel(url: string, title: string | undefined): string {
   }
 }
 
-/** Format a search result as one model-facing text block. */
+/**
+ * Format a search result as one model-facing text block.
+ *
+ * @param result - the seam's search outcome.
+ * @returns the provider answer (when any), a markdown source list with snippet
+ *   and date metadata (or `No results found.`), a refine-the-query note when
+ *   truncated, and a standing cite-your-sources instruction.
+ */
 export function formatSearchOutput(result: WebSearchResult): string {
   const parts: string[] = []
   if (result.content !== undefined && result.content.length > 0) parts.push(result.content)
@@ -62,12 +75,24 @@ export function formatSearchOutput(result: WebSearchResult): string {
   return parts.join('\n\n')
 }
 
-/** Pending-call presentation: a search card titled by the query. */
+/**
+ * Pending-call presentation: a search card titled by the query.
+ *
+ * @param args - the raw tool arguments; only `query` feeds the view.
+ * @returns the generic card view (`kind: 'search'`) shown while the call runs.
+ */
 export function presentSearchCall(args: { query: string }): GenericCallView {
   return { card: 'generic', title: args.query, kind: 'search', rawInput: args.query }
 }
 
-/** Register the `web_search` tool and its system-prompt guidance. `maxResults` is the deployment's source cap. */
+/**
+ * Register the `web_search` tool and its system-prompt guidance.
+ *
+ * @param ctx - context whose `tools` and `systemPrompt` registries receive the
+ *   registrations; both are effect-scoped and unregister on plugin dispose.
+ * @param maxResults - the deployment's source cap, sent as every seam
+ *   request's `maxResults`.
+ */
 export function applyWebSearchTool(ctx: Context, maxResults: number): void {
   ctx.systemPrompt.section({
     name: 'tool:web_search',
