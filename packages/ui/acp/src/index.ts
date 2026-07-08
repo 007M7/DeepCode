@@ -213,7 +213,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
   const tools = ctx.tools
   // A new ToolPresenter per session (and a throwaway per load replay), each given
   // this warn sink so a throwing tool presenter is logged, not propagated.
-  const makePresenter = (): ToolPresenter => new ToolPresenter(tools, (message) => { logger.warn(message) })
+  const makePresenter = (agent?: Agent): ToolPresenter => new ToolPresenter(tools, (message) => { logger.warn(message) }, agent)
 
   // Live sessions keyed by id (RFC 011 multi-session), plus an agent→sessionId
   // reverse map so `agent/*` events (which carry only the Agent) demux in O(1).
@@ -449,7 +449,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           sessionId,
           agent: handle.agent,
           dispose: () => handle.dispose(),
-          presenter: makePresenter(),
+          presenter: makePresenter(handle.agent),
           terminalEnabled: terminalOutputCap,
           inflight: undefined,
         })
@@ -526,7 +526,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
             sessionId,
             agent,
             dispose: () => handle.dispose(),
-            presenter: makePresenter(),
+            presenter: makePresenter(agent),
             terminalEnabled,
             inflight: undefined,
           }
@@ -544,7 +544,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           // future live events for this session. The throwaway pairs call→result
           // as the log replays in order (same as live) and is discarded after,
           // so the record's presenter starts clean for the post-load live stream.
-          const replayPresenter = makePresenter()
+          const replayPresenter = makePresenter(agent)
           const replayTerminal: TerminalRendering = {
             enabled: terminalEnabled,
             cwd: agent.session.header.cwd,
@@ -897,6 +897,13 @@ export class ToolPresenter {
   constructor(
     private readonly tools: Pick<ToolRegistry, 'get'>,
     private readonly onError: (message: string) => void = () => {},
+    /**
+     * The agent whose view resolves tool presentations: a scoped/shadowed
+     * tool presents with ITS OWN presentCall/presentResult — the same
+     * definition that executed — not a same-named global's. Absent (a replay
+     * with no live agent) the global view presents.
+     */
+    private readonly agent?: Agent,
   ) {}
 
   /**
@@ -913,7 +920,7 @@ export class ToolPresenter {
     const args = parseToolArguments(argsJson)
     let present: ToolCallView | undefined
     try {
-      present = this.tools.get(name)?.presentCall?.(args)
+      present = this.tools.get(name, this.agent)?.presentCall?.(args)
     } catch (error: unknown) {
       // A throwing presentCall must not break streaming: log and fall back.
       this.onError(`acp: tool "${name}" presentCall threw, using generic presentation: ${String(error)}`)
@@ -947,7 +954,8 @@ export class ToolPresenter {
     if (call === undefined) return { card: 'generic', content }
     let present: ToolResultView | undefined
     try {
-      present = this.tools.get(call.name)?.presentResult?.(call.args, { content, isError, ...meta !== undefined ? { meta } : {} })
+      present = this.tools.get(call.name, this.agent)
+        ?.presentResult?.(call.args, { content, isError, ...meta !== undefined ? { meta } : {} })
     } catch (error: unknown) {
       // A throwing presentResult must not break streaming/replay: log + fall back.
       this.onError(`acp: tool "${call.name}" presentResult threw, using raw result: ${String(error)}`)

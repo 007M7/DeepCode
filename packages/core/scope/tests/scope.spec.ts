@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from 'cordis'
-import { carrierKeyOf, createScope, isScopeCarrier, scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
+import { carrierKeyOf, createScope, isScopeCarrier, scopeHost, scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scope, ScopeKey, Scoped } from '@deepseek-ai/dsh-scope'
 
 declare module 'cordis' {
@@ -205,5 +205,26 @@ describe('carrier marks', () => {
     expectTypeOf(carrier).toExtend<Scoped<{ name: string }>>()
     // A bare subject is NOT assignable where a carrier is demanded.
     expectTypeOf(base).not.toExtend<Scoped<{ name: string }>>()
+  })
+})
+
+describe('scopeHost', () => {
+  it('mints scopes that reach the injected services; dispose unwinds them all', async () => {
+    const ctx = new Context()
+    ctx.provide('answers', { value: 42 })
+    const host = await scopeHost(ctx, ['answers'])
+    const scope = host.mint({ name: 'a' })
+    expect((scope.ctx as Context & { answers: { value: number } }).answers.value).toBe(42)
+    const order: string[] = []
+    scope.ctx.effect(() => () => void order.push('scoped-disposed'))
+    await host.dispose()
+    expect(order).toEqual(['scoped-disposed'])
+    expect(() => scope.ctx.effect(() => () => {})).toThrow(/inactive context/)
+  })
+
+  it('fails LOUD naming absent services instead of resolving as a silent no-op host', async () => {
+    const ctx = new Context()
+    await expect(scopeHost(ctx, ['tools', 'systemPrompt']))
+      .rejects.toThrow('scopeHost: services "tools", "systemPrompt" not available')
   })
 })

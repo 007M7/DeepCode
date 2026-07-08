@@ -237,13 +237,13 @@ Source: [`packages/core/session/src/index.ts:79`](../../packages/core/session/sr
 
 ### `subagent/end` — emit
 
-A subagent run settled — emitted when SubagentRun.result resolves (any stop reason). Paired with Events['subagent/start'].
+A subagent run settled — emitted when SubagentRun.result resolves (any stop reason). Paired with Events['subagent/start']. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed by the DELEGATING PARENT — a listener registered through the parent's `agent.ctx` observes only its own delegations; a plain plugin listener observes every run.
 
 ```ts cordis-catalog
 'subagent/end'(info: SubagentRunEndInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:99`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:107`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-added` — emit
 
@@ -267,13 +267,13 @@ Source: [`packages/subagent/subagent/src/index.ts:84`](../../packages/subagent/s
 
 ### `subagent/start` — emit
 
-A subagent run started — emitted after the provider is resolved and its capabilities validated, as the child run begins. Paired with Events['subagent/end'].
+A subagent run started — emitted after the provider is resolved and its capabilities validated, as the child run begins. Paired with Events['subagent/end']. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed by the DELEGATING PARENT — a listener registered through the parent's `agent.ctx` observes only its own delegations; a plain plugin listener observes every run.
 
 ```ts cordis-catalog
 'subagent/start'(info: SubagentRunInfo): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:92`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:96`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
 

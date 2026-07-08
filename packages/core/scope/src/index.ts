@@ -235,3 +235,59 @@ export function carrierKeyOf(value: unknown): ScopeKey | undefined {
   // the Scoped<> brand carries no structural kCarrier member to narrow from.
   return (value as { [kCarrier]?: { key: ScopeKey | undefined } })[kCarrier]?.key
 }
+
+/**
+ * A test/tooling host for minting scopes: one mounted plugin whose `inject`
+ * list is the service surface every scope minted through it can reach.
+ */
+export interface ScopeHost {
+  /**
+   * Mint a scope under the host (see {@link createScope}); the scoped context
+   * resolves exactly the host's injected services.
+   * @param key - the scope's identity ({@link ScopeKey}).
+   * @returns the minted scope.
+   */
+  mint(key: ScopeKey): Scope
+  /**
+   * Dispose the host fiber and with it every scope minted through it.
+   * @returns resolves when all collected disposers have settled.
+   */
+  dispose(): Promise<void>
+}
+
+/**
+ * Mount a scope-minting host plugin that injects `services`, THE sanctioned
+ * way to mint scopes in tests (production scopes are minted by the agent
+ * loop). Exists because the naive spelling fails confusingly twice over:
+ * a plugin with no `inject` mints scopes whose service reads throw Cordis's
+ * cryptic `cannot get property … without inject`, and a plugin whose inject
+ * can never be satisfied RESOLVES its fiber await without ever running the
+ * callback — a silent no-op host. This helper fails LOUD instead: when the
+ * callback did not run, it names the absent services and disposes the host.
+ * @param ctx - the context to mount the host under.
+ * @param services - the service names scopes minted through this host reach
+ *   (the host plugin's `inject` list).
+ * @returns the host (mint scopes, dispose them all at once).
+ * @throws when any of `services` is not available on `ctx` — named, not the
+ *   Cordis dead end.
+ */
+export async function scopeHost(ctx: Context, services: string[]): Promise<ScopeHost> {
+  let hostCtx: Context | undefined
+  // A named function statement (not Object.assign({name}) — Function.name is
+  // read-only) so diagnostics read `scopeHost`.
+  function scopeHostPlugin(inner: Context): void { hostCtx = inner }
+  const fiber = ctx.plugin(Object.assign(scopeHostPlugin, { inject: services }))
+  await fiber
+  if (hostCtx === undefined) {
+    // Dependency-pending: cordis resolves the await without running the
+    // callback. Name the absentees and unwind the pending fiber.
+    const missing = services.filter(name => ctx.get(name) === undefined)
+    await fiber.dispose()
+    throw new Error(`scopeHost: service${missing.length === 1 ? '' : 's'} ${missing.map(name => `"${name}"`).join(', ') || '(unknown)'} not available on this context — load the providing plugin(s) before minting scopes`)
+  }
+  const host = hostCtx
+  return {
+    mint: (key: ScopeKey) => createScope(host, key),
+    dispose: () => Promise.resolve(fiber.dispose()),
+  }
+}

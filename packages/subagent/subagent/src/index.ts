@@ -86,6 +86,10 @@ declare module 'cordis' {
      * A subagent run started — emitted after the provider is resolved and its
      * capabilities validated, as the child run begins. Paired with
      * {@link Events['subagent/end']}.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed
+     * by the DELEGATING PARENT — a listener registered through the parent's
+     * `agent.ctx` observes only its own delegations; a plain plugin listener
+     * observes every run.
      * @param info - which provider started which child agent.
      * @mode emit
      */
@@ -93,6 +97,10 @@ declare module 'cordis' {
     /**
      * A subagent run settled — emitted when {@link SubagentRun.result}
      * resolves (any stop reason). Paired with {@link Events['subagent/start']}.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed
+     * by the DELEGATING PARENT — a listener registered through the parent's
+     * `agent.ctx` observes only its own delegations; a plain plugin listener
+     * observes every run.
      * @param info - the run identity plus stop reason and final output.
      * @mode emit
      */
