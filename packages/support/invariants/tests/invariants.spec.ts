@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -41,8 +42,8 @@ describe('session-log invariants', () => {
     const session = ctx.sessions.create()
     // Session.append enforces seq-contiguity at the source, so drive the
     // invariants seq check directly via session/event with a regressing seq.
-    ctx.emit('session/event', session, { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } } as never)
-    expect(() => { ctx.emit('session/event', session, { type: 'turn/end', seq: 0, time: 2, data: { turn: 1, reason: { kind: 'completed' } } } as never) })
+    ctx.emit(scopeTarget(session, undefined), 'session/event', session, { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } } as never)
+    expect(() => { ctx.emit(scopeTarget(session, undefined), 'session/event', session, { type: 'turn/end', seq: 0, time: 2, data: { turn: 1, reason: { kind: 'completed' } } } as never) })
       .toThrow(/seq must strictly increase/)
   })
 
@@ -340,11 +341,11 @@ describe('dev-freeze', () => {
     // handler directly via hand-built session/events — exactly the shape the
     // invariants listener receives. Open a turn first (seq 0) so the cyclic
     // user/message (seq 1) satisfies the turn-enclosure invariant.
-    ctx.emit('session/event', session, { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } } as never)
+    ctx.emit(scopeTarget(session, undefined), 'session/event', session, { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } } as never)
     const cyclic: Record<string, unknown> = { type: 'text', text: 'x' }
     cyclic['self'] = cyclic
     const event = { type: 'user/message', seq: 1, time: 1, data: { content: [cyclic], source: { kind: 'user' } } }
-    expect(() => { ctx.emit('session/event', session, event as never) }).not.toThrow()
+    expect(() => { ctx.emit(scopeTarget(session, undefined), 'session/event', session, event as never) }).not.toThrow()
     expect(Object.isFrozen(cyclic)).toBe(true)
   })
 })
@@ -354,41 +355,41 @@ describe('agent status invariants', () => {
     const { ctx } = await setup({ freeze: false })
     const agent = mockAgent('a1')
     expect(() => {
-      ctx.emit('agent/status', agent, 'idle')
-      ctx.emit('agent/status', agent, 'running')
-      ctx.emit('agent/status', agent, 'idle')
-      ctx.emit('agent/status', agent, 'disposed')
+      ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'idle')
+      ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'running')
+      ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'idle')
+      ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'disposed')
     }).not.toThrow()
   })
 
   it('accepts running→disposed', async () => {
     const { ctx } = await setup({ freeze: false })
     const agent = mockAgent('a2')
-    ctx.emit('agent/status', agent, 'running')
-    expect(() => { ctx.emit('agent/status', agent, 'disposed') }).not.toThrow()
+    ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'running')
+    expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'disposed') }).not.toThrow()
   })
 
   it('rejects a no-op transition', async () => {
     const { ctx } = await setup({ freeze: false })
     const agent = mockAgent('a3')
-    ctx.emit('agent/status', agent, 'running')
-    expect(() => { ctx.emit('agent/status', agent, 'running') }).toThrow(/no-op transition/)
+    ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'running')
+    expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'running') }).toThrow(/no-op transition/)
   })
 
   it('rejects leaving the terminal disposed state', async () => {
     const { ctx } = await setup({ freeze: false })
     const agent = mockAgent('a4')
-    ctx.emit('agent/status', agent, 'disposed')
-    expect(() => { ctx.emit('agent/status', agent, 'idle') }).toThrow(/left terminal state disposed/)
+    ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'disposed')
+    expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'idle') }).toThrow(/left terminal state disposed/)
   })
 
   it('tracks status per agent independently', async () => {
     const { ctx } = await setup({ freeze: false })
     const a = mockAgent('a5')
     const b = mockAgent('b5')
-    ctx.emit('agent/status', a, 'running')
+    ctx.emit(scopeTarget(a, a), 'agent/status', a, 'running')
     // b's first observation is independent of a.
-    expect(() => { ctx.emit('agent/status', b, 'running') }).not.toThrow()
+    expect(() => { ctx.emit(scopeTarget(b, b), 'agent/status', b, 'running') }).not.toThrow()
   })
 })
 
@@ -406,8 +407,8 @@ describe('HMR safety', () => {
     expect(Object.isFrozen(event)).toBe(false)
     // A no-op status transition no longer throws either.
     const agent = mockAgent('hmr')
-    ctx.emit('agent/status', agent, 'idle')
-    expect(() => { ctx.emit('agent/status', agent, 'idle') }).not.toThrow()
+    ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'idle')
+    expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'idle') }).not.toThrow()
   })
 
   it('InvariantError carries a stable code', () => {
@@ -778,5 +779,68 @@ describe('request cross-check ordering (prepend)', () => {
     expect(() => {
       void ctx.waterfall('llm/stream', divergent as never, () => (async function* () {})() as never)
     }).toThrow(/diverges from the boundary derivation/)
+  })
+})
+
+describe('scoped-dispatch invariants', () => {
+  async function scopedCtx() {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(Invariants)
+    return ctx
+  }
+
+  it('rejects a scoped-family dispatch without a carrier (teaching error)', async () => {
+    const ctx = await scopedCtx()
+    const agent = { id: 'a1' } as unknown as Agent
+    expect(() => { ctx.emit('agent/error', agent, 1, 0, new Error('x')) })
+      .toThrow(/dispatched without a scope carrier/)
+  })
+
+  it('rejects a carrier keyed to a different subject than the arguments name', async () => {
+    const ctx = await scopedCtx()
+    const agent = { id: 'a1' } as unknown as Agent
+    const other = { id: 'a2' } as unknown as Agent
+    expect(() => { ctx.emit(scopeTarget(agent, other), 'agent/error', agent, 1, 0, new Error('x')) })
+      .toThrow(/keyed to a DIFFERENT subject/)
+    // The correct spelling passes.
+    expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/error', agent, 1, 0, new Error('x')) })
+      .not.toThrow()
+  })
+
+  it('rejects an assembly context carrying agent without scope', async () => {
+    const ctx = await scopedCtx()
+    const agent = { id: 'a1' } as unknown as Agent
+    const base = { name: 'systemPrompt' }
+    const assembly = { sections: [], tools: [], variables: {} }
+    const bad = { agent }
+    expect(() => {
+      // The carrier base stands in for the SystemPrompt service (the declared `this`); the invariant only reads the carrier marks.
+      void ctx.waterfall(scopeTarget(base, undefined) as never, 'system-prompt/assemble', assembly as never, bad as never, () => Promise.resolve(assembly as never))
+    }).toThrow(/agent.*without.*scope|assembleContextFor/)
+    const good = { agent, scope: agent }
+    expect(() => {
+      void ctx.waterfall(scopeTarget(base, agent) as never, 'system-prompt/assemble', assembly as never, good as never, () => Promise.resolve(assembly as never))
+    }).not.toThrow()
+  })
+
+  it('rejects a turn opened before agent/session-start (setup drives the agent)', async () => {
+    const ctx = await scopedCtx()
+    // A live agent whose session is in the store but whose session-start has
+    // not fired: appending turn/start must throw the teaching error.
+    const session = ctx.sessions.create(SessionId('drive-s'))
+    const agent = { id: 'driver', session } as unknown as Agent
+    // Provide a minimal agents lookup: the invariant reads ctx.get('agents').
+    const registryStub = { list: () => [agent] }
+    ctx.root.provide('agents', registryStub as never)
+    expect(() => {
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    }).toThrow(/turn opened before agent\/session-start/)
+    // After session-start fires, turns open freely.
+    ctx.emit(scopeTarget(agent, agent), 'agent/session-start', agent, 'startup')
+    expect(() => {
+      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+    }).not.toThrow()
   })
 })
