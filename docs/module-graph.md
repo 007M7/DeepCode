@@ -19,6 +19,7 @@ flowchart TD
     pkg_agent["agent"]
     pkg_agent_core["agent-core"]
     pkg_agent_loop["agent-loop"]
+    pkg_scope["scope"]
     pkg_session["session"]
     pkg_system_prompt["system-prompt"]
     pkg_tools["tools"]
@@ -211,6 +212,7 @@ flowchart TD
 | Package | Group | Depends on |
 | --- | --- | --- |
 | [`brand`](../packages/util/brand) | `util` | — |
+| [`scope`](../packages/core/scope) | `core` | — |
 | [`acp-snapshot`](../packages/support/acp-snapshot) | `support` | — |
 | [`app-boot`](../packages/ui/app-boot) | `ui` | — |
 | [`code-runtime`](../packages/code-runtime/code-runtime) | `code-runtime` | — |
