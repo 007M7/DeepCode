@@ -45,6 +45,7 @@
         "./packages/bash/*/src",
         "./packages/fs/*/src",
         "./packages/compact/*/src",
+        "./packages/guard/*/src",
         "./packages/subagent/*/src",
         "./packages/web/*/src",
         "./packages/todo/*/src",
