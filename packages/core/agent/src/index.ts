@@ -208,9 +208,16 @@ export class AgentRegistry extends Service {
    * (calling through `agent.ctx` scopes EFFECTS; dispatch scoping always
    * requires passing the carrier). Returns the disposer.
    * @param agent - the already-constructed agent to record in the store.
-   * @returns the disposer that removes the agent and emits `agent/disposed`.
+   * @returns the EXACT Cordis effect disposer (single-shot; a repeat call
+   *   returns undefined without awaiting an in-flight teardown). Exact
+   *   identity is load-bearing: a composite (generator) effect that owns a
+   *   teardown ORDER — the agent factory's lifecycle chain — must yield THIS
+   *   function so Cordis nests the unregistration at that yield position;
+   *   yielding a wrapper would leave it disposing as a concurrent sibling on
+   *   owner unload, unregistering the agent (and emitting `agent/disposed`)
+   *   while its final turn is still draining.
    */
-  register(agent: Agent): () => void {
+  register(agent: Agent): () => Promise<void> | void {
     const dispose = this.ctx.effect(function* (this: AgentRegistry) {
       if (this.store.has(agent.id)) {
         throw new Error(`agent "${agent.id}" is already registered`)
@@ -242,9 +249,7 @@ export class AgentRegistry extends Service {
       }
       this.ctx.emit(scopeTarget(agent, agent), 'agent/created', agent)
     }.bind(this), 'agents.register()')
-    // ctx.effect's disposer returns Promise<void>; our disposer API is
-    // synchronous fire-and-forget — discard the (always-resolved) promise.
-    return () => void dispose()
+    return dispose
   }
 
   /**

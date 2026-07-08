@@ -170,6 +170,40 @@ describe('agent scope lifecycle', () => {
     expect(heard).toEqual(['a1:2'])
   })
 
+  it('owner unload honors the documented teardown order: unregistration AFTER the drain, before detach', async () => {
+    const ctx = await harness()
+    let handle!: ReturnType<typeof ctx.agents.create>
+    const owner = await ctx.plugin(Object.assign((inner: Context) => {
+      handle = inner.agents.create({ agentId: AgentId('o1'), sessionId: SessionId('o1-s'), agentOptions: { model: 'mock' } })
+    }, { inject: ['agents'] }))
+    const { agent } = handle
+
+    const order: string[] = []
+    ctx.on('session/event', (_s, event) => {
+      if (event.type === 'turn/end') order.push('turn-end')
+    })
+    ctx.on('agent/disposed', () => {
+      order.push(`disposed(listed=${ctx.agents.get(AgentId('o1')) !== undefined})`)
+      order.push(`session-still-stored=${ctx.sessions.get(SessionId('o1-s')) !== undefined}`)
+    })
+
+    // Open a turn so the drain has real work: the loop must finish it BEFORE
+    // the registry entry goes away (the agent/disposed contract: "its fiber
+    // and any in-flight turn have been torn down"). Wait for the turn to be
+    // OPEN in the log — a dispose landing in the pre-step window would drop
+    // the queued prompt without ever opening a turn.
+    const turnOpen = new Promise<void>((resolve) => {
+      const off = ctx.on('session/event', (_s, event) => {
+        if (event.type === 'turn/start') { off(); resolve() }
+      })
+    })
+    agent.send(text('work'))
+    await turnOpen
+    await owner.dispose()
+    expect(order).toEqual(['turn-end', 'disposed(listed=false)', 'session-still-stored=true'])
+    expect(ctx.sessions.get(SessionId('o1-s'))).toBeUndefined()
+  })
+
   it('handle.dispose() during owner unload still awaits true quiescence (shared boundary)', async () => {
     const ctx = await harness()
     let handle!: ReturnType<typeof ctx.agents.create>

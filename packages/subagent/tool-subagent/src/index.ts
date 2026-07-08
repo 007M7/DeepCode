@@ -184,6 +184,12 @@ export function providerWording(inherits: boolean): { description: string; promp
 }
 
 export function apply(ctx: Context, config: Config): void {
+  // Misconfiguration fails loud AT LOAD (the check is self-contained): an
+  // explicit `toolFilter: {}` would otherwise pass the capability gate and
+  // kill every delegation later, in the child-setup `restrict({})` throw.
+  if (config.toolFilter !== undefined && config.toolFilter.allow === undefined && config.toolFilter.deny === undefined) {
+    throw new Error('tool-subagent: `toolFilter` is configured but names neither `allow` nor `deny` — remove the key or fill the filter')
+  }
   // The tool MIRRORS its provider's lifecycle instead of assuming load order:
   // the cordis Loader starts sibling entries concurrently, so "backend listed
   // first in cordis.yml" does not guarantee "provider registered first", and

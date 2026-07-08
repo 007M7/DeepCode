@@ -83,7 +83,12 @@ export interface Scope {
    * returns undefined the second time; this wrapper Promise-normalizes it).
    * After disposal the scoped context is inert — a further registration
    * through it throws Cordis's INACTIVE_EFFECT.
-   * @returns resolves when every registration's disposer has settled.
+   * @returns for the call that initiates teardown: resolves when every
+   *   registration's disposer has settled. A repeat/racing call resolves
+   *   immediately WITHOUT awaiting the in-flight teardown (the underlying
+   *   Cordis disposer is single-shot) — a caller needing a shared quiescence
+   *   boundary across racing disposers keeps its own completion promise (the
+   *   agent factory's pattern).
    */
   dispose(): Promise<void>
 }
@@ -250,7 +255,8 @@ export interface ScopeHost {
   mint(key: ScopeKey): Scope
   /**
    * Dispose the host fiber and with it every scope minted through it.
-   * @returns resolves when all collected disposers have settled.
+   * @returns resolves when all collected disposers have settled (first call;
+   *   a repeat call resolves immediately — single-shot, like Scope.dispose).
    */
   dispose(): Promise<void>
 }

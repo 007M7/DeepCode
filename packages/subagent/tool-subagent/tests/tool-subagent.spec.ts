@@ -510,4 +510,19 @@ describe('dsh-tool-subagent', () => {
     expect(seen?.toolFilter).toEqual({ deny: ['subagent'] })
     expect(seen?.toolFilter).not.toHaveProperty('allow')
   })
+
+  it('an explicit empty toolFilter fails at plugin load, not at first delegation', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'p',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: true, persona: false },
+      inheritsParentContext: false,
+      start: () => { throw new Error('unreachable') },
+    })
+    const fiber = ctx.plugin(tool, { provider: 'p', toolFilter: {} })
+    await expect(fiber).rejects.toThrow(/names neither `allow` nor `deny`/)
+  })
 })

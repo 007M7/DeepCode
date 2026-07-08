@@ -159,6 +159,13 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
         reason: `structured output already recorded: the run is complete, so \`${exec.name}\` is not executed`,
       })
     }
+    // A NEW capture call invalidates any stale stage UNCONDITIONALLY, before
+    // dispatch: only THIS call's own body may stage for this call's commit.
+    // Without this, a stale entry orphaned by an outer short-circuited chain
+    // could be promoted by a later call REUSING the same call id whose body
+    // never staged (pre-execute-denied downstream, or invalid args throwing
+    // before the stage) — reporting success for a value the model saw fail.
+    if (exec.name === STRUCTURED_OUTPUT_TOOL) pending = undefined
     return next()
   }, { prepend: true })
 
@@ -171,13 +178,14 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
     this: unknown, exec: ToolExecution, _result: ToolExecutionResult, next: () => Promise<PostToolDecision>,
   ): Promise<PostToolDecision> {
     if (exec.name !== STRUCTURED_OUTPUT_TOOL || pending === undefined) return next()
+    /* v8 ignore start -- defensive second layer: the pre-execute clear above
+     * already drops every stale stage before a new capture call dispatches,
+     * so a call-id mismatch cannot be reached through the tool pipeline */
     if (pending.callId !== exec.callId) {
-      // A stale stage from a different call: an outer listener short-circuited
-      // that call's post-execute chain past this commit, so its verdict never
-      // reached us and the value must never be promoted — drop it.
       pending = undefined
       return next()
     }
+    /* v8 ignore stop */
     const staged = pending
     try {
       const decision = await next()

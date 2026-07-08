@@ -530,4 +530,42 @@ describe('in-process structured output', () => {
     expect(valid.isError).toBeFalsy()
     await run.dispose()
   })
+
+  it('a later capture call REUSING a stale stage\'s call id never promotes it (unconditional commit safety)', async () => {
+    const { ctx, parent } = await setup([
+      toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 1 }),
+    ])
+    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const child = ctx.agents.get(run.id)!
+    // Orphan a stage: an outer short-circuiting post-execute BLOCK on the
+    // first capture (its chain never reaches the commit listener).
+    let blocks = 1
+    ctx.on('tools/post-execute', (exec, _result, next) => {
+      if (exec.name === STRUCTURED_OUTPUT_TOOL && blocks > 0) {
+        blocks -= 1
+        return Promise.resolve({ kind: 'block' as const, feedback: [{ type: 'text' as const, text: 'rejected' }] })
+      }
+      return next()
+    }, { prepend: true })
+    await run.result
+    // A SECOND capture call with the SAME call id whose body never stages
+    // (invalid args throw before the stage): the stale value must not ride
+    // its acceptance.
+    const reused = await ctx.tools.execute({
+      callId: 'c1' as never,
+      name: STRUCTURED_OUTPUT_TOOL,
+      arguments: { answer: 'not-a-number' },
+      agent: child,
+    })
+    expect(reused.isError).toBe(true)
+    // Nothing was ever committed: a fresh valid call is still required.
+    const valid = await ctx.tools.execute({
+      callId: 'c1' as never,
+      name: STRUCTURED_OUTPUT_TOOL,
+      arguments: { answer: 5 },
+      agent: child,
+    })
+    expect(valid.isError).toBeFalsy()
+    await run.dispose()
+  })
 })
