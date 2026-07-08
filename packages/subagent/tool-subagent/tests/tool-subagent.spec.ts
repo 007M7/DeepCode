@@ -484,4 +484,30 @@ describe('dsh-tool-subagent', () => {
     expect(seen?.toolFilter).toMatchObject({ deny: ['subagent'] })
     expect(seen?.maxDepth).toBe(2)
   })
+
+  it('a partial toolFilter (deny only) does not materialize an empty allow-list (deny-all trap)', async () => {
+    let seen: { toolFilter?: { allow?: string[]; deny?: string[] } } | undefined
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'capture3',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: true, persona: false },
+      inheritsParentContext: false,
+      start: (request) => {
+        seen = request
+        return {
+          id: AgentId('capture3-child'),
+          result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
+          cancel() {},
+          dispose: async () => {},
+        }
+      },
+    })
+    await ctx.plugin(tool, { provider: 'capture3', toolFilter: { deny: ['subagent'] } })
+    await callSubagent(ctx, { description: 'd', prompt: 'p' })
+    expect(seen?.toolFilter).toEqual({ deny: ['subagent'] })
+    expect(seen?.toolFilter).not.toHaveProperty('allow')
+  })
 })

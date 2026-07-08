@@ -102,9 +102,14 @@ export const Config: z<Config> = z.object({
   // deny-everything, silently. Force the omitted key to stay absent (the same
   // shape discipline as SystemPrompt's toolOrder); the cast is needed because
   // .default() expects the object type.
+  // The NESTED arrays get the same treatment as the object itself: a partial
+  // filter ({deny: […]}) must not materialize allow: [] beside it — an empty
+  // allow-list means deny-EVERYTHING, so the materialized default would turn
+  // a deny-one config into deny-all. An EXPLICIT allow: [] (grant-only
+  // children) survives, since only the omitted key defaults to undefined.
   toolFilter: z.object({
-    allow: z.array(z.string()),
-    deny: z.array(z.string()),
+    allow: z.array(z.string()).default(undefined as unknown as string[]),
+    deny: z.array(z.string()).default(undefined as unknown as string[]),
   }).default(undefined as unknown as { allow: string[]; deny: string[] }),
   maxDepth: z.number(),
 })
