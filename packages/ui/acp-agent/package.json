@@ -36,7 +36,6 @@
     "@deepseek-ai/dsh-acp": "^0.0.1",
     "@deepseek-ai/dsh-agent-core": "^0.0.1",
     "@deepseek-ai/dsh-session-persistence-jsonl": "^0.0.1",
-    "@deepseek-ai/dsh-tool-ask-user": "^0.0.1",
     "@deepseek-ai/dsh-user-interaction": "^0.0.1",
     "cordis": "^4.0.0-rc.6",
     "schemastery": "^3.17.0"
@@ -49,7 +48,6 @@
     "@deepseek-ai/dsh-agent-core": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:^",
-    "@deepseek-ai/dsh-tool-ask-user": "workspace:^",
     "@deepseek-ai/dsh-user-interaction": "workspace:^",
     "cordis": "^4.0.0-rc.6",
     "schemastery": "^3.17.0"

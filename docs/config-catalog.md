@@ -56,7 +56,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/ui/acp-agent/src/index.ts:51`](../packages/ui/acp-agent/src/index.ts)
+Source: [`packages/ui/acp-agent/src/index.ts:50`](../packages/ui/acp-agent/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-core`
 

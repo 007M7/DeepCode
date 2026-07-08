@@ -970,9 +970,6 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../../core/system-prompt
-      '@deepseek-ai/dsh-tool-ask-user':
-        specifier: workspace:^
-        version: link:../tool-ask-user
       '@deepseek-ai/dsh-user-interaction':
         specifier: workspace:^
         version: link:../../core/user-interaction

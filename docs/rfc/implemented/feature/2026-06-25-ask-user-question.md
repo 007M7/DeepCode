@@ -42,7 +42,7 @@ ACP elicitation is currently marked unstable in the SDK. The fallback is still s
 
 The feature gives the model a powerful pause primitive, so prompt guidance matters. The tool description tells the model to ask concise questions and use options when possible. Product policy can later wrap `tools/execute` to restrict when the tool is allowed, but the loop should not special-case it.
 
-`dsh-tool-ask-user` lives in `packages/ui` even though it is a tool, because it is a product-facing human-interaction affordance rather than providerless loop infrastructure. The core package remains only the abstract seam; `agent-core` does not load the tool. Front-door app packages such as `stdio-agent` and `acp-agent` opt into it alongside their UI provider.
+`dsh-tool-ask-user` lives in `packages/ui` even though it is a tool, because it is a product-facing human-interaction affordance rather than providerless loop infrastructure. The core package remains only the abstract seam; `agent-core` does not load the tool. `stdio-agent` opts into it alongside its readline provider. `acp-agent` keeps only the `userInteraction` seam/provider by default: ACP elicitation support is still client-dependent, so an ACP leaf must opt into the model-facing tool deliberately once its client can complete elicitation requests.
 
 ## Testing
 
