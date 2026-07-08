@@ -519,6 +519,11 @@ function collectEventRelations(): Map<string, EventRelation> {
 }
 
 function isCordisContextReceiver(expr: ts.PropertyAccessExpression, sf: ts.SourceFile): boolean {
+  // The chained fused-dispatch spelling: `agentEvents(ctx, agent).emit(…)` —
+  // the receiver is a call expression, not an identifier.
+  if (ts.isCallExpression(expr.expression) && expr.expression.expression.getText(sf) === 'agentEvents') {
+    return true
+  }
   const target = expr.expression.getText(sf)
   if (target === 'ctx' || target === 'this.ctx') return true
   // Scoped-dispatch spellings (the agent-scoping seam): the loop's fused
