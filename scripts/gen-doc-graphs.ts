@@ -520,7 +520,15 @@ function collectEventRelations(): Map<string, EventRelation> {
 
 function isCordisContextReceiver(expr: ts.PropertyAccessExpression, sf: ts.SourceFile): boolean {
   const target = expr.expression.getText(sf)
-  return target === 'ctx' || target === 'this.ctx'
+  if (target === 'ctx' || target === 'this.ctx') return true
+  // Scoped-dispatch spellings (the agent-scoping seam): the loop's fused
+  // dispatcher (`events` from `agentEvents(ctx, agent)`), the agent's own
+  // context handle (`this.loopCtx`), and the session store's captured
+  // dispatch context (`emitCtx`). Conventional receiver names, pinned by the
+  // fused-dispatch convention; a rename here must update this list (the
+  // producer/consumer matrix silently losing a dispatcher is the failure
+  // mode this list exists to prevent).
+  return target === 'events' || target === 'this.loopCtx' || target === 'emitCtx'
 }
 
 function eventArg(args: ts.NodeArray<ts.Expression>, method: string): string | undefined {
@@ -529,7 +537,12 @@ function eventArg(args: ts.NodeArray<ts.Expression>, method: string): string | u
     return arg?.text
   }
   const first = args[0]
-  return first && ts.isStringLiteralLike(first) ? first.text : undefined
+  if (first && ts.isStringLiteralLike(first)) return first.text
+  // Scope-carrier dispatch: `emit(carrier, 'event/name', …)` puts the event
+  // name second. Accept a string literal in position 1 when position 0 is a
+  // non-literal expression (the carrier).
+  const second = args[1]
+  return second && ts.isStringLiteralLike(second) ? second.text : undefined
 }
 
 function relationPackages(map: Map<string, Set<string>>, pkgsByShort: Map<string, Pkg>): string {

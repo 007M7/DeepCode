@@ -244,6 +244,14 @@ interface Agent {
   readonly session: Session
   readonly status: AgentStatus
 
+  /**
+   * The agent's scope context (`@deepseek-ai/dsh-scope`, key = this agent):
+   * registrations through it — tools, prompt sections/variables, listeners,
+   * restrictions — are visible to this agent only and unwind when it is
+   * disposed; `agent.ctx.on('agent/…')` listeners fire only for this agent.
+   */
+  readonly ctx: Context
+
   /** Queue a user message. Starts a turn when idle; otherwise waits for the next turn. */
   send(content: ContentBlock[], options?: SendOptions): void
 
