@@ -90,8 +90,8 @@ describe('LocalBashExecutor.run', () => {
 
   it('kill escalation uses the configured graceMs (a TERM-trapping task dies by SIGKILL)', async () => {
     const { bash } = await setup() // setup pins graceMs: 200 via config
-    const task = bash.start(bash.resolve({ command: 'trap \'\' TERM; sleep 60' }))
-    await new Promise(resolve => setTimeout(resolve, 100))
+    const task = bash.start(bash.resolve({ command: 'trap \'\' TERM; echo ready; while :; do sleep 60 & wait $!; done' }))
+    await readUntil(bash, task.id, 'ready\n')
     bash.kill(task.id)
     await task.done
     expect(task.signal).toBe('SIGKILL')
