@@ -9,6 +9,8 @@
  */
 
 import { Context, Service } from 'cordis'
+import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
+import type { ScopeKey, Scoped } from '@deepseek-ai/dsh-scope'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
@@ -70,10 +72,14 @@ declare module 'cordis' {
      * tool body never runs. Input rewrite is deliberately NOT offered here (see
      * {@link PreToolDecision}); `ask` degrades to deny until the permission
      * system lands (`FIXME(permissions)`).
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed by
+     * `exec.agent` — a listener registered through `agent.ctx` fires only for
+     * that agent's calls; a plain plugin listener fires for every call
+     * (including agent-less ones, which dispatch subject-less).
      * @param exec - the pending call (name, parsed arguments, caller agent).
      * @mode waterfall
      */
-    'tools/pre-execute'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
+    'tools/pre-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
     /**
      * Waterfall AFTER a tool runs — where hook plugins inspect the result and
      * accept it (optionally REPLACING the model-facing content, and/or attaching
@@ -85,13 +91,22 @@ declare module 'cordis' {
      * `execute`'s outer try/catch (and the tool body keeps its own inner
      * try/catch, so a thrown tool still reaches `post-execute` as an `isError`
      * result).
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is keyed by
+     * `exec.agent` — a listener registered through `agent.ctx` fires only for
+     * that agent's calls; a plain plugin listener fires for every call
+     * (including agent-less ones, which dispatch subject-less).
      * @param exec - the call that just ran (name, parsed arguments, caller agent).
      * @param result - the dispatch outcome a listener may accept, replace, or block.
      * @mode waterfall
      */
-    'tools/post-execute'(this: ToolRegistry, exec: ToolExecution, result: ToolExecutionResult, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
+    'tools/post-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: ToolExecutionResult, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
     /**
-     * A tool was registered or unregistered (the available tool set changed).
+     * A tool was registered or unregistered, or a scoped restriction changed
+     * (the available tool set changed — possibly for one scope only). An
+     * UNFILTERED registry-subject notification, deliberately not scope-filtered
+     * dispatch: a global change concerns every agent's next assembly, so a
+     * scoped listener subscribing here sees every change, not just its own
+     * scope's.
      * @mode emit
      */
     'tools/change'(): void
@@ -270,43 +285,87 @@ function errorInfo(error: unknown): ToolErrorInfo | undefined {
 }
 
 /**
+ * A per-scope restriction over the GLOBAL tool surface, registered via
+ * {@link ToolRegistry.restrict}. `allow` keeps only the listed global tools;
+ * `deny` removes the listed ones; both present = allow first, then deny.
+ * Restrictions never touch scoped registrations — a tool registered through
+ * the same scope is an explicit grant that bypasses them (which is what keeps
+ * e.g. a structured-output capture tool alive under an allow-list). Multiple
+ * restrictions on one scope compose by intersection: every one must admit.
+ */
+export interface ToolRestriction {
+  /** Global tool names that stay visible; everything else is removed. */
+  allow?: string[]
+  /** Global tool names removed from visibility. */
+  deny?: string[]
+}
+
+/**
  * Tool registry (`ctx.tools`): tool plugins register definitions; the agent
  * loop executes calls through the `tools/pre-execute` → dispatch →
  * `tools/post-execute` pipeline. The registry contributes its schemas into the
  * system-prompt assembly.
+ *
+ * Two registration layers (`@deepseek-ai/dsh-scope`): a registration through a
+ * plain plugin context is GLOBAL (visible to every agent); one through a
+ * scoped context (`agent.ctx`) is filed in that scope's layer — visible to
+ * that agent alone, disposed with the scope, and SHADOWING a global tool of
+ * the same name for that agent (most-specific-wins; within one layer a
+ * duplicate name still throws). {@link restrict} masks the global layer per
+ * scope. One visibility function ({@link visible}) feeds prompt assembly,
+ * {@link get}, and {@link execute}, so what the model is shown, what a
+ * presenter renders, and what dispatches can never disagree.
  */
 export class ToolRegistry extends Service {
   static inject = ['systemPrompt']
 
-  private store = new Map<string, ToolDefinition>()
+  private global = new Map<string, ToolDefinition>()
+  private scoped = new Map<ScopeKey, Map<string, ToolDefinition>>()
+  /** Snapshot-at-registration restriction filters, per scope (see {@link restrict}). */
+  private restrictions = new Map<ScopeKey, ToolRestriction[]>()
 
   constructor(ctx: Context) {
     super(ctx, 'tools')
-    ctx.systemPrompt.tools(() => this.schemas())
+    ctx.systemPrompt.tools(context => ({
+      schemas: this.schemas(context.scope),
+      knownNames: this.knownNames(context.scope),
+    }))
   }
 
   /**
-   * Register a tool. Throws if a tool with the same name is already
-   * registered. The tool's schema (minus the `execute` function) is
-   * automatically contributed to the system-prompt assembly. Disposed
-   * with the calling fiber. Emits `tools/change` on register/unregister.
+   * Register a tool. The layer is decided by the CALLING context: a plain
+   * plugin context registers globally; a scoped context (`agent.ctx`)
+   * registers into that scope's layer — visible to that agent alone, disposed
+   * with the scope, and shadowing a same-named global tool for that agent.
+   * Throws if the SAME layer already has the name (cross-layer name twins are
+   * the shadowing feature, not an error; the global-duplicate message names
+   * `agent.ctx` as the per-agent alternative). The visible schema set flows
+   * into prompt assembly automatically. Disposed with the calling fiber.
+   * Emits `tools/change` on register/unregister.
    * @param definition - the tool's schema plus its execute (and optional
    *   presentation) functions.
    * @returns the disposer that unregisters the tool.
    */
   register(definition: ToolDefinition): () => void {
+    const scope = scopeOf(this.ctx)
     const dispose = this.ctx.effect(function* (this: ToolRegistry) {
-      if (this.store.has(definition.name)) {
-        throw new Error(`tool "${definition.name}" is already registered`)
+      const layer = scope === undefined ? this.global : this.layerFor(scope)
+      if (layer.has(definition.name)) {
+        throw new Error(scope === undefined
+          ? `tool "${definition.name}" is already registered (for a per-agent variant, register through that agent's \`agent.ctx\` instead)`
+          : `tool "${definition.name}" is already registered in this scope`)
       }
-      this.store.set(definition.name, definition)
+      layer.set(definition.name, definition)
       // Yield the rollback BEFORE emitting `tools/change`: a generator effect
       // collects each yielded disposer before the next step runs, so a throwing
       // `tools/change` listener removes the tool instead of leaking it (a leak
       // would wedge the duplicate-name check until restart). The duplicate
       // throw above fires before any mutation — it leaks nothing.
       yield () => {
-        this.store.delete(definition.name)
+        layer.delete(definition.name)
+        // An emptied scope layer is dropped so a disposed scope leaves no
+        // residue keyed by its (dead) key.
+        if (scope !== undefined && layer.size === 0) this.scoped.delete(scope)
         this.ctx.emit('tools/change')
       }
       this.ctx.emit('tools/change')
@@ -317,31 +376,148 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * Look up a registered tool.
-   * @param name - the tool name as registered.
-   * @returns the definition, or undefined when no tool has that name.
+   * Restrict the GLOBAL tool surface for the calling scope. Must be called
+   * through a scoped context (`agent.ctx`) — restricting "everyone" is not a
+   * thing (throw), and an empty filter (neither `allow` nor `deny`) is a no-op
+   * that can only be a bug (throw — the materialized-empty-config trap).
+   * Validates every listed name against the scope's CURRENT pre-restriction
+   * name universe ({@link knownNames}) and throws on an unknown one (fail loud
+   * beats a typo silently filtering nothing) — register restrictions after the
+   * global tools they mask exist (the agent-creation `setup` window satisfies
+   * this). The filter is SNAPSHOT at registration: later caller mutation of
+   * the arrays changes nothing. Multiple restrictions compose by intersection.
+   * Scoped registrations bypass restrictions (explicit grants win). Disposed
+   * with the calling fiber (revocable independently); emits `tools/change`.
+   * @param filter - global-surface mask: `allow` (keep only) and/or `deny` (remove).
+   * @returns the disposer that lifts this restriction.
    */
-  get(name: string): ToolDefinition | undefined {
-    return this.store.get(name)
+  restrict(filter: ToolRestriction): () => void {
+    const scope = scopeOf(this.ctx)
+    if (scope === undefined) {
+      throw new Error('tools.restrict() requires a scoped context (agent.ctx): a context-global restriction would mask every agent — deny the tool for the intended agent instead')
+    }
+    if (filter.allow === undefined && filter.deny === undefined) {
+      throw new Error('tools.restrict({}) is a no-op: pass `allow` and/or `deny` (an empty filter is almost always a materialized-empty-config bug)')
+    }
+    // Snapshot BEFORE validation so what was checked is what is enforced.
+    const snapshot: ToolRestriction = {
+      ...filter.allow !== undefined ? { allow: [...filter.allow] } : {},
+      ...filter.deny !== undefined ? { deny: [...filter.deny] } : {},
+    }
+    const known = new Set(this.knownNames(scope))
+    const unknown = [...snapshot.allow ?? [], ...snapshot.deny ?? []].filter(name => !known.has(name))
+    if (unknown.length > 0) {
+      throw new Error(`tools.restrict() names unknown tool${unknown.length > 1 ? 's' : ''} ${unknown.map(n => `"${n}"`).join(', ')}; known tools for this scope: ${[...known].sort().join(', ') || '(none)'}`)
+    }
+    const dispose = this.ctx.effect(function* (this: ToolRegistry) {
+      const list = this.restrictions.get(scope) ?? []
+      this.restrictions.set(scope, list)
+      list.push(snapshot)
+      yield () => {
+        const index = list.indexOf(snapshot)
+        /* v8 ignore next 3 -- defensive: the snapshot was pushed, so indexOf is guaranteed >= 0 */
+        if (index >= 0) list.splice(index, 1)
+        if (list.length === 0) this.restrictions.delete(scope)
+        this.ctx.emit('tools/change')
+      }
+      this.ctx.emit('tools/change')
+    }.bind(this), 'tools.restrict()')
+    // ctx.effect's disposer returns Promise<void>; our disposer API is
+    // synchronous fire-and-forget — discard the (always-resolved) promise.
+    return () => void dispose()
+  }
+
+  /** The (created-on-demand) scoped layer for `scope`. */
+  private layerFor(scope: ScopeKey): Map<string, ToolDefinition> {
+    let layer = this.scoped.get(scope)
+    if (!layer) {
+      layer = new Map()
+      this.scoped.set(scope, layer)
+    }
+    return layer
+  }
+
+  /** Whether every restriction registered for `scope` admits the global tool `name` (intersection semantics). */
+  private admits(scope: ScopeKey | undefined, name: string): boolean {
+    if (scope === undefined) return true
+    const filters = this.restrictions.get(scope)
+    if (!filters) return true
+    return filters.every(filter =>
+      (filter.allow === undefined || filter.allow.includes(name))
+      && (filter.deny === undefined || !filter.deny.includes(name)))
   }
 
   /**
-   * Return all registered tool schemas — exactly the model-facing fields
-   * (`name`, `description`, `parameters`), as sent to the model via the
+   * THE visibility function — one resolution feeding prompt assembly,
+   * {@link get}, and {@link execute}: the global layer masked by the scope's
+   * restrictions, unioned with the scope's own layer, scoped shadowing global
+   * on a name conflict. No scope = the unrestricted global view.
+   * @param scope - the viewing scope (the agent), or undefined for the global view.
+   * @returns the visible definitions (scoped shadows applied), in per-layer
+   *   registration order, global layer first.
+   */
+  visible(scope?: ScopeKey): ToolDefinition[] {
+    const layer = scope === undefined ? undefined : this.scoped.get(scope)
+    const result = new Map<string, ToolDefinition>()
+    for (const [name, definition] of this.global) {
+      if (this.admits(scope, name)) result.set(name, definition)
+    }
+    // Scoped layer second: same-name entries REPLACE (shadow) the global ones,
+    // and grants bypass restrictions by construction (never filtered above).
+    for (const [name, definition] of layer ?? []) result.set(name, definition)
+    return [...result.values()]
+  }
+
+  /**
+   * Look up a tool as one scope sees it ({@link visible} semantics: scoped
+   * shadows global; a restricted-away global reads as absent). Presenters pass
+   * the calling agent so the rendered card matches the definition that
+   * actually executed.
+   * @param name - the tool name as registered.
+   * @param scope - the viewing scope (the agent); omitted = the global view.
+   * @returns the definition the scope resolves, or undefined when none is visible.
+   */
+  get(name: string, scope?: ScopeKey): ToolDefinition | undefined {
+    const shadowed = scope === undefined ? undefined : this.scoped.get(scope)?.get(name)
+    if (shadowed) return shadowed
+    if (!this.admits(scope, name)) return undefined
+    return this.global.get(name)
+  }
+
+  /**
+   * The model-facing schemas of everything `scope` can see — exactly the
+   * fields (`name`, `description`, `parameters`) sent to the model via the
    * system-prompt assembly. Constructed EXPLICITLY rather than by stripping
    * known non-schema members: a `ToolDefinition` also carries `execute` and the
    * optional `presentCall`/`presentResult` UI callbacks, and those (especially
    * the functions) must never leak into a model request. An allowlist can't
    * drift when a new non-schema member is added to the definition; a denylist
    * (rest-destructure) would silently leak it.
-   * @returns one deep-cloned schema per registered tool, in registration order.
+   * @param scope - the viewing scope (the agent); omitted = the global view.
+   * @returns one deep-cloned schema per visible tool.
    */
-  schemas(): ToolSchema[] {
-    return [...this.store.values()].map(({ name, description, parameters }): ToolSchema => ({
+  schemas(scope?: ScopeKey): ToolSchema[] {
+    return this.visible(scope).map(({ name, description, parameters }): ToolSchema => ({
       name,
       description,
       parameters: structuredClone(parameters),
     }))
+  }
+
+  /**
+   * The PRE-restriction name universe for `scope`: every global name plus the
+   * scope's own layer, ignoring restrictions. This is the set configuration
+   * (`toolOrder`, `restrict()` filters) validates against, so a typo fails
+   * loud while a restricted-away tool remains a normal, non-erroneous absence.
+   * @param scope - the viewing scope (the agent); omitted = global names only.
+   * @returns the known names, deduplicated.
+   */
+  knownNames(scope?: ScopeKey): string[] {
+    const names = new Set(this.global.keys())
+    if (scope !== undefined) {
+      for (const name of this.scoped.get(scope)?.keys() ?? []) names.add(name)
+    }
+    return [...names]
   }
 
   /**
@@ -362,9 +538,12 @@ export class ToolRegistry extends Service {
   async execute(exec: ToolExecution): Promise<ToolExecutionResult> {
     try {
       // --- Gate: tools/pre-execute. A deny (or an ask, which degrades to deny
-      // until the permission system lands) skips dispatch entirely. ---
+      // until the permission system lands) skips dispatch entirely. The
+      // carrier keys the dispatch by exec.agent, so an `agent.ctx` listener
+      // gates only its own agent's calls (agent-less calls are subject-less).
+      const carrier = scopeTarget(this, exec.agent)
       const decision = await this.ctx.waterfall(
-        this, 'tools/pre-execute', exec,
+        carrier, 'tools/pre-execute', exec,
         () => Promise.resolve<PreToolDecision>({ kind: 'allow' }),
       )
       if (decision.kind !== 'allow') {
@@ -387,7 +566,11 @@ export class ToolRegistry extends Service {
       // inspect it; an unknown tool routes through the same catch. ---
       let result: ToolExecutionResult
       try {
-        const tool = this.store.get(exec.name)
+        // Resolve through the CALLER's visible view ({@link get}): a scoped
+        // tool shadows its global name-twin for that agent, and a
+        // restricted-away global tool is exactly as absent as a nonexistent
+        // one — same UNKNOWN_TOOL result, no capability leak in the error.
+        const tool = this.get(exec.name, exec.agent)
         if (!tool) throw new ToolNotFoundError(exec.name)
         // Normalize the two `execute` return shapes: a bare ContentBlock[] (no
         // meta) or a { content, meta } object (a tool attaching a private
@@ -435,7 +618,7 @@ export class ToolRegistry extends Service {
       ...result.meta !== undefined ? { meta: result.meta } : {},
     }
     const decision = await this.ctx.waterfall(
-      this, 'tools/post-execute', exec, result,
+      scopeTarget(this, exec.agent), 'tools/post-execute', exec, result,
       () => Promise.resolve<PostToolDecision>({ kind: 'accept' }),
     )
     const additionalContext = decision.additionalContext

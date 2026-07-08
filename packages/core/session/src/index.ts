@@ -9,6 +9,8 @@
 import { Context, Service } from 'cordis'
 import { isAbsolute } from 'node:path'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
+import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
+import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
 import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
@@ -33,28 +35,48 @@ declare module 'cordis' {
   interface Events {
     /**
      * A session was created in the store.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the
+     * session's owner scope, captured when the session was ENTERED (an agent's
+     * session is entered through `agent.ctx`, so its events dispatch in that
+     * agent's scope; a bare `sessions.create()` from a plain plugin dispatches
+     * subject-less). A listener registered through `agent.ctx` hears only that
+     * agent's sessions; a plain plugin listener hears every session.
      * @param session - the session just entered and announced.
      * @mode emit
      */
-    'session/created'(session: Session): void
+    'session/created'(this: Scoped<Session>, session: Session): void
     /**
      * An event was appended to a session log (sync, fire-and-forget). This is
      * the per-append feed a UI or invariant plugin tails.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the
+     * session's owner scope, captured when the session was ENTERED (an agent's
+     * session is entered through `agent.ctx`, so its events dispatch in that
+     * agent's scope; a bare `sessions.create()` from a plain plugin dispatches
+     * subject-less). A listener registered through `agent.ctx` hears only that
+     * agent's sessions; a plain plugin listener hears every session.
      * @param session - the session whose log grew.
      * @param event - the appended event, exactly as recorded.
      * @mode emit
      */
-    'session/event'(session: Session, event: SessionEvent): void
+    'session/event'(this: Scoped<Session>, session: Session, event: SessionEvent): void
     /**
      * Awaited durability checkpoint. The agent loop awaits
-     * `ctx.parallel('session/flush', session)` at every turn end; persistence
+     * `ctx.sessions.flush(session)` at every turn end; persistence
      * plugins (JSONL, SQLite) drain their write-behind buffers here and on
      * fiber dispose. Awaited (parallel), not a waterfall: every listener runs
-     * and the loop waits for all of them, but none can veto.
+     * and the caller waits for all of them, but none can veto. Dispatch it
+     * through {@link SessionStore.flush} — the store owns the carrier — never
+     * via a raw `ctx.parallel`.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): the carrier is the
+     * session's owner scope, captured when the session was ENTERED (an agent's
+     * session is entered through `agent.ctx`, so its events dispatch in that
+     * agent's scope; a bare `sessions.create()` from a plain plugin dispatches
+     * subject-less). A listener registered through `agent.ctx` hears only that
+     * agent's sessions; a plain plugin listener hears every session.
      * @param session - the session whose buffered events must reach durable storage.
      * @mode parallel
      */
-    'session/flush'(session: Session): Promise<void> | void
+    'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
   }
 }
 
@@ -404,6 +426,14 @@ export class SessionForkError extends Error {
  */
 export class SessionStore extends Service {
   private store = new Map<SessionId, Session>()
+  /**
+   * Each live session's dispatch carrier, captured at {@link enter} from the
+   * ENTERING context's scope tag (an agent session is entered through
+   * `agent.ctx` ⇒ its events dispatch in that agent's scope; a bare session ⇒
+   * subject-less carrier). WeakMap so a detached session drops its carrier
+   * with the entry.
+   */
+  private carriers = new WeakMap<Session, Scoped<Session>>()
   private counter = 0
 
   constructor(ctx: Context) {
@@ -498,7 +528,15 @@ export class SessionStore extends Service {
    */
   enter(session: Session): () => void {
     if (this.store.has(session.id)) throw new Error(`session "${session.id}" already exists`)
-    session.onAppend = (event) => { this.ctx.emit('session/event', session, event) }
+    // The carrier is decided HERE, once, from the ENTERING context's scope tag
+    // (`this.ctx` is the caller's context — the tracker mechanism): every
+    // session/created|event|flush dispatch for this session uses it, so the
+    // session's whole event feed is scope-filtered consistently. The base is
+    // the session itself (scoped listeners' `this` is the session).
+    const carrier = scopeTarget(session, scopeOf(this.ctx))
+    this.carriers.set(session, carrier)
+    const emitCtx = this.ctx
+    session.onAppend = (event) => { emitCtx.emit(carrier, 'session/event', session, event) }
     this.store.set(session.id, session)
     return () => {
       session.onAppend = undefined
@@ -506,12 +544,32 @@ export class SessionStore extends Service {
     }
   }
 
-  /** Emit `session/created` for an {@link enter}ed session. Separate from
-   * {@link enter} so the caller can yield the detach disposer first (rollback
-   * safety — see {@link enter}).
+  /** Emit `session/created` for an {@link enter}ed session (with the carrier
+   * {@link enter} captured). Separate from {@link enter} so the caller can
+   * yield the detach disposer first (rollback safety — see {@link enter}).
    * @param session - the entered session to announce to listeners. */
   announce(session: Session): void {
-    this.ctx.emit('session/created', session)
+    this.ctx.emit(this.carrierFor(session), 'session/created', session)
+  }
+
+  /**
+   * Dispatch the awaited `session/flush` durability checkpoint for `session`,
+   * with the carrier captured at {@link enter}. THE flush entry point: the
+   * store owns the carrier, so callers (the loop's turn-end checkpoint, idle
+   * injection, teardown drains) must come through here rather than dispatch a
+   * raw `ctx.parallel('session/flush', …)` — one owner, one spelling, and the
+   * scoped-dispatch invariant can pin it.
+   * @param session - the session whose buffered events must reach durable storage.
+   * @returns resolves when every flush listener has settled; rejects if one rejects.
+   */
+  async flush(session: Session): Promise<void> {
+    await this.ctx.parallel(this.carrierFor(session), 'session/flush', session)
+  }
+
+  /** The carrier {@link enter} captured, or a subject-less one for a session
+   * never entered (defensive: dispatch stays filtered either way). */
+  private carrierFor(session: Session): Scoped<Session> {
+    return this.carriers.get(session) ?? scopeTarget(session, undefined)
   }
 
   /**
