@@ -140,8 +140,9 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   // Connect and set up tools. Errors during connect are logged, not thrown
-  // (the plugin simply has no tools registered).
-  const ready = (async () => {
+  // (the plugin simply has no tools registered). The IIFE is fire-and-forget;
+  // disposal closes the client directly without waiting for startup.
+  void (async () => {
     await client.connect(transport)
     await resync()
 
@@ -156,9 +157,10 @@ export function apply(ctx: Context, config: Config): void {
     ctx.logger.error(`mcp-client: failed to connect: ${String(error)}`)
   })
 
-  // Fiber disposal: close the client (triggers onclose → tools unregistered).
+  // Fiber disposal: close the client immediately (triggers onclose → tools
+  // unregistered). No `await ready` — if connect is still pending, close aborts
+  // it promptly rather than blocking until the SDK request times out.
   ctx.effect(() => async () => {
-    await ready
-    try { await client.close() } catch { /* transport already gone */ }
+    try { await client.close() } catch { /* transport already gone or never connected */ }
   }, 'mcp-client.connection')
 }

@@ -43,27 +43,34 @@ export async function syncTools(
 
   const disposers: ToolDisposers = new Map()
 
-  let cursor: string | undefined
-  do {
-    const response = await client.listTools(cursor ? { cursor } : undefined)
-    for (const tool of response.tools) {
-      const registeredName = opts.toolPrefix + tool.name
-      const definition: ToolDefinition = {
-        name: registeredName,
-        description: tool.description ?? '',
-        parameters: tool.inputSchema,
-        execute: createExecutor(client, tool.name, opts),
+  try {
+    let cursor: string | undefined
+    do {
+      const response = await client.listTools(cursor ? { cursor } : undefined)
+      for (const tool of response.tools) {
+        const registeredName = opts.toolPrefix + tool.name
+        const definition: ToolDefinition = {
+          name: registeredName,
+          description: tool.description ?? '',
+          parameters: tool.inputSchema,
+          execute: createExecutor(client, tool.name, opts),
+        }
+        try {
+          const dispose = ctx.tools.register(definition)
+          disposers.set(registeredName, dispose)
+        } catch {
+          // Name conflict — another tool with this name is already registered.
+          ctx.logger.warn(`mcp-client: skipping tool "${registeredName}" (name conflict)`)
+        }
       }
-      try {
-        const dispose = ctx.tools.register(definition)
-        disposers.set(registeredName, dispose)
-      } catch {
-        // Name conflict — another tool with this name is already registered.
-        ctx.logger.warn(`mcp-client: skipping tool "${registeredName}" (name conflict)`)
-      }
-    }
-    cursor = response.nextCursor
-  } while (cursor)
+      cursor = response.nextCursor
+    } while (cursor)
+  } catch (error: unknown) {
+    // Partial failure (e.g. a later page of listTools failed): unregister any
+    // tools already registered in this sync to avoid orphaning them.
+    for (const dispose of disposers.values()) dispose()
+    throw error
+  }
 
   return disposers
 }
