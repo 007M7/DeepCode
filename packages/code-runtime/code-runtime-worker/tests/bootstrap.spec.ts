@@ -108,6 +108,16 @@ describe('prepareValue', () => {
     const { value } = prepareValue('x'.repeat(50), 10)
     expect(value).toBe(`${'x'.repeat(10)}… [truncated]`)
   })
+
+  it('measures a container by its structured-clone wire size, not its bounded rendering', () => {
+    // The bounded inspect rendering of a huge array is tiny ("... N more
+    // items"), but its real cross-boundary size is not — the cap must catch
+    // it, replacing the value with that bounded rendering.
+    const huge = new Array(50_000).fill(7)
+    const { value } = prepareValue(huge, 1_000)
+    expect(typeof value).toBe('string')
+    expect(value).toContain('more items')
+  })
 })
 
 describe('makeNamespaces', () => {
