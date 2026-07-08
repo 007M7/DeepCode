@@ -47,7 +47,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:472`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:476`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -101,7 +101,7 @@ Source: [`packages/core/agent/src/types.ts:394`](../../packages/core/agent/src/t
 
 ### `agent/session-prefix` — waterfall
 
-Waterfall: compose the SESSION PREFIX — request-only messages placed in front of the ENTIRE derived history (directly after the provider's system slot) on every request this loop instance sends. Fired ONCE per loop instance, lazily before its first step's agent/pre-step seam — BEFORE the pre-step so a token-pressure gate (compaction) counts the prefix this instance will actually send, never a previous instance's logged one. The composed result is deep-frozen, recorded as `EpochHeader.messagePrefix` on the instance's anchoring `'initial'`/`'resume'` header snapshot, and reused verbatim for every subsequent request — never recomputed mid-session, so the provider prefix cache holds by construction (a process restart or `ctx.agents.resume()` is a new instance: it recomposes, and any drift lands attributably on the `'resume'` snapshot). Composition runs outside the step, before the boundary snapshot: a composing listener's session append joins the CURRENT request's derived history.
+Waterfall: compose the SESSION PREFIX — request-only messages placed in front of the ENTIRE derived history (directly after the provider's system slot) on every request this loop instance sends. Fired ONCE per loop instance, lazily before its first step's agent/pre-step seam — BEFORE the pre-step so a token-pressure gate (compaction) counts the prefix this instance will actually send, never a previous instance's logged one. The composed result is deep-frozen, recorded as `EpochHeader.messagePrefix` on the instance's anchoring `'initial'`/`'resume'` header snapshot, and reused verbatim for every subsequent request — never recomputed mid-session, so the provider prefix cache holds by construction (a process restart or `ctx.agents.resume()` is a new instance: it recomposes, and any drift lands attributably on the `'resume'` snapshot). Composition runs outside the step, before the boundary snapshot: a composing listener's session append joins the CURRENT request's derived history. A composition interrupted by a cancel/dispose landing inside the waterfall is discarded — never cached, logged, or sent — and the next turn recomposes under a live signal, so an abort-aware listener's degraded fallback cannot leak into later requests.
 
 This is the home for session-stable openers the model must always see but that must NOT become durable history — a skills catalog, an AGENTS.md digest, a workspace baseline: `Session.deriveMessages()` never returns the prefix, and the header events are its only durable record, so the request stays reconstructable from the log. Content that CHANGES mid-session belongs in the append-only history channels instead — `agent.inject()`, a `tools/post-execute` decision's `additionalContext`, prompt-submit `additionalContext` — each a durable `context/message` paid once and prefix-cached thereafter.
 
@@ -113,7 +113,7 @@ The seed is a frozen empty list; a contributing listener returns a NEW array —
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:437`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:441`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -149,7 +149,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:447`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:451`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -161,7 +161,7 @@ Waterfall: override the turn-continuation decision via a typed ContinuationDecis
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:460`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:464`](../../packages/core/agent/src/types.ts)
 
 ## `fs/*`
 

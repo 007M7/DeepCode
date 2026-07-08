@@ -497,18 +497,27 @@ async function runTurn(
       // CURRENT request.
       if (transmission.sessionPrefix === undefined) {
         const emptyPrefix: Message[] = deepFreeze([])
-        transmission.sessionPrefix = deepFreeze(structuredClone(await ctx.waterfall(
+        const composed = await ctx.waterfall(
           'agent/session-prefix', agent, emptyPrefix, abort.signal,
           () => Promise.resolve(emptyPrefix),
-        )))
-      }
+        )
 
-      // Interruption landing during prefix composition: mirror the assembly
-      // window above — drop the about-to-start step without running the seam.
-      if (handle.isCancelled() || handle.isDisposed()) {
-        handle.setAbort(undefined)
-        reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
-        break
+        // Interruption landing during prefix composition: mirror the assembly
+        // window above — drop the about-to-start step without running the
+        // seam, and DISCARD the composition instead of caching it. An
+        // abort-aware listener may have returned a degraded fallback under
+        // the firing signal; committing it would ship a prefix no request
+        // ever used (and no header ever logged) on this instance's next real
+        // request. The next turn recomposes under a live signal — the cache
+        // only ever holds a fully composed prefix. The cache-hit path needs
+        // no such check: nothing awaits between the assembly check above and
+        // the pre-step seam.
+        if (handle.isCancelled() || handle.isDisposed()) {
+          handle.setAbort(undefined)
+          reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
+          break
+        }
+        transmission.sessionPrefix = deepFreeze(structuredClone(composed))
       }
 
       // Pre-step surface-mutation checkpoint (compaction), fired OUTSIDE the

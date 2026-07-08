@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService from '@deepseek-ai/dsh-llm'
+import LlmService, { type Message } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -227,6 +227,40 @@ describe('Agent.cancel()', () => {
     expect(adapter.requests).toHaveLength(0)
     const turnEnd = agent.session.events.findLast(e => e.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
+  })
+
+  it('a cancel-interrupted prefix composition is discarded: the next send recomposes and ships the fresh prefix (stale-cache guard)', async () => {
+    const adapter = new MockAdapter([textResponse('reply')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    // The first composition is interrupted mid-waterfall and — like an
+    // abort-aware listener bailing on a firing signal — contributes nothing.
+    // Caching that degraded result would silently strip the prefix from every
+    // later request of this instance; the loop must discard it and recompose
+    // on the next send, and the SECOND composition's value must be what the
+    // wire and the header log carry.
+    const opener: Message = { role: 'user', content: [{ type: 'text', text: 'fresh opener' }] }
+    let compositions = 0
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => {
+      compositions += 1
+      if (compositions === 1) {
+        agent.cancel('mid-composition')
+        return next()
+      }
+      return [opener, ...await next()]
+    })
+
+    send(agent, 'dropped')
+    await waitForIdle(ctx, agent)
+    send(agent, 'real prompt')
+    await waitForIdle(ctx, agent)
+
+    expect(compositions).toBe(2)
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]?.messages[0]).toEqual(opener)
+    const headerEvent = agent.session.events.find(e => e.type === 'request/header')
+    expect(headerEvent?.type === 'request/header' && headerEvent.data.header.messagePrefix).toEqual([opener])
   })
 
   it('cancel from a synchronous turn/start session-event listener drops the step (step-start window)', async () => {

@@ -407,7 +407,11 @@ declare module 'cordis' {
      * or `ctx.agents.resume()` is a new instance: it recomposes, and any
      * drift lands attributably on the `'resume'` snapshot). Composition runs
      * outside the step, before the boundary snapshot: a composing listener's
-     * session append joins the CURRENT request's derived history.
+     * session append joins the CURRENT request's derived history. A
+     * composition interrupted by a cancel/dispose landing inside the
+     * waterfall is discarded — never cached, logged, or sent — and the next
+     * turn recomposes under a live signal, so an abort-aware listener's
+     * degraded fallback cannot leak into later requests.
      *
      * This is the home for session-stable openers the model must always see
      * but that must NOT become durable history — a skills catalog, an
