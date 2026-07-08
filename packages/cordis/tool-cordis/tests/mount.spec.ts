@@ -386,13 +386,13 @@ describe('cordis_mount', () => {
         console.error('errored')
         const round = atob(btoa('hi'))
         const bytes = new TextEncoder().encode(round)
-        return { name: 'codec-' + new TextDecoder().decode(bytes), apply(ctx) { console.log('applied', typeof ctx.fiber) } }
+        return { name: 'codec-' + new TextDecoder().decode(bytes), apply(ctx) { console.log('applied', typeof ctx.on) } }
       `,
     })
     expect(result.isError).toBe(false)
     expect(text(result)).toContain('plugin "codec-hi"')
     expect(log).toHaveBeenCalledWith('[cordis:dyn-1]', 'warned')
-    expect(log).toHaveBeenCalledWith('[cordis:dyn-1]', 'applied', 'object')
+    expect(log).toHaveBeenCalledWith('[cordis:dyn-1]', 'applied', 'function')
     expect(error).toHaveBeenCalledWith('[cordis:dyn-1]', 'errored')
   })
 

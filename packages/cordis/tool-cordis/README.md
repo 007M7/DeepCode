@@ -12,7 +12,7 @@ Exact model-facing schemas: [the generated tool catalog](../../../docs/tool-cata
 
 ## Trust stance
 
-The sandbox isolates the global context only — it is not a security boundary. No Node API is provided: `require`, the timers, and `fetch` are callable traps that throw a redirect to the cordis alternative (`ctx.fs` / `ctx.web` / `ctx.bash` / `inject: ['timer']` + `ctx.setTimeout`); `process` and `Buffer` are `undefined`; `globalThis` writes stay inside. The `ctx` a mounted plugin's `apply` receives is the real, fully privileged runtime handle; load this plugin as deliberately as you would grant a bash tool.
+The sandbox isolates the global context only — it is not a security boundary. No Node API is provided: `require`, the timers, and `fetch` are callable traps that throw a redirect to the cordis alternative (`ctx.fs` / `ctx.web` / `ctx.bash` / `inject: ['timer']` + `ctx.setTimeout`); `process` and `Buffer` are `undefined`; `globalThis` writes stay inside. The `ctx` a mounted plugin's `apply` receives is a whitelist façade — register tools, observe events, provide/consume services, use timers; framework internals (`ctx.root`, `ctx.fiber`, `ctx.extend`, `ctx.plugin`, …) are withheld — but the capabilities it does expose reach the real runtime, so load this plugin as deliberately as you would grant a bash tool.
 
 ## Config
 

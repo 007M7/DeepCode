@@ -686,7 +686,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/cordis/tool-cordis/src/index.ts:49`](../packages/cordis/tool-cordis/src/index.ts)
+Source: [`packages/cordis/tool-cordis/src/index.ts:53`](../packages/cordis/tool-cordis/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-fs`
 

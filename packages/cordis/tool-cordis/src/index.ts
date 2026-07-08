@@ -18,10 +18,14 @@
  * this plugin. Design home:
  * docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md.
  *
- * The vm sandbox guards against ACCIDENTAL global pollution only — it is not a
- * security boundary. The `ctx` handed to the mounted plugin's `apply` is the
- * real, fully privileged runtime handle; that is the point of the toolset, so
- * a deployment loads this plugin as deliberately as it grants a bash tool.
+ * The vm sandbox guards against ACCIDENTAL global pollution only, and the `ctx`
+ * a mounted plugin's `apply` receives is a WHITELIST façade (register a tool,
+ * observe events, provide/consume services, use timers — framework internals
+ * withheld; see the guard module). Neither is a security boundary: the verbs
+ * the façade DOES expose reach the real runtime unsandboxed (a mounted tool can
+ * shell out through `ctx.bash`), so a deployment loads this plugin as
+ * deliberately as it grants a bash tool. Design home:
+ * docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md.
  *
  * Plugin export shape: named exports, NO default. The cordis Loader's
  * `unwrapExports` does `exports.default ?? exports`, so a stray default would
@@ -159,8 +163,11 @@ export function apply(ctx: Context, config: Config): void {
       + 'VETOES the call; prefer plain notification events unless you intend to '
       + 'intercept. (2) Never await something that only resolves after the current '
       + 'turn (your code runs INSIDE a tool call of that turn — it would deadlock). '
-      + '(3) The sandbox prevents accidental global pollution, not malice: `ctx` is '
-      + 'the real, fully privileged runtime handle.',
+      + '(3) Your `ctx` is a restricted façade: you can register tools, observe '
+      + 'events, provide/consume services, and use timers, but framework internals '
+      + '(ctx.root, ctx.fiber, ctx.extend, ctx.plugin, …) are withheld. It is not a '
+      + 'security boundary though — the services you inject (e.g. ctx.bash) reach the '
+      + 'real runtime.',
     parameters: {
       code: {
         type: 'string',

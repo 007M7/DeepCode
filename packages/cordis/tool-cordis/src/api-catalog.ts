@@ -89,6 +89,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'codeRuntime',
+    summary: 'Abstract code-execution service.',
+    methods: [
+      'abstract run(request: CodeRunRequest): Promise<CodeRunResult>',
+    ],
+  },
+  {
     key: 'compact',
     summary: 'Abstract compaction service.',
     methods: [
@@ -428,6 +435,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CallId',
     declaration: 'export type CallId = Branded<\'CallId\'>;',
+  },
+  {
+    name: 'CodeBindingFunction',
+    declaration: 'export type CodeBindingFunction = (args: unknown) => Promise<unknown>;',
+  },
+  {
+    name: 'CodeBindingNamespace',
+    declaration: 'export interface CodeBindingNamespace {\n    global: string;\n    functions: Record<string, CodeBindingFunction>;\n}',
+  },
+  {
+    name: 'CodeLogEntry',
+    declaration: 'export interface CodeLogEntry {\n    source: \'console\' | \'stdout\' | \'stderr\';\n    level?: \'log\' | \'info\' | \'warn\' | \'error\' | \'debug\';\n    text: string;\n}',
+  },
+  {
+    name: 'CodeRunFailure',
+    declaration: 'export interface CodeRunFailure {\n    kind: \'exception\' | \'timeout\' | \'abort\' | \'worker-exit\';\n    message: string;\n}',
+  },
+  {
+    name: 'CodeRunRequest',
+    declaration: 'export interface CodeRunRequest {\n    program: string;\n    bindings: CodeBindingNamespace[];\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'CodeRunResult',
+    declaration: 'export interface CodeRunResult {\n    value?: unknown;\n    logs: CodeLogEntry[];\n    error?: CodeRunFailure;\n}',
   },
   {
     name: 'CollectedOutput',
