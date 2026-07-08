@@ -362,6 +362,24 @@ export class Session {
   }
 }
 
+/** A fork source: either the live session object or its live store id. */
+export type SessionForkSource = Session | SessionId
+
+export type SessionForkErrorCode =
+  | 'SESSION_NOT_FOUND'
+  | 'SESSION_NOT_LIVE'
+  | 'SESSION_ALREADY_EXISTS'
+  | 'INVALID_BOUNDARY'
+  | 'OPEN_TURN'
+
+/** Typed error for session fork rejections. */
+export class SessionForkError extends Error {
+  constructor(message: string, public readonly code: SessionForkErrorCode) {
+    super(message)
+    this.name = 'SessionForkError'
+  }
+}
+
 /**
  * In-memory session store (`ctx.sessions`).
  *
@@ -496,6 +514,92 @@ export class SessionStore extends Service {
   list(): Session[] {
     return [...this.store.values()]
   }
+
+  /**
+   * Create a live child session from a turn-enclosed prefix of a live source.
+   * `boundary` is an inclusive source event seq; omitted means the source's
+   * current last event. A non-empty selected slice must end at `turn/end`.
+   *
+   * @param source - Live source session object or id.
+   * @param boundary - Inclusive source event seq to fork through; omitted means
+   *   the source's current last event, and omitted on an empty source forks an
+   *   empty child.
+   * @param childSessionId - Optional child session id; omitted delegates to
+   *   `SessionStore`'s id policy.
+   * @returns The created live child session.
+   */
+  fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session {
+    if (childSessionId !== undefined && this.get(childSessionId) !== undefined) {
+      throw new SessionForkError(`session "${childSessionId}" already exists`, 'SESSION_ALREADY_EXISTS')
+    }
+    const liveSource = this._resolveForkSource(source)
+    const seed = this._forkSeed(liveSource, boundary)
+    return this.create(childSessionId, {
+      seed,
+      meta: {
+        ...liveSource.header.cwd !== undefined ? { cwd: liveSource.header.cwd } : {},
+        parentSession: liveSource.id,
+        seedLength: seed.length,
+      },
+    })
+  }
+
+  private _forkSeed(session: Session, requestedBoundary: number | undefined): SessionEvent[] {
+    const events = session.events
+    const lastEvent = events.at(-1)
+    let boundary: number
+    if (requestedBoundary !== undefined) {
+      boundary = requestedBoundary
+    } else {
+      if (lastEvent === undefined) return []
+      boundary = lastEvent.seq
+    }
+    if (!Number.isSafeInteger(boundary) || boundary < 0) {
+      throw new SessionForkError(
+        `fork boundary for session "${session.id}" must be a non-negative safe integer, got ${String(boundary)}`,
+        'INVALID_BOUNDARY',
+      )
+    }
+    if (boundary >= events.length) {
+      const lastSeq = events.at(-1)?.seq
+      throw new SessionForkError(
+        `fork boundary ${boundary} does not exist in session "${session.id}" (last seq: ${lastSeq ?? 'none'})`,
+        'INVALID_BOUNDARY',
+      )
+    }
+
+    const boundaryEvent = events[boundary]
+    if (boundaryEvent === undefined || boundaryEvent.seq !== boundary) {
+      throw new SessionForkError(
+        `fork boundary ${boundary} does not match a contiguous event seq in session "${session.id}"`,
+        'INVALID_BOUNDARY',
+      )
+    }
+    if (boundaryEvent.type !== 'turn/end') {
+      throw new SessionForkError(
+        `fork boundary ${boundary} in session "${session.id}" must be turn/end, got ${boundaryEvent.type}`,
+        'OPEN_TURN',
+      )
+    }
+
+    return events.slice(0, boundary + 1).map(event => structuredClone(event))
+  }
+
+  private _resolveForkSource(source: SessionForkSource): Session {
+    if (typeof source === 'string') {
+      const session = this.get(source)
+      if (session === undefined) throw new SessionForkError(`session "${source}" not found`, 'SESSION_NOT_FOUND')
+      return session
+    }
+
+    const live = this.get(source.id)
+    if (live === undefined) {
+      throw new SessionForkError(`session "${source.id}" not found`, 'SESSION_NOT_FOUND')
+    }
+    if (live !== source) throw new SessionForkError(`session "${source.id}" is not the live store instance`, 'SESSION_NOT_LIVE')
+    return source
+  }
+
 }
 
 export default SessionStore
