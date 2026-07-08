@@ -221,6 +221,29 @@ describe('WorkerCodeRuntime — budgets and containment (real workers)', () => {
     expect(result.value).toBe(`${'y'.repeat(64)}… [truncated]`)
   })
 
+  it('caps a multibyte return value by UTF-8 bytes, not string length', async () => {
+    // 4 code units, 12 UTF-8 bytes: a length-counting cap would let the full
+    // string cross. The worker's byte-exact capped rendering then passes the
+    // host re-cap unchanged (cap + marker is exactly the granted slack).
+    const { runtime } = await setup({ maxValueBytes: 4 })
+    const result = await runtime.run({ program: 'return "€€€€"', bindings: [] })
+    expect(result.value).toBe('€… [truncated]')
+  })
+
+  it('completes a program that awaits its write callback, capturing the chunk', async () => {
+    // Node's write(chunk[, encoding][, callback]) contract: dropping the
+    // callback would leave this promise pending until the wall ceiling and
+    // misreport a completed program as a timeout.
+    const { runtime } = await setup({ maxWallMs: 2_000 })
+    const result = await runtime.run({
+      program: 'await new Promise(resolve => process.stdout.write("flushed", resolve)); return "done"',
+      bindings: [],
+    })
+    expect(result.error).toBeUndefined()
+    expect(result.value).toBe('done')
+    expect(result.logs).toContainEqual({ source: 'stdout', text: 'flushed' })
+  })
+
   it('caps a huge container whose bounded rendering is small (wire size, not rendering, is what counts)', async () => {
     const { runtime } = await setup()
     const result = await runtime.run({ program: 'return new Array(50_000).fill(7)', bindings: [] })
@@ -338,6 +361,21 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
     })
     expect(result.value).toBe('lied')
     expect(result.error).toEqual({ kind: 'exception', message: 'fake failure' })
+  })
+
+  it('byte-bounds forged multibyte error text at the host', async () => {
+    // Forged error text bypasses the worker entirely; the host bound is a
+    // BYTE bound (two € = 6 bytes fit an 8-byte cap, a third would not).
+    const { runtime } = await setup({ maxValueBytes: 8 })
+    const result = await runtime.run({
+      program: `
+        const { parentPort } = await import('node:worker_threads');
+        parentPort.postMessage({ type: 'done', error: { message: '€'.repeat(1000) } });
+        for (;;) {}
+      `,
+      bindings: [],
+    })
+    expect(result.error).toEqual({ kind: 'exception', message: '€€' })
   })
 
   it('answers a binding whose resolution cannot be cloned with a failure reply', async () => {
