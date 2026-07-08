@@ -187,10 +187,10 @@ Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections,
 section(section: PromptSection): () => void
 tools(provider: () => ToolSchema[]): () => void
 variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void
-assemble(context: AssembleContext = {}): Promise<PromptAssembly>
+async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:203`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:291`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 
@@ -205,7 +205,7 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:268`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:278`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.web` — `WebService`
 

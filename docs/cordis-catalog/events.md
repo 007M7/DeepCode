@@ -323,7 +323,7 @@ A tool was registered or unregistered (the available tool set changed).
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:87`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:97`](../../packages/core/tools/src/index.ts)
 
 ### `tools/post-execute` — waterfall
 
@@ -335,7 +335,7 @@ Waterfall AFTER a tool runs — where hook plugins inspect the result and accept
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:82`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:92`](../../packages/core/tools/src/index.ts)
 
 ### `tools/pre-execute` — waterfall
 
@@ -347,7 +347,7 @@ Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook pl
 
 Types: [ToolExecution](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:66`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:76`](../../packages/core/tools/src/index.ts)
 
 ## Inherited events (cordis core + loader/hmr/timer)
 

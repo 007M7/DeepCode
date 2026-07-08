@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
+import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as agentCore from '../src/index.ts'
 import { AgentId } from '@deepseek-ai/dsh-agent'
 
@@ -64,6 +65,23 @@ describe('dsh-agent-core bundle', () => {
     expect(ctx.get('agents')?.list()).toHaveLength(0)
     const assembly = await ctx.get('systemPrompt')!.assemble()
     expect(assembly.sections.find(s => s.name === 'deployment:persona')?.text).toBe('')
+    await ctx.fiber.dispose()
+  })
+
+  it('forwards toolOrder to the system-prompt assembly', async () => {
+    const ctx = await mount({ toolOrder: ['zulu', TOOL_ORDER_REST] })
+    // The bundle's own bash tools pend on the absent `ctx.bash` executor in
+    // this providerless mount, so register two plain tools to order.
+    for (const name of ['alpha', 'zulu']) {
+      ctx.get('tools')!.register({
+        name,
+        description: name,
+        parameters: {},
+        execute: async () => [],
+      })
+    }
+    const assembly = await ctx.get('systemPrompt')!.assemble()
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha'])
     await ctx.fiber.dispose()
   })
 
