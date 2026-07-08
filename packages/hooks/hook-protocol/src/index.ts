@@ -15,6 +15,8 @@
  *   session-event helpers (declaration-merged into `SessionEventMap`);
  *   `appendHookResult` derives the durable `decision`/`stderrSummary` from the
  *   {@link HookOutput} so the shared event's semantics live in one place.
+ * - {@link createDetachedRuns} — quiescence tracking for the fire-and-forget
+ *   hook points: disposal aborts and drains a bridge's detached runs.
  *
  * Each bridge owns what genuinely DIFFERS: building the per-event stdin payload
  * (CC vs Codex field sets), the dialect's env/substitution, and mapping the
@@ -38,3 +40,5 @@ export { mergeHookOutputs } from './merge.ts'
 export type { MergedDecision, MergedHookOutcome } from './merge.ts'
 export { appendHookInvoked, appendHookResult, DEFAULT_STDERR_SUMMARY_MAX_CHARS, summarizeStderr } from './events.ts'
 export type { HookInvocation, HookResultRecord } from './events.ts'
+export { createDetachedRuns } from './detached.ts'
+export type { DetachedRuns } from './detached.ts'

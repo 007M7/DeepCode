@@ -31,6 +31,7 @@ import {
   encodeSegment, eventLine, logPath, parseHeaderMeta, scanLog, sessionDir, toHeaderLine,
 } from './format.ts'
 
+/** Plugin config: where the JSONL backend keeps its session logs (`root` is required — no default). */
 export interface Config {
   /**
    * Root directory for all session files. Required (no default): a default of

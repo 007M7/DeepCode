@@ -81,6 +81,10 @@ function assertPositiveFinite(toolName: string, value: number): void {
  * The structured result substituted when this plugin's deadline wins. `content`
  * is the model-facing message; `error.code` is the same {@link TOOL_TIMEOUT}
  * this plugin owns, so a retry/sandbox plugin (and replay) can route on it.
+ *
+ * @param callId - the timed-out call's id, carried onto the replacement result.
+ * @param timeoutMs - the elapsed budget, rendered into the model-facing message.
+ * @returns the `isError` {@link ToolExecutionResult} with a `TOOL_TIMEOUT` error.
  */
 export function toolTimeoutResult(callId: CallId, timeoutMs: number): ToolExecutionResult {
   return {

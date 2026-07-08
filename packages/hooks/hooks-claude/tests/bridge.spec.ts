@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Context } from 'cordis'
+import { Context, type Fiber } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -39,6 +39,11 @@ function writeConfig(hooks: unknown, scripts: Record<string, string> = {}): stri
 }
 
 async function harness(configDir: string, adapter: MockAdapter): Promise<Context> {
+  return (await harnessWithFiber(configDir, adapter)).ctx
+}
+
+/** {@link harness}, also exposing the bridge's fiber for tests that dispose it. */
+async function harnessWithFiber(configDir: string, adapter: MockAdapter): Promise<{ ctx: Context; hooks: Fiber }> {
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
@@ -47,9 +52,9 @@ async function harness(configDir: string, adapter: MockAdapter): Promise<Context
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-  await ctx.plugin(HooksClaude, { configPath: join(configDir, 'hooks.json') })
+  const hooks = await ctx.plugin(HooksClaude, { configPath: join(configDir, 'hooks.json') })
   ctx.llm.registerAdapter(['mock'], adapter)
-  return ctx
+  return { ctx, hooks }
 }
 
 function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
@@ -285,19 +290,59 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     } }))
 
     const adapter = new MockAdapter([])
-    const ctx = await harness(dir, adapter)
+    const { ctx, hooks } = await harnessWithFiber(dir, adapter)
     // Drive the observe-only lifecycle events directly (no real child needed — the
-    // bridge just listens). The agents registry is absent here, so SubagentStart's
+    // bridge just listens). No child agent is registered, so SubagentStart's
     // child lookup yields undefined and it simply runs the hook.
     ctx.emit('subagent/start', { provider: 'inproc', id: AgentId('child-1') })
     ctx.emit('subagent/end', { provider: 'inproc', id: AgentId('child-1'), stopReason: 'completed', lastAssistantMessage: [{ type: 'text', text: 'done' }] })
 
     // Both hooks run async (detached .then); poll for their marker files rather
     // than a fixed sleep that flakes under load.
-    const { existsSync } = await import('node:fs')
     await waitFor(() => existsSync(startMarker) && existsSync(stopMarker))
     expect(existsSync(startMarker)).toBe(true)
     expect(existsSync(stopMarker)).toBe(true)
+    // The markers prove the hook PROCESSES ran, not that the detached `.then`
+    // continuations did (`touch` lands before the process exits). Dispose drains
+    // them, so the no-context arm of the SubagentStart continuation — covered
+    // only here — executes before this file's coverage snapshot instead of
+    // racing it (the arm went uncovered on a loaded CI runner and failed the
+    // per-file 100% branch gate).
+    await hooks.dispose()
+  })
+
+  it('disposing the bridge aborts a still-running hook and drains to quiescence', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-'))
+    dirs.push(dir)
+    const pidFile = join(dir, 'pid')
+    const marker = join(dir, 'started')
+    const slowHook = join(dir, 'slow.sh')
+    // Record the hook shell's PID and touch the marker FIRST so the test can
+    // tell "the hook is genuinely mid-run", then sleep far past the suite
+    // timeout. Dispose must KILL the process (the tracker's abort signal), not
+    // await its exit or its 10-minute default hook timeout.
+    writeFileSync(slowHook, `#!/usr/bin/env bash\necho $$ > "${pidFile}"\ntouch "${marker}"\nsleep 30\n`)
+    chmodSync(slowHook, 0o755)
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: {
+      SubagentStart: [{ hooks: [{ type: 'command', command: slowHook }] }],
+    } }))
+
+    const { ctx, hooks } = await harnessWithFiber(dir, new MockAdapter([]))
+    const warn = vi.fn()
+    ctx.logger.warn = warn as never
+    ctx.emit('subagent/start', { provider: 'inproc', id: AgentId('child-1') })
+    await waitFor(() => existsSync(marker))
+    const pid = Number(readFileSync(pidFile, 'utf8').trim())
+    await hooks.dispose()
+    // Quiescence, not just promptness: the drain resolves only after the run
+    // settled, and the run settles only after the killed process was reaped —
+    // so by the time dispose returns, the PID must be GONE (kill(pid, 0)
+    // throws ESRCH). An untracked fire-and-forget regression would leave the
+    // process alive (or unreaped) and fail this deterministically.
+    expect(() => process.kill(pid, 0)).toThrow()
+    // The aborted run resolves as a non-blocking error (runHook never rejects),
+    // so the drained continuation must NOT have logged a failure.
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('SubagentStart hook failed'))
   })
 })
 

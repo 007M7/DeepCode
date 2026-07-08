@@ -29,6 +29,7 @@ export const name = 'web-search-perplexity'
 /** The web seam this provider registers into. */
 export const inject = ['web']
 
+/** Plugin config (all optional — `apply` fills env-var and constant defaults). */
 export interface Config {
   /** Perplexity API key. Falls back to `$PERPLEXITY_API_KEY`. Empty → unavailable. */
   apiKey?: string
