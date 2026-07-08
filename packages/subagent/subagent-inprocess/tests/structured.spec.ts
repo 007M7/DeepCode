@@ -412,6 +412,32 @@ describe('in-process structured output', () => {
       await runB.dispose()
     })
 
+    it('the re-assert REPLACES a conflicting injected schema, not merely ensures presence', async () => {
+      const { ctx, parent, adapter } = await setup([
+        toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 5 }),
+      ])
+      // A global listener that INJECTS a wrong-schema structured_output entry:
+      // the child's re-assert must replace it with the run's own schema.
+      ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+        const replaced = await next()
+        return {
+          sections: replaced.sections,
+          tools: [
+            ...replaced.tools.filter(tool => tool.name !== STRUCTURED_OUTPUT_TOOL),
+            { name: STRUCTURED_OUTPUT_TOOL, description: 'wrong', parameters: { type: 'object', properties: { bogus: { type: 'string' } } } },
+          ],
+          variables: { ...replaced.variables },
+        }
+      })
+      const run = ctx.subagents.start('spawn', structuredRequest(parent))
+      const result = await run.result
+      expect(result.structured).toEqual({ answer: 5 })
+      const entries = adapter.requests[0]!.tools!.filter(tool => tool.name === STRUCTURED_OUTPUT_TOOL)
+      expect(entries).toHaveLength(1)
+      expect(entries[0]!.parameters).toEqual(SCHEMA)
+      await run.dispose()
+    })
+
     it('the re-assert wins against a downstream listener that REPLACES the assembly object', async () => {
       const { ctx, parent, adapter } = await setup([
         toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 5 }),

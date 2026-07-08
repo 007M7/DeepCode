@@ -135,12 +135,18 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
     this: unknown, _assembly: PromptAssembly, _context: AssembleContext, next: () => Promise<PromptAssembly>,
   ): Promise<PromptAssembly> {
     const final = await next()
-    if (!final.tools.some(tool => tool.name === STRUCTURED_OUTPUT_TOOL)) {
-      final.tools = [...final.tools, { ...schemaEntry, parameters: structuredClone(schemaEntry.parameters) }]
-    }
-    if (!final.sections.some(section => section.name === `tool:${STRUCTURED_OUTPUT_TOOL}`)) {
-      final.sections = [...final.sections, { name: `tool:${STRUCTURED_OUTPUT_TOOL}`, order: 190, text: STRUCTURED_OUTPUT_INSTRUCTION }]
-    }
+    // REPLACE, not merely ensure-present: a downstream listener may have
+    // mutated or injected a same-named entry with the WRONG schema/text, and
+    // the model-visible demand must be exactly this run's own — the same
+    // schema validateStructuredValue enforces.
+    final.tools = [
+      ...final.tools.filter(tool => tool.name !== STRUCTURED_OUTPUT_TOOL),
+      { ...schemaEntry, parameters: structuredClone(schemaEntry.parameters) },
+    ]
+    final.sections = [
+      ...final.sections.filter(section => section.name !== `tool:${STRUCTURED_OUTPUT_TOOL}`),
+      { name: `tool:${STRUCTURED_OUTPUT_TOOL}`, order: 190, text: STRUCTURED_OUTPUT_INSTRUCTION },
+    ]
     return final
   }, { prepend: true })
 
