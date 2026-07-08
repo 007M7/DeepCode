@@ -1,16 +1,20 @@
 /**
- * `@deepseek-ai/dsh-timeout-policy`: the tool-call timeout policy plugin. It
- * registers ONE `tools/execute` around-dispatch listener that, for each
- * configured tool, arms a per-call deadline on `exec.signal` and returns a
- * structured `TOOL_TIMEOUT` result when that deadline wins.
+ * `@deepseek-ai/dsh-timeout-policy`: the tool-call timeout ENFORCER. It registers
+ * ONE `tools/execute` around-dispatch listener that, for a tool declaring a
+ * `timeoutMs` on its {@link ToolDefinition}, arms a per-call deadline on
+ * `exec.signal` and returns a structured `TOOL_TIMEOUT` result when that deadline
+ * wins. The budget is DECLARED by the tool (see `ToolDefinition.timeoutMs`, set
+ * by the owning tool plugin from its own config); this plugin only enforces it,
+ * so it is zero-config and there is no tool-name map to mistype.
  *
  * This is a COOPERATIVE deadline, not a hard kill: the derived signal only
- * NOTIFIES. A configured tool (and the capability it forwards `exec.signal` to)
- * must honor that signal and reach quiescence — the plugin never races the tool
- * promise or terminates work itself (see the timeout-library RFC's rejection of
- * `Promise.race`). "Configured" therefore MEANS "cooperative with `exec.signal`":
- * a tool that ignores the signal will not stop on timeout, so a deployment must
- * only list tools that forward it (the shipped web tools are the reference).
+ * NOTIFIES. A tool that declares `timeoutMs` (and the capability it forwards
+ * `exec.signal` to) must honor that signal and reach quiescence — the plugin
+ * never races the tool promise or terminates work itself (see the timeout-library
+ * RFC's rejection of `Promise.race`). Declaring `timeoutMs` therefore MEANS "this
+ * tool is cooperative with `exec.signal`": a tool that ignores the signal will
+ * not stop on timeout, so only signal-forwarding tools should declare it (the
+ * shipped web tools are the reference).
  *
  * Ownership of the `TOOL_TIMEOUT` code is entirely here: it is both the internal
  * {@link deadline} code (so {@link timeoutOf} scopes the classification to THIS
@@ -29,7 +33,6 @@
  */
 
 import type { Context } from 'cordis'
-import z from 'schemastery'
 import type { CallId } from '@deepseek-ai/dsh-llm'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
@@ -46,39 +49,8 @@ export const TOOL_TIMEOUT = 'TOOL_TIMEOUT'
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'timeout-policy'
 
-/** The tool registry seam this plugin wraps (`tools/execute`) and reads (`tools/change`, `get`). */
+/** The tool registry seam this plugin wraps (`tools/execute`) and reads (`get`). */
 export const inject = ['tools']
-
-/** Per-tool timeout policy. `timeoutMs` is required and must be positive finite. */
-export interface ToolTimeoutPolicy {
-  /** The per-call cooperative deadline for this tool, in milliseconds. */
-  timeoutMs: number
-}
-
-/**
- * Plugin config: per-tool timeout policy, keyed by the model-facing tool name.
- * There is deliberately NO global default (a global budget would silently start
- * failing any tool that happens to run long once the plugin loads) and NO model
- * override (timeout is deployment policy, not prompt semantics) in this version.
- */
-export interface Config {
-  /** Timeout policy per tool name; an unlisted tool gets no deadline from this plugin. */
-  tools?: Record<string, ToolTimeoutPolicy>
-}
-
-export const Config: z<Config> = z.object({
-  tools: z.dict(z.object({ timeoutMs: z.number() })).default({}),
-})
-
-/** The shape after schemastery fills `tools` with its `{}` default. */
-type ResolvedConfig = Required<Config>
-
-/** A per-tool timeout must be a positive finite number (0 is not a "disable" value). */
-function assertPositiveFinite(toolName: string, value: number): void {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new Error(`timeout-policy: tools.${toolName}.timeoutMs must be a positive finite number`)
-  }
-}
 
 /**
  * The structured result substituted when this plugin's deadline wins. `content`
@@ -99,56 +71,23 @@ export function toolTimeoutResult(callId: CallId, timeoutMs: number): ToolExecut
 }
 
 /**
- * Register the tool-call timeout policy. For a configured tool the listener arms
- * a {@link deadline} on the caller's `exec.signal`, swaps it onto `exec` for the
- * downstream dispatch (cordis `next()` ignores passed arguments, so a wrapper
- * mutates the shared `exec` in place), restores the original signal afterward so
- * `tools/post-execute` sees the caller's own signal, and replaces the result
- * with {@link toolTimeoutResult} when its own timer fired. An unconfigured tool
- * delegates untouched.
+ * Register the tool-call timeout enforcer. For a tool whose {@link ToolDefinition}
+ * declares `timeoutMs`, the listener arms a {@link deadline} on the caller's
+ * `exec.signal`, swaps it onto `exec` for the downstream dispatch (cordis
+ * `next()` ignores passed arguments, so a wrapper mutates the shared `exec` in
+ * place), restores the original signal afterward so `tools/post-execute` sees the
+ * caller's own signal, and replaces the result with {@link toolTimeoutResult}
+ * when its own timer fired. A tool that declares no budget delegates untouched.
  *
- * A configured tool name that is never registered is almost always a typo or a
- * stale config key (e.g. `web_fech` for `web_fetch`): the wrapper would then
- * silently never fire for the intended tool. Since the tool set is dynamic
- * (plugins register in `cordis.yml` order, and HMR re-registers), this cannot
- * be a load-time hard error — a real tool may register later. Instead, mirror
- * `dsh-tool-subagent`'s lifecycle-driven approach: on every `tools/change` (and
- * once at apply), `logger.warn` each configured name still absent from the
- * registry, warning each name at most once so a late registration silences it.
+ * The budget source is the tool's own declaration read from the registry
+ * (`ctx.tools.get(exec.name)?.timeoutMs`), NOT a plugin config map — `exec.name`
+ * is the tool being dispatched, so the lookup always resolves and there is no
+ * mistypable tool name and no unknown-name path to warn or throw about.
  */
-export function apply(ctx: Context, config: Config): void {
-  // schemastery (Config) has already filled `tools` with its {} default.
-  const resolved = config as ResolvedConfig
-  for (const [toolName, policy] of Object.entries(resolved.tools)) {
-    assertPositiveFinite(toolName, policy.timeoutMs)
-  }
-
-  // Warn once per configured name that no registered tool matches, so a typo'd
-  // or stale config key is visible instead of silently applying to nothing. A
-  // name that later registers is dropped from `pending` before it is warned; a
-  // name that never registers is warned at most once (moved to `warned`), so a
-  // busy `tools/change` stream cannot spam the same key.
-  const pending = new Set(Object.keys(resolved.tools))
-  const warned = new Set<string>()
-  const warnUnknownToolNames = (): void => {
-    const nowUnknown: string[] = []
-    for (const name of pending) {
-      if (ctx.tools.get(name) !== undefined) { pending.delete(name); continue }
-      if (!warned.has(name)) { warned.add(name); nowUnknown.push(name) }
-    }
-    if (nowUnknown.length > 0) {
-      ctx.logger.warn(
-        `timeout-policy: configured timeout for unregistered tool(s) ${nowUnknown.map(n => `"${n}"`).join(', ')} `
-        + '— check for a typo or stale config key; the timeout applies to nothing until the tool registers.',
-      )
-    }
-  }
-  ctx.on('tools/change', warnUnknownToolNames)
-  warnUnknownToolNames()
-
+export function apply(ctx: Context): void {
   ctx.on('tools/execute', async (exec, next): Promise<ToolExecutionResult> => {
-    const timeoutMs = resolved.tools[exec.name]?.timeoutMs
-    // Unconfigured tool: no deadline, delegate unchanged.
+    const timeoutMs = ctx.tools.get(exec.name)?.timeoutMs
+    // A tool that declares no budget: no deadline, delegate unchanged.
     if (timeoutMs === undefined) return next()
 
     using d = deadline(exec.signal, timeoutMs, TOOL_TIMEOUT)
