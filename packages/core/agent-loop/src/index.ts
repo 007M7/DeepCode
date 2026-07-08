@@ -10,6 +10,8 @@
 import { Context, Service } from 'cordis'
 import { randomUUID } from 'node:crypto'
 import z from 'schemastery'
+import { createScope } from '@deepseek-ai/dsh-scope'
+import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { AgentFactory, AgentHandle, AgentId, AgentOptions, CreateAgentOptions, ResumeAgentOptions, SessionStartSource } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -174,7 +176,7 @@ export class AgentLoop extends Service implements AgentFactory {
     })
     // A seeded (forked) create is still a fresh start, NOT a resume — `resume`
     // is reserved for reloading a PERSISTED session via resume()/resumeWith().
-    return this.startOwned(options.agentId, options.agentOptions ?? {}, session, 'startup')
+    return this.startOwned(options.agentId, options.agentOptions ?? {}, session, 'startup', options.setup)
   }
 
   /**
@@ -298,17 +300,46 @@ export class AgentLoop extends Service implements AgentFactory {
    */
   private start(
     id: AgentId, options: AgentOptions, session: Session, source: SessionStartSource,
+    setup?: (agentCtx: Context) => void,
   ): { agent: ReactLoopAgent; disposeAgent: () => Promise<void> } {
     const agent = new ReactLoopAgent(this.ctx, id, options, session)
     const dispose = this.ctx.effect(function* (this: AgentLoop) {
-      yield this.ctx.sessions.enter(session)
+      // Mint the agent's scope (key = the agent) and wire the two-phase
+      // reference: the scope context tags registrations + filters dispatch;
+      // the extend adds the `ctx.agent` DX own-property on top. The raw
+      // disposer is yielded IMMEDIATELY (exact function identity nests the
+      // scope fiber out of the loop fiber's concurrent sibling list), so
+      // there is no window in which a throw leaves the scope un-nested.
+      //
+      // Yield order is the REVERSE of teardown (LIFO). Teardown runs:
+      //   stop/drain → unregister → detach session → unwind scope
+      // Detach BEFORE the scope unwind is deliberate: the scope fiber's
+      // unload is asynchronous (fiber inertia), and every disposer chained
+      // after an async one waits for it — detaching first keeps the
+      // store/registry rollback SYNCHRONOUS on every failure path (a caller
+      // that catches a throwing create() observes no half-created agent or
+      // session, and the ids are immediately reusable), at the cost that a
+      // scoped listener's own disposer runs after the session left the store
+      // (it heard the final stop/drain flush while still attached, so
+      // nothing durable is lost).
+      const scope = createScope(this.ctx, agent)
+      agent.ctx = scope.ctx.extend({ agent })
+      yield scope.rawDispose
+      // Enter the session THROUGH agent.ctx so the store captures the agent's
+      // scope as the session's dispatch carrier.
+      yield agent.ctx.sessions.enter(session)
       this.ctx.sessions.announce(session)
       yield this.ctx.agents.register(agent)
+      // The creator's scoped composition, inside the rollback boundary: a
+      // throwing setup unwinds LIFO through register → scope → detach, so a
+      // half-created agent never leaks. Setup REGISTERS (through agent.ctx),
+      // it never drives — see CreateAgentOptions.setup.
+      setup?.(agent.ctx)
       // Fire AFTER register (a listener can ctx.agents.get(id) + inject()) and
       // BEFORE the loop's first turn. Contained: a throwing listener is logged,
       // never aborts construction (no open turn to balance here).
       try {
-        this.ctx.emit('agent/session-start', agent, source)
+        agentEvents(this.ctx, agent).emit('agent/session-start', source)
       } catch (error: unknown) {
         this.ctx.logger.warn(`agent "${id}": agent/session-start listener threw: ${String(error)}`)
       }
@@ -338,8 +369,11 @@ export class AgentLoop extends Service implements AgentFactory {
    * `AgentHandle.dispose(): Promise<void>` contract (mirrors the ACP `quiesce()`
    * helper).
    */
-  private startOwned(id: AgentId, options: AgentOptions, session: Session, source: SessionStartSource): AgentHandle {
-    const { agent, disposeAgent } = this.start(id, options, session, source)
+  private startOwned(
+    id: AgentId, options: AgentOptions, session: Session, source: SessionStartSource,
+    setup?: (agentCtx: Context) => void,
+  ): AgentHandle {
+    const { agent, disposeAgent } = this.start(id, options, session, source, setup)
     let disposing: Promise<void> | undefined
     return { agent, dispose: () => (disposing ??= disposeAgent()) }
   }

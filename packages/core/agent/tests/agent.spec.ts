@@ -10,6 +10,9 @@ function stubAgent(rawId: string): Agent {
     options: {},
     session: new Session(SessionId(`${id}-session`)),
     status: 'idle',
+    // A bare context stands in for the agent scope: registry tests never
+    // register through it, they only need the field present.
+    ctx: new Context(),
     send() {},
     steer() {},
     inject() {},

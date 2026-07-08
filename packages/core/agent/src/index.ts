@@ -6,14 +6,28 @@
  */
 
 import { Context, Service } from 'cordis'
+import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent, AgentId, AgentOptions } from './types.ts'
 
 export * from './types.ts'
+export { agentEvents, assembleContextFor } from './dispatch.ts'
+export type { AgentEventDispatch, AgentSubjectEvent } from './dispatch.ts'
 
 declare module 'cordis' {
   interface Context {
     agents: AgentRegistry
+    /**
+     * The agent whose scope this context belongs to, or `undefined` on any
+     * context not derived from an agent scope. Pure DX sugar over the
+     * `dsh-scope` tag: the agent loop sets it as an own property on each
+     * `Agent.ctx`, and {@link AgentRegistry} registers a root accessor
+     * defaulting to `undefined` so the read is safe on every context (a plain
+     * plugin context answers `undefined` instead of throwing the Cordis
+     * unknown-property error). Core packages below the agent layer read the
+     * `dsh-scope` tag (`scopeOf`) instead, never this field.
+     */
+    agent?: Agent
   }
 }
 
@@ -51,6 +65,20 @@ export interface CreateAgentOptions {
   seed?: SessionEvent[]
   /** Per-agent options (model, …). */
   agentOptions?: AgentOptions
+  /**
+   * Creation-time composition of the agent's scoped world. The factory runs it
+   * inside the agent's composite lifecycle effect — after the scope is minted
+   * and the agent registered, before `agent/session-start` fires and the loop
+   * starts — so everything it registers through `agentCtx` (scoped tools,
+   * prompt sections/variables, `restrict()`, listeners, `agentCtx.plugin(…)`
+   * profiles) exists before the first prompt assembly, and a THROWING setup
+   * unwinds inside the rollback boundary instead of leaking a half-created
+   * agent. **Setup registers, it never drives**: calling
+   * `send`/`steer`/`inject` here would open a turn before `agent/session-start`
+   * (the dev invariants flag a `turn/start` logged before session-start as a
+   * teaching error) — drive the agent after creation returns.
+   */
+  setup?: (agentCtx: Context) => void
 }
 
 /**
@@ -120,6 +148,13 @@ export class AgentRegistry extends Service {
 
   constructor(ctx: Context) {
     super(ctx, 'agents')
+    // The `ctx.agent` DX accessor: default `undefined` on every context, so a
+    // plain plugin context reads cleanly instead of hitting the Cordis
+    // unknown-property throw. Each Agent.ctx shadows it with an own property
+    // (own properties resolve before the context proxy is consulted), so the
+    // accessor body never needs to resolve a scope itself. Effect-scoped:
+    // unwinds with this service's fiber.
+    ctx.accessor('agent', { get: () => undefined })
   }
 
   /**
@@ -167,7 +202,11 @@ export class AgentRegistry extends Service {
   /**
    * Register a live agent. Throws if an agent with the same id is already
    * registered. Emits `agent/created` on registration and `agent/disposed`
-   * when the calling fiber is disposed. Returns the disposer.
+   * when the calling fiber is disposed — both with the agent's scope carrier
+   * (`scopeTarget(agent, agent)`): the subject is the agent in hand, so the
+   * emits are scope-filtered regardless of which context invoked `register`
+   * (calling through `agent.ctx` scopes EFFECTS; dispatch scoping always
+   * requires passing the carrier). Returns the disposer.
    * @param agent - the already-constructed agent to record in the store.
    * @returns the disposer that removes the agent and emits `agent/disposed`.
    */
@@ -196,12 +235,12 @@ export class AgentRegistry extends Service {
         // logging the listener bug and continuing is correct (mirrors the
         // guarded `agent/status` emit in dsh-agent-loop's ReactLoopAgent).
         try {
-          this.ctx.emit('agent/disposed', agent)
+          this.ctx.emit(scopeTarget(agent, agent), 'agent/disposed', agent)
         } catch (error: unknown) {
           this.ctx.logger.warn(`agent "${agent.id}": agent/disposed listener threw: ${String(error)}`)
         }
       }
-      this.ctx.emit('agent/created', agent)
+      this.ctx.emit(scopeTarget(agent, agent), 'agent/created', agent)
     }.bind(this), 'agents.register()')
     // ctx.effect's disposer returns Promise<void>; our disposer API is
     // synchronous fire-and-forget — discard the (always-resolved) promise.

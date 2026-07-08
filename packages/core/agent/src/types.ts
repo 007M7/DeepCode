@@ -44,6 +44,8 @@
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { Context } from 'cordis'
+import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { ContentBlock, LlmCallConfig, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
@@ -64,10 +66,14 @@ declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {
     /**
      * The agent this assembly is for. The agent loop passes it on every
-     * per-step `assemble({ agent })`; variable providers project per-agent
-     * facts from it (`options.model` → `{{model}}`, `session.header.cwd` →
+     * per-step assembly (via its `assembleContextFor(agent)` helper, which
+     * also sets the `scope` field to the same agent — the layer selector
+     * `dsh-system-prompt` reads); variable providers project per-agent facts
+     * from it (`options.model` → `{{model}}`, `session.header.cwd` →
      * `{{cwd}}`). Optional because a bare `assemble()` (tests, diagnostics)
-     * has no agent — providers must tolerate its absence.
+     * has no agent — providers must tolerate its absence. Never set `agent`
+     * without `scope`: the assembly would silently miss the agent's scoped
+     * sections/tools (the dev invariants flag it).
      */
     agent?: Agent
   }
@@ -175,6 +181,17 @@ export interface Agent {
   readonly options: AgentOptions
   readonly session: Session
   readonly status: AgentStatus
+  /**
+   * The agent's scope context (`@deepseek-ai/dsh-scope`, key = this agent).
+   * Registrations through it — tools, prompt sections/variables, event
+   * listeners, restrictions — are visible to THIS agent only and unwind when
+   * the agent is disposed; `agent.ctx.on('agent/…')` listeners fire only for
+   * this agent's dispatches (zero self-filtering). Service resolution through
+   * it flows through the loop plugin's dependency surface — handing out
+   * `agent.ctx` hands out that capability. Live for exactly the agent's
+   * lifetime: registrations after disposal throw Cordis's INACTIVE_EFFECT.
+   */
+  readonly ctx: Context
 
   /** Queue a user message. Starts a turn when idle; otherwise waits for the next turn. */
   send(content: ContentBlock[], options?: SendOptions): void
@@ -259,34 +276,54 @@ declare module 'cordis' {
      * An agent was registered in the {@link AgentRegistry} and is ready to
      * receive messages.
      * @param agent - the newly registered agent, already resolvable in the registry.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
+     * through `agent.ctx` fires only for that agent's dispatches; a listener on a
+     * plain plugin context fires for every agent. The dispatch `this` is the
+     * scope carrier (`Scoped<Agent>`), built by the emitting side via
+     * `scopeTarget`/`agentEvents`.
      * @mode emit
      */
-    'agent/created'(agent: Agent): void
+    'agent/created'(this: Scoped<Agent>, agent: Agent): void
     /**
      * An agent was disposed and removed from the registry; its fiber and any
      * in-flight turn have been torn down.
      * @param agent - the agent that was torn down; its handle is now inert.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
+     * through `agent.ctx` fires only for that agent's dispatches; a listener on a
+     * plain plugin context fires for every agent. The dispatch `this` is the
+     * scope carrier (`Scoped<Agent>`), built by the emitting side via
+     * `scopeTarget`/`agentEvents`.
      * @mode emit
      */
-    'agent/disposed'(agent: Agent): void
+    'agent/disposed'(this: Scoped<Agent>, agent: Agent): void
     /**
      * Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive
      * lifecycle off this transition, never off a status you just requested —
      * `send()` does not flip status to `running` before it returns.
      * @param agent - the agent whose status flipped.
      * @param status - the status just entered (the transition's destination).
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
+     * through `agent.ctx` fires only for that agent's dispatches; a listener on a
+     * plain plugin context fires for every agent. The dispatch `this` is the
+     * scope carrier (`Scoped<Agent>`), built by the emitting side via
+     * `scopeTarget`/`agentEvents`.
      * @mode emit
      */
-    'agent/status'(agent: Agent, status: AgentStatus): void
+    'agent/status'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void
     /**
      * A message entered the agent's inbox (queued or steering). `source` is
      * the resolved source (defaults applied), not the caller's raw options.
      * @param agent - the agent whose inbox received the message.
      * @param content - the enqueued content blocks, verbatim.
      * @param info - the resolved source plus whether it entered as steering.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
+     * through `agent.ctx` fires only for that agent's dispatches; a listener on a
+     * plain plugin context fires for every agent. The dispatch `this` is the
+     * scope carrier (`Scoped<Agent>`), built by the emitting side via
+     * `scopeTarget`/`agentEvents`.
      * @mode emit
      */
-    'agent/queued'(agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void
+    'agent/queued'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void
 
     // ---- session lifecycle (emit) ----
     /**
@@ -299,9 +336,14 @@ declare module 'cordis' {
      * is deliberate (a bridge logs/injects, it does not gate startup).
      * @param agent - the agent whose session lifecycle began.
      * @param source - why the session started (fresh startup, resume, …).
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
+     * through `agent.ctx` fires only for that agent's dispatches; a listener on a
+     * plain plugin context fires for every agent. The dispatch `this` is the
+     * scope carrier (`Scoped<Agent>`), built by the emitting side via
+     * `scopeTarget`/`agentEvents`.
      * @mode emit
      */
-    'agent/session-start'(agent: Agent, source: SessionStartSource): void
+    'agent/session-start'(this: Scoped<Agent>, agent: Agent, source: SessionStartSource): void
 
     // Turn and step boundaries are NOT mirrored as agent/* emits: a consumer
     // that needs them reads the durable `turn/start`/`turn/end`/`step/start`/
@@ -334,6 +376,11 @@ declare module 'cordis' {
      * listener needs to measure pressure (the system prompt counts toward the
      * budget). `signal` cancels any in-flight work a listener starts (e.g. a
      * summarization model call).
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
+     * through `agent.ctx` fires only for that agent's dispatches; a listener on a
+     * plain plugin context fires for every agent. The dispatch `this` is the
+     * scope carrier (`Scoped<Agent>`), built by the emitting side via
+     * `scopeTarget`/`agentEvents`.
      * @param agent - the agent about to open the step.
      * @param turn - the already-open turn this step belongs to.
      * @param step - the number of the step about to start.
@@ -346,7 +393,7 @@ declare module 'cordis' {
     // reads. Revisit if no second consumer appears: e.g. hand listeners a lazy
     // prompt provider, or move token-pressure measurement behind a
     // compaction-specific seam instead of the shared pre-step checkpoint.
-    'agent/pre-step'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal): Promise<void> | void
+    'agent/pre-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal): Promise<void> | void
     /**
      * Waterfall: decide what happens to ONE drained queued message before it
      * becomes a `user/message` — allow (optionally rewriting the prompt bytes or
@@ -357,9 +404,14 @@ declare module 'cordis' {
      * @param agent - the agent draining its inbox.
      * @param content - the drained message's blocks, as queued.
      * @param source - the message's resolved source.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
+     * through `agent.ctx` fires only for that agent's dispatches; a listener on a
+     * plain plugin context fires for every agent. The dispatch `this` is the
+     * scope carrier (`Scoped<Agent>`), built by the emitting side via
+     * `scopeTarget`/`agentEvents`.
      * @mode waterfall
      */
-    'agent/prompt-submit'(agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>
+    'agent/prompt-submit'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>
     /**
      * Waterfall: shape the step's call configuration — model switching,
      * sampling overrides — by returning a replacement {@link LlmCallConfig}
@@ -380,9 +432,14 @@ declare module 'cordis' {
      * @param turn - the open turn number.
      * @param step - the step whose request this is.
      * @param config - the config the loop would use (frozen); return a replacement to switch.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
+     * through `agent.ctx` fires only for that agent's dispatches; a listener on a
+     * plain plugin context fires for every agent. The dispatch `this` is the
+     * scope carrier (`Scoped<Agent>`), built by the emitting side via
+     * `scopeTarget`/`agentEvents`.
      * @mode waterfall
      */
-    'agent/request'(agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
+    'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
     /**
      * Waterfall: post-process the assembled assistant {@link Message} before
      * tool dispatch (validation, content rewriting, …).
@@ -390,9 +447,14 @@ declare module 'cordis' {
      * @param turn - the open turn number.
      * @param step - the step that produced the message.
      * @param message - the assistant message as assembled from the stream.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
+     * through `agent.ctx` fires only for that agent's dispatches; a listener on a
+     * plain plugin context fires for every agent. The dispatch `this` is the
+     * scope carrier (`Scoped<Agent>`), built by the emitting side via
+     * `scopeTarget`/`agentEvents`.
      * @mode waterfall
      */
-    'agent/step-result'(agent: Agent, turn: number, step: number, message: Message, next: () => Promise<Message>): Promise<Message>
+    'agent/step-result'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, message: Message, next: () => Promise<Message>): Promise<Message>
     /**
      * Waterfall: override the turn-continuation decision via a typed
      * {@link ContinuationDecision}. The loop's `defaultDecision` is `continue`
@@ -403,9 +465,14 @@ declare module 'cordis' {
      * @param agent - the agent deciding whether to run another step.
      * @param turn - the turn being continued or stopped.
      * @param defaultDecision - what the loop would do absent an override.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
+     * through `agent.ctx` fires only for that agent's dispatches; a listener on a
+     * plain plugin context fires for every agent. The dispatch `this` is the
+     * scope carrier (`Scoped<Agent>`), built by the emitting side via
+     * `scopeTarget`/`agentEvents`.
      * @mode waterfall
      */
-    'agent/turn-continuation'(agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>
+    'agent/turn-continuation'(this: Scoped<Agent>, agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>
 
     // ---- error notifications (emit) ----
     /**
@@ -415,8 +482,13 @@ declare module 'cordis' {
      * @param turn - the turn in which the failure surfaced.
      * @param step - the step at which the failure surfaced.
      * @param error - the failure, verbatim.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): a listener registered
+     * through `agent.ctx` fires only for that agent's dispatches; a listener on a
+     * plain plugin context fires for every agent. The dispatch `this` is the
+     * scope carrier (`Scoped<Agent>`), built by the emitting side via
+     * `scopeTarget`/`agentEvents`.
      * @mode emit
      */
-    'agent/error'(agent: Agent, turn: number, step: number, error: Error): void
+    'agent/error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: Error): void
   }
 }

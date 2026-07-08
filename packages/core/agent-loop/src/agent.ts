@@ -7,6 +7,8 @@
  */
 
 import type { Context } from 'cordis'
+import { scopeTarget } from '@deepseek-ai/dsh-scope'
+import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { AgentId, AgentOptions, AgentStatus, SendOptions } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
@@ -27,6 +29,27 @@ export class ReactLoopAgent implements Agent {
    * the driver loop can drain it; {@link cancel} clears it wholesale.
    */
   readonly inbox = new Inbox()
+
+  /**
+   * The agent's scope context ({@link Agent.ctx}), wired by the factory right
+   * after the scope is minted — before the agent is registered, announced, or
+   * driven, so no consumer can observe it unset. Definite-assignment (`!`)
+   * expresses that two-phase construction: the agent object and its scope
+   * context are mutually referential (the scope is keyed BY this agent), so
+   * neither can exist strictly before the other.
+   */
+  ctx!: Context
+
+  /**
+   * The dispatch carrier for this agent's own emits (`agent/status`,
+   * `agent/queued`, `agent/error`): keyed by the agent, base = the agent
+   * (listener `this` is the agent). Built lazily because it is self-referential.
+   */
+  private get carrier(): Scoped<Agent> {
+    return (this.#carrier ??= scopeTarget(this, this))
+  }
+
+  #carrier: Scoped<Agent> | undefined
 
   private _status: AgentStatus = 'idle'
   private currentAbort: AbortController | undefined
@@ -63,7 +86,7 @@ export class ReactLoopAgent implements Agent {
   private idleWaiters: (() => void)[] = []
 
   constructor(
-    private ctx: Context,
+    private loopCtx: Context,
     public readonly id: AgentId,
     public readonly options: AgentOptions,
     public readonly session: Session,
@@ -87,9 +110,9 @@ export class ReactLoopAgent implements Agent {
     // not hang on one bad listener).
     if (status !== 'running') this.settleIdleWaiters()
     try {
-      this.ctx.emit('agent/status', this, status)
+      this.loopCtx.emit(this.carrier, 'agent/status', this, status)
     } catch (error: unknown) {
-      this.ctx.logger.warn(`agent "${this.id}": agent/status listener threw on ${status}: ${String(error)}`)
+      this.loopCtx.logger.warn(`agent "${this.id}": agent/status listener threw on ${status}: ${String(error)}`)
     }
   }
 
@@ -112,7 +135,7 @@ export class ReactLoopAgent implements Agent {
     if (this._status === 'disposed') throw new Error(`agent "${this.id}" is disposed`)
     const source = this.resolveSource(options)
     this.inbox.enqueue({ content, source })
-    this.ctx.emit('agent/queued', this, content, { source, steering: false })
+    this.loopCtx.emit(this.carrier, 'agent/queued', this, content, { source, steering: false })
   }
 
   steer(content: ContentBlock[], options?: SendOptions): void {
@@ -120,7 +143,7 @@ export class ReactLoopAgent implements Agent {
     if (this._status !== 'running') { this.send(content, options); return }
     const source = this.resolveSource(options)
     this.inbox.steer({ content, source })
-    this.ctx.emit('agent/queued', this, content, { source, steering: true })
+    this.loopCtx.emit(this.carrier, 'agent/queued', this, content, { source, steering: true })
   }
 
   inject(content: ContentBlock[], options?: SendOptions): void {
@@ -181,11 +204,12 @@ export class ReactLoopAgent implements Agent {
       // plugins monitoring agent/error see idle-injection persistence failures
       // too. A throwing agent/error listener is contained.
       if (turnRecorded) {
-        void Promise.resolve(this.ctx.parallel('session/flush', this.session)).catch((error: unknown) => {
+        // Through the store's flush (the carrier owner), never a raw parallel.
+        void this.loopCtx.sessions.flush(this.session).catch((error: unknown) => {
           const err = error instanceof Error ? error : new Error(String(error))
-          this.ctx.logger.warn(`agent "${this.id}": flush after idle injection failed: ${err.message}`)
+          this.loopCtx.logger.warn(`agent "${this.id}": flush after idle injection failed: ${err.message}`)
           try {
-            this.ctx.emit('agent/error', this, turn, 0, err)
+            this.loopCtx.emit(this.carrier, 'agent/error', this, turn, 0, err)
           } catch {
             // contained: the failure is already logged; a throwing agent/error
             // listener must not escape this fire-and-forget catch.
@@ -264,7 +288,7 @@ export class ReactLoopAgent implements Agent {
    *   fiber's LIFO disposal chain, where a throw would skip later disposers).
    */
   start(): () => void {
-    this.done = runLoop(this.ctx, this, {
+    this.done = runLoop(this.loopCtx, this, {
       setStatus: (status) => { this.setStatus(status) },
       setAbort: controller => void (this.currentAbort = controller),
       disposed: this.disposed,
@@ -296,7 +320,7 @@ export class ReactLoopAgent implements Agent {
       // 'disposed' is part of the agent/status contract. Guarded: a throwing
       // listener must not break the disposal chain.
       try {
-        this.ctx.emit('agent/status', this, 'disposed')
+        this.loopCtx.emit(this.carrier, 'agent/status', this, 'disposed')
       } catch {
         // listener error during disposal — nothing safe left to do with it
       }
