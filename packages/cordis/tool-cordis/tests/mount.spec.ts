@@ -284,17 +284,50 @@ describe('cordis_mount', () => {
     expect(retry.isError).toBe(false)
   })
 
-  it('isolates sandbox globals: no process/require, and globalThis writes do not leak to the host', async () => {
+  it('isolates sandbox globals: no process/Buffer, and globalThis writes do not leak to the host', async () => {
     const ctx = await setup()
     const result = await call(ctx, 'cordis_mount', {
       code: `
         globalThis.__cordis_tool_leak = 'leaked'
-        return { name: 'probe-' + typeof process + '-' + typeof require, apply(ctx) {} }
+        return { name: 'probe-' + typeof process + '-' + typeof Buffer, apply(ctx) {} }
       `,
     })
     expect(result.isError).toBe(false)
     expect(text(result)).toContain('plugin "probe-undefined-undefined"')
     expect((globalThis as Record<string, unknown>).__cordis_tool_leak).toBeUndefined()
+  })
+
+  it.each([
+    ['require(\'fs\')', 'require is not available in the mount sandbox', 'inject: [\'fs\']'],
+    ['setTimeout(() => {}, 5)', 'setTimeout is not available in the mount sandbox', 'ctx.setTimeout'],
+    ['fetch(\'https://example.com\')', 'fetch is not available in the mount sandbox', 'ctx.web'],
+  ])('traps the Node API call %s with a redirect to the cordis alternative', async (invocation, trapMessage, redirect) => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', { code: `${invocation}\nreturn (ctx) => {}` })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain(trapMessage)
+    expect(text(result)).toContain(redirect)
+    expect(text(await call(ctx, 'cordis_inspect', { what: 'dynamic' }))).toContain('(no dynamic plugins mounted)')
+  })
+
+  it('lets a mounted plugin schedule through the cordis timer service (inject: [\'timer\'])', async () => {
+    const ctx = await setup()
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'ticker',
+          inject: ['timer'],
+          apply(ctx) {
+            ctx.setTimeout(() => console.log('tick'), 10)
+          },
+        }
+      `,
+    })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('state: active')
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(log).toHaveBeenCalledWith('[cordis:dyn-1]', 'tick')
   })
 
   it('provides btoa/atob and the tagged console variants inside the sandbox', async () => {

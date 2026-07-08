@@ -1,10 +1,16 @@
 /**
  * The `node:vm` sandbox `cordis_mount` code evaluates in: a fresh realm whose
  * globals are a tagged write-through console, the `harness` registration
- * helpers, and the encoding primitives a bare vm context lacks. The sandbox
- * guards against ACCIDENTAL global pollution only — it is not a security
- * boundary; the `ctx` a mounted plugin's `apply` later receives is the real,
- * fully privileged runtime handle, and that is the point of the toolset.
+ * helpers, the encoding primitives a bare vm context lacks, and callable traps
+ * over the Node APIs the sandbox deliberately withholds. Capability access is
+ * routed through cordis services, never Node built-ins: filesystem work goes
+ * through `ctx.fs`, network through `ctx.web`, processes through `ctx.bash`,
+ * timers through the `ctx.timer` helpers (fiber effects, unwound on unmount)
+ * — so everything a mounted plugin does stays inspectable and disposable. The
+ * sandbox guards against ACCIDENTAL global pollution only — it is not a
+ * security boundary; the `ctx` a mounted plugin's `apply` later receives is
+ * the real, fully privileged runtime handle, and that is the point of the
+ * toolset.
  *
  * @module @deepseek-ai/dsh-tool-cordis/sandbox
  */
@@ -60,19 +66,58 @@ function patchDualRealmInstanceof(sandbox: object): void {
   patch({ Object, Array, Function, Error, TypeError, RangeError, SyntaxError, Promise, RegExp, Date, Map, Set })
 }
 
+const TIMER_REDIRECT
+  = 'Node timers are unavailable. Use the cordis timer service instead: declare inject: [\'timer\'] on your plugin '
+    + 'and call ctx.setTimeout / ctx.setInterval — those are fiber effects, cleaned up automatically on unmount.'
+
+/**
+ * The callable Node APIs the sandbox deliberately disables, each mapped to the
+ * cordis alternative its trap error names. Only FUNCTION-shaped globals are
+ * trapped — a data-shaped global like `process` stays `undefined`, because a
+ * throwing accessor would detonate the common `typeof process` feature probe
+ * at resolution time.
+ */
+const NODE_API_REDIRECTS: Record<string, string> = {
+  require:
+    'Node modules are unavailable. Use the cordis services on ctx instead — e.g. inject: [\'fs\'] for files, '
+    + '[\'web\'] for HTTP, [\'bash\'] for processes; cordis_inspect what:"api" lists what THIS runtime provides.',
+  setTimeout: TIMER_REDIRECT,
+  setInterval: TIMER_REDIRECT,
+  setImmediate: TIMER_REDIRECT,
+  clearTimeout: TIMER_REDIRECT,
+  clearInterval: TIMER_REDIRECT,
+  fetch:
+    'Network access goes through the cordis web service: declare inject: [\'web\'] and call ctx.web '
+    + '(see cordis_inspect what:"api" for its methods).',
+}
+
+/** Build the trap functions for {@link NODE_API_REDIRECTS}: calling one throws the redirect. */
+function nodeApiTraps(): Record<string, () => never> {
+  const traps: Record<string, () => never> = {}
+  for (const [name, redirect] of Object.entries(NODE_API_REDIRECTS)) {
+    traps[name] = () => {
+      throw new Error(`${name} is not available in the mount sandbox — ${redirect}`)
+    }
+  }
+  return traps
+}
+
 /**
  * Build the vm context one `cordis_mount` call evaluates in: the tagged
- * console, the `harness` registration helpers, the encoding primitives, and
- * the dual-realm `instanceof` patch, already `createContext`-ed.
+ * console, the `harness` registration helpers, the encoding primitives, the
+ * Node-API traps, and the dual-realm `instanceof` patch, already
+ * `createContext`-ed.
  * @param id - the mount id (`dyn-<n>`), used as the console tag and filename stem.
  * @returns the contextified sandbox object to pass to {@link evaluateMountCode}.
  */
 export function createSandbox(id: string): object {
   const sandbox = {
+    ...nodeApiTraps(),
     console: taggedConsole(id),
     harness: { defineTool: sandboxDefineTool, registerTool: sandboxRegisterTool },
     // Web APIs absent from fresh vm contexts — made available so the model
-    // can encode/decode base64 without Buffer (which is also absent).
+    // can encode/decode base64 without Buffer (which is also absent). Host
+    // closures over Buffer, never Buffer itself.
     btoa: (s: string) => Buffer.from(s, 'utf-8').toString('base64'),
     atob: (s: string) => Buffer.from(s, 'base64').toString('utf-8'),
     TextEncoder,

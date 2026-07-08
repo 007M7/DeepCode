@@ -14,6 +14,12 @@ flowchart LR
   cfg --> plugin_cordis_llm_deepseek
   plugin_cordis_bash["bash<br/>@deepseek-ai/dsh-bash-local"]
   cfg --> plugin_cordis_bash
+  plugin_cordis_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
+  cfg --> plugin_cordis_fs_local
+  plugin_cordis_web["web<br/>@deepseek-ai/dsh-web"]
+  cfg --> plugin_cordis_web
+  plugin_cordis_web_fetch_local["web-fetch-local<br/>@deepseek-ai/dsh-web-fetch-local"]
+  cfg --> plugin_cordis_web_fetch_local
   plugin_cordis_stdio_agent["stdio-agent<br/>@deepseek-ai/dsh-stdio-agent"]
   cfg --> plugin_cordis_stdio_agent
   plugin_cordis_stdio_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-core"]
@@ -32,6 +38,9 @@ flowchart LR
 | `hmr` | `@cordisjs/plugin-hmr` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
 | `bash` | `@deepseek-ai/dsh-bash-local` |
+| `fs-local` | `@deepseek-ai/dsh-fs-local` |
+| `web` | `@deepseek-ai/dsh-web` |
+| `web-fetch-local` | `@deepseek-ai/dsh-web-fetch-local` |
 | `stdio-agent` | `@deepseek-ai/dsh-stdio-agent` |
 | `tool-cordis` | `@deepseek-ai/dsh-tool-cordis` |
 

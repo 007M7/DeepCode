@@ -36,6 +36,23 @@
   config:
     timeoutMs: 60000
 
+# Filesystem service for mounted plugins (ctx.fs) — the local provider only.
+# The model-facing read/write/edit tools stay unmounted on purpose: this demo
+# is about the agent building its own tools over the services.
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
+  config:
+    cwd: !!js process.cwd()
+
+# Web service for mounted plugins (ctx.web): the seam plus the anonymous local
+# fetch provider (keyless). No search provider is loaded — ctx.web search
+# calls fail loud until a deployment adds one.
+- id: web
+  name: '@deepseek-ai/dsh-web'
+
+- id: web-fetch-local
+  name: '@deepseek-ai/dsh-web-fetch-local'
+
 # The stdio chat app: the whole spine + front-door cluster, configured for the
 # self-referential demo driving a pre-created `main` agent.
 - id: stdio-agent
@@ -54,10 +71,12 @@
       `events` sections document the service methods, type shapes, and events
       your plugin code can use), cordis_mount to add a plugin (an event
       listener, a brand-new tool for yourself, or a service other mounts
-      inject), cordis_unmount to clean one up. Prefer small single-purpose
-      plugins, prefer plain notification events over waterfall events unless
-      you intend to intercept, and unmount what you no longer need. Report
-      results briefly.
+      inject), cordis_unmount to clean one up. In mounted code, NEVER use Node
+      built-ins (require/setTimeout/fetch) — use the runtime's cordis services
+      via inject: fs, web, bash, and timer (ctx.setTimeout). Prefer small
+      single-purpose plugins, prefer plain notification events over waterfall
+      events unless you intend to intercept, and unmount what you no longer
+      need. Report results briefly.
 
 # The self-referential cordis toolset (loaded after the app so ctx.tools exists).
 - id: tool-cordis
