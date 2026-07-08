@@ -74,6 +74,7 @@ const GROUP_ORDER = [
   'compact',
   'subagent',
   'web',
+  'spill',
   'todo',
   'hooks',
   'session-persistence',
@@ -185,6 +186,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['web-search-exa', 'web-search-perplexity', 'web-search-deepseek', 'web-fetch-local'],
     consumers: ['tool-web'],
     note: 'Search and fetch providers register into one ctx.web seam; tool-web owns the stable model-facing names.',
+  },
+  {
+    key: 'spillFiles',
+    pkg: 'spill',
+    title: 'Spill storage seam',
+    mode: 'seam',
+    implementations: ['spill-local'],
+    consumers: ['spill-policy'],
+    note: 'The backend saves oversized tool text to a session-scoped path; spill-policy is the tools/post-execute consumer that decides when to spill.',
   },
 ]
 

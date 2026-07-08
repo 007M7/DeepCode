@@ -1,0 +1,149 @@
+/**
+ * The spill-policy PLUGIN: a `tools/post-execute` result transformer that keeps
+ * oversized plain-text tool results out of the model's context. When a final
+ * result's UTF-8 size exceeds `maxInlineBytes`, it saves the FULL text to a
+ * session-scoped spill file (`ctx.spillFiles`) and replaces the model-facing
+ * result with a bounded head/tail preview plus the spill path — the model reads
+ * the complete result later with the existing `read` tool.
+ *
+ * It registers NO service and owns NO storage or preview mechanics: preview is
+ * `@deepseek-ai/dsh-retention` (`TextRetainer`), storage is `ctx.spillFiles`.
+ * The policy only decides WHEN to spill and composes the notice.
+ *
+ * ## Deliberately narrow
+ *
+ * - Omitted `maxInlineBytes` ⇒ the plugin registers nothing (a true no-op).
+ * - Plain-text results only: a result carrying any non-text block is left
+ *   untouched (the policy knows only the final formatted text, not tool
+ *   internals).
+ * - `read` is skipped to avoid a `read → spill file → read again` loop.
+ * - Best-effort: no session owner, no `ctx.spillFiles` backend, or a save
+ *   failure ⇒ log and return the original result. A spill failure must NEVER
+ *   turn a successful tool call into an `isError` or hide the inline result.
+ *
+ * It COMPOSES with other post-execute listeners: it delegates via `next()` and
+ * bounds the resulting `accept` content, so a hook that replaced the content
+ * still has its replacement bounded, and a `block` decision passes through
+ * unchanged.
+ *
+ * @module @deepseek-ai/dsh-spill-policy
+ */
+
+import type { Context } from 'cordis'
+import z from 'schemastery'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { TextRetainer, describeOmitted } from '@deepseek-ai/dsh-retention'
+import type { Omitted } from '@deepseek-ai/dsh-retention'
+import type { SaveTextSpill } from '@deepseek-ai/dsh-spill'
+import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { PostToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
+import type { SpillPolicyExec } from './types.ts'
+
+export type { SpillPolicyExec } from './types.ts'
+
+/** Plugin config. */
+export interface Config {
+  /**
+   * The model-facing context cap for a plain-text tool result, in UTF-8 bytes.
+   * Omitted disables the policy entirely (no-op). When set, a result larger than
+   * this is spilled and replaced with a preview derived from this same budget.
+   */
+  maxInlineBytes?: number
+}
+
+/** Cordis plugin name used by loader diagnostics. */
+export const name = 'spill-policy'
+
+/** Require the tool registry (its `tools/post-execute` waterfall is the seam we transform). */
+export const inject = ['tools']
+
+export const Config: z<Config> = z.object({
+  maxInlineBytes: z.number(),
+})
+
+/** All-text content flattened to one UTF-8 string, or `undefined` if any block is non-text. */
+function flattenPlainText(content: ContentBlock[]): string | undefined {
+  let text = ''
+  for (const block of content) {
+    if (block.type !== 'text') return undefined
+    text += block.text
+  }
+  return text
+}
+
+/** The owning session id, or `undefined` for a call with no agent (a direct/test call). */
+function ownerSessionId(exec: ToolExecution): SessionId | undefined {
+  return (exec as SpillPolicyExec).agent?.session.header.id
+}
+
+/** Build the bounded head/tail preview for `text`, splitting `maxInlineBytes` across the two ends. */
+function preview(text: string, maxInlineBytes: number): { text: string; omitted: Omitted } {
+  const headBytes = Math.ceil(maxInlineBytes / 2)
+  const tailBytes = Math.floor(maxInlineBytes / 2)
+  const retainer = new TextRetainer({ kind: 'headTail', headBytes, tailBytes })
+  retainer.push(text)
+  const kept = retainer.finish()
+  return { text: kept.text, omitted: kept.omittedBytes }
+}
+
+/**
+ * Compose the replacement text: the bounded preview, a blank line, then the
+ * spill notice. The omission clause comes from the retention library
+ * (`describeOmitted`); the recovery sentence names the concrete spill path.
+ */
+function replacementText(previewText: string, omitted: Omitted, spillPath: string): string {
+  const omission = describeOmitted(omitted, 'bytes')
+  const notice = `(${omission} Full formatted result saved to: ${spillPath}. Use read with offset/limit to inspect it.)`
+  return `${previewText}\n\n${notice}`
+}
+
+export function apply(ctx: Context, config: Config): void {
+  const maxInlineBytes = config.maxInlineBytes
+  // Omitted ⇒ no automatic spill policy: register nothing at all.
+  if (maxInlineBytes === undefined) return
+
+  ctx.on('tools/post-execute', async (exec, result, next): Promise<PostToolDecision> => {
+    // Delegate first so a downstream listener (e.g. a hook) settles the result;
+    // we bound whatever it accepted. A block passes through — spill only shapes
+    // accepted plain-text results, never corrective feedback.
+    const decision = await next()
+    // Skip `read` to avoid a read → spill file → read again loop.
+    if (decision.kind !== 'accept' || exec.name === 'read') return decision
+
+    const content = decision.content ?? result.content
+    const text = flattenPlainText(content)
+    if (text === undefined) return decision
+    if (Buffer.byteLength(text, 'utf8') <= maxInlineBytes) return decision
+
+    const sessionId = ownerSessionId(exec)
+    if (sessionId === undefined) {
+      ctx.logger.warn(`spill-policy: no session owner for ${exec.name} result; keeping the inline result`)
+      return decision
+    }
+    const spillFiles = ctx.get('spillFiles')
+    if (!spillFiles) {
+      ctx.logger.warn('spill-policy: no ctx.spillFiles backend loaded; keeping the inline result')
+      return decision
+    }
+
+    const save: SaveTextSpill = {
+      owner: { sessionId },
+      source: { toolName: exec.name, callId: exec.callId, label: 'result' },
+      suggestedName: `${exec.name}.txt`,
+      content: text,
+    }
+    let path: string
+    try {
+      ({ path } = await spillFiles.saveText(save))
+    } catch (error: unknown) {
+      // Best-effort: a storage failure (permissions, ENOSPC, backend down) must
+      // never fail the call or hide the result — keep the original inline.
+      ctx.logger.warn(`spill-policy: saveText failed for ${exec.name}: ${String(error)}; keeping the inline result`)
+      return decision
+    }
+
+    const { text: previewText, omitted } = preview(text, maxInlineBytes)
+    const replaced: ContentBlock[] = [{ type: 'text', text: replacementText(previewText, omitted, path) }]
+    return { kind: 'accept', content: replaced, ...decision.additionalContext ? { additionalContext: decision.additionalContext } : {} }
+  })
+}

@@ -45,6 +45,7 @@ const GROUP_ORDER = [
   'compact',
   'subagent',
   'web',
+  'spill',
   'todo',
   'hooks',
   'session-persistence',

@@ -60,6 +60,10 @@ flowchart LR
   pkg_web_search_perplexity["web-search-perplexity"]
   pkg_web_search_deepseek["web-search-deepseek"]
   pkg_web_fetch_local["web-fetch-local"]
+  pkg_spill["spill"]
+  svc_spillFiles["ctx.spillFiles<br/>Spill storage seam"]
+  pkg_spill_local["spill-local"]
+  pkg_spill_policy["spill-policy"]
   pkg_agent --> svc_agents
   pkg_agent_loop --> svc_agentLoop
   pkg_bash --> svc_bash
@@ -76,6 +80,8 @@ flowchart LR
   pkg_session_persistence --> svc_sessionPersistence
   pkg_session_persistence_jsonl --> svc_sessionPersistence
   pkg_session_persistence_sqlite --> svc_sessionPersistence
+  pkg_spill --> svc_spillFiles
+  pkg_spill_local --> svc_spillFiles
   pkg_subagent --> svc_subagents
   pkg_subagent_acp --> svc_subagents
   pkg_subagent_fork --> svc_subagents
@@ -108,6 +114,7 @@ flowchart LR
   svc_sessions --> pkg_invariants
   svc_sessions --> pkg_session_persistence
   svc_sessions --> pkg_subagent_inprocess
+  svc_spillFiles --> pkg_spill_policy
   svc_subagents --> pkg_tool_subagent
   svc_systemPrompt --> pkg_agent_loop
   svc_systemPrompt --> pkg_tool_fs
@@ -138,5 +145,6 @@ flowchart LR
 | `ctx.compact` | `seam` | [`compact`](../packages/compact/compact) | [`compact-basic`](../packages/compact/compact-basic) | [`compact-basic`](../packages/compact/compact-basic) | - | The basic backend currently consumes the pre-step event directly; a model-facing compact tool remains deferred. |
 | `ctx.subagents` | `seam` | [`subagent`](../packages/subagent/subagent) | [`subagent-spawn`](../packages/subagent/subagent-spawn), [`subagent-fork`](../packages/subagent/subagent-fork), [`subagent-acp`](../packages/subagent/subagent-acp), [`subagent-mock`](../packages/support/subagent-mock) | [`tool-subagent`](../packages/subagent/tool-subagent) | - | Providers implement transports; tool-subagent exposes one configured provider as a model-facing tool name. |
 | `ctx.web` | `seam` | [`web`](../packages/web/web) | [`web-search-exa`](../packages/web/web-search-exa), [`web-search-perplexity`](../packages/web/web-search-perplexity), [`web-search-deepseek`](../packages/web/web-search-deepseek), [`web-fetch-local`](../packages/web/web-fetch-local) | [`tool-web`](../packages/web/tool-web) | - | Search and fetch providers register into one ctx.web seam; tool-web owns the stable model-facing names. |
+| `ctx.spillFiles` | `seam` | [`spill`](../packages/spill/spill) | [`spill-local`](../packages/spill/spill-local) | [`spill-policy`](../packages/spill/spill-policy) | - | The backend saves oversized tool text to a session-scoped path; spill-policy is the tools/post-execute consumer that decides when to spill. |
 
 Maintenance mode: hybrid: services are discovered from Cordis declarations; interface/implementation/consumer roles are classified in `scripts/gen-doc-graphs.ts` with a completeness guard.

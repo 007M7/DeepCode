@@ -47,6 +47,7 @@
         "./packages/compact/*/src",
         "./packages/subagent/*/src",
         "./packages/web/*/src",
+        "./packages/spill/*/src",
         "./packages/todo/*/src",
         "./packages/hooks/*/src",
         "./packages/session-persistence/*/src",
