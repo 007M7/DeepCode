@@ -119,7 +119,7 @@ export interface Config {
 
 Depends on: [`AgentId`](../packages/core/agent/src/index.ts) · [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
 
-Source: [`packages/core/agent-loop/src/index.ts:36`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:38`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -565,7 +565,10 @@ export interface Config {
    * The deployment's persona — the ONE deployment-authored fragment of the
    * system prompt, rendered as the order-0 `deployment:persona` section
    * (after the harness identity, before all tool guidance). Every agent in
-   * the context shares it, subagents included. Template, not free-form text:
+   * the context shares it by default; a per-agent persona is a SCOPED section
+   * of the same name registered through that agent's `agent.ctx` (it shadows
+   * this one for that agent — the subagent seam's `persona` request field does
+   * exactly that). Template, not free-form text:
    * every complete `{{…}}` group is interpreted strictly against the
    * registered prompt variables (the shipped agent loop registers `{{model}}`
    * and `{{cwd}}`), and there is no escape syntax for literal `{{…}}` prose
@@ -600,7 +603,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:179`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:220`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-fs`
 

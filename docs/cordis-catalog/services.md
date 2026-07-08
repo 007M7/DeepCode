@@ -21,7 +21,7 @@ createAgent(options: CreateAgentOptions): AgentHandle
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:68`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:70`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -38,7 +38,7 @@ list(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:117`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:145`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -178,12 +178,13 @@ create(id?: SessionId, options?: CreateSessionOptions): Session
 prepare(id?: SessionId, options?: CreateSessionOptions): Session
 enter(session: Session): () => void
 announce(session: Session): void
+async flush(session: Session): Promise<void>
 get(id: SessionId): Session | undefined
 list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:405`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:427`](../../packages/core/session/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 
@@ -204,27 +205,32 @@ Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections,
 
 ```ts cordis-catalog
 section(section: PromptSection): () => void
-tools(provider: () => ToolSchema[]): () => void
+tools(provider: (context: AssembleContext) => ToolProviderResult): () => void
 variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:291`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:335`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 
 Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → dispatch → `tools/post-execute` pipeline. The registry contributes its schemas into the system-prompt assembly.
 
+Two registration layers (`@deepseek-ai/dsh-scope`): a registration through a plain plugin context is GLOBAL (visible to every agent); one through a scoped context (`agent.ctx`) is filed in that scope's layer — visible to that agent alone, disposed with the scope, and SHADOWING a global tool of the same name for that agent (most-specific-wins; within one layer a duplicate name still throws). restrict masks the global layer per scope. One visibility function (visible) feeds prompt assembly, get, and execute, so what the model is shown, what a presenter renders, and what dispatches can never disagree.
+
 ```ts cordis-catalog
 register(definition: ToolDefinition): () => void
-get(name: string): ToolDefinition | undefined
-schemas(): ToolSchema[]
+restrict(filter: ToolRestriction): () => void
+visible(scope?: ScopeKey): ToolDefinition[]
+get(name: string, scope?: ScopeKey): ToolDefinition | undefined
+schemas(scope?: ScopeKey): ToolSchema[]
+knownNames(scope?: ScopeKey): string[]
 async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 ```
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:278`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:319`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.web` — `WebService`
 
