@@ -79,9 +79,6 @@ flowchart TD
     pkg_app_boot["app-boot"]
     pkg_stdio_agent["stdio-agent"]
   end
-  subgraph group_mcp["packages/mcp"]
-    pkg_mcp_client["mcp-client"]
-  end
   subgraph group_code_runtime["packages/code-runtime"]
     pkg_code_runtime["code-runtime"]
   end
