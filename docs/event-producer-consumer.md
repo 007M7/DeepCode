@@ -14,7 +14,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `agent/prompt-submit` | `waterfall` | [`packages/core/agent/src/types.ts:414`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
 | `agent/queued` | `emit` | [`packages/core/agent/src/types.ts:326`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | - |
 | `agent/request` | `waterfall` | [`packages/core/agent/src/types.ts:442`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | - |
-| `agent/session-start` | `emit` | [`packages/core/agent/src/types.ts:346`](../packages/core/agent/src/types.ts) | - | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
+| `agent/session-start` | `emit` | [`packages/core/agent/src/types.ts:346`](../packages/core/agent/src/types.ts) | - | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex), [`invariants`](../packages/support/invariants) |
 | `agent/status` | `emit` | [`packages/core/agent/src/types.ts:312`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`acp`](../packages/ui/acp), [`invariants`](../packages/support/invariants), [`stdio-agent`](../packages/ui/stdio-agent) |
 | `agent/step-result` | `waterfall` | [`packages/core/agent/src/types.ts:457`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | - |
 | `agent/turn-continuation` | `waterfall` | [`packages/core/agent/src/types.ts:475`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
@@ -25,14 +25,20 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `session/created` | `emit` | [`packages/core/session/src/index.ts:47`](../packages/core/session/src/index.ts) | [`session`](../packages/core/session) (`emit`) | [`invariants`](../packages/support/invariants), [`session-persistence`](../packages/session-persistence/session-persistence) |
 | `session/event` | `emit` | [`packages/core/session/src/index.ts:61`](../packages/core/session/src/index.ts) | [`session`](../packages/core/session) (`emit`) | [`acp`](../packages/ui/acp), [`invariants`](../packages/support/invariants), [`session-persistence`](../packages/session-persistence/session-persistence), [`stdio-agent`](../packages/ui/stdio-agent) |
 | `session/flush` | `parallel` | [`packages/core/session/src/index.ts:79`](../packages/core/session/src/index.ts) | [`session`](../packages/core/session) (`parallel`) | [`session-persistence`](../packages/session-persistence/session-persistence) |
-| `subagent/end` | `emit` | [`packages/subagent/subagent/src/index.ts:98`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude) |
-| `subagent/provider-added` | `emit` | [`packages/subagent/subagent/src/index.ts:72`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`emit`) | [`tool-subagent`](../packages/subagent/tool-subagent) |
-| `subagent/provider-removed` | `emit` | [`packages/subagent/subagent/src/index.ts:83`](../packages/subagent/subagent/src/index.ts) | - | [`tool-subagent`](../packages/subagent/tool-subagent) |
-| `subagent/start` | `emit` | [`packages/subagent/subagent/src/index.ts:91`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude) |
+| `subagent/end` | `emit` | [`packages/subagent/subagent/src/index.ts:99`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude) |
+| `subagent/provider-added` | `emit` | [`packages/subagent/subagent/src/index.ts:73`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`emit`) | [`tool-subagent`](../packages/subagent/tool-subagent) |
+| `subagent/provider-removed` | `emit` | [`packages/subagent/subagent/src/index.ts:84`](../packages/subagent/subagent/src/index.ts) | - | [`tool-subagent`](../packages/subagent/tool-subagent) |
+| `subagent/start` | `emit` | [`packages/subagent/subagent/src/index.ts:92`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude) |
 | `system-prompt/assemble` | `waterfall` | [`packages/core/system-prompt/src/index.ts:44`](../packages/core/system-prompt/src/index.ts) | [`system-prompt`](../packages/core/system-prompt) (`waterfall`) | - |
 | `system-prompt/change` | `emit` | [`packages/core/system-prompt/src/index.ts:54`](../packages/core/system-prompt/src/index.ts) | [`system-prompt`](../packages/core/system-prompt) (`emit`) | - |
 | `tools/change` | `emit` | [`packages/core/tools/src/index.ts:112`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`emit`) | - |
 | `tools/post-execute` | `waterfall` | [`packages/core/tools/src/index.ts:102`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
 | `tools/pre-execute` | `waterfall` | [`packages/core/tools/src/index.ts:82`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
+
+## Non-harness or undeclared event strings seen in package source
+
+| Event string | Dispatchers | Listeners |
+| --- | --- | --- |
+| `internal/dispatch` | - | [`invariants`](../packages/support/invariants) |
 
 Maintenance mode: hybrid generated: Cordis event declarations and most producer/listener edges are AST-scanned; dynamic dispatch sites are classified in `scripts/gen-doc-graphs.ts`.

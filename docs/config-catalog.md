@@ -271,7 +271,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/support/invariants/src/index.ts:45`](../packages/support/invariants/src/index.ts)
+Source: [`packages/support/invariants/src/index.ts:48`](../packages/support/invariants/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-deepseek`
 
@@ -644,11 +644,40 @@ export interface Config {
   toolName?: string
   /**
    * Default per-child agent options (model) applied to every spawned child.
-   * Omitted fields fall back to the child loop's own defaults. There is no
-   * per-child persona: the deployment persona (the system-prompt plugin's
-   * `persona` config) is a context-wide section every agent shares.
+   * Omitted fields fall back to the child loop's own defaults.
    */
   agentOptions?: AgentOptions
+  /**
+   * Per-child persona applied to every child this tool spawns: a scoped
+   * `deployment:persona` section shadowing the deployment's persona for the
+   * child alone. Requires the bound provider's `persona` capability
+   * (in-process backends support it; a request against one that doesn't is
+   * rejected at start). Omitted ⇒ the child renders the deployment persona.
+   */
+  persona?: string
+  /**
+   * Tool scoping applied to every child this tool spawns (see
+   * `SubagentStartRequest.toolFilter`): the named global tools vanish from
+   * the child's prompt AND refuse to execute. Requires the provider's
+   * `toolFilter` capability. Unknown names fail the spawn loudly. Note the
+   * child otherwise sees every global tool — including this delegation tool
+   * itself; `deny`-listing it (or setting `maxDepth`) is how a deployment
+   * bounds recursion.
+   */
+  toolFilter?: {
+    /** Global tool names the child keeps; everything else is removed. */
+    allow?: string[]
+    /** Global tool names removed from the child. */
+    deny?: string[]
+  }
+  /**
+   * Recursion cap applied to every child this tool spawns (see
+   * `SubagentStartRequest.maxDepth`): a spawn whose child would sit deeper
+   * than this in the delegation tree is rejected. Requires the provider's
+   * `depthLimit` capability. Omitted ⇒ unbounded (bound it in deployments
+   * that expose this tool to children).
+   */
+  maxDepth?: number
 }
 ```
 

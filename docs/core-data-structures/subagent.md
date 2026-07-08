@@ -15,12 +15,13 @@ interface SubagentCapabilities {
   outputSchema: boolean
   depthLimit: boolean
   toolFilter: boolean
+  persona: boolean
 }
 ```
 
 ## The start request
 
-What a caller asks for when starting a subagent. The tool layer builds this from the model's `{ description, prompt }` plus its own config; the service validates the start-time capabilities against the named provider, then passes it to `provider.start`. `parent` is REQUIRED — in-process backends read `parent.session.header` for the working directory, the `parentSession` lineage, and the delegation depth. The three optional fields (`outputSchema`, `maxDepth`, `toolFilter`) each gate on the matching `SubagentCapabilities` flag. `outputSchema` is an object-rooted JSON Schema within the subset `assertSupportedOutputSchema` (dsh-tools) enforces — a schema outside it is rejected loud at start; the in-process backends realize it with a forced `structured_output` capture tool (see the [driver README](../../packages/subagent/subagent-inprocess/README.md)).
+What a caller asks for when starting a subagent. The tool layer builds this from the model's `{ description, prompt }` plus its own config; the service validates the start-time capabilities against the named provider, then passes it to `provider.start`. `parent` is REQUIRED — in-process backends read `parent.session.header` for the working directory, the `parentSession` lineage, and the delegation depth. The four optional fields (`outputSchema`, `maxDepth`, `toolFilter`, `persona`) each gate on the matching `SubagentCapabilities` flag — in-process backends realize `toolFilter` as a scoped `tools.restrict()` and `persona` as a scoped shadowing `deployment:persona` section, both composed in the child's creation window. `outputSchema` is an object-rooted JSON Schema within the subset `assertSupportedOutputSchema` (dsh-tools) enforces — a schema outside it is rejected loud at start; the in-process backends realize it with a forced `structured_output` capture tool (see the [driver README](../../packages/subagent/subagent-inprocess/README.md)).
 
 ```ts type-equiv
 interface SubagentStartRequest {
@@ -31,6 +32,7 @@ interface SubagentStartRequest {
   outputSchema?: StructuredOutputSchema
   maxDepth?: number
   toolFilter?: { allow?: string[]; deny?: string[] }
+  persona?: string
 }
 ```
 

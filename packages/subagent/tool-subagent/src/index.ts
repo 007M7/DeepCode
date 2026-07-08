@@ -74,7 +74,12 @@ export interface Config {
    * itself; `deny`-listing it (or setting `maxDepth`) is how a deployment
    * bounds recursion.
    */
-  toolFilter?: { allow?: string[]; deny?: string[] }
+  toolFilter?: {
+    /** Global tool names the child keeps; everything else is removed. */
+    allow?: string[]
+    /** Global tool names removed from the child. */
+    deny?: string[]
+  }
   /**
    * Recursion cap applied to every child this tool spawns (see
    * `SubagentStartRequest.maxDepth`): a spawn whose child would sit deeper

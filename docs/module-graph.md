@@ -126,9 +126,6 @@ flowchart TD
   pkg_session_persistence_jsonl --> pkg_session_persistence
   pkg_session_persistence_sqlite --> pkg_session
   pkg_session_persistence_sqlite --> pkg_session_persistence
-  pkg_invariants --> pkg_agent
-  pkg_invariants --> pkg_llm
-  pkg_invariants --> pkg_session
   pkg_agent_loop --> pkg_agent
   pkg_agent_loop --> pkg_llm
   pkg_agent_loop --> pkg_scope
@@ -161,6 +158,12 @@ flowchart TD
   pkg_hooks_codex --> pkg_llm
   pkg_hooks_codex --> pkg_session
   pkg_hooks_codex --> pkg_tools
+  pkg_invariants --> pkg_agent
+  pkg_invariants --> pkg_llm
+  pkg_invariants --> pkg_scope
+  pkg_invariants --> pkg_session
+  pkg_invariants --> pkg_system_prompt
+  pkg_invariants --> pkg_tools
   pkg_acp --> pkg_agent
   pkg_acp --> pkg_llm
   pkg_acp --> pkg_session
@@ -245,7 +248,6 @@ flowchart TD
 | [`compact-basic`](../packages/compact/compact-basic) | `compact` | [`agent`](../packages/core/agent), [`compact`](../packages/compact/compact), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl) | `session-persistence` | [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |
 | [`session-persistence-sqlite`](../packages/session-persistence/session-persistence-sqlite) | `session-persistence` | [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |
-| [`invariants`](../packages/support/invariants) | `support` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`agent-loop`](../packages/core/agent-loop) | `core` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-bash`](../packages/bash/tool-bash) | `bash` | [`agent`](../packages/core/agent), [`bash`](../packages/bash/bash), [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-fs`](../packages/fs/tool-fs) | `fs` | [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
@@ -253,6 +255,7 @@ flowchart TD
 | [`tool-web`](../packages/web/tool-web) | `web` | [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`web`](../packages/web/web) |
 | [`tool-todo`](../packages/todo/tool-todo) | `todo` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
 | [`hooks-codex`](../packages/hooks/hooks-codex) | `hooks` | [`agent`](../packages/core/agent), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
+| [`invariants`](../packages/support/invariants) | `support` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`acp`](../packages/ui/acp) | `ui` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`tools`](../packages/core/tools) |
 | [`agent-core`](../packages/core/agent-core) | `core` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tool-bash`](../packages/bash/tool-bash), [`tools`](../packages/core/tools) |
 | [`subagent-acp`](../packages/subagent/subagent-acp) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent) |
