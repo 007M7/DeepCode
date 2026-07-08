@@ -5,7 +5,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import { syncTools, type ToolBridgeOptions } from '@deepseek-ai/dsh-mcp-client/src/tools.ts'
 import { createTransport } from '@deepseek-ai/dsh-mcp-client/src/transport.ts'
-import type { Config } from '@deepseek-ai/dsh-mcp-client'
+import { apply, name, inject, Config } from '@deepseek-ai/dsh-mcp-client/src/index.ts'
 
 // ---- Mock MCP Client ----
 
@@ -513,6 +513,40 @@ describe('tool execution — non-object args fallback', () => {
       undefined,
       expect.anything(),
     )
+  })
+})
+
+describe('plugin module exports', () => {
+  it('exports name, inject, and Config schema', () => {
+    expect(name).toBe('mcp-client')
+    expect(inject).toEqual(['tools'])
+    expect(Config).toBeDefined()
+  })
+})
+
+describe('apply (error path, no mocks)', () => {
+  it('gracefully catches when the MCP server is unreachable', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+
+    // Call apply with a command that will fail to spawn/connect.
+    // The .catch() inside apply logs the error and registers no tools.
+    apply(ctx, {
+      transport: 'stdio',
+      command: '___nonexistent_binary_that_will_fail___',
+      args: [],
+      env: {},
+      cwd: '',
+      toolPrefix: '',
+      toolCallTimeoutMs: 1000,
+    })
+
+    // Give the async connect + catch chain time to settle.
+    await new Promise(r => setTimeout(r, 200))
+
+    // No tools should be registered since connect failed.
+    expect(ctx.tools.get('anything')).toBeUndefined()
   })
 })
 

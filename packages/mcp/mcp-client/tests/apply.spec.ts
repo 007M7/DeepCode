@@ -22,6 +22,7 @@ class MockClient {
   listTools = mockListTools
   callTool = mockCallTool
   setNotificationHandler = mockSetNotificationHandler
+  onclose: (() => void) | null = null
 }
 
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
@@ -175,5 +176,55 @@ describe('apply (plugin lifecycle)', () => {
 
     expect(mockConnect).toHaveBeenCalled()
     expect(ctx.tools.get('remote')).toBeDefined()
+  })
+
+  it('coalesces overlapping resync notifications (latest-wins)', async () => {
+    apply(ctx, stdioConfig)
+    await new Promise(r => setTimeout(r, 50))
+
+    // Initial sync is done; notification handler is registered.
+    const handler = mockSetNotificationHandler.mock.calls[0]![1] as () => Promise<void>
+
+    // Make the NEXT listTools call slow so we can trigger a second notification.
+    let resolveBlocked!: (v: unknown) => void
+    mockListTools.mockReturnValueOnce(new Promise((r) => { resolveBlocked = r }))
+
+    // Fire first notification — starts a resync that blocks on listTools.
+    const firstResync = handler()
+
+    // Fire second notification while the first is in-flight — should coalesce.
+    const secondResync = handler()
+
+    // Resolve the blocked listTools call.
+    resolveBlocked({ tools: [{ name: 'mid', inputSchema: { type: 'object' } }], nextCursor: undefined })
+
+    // Set up the response for the deferred resync that fires after the first completes.
+    mockListTools.mockResolvedValueOnce({
+      tools: [{ name: 'final', inputSchema: { type: 'object' } }],
+      nextCursor: undefined,
+    })
+
+    await firstResync
+    await secondResync
+    await new Promise(r => setTimeout(r, 50))
+
+    // The deferred resync should have run with the latest tool list.
+    expect(ctx.tools.get('final')).toBeDefined()
+  })
+
+  it('unregisters tools when the server connection closes (onclose)', async () => {
+    apply(ctx, stdioConfig)
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(ctx.tools.get('remote')).toBeDefined()
+
+    // Simulate the MCP client's onclose firing (server crashed or closed).
+    // The apply() sets `client.onclose = () => {...}` on the mock instance.
+    // mockConnect receives `this` as the client instance.
+    const clientInstance = mockConnect.mock.contexts[0] as MockClient
+    expect(clientInstance.onclose).toBeTypeOf('function')
+    clientInstance.onclose!()
+
+    expect(ctx.tools.get('remote')).toBeUndefined()
   })
 })
