@@ -169,4 +169,25 @@ describe('agent scope lifecycle', () => {
     agentEvents(ctx, agent).emit('agent/error', 2, 0, new Error('for a1'))
     expect(heard).toEqual(['a1:2'])
   })
+
+  it('handle.dispose() during owner unload still awaits true quiescence (shared boundary)', async () => {
+    const ctx = await harness()
+    let handle!: ReturnType<typeof ctx.agents.create>
+    const owner = await ctx.plugin(Object.assign((inner: Context) => {
+      handle = inner.agents.create({ agentId: AgentId('h1'), sessionId: SessionId('h1-s'), agentOptions: { model: 'mock' } })
+    }, { inject: ['agents'] }))
+
+    const teardownDone: string[] = []
+    ctx.on('agent/disposed', () => void teardownDone.push('unregistered'))
+
+    // Owner unload begins FIRST (invokes the raw cordis wrapper)…
+    const unload = owner.dispose()
+    // …and a concurrent handle.dispose() must not resolve before the chain
+    // actually finished (the raw wrapper returns undefined on a repeat call).
+    await handle.dispose()
+    expect(teardownDone).toContain('unregistered')
+    expect(ctx.agents.get(AgentId('h1'))).toBeUndefined()
+    expect(ctx.sessions.get(SessionId('h1-s'))).toBeUndefined()
+    await unload
+  })
 })

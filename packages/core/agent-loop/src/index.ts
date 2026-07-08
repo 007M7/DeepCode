@@ -303,7 +303,20 @@ export class AgentLoop extends Service implements AgentFactory {
     setup?: (agentCtx: Context) => void,
   ): { agent: ReactLoopAgent; disposeAgent: () => Promise<void> } {
     const agent = new ReactLoopAgent(this.ctx, id, options, session)
+    // The ONE quiescence boundary every disposal path observes. Cordis effect
+    // disposers are single-shot but not await-idempotent: when the OWNING
+    // fiber's unload invokes the raw wrapper first, a concurrent
+    // `handle.dispose()` calling the same wrapper gets an immediate undefined
+    // (epoch already cleared) — so the handle path must await THIS promise,
+    // resolved by the teardown chain's final disposer, not the wrapper's
+    // return. Every disposer in the chain is deliberately infallible (stop()
+    // is infallible by contract, unregister/detach contain their listeners,
+    // the scope unwind is cordis-contained), so the final disposer always
+    // runs — a throwing link would skip the rest of a cordis dispose chain.
+    const { promise: torndown, resolve: markTorndown } = Promise.withResolvers<void>()
     const dispose = this.ctx.effect(function* (this: AgentLoop) {
+      // First-yielded ⇒ disposed LAST: marks true teardown completion.
+      yield () => { markTorndown() }
       // Mint the agent's scope (key = the agent) and wire the two-phase
       // reference: the scope context tags registrations + filters dispatch;
       // the extend adds the `ctx.agent` DX own-property on top. The raw
@@ -349,7 +362,7 @@ export class AgentLoop extends Service implements AgentFactory {
       // disposed later) is still attached.
       yield async () => { stop(); await agent.done }
     }.bind(this), 'agentLoop.start()')
-    return { agent, disposeAgent: async () => { await dispose() } }
+    return { agent, disposeAgent: async () => { await dispose(); await torndown } }
   }
 
   /**
