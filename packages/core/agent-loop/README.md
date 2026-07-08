@@ -8,6 +8,8 @@ This is the only package in the harness that contains concrete loop logic. Every
 
 ### Public API
 
+Lifecycle (scoped): the composite creation effect mints the agent's scope (`agent.ctx`), enters the session through it (the session's dispatch carrier), registers the agent, runs `CreateAgentOptions.setup`, emits `agent/session-start`, then starts the loop; teardown runs stop/drain → unregister → detach session → unwind scope, keeping store/registry rollback synchronous on every failure path. All `agent/*` dispatches go through `agentEvents(ctx, agent)`; per-step assembly through `assembleContextFor(agent)`; the turn-end durability checkpoint through `ctx.sessions.flush(session)`.
+
 - `ctx.agentLoop.create(id: string, options?: AgentOptions): ReactLoopAgent` — config-driven create: an agent on a fresh per-run session id `${id}-session-<uuid>` (no cwd). Used for `cordis.yml`-configured agents. The per-run uuid avoids colliding with the on-disk log a prior run materialized once a durable persistence backend is loaded; each run is a new session (a deliberate demo simplification — a real resume-or-create policy is a TODO). Disposed with the calling fiber.
 
 `AgentLoop` also implements the `AgentFactory` seam and registers itself via `ctx.agents.setFactory(this)`, so plugins create/resume agents through `ctx.agents` (the interface):

@@ -25,7 +25,7 @@ Unlike the bash seam (one executor per context, second load throws), **multiple 
 
 ## Capabilities: two kinds, discovered two ways
 
-- **Start-time features** (`outputSchema`, `depthLimit`, `toolFilter`) are a static `provider.capabilities` descriptor, checked by the service BEFORE a run exists. A request that needs one the provider lacks is **rejected loud** (`UNSUPPORTED_CAPABILITY`), never accepted-then-ignored.
+- **Start-time features** (`outputSchema`, `depthLimit`, `toolFilter/persona`) are a static `provider.capabilities` descriptor, checked by the service BEFORE a run exists. A request that needs one the provider lacks is **rejected loud** (`UNSUPPORTED_CAPABILITY`), never accepted-then-ignored.
 - **Runtime features** (steering, resume) are **optional methods** on `SubagentRun` (`sendMessage?`, `resume?`). The method's presence IS the capability; TS narrowing is the discovery mechanism — a consumer cannot call an absent method without narrowing first, so there is no silent degradation path.
 
 Beside `capabilities` sits one DESCRIPTIVE fact, not validated by the service: `provider.inheritsParentContext` — whether a child sees the parent conversation (`fork`: true — seeded with the completed-turn prefix; `spawn`/`acp`: false). The model-facing consumer (`dsh-tool-subagent`) derives truthful tool wording from it.

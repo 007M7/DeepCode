@@ -14,6 +14,7 @@ The default distribution is a composition, not a hierarchy. `packages/core/` is 
 
 | ctx key | Package | Role |
 |---|---|---|
+| — | [`dsh-scope`](../packages/core/scope/README.md) | scoped-context registration primitive (library) |
 | `ctx.sessions` | `dsh-session` | in-memory event-sourced sessions |
 | `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and prompt variables |
 | `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
@@ -58,7 +59,7 @@ A **session** is one agent's append-only event log. A **turn** drains one queued
 ### Turn Flow
 
 ```text
-create agent -> emit agent/session-start(source)
+create agent -> mint agent scope (agent.ctx) -> run creation setup -> emit agent/session-start(source)
 forever:
   wait for queued messages
   emit agent/status(running)
@@ -103,6 +104,10 @@ Every session event is turn-enclosed. Reloading a crashed session preserves the 
 
 `ctx.agents` owns live agents and returns an `AgentHandle { agent, dispose() }`. `Agent` is the surface other plugins drive: `send()` queues work, `steer()` injects mid-turn content, `inject()` appends context and opens a one-shot injection turn when idle, `cancel()` is the public stop primitive, and `whenIdle()` observes quiescence. Lifecycle owners tear down with `await dispose()`.
 
+### Agent Scope
+
+Every live agent owns a scope context, `agent.ctx` ([`dsh-scope`](../packages/core/scope/README.md), key = the agent). Registrations through it — tools, prompt sections/variables, listeners, `tools.restrict()` masks — are visible to that agent alone, SHADOW same-named global contributions for it (per-agent personas and tool variants), and unwind with the agent; an `agent.ctx` listener hears only that agent's dispatches, while events about one agent dispatch with its scope carrier. `CreateAgentOptions.setup(agentCtx)` composes a child's scoped world at creation (the subagent seam's `persona`/`toolFilter`) — setup registers, never drives. Dev invariants enforce carrier/subject identity; `verify-scoped-dispatch` pins enforced ⇔ documented. Rationale: [agent-scope RFC](rfc/implemented/architecture/2026-07-08-agent-scope-contexts.md).
+
 ## State And Model Surface
 
 ### Session Log
@@ -145,5 +150,6 @@ New behavior should attach to a documented seam; changing the shipped loop requi
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
 | Add durable session state | add a `SessionEventMap` member and render/replay from the log |
 | Fork a live session | use `ctx.sessions.fork(source, boundary?, childSessionId?)` |
+| Scope a tool, prompt section, or listener to ONE agent | register it through that agent's `agent.ctx` (see Agent Scope) |
 
 The [extension cookbook](cookbook/extension-cookbook.md) carries plugin skeletons and the feature-to-seam map; step-by-step guides cover [packages](cookbook/adding-a-package.md), [tools](cookbook/adding-a-tool.md), [LLM adapters](cookbook/adding-an-llm-adapter.md), and [vendored packages](cookbook/adding-a-vendored-package.md).

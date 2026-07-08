@@ -9,6 +9,7 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 ### Public API
 
 - `ctx.sessions.create(id?: SessionId, options?: { seed?: SessionEvent[]; meta?: { cwd?: string; parentSession?: SessionId; createdAt?: number; seedLength?: number } }): Session` — Create a session. `options.seed` replays/forks an existing event log; `options.meta` attaches creation metadata (validated absolute `cwd`, `parentSession` lineage, seed boundary) as the immutable `SessionHeader`. The store fills `version`/`id` and defaults `createdAt` to now; a caller reconstructing a persisted session passes the original `createdAt` and persisted `seedLength` to preserve them. Disposed with the calling fiber.
+- `ctx.sessions.flush(session: Session): Promise<void>` Dispatch the awaited `session/flush` durability checkpoint with the carrier captured at enter — THE flush entry point (the loop's turn-end checkpoint and idle injection call it; never dispatch a raw `ctx.parallel`).
 - `ctx.sessions.fork(source, boundary?, childSessionId?): Session` — Resolve a live session object or id, select a seed through the inclusive `boundary` event seq (default: current last event), require that boundary to be `turn/end`, and create a live child session with lineage metadata.
 - `ctx.sessions.get(id: SessionId): Session | undefined`
 - `ctx.sessions.list(): Session[]`
@@ -28,7 +29,7 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 | Event | Mode | Purpose |
 |---|---|---|
 | `session/created` | emit | A session was created |
-| `session/event` | emit | An event was appended (sync, fire-and-forget) |
+| `session/event` | emit (scope-filtered by the owning session's scope) | An event was appended (sync, fire-and-forget) |
 | `session/flush` | parallel | Awaited durability checkpoint (persistence plugins drain buffers here) |
 
 ### Class: `Session`

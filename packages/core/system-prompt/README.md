@@ -13,21 +13,21 @@ System prompt assembly registry. Plugins contribute ordered text sections, tool-
 
 ### Public API
 
-- `ctx.systemPrompt.section(section: PromptSection): () => void` Contribute a section. Duplicate names throw. Disposed with the calling fiber.
-- `ctx.systemPrompt.tools(provider: () => ToolSchema[]): () => void` Contribute tool schemas (evaluated at each assembly). A provider must not return a schema named `TOOL_ORDER_REST`; that name is reserved for `toolOrder`'s rest entry. Disposed with the calling fiber.
-- `ctx.systemPrompt.variable(name: string, provider: (context) => string | undefined): () => void` Contribute a prompt variable, referenced from section text as `{{name}}`. Duplicate or unreferenceable names throw; `undefined` means "no value for this assembly". Disposed with the calling fiber.
-- `ctx.systemPrompt.assemble(context?: AssembleContext): Promise<PromptAssembly>` Assemble the prompt for one caller. Runs through the `system-prompt/assemble` waterfall. Rejects when a configured `toolOrder` names a tool no provider contributed, or when a provider returns the reserved rest-entry name.
+- `ctx.systemPrompt.section(section: PromptSection): () => void` Contribute a section. The layer is the CALLING context's scope: `agent.ctx` contributes to that agent alone, SHADOWING a same-named global section there (the per-agent persona mechanism — a scoped `deployment:persona`). Duplicate names within one layer throw. Disposed with the calling fiber.
+- `ctx.systemPrompt.tools(provider: (context: AssembleContext) => ToolProviderResult): () => void` Contribute tool schemas, evaluated at each assembly with that assembly's context. `ToolProviderResult` = `{ schemas, knownNames? }`: `schemas` is the post-restriction visible set for `context.scope`; `knownNames` (defaulting to the schemas' names) is the pre-restriction universe `toolOrder` validates against. A provider must not return a schema named `TOOL_ORDER_REST`. Scoped providers are consulted only for their scope's assemblies. Disposed with the calling fiber.
+- `ctx.systemPrompt.variable(name: string, provider: (context) => string | undefined): () => void` Contribute a prompt variable, referenced from section text as `{{name}}`. Scoped variables (via `agent.ctx`) shadow a same-named global for that agent. Duplicate-in-layer or unreferenceable names throw; `undefined` means "no value for this assembly". Disposed with the calling fiber.
+- `ctx.systemPrompt.assemble(context?: AssembleContext): Promise<PromptAssembly>` Assemble the prompt for one caller: the global layer merged with `context.scope`'s layer (scoped shadows global). Runs through the `system-prompt/assemble` waterfall (scope-filtered by `context.scope`). Rejects when a configured `toolOrder` names a tool outside the providers' `knownNames` universe (a restricted-away KNOWN tool is a normal absence), or when a provider returns the reserved rest-entry name.
 
 ### Events
 
 | Event | Mode | Purpose |
 |---|---|---|
 | `system-prompt/assemble` | waterfall | Mutate/extend the assembly (with the caller's context) before it reaches the model |
-| `system-prompt/change` | emit | A section, tool provider, or variable was registered or unregistered |
+| `system-prompt/change` | emit | A section, tool provider, or variable was registered or unregistered (possibly for one scope); deliberately unfiltered |
 
 ### Key types
 
-- `AssembleContext` — what one `assemble()` call is FOR. Declared empty here and merge-extensible; `dsh-agent` declares `agent?: Agent`, so providers project per-agent facts. Providers must tolerate absent fields (a bare `assemble()` carries an empty context).
+- `AssembleContext` — what one `assemble()` call is FOR. Merge-extensible; declares `scope?: ScopeKey` (the layer selector) here, and `dsh-agent` declares `agent?: Agent` (the typed DX field — never set without `scope`; use `assembleContextFor(agent)`). Providers must tolerate absent fields (a bare `assemble()` carries an empty, scope-less context).
 - `PromptSection` — `{ name, order, text: string | ((context) => string) }`. Sections are concatenated in ascending `order`. Order bands: `-100` is the harness identity, `0` the deployment persona (both registered by this plugin), tool guidance uses `100–199`; other negative orders also render before the persona.
 - `PromptAssembly` — `{ sections: AssembledSection[], tools: ToolSchema[], variables: Record<string, string | undefined> }`. Section texts arrive resolved but not yet interpolated; `variables` holds every registered variable resolved against the context. Tool schemas are part of the assembly by design: "what the model is told it can do" is one coherent thing, even though adapters transmit schemas as a separate wire field.
 - `renderPrompt(assembly)` — interpolates `{{variable}}` references in each section, drops empty sections, joins with blank lines. STRICT: an unknown reference (`Object.hasOwn` lookup — prototype names like `{{constructor}}` are unknown), a registered-but-valueless reference, a malformed complete `{{…}}` group, or a `{{` that opens no complete group while a `}}` still follows (`{{{model}}}`) throws — fail loud beats shipping a malformed prompt. A lone `{{` with no `}}` anywhere after it passes through verbatim; substituted values are never re-scanned.
