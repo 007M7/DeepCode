@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-tool-web
 
-The model-facing web tool suite — `web_search` and `web_fetch` — over the [web capability seam](../web/README.md) (`ctx.web`). It owns model-facing concerns only: tool names, JSON schemas, snake_case argument names, prompt sections, the result-count bound, result formatting, HTML→markdown presentation, and `presentCall`. All web access goes through `ctx.web`; this package never imports a concrete provider. Neither tool exposes a model-facing timeout — the tool-call budget is deployment policy owned by [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md) (a `tools/execute` wrapper); each tool just forwards `exec.signal` to the seam.
+The model-facing web tool suite — `web_search` and `web_fetch` — over the [web capability seam](../web/README.md) (`ctx.web`). It owns model-facing concerns only: tool names, JSON schemas, snake_case argument names, prompt sections, the result-count bound, result formatting, HTML→markdown presentation, and `presentCall`. All web access goes through `ctx.web`; this package never imports a concrete provider. Neither tool exposes a model-facing timeout — each tool's cooperative tool-call budget is declared here via config (`fetchTimeoutMs`/`searchTimeoutMs`, attached as `ToolDefinition.timeoutMs`) and enforced by [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md) (a `tools/execute` wrapper); each tool just forwards `exec.signal` to the seam.
 
 Each tool is registered independently; a product that wants only one disables the other via config (`{ search: false }` / `{ fetch: false }`).
 
@@ -18,6 +18,10 @@ Each tool is registered independently; a product that wants only one disables th
 | `search` | `true` | Register `web_search`. |
 | `fetch` | `true` | Register `web_fetch`. |
 | `searchMaxResults` | `8` | Upper bound on sources returned by one `web_search` call (the seam truncates a longer provider list and flags it). |
+| `fetchTimeoutMs` | `30000` | Cooperative tool-call timeout budget (ms) for `web_fetch`. |
+| `searchTimeoutMs` | `30000` | Cooperative tool-call timeout budget (ms) for `web_search`. |
+
+`fetchTimeoutMs`/`searchTimeoutMs` declare each tool's cooperative timeout budget (attached as `ToolDefinition.timeoutMs`), enforced by [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md); the model-facing schema exposes no timeout argument.
 
 ```yaml
 - id: tool-web

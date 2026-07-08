@@ -349,3 +349,31 @@ describe('searchMaxResults is plugin config', () => {
       .rejects.toThrow(/tool-web: searchMaxResults must be a positive integer/)
   })
 })
+
+describe('tool-call timeout budget is plugin config', () => {
+  it('attaches the default 30s budget to web_fetch and web_search', async () => {
+    const { fiber, ctx } = await mountTools()
+    expect(ctx.tools.get('web_fetch')?.timeoutMs).toBe(30_000)
+    expect(ctx.tools.get('web_search')?.timeoutMs).toBe(30_000)
+    await fiber.dispose()
+  })
+
+  it('honors per-tool timeout overrides from config', async () => {
+    const { fiber, ctx } = await mountTools({ config: { fetchTimeoutMs: 60_000, searchTimeoutMs: 10_000 } })
+    expect(ctx.tools.get('web_fetch')?.timeoutMs).toBe(60_000)
+    expect(ctx.tools.get('web_search')?.timeoutMs).toBe(10_000)
+    await fiber.dispose()
+  })
+
+  it.each([
+    ['fetchTimeoutMs', { fetchTimeoutMs: 0 }],
+    ['searchTimeoutMs', { searchTimeoutMs: -5 }],
+  ])('rejects a non-positive-integer %s at load', async (key, config) => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(WebService, {})
+    await expect(ctx.plugin(ToolWeb, config))
+      .rejects.toThrow(new RegExp(`tool-web: ${key} must be a positive integer`))
+  })
+})

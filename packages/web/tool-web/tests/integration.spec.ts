@@ -41,9 +41,11 @@ beforeEach(async () => {
   await ctx.plugin(WebService, { searchProvider: WebSearchExa.EXA_PROVIDER_ID, fetchProvider: WebFetchLocal.LOCAL_FETCH_PROVIDER_ID })
   await ctx.plugin(WebFetchLocal, {})
   await ctx.plugin(WebSearchExa, { apiKey: 'exa-key', baseURL: 'https://api.exa.test' })
-  // The shipped deployment shape: the tool-call budget is deployment policy over
-  // the model tools, set above the provider backstop so the policy normally wins.
-  await ctx.plugin(TimeoutPolicy, { tools: { web_fetch: { timeoutMs: 30_000 }, web_search: { timeoutMs: 30_000 } } })
+  // The shipped deployment shape: the tool-call budget is declared by tool-web
+  // config (default 30s, attached as ToolDefinition.timeoutMs) and enforced by
+  // the zero-config timeout-policy plugin, set above the provider backstop so the
+  // policy normally wins.
+  await ctx.plugin(TimeoutPolicy)
   fiber = await ctx.plugin(ToolWeb)
 })
 
@@ -135,8 +137,9 @@ describe('tool-call timeout returns TOOL_TIMEOUT (deadline wins over a slow fetc
     await tctx.plugin(WebService, { fetchProvider: WebFetchLocal.LOCAL_FETCH_PROVIDER_ID })
     // Provider backstop well ABOVE the tool-call budget, so the policy wins.
     await tctx.plugin(WebFetchLocal, { timeoutMs: 30_000, maxTimeoutMs: 60_000 })
-    await tctx.plugin(TimeoutPolicy, { tools: { web_fetch: { timeoutMs: 50 } } })
-    tfiber = await tctx.plugin(ToolWeb)
+    await tctx.plugin(TimeoutPolicy)
+    // The tool-call budget is declared by tool-web config, enforced by the policy.
+    tfiber = await tctx.plugin(ToolWeb, { fetchTimeoutMs: 50 })
   })
 
   afterEach(async () => {

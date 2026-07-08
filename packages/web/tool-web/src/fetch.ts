@@ -5,10 +5,11 @@
  * while the fetch provider owns safe retrieval (transport, redirects, caps).
  *
  * The model-facing schema exposes NO timeout knob: the tool-call budget is
- * deployment policy owned by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute`
- * wrapper), matching the reference-agent `WebFetch` shape. This tool just
- * forwards the (possibly deadline-derived) `exec.signal` to `ctx.web`; the
- * provider keeps its own timeout only as a resource backstop for direct callers.
+ * deployment policy DECLARED via this package's `fetchTimeoutMs` config (attached
+ * as `ToolDefinition.timeoutMs`) and ENFORCED by `@deepseek-ai/dsh-timeout-policy`
+ * (a `tools/execute` wrapper), matching the reference-agent `WebFetch` shape. This
+ * tool just forwards the (possibly deadline-derived) `exec.signal` to `ctx.web`;
+ * the provider keeps its own timeout only as a resource backstop for direct callers.
  */
 
 import type { Context } from 'cordis'
@@ -23,7 +24,8 @@ import { htmlToMarkdown } from './html.ts'
 /**
  * Validate value constraints the schema DSL can't express: a non-blank `url`.
  * Throws a plain `Error` otherwise. No timeout parameter — the tool-call budget
- * is deployment policy (`@deepseek-ai/dsh-timeout-policy`), not a model argument.
+ * is deployment policy declared via `fetchTimeoutMs` config and enforced by
+ * `@deepseek-ai/dsh-timeout-policy`, not a model argument.
  *
  * @param args - the schema-validated `web_fetch` arguments.
  * @returns the arguments as the seam's request fields.
@@ -80,8 +82,10 @@ export function presentFetchCall(args: { url: string }): GenericCallView {
  *
  * @param ctx - context whose `tools` and `systemPrompt` registries receive the
  *   registrations; both are effect-scoped and unregister on plugin dispose.
+ * @param timeoutMs - the cooperative tool-call budget (ms) attached as the tool's
+ *   `ToolDefinition.timeoutMs` for `@deepseek-ai/dsh-timeout-policy` to enforce.
  */
-export function applyWebFetchTool(ctx: Context): void {
+export function applyWebFetchTool(ctx: Context, timeoutMs: number): void {
   ctx.systemPrompt.section({
     name: 'tool:web_fetch',
     order: 111,
@@ -94,6 +98,7 @@ export function applyWebFetchTool(ctx: Context): void {
     parameters: {
       url: { type: 'string', required: true, description: 'The HTTP(S) URL to fetch.' },
     },
+    timeoutMs,
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseFetchArgs(args)
       const result = await ctx.web.fetch(
