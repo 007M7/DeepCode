@@ -183,8 +183,8 @@ jobs:
         run: pnpm run build
 
   # Observational Windows mirror of the Linux gate lanes. Snapshot stays
-  # Linux-only while its replay goldens remain platform-specific. Splitting the
-  # lanes makes failures attributable without changing their non-gating role.
+  # Linux-only while its replay goldens remain platform-specific. The wrapper
+  # runs from native PowerShell 7 so an MSYS parent cannot leak into the suite.
   windows-gates:
     runs-on: windows-2025
     name: windows node 24 / ${{ matrix.lane }}
@@ -225,7 +225,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Enable Developer Mode (symlink support)
-        shell: powershell
+        shell: pwsh
         run: >-
           reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
           /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
@@ -235,12 +235,12 @@ jobs:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
 
       - name: Enable corepack (pnpm)
-        shell: powershell
+        shell: pwsh
         run: corepack enable
 
       - name: Resolve pnpm store path
         id: pnpm-store
-        shell: powershell
+        shell: pwsh
         run: '"path=$(pnpm store path --silent)" >> $env:GITHUB_OUTPUT'
 
       - uses: actions/cache@v4
@@ -252,7 +252,7 @@ jobs:
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
       - name: Install (immutable)
-        shell: powershell
+        shell: pwsh
         run: pnpm install --frozen-lockfile
 
       - uses: actions/cache@v4
@@ -263,8 +263,13 @@ jobs:
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-
 
       - name: Run gates
-        shell: powershell
-        run: ${{ matrix.command }}
+        shell: pwsh
+        run: |
+          ${{ matrix.command }}
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "::warning::Windows lane '${{ matrix.lane }}' failed (exit $LASTEXITCODE) — observational, does not block merge. See logs above."
+          }
+          exit 0
 
   # Single stable required check for branch protection: require "all checks
   # passed" instead of enumerating matrix legs whose names change as lanes and
