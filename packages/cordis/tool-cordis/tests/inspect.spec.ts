@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { Context, Fiber } from 'cordis'
 import { FiberState } from '../src/fiber-state.ts'
-import { describeApi, describeEvents, describePluginTree, describeServices } from '../src/inspect.ts'
+import { describeApi, describeEvents, describePlugins, describeServices } from '../src/inspect.ts'
 import { call, LISTENER_CODE, setup, text } from './helpers.ts'
 
 /**
  * The `cordis_inspect` sections: rendered against the real runtime through the
  * tool, plus direct renderer calls for the states a minimal harness cannot
- * reach (empty service store, uid-less fibers, a fully-live catalog).
+ * reach (empty service store, same-named sibling fibers, a fully-live catalog).
  */
 
 describe('cordis_inspect', () => {
@@ -19,11 +19,12 @@ describe('cordis_inspect', () => {
     for (const heading of ['services', 'plugins', 'tools', 'dynamic', 'api', 'events']) {
       expect(report).toContain(`## ${heading}`)
     }
-    // The services section sees the real providers; the tree shows the dynamic
-    // group under this plugin; the tools section lists the cordis tools.
+    // The services section sees the real providers; the plugins list shows
+    // this plugin and its dynamic group flat; the tools section lists the
+    // cordis tools.
     expect(report).toContain('- tools (provided by ToolRegistry)')
-    expect(report).toMatch(/tool-cordis \[active\]/)
-    expect(report).toMatch(/cordis-dynamic \[active\]/)
+    expect(report).toContain('- tool-cordis [active]')
+    expect(report).toContain('- cordis-dynamic [active]')
     expect(report).toContain('- cordis_mount')
     expect(report).toContain('(no dynamic plugins mounted)')
   })
@@ -37,12 +38,12 @@ describe('cordis_inspect', () => {
     expect(report).not.toContain('## plugins')
   })
 
-  it('shows a mount in the dynamic section and as an annotated child of the group in the tree', async () => {
+  it('shows a mount in the dynamic section and in the flat plugins list', async () => {
     const ctx = await setup()
     await call(ctx, 'cordis_mount', { code: LISTENER_CODE })
     const report = text(await call(ctx, 'cordis_inspect', {}))
     expect(report).toContain('- dyn-1: change-logger [active]')
-    expect(report).toMatch(/dyn-1: change-logger \[active\]/)
+    expect(report).toContain('- change-logger [active]')
   })
 
   it('renders the api section from the generated catalog intersected with the LIVE runtime', async () => {
@@ -87,22 +88,15 @@ describe('inspect renderers (direct)', () => {
     expect(describeServices(ctx)).toEqual(['- thing (provided by half-loaded, pending)'])
   })
 
-  it('describePluginTree sorts uid-less fibers last and renders sibling branches', () => {
-    // The parent fiber is OUTSIDE the registry set, so all three are roots.
-    const rootFiber = { uid: 0, name: 'root' } as unknown as Fiber
-    const fiber = (uid: number | null, name: string): Fiber =>
-      ({ uid, name, state: FiberState.ACTIVE, parent: { fiber: rootFiber } }) as unknown as Fiber
-    const a = fiber(2, 'beta')
-    const b = fiber(1, 'alpha')
-    const c = fiber(null, 'rootless')
-    const d = fiber(null, 'rootless-too')
-    const ctx = { registry: { values: () => [{ fibers: [a, b, c, d] }] } } as unknown as Context
-    expect(describePluginTree(ctx, () => undefined)).toEqual([
-      'root',
-      '├─ alpha [active]',
-      '├─ beta [active]',
-      '├─ rootless [active]',
-      '└─ rootless-too [active]',
+  it('describePlugins lists every fiber flat, sorted by name, one line per instance', () => {
+    const fiber = (name: string): Fiber => ({ name, state: FiberState.ACTIVE }) as unknown as Fiber
+    const ctx = {
+      registry: { values: () => [{ fibers: [fiber('beta'), fiber('alpha')] }, { fibers: [fiber('alpha')] }] },
+    } as unknown as Context
+    expect(describePlugins(ctx)).toEqual([
+      '- alpha [active]',
+      '- alpha [active]',
+      '- beta [active]',
     ])
   })
 

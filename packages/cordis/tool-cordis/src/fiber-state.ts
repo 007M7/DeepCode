@@ -1,7 +1,7 @@
 /**
  * Runtime mirror of the cordis `FiberState` const enum plus human-readable
  * labels, shared by the mount lifecycle (state reporting) and the inspect
- * renderers (tree and mount-table labels).
+ * renderers (plugin-list and mount-table labels).
  *
  * Cordis exposes `FiberState` as a `const enum`: there is no runtime object for
  * Node's type-stripping runner to import, so the members are mirrored here as

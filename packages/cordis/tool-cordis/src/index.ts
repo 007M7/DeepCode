@@ -2,8 +2,8 @@
  * The self-referential cordis toolset: three model-facing tools that let the
  * agent inspect and MODIFY the live cordis runtime it is running inside.
  *
- * - `cordis_inspect` — read-only: provided services, the plugin fiber tree
- *   (rendered as an ASCII tree), registered tools, the dynamic mounts, and the
+ * - `cordis_inspect` — read-only: provided services, the flat plugin list
+ *   with lifecycle states, registered tools, the dynamic mounts, and the
  *   catalog-backed `api` / `events` references.
  * - `cordis_mount` — evaluate model-written code in a `node:vm` sandbox; the
  *   code returns a cordis plugin, which is mounted as a child of a dedicated
@@ -14,8 +14,8 @@
  * `harness.registerTool`, services via `ctx.provide`) is an effect on the
  * dynamic fiber, so unmounting — or disposing this plugin itself (HMR) — cleans
  * it all up through the ordinary cordis lifecycle. The group fiber exists
- * exactly so the dynamic mounts form ONE subtree: visible as a unit in the
- * inspect tree and disposed as a unit with this plugin. Design home:
+ * exactly so the dynamic mounts form ONE subtree, disposed as a unit with
+ * this plugin. Design home:
  * docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md.
  *
  * The vm sandbox guards against ACCIDENTAL global pollution only — it is not a
@@ -31,12 +31,12 @@
  * @module @deepseek-ai/dsh-tool-cordis
  */
 
-import type { Context, Fiber } from 'cordis'
+import type { Context } from 'cordis'
 import z from 'schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { STATE_LABELS } from './fiber-state.ts'
 import { isPlugin, pluginName } from './guard.ts'
-import { describeApi, describeDynamic, describeEvents, describePluginTree, describeServices, describeTools } from './inspect.ts'
+import { describeApi, describeDynamic, describeEvents, describePlugins, describeServices, describeTools } from './inspect.ts'
 import { missingServices, mountDynamic } from './mount.ts'
 import type { DynamicMount } from './mount.ts'
 import { presentInspectCall, presentMountCall, presentUnmountCall } from './present.ts'
@@ -79,21 +79,12 @@ export function apply(ctx: Context, config: Config): void {
   const mounts = new Map<string, DynamicMount>()
   let nextId = 1
 
-  /** The dynamic-mount id for a fiber, when that fiber is a tracked mount. */
-  function mountIdOf(fiber: Fiber): string | undefined {
-    for (const [id, mount] of mounts) {
-      if (mount.fiber === fiber) return id
-    }
-    return undefined
-  }
-
   ctx.tools.register(defineTool({
     name: 'cordis_inspect',
     description:
       'Inspect the live cordis runtime that is running THIS agent. Read-only. '
       + 'Sections: `services` (every provided ctx service and the plugin fiber that owns it), '
-      + '`plugins` (the whole plugin fiber tree with lifecycle states, as an ASCII tree — '
-      + 'dynamic mounts appear under the `cordis-dynamic` group with their ids), '
+      + '`plugins` (a flat list of the loaded plugins with their lifecycle states), '
       + '`tools` (the model-facing tools currently registered, i.e. what you can call), '
       + '`dynamic` (plugins you mounted via cordis_mount: id, name, state, provided services, awaited services), '
       + '`api` (method signatures AND argument/return type shapes for every LIVE service — read this before writing plugin code that calls a service), '
@@ -109,7 +100,7 @@ export function apply(ctx: Context, config: Config): void {
     execute(args): Promise<{ type: 'text'; text: string }[]> {
       const sections: [heading: string, body: () => string[]][] = [
         ['services', () => describeServices(ctx)],
-        ['plugins', () => describePluginTree(ctx, mountIdOf)],
+        ['plugins', () => describePlugins(ctx)],
         ['tools', () => describeTools(ctx)],
         ['dynamic', () => describeDynamic(ctx, mounts)],
         ['api', () => describeApi(ctx)],

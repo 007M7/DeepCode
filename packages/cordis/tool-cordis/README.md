@@ -4,7 +4,7 @@ The self-referential cordis toolset: three model-facing tools over the live runt
 
 ## What it does
 
-- `cordis_inspect` — read-only report over the runtime: services, the plugin fiber tree (ASCII), registered tools, the dynamic-mount table, and the catalog-backed `api` / `events` references.
+- `cordis_inspect` — read-only report over the runtime: services, the loaded-plugin list, registered tools, the dynamic-mount table, and the catalog-backed `api` / `events` references.
 - `cordis_mount` — evaluates model-written JavaScript (the body of an async function) in a `node:vm` sandbox; the code must `return` a cordis plugin, which is mounted under the `cordis-dynamic` group fiber and tracked as `dyn-<n>`.
 - `cordis_unmount` — disposes one mount by id, returning only after quiescence.
 

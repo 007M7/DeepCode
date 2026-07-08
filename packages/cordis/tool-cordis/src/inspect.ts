@@ -1,6 +1,6 @@
 /**
  * Read-only renderers over the live runtime for `cordis_inspect`: the service
- * list, the plugin fiber tree (ASCII), the registered tools, the dynamic-mount
+ * list, the flat plugin list, the registered tools, the dynamic-mount
  * table (with per-mount provides/waits), and the catalog-backed `api` /
  * `events` sections. Every renderer is a pure function of the runtime handles
  * it receives — no session state, no clock — so inspect output is exactly the
@@ -57,56 +57,22 @@ export function describeServices(ctx: Context): string[] {
   return lines.length > 0 ? lines : ['(no services provided)']
 }
 
-/** The tree node shape {@link renderTree} draws: one line per fiber, children indented. */
-interface TreeNode {
-  label: string
-  children: TreeNode[]
-}
-
-/** Render a node list as an ASCII tree (`├─`/`└─` box drawing). */
-function renderTree(nodes: TreeNode[], prefix = ''): string[] {
-  return nodes.flatMap((node, index) => {
-    const last = index === nodes.length - 1
-    const line = `${prefix}${last ? '└─' : '├─'} ${node.label}`
-    const childPrefix = `${prefix}${last ? '   ' : '│  '}`
-    return [line, ...renderTree(node.children, childPrefix)]
-  })
-}
-
 /**
- * The `plugins` section: every fiber the registry knows, rebuilt into the
- * parent→child tree from each fiber's mounting context and rendered as an
- * ASCII tree with lifecycle states. Fibers whose parent fiber is outside the
- * registry (i.e. mounted on the root context) become roots.
- * @param ctx - the runtime whose registry is walked.
- * @param mountIdOf - resolves a fiber to its dynamic-mount id, so mounts render as `dyn-<n>: name`.
- * @returns the tree lines, starting at the synthetic `root` line.
+ * The `plugins` section: a flat list of every fiber the registry knows, one
+ * line per fiber with its lifecycle state, sorted by plugin name (a plugin
+ * mounted more than once repeats — one line per instance). Dynamic mounts are
+ * listed like any other plugin; their ids live in the `dynamic` section.
+ * @param ctx - the runtime whose registry is enumerated.
+ * @returns one line per loaded plugin fiber.
  */
-export function describePluginTree(ctx: Context, mountIdOf: (fiber: Fiber) => string | undefined): string[] {
-  const fibers = new Set<Fiber>()
+export function describePlugins(ctx: Context): string[] {
+  const fibers: Fiber[] = []
   for (const runtime of ctx.registry.values()) {
-    for (const fiber of runtime.fibers) fibers.add(fiber)
+    for (const fiber of runtime.fibers) fibers.push(fiber)
   }
-  const childrenOf = new Map<Fiber, Fiber[]>()
-  const roots: Fiber[] = []
-  for (const fiber of fibers) {
-    const parent = fiber.parent.fiber
-    if (fibers.has(parent)) {
-      const siblings = childrenOf.get(parent) ?? []
-      siblings.push(fiber)
-      childrenOf.set(parent, siblings)
-    } else {
-      roots.push(fiber)
-    }
-  }
-  const byUid = (a: Fiber, b: Fiber): number => (a.uid ?? Infinity) - (b.uid ?? Infinity)
-  const toNode = (fiber: Fiber): TreeNode => {
-    const id = mountIdOf(fiber)
-    const label = `${id ? `${id}: ` : ''}${fiber.name} [${STATE_LABELS[fiber.state]}]`
-    const children = (childrenOf.get(fiber) ?? []).sort(byUid).map(toNode)
-    return { label, children }
-  }
-  return ['root', ...renderTree(roots.sort(byUid).map(toNode))]
+  return fibers
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(fiber => `- ${fiber.name} [${STATE_LABELS[fiber.state]}]`)
 }
 
 /**
