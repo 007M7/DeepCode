@@ -57,8 +57,8 @@ interface Spawned {
 }
 
 // TODO(acp-test-harness): this subprocess/client boot glue is duplicated with
-// hooks.e2e.ts and partly with snapshot-harness.ts. Extract one shared ACP test
-// launcher before the TSX/env/permission-stub details drift again.
+// hooks.e2e.ts and partly with dsh-acp-snapshot's harness. Migrate both e2e
+// files onto that launcher before the TSX/env/permission-stub details drift.
 function spawnAcpAgent(cwd: string, env: NodeJS.ProcessEnv = process.env): Spawned {
   const child = spawn(
     process.execPath,

@@ -1,16 +1,19 @@
 /**
- * Shared harness for the ACP snapshot tests. A plain module (NOT a *.spec.ts /
- * *.snapshot.ts) so importing it never re-registers another file's tests.
+ * Shared subprocess harness for ACP snapshot suites. A library module driven by
+ * the suite factory in ./suite.ts (and directly by harness-level specs); each
+ * example's `*.snapshot.ts` names its own agent-under-test paths.
  *
- * It boots the REAL examples/acp-agent subprocess via the cordis Loader (so the
+ * It boots the REAL agent bin subprocess via the cordis Loader (so the
  * export-shape bug class stays guarded — see docs/postmortem/0001), drives it
  * over real ACP JSON-RPC stdio with a deterministic input script, tees raw
  * stdout (for the golden + a purity check) into an SDK `ClientSideConnection`,
  * and — in record mode — harvests the persisted session JSONL after a graceful
- * shutdown flush. Two pure normalizers turn the captured stdout frames and the
- * session-log events into stable, snapshot-able text.
+ * shutdown flush. The pure normalizers in ./normalize.ts turn the captured
+ * stdout frames and the session-log events into stable, snapshot-able text.
  *
  * See docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
+ *
+ * @module @deepseek-ai/dsh-acp-snapshot/harness
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
@@ -31,19 +34,36 @@ import {
   type SessionNotification,
 } from '@agentclientprotocol/sdk'
 
-// The dsh-acp-agent bin (the demo:acp entry) and this example's cordis.yml.
-// The bin resolves its config-path arg from CWD and, under DSH_SNAPSHOT=replay,
-// swaps it for the sibling cordis.snapshot.yml. The child's cwd is a temp dir
-// OUTSIDE the repo, so pass the example config's ABSOLUTE path.
-const binScript = fileURLToPath(new URL('../../../packages/ui/acp-agent/src/bin.ts', import.meta.url))
-const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
+// Resolve tsx's ESM loader to an ABSOLUTE path once: the child runs with its
+// cwd in a temp dir OUTSIDE the repo, where a bare `--import tsx` would not
+// resolve from node_modules. import.meta.resolve gives this package's tsx
+// regardless of the child cwd.
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
-// The repo-root tsconfig: dev/test run UNBUILT and the `@deepseek-ai/dsh-*`
-// imports resolve through its `paths` map. The child's cwd is a temp dir
-// OUTSIDE the repo, so tsx's upward search would miss it — point tsx at the
-// repo tsconfig explicitly (same fix the e2e harness uses). Repo root is four
-// levels up from this file (examples/acp-agent/tests).
-const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
+
+/**
+ * The agent composition a scenario runs against: which bin to boot and which
+ * leaf config it loads. All paths are ABSOLUTE — the subprocess cwd is a temp
+ * dir outside the repo, so relative resolution would miss; a suite resolves
+ * them from its own `import.meta.url`.
+ */
+export interface AgentUnderTest {
+  /** The agent bin entry (e.g. `packages/ui/acp-agent/src/bin.ts`), run unbuilt via tsx. */
+  binScript: string
+  /**
+   * The example's live `cordis.yml`. Under `DSH_SNAPSHOT=replay` the bin swaps
+   * it for the sibling `cordis.snapshot.yml` (the keyless replay overlay), so
+   * one path serves both modes.
+   */
+  configPath: string
+  /**
+   * The repo-root tsconfig whose `paths` map resolves the unbuilt workspace
+   * imports. Passed to the child as `TSX_TSCONFIG_PATH`: tsx finds a tsconfig
+   * by searching UP from the child's cwd — a temp dir outside the repo — so
+   * without the explicit pin the dsh-* imports fail before the bin writes a
+   * byte.
+   */
+  tsconfigPath: string
+}
 
 /**
  * One step of a scenario's deterministic input script (`input.json`). The
@@ -57,7 +77,7 @@ const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta
  * the only way to exercise a cancel deterministically (a plain `prompt` step
  * awaits the response, which a cancel/hang scenario would block on forever).
  */
-type InputStep =
+export type InputStep =
   | { op: 'initialize'; terminalOutput?: boolean }
   | { op: 'newSession' }
   | { op: 'newSessionExpectError'; additionalDirectories?: string[] }
@@ -69,6 +89,25 @@ type InputStep =
 /** A scenario's `input.json`: an ordered list of input steps. */
 export interface InputScript {
   steps: InputStep[]
+  /**
+   * Ordered answers for the agent's `session/request_permission` round-trips,
+   * consumed FIFO — the Nth request gets the Nth answer. Each answer selects
+   * by option KIND: option ids are agent-issued randoms a committed script
+   * cannot know, while kinds are the ACP-stable vocabulary, so the client maps
+   * kind → the offered `optionId` at answer time. A request beyond the queue
+   * (or with no queue at all) is answered `cancelled` — the stub behavior a
+   * scenario without approvals relies on. A scripted kind the request does
+   * not offer REJECTS the run: the scenario scripted an impossible click,
+   * and {@link runScenario} throws once the in-flight step settles (the
+   * agent itself just sees `cancelled`, so it cannot absorb the bug).
+   */
+  permissionAnswers?: PermissionAnswer[]
+}
+
+/** One scripted answer to a permission request: which offered option kind to select. */
+export interface PermissionAnswer {
+  /** The `PermissionOption.kind` to select (`allow_once`, `reject_always`, …). */
+  kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always'
 }
 
 /** One harvested session log plus the identifying facts off its header line. */
@@ -102,7 +141,10 @@ export interface RunResult {
   sessionLogs: HarvestedLog[]
 }
 
-interface RunOptions {
+/** How to run one scenario: the agent to boot, the mode, and the fixture wiring. */
+export interface RunOptions {
+  /** The agent composition to boot. */
+  agent: AgentUnderTest
   /** `replay` (default, keyless) or `record` (real API, harvests the log). */
   mode: 'replay' | 'record'
   /** The recorded session JSONL fixture path (replay reads it; record writes near it). */
@@ -130,6 +172,10 @@ interface RunOptions {
  * Run a scenario end-to-end against a freshly-spawned subprocess. Owns the
  * child and its temp dirs; always tears them down. Returns the captured stdout
  * and (record mode) the harvested session-log path.
+ *
+ * @param input The scenario's input script (steps + optional permission answers).
+ * @param opts The agent to boot, the mode, and the fixture wiring.
+ * @returns The captured stdout/stderr, session id, temp cwd, and harvested logs.
  */
 export async function runScenario(input: InputScript, opts: RunOptions): Promise<RunResult> {
   const cwd = await mkdtemp(join(tmpdir(), 'acp-snap-cwd-'))
@@ -151,7 +197,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     }
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      TSX_TSCONFIG_PATH: repoTsconfig,
+      TSX_TSCONFIG_PATH: opts.agent.tsconfigPath,
       DSH_SNAPSHOT: opts.mode,
       DSH_SNAPSHOT_FILE: opts.fixtureFile,
       DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
@@ -163,7 +209,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
 
     child = spawn(
       process.execPath,
-      ['--import', tsxLoader, binScript, configPath],
+      ['--import', tsxLoader, opts.agent.binScript, opts.agent.configPath],
       { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] },
     )
 
@@ -193,25 +239,59 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     const waitForUpdate = (match: (u: SessionNotification['update']) => boolean): Promise<void> =>
       new Promise<void>(resolve => updateWaiters.push({ match, resolve }))
 
+    // Permission answers are consumed FIFO across the whole run; exhaustion
+    // falls back to `cancelled` so approval-free scenarios keep the plain stub.
+    const permissionQueue = [...input.permissionAnswers ?? []]
+    // A scenario bug detected inside a client callback (a scripted permission
+    // kind the agent never offered). It cannot fail the run from in there: a
+    // callback throw only becomes a JSON-RPC error RESPONSE to the agent, and
+    // a tolerant agent treats that as a denial and carries on — the run (or
+    // worse, a record) would absorb the impossible click silently. So the
+    // callback answers `cancelled` (a well-defined path for the agent),
+    // captures the error here, and the step loop fails the run on it.
+    let scriptError: Error | undefined
     const makeClient = (_agent: AcpAgent): Client => ({
       sessionUpdate(params: SessionNotification): Promise<void> {
         for (let i = updateWaiters.length - 1; i >= 0; i--) {
           const waiter = updateWaiters[i]
-          if (waiter !== undefined && waiter.match(params.update)) {
+          // The index is always in-bounds (i only decreases; splice removes at
+          // i, so lower entries stay valid); the guard satisfies
+          // noUncheckedIndexedAccess.
+          /* v8 ignore next 1 -- unreachable in-bounds guard, see above */
+          if (waiter === undefined) continue
+          if (waiter.match(params.update)) {
             updateWaiters.splice(i, 1)
             waiter.resolve()
           }
         }
         return Promise.resolve()
       },
-      requestPermission(_params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-        return Promise.resolve({ outcome: { outcome: 'cancelled' } })
+      requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+        const answer = permissionQueue.shift()
+        if (answer === undefined) return Promise.resolve({ outcome: { outcome: 'cancelled' } })
+        const option = params.options.find(o => o.kind === answer.kind)
+        if (option === undefined) {
+          // The scenario scripted a click the agent never offered — a scenario
+          // bug. Captured (last one wins; same bug class either way) and
+          // answered `cancelled`; the step loop rejects the run on it.
+          scriptError = new Error(
+            `snapshot-harness: scripted permission answer ${answer.kind} not among `
+            + `the offered options [${params.options.map(o => o.kind).join(', ')}]`,
+          )
+          return Promise.resolve({ outcome: { outcome: 'cancelled' } })
+        }
+        return Promise.resolve({ outcome: { outcome: 'selected', optionId: option.optionId } })
       },
     })
     const client = new ClientSideConnection(makeClient, stream)
 
     for (const step of input.steps) {
       await runStep(client, step, cwd, waitForUpdate, () => sessionId, (id) => { sessionId = id })
+      // A permission exchange happens while a step's request is in flight, so
+      // by the time the step settles any script bug it exposed is captured —
+      // fail the run HERE, as a harness error, rather than hoping the agent's
+      // reaction to the answer perturbs the transcript.
+      if (scriptError !== undefined) throw scriptError
     }
     // Done driving: close stdin so the server disposes gracefully (flushing
     // persistence) and exits. Then await exit so the harvested log is complete.
@@ -302,9 +382,9 @@ async function runStep(
       // its own). To pin frame order deterministically, wait until the client
       // has OBSERVED the hang's streamed agent_message_chunk before cancelling —
       // so those update frames always precede the cancelled prompt response in
-      // the transcript (without this, the late chunk and the response race; see
-      // the Codex review of commit 5). Then cancel and await the prompt, which
-      // the bridge settles as `cancelled` once the abort propagates.
+      // the transcript (without this, the late chunk and the response race).
+      // Then cancel and await the prompt, which the bridge settles as
+      // `cancelled` once the abort propagates.
       const promptDone = client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
       await waitForUpdate(u => u.sessionUpdate === 'agent_message_chunk')
       await client.cancel({ sessionId })
@@ -324,6 +404,10 @@ async function runStep(
 
 /** Resolve once the child process exits (any code/signal). */
 function waitForExit(child: ChildProcessWithoutNullStreams): Promise<void> {
+  // Race guard: both call sites run within one synchronous frame of
+  // stdin.end()/kill(), so the exit event cannot have been delivered yet;
+  // kept for any future caller that awaits in between.
+  /* v8 ignore next 1 -- unreachable race guard, see above */
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
   return new Promise<void>(resolve => child.once('exit', () => { resolve() }))
 }
@@ -335,8 +419,8 @@ function waitForExit(child: ChildProcessWithoutNullStreams): Promise<void> {
  *
  * The JSONL backend lays sessions out as `<root>/<cwd-bucket>/<encoded-id>.jsonl`
  * (one bucket per cwd), so a parent and its same-cwd in-process child land in
- * the SAME bucket — collecting all files across all buckets catches both (the
- * old first-match short-circuit silently dropped the child). Returns `[]` if no
+ * the SAME bucket — collecting all files across all buckets catches both (a
+ * first-match short-circuit would silently drop the child). Returns `[]` if no
  * log was produced (a no-session scenario).
  */
 async function harvestSessionLogs(root: string): Promise<HarvestedLog[]> {
