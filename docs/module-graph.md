@@ -79,6 +79,9 @@ flowchart TD
     pkg_app_boot["app-boot"]
     pkg_stdio_agent["stdio-agent"]
   end
+  subgraph group_code_runtime["packages/code-runtime"]
+    pkg_code_runtime["code-runtime"]
+  end
   subgraph group_guard["packages/guard"]
     pkg_repeat_tool_guard["repeat-tool-guard"]
   end
@@ -215,6 +218,7 @@ flowchart TD
 | [`brand`](../packages/util/brand) | `util` | — |
 | [`acp-snapshot`](../packages/support/acp-snapshot) | `support` | — |
 | [`app-boot`](../packages/ui/app-boot) | `ui` | — |
+| [`code-runtime`](../packages/code-runtime/code-runtime) | `code-runtime` | — |
 | [`llm`](../packages/llm/llm) | `llm` | [`brand`](../packages/util/brand) |
 | [`bash`](../packages/bash/bash) | `bash` | [`brand`](../packages/util/brand) |
 | [`llm-deepseek`](../packages/llm/llm-deepseek) | `llm` | [`llm`](../packages/llm/llm) |
