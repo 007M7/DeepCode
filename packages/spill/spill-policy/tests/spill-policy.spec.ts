@@ -82,6 +82,16 @@ describe('disabled mode', () => {
   })
 })
 
+describe('config validation', () => {
+  it('rejects a negative maxInlineBytes at load', async () => {
+    await expect(setup({ maxInlineBytes: -1 })).rejects.toThrow(/non-negative integer/)
+  })
+
+  it('rejects a fractional maxInlineBytes at load', async () => {
+    await expect(setup({ maxInlineBytes: 1.5 })).rejects.toThrow(/non-negative integer/)
+  })
+})
+
 describe('oversized plain-text replacement', () => {
   it('spills the full text and replaces the result with a preview + path', async () => {
     const { ctx, spill } = await setup({ maxInlineBytes: 20 })

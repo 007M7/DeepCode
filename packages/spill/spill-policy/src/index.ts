@@ -101,6 +101,12 @@ export function apply(ctx: Context, config: Config): void {
   const maxInlineBytes = config.maxInlineBytes
   // Omitted ⇒ no automatic spill policy: register nothing at all.
   if (maxInlineBytes === undefined) return
+  // Validate at LOAD, not per call: a negative/fractional cap would reach
+  // TextRetainer's assertBudget and throw, turning every oversized-result call
+  // into an isError. A bad config must fail the deployment, not the tool.
+  if (!Number.isInteger(maxInlineBytes) || maxInlineBytes < 0) {
+    throw new Error(`spill-policy: maxInlineBytes must be a non-negative integer (got ${maxInlineBytes})`)
+  }
 
   ctx.on('tools/post-execute', async (exec, result, next): Promise<PostToolDecision> => {
     // Delegate first so a downstream listener (e.g. a hook) settles the result;
