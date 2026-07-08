@@ -175,8 +175,8 @@ export interface GenerateOptions {
   /**
    * Ordered conversation messages, exactly as the provider sees them (after
    * the `system` slot). A loop-built request assembles them as
-   * `EpochHeader.messagePrefix` + the derived history + `messageSuffix`
-   * (dsh-agent-loop); a hand-built one-shot passes any list.
+   * `EpochHeader.messagePrefix` + the derived history (dsh-agent-loop); a
+   * hand-built one-shot passes any list.
    */
   messages: Message[]
   /** System prompt text (adapters map to the provider's system slot). */

@@ -59,10 +59,10 @@ forever:
       boundary = session.deriveMessages()   ⟵ reconstruction boundary: same sync frame,
       session('step/start')                     strictly before step/start
       config = waterfall agent/request       ⟵ frozen seed; return a replacement to switch
-      reqMsgs = waterfall agent/request-advice  ⟵ request-only before/after messages; recorded
-                                                on the header, never session history
+      prefix ??= waterfall agent/session-prefix   ⟵ once per instance (first request): frozen
+                                                session prefix; on the header, never history
       session('request/header'[-delta])      ⟵ the header event this request owes the log
-      stream llm.stream(freeze({header..., messages: before+boundary+after})) → session('assistant/chunk')
+      stream llm.stream(freeze({header..., messages: prefix+boundary})) → session('assistant/chunk')
       message = waterfall agent/step-result
       session('assistant/message')
       each tool-call: session('tool/call')
@@ -86,7 +86,7 @@ Cancellation: `agent.cancel()` is the single public stop primitive — it clears
 ### What is NOT here
 
 Everything that goes beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy:
-- Hooks: `agent/session-start`, `agent/prompt-submit`, `agent/pre-step`, `agent/request`, `agent/request-advice`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation`
+- Hooks: `agent/session-start`, `agent/prompt-submit`, `agent/pre-step`, `agent/request`, `agent/session-prefix`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation`
 - Compaction: `agent/pre-step`
 - Sandbox, permission, plan mode: `tools/pre-execute` (deny/ask gate), `tools/post-execute`
 - Sub-agents: implemented outside the loop as `ctx.subagents` providers; in-process providers use `ctx.agents.create()` and owned `AgentHandle` teardown, while child streaming/progress and background/poll collection remain deferred.

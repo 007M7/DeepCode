@@ -38,7 +38,7 @@ Events are the harness extension API. Each service owns the vocabulary for the b
 
 ### Event Domains
 
-Use the event domain to decide where new behavior belongs:
+Pick the event domain for new behavior:
 
 - **Session events** are durable, replayable facts. Turn and step boundaries, user input, assistant output, tool calls, tool results, steering, compaction records, and tool-owned durable facts append to the session log and flow through `session/event`.
 - **Agent events** are live runtime surfaces. They carry the live `Agent` handle for status, diagnostics, prompt admission, call-config shaping, result validation, and continuation policy.
@@ -46,7 +46,7 @@ Use the event domain to decide where new behavior belongs:
 
 ### Interception Semantics
 
-Waterfall events behave like around-middleware: a listener delegates by calling `next()` and vetoes or takes over by returning without it. Full rule: [Cordis waterfall semantics](cordis-primer.md#cordis-waterfall-semantics).
+Waterfall events behave like around-middleware: a listener delegates by calling `next()`; returning without it vetoes or takes over. Full rule: [Cordis waterfall semantics](cordis-primer.md#cordis-waterfall-semantics).
 
 ## Default Loop Lifecycle
 
@@ -72,7 +72,7 @@ forever:
       agent/pre-step
       'step/start'
       snapshot the derived messages (the reconstruction boundary)
-      agent/request (config only) -> agent/request-advice -> log request/header -> llm/stream (frozen)
+      agent/request (config only) -> agent/session-prefix (first request) -> log request/header -> llm/stream (frozen)
         'assistant/chunk'
       agent/step-result
       'assistant/message'
@@ -108,7 +108,7 @@ Every session event is turn-enclosed. Reloading a crashed session preserves the 
 
 The session log is the source of truth. `deriveMessages()` projects session events into the `Message[]` sent to the model; raw `assistant/chunk` events stay in the log for replay and UI fidelity. Replay, fork, resume, transcript rendering, telemetry, and persistence all derive from the same event stream.
 
-**Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start` framed by the header's request-only `messagePrefix`/`messageSuffix`, headers by folding `request/header` — and dev invariants assert this ([reconstructability RFC](rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)).
+**Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start` fronted by the header's session prefix, headers by folding `request/header` — and dev invariants assert this ([reconstructability RFC](rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
 Durability is a plugin concern. Persistence backends buffer synchronous `session/event` notifications and the loop awaits a turn-end checkpoint before moving on. The `SessionPersistence` seam stores `SessionEvent` directly, with metadata in `SessionHeader`; JSONL and SQLite share one contract suite.
 
@@ -141,7 +141,7 @@ New behavior should attach to a documented seam; changing the shipped loop requi
 | Add command execution | implement and register a `ctx.bash` backend |
 | Add filesystem access or policy | implement a `ctx.fs` provider or listen on `fs/*` policy events |
 | Intercept prompts, requests, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` waterfall |
-| Add per-request context that must not become history | contribute request-only messages on `agent/request-advice`; logged on the request header |
+| Add a session-stable request prefix outside history | compose it on `agent/session-prefix`, once per loop instance; logged on the request header |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
 | Add durable session state | add a `SessionEventMap` member and render/replay from the log |
 | Fork a live session | use `ctx.sessions.fork(source, boundary?, childSessionId?)` |

@@ -10,7 +10,7 @@
 import type { Context } from 'cordis'
 import type { FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
 import { BlockAssembler, HarnessError, deepFreeze } from '@deepseek-ai/dsh-llm'
-import type { ContinuationDecision, HookContext, PromptDecision, RequestAdvice } from '@deepseek-ai/dsh-agent'
+import type { ContinuationDecision, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { createTransmissionLog, recordRequestHeader } from './request-log.ts'
@@ -161,11 +161,12 @@ export interface LoopHandle {
  *       boundary = session.deriveMessages()           ⟵ the reconstruction boundary: snapshot in the
  *       session('step/start')                            same sync frame, strictly before step/start
  *       config = waterfall agent/request(config)      ⟵ frozen seed; a returned replacement switches
- *       advice = waterfall agent/request-advice       ⟵ request-only before/after advice; logged on
- *                                                        the header, never session history
+ *       prefix ??= waterfall agent/session-prefix     ⟵ once per loop instance (first request):
+ *                                                        frozen session prefix; logged on the header,
+ *                                                        never session history
  *       session('request/header'|'request/header-delta')  ⟵ the header event this request owes the
  *                                                        log (initial/resume anchor, delta, fallback)
- *       req = freeze({header..., messages: before+boundary+after, sessionId, signal})
+ *       req = freeze({header..., messages: prefix+boundary, sessionId, signal})
  *       stream ctx.llm.stream(req)                    ⟵ waterfall llm/stream (raw chunks, frozen req)
  *         session('assistant/chunk')
  *       msg = waterfall agent/step-result             ⟵ BEFORE the log append, so the
@@ -676,8 +677,9 @@ function drainSteering(agent: ReactLoopAgent, turn: number): boolean {
 }
 
 /** One step: build the request from the boundary snapshot + the step's
- * header → collect request-only messages → log the header event the request
- * owes → stream model → record → execute tools. The caller assembles the
+ * header → compose the session prefix if this instance has none yet → log
+ * the header event the request owes → stream model → record → execute
+ * tools. The caller assembles the
  * system prompt, fires the `agent/pre-step` seam, snapshots the derivation,
  * and opens the step BEFORE calling this, so `boundaryMessages` is exactly
  * the surface prefix at step/start and already reflects any compaction. */
@@ -720,47 +722,47 @@ async function runStep(
     throw new Error(`agent "${agent.id}" has no model: set AgentOptions.model or supply one via the agent/request waterfall`)
   }
 
-  // Collect the request-ONLY advice: `before` messages go in front of the
-  // entire boundary snapshot, `after` messages follow its last message. Advice
-  // is not session history — the header event below is its only durable
-  // record (EpochHeader.messagePrefix/messageSuffix), which keeps the request
-  // a pure function of the log. The frozen empty seed serves both the
-  // listener chain and the no-listener fallback: a contribution is a RETURNED
-  // extension of `await next()`, never an in-place push. The context gets a
-  // frozen COPY of the boundary (the request is built from the internal
-  // snapshot), so a listener cannot smuggle unlogged content into the request
-  // by mutating what it was shown. Fired AFTER the boundary snapshot, so a
-  // listener's session append lands past the boundary and joins the NEXT
-  // request — the same window rule as the `agent/request` waterfall.
-  const emptyRequestAdvice: RequestAdvice = deepFreeze({ before: [], after: [] })
-  const requestAdviceBoundary = deepFreeze([...boundaryMessages])
-  const requestAdvice = await ctx.waterfall(
-    'agent/request-advice', agent, turn, step, emptyRequestAdvice,
-    { system, assembly, boundaryMessages: requestAdviceBoundary, signal },
-    () => Promise.resolve(emptyRequestAdvice),
-  )
+  // Compose the session prefix ONCE per loop instance, lazily on its first
+  // request-building step: request-only messages placed in front of the
+  // ENTIRE derived history on every request this instance sends. The result
+  // is deep-cloned (decoupled from listener-held references), deep-frozen,
+  // and cached on the transmission bookkeeping, so reuse is structural — the
+  // prefix cannot change mid-session and the provider prefix cache holds by
+  // construction (resume = a new instance = a recompose, anchored by its
+  // 'resume' snapshot). The prefix is not session history — the header event
+  // below is its only durable record (EpochHeader.messagePrefix), which
+  // keeps the request a pure function of the log. The frozen empty seed
+  // serves both the listener chain and the no-listener fallback: a
+  // contribution is a RETURNED extension of `await next()`, never an
+  // in-place push.
+  if (transmission.sessionPrefix === undefined) {
+    const emptyPrefix: Message[] = deepFreeze([])
+    transmission.sessionPrefix = deepFreeze(structuredClone(await ctx.waterfall(
+      'agent/session-prefix', agent, emptyPrefix, signal,
+      () => Promise.resolve(emptyPrefix),
+    )))
+  }
+  const sessionPrefix = transmission.sessionPrefix
 
   // The request header (the log's request/header* vocabulary): canonical form,
   // recorded before dispatch so the log always explains the request —
-  // including the request-only advice, which no other event carries.
+  // including the session prefix, which no other event carries.
   const header = canonicalHeader({
     config,
     ...system ? { system } : {},
     ...assembly.tools.length > 0 ? { tools: assembly.tools } : {},
-    ...requestAdvice.before.length > 0 ? { messagePrefix: requestAdvice.before } : {},
-    ...requestAdvice.after.length > 0 ? { messageSuffix: requestAdvice.after } : {},
+    ...sessionPrefix.length > 0 ? { messagePrefix: sessionPrefix } : {},
   })
   recordRequestHeader(session, transmission, header)
 
   // Build and freeze: the request is a pure function of (boundary snapshot,
   // logged header) — llm/stream listeners and adapters read it, mutation
   // throws. sessionId + frozen is the loop-built marker the dev invariant
-  // keys on. Message order: header.messagePrefix, then the boundary snapshot,
-  // then header.messageSuffix — the reconstruction equation the invariant
-  // recomputes.
+  // keys on. Message order: header.messagePrefix, then the boundary
+  // snapshot — the reconstruction equation the invariant recomputes.
   const request: GenerateOptions = deepFreeze({
     model: header.config.model,
-    messages: [...header.messagePrefix ?? [], ...boundaryMessages, ...header.messageSuffix ?? []],
+    messages: [...header.messagePrefix ?? [], ...boundaryMessages],
     ...header.system !== undefined ? { system: header.system } : {},
     ...header.tools !== undefined ? { tools: header.tools } : {},
     ...header.config.temperature !== undefined ? { temperature: header.config.temperature } : {},

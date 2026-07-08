@@ -107,38 +107,37 @@ describe('diffHeader / applyHeaderDelta', () => {
   })
 })
 
-describe('request-only messages (messagePrefix / messageSuffix)', () => {
-  it('canonicalHeader normalizes empty arrays to absent fields', () => {
-    expect(canonicalHeader({ config: CONFIG, messagePrefix: [], messageSuffix: [] })).toEqual({ config: CONFIG })
-    const full = canonicalHeader({ config: CONFIG, messagePrefix: [msg('p')], messageSuffix: [msg('s')] })
+describe('the session prefix (messagePrefix)', () => {
+  it('canonicalHeader normalizes an empty prefix to an absent field', () => {
+    expect(canonicalHeader({ config: CONFIG, messagePrefix: [] })).toEqual({ config: CONFIG })
+    const full = canonicalHeader({ config: CONFIG, messagePrefix: [msg('p')] })
     expect(full.messagePrefix).toEqual([msg('p')])
-    expect(full.messageSuffix).toEqual([msg('s')])
   })
 
   it('headerEquals treats absence and empty as one representation, content differences as unequal', () => {
     expect(headerEquals(canonicalHeader({ config: CONFIG }), { config: CONFIG, messagePrefix: [] })).toBe(true)
     expect(headerEquals({ config: CONFIG, messagePrefix: [msg('a')] }, { config: CONFIG, messagePrefix: [msg('b')] })).toBe(false)
-    expect(headerEquals({ config: CONFIG, messageSuffix: [msg('a')] }, { config: CONFIG })).toBe(false)
+    expect(headerEquals({ config: CONFIG, messagePrefix: [msg('a')] }, { config: CONFIG })).toBe(false)
   })
 
-  it('replaces a changed prefix whole and leaves an untouched suffix alone', () => {
-    const prev = canonicalHeader({ config: CONFIG, messagePrefix: [msg('old')], messageSuffix: [msg('keep')] })
-    const next = canonicalHeader({ config: CONFIG, messagePrefix: [msg('new'), msg('more')], messageSuffix: [msg('keep')] })
+  it('replaces a changed prefix whole and leaves untouched parts alone', () => {
+    const prev = canonicalHeader({ config: CONFIG, system: 'keep', messagePrefix: [msg('old')] })
+    const next = canonicalHeader({ config: CONFIG, system: 'keep', messagePrefix: [msg('new'), msg('more')] })
     const delta = roundTrip(prev, next)
     expect(delta).toEqual({ messagePrefix: [msg('new'), msg('more')] })
   })
 
-  it('round-trips framing gained from a bare header and lost back to one (empty array encodes absence)', () => {
+  it('round-trips a prefix gained from a bare header and lost back to one (empty array encodes absence)', () => {
     const none = canonicalHeader({ config: CONFIG })
-    const some = canonicalHeader({ config: CONFIG, messagePrefix: [msg('p')], messageSuffix: [msg('s')] })
+    const some = canonicalHeader({ config: CONFIG, messagePrefix: [msg('p')] })
     const gained = roundTrip(none, some)
-    expect(gained).toEqual({ messagePrefix: [msg('p')], messageSuffix: [msg('s')] })
+    expect(gained).toEqual({ messagePrefix: [msg('p')] })
     const lost = roundTrip(some, none)
-    expect(lost).toEqual({ messagePrefix: [], messageSuffix: [] })
+    expect(lost).toEqual({ messagePrefix: [] })
   })
 
-  it('folds framing deltas over the log like any other header amendment', () => {
-    const session = new Session(SessionId('fold-framing'))
+  it('folds prefix deltas over the log like any other header amendment', () => {
+    const session = new Session(SessionId('fold-prefix'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     const first = canonicalHeader({ config: CONFIG, messagePrefix: [msg('catalog v1')] })
     session.append('request/header', { header: first, reason: 'initial' })

@@ -185,14 +185,13 @@ export interface TodoItem {
 /**
  * The request header: everything about an LLM request besides its derived
  * message history — the call configuration plus the rendered system prompt,
- * tool schemas, and any request-only messages. Logged session state (the
+ * tool schemas, and the session prefix. Logged session state (the
  * reconstructability RFC): a
  * {@link SessionEventMap} `request/header` snapshot installs one, a
  * `request/header-delta` amends it, and folding those events over the log
  * (`foldRequestHeader`) reconstructs the header any request was built under.
- * Canonical form: an empty system prompt, an empty tool list, and empty
- * request-only message arrays are ABSENT fields, matching how requests are
- * built.
+ * Canonical form: an empty system prompt, an empty tool list, and an empty
+ * prefix are ABSENT fields, matching how requests are built.
  */
 export interface EpochHeader {
   /** The conversation's call configuration (model + sampling scalars). */
@@ -202,14 +201,13 @@ export interface EpochHeader {
   /** Assembled tool schemas; absent for a tool-less request. */
   tools?: ToolSchema[]
   /**
-   * Request-only messages sent BEFORE the derived history (the
-   * `agent/request-advice` waterfall's `before` contributions). Not session
-   * history — `deriveMessages()` never returns them — so the header is their
-   * only durable record; absent when the request carried none.
+   * The session prefix: request-only messages sent BEFORE the entire derived
+   * history (the `agent/session-prefix` waterfall's product, composed once
+   * per loop instance and reused for every request it sends). Not session
+   * history — `deriveMessages()` never returns it — so the header is its
+   * only durable record; absent when the instance composed none.
    */
   messagePrefix?: Message[]
-  /** Request-only messages sent AFTER the derived history; absent when none. */
-  messageSuffix?: Message[]
 }
 
 /**
@@ -369,9 +367,11 @@ export interface SessionEventMap {
    * Amendment to the folded {@link EpochHeader}: at least one of a
    * {@link SystemDelta}, a {@link ToolsDelta}, a whole replacement
    * {@link LlmCallConfig} (four scalars — not worth diffing), or a whole
-   * replacement request-only message array (`messagePrefix`/`messageSuffix` —
-   * small advisory content, replaced whole; an EMPTY array encodes the
-   * transition to "none", mirroring the canonical form's absent field).
+   * replacement session prefix (`messagePrefix` — small advisory content,
+   * replaced whole; an EMPTY array encodes the transition to "none",
+   * mirroring the canonical form's absent field — the loop never produces
+   * one in practice: the prefix is composed once per instance and anchored
+   * by that instance's snapshot, so this arm exists for codec totality).
    * Appended by the
    * loop inside the step, before dispatch, when the header for this request
    * differs from the fold of the log so far; the writer verifies
@@ -379,7 +379,7 @@ export interface SessionEventMap {
    * falls back to a `'fallback'` `request/header` snapshot when it cannot, so
    * a logged delta ALWAYS round-trips. NOT a {@link SurfaceEventType}.
    */
-  'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig; messagePrefix?: Message[]; messageSuffix?: Message[] }
+  'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig; messagePrefix?: Message[] }
 }
 
 /** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */

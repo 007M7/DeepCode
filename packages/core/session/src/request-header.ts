@@ -22,16 +22,14 @@ type HeaderDelta = {
   tools?: ToolsDelta
   config?: LlmCallConfig
   messagePrefix?: Message[]
-  messageSuffix?: Message[]
 }
 
 /**
  * Normalize a header to canonical form: an empty system prompt, an empty
- * tool list, and empty request-only message arrays become ABSENT fields,
- * matching how requests are built (the request-build spreads skip empty
- * values). Diff, fold, and comparison all operate on canonical headers, so
- * "no system prompt" (and "no request-only messages") has exactly one
- * representation.
+ * tool list, and an empty session prefix become ABSENT fields, matching how
+ * requests are built (the request-build spreads skip empty values). Diff,
+ * fold, and comparison all operate on canonical headers, so "no system
+ * prompt" (and "no session prefix") has exactly one representation.
  * @param header - the header to normalize (not mutated).
  * @returns the canonical header.
  */
@@ -41,7 +39,6 @@ export function canonicalHeader(header: EpochHeader): EpochHeader {
     ...header.system !== undefined && header.system.length > 0 ? { system: header.system } : {},
     ...header.tools !== undefined && header.tools.length > 0 ? { tools: header.tools } : {},
     ...header.messagePrefix !== undefined && header.messagePrefix.length > 0 ? { messagePrefix: header.messagePrefix } : {},
-    ...header.messageSuffix !== undefined && header.messageSuffix.length > 0 ? { messageSuffix: header.messageSuffix } : {},
   }
 }
 
@@ -121,22 +118,22 @@ function applyTools(prev: readonly ToolSchema[], delta: ToolsDelta): ToolSchema[
  * writer's round-trip guard runs (`applyHeaderDelta(prev, delta)` must equal
  * the intended header) and the loop runs to skip logging an unchanged header.
  * Tools compare per-schema IN ORDER (canonical JSON), so a pure reordering is
- * correctly unequal; request-only message arrays compare as canonical JSON
- * (both sides come from the same build path, so key order matches when the
- * values do).
+ * correctly unequal; the session prefix compares as canonical JSON (both
+ * sides come from the same build path, so key order matches when the values
+ * do).
  * @param a - one canonical header.
  * @param b - the other.
- * @returns whether config, system, tools (in order), and request-only messages all match.
+ * @returns whether config, system, tools (in order), and the session prefix all match.
  */
 export function headerEquals(a: EpochHeader, b: EpochHeader): boolean {
   if (!callConfigEquals(a.config, b.config) || a.system !== b.system) return false
-  if (!sameMessages(a.messagePrefix, b.messagePrefix) || !sameMessages(a.messageSuffix, b.messageSuffix)) return false
+  if (!sameMessages(a.messagePrefix, b.messagePrefix)) return false
   const at = a.tools ?? []
   const bt = b.tools ?? []
   return at.length === bt.length && at.every((tool, i) => sameSchema(tool, bt[i] as ToolSchema))
 }
 
-/** Canonical JSON equality over request-only message arrays; absence equals the empty array. */
+/** Canonical JSON equality over session-prefix arrays; absence equals the empty array. */
 function sameMessages(a: readonly Message[] | undefined, b: readonly Message[] | undefined): boolean {
   return JSON.stringify(a ?? []) === JSON.stringify(b ?? [])
 }
@@ -147,7 +144,7 @@ function sameMessages(a: readonly Message[] | undefined, b: readonly Message[] |
  * ({@link applyHeaderDelta} on `prev` deep-equals `next`) before logging it —
  * the encoding cannot express every change (a pure tool reordering) — and
  * fall back to a full `request/header` snapshot when the check fails.
- * Request-only messages are replaced whole (small advisory content, not worth
+ * The session prefix is replaced whole (small advisory content, not worth
  * diffing); an empty replacement array encodes the transition to "none".
  * @param prev - the folded header the log currently implies.
  * @param next - the header the next request will actually use.
@@ -161,7 +158,6 @@ export function diffHeader(prev: EpochHeader, next: EpochHeader): HeaderDelta | 
   if (JSON.stringify(prevTools) !== JSON.stringify(nextTools)) delta.tools = diffTools(prevTools, nextTools)
   if (!callConfigEquals(prev.config, next.config)) delta.config = next.config
   if (!sameMessages(prev.messagePrefix, next.messagePrefix)) delta.messagePrefix = next.messagePrefix ?? []
-  if (!sameMessages(prev.messageSuffix, next.messageSuffix)) delta.messageSuffix = next.messageSuffix ?? []
   return Object.keys(delta).length > 0 ? delta : undefined
 }
 
@@ -177,13 +173,11 @@ export function applyHeaderDelta(prev: EpochHeader, delta: HeaderDelta): EpochHe
   const system = delta.system !== undefined ? applySystem(prev.system, delta.system) : prev.system
   const tools = delta.tools !== undefined ? applyTools(prev.tools ?? [], delta.tools) : prev.tools
   const messagePrefix = delta.messagePrefix ?? prev.messagePrefix
-  const messageSuffix = delta.messageSuffix ?? prev.messageSuffix
   return canonicalHeader({
     config: delta.config ?? prev.config,
     ...system !== undefined ? { system } : {},
     ...tools !== undefined ? { tools } : {},
     ...messagePrefix !== undefined ? { messagePrefix } : {},
-    ...messageSuffix !== undefined ? { messageSuffix } : {},
   })
 }
 
