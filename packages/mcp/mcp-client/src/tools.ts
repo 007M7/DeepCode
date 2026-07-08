@@ -18,19 +18,24 @@ export interface ToolBridgeOptions {
 /** State for one sync generation: the current set of disposers keyed by tool name. */
 type ToolDisposers = Map<string, () => void>
 
+/** A tool fetched from the MCP server, pending registration. */
+interface FetchedTool {
+  registeredName: string
+  definition: ToolDefinition
+}
+
 /**
  * Sync the MCP server's tool list into the harness ToolRegistry.
  *
- * - Calls `client.listTools()` (paginated: drains all pages).
- * - Registers each tool as a raw `ToolDefinition`.
- * - On name conflict: logs a warning and skips that tool.
- * - Returns a disposer map; call each value to unregister.
+ * Two-phase approach: fetch all pages first (no side effects), then dispose old
+ * tools and register new ones. If fetching fails, the previous generation stays
+ * intact — no tools are lost on a transient listTools failure.
  *
  * @param client - Connected MCP Client instance used to list and call tools.
  * @param ctx - Cordis context providing the `tools` service for registration.
  * @param opts - Bridge options: tool name prefix and per-call timeout.
- * @param previous - Disposer map from a prior sync generation; all entries are
- *   disposed before re-registering.
+ * @param previous - Disposer map from a prior sync generation; disposed only
+ *   after all pages are successfully fetched.
  * @returns A map of registered tool names to their unregister disposers.
  */
 export async function syncTools(
@@ -39,37 +44,38 @@ export async function syncTools(
   opts: ToolBridgeOptions,
   previous: ToolDisposers,
 ): Promise<ToolDisposers> {
-  for (const dispose of previous.values()) dispose()
-
-  const disposers: ToolDisposers = new Map()
-
-  try {
-    let cursor: string | undefined
-    do {
-      const response = await client.listTools(cursor ? { cursor } : undefined)
-      for (const tool of response.tools) {
-        const registeredName = opts.toolPrefix + tool.name
-        const definition: ToolDefinition = {
+  // Phase 1: fetch all tools (no mutations).
+  const fetched: FetchedTool[] = []
+  let cursor: string | undefined
+  do {
+    const response = await client.listTools(cursor ? { cursor } : undefined)
+    for (const tool of response.tools) {
+      const registeredName = opts.toolPrefix + tool.name
+      fetched.push({
+        registeredName,
+        definition: {
           name: registeredName,
           description: tool.description ?? '',
           parameters: tool.inputSchema,
           execute: createExecutor(client, tool.name, opts),
-        }
-        try {
-          const dispose = ctx.tools.register(definition)
-          disposers.set(registeredName, dispose)
-        } catch {
-          // Name conflict — another tool with this name is already registered.
-          ctx.logger.warn(`mcp-client: skipping tool "${registeredName}" (name conflict)`)
-        }
-      }
-      cursor = response.nextCursor
-    } while (cursor)
-  } catch (error: unknown) {
-    // Partial failure (e.g. a later page of listTools failed): unregister any
-    // tools already registered in this sync to avoid orphaning them.
-    for (const dispose of disposers.values()) dispose()
-    throw error
+        },
+      })
+    }
+    cursor = response.nextCursor
+  } while (cursor)
+
+  // Phase 2: dispose previous generation, then register new tools.
+  // If we reach here, all pages were fetched successfully.
+  for (const dispose of previous.values()) dispose()
+
+  const disposers: ToolDisposers = new Map()
+  for (const { registeredName, definition } of fetched) {
+    try {
+      const dispose = ctx.tools.register(definition)
+      disposers.set(registeredName, dispose)
+    } catch {
+      ctx.logger.warn(`mcp-client: skipping tool "${registeredName}" (name conflict)`)
+    }
   }
 
   return disposers
@@ -129,14 +135,21 @@ function createExecutor(
     // with optional fallbacks).
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const content: McpContentBlock[] = result.content
-    const text = extractText(content, mcpToolName)
+    let text = extractText(content, mcpToolName)
+
+    // MCP tools with outputSchema may return structuredContent with an empty
+    // content array. Surface the structured payload as JSON so the model sees
+    // the actual result.
+    if (!text && 'structuredContent' in result && result.structuredContent != null) {
+      text = JSON.stringify(result.structuredContent)
+    }
 
     // MCP isError → throw so ToolRegistry produces an isError result for the model.
     if ('isError' in result && result.isError === true) {
-      throw new Error(text)
+      throw new Error(text || 'MCP tool error')
     }
 
-    return [{ type: 'text', text }]
+    return [{ type: 'text', text: text || `(${mcpToolName} returned no content)` }]
   }
 }
 
@@ -147,8 +160,11 @@ function createExecutor(
  *
  * Defensive: fields that the MCP spec declares required (mimeType, text) are
  * guarded with fallbacks because this is a network trust boundary.
+ *
+ * Returns empty string when no text parts were extracted (caller decides
+ * fallback — e.g. structuredContent).
  */
-function extractText(mcpContent: McpContentBlock[], toolName: string): string {
+function extractText(mcpContent: McpContentBlock[], _toolName: string): string {
   const parts: string[] = []
 
   for (const block of mcpContent) {
@@ -171,5 +187,5 @@ function extractText(mcpContent: McpContentBlock[], toolName: string): string {
     }
   }
 
-  return parts.join('\n') || `(${toolName} returned no text content)`
+  return parts.join('\n')
 }

@@ -326,7 +326,7 @@ describe('tool execution edge cases', () => {
     await syncTools(client as never, ctx, defaultOpts, new Map())
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'notext', arguments: {} })
 
-    expect(result.content[0]).toEqual({ type: 'text', text: '(notext returned no text content)' })
+    expect(result.content[0]).toEqual({ type: 'text', text: '(notext returned no content)' })
   })
 
   it('handles empty content array', async () => {
@@ -338,9 +338,35 @@ describe('tool execution edge cases', () => {
     await syncTools(client as never, ctx, defaultOpts, new Map())
     const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'empty_tool', arguments: {} })
 
-    expect(result.content[0]).toEqual({ type: 'text', text: '(empty_tool returned no text content)' })
+    expect(result.content[0]).toEqual({ type: 'text', text: '(empty_tool returned no content)' })
   })
 
+
+  it('uses fallback error message when isError with empty content', async () => {
+    const client = createMockClient(
+      [{ name: 'empty_err', inputSchema: { type: 'object' } }],
+      { content: [], isError: true },
+    )
+
+    await syncTools(client as never, ctx, defaultOpts, new Map())
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'empty_err', arguments: {} })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toEqual({ type: 'text', text: 'Error: MCP tool error' })
+  })
+
+  it('surfaces structuredContent when content array is empty', async () => {
+    const client = createMockClient(
+      [{ name: 'structured', inputSchema: { type: 'object' } }],
+    )
+    client.callTool.mockResolvedValue({ content: [], structuredContent: { key: 'value', count: 42 } })
+
+    await syncTools(client as never, ctx, defaultOpts, new Map())
+    const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'structured', arguments: {} })
+
+    expect(result.isError).toBe(false)
+    expect(result.content[0]).toEqual({ type: 'text', text: '{"key":"value","count":42}' })
+  })
 
   it('handles legacy toolResult with undefined value', async () => {
     const client = createMockClient(

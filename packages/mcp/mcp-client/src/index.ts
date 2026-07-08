@@ -73,14 +73,14 @@ export const Config = z.union([
     env: z.dict(String).default({}),
     cwd: z.string().default(''),
     toolPrefix: z.string().default(''),
-    toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
+    toolCallTimeoutMs: z.natural().min(1).default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
   }),
   z.object({
     transport: z.const('streamable-http'),
     url: z.string().required(),
     headers: z.dict(String).default({}),
     toolPrefix: z.string().default(''),
-    toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
+    toolCallTimeoutMs: z.natural().min(1).default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
   }),
 ]) as unknown as z<Config>
 
