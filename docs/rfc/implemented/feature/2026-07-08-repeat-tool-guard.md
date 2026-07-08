@@ -29,7 +29,7 @@ Two deliberate rules, both documented in [the package README](../../../../packag
 
 ### Reminder delivery
 
-Reminders ride `additionalContext` (source `{kind: 'plugin', plugin: 'repeat-tool-guard'}` — the label is load-bearing per `HookContext`), never a `content` replacement: the `tool/result` event stays the tool's own output for audit, and the loop appends buffered context as `context/message`(s) after the step's results, which the session renders as the tagged synthetic-user envelope and derived history replays. Thresholds escalate: the first configured threshold gets a short "you are repeating yourself, analyze the previous result" nudge; each later threshold gets the detailed form naming the tool, the repeat count, and the canonical arguments, and stating that the calls made no progress. The pi original hardcodes the gentle text to the literal count 3; the guard keys it to `thresholds[0]`, fixing that bug in the port. When the downstream decision already carries `additionalContext` (a hook bridge on the same call), the guard concatenates content under its own `source` — a `HookContext` holds one `MessageSource`, and `source.kind` is what framing depends on.
+Reminders ride `additionalContext` (source `{kind: 'plugin', plugin: 'repeat-tool-guard'}` — the label is load-bearing per `HookContext`), never a `content` replacement: the `tool/result` event stays the tool's own output for audit, and the loop appends buffered context as `context/message`(s) after the step's results, which the session renders as the tagged synthetic-user envelope and derived history replays. Thresholds escalate: the first configured threshold gets a short "you are repeating yourself, analyze the previous result" nudge; each later threshold gets the detailed form naming the tool, the repeat count, and the canonical arguments (head-truncated at `argumentsPreviewChars`, default 500 — a looping `write`-sized payload must not ride into the next request unbounded; the chain key always compares the full canonical string), and stating that the calls made no progress. The pi original hardcodes the gentle text to the literal count 3; the guard keys it to `thresholds[0]`, fixing that bug in the port. When the downstream decision already carries `additionalContext` (a hook bridge on the same call), the guard concatenates content under its own `source` — a `HookContext` holds one `MessageSource`, and `source.kind` is what framing depends on.
 
 ### Config
 
@@ -37,9 +37,10 @@ Reminders ride `additionalContext` (source `{kind: 'plugin', plugin: 'repeat-too
 - id: repeat-tool-guard
   name: '@deepseek-ai/dsh-repeat-tool-guard'
   config:
-    thresholds: [3, 5, 8]   # default; consecutive counts that trigger a reminder
-    include: []             # tool-name patterns to track; empty ⇒ all tools
-    exclude: [todo_write]   # tool-name patterns transparent to the chain
+    thresholds: [3, 5, 8]        # default; consecutive counts that trigger a reminder
+    include: []                  # tool-name patterns to track; empty ⇒ all tools
+    exclude: [todo_write]        # tool-name patterns transparent to the chain
+    argumentsPreviewChars: 500   # default; cap on arguments quoted in the detailed reminder
 ```
 
 `thresholds` is validated at load and throws on an empty list, a non-integer, a value below 2, or a duplicate — misconfiguration fails loud, replacing the pi original's silent fall-back to defaults. `include`/`exclude` entries support `*` wildcards. Patterns are predicates over whatever tools exist at call time, not references to a registry entry, so an entry matching no currently registered tool is NOT an error — unlike `toolOrder`'s referent check, `exclude: [mcp_*]` must stay valid in a deployment that loads no MCP tools.

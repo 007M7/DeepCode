@@ -8,12 +8,13 @@ An advisory loop-breaker, not a model-facing tool: it never appears in the tool 
 - id: repeat-tool-guard
   name: '@deepseek-ai/dsh-repeat-tool-guard'
   config:
-    thresholds: [3, 5, 8]   # default; consecutive counts that trigger a reminder
-    include: []             # tool-name patterns to track; empty ⇒ all tools
-    exclude: [todo_write]   # tool-name patterns transparent to the chain
+    thresholds: [3, 5, 8]        # default; consecutive counts that trigger a reminder
+    include: []                  # tool-name patterns to track; empty ⇒ all tools
+    exclude: [todo_write]        # tool-name patterns transparent to the chain
+    argumentsPreviewChars: 500   # default; cap on arguments quoted in the detailed reminder
 ```
 
-`thresholds` fails loud at plugin load: an empty list, a non-integer, a value below 2, or a duplicate throws, never a silent fall-back to defaults. The list is normalized to ascending order; the FIRST threshold delivers a short generic nudge, every later threshold delivers the detailed form naming the tool, the run length, and the canonical arguments.
+`thresholds` fails loud at plugin load: an empty list, a non-integer, a value below 2, or a duplicate throws, never a silent fall-back to defaults; `argumentsPreviewChars` equally rejects anything but an integer >= 1. The list is normalized to ascending order; the FIRST threshold delivers a short generic nudge, every later threshold delivers the detailed form naming the tool, the run length, and the canonical arguments — head-truncated at `argumentsPreviewChars` with an omitted-count marker, so a looping `write`/`edit` payload cannot ride into the next request unbounded (the chain key always compares the FULL canonical string; the cap bounds the reminder, never the detection).
 
 `include`/`exclude` entries support `*` wildcards and are predicates over whatever tools exist at call time, not references to registry entries — a pattern matching no currently registered tool is NOT an error (`exclude: [mcp_*]` stays valid in a deployment that loads no MCP tools), unlike `toolOrder`'s referent check.
 

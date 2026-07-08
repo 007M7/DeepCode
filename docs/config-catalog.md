@@ -372,6 +372,14 @@ export interface Config {
   include?: string[]
   /** Tool-name patterns transparent to the chain (neither count nor reset). */
   exclude?: string[]
+  /**
+   * Maximum characters of canonical arguments quoted in the DETAILED reminder
+   * (default 500). Large payloads (a `write` body, a long command) would
+   * otherwise ride into the next request unbounded — precisely in a loop
+   * scenario; the cap bounds the reminder, never the detection (the chain key
+   * always compares the FULL canonical string).
+   */
+  argumentsPreviewChars?: number
 }
 ```
 

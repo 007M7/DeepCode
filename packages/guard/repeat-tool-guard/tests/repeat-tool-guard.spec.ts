@@ -90,6 +90,28 @@ describe('threshold escalation', () => {
 })
 
 describe('chain semantics', () => {
+  it('caps the detailed reminder arguments at argumentsPreviewChars (detection still keys on the full string)', async () => {
+    const ctx = await harness({ thresholds: [2, 3], argumentsPreviewChars: 24 })
+    const bigPayload = 'x'.repeat(400)
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'probe', { body: bigPayload }),
+      toolCallResponse('c2', 'probe', { body: bigPayload }),
+      toolCallResponse('c3', 'probe', { body: bigPayload }),
+      textResponse('done'),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    agent.send([{ type: 'text', text: 'go' }])
+    await waitForIdle(ctx, agent)
+
+    const found = reminders(agent)
+    expect(found).toHaveLength(2) // gentle at 2, detailed at 3 — full-key matching survived the cap
+    const detailed = found[1]!.text
+    expect(detailed).toContain('- arguments: {"body":"xxxxxxxxxxxxxx') // 24-char head
+    expect(detailed).toContain('… (+387 more chars)')
+    expect(detailed).not.toContain(bigPayload)
+  })
+
   it('a different tracked call resets the chain', async () => {
     const ctx = await harness()
     const adapter = new MockAdapter([
@@ -368,5 +390,12 @@ describe('config validation fails loud', () => {
   it('rejects duplicate thresholds', async () => {
     const ctx = await spine()
     await expect(ctx.plugin(RepeatToolGuard, { thresholds: [3, 3] })).rejects.toThrow(/duplicates/)
+  })
+
+  it('rejects a non-positive or fractional argumentsPreviewChars', async () => {
+    const ctx = await spine()
+    await expect(ctx.plugin(RepeatToolGuard, { argumentsPreviewChars: 0 })).rejects.toThrow(/argumentsPreviewChars/)
+    const ctx2 = await spine()
+    await expect(ctx2.plugin(RepeatToolGuard, { argumentsPreviewChars: 12.5 })).rejects.toThrow(/argumentsPreviewChars/)
   })
 })

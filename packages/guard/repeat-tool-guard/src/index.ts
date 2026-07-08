@@ -59,12 +59,21 @@ export interface Config {
   include?: string[]
   /** Tool-name patterns transparent to the chain (neither count nor reset). */
   exclude?: string[]
+  /**
+   * Maximum characters of canonical arguments quoted in the DETAILED reminder
+   * (default 500). Large payloads (a `write` body, a long command) would
+   * otherwise ride into the next request unbounded — precisely in a loop
+   * scenario; the cap bounds the reminder, never the detection (the chain key
+   * always compares the FULL canonical string).
+   */
+  argumentsPreviewChars?: number
 }
 
 export const Config: z<Config> = z.object({
   thresholds: z.array(z.number()).default([3, 5, 8]),
   include: z.array(z.string()).default([]),
   exclude: z.array(z.string()).default([]),
+  argumentsPreviewChars: z.number().default(500),
 })
 
 /**
@@ -129,6 +138,16 @@ function wildcardToRegExp(pattern: string): RegExp {
 }
 
 /**
+ * Head-truncate the canonical arguments for quoting in the detailed reminder,
+ * marking how much was omitted. Bounds only the model-visible text — the
+ * chain key always uses the full canonical string.
+ */
+function previewArguments(canonical: string, cap: number): string {
+  if (canonical.length <= cap) return canonical
+  return `${canonical.slice(0, cap)}… (+${canonical.length - cap} more chars)`
+}
+
+/**
  * Validate `thresholds` per the fail-loud contract and return them sorted
  * ascending (the escalation rule reads `thresholds[0]` as the gentle tier, so
  * order is normalized here, once).
@@ -173,11 +192,15 @@ interface Chain {
  * @param config - validated {@link Config}; `thresholds` is re-checked fail-loud here.
  */
 export function apply(ctx: Context, config: Config): void {
-  // schemastery's .default() guarantees the arrays are set after validation.
+  // schemastery's .default() guarantees the fields are set after validation.
   const thresholds = validateThresholds(config.thresholds as number[])
   const thresholdSet = new Set(thresholds)
   const includePatterns = (config.include as string[]).map(wildcardToRegExp)
   const excludePatterns = (config.exclude as string[]).map(wildcardToRegExp)
+  const argumentsPreviewChars = config.argumentsPreviewChars as number
+  if (!Number.isInteger(argumentsPreviewChars) || argumentsPreviewChars < 1) {
+    throw new Error(`repeat-tool-guard: invalid argumentsPreviewChars ${argumentsPreviewChars} — must be an integer >= 1`)
+  }
 
   const chains = new Map<AgentId, Chain>()
 
@@ -206,7 +229,9 @@ export function apply(ctx: Context, config: Config): void {
     const count = chain !== undefined && chain.key === key ? chain.count + 1 : 1
     chains.set(exec.agent.id, { key, count })
     if (!thresholdSet.has(count)) return undefined
-    const text = count === thresholds[0] ? GENTLE_REMINDER : detailedReminder(exec.name, count, canonical)
+    const text = count === thresholds[0]
+      ? GENTLE_REMINDER
+      : detailedReminder(exec.name, count, previewArguments(canonical, argumentsPreviewChars))
     return { content: [{ type: 'text', text }], source: PLUGIN_SOURCE }
   }
 
