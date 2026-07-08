@@ -119,6 +119,18 @@ describe('syncTools', () => {
     expect(secondDisposers.size).toBe(1)
   })
 
+  it('cleans up already-registered tools when a later page fails', async () => {
+    const client = createMockClient([])
+    client.listTools
+      .mockResolvedValueOnce({ tools: [{ name: 'survives_not', inputSchema: { type: 'object' } }], nextCursor: 'cursor1' })
+      .mockRejectedValueOnce(new Error('page 2 network error'))
+
+    await expect(syncTools(client as never, ctx, defaultOpts, new Map())).rejects.toThrow('page 2 network error')
+
+    // The tool from page 1 was registered then cleaned up on failure.
+    expect(ctx.tools.get('survives_not')).toBeUndefined()
+  })
+
   it('drains paginated listTools responses', async () => {
     const client = createMockClient([])
     client.listTools
