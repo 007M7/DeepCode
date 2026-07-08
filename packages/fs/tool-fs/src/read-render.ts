@@ -119,6 +119,10 @@ function finish(acc: WindowAccumulator, request: ReadWindow, displayPath: string
  * path serves both. Scans for newlines with a capped line buffer (a newline-free
  * giant line is truncated, never buffered past `request.maxLineLength`),
  * enforces the byte cap, and throws `FS_NOT_FOUND` for an offset past EOF.
+ * @param chunks - decoded text chunks in file order; chunk boundaries carry no meaning.
+ * @param request - the resolved window; the caller has already applied its defaults and caps.
+ * @param displayPath - the caller-facing path used in the offset-out-of-range error.
+ * @returns the numbered window lines, the total line count seen, and the byte-cap truncation flag.
  */
 export async function buildWindow(
   chunks: AsyncIterable<string> | Iterable<string>,
@@ -156,7 +160,12 @@ export async function buildWindow(
   return finish(acc, request, displayPath)
 }
 
-/** Format a read outcome as one OpenCode-style line-numbered text block body. */
+/**
+ * Format a read outcome as one OpenCode-style line-numbered text block body.
+ * @param displayPath - the backend-resolved path rendered in the envelope's `<path>` element.
+ * @param outcome - the windowed read to render.
+ * @returns the model-facing envelope: numbered lines plus a continuation or end-of-file footer.
+ */
 export function formatReadOutput(displayPath: string, outcome: FileReadOutcome): string {
   const endLine = outcome.lines.at(-1)?.number ?? Math.max(0, outcome.offset - 1)
   let footer: string

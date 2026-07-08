@@ -40,6 +40,8 @@ export class BlockAssembler {
   /**
    * Feed one chunk. Returns the completed block when the chunk closes one
    * (an explicit `block-end`), otherwise undefined.
+   * @param chunk - the next raw chunk, in stream order.
+   * @returns the authoritative block from the first `block-end` at its index; undefined for every other chunk.
    */
   push(chunk: StreamChunk): ContentBlock | undefined {
     switch (chunk.type) {
@@ -123,20 +125,29 @@ export class BlockAssembler {
     return partial
   }
 
-  /** Assemble all blocks seen so far, in stream order. */
+  /**
+   * Assemble all blocks seen so far, in stream order.
+   * @returns one block per seen index; an open block assembles from its
+   *   accumulated deltas (an unknown block type never closed by `block-end` throws).
+   */
   blocks(): ContentBlock[] {
     return this.order.map(index => this.assemble(this.mustGet(index), index))
   }
 
+  /** Usage from the `usage` chunk; undefined until one arrives. */
   get usage(): TokenUsage | undefined {
     return this._usage
   }
 
+  /** Finish reason from the `finish` chunk; `{kind: 'stop'}` when the stream ended without one. */
   get finish(): FinishReason {
     return this._finish ?? { kind: 'stop' }
   }
 
-  /** The assembled assistant message. */
+  /**
+   * The assembled assistant message.
+   * @returns an assistant-role message over `blocks()` (same open-block assembly rules).
+   */
   message(): Message {
     return { role: 'assistant', content: this.blocks() }
   }

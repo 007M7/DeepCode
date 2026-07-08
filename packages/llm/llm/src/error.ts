@@ -18,6 +18,7 @@
  * `ErrorOptions`. `name` defaults to the subclass constructor name.
  */
 export class HarnessError extends Error {
+  /** Stable machine-routable failure class (e.g. `RATE_LIMIT`); route on this, never by parsing `message`. */
   readonly code: string
 
   constructor(message: string, code: string, options?: ErrorOptions) {
@@ -27,7 +28,11 @@ export class HarnessError extends Error {
   }
 }
 
-/** Narrow an arbitrary thrown value to a HarnessError (for `instanceof` at seams). */
+/**
+ * Narrow an arbitrary thrown value to a HarnessError (for `instanceof` at seams).
+ * @param value - the caught value (`unknown` in catch clauses).
+ * @returns true only for real instances; duck-typed or cross-realm errors do not narrow.
+ */
 export function isHarnessError(value: unknown): value is HarnessError {
   return value instanceof HarnessError
 }

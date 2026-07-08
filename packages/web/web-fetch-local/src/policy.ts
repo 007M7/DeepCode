@@ -16,6 +16,10 @@ export type FetchableKind = 'html' | 'text'
  * enforces before any network access: http(s) only, no embedded credentials,
  * bounded length. Returns the parsed `URL`. Throws {@link WebError} otherwise.
  * (SSRF / private-network blocking is deferred — see the package RFC.)
+ *
+ * @param input - the raw URL string from the fetch request.
+ * @param maxUrlLength - inclusive upper bound on `input`'s length.
+ * @returns the parsed `URL`.
  */
 export function validateFetchUrl(input: string, maxUrlLength: number): URL {
   if (input.length > maxUrlLength) {
@@ -40,6 +44,10 @@ export function validateFetchUrl(input: string, maxUrlLength: number): URL {
  * Two URLs are same-origin when scheme, hostname, and port match. A redirect
  * that crosses origins is refused so each new origin requires a fresh tool call
  * (and thus a fresh provider/permission decision).
+ *
+ * @param a - one of the two URLs to compare.
+ * @param b - the other URL to compare.
+ * @returns true when `a` and `b` share scheme, hostname, and port.
  */
 export function isSameOrigin(a: URL, b: URL): boolean {
   return a.protocol === b.protocol && a.hostname === b.hostname && a.port === b.port
@@ -49,6 +57,10 @@ export function isSameOrigin(a: URL, b: URL): boolean {
  * Classify a response `Content-Type` into a decodable body kind, or `undefined`
  * for an unsupported (e.g. binary) type. `text/html` and `application/xhtml+xml`
  * are `html`; other `text/*` plus a few structured text types are `text`.
+ *
+ * @param contentType - the raw `Content-Type` header, or `null` when the
+ *   response carries none (unsupported).
+ * @returns the decodable kind, or `undefined` for an unsupported type.
  */
 export function classifyContentType(contentType: string | null): FetchableKind | undefined {
   const mime = (contentType ?? '').replace(/;.*$/s, '').trim().toLowerCase()
@@ -63,6 +75,10 @@ export function classifyContentType(contentType: string | null): FetchableKind |
  * or `undefined` when absent. The provider feeds this label to `TextDecoder`
  * so a non-UTF-8 response is decoded with its declared encoding rather than
  * silently mangled into replacement characters.
+ *
+ * @param contentType - the raw `Content-Type` header, or `null` when the
+ *   response carries none.
+ * @returns the lower-cased charset label, or `undefined` when none is declared.
  */
 export function parseCharset(contentType: string | null): string | undefined {
   const match = /;\s*charset\s*=\s*"?([^";]+)"?/i.exec(contentType ?? '')
@@ -74,6 +90,10 @@ export function parseCharset(contentType: string | null): string | undefined {
  * none is declared. Throws {@link WebError} `WEB_UNSUPPORTED_CONTENT_TYPE` when
  * the label is present but not a charset `TextDecoder` recognizes — better to
  * fail loudly than return mojibake.
+ *
+ * @param charset - the declared charset label (from {@link parseCharset}), or
+ *   `undefined` to default to UTF-8.
+ * @returns a decoder for the declared (or defaulted) encoding.
  */
 export function decoderForCharset(charset: string | undefined): TextDecoder {
   if (charset === undefined) return new TextDecoder('utf-8')

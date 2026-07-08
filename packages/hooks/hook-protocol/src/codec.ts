@@ -75,6 +75,12 @@ function permissionDecisionOf(value: string | undefined): HookOutput['decision']
  * (`decision`/`reason`/`continue`/`stopReason`/`systemMessage`)
  * are unaffected. Omit `expectedEventName` (or pass a matching one) to apply the
  * block as-is — a caller that doesn't key by event opts out of the check.
+ *
+ * @param exitCode - the process exit code; `undefined` when the hook could not be spawned at all.
+ * @param stdout - the captured stdout stream; consulted for structured JSON only on a 0 exit.
+ * @param stderr - the captured stderr stream; becomes the blocking `reason` on exit 2.
+ * @param expectedEventName - the event the hook is firing for; omit to apply a `hookSpecificOutput` block as-is.
+ * @returns the dialect-neutral decoded outcome.
  */
 export function parseHookOutput(exitCode: number | undefined, stdout: string, stderr: string, expectedEventName?: string): HookOutput {
   const trimmedErr = stderr.trim()

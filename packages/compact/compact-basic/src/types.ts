@@ -54,6 +54,9 @@ export type ResolvedConfig = Required<BasicCompactConfig>
  * each committed summary must be smaller than the content it shadows, and
  * `compactIfNeeded` may re-compact up to `compactionRetries` extra times before
  * throwing if the surface still exceeds the threshold.
+ *
+ * @param config - the raw, unresolved backend config.
+ * @returns the validated config with `auto` and `charsPerToken` defaulted.
  */
 export function resolveConfig(config: BasicCompactConfig): ResolvedConfig {
   const resolved: ResolvedConfig = { auto: true, charsPerToken: 4, ...config }
