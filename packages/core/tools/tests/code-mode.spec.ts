@@ -431,17 +431,18 @@ describe('the run_code dispatch bridge', () => {
     expect(dispatch.resultSummary.endsWith('…')).toBe(true)
   })
 
-  it('rejects undefined, JSON-throwing, and JSON-unrepresentable binding arguments', async () => {
+  it('rejects undefined, JSON-throwing, and JSON-unrepresentable binding arguments BEFORE dispatch', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
-    registerEcho(ctx)
+    const calls = registerEcho(ctx)
+    const { agent, events } = fakeAgent()
     runtime.behavior = async (request) => {
       const echo = request.bindings[0]!.functions.echo!
       const catchMessage = (promise: Promise<unknown>) => promise.then(() => 'resolved', (error: unknown) => error instanceof Error ? error.message : String(error))
       return {
         logs: [],
         value: [
-          // undefined passes normalization untouched; the tool's own schema
-          // validation rejects it with its usual feedback.
+          // Root undefined must reject up front: the event log rejects it as
+          // data, and nothing may execute unlogged.
           await catchMessage(echo(undefined)),
           // A toJSON that throws a NON-Error propagates out of JSON.stringify.
           await catchMessage(echo({ toJSON() { throw 'raw-throw' } })),
@@ -450,11 +451,55 @@ describe('the run_code dispatch bridge', () => {
         ].join(' | '),
       }
     }
-    const result = await runCode(ctx, 'program')
+    const result = await runCode(ctx, 'program', { agent })
     const text = (result.content[0] as { text: string }).text
-    expect(text).toContain('must be an object')
+    expect(text).toContain('call the tool with an arguments object')
     expect(text).toContain('JSON-serializable: raw-throw')
     expect(text).toContain('a value JSON cannot represent')
+    // None of the three dispatched, none logged.
+    expect(calls).toEqual([])
+    expect(events.filter(event => event.type === 'tool/code-dispatch')).toEqual([])
+  })
+
+  it('logs the value the tool RECEIVED even when the tool mutates its arguments', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const { agent, events } = fakeAgent()
+    ctx.tools.register(defineTool({
+      name: 'mutator',
+      description: 'Mutates its own args object.',
+      parameters: { list: { type: 'array', required: true } },
+      execute(args) {
+        args.list.push('injected-by-tool')
+        return Promise.resolve([{ type: 'text' as const, text: 'mutated' }])
+      },
+    }))
+    runtime.behavior = async (request) => {
+      await request.bindings[0]!.functions.mutator!({ list: ['original'] })
+      return { logs: [] }
+    }
+    const result = await runCode(ctx, 'program', { agent })
+    expect(result.isError).toBe(false)
+    const dispatch = events.find(event => event.type === 'tool/code-dispatch')?.data as SessionEventMap['tool/code-dispatch']
+    expect(dispatch.arguments).toEqual({ list: ['original'] })
+  })
+
+  it('exposes a tool named __proto__ as an ordinary own binding', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    ctx.tools.register(defineTool({
+      name: '__proto__',
+      description: 'A prototype-colliding tool name.',
+      parameters: {},
+      execute() { return Promise.resolve([{ type: 'text' as const, text: 'proto-tool-ok' }]) },
+    }))
+    runtime.behavior = async (request) => {
+      const functions = request.bindings[0]!.functions
+      expect(Object.getPrototypeOf(functions)).toBeNull()
+      const value = await functions['__proto__']!({})
+      return { logs: [], value }
+    }
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    expect(result.content[0]).toEqual({ type: 'text', text: 'proto-tool-ok' })
   })
 
   it('renders a non-string completion value inspect-style', async () => {

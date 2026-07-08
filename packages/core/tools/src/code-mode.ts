@@ -87,17 +87,21 @@ function summarize(text: string): string {
 }
 
 /**
- * JSON-normalize one binding call's argument: a `JSON.parse(JSON.stringify(…))`
- * round-trip, so the value dispatched to the tool and the value logged on the
- * `tool/code-dispatch` event are the same JSON value by construction (the
- * runtime's structured-clone boundary is wider than JSON; the session log
- * accepts only JSON). A value that does not survive (`BigInt`, a circular
- * structure, a bare function) rejects that one call with a model-correctable
- * error. `undefined` passes through — the tool's own schema validation
- * rejects it with its usual "must be an object" feedback.
+ * JSON-normalize one binding call's argument into TWO independent parses of
+ * the same canonical text: `dispatched` goes to the tool, `logged` to the
+ * `tool/code-dispatch` event — identical by construction (the runtime's
+ * structured-clone boundary is wider than JSON; the session log accepts only
+ * JSON), and separate objects, so a tool mutating its args can neither
+ * desync the log from what was dispatched nor re-poison the append. A value
+ * that does not survive the round-trip (`undefined` — the log rejects it as
+ * event data — `BigInt`, a circular structure, a bare function) rejects that
+ * one call BEFORE dispatch with a model-correctable error: nothing ever
+ * executes unlogged.
  */
-function jsonNormalizeArgs(value: unknown): unknown {
-  if (value === undefined) return undefined
+function jsonNormalizeArgs(value: unknown): { dispatched: unknown; logged: unknown } {
+  if (value === undefined) {
+    throw new Error('tool arguments must be JSON-serializable (call the tool with an arguments object, e.g. `{}`)')
+  }
   let text: string | undefined
   try {
     text = JSON.stringify(value)
@@ -108,7 +112,7 @@ function jsonNormalizeArgs(value: unknown): unknown {
   // root really yields `undefined` at runtime — the guard is live.
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   if (text === undefined) throw new Error('tool arguments must be JSON-serializable (got a value JSON cannot represent)')
-  return JSON.parse(text) as unknown
+  return { dispatched: JSON.parse(text) as unknown, logged: JSON.parse(text) as unknown }
 }
 
 /** Render the program's completion value for the model-facing result text (`''` when the program returned nothing). */
@@ -198,7 +202,7 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
           const result = await registry.execute({
             callId: subCallId,
             name,
-            arguments: normalized,
+            arguments: normalized.dispatched,
             ...exec.agent ? { agent: exec.agent } : {},
             signal: runController.signal,
           })
@@ -212,7 +216,10 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             parentCallId: exec.callId,
             subCallId,
             name,
-            arguments: normalized,
+            // The SIBLING parse of the dispatched value: byte-identical JSON,
+            // but a separate object — a tool mutating its args cannot desync
+            // this record from what it actually received.
+            arguments: normalized.logged,
             isError: result.isError,
             resultSummary: summarize(text),
           })
@@ -231,10 +238,15 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
         return outcome.text
       }
 
-      const functions: Record<string, CodeBindingFunction> = {}
+      // Null-prototype + defineProperty, mirroring the worker-side namespace
+      // build: a registered tool named `__proto__` must become an ordinary
+      // own key (a plain-object assignment would hit the prototype setter,
+      // silently dropping the binding), and the runtime host resolves
+      // binding names as own properties only.
+      const functions: Record<string, CodeBindingFunction> = Object.create(null) as Record<string, CodeBindingFunction>
       for (const schema of registry.schemas()) {
         if (schema.name === RUN_CODE_NAME) continue
-        functions[schema.name] = binding(schema.name)
+        Object.defineProperty(functions, schema.name, { enumerable: true, value: binding(schema.name) })
       }
 
       try {

@@ -408,6 +408,20 @@ describe('snapshot fixtures', () => {
     })
   })
 
+  it('every pinning fixture carries exactly one request/header and no deltas', async () => {
+    // The live uniformity guard runs only in NON-pinning scenarios, so a
+    // class made of just its pinning scenario (the Code Mode classes) would
+    // otherwise accept a re-recorded pin with several headers or a mid-run
+    // header-delta — shapes the pin design cannot represent. Assert the
+    // committed pins directly.
+    for (const scenario of pinningByClass.values()) {
+      const fixture = await readFile(join(SNAPSHOTS_DIR, scenario.name, 'session.jsonl'), 'utf8')
+      const headers = normalizedHeaders(fixture, fixtureContext(fixture))
+      expect(headers.length, `${scenario.name}: a pinning fixture must carry exactly one request/header`).toBe(1)
+      expect(headerDeltaCount(fixture), `${scenario.name}: a pinning fixture must carry no request/header-delta`).toBe(0)
+    }
+  })
+
   it('committed fixtures carry request-header content ONLY in the pinning scenario', async () => {
     // The whole point of the pin: a system-prompt or tool-schema change must
     // churn exactly one committed line. A non-pinning fixture that carries the
