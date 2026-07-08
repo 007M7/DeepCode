@@ -5,7 +5,7 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
-import type { Agent, ContinuationDecision } from '@deepseek-ai/dsh-agent'
+import type { ContinuationDecision } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
@@ -13,7 +13,6 @@ import type { StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { startInProcessRun } from '../src/index.ts'
 import {
-  acquireStructuredRuntime,
   STRUCTURED_OUTPUT_INSTRUCTION,
   STRUCTURED_OUTPUT_TOOL,
 } from '../src/structured.ts'
@@ -47,7 +46,7 @@ async function setup(script: Script) {
   await ctx.plugin(SubagentService)
   const disposeProvider = ctx.subagents.registerProvider({
     name: 'spawn',
-    capabilities: { outputSchema: true, depthLimit: true, toolFilter: false },
+    capabilities: { outputSchema: true, depthLimit: true, toolFilter: false, persona: false },
     inheritsParentContext: false,
     start: (request: SubagentStartRequest) => startInProcessRun(ctx, request, { providerName: 'spawn' }),
   })
@@ -175,31 +174,20 @@ describe('in-process structured output', () => {
   })
 
   it('the captured-turn veto is prepend: an EARLIER force-continue listener cannot short-circuit it', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    // Registered BEFORE the structured runtime exists — without prepend, this
-    // goal-style listener would decide the turn first (returning WITHOUT
-    // calling next()) and the veto would never run.
+    // A goal-style listener registered BEFORE the child exists, returning a
+    // forced continue WITHOUT calling next(). Without prepend on the scoped
+    // veto, this would decide the turn first and buy a wasted model step —
+    // the one-response script would then throw on the second request.
+    const { ctx, parent, adapter } = await setup([
+      toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 7 }),
+    ])
     ctx.on('agent/turn-continuation', () => Promise.resolve<ContinuationDecision>({ action: 'continue' }))
-    const acquisition = acquireStructuredRuntime(ctx)
-    const agent = { id: AgentId('structured-child') } as unknown as Agent
-    acquisition.attach(agent, SCHEMA)
-    const captured = await ctx.tools.execute({
-      callId: 'call-1' as never,
-      name: STRUCTURED_OUTPUT_TOOL,
-      arguments: { answer: 1 },
-      agent,
-    })
-    expect(captured.isError).toBeFalsy()
-    const decision = await ctx.waterfall(
-      'agent/turn-continuation', agent, 1,
-      { action: 'continue' },
-      () => Promise.resolve<ContinuationDecision>({ action: 'continue' }),
-    )
-    expect(decision).toEqual({ action: 'stop' })
-    acquisition.detach(agent)
-    acquisition.release()
+    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const result = await run.result
+    expect(result.structured).toEqual({ answer: 7 })
+    expect(result.stopReason).toBe('completed')
+    expect(adapter.requests).toHaveLength(1)
+    await run.dispose()
   })
 
   it('an invalid call gets an INVALID_ARGS isError result and the model retries in-turn', async () => {
@@ -357,20 +345,14 @@ describe('in-process structured output', () => {
     await run.dispose()
   })
 
-  describe('final-request enforcement (the prepend agent/request listener)', () => {
-    it('a plain agent assembling while the runtime is LIVE gets the placeholder stripped', async () => {
-      // Run-scoped acquisition means a plain deployment never registers the
-      // tool at all; the strip branch exists for the CONCURRENT case — a plain
-      // agent taking a turn while some structured child holds the runtime open.
+  describe('scoped registration (each child owns its capture tool)', () => {
+    it('a plain agent never sees the tool: nothing is registered globally at all', async () => {
       const { ctx, parent, adapter } = await setup([textResponse('parent answer')])
-      const hold = acquireStructuredRuntime(ctx)
       parent.send([{ type: 'text', text: 'hello' }])
       await parent.whenIdle()
-      // The placeholder IS in the registry during this turn; the assembly the
-      // loop rendered must not carry it for an agent without a structured run.
-      expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeDefined()
+      // Scoped registration: the global view has no capture tool, ever.
+      expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
       expect(toolNames(adapter.requests[0]!)).not.toContain(STRUCTURED_OUTPUT_TOOL)
-      hold.release()
     })
 
     it('a structured child sees structured_output with ITS schema; a plain agent never sees the tool', async () => {
@@ -430,16 +412,21 @@ describe('in-process structured output', () => {
       await runB.dispose()
     })
 
-    it('wins against a downstream listener that REPLACES the assembly object', async () => {
+    it('the re-assert wins against a downstream listener that REPLACES the assembly object', async () => {
       const { ctx, parent, adapter } = await setup([
         toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 5 }),
       ])
-      // A downstream (non-prepend) listener that returns a brand-new assembly —
-      // the composition caveat that erases cooperative mutations. Registered
-      // AFTER the runtime's prepend listener, so it runs INSIDE it.
+      // A global (every-assembly) listener that returns a brand-new assembly
+      // WITHOUT the capture tool or instruction — the composition caveat that
+      // erases cooperative mutations. The child's prepend re-assert runs
+      // OUTERMOST and restores both.
       ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
         const replaced = await next()
-        return { sections: [...replaced.sections], tools: [...replaced.tools], variables: { ...replaced.variables } }
+        return {
+          sections: replaced.sections.filter(section => section.name !== `tool:${STRUCTURED_OUTPUT_TOOL}`),
+          tools: replaced.tools.filter(tool => tool.name !== STRUCTURED_OUTPUT_TOOL),
+          variables: { ...replaced.variables },
+        }
       })
       const run = ctx.subagents.start('spawn', structuredRequest(parent))
       const result = await run.result
@@ -447,140 +434,41 @@ describe('in-process structured output', () => {
       const entry = adapter.requests[0]!.tools!.find(tool => tool.name === STRUCTURED_OUTPUT_TOOL)
       expect(entry).toBeDefined()
       expect(entry!.parameters).toEqual(SCHEMA)
+      const system = adapter.requests[0]!.system ?? ''
+      expect(system).toContain(STRUCTURED_OUTPUT_INSTRUCTION)
       await run.dispose()
     })
 
     it('a non-structured agent request keeps tools ABSENT when it had none (no tools: [] materialized)', async () => {
-      const { parent, adapter } = await setup([
-        // The registry contributes the placeholder via prompt assembly, so
-        // tools is an array in the raw request — but after stripping the
-        // placeholder (its ONLY entry), the field must not be re-added as a
-        // different shape.
-        textResponse('plain'),
-      ])
+      const { parent, adapter } = await setup([textResponse('plain')])
       parent.send([{ type: 'text', text: 'q' }])
       await parent.whenIdle()
       const request = adapter.requests[0]!
-      expect(toolNames(request)).not.toContain(STRUCTURED_OUTPUT_TOOL)
+      expect(request.tools).toBeUndefined()
       await new Promise(resolve => setTimeout(resolve, 0))
     })
 
-    it('shapes a bare assembly on the waterfall: no-agent context strips the placeholder; a structured agent gains schema + trailing instruction section', async () => {
-      // Drive ctx.systemPrompt.assemble directly — the enforcement listener
-      // must tolerate a context with NO agent (a bare diagnostic assemble)
-      // and shape a structured agent's assembly on the same path the loop
-      // renders and logs as the request header.
-      const { ctx, parent } = await setup([])
-      const acquisition = acquireStructuredRuntime(ctx)
-      // Bare assemble WHILE the runtime is live: the no-agent branch must
-      // strip the registered placeholder (before the acquisition there is
-      // nothing to strip — run-scoped registration).
-      const bare = await ctx.systemPrompt.assemble({})
-      expect(bare.tools.map(tool => tool.name)).not.toContain(STRUCTURED_OUTPUT_TOOL)
-
-      acquisition.attach(parent, SCHEMA)
-      const shaped = await ctx.systemPrompt.assemble({ agent: parent })
-      expect(shaped.tools.map(tool => tool.name)).toContain(STRUCTURED_OUTPUT_TOOL)
-      expect(shaped.tools.find(tool => tool.name === STRUCTURED_OUTPUT_TOOL)!.parameters).toEqual(SCHEMA)
-      // The demand travels with the tool: the instruction renders LAST
-      // (appended post-next(); renderPrompt joins in array order).
-      expect(shaped.sections.at(-1)).toMatchObject({ name: `tool:${STRUCTURED_OUTPUT_TOOL}`, text: STRUCTURED_OUTPUT_INSTRUCTION })
-      acquisition.detach(parent)
-      acquisition.release()
-    })
-  })
-
-  describe('runtime lifetime (refcount: live structured runs)', () => {
-    it('the runtime exists exactly while structured runs are live: nothing before, nothing after', async () => {
-      const { ctx, parent } = await setup([
+    it('registrations ride the child fiber: disposing the run removes them; a provider reload mid-run cannot', async () => {
+      const { ctx, parent, disposeProvider } = await setup([
         toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 4 }),
       ])
-      // No always-on global state: a context that has run no structured child
-      // carries no capture tool.
       expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
       const run = ctx.subagents.start('spawn', structuredRequest(parent))
+      // A backend hot-reload mid-run must not unregister the capture tool out
+      // from under the live child: the registration rides the CHILD's fiber.
+      disposeProvider()
       const result = await run.result
-      // The capture succeeded — the registrations existed while the run lived.
       expect(result.structured).toEqual({ answer: 4 })
-      // The run's settle released the last acquisition.
-      expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
+      const child = ctx.agents.get(run.id)!
+      expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL, child)).toBeDefined()
       await run.dispose()
-    })
-
-    it('concurrent structured runs share one runtime; the last settle disposes it', async () => {
-      const { ctx, parent } = await setup([
-        toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 1 }),
-        toolCallResponse('c2', STRUCTURED_OUTPUT_TOOL, { answer: 2 }),
-      ])
-      const first = ctx.subagents.start('spawn', structuredRequest(parent))
-      const second = ctx.subagents.start('spawn', structuredRequest(parent))
-      const [a, b] = await Promise.all([first.result, second.result])
-      expect([a.structured, b.structured].sort()).toEqual([{ answer: 1 }, { answer: 2 }].sort())
-      expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
-      await first.dispose()
-      await second.dispose()
-    })
-
-    it('acquisition release is idempotent (double release cannot underflow the refcount)', async () => {
-      const ctx = new Context()
-      await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRegistry)
-      const first = acquireStructuredRuntime(ctx)
-      const second = acquireStructuredRuntime(ctx)
-      first.release()
-      first.release()
-      // The second holder still keeps the tool registered.
-      expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeDefined()
-      second.release()
-      expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
-    })
-
-    it('registers the capture tool through the scoped fiber when tools loads after the acquisition', async () => {
-      // The Loader starts sibling plugins concurrently, so a backend can
-      // acquire the runtime before dsh-tools has applied. The capture tool
-      // must then register as soon as `tools` exists — via the inject fiber,
-      // not by deferring the backend (which would reorder the prompt's tools).
-      const ctx = new Context()
-      const acquisition = acquireStructuredRuntime(ctx)
-      await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRegistry)
-      // Fiber activation completes asynchronously after the service appears.
-      await new Promise(resolve => setImmediate(resolve))
-      expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeDefined()
-      acquisition.release()
-      expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
-    })
-
-    it('releasing before tools ever loads disposes the pending fiber without registering', async () => {
-      const ctx = new Context()
-      const acquisition = acquireStructuredRuntime(ctx)
-      acquisition.release()
-      await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRegistry)
-      await new Promise(resolve => setImmediate(resolve))
-      // The disposed fiber never fires: nothing registers after the fact.
-      expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
-    })
-
-    it('attach/captured/detach manage per-agent state through the acquisition surface', async () => {
-      const { ctx, parent } = await setup([])
-      const acquisition = acquireStructuredRuntime(ctx)
-      expect(acquisition.captured(parent)).toBeUndefined()
-      acquisition.attach(parent, SCHEMA)
-      expect(acquisition.captured(parent)).toBeUndefined()
-      acquisition.detach(parent)
-      acquisition.detach(parent)
-      acquisition.release()
-      // That manual acquisition was the ONLY holder - release disposes.
-      expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
+      // Child disposed ⇒ its scoped registrations are gone.
+      expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL, child)).toBeUndefined()
     })
   })
 
-  it('a direct structured_output call from an agent WITHOUT a structured run is an isError', async () => {
+  it('a structured_output call from an agent WITHOUT a structured run is UNKNOWN_TOOL (the tool does not exist for it)', async () => {
     const { ctx, parent } = await setup([])
-    // Hold the runtime open (run-scoped: nothing is registered otherwise) so
-    // the call reaches the capture tool's own fail-loud guard, not UNKNOWN_TOOL.
-    const hold = acquireStructuredRuntime(ctx)
     const result = await ctx.tools.execute({
       callId: 'x' as never,
       name: STRUCTURED_OUTPUT_TOOL,
@@ -588,19 +476,17 @@ describe('in-process structured output', () => {
       agent: parent,
     })
     expect(result.isError).toBe(true)
-    expect(JSON.stringify(result.content)).toContain('only available to subagents')
-    hold.release()
+    expect(result.error?.code).toBe('UNKNOWN_TOOL')
   })
 
-  it('a structured_output call with NO calling agent at all is an isError', async () => {
+  it('a structured_output call with NO calling agent at all is UNKNOWN_TOOL', async () => {
     const { ctx } = await setup([])
-    const hold = acquireStructuredRuntime(ctx)
     const result = await ctx.tools.execute({
       callId: 'x' as never,
       name: STRUCTURED_OUTPUT_TOOL,
       arguments: { answer: 1 },
     })
     expect(result.isError).toBe(true)
-    hold.release()
+    expect(result.error?.code).toBe('UNKNOWN_TOOL')
   })
 })

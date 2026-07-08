@@ -29,6 +29,8 @@ export interface SubagentCapabilities {
   depthLimit: boolean
   /** Enforce {@link SubagentStartRequest.toolFilter} (child tool scoping). */
   toolFilter: boolean
+  /** Honor {@link SubagentStartRequest.persona} (a per-child persona). */
+  persona: boolean
 }
 
 /**
@@ -73,9 +75,20 @@ export interface SubagentStartRequest {
   maxDepth?: number
   /**
    * Optional child tool scoping. Requires {@link SubagentCapabilities.toolFilter};
-   * rejected at start otherwise.
+   * rejected at start otherwise. In-process backends apply it as a scoped
+   * `tools.restrict()` in the child's creation window: the named tools vanish
+   * from the child's prompt AND refuse to execute (one visibility), with loud
+   * unknown-name validation.
    */
   toolFilter?: { allow?: string[]; deny?: string[] }
+  /**
+   * Optional per-child persona. Requires {@link SubagentCapabilities.persona};
+   * rejected at start otherwise. In-process backends register it as a scoped
+   * `deployment:persona` section on the child, SHADOWING the deployment's
+   * persona for this child alone — same template semantics as the deployment
+   * persona (strict `{{…}}` interpolation against the registered variables).
+   */
+  persona?: string
 }
 
 /**

@@ -16,8 +16,8 @@ function fakeParent(id = 'parent-1'): Agent {
   return { id: AgentId(id) } as unknown as Agent
 }
 
-const ALL_CAPS: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true }
-const NO_CAPS: SubagentCapabilities = { outputSchema: false, depthLimit: false, toolFilter: false }
+const ALL_CAPS: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: false }
+const NO_CAPS: SubagentCapabilities = { outputSchema: false, depthLimit: false, toolFilter: false, persona: false }
 
 /** A scripted provider whose run settles immediately with a fixed result. */
 class StubProvider implements SubagentProvider {

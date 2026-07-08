@@ -111,7 +111,7 @@ describe('dsh-tool-subagent', () => {
     await ctx.plugin(SubagentService)
     ctx.subagents.registerProvider({
       name: 'weird',
-      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
       start: () => ({
         id: AgentId('weird-child'),
@@ -137,7 +137,7 @@ describe('dsh-tool-subagent', () => {
     await ctx.plugin(SubagentService)
     ctx.subagents.registerProvider({
       name: 'capture',
-      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
       start: (request) => {
         seen = request
@@ -167,7 +167,7 @@ describe('dsh-tool-subagent', () => {
     await ctx.plugin(SubagentService)
     ctx.subagents.registerProvider({
       name: 'bare',
-      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
       start: (request) => {
         seen = request
@@ -297,7 +297,7 @@ describe('dsh-tool-subagent', () => {
     await ctx.plugin(SubagentService)
     ctx.subagents.registerProvider({
       name: 'spy',
-      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
       start: () => ({
         id: AgentId('spy-child'),
@@ -320,7 +320,7 @@ describe('dsh-tool-subagent', () => {
     await ctx.plugin(SubagentService)
     ctx.subagents.registerProvider({
       name: 'spy',
-      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
       start: () => ({
         id: AgentId('spy-child'),
@@ -344,7 +344,7 @@ describe('dsh-tool-subagent', () => {
     await ctx.plugin(SubagentService)
     ctx.subagents.registerProvider({
       name: 'spy',
-      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
       start: () => {
         let resolveResult: (r: { output: never[]; stopReason: 'aborted' }) => void
@@ -391,7 +391,7 @@ describe('dsh-tool-subagent', () => {
     await ctx.plugin(SubagentService)
     ctx.subagents.registerProvider({
       name: 'spy',
-      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
       start: () => {
         let resolveResult: (r: { output: never[]; stopReason: 'aborted' }) => void

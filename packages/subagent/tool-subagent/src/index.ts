@@ -54,11 +54,35 @@ export interface Config {
   toolName?: string
   /**
    * Default per-child agent options (model) applied to every spawned child.
-   * Omitted fields fall back to the child loop's own defaults. There is no
-   * per-child persona: the deployment persona (the system-prompt plugin's
-   * `persona` config) is a context-wide section every agent shares.
+   * Omitted fields fall back to the child loop's own defaults.
    */
   agentOptions?: AgentOptions
+  /**
+   * Per-child persona applied to every child this tool spawns: a scoped
+   * `deployment:persona` section shadowing the deployment's persona for the
+   * child alone. Requires the bound provider's `persona` capability
+   * (in-process backends support it; a request against one that doesn't is
+   * rejected at start). Omitted ⇒ the child renders the deployment persona.
+   */
+  persona?: string
+  /**
+   * Tool scoping applied to every child this tool spawns (see
+   * `SubagentStartRequest.toolFilter`): the named global tools vanish from
+   * the child's prompt AND refuse to execute. Requires the provider's
+   * `toolFilter` capability. Unknown names fail the spawn loudly. Note the
+   * child otherwise sees every global tool — including this delegation tool
+   * itself; `deny`-listing it (or setting `maxDepth`) is how a deployment
+   * bounds recursion.
+   */
+  toolFilter?: { allow?: string[]; deny?: string[] }
+  /**
+   * Recursion cap applied to every child this tool spawns (see
+   * `SubagentStartRequest.maxDepth`): a spawn whose child would sit deeper
+   * than this in the delegation tree is rejected. Requires the provider's
+   * `depthLimit` capability. Omitted ⇒ unbounded (bound it in deployments
+   * that expose this tool to children).
+   */
+  maxDepth?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -67,6 +91,17 @@ export const Config: z<Config> = z.object({
   agentOptions: z.object({
     model: z.string(),
   }),
+  persona: z.string(),
+  // A schemastery object materializes {} (with [] for nested arrays) when the
+  // key is omitted — for toolFilter that would mean an EMPTY ALLOW-LIST, i.e.
+  // deny-everything, silently. Force the omitted key to stay absent (the same
+  // shape discipline as SystemPrompt's toolOrder); the cast is needed because
+  // .default() expects the object type.
+  toolFilter: z.object({
+    allow: z.array(z.string()),
+    deny: z.array(z.string()),
+  }).default(undefined as unknown as { allow: string[]; deny: string[] }),
+  maxDepth: z.number(),
 })
 
 /**
@@ -179,6 +214,9 @@ export function apply(ctx: Context, config: Config): void {
           parent,
           ...exec.signal ? { signal: exec.signal } : {},
           ...config.agentOptions ? { agentOptions: config.agentOptions } : {},
+          ...config.persona !== undefined ? { persona: config.persona } : {},
+          ...config.toolFilter !== undefined ? { toolFilter: config.toolFilter } : {},
+          ...config.maxDepth !== undefined ? { maxDepth: config.maxDepth } : {},
         }
 
         const run: SubagentRun = ctx.subagents.start(config.provider, request)

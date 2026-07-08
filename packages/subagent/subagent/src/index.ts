@@ -33,9 +33,10 @@
  */
 
 import { Context, Service } from 'cordis'
+import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { AgentId } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentId } from '@deepseek-ai/dsh-agent'
 import type {
   SubagentCapabilities,
   SubagentProvider,
@@ -223,7 +224,7 @@ export class SubagentService extends Service {
     // acceptable. `ctx.emit` halts the dispatch on the first throw, so a single
     // surrounding try/catch is not enough — each listener is invoked and
     // contained individually.
-    this.emitLifecycle('subagent/start', { provider: name, id: run.id })
+    this.emitLifecycle('subagent/start', { provider: name, id: run.id }, request.parent)
     // Emit `subagent/end` when the run settles. The result promise does not
     // reject on a child-level failure (it resolves with stopReason 'error'),
     // so a rejection here is an infrastructure fault — surface its stop reason
@@ -253,9 +254,9 @@ export class SubagentService extends Service {
         } catch (error: unknown) {
           this.ctx.logger.warn(`subagent: could not clone ${name} output for subagent/end: ${String(error)}`)
         }
-        this.emitLifecycle('subagent/end', { provider: name, id: run.id, stopReason: result.stopReason, ...lastAssistantMessage !== undefined ? { lastAssistantMessage } : {} })
+        this.emitLifecycle('subagent/end', { provider: name, id: run.id, stopReason: result.stopReason, ...lastAssistantMessage !== undefined ? { lastAssistantMessage } : {} }, request.parent)
       },
-      () => { this.emitLifecycle('subagent/end', { provider: name, id: run.id, stopReason: 'error' }) },
+      () => { this.emitLifecycle('subagent/end', { provider: name, id: run.id, stopReason: 'error' }, request.parent) },
     )
     return run
   }
@@ -280,14 +281,22 @@ export class SubagentService extends Service {
    * listener unwinds the yielded rollback — the same fail-loud register-time
    * semantics as the system-prompt registries.
    */
-  private emitLifecycle(name: 'subagent/start', info: SubagentRunInfo): void
-  private emitLifecycle(name: 'subagent/end', info: SubagentRunEndInfo): void
+  private emitLifecycle(name: 'subagent/start', info: SubagentRunInfo, parent: Agent): void
+  private emitLifecycle(name: 'subagent/end', info: SubagentRunEndInfo, parent: Agent): void
   private emitLifecycle(name: 'subagent/provider-removed', info: string): void
   private emitLifecycle(
     name: 'subagent/start' | 'subagent/end' | 'subagent/provider-removed',
     info: SubagentRunInfo | SubagentRunEndInfo | string,
+    parent?: Agent,
   ): void {
-    for (const callback of this.ctx.events.dispatch('emit', [name, info])) {
+    // Run lifecycle events dispatch in the DELEGATING PARENT's scope (a
+    // parent-scoped listener observes only its own delegations); the
+    // provider-removed registry notification stays unfiltered. The carrier is
+    // args[0] of the dispatch call, exactly as cordis' own emit spells it.
+    const dispatchArgs: unknown[] = parent === undefined
+      ? [name, info]
+      : [scopeTarget(this, parent), name, info]
+    for (const callback of this.ctx.events.dispatch('emit', dispatchArgs)) {
       try {
         callback(info)
       } catch (error: unknown) {
@@ -306,6 +315,7 @@ export class SubagentService extends Service {
       { when: request.outputSchema !== undefined, cap: 'outputSchema' },
       { when: request.maxDepth !== undefined, cap: 'depthLimit' },
       { when: request.toolFilter !== undefined, cap: 'toolFilter' },
+      { when: request.persona !== undefined, cap: 'persona' },
     ]
     for (const { when, cap } of needs) {
       if (when && !provider.capabilities[cap]) {

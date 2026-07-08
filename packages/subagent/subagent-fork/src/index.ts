@@ -64,11 +64,11 @@ export function completedTurnPrefix(parent: Agent): SessionEvent[] {
 
 /**
  * The fork provider. Supports `depthLimit` and `outputSchema` (via the shared
- * in-process structured runtime); NOT `toolFilter` this cut (the service
- * rejects a request needing it before `start` runs).
+ * in-process structured runtime), plus `toolFilter`/`persona` (scoped
+ * restrict() and a scoped shadowing persona section).
  */
 class ForkProvider implements SubagentProvider {
-  readonly capabilities: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: false }
+  readonly capabilities: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
   // Context contract: a forked child IS seeded with the parent's completed-turn prefix.
   readonly inheritsParentContext = true
 

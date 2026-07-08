@@ -21,13 +21,13 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertSupportedOutputSchema } from '@deepseek-ai/dsh-tools'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
 import {
-  acquireStructuredRuntime,
-  type StructuredAcquisition,
+  attachStructuredRuntime,
+  type StructuredAttachment,
 } from './structured.ts'
 
-// The runtime itself (acquire/attach/release) is package-internal: runs
-// acquire it inside startInProcessRun, and no other package drives it. Only
-// the model-facing vocabulary is public.
+// The runtime itself (attach) is package-internal: runs attach it inside
+// startInProcessRun's setup window, and no other package drives it. Only the
+// model-facing vocabulary is public.
 export {
   STRUCTURED_OUTPUT_TOOL,
   STRUCTURED_OUTPUT_INSTRUCTION,
@@ -143,21 +143,36 @@ export function startInProcessRun(
   const seedLength = options.seed?.length ?? 0
   const parentHeader = request.parent.session.header
   // Inherit the parent's model by default (a child with no model cannot run);
-  // an explicit `request.agentOptions.model` overrides it. The persona needs
-  // no inheritance: the deployment persona is a context-wide prompt section,
-  // so parent and child render the same one. A structured run's
-  // structured_output instruction is NOT prompt state either — the structured
-  // runtime's final-request listener appends it per request (see structured.ts).
+  // an explicit `request.agentOptions.model` overrides it. The deployment
+  // persona needs no inheritance (a context-wide section both render); a
+  // per-child `request.persona` becomes a SCOPED section of the same name in
+  // the setup below, shadowing the deployment's for this child alone.
   const agentOptions: AgentOptions = {
     ...request.parent.options.model !== undefined ? { model: request.parent.options.model } : {},
     ...request.agentOptions,
     subagentDepth: childDepth,
   }
 
-  // The structured runtime is held for the WHOLE run (acquired before the child
-  // exists, released when the result settles), so a backend hot-reload mid-run
-  // cannot unregister the capture tool out from under this live child.
-  const structured: StructuredAcquisition | undefined = schema !== undefined ? acquireStructuredRuntime(ctx) : undefined
+  // The child's scoped world, composed in the factory's setup window (after
+  // the child's scope exists and it is registered, before agent/session-start
+  // and the first prompt assembly; a throw here unwinds the half-created
+  // child inside the factory's rollback boundary):
+  //  - persona: a scoped `deployment:persona` section shadowing the global one;
+  //  - toolFilter: a scoped restrict() masking the global tool surface
+  //    (loud unknown-name validation lives in the registry);
+  //  - outputSchema: the structured runtime, attached as scoped registrations.
+  let structured: StructuredAttachment | undefined
+  const setup = (childCtx: Context): void => {
+    if (request.persona !== undefined) {
+      childCtx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: request.persona })
+    }
+    if (request.toolFilter !== undefined) {
+      childCtx.tools.restrict(request.toolFilter)
+    }
+    if (schema !== undefined) {
+      structured = attachStructuredRuntime(childCtx, schema)
+    }
+  }
 
   const handle: AgentHandle = ctx.agents.create({
     agentId: childId,
@@ -171,9 +186,26 @@ export function startInProcessRun(
     },
     ...options.seed !== undefined ? { seed: options.seed } : {},
     agentOptions,
+    setup,
   })
   const child = handle.agent
-  if (structured && schema !== undefined) structured.attach(child, schema)
+
+  // Structured-concurrency link: the child's teardown rides the PARENT's
+  // scope, so a disposed parent reaches its whole subtree even if the
+  // delegating tool's `finally` never runs — through the MEMOIZED handle, so
+  // every path (tool finally, parent teardown, owner unload) observes the
+  // same quiescence boundary. Registered AFTER the child exists; if the
+  // parent began disposing in between, the registration throws
+  // INACTIVE_EFFECT — dispose the fresh child before rethrowing (no orphan).
+  // Definite assignment: the catch rethrows, so past this block the unlink
+  // disposer always exists.
+  let unlink!: () => Promise<void> | void
+  try {
+    unlink = request.parent.ctx.effect(() => () => handle.dispose())
+  } catch (error: unknown) {
+    void handle.dispose()
+    throw error
+  }
 
   // Bridge the request's abort signal to the child (the consumer also bridges
   // its own exec.signal, but a backend-level bridge keeps the contract local).
@@ -205,13 +237,9 @@ export function startInProcessRun(
       // Deliberately NO re-prompt when a structured child finishes cleanly
       // without calling structured_output: readResult maps that to `error` —
       // the shortfall goes to the parent instead of buying extra model turns.
-      return readResult(child, seedLength, isCancelled(), structured ? { captured: structured.captured(child) } : undefined)
+      return readResult(child, seedLength, isCancelled(), structured ? { captured: structured.captured() } : undefined)
     } finally {
       request.signal?.removeEventListener('abort', onAbort)
-      if (structured) {
-        structured.detach(child)
-        structured.release()
-      }
     }
   })()
 
@@ -223,6 +251,11 @@ export function startInProcessRun(
     },
     async dispose(): Promise<void> {
       request.signal?.removeEventListener('abort', onAbort)
+      // Through the parent-scope unlink when the parent is still live (one
+      // disposal path, and the dead effect leaves the parent's list); the
+      // memoized handle keeps a direct dispose equivalent if the parent's
+      // teardown already ran the unlink.
+      await unlink()
       await handle.dispose()
     },
   }

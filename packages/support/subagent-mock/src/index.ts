@@ -26,7 +26,7 @@ import type {
 
 const STOP_REASONS = ['completed', 'aborted', 'error', 'max-tokens', 'refusal'] as const
 
-const DEFAULT_CAPS: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true }
+const DEFAULT_CAPS: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
 
 /**
  * A scripted provider: every {@link start} returns a run whose `result`
@@ -111,6 +111,7 @@ export const Config: z<Config> = z.object({
     outputSchema: z.boolean(),
     depthLimit: z.boolean(),
     toolFilter: z.boolean(),
+    persona: z.boolean(),
   }),
   inheritsParentContext: z.boolean(),
   structured: z.any(),

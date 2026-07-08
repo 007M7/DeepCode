@@ -241,10 +241,10 @@ describe('dsh-subagent-spawn', () => {
     await parentHandle.dispose()
   })
 
-  it('advertises depthLimit and outputSchema but not toolFilter', async () => {
+  it('advertises every start-time capability (depthLimit, outputSchema, toolFilter, persona)', async () => {
     const { ctx } = await setup([])
     const provider = ctx.subagents.getProvider('spawn')!
-    expect(provider.capabilities).toEqual({ outputSchema: true, depthLimit: true, toolFilter: false })
+    expect(provider.capabilities).toEqual({ outputSchema: true, depthLimit: true, toolFilter: true, persona: true })
   })
 
   it('unregisters the provider when its fiber is disposed (HMR safety)', async () => {
@@ -315,5 +315,66 @@ describe('dsh-subagent-spawn', () => {
     expect(unwrapped.name).toBe('subagent-spawn')
     expect(unwrapped.inject).toEqual(['subagents', 'agents'])
     expect(typeof unwrapped.apply).toBe('function')
+  })
+
+  describe('persona and toolFilter (the scoped child world)', () => {
+    it('a per-child persona shadows the deployment persona in the child request only', async () => {
+      const { ctx, parent, adapter } = await setup([
+        textResponse('parent answer'),
+        textResponse('child answer'),
+      ])
+      parent.send([{ type: 'text', text: 'hi' }])
+      await parent.whenIdle()
+
+      const run = ctx.subagents.start('spawn', {
+        prompt: [{ type: 'text', text: 'do X' }],
+        parent,
+        persona: 'You are the tersest test runner.',
+      })
+      await run.result
+      const childRequest = adapter.requests.at(-1)!
+      expect(childRequest.system).toContain('You are the tersest test runner.')
+      // The parent's earlier request carried no such persona.
+      expect(adapter.requests[0]!.system ?? '').not.toContain('tersest test runner')
+      await run.dispose()
+    })
+
+    it('toolFilter hides denied tools from the child prompt AND refuses their execution', async () => {
+      const { ctx, parent, adapter } = await setup([
+        // The child tries the denied tool anyway, then answers.
+        toolCallResponse('c1', 'forbidden_tool', {}),
+        textResponse('done'),
+      ])
+      ctx.tools.register({
+        name: 'forbidden_tool', description: 'global', parameters: {},
+        execute: () => Promise.resolve([{ type: 'text', text: 'ran' }]),
+      })
+      const run = ctx.subagents.start('spawn', {
+        prompt: [{ type: 'text', text: 'do X' }],
+        parent,
+        toolFilter: { deny: ['forbidden_tool'] },
+      })
+      const result = await run.result
+      expect(result.stopReason).toBe('completed')
+      // Not advertised…
+      const childRequest = adapter.requests[0]!
+      expect((childRequest.tools ?? []).map(t => t.name)).not.toContain('forbidden_tool')
+      // …and the attempted call executed as UNKNOWN_TOOL (visible in the log).
+      const child = ctx.agents.get(run.id)!
+      const toolResult = child.session.events.find(e => e.type === 'tool/result')!
+      expect(JSON.stringify(toolResult.data)).toContain('unknown tool')
+      await run.dispose()
+    })
+
+    it('an unknown toolFilter name fails the spawn loudly with no orphaned child', async () => {
+      const { ctx, parent } = await setup([])
+      const before = ctx.agents.list().length
+      expect(() => ctx.subagents.start('spawn', {
+        prompt: [{ type: 'text', text: 'do X' }],
+        parent,
+        toolFilter: { deny: ['no_such_tool'] },
+      })).toThrow(/unknown tool "no_such_tool"/)
+      expect(ctx.agents.list().length).toBe(before)
+    })
   })
 })
