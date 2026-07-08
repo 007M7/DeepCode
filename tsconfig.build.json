@@ -50,6 +50,7 @@
     { "path": "./packages/support/subagent-mock" },
     { "path": "./packages/subagent/tool-subagent" },
     { "path": "./packages/subagent/subagent-inprocess" },
+    { "path": "./packages/subagent/subagent-process" },
     { "path": "./packages/subagent/subagent-spawn" },
     { "path": "./packages/subagent/subagent-fork" },
     { "path": "./packages/subagent/subagent-acp" },
