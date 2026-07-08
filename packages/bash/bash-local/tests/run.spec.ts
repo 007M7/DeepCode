@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs'
+import { mkdtempSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -56,13 +56,18 @@ async function waitForStdout(running: RunningBash, expected: string, timeoutMs =
   throw new Error(`stdout did not include ${JSON.stringify(expected)} after ${timeoutMs}ms`)
 }
 
-async function waitForFile(file: string, timeoutMs = 5_000): Promise<void> {
+async function waitForPidFile(path: string, timeoutMs = 5_000): Promise<number> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if (existsSync(file)) return
+    try {
+      const pid = Number(readFileSync(path, 'utf8').trim())
+      if (Number.isSafeInteger(pid) && pid > 0) return pid
+    } catch {
+      // The child shell has not written the pid file yet.
+    }
     await new Promise(resolve => setTimeout(resolve, 20))
   }
-  throw new Error(`${file} did not exist after ${timeoutMs}ms`)
+  throw new Error(`pid file ${path} was not written after ${timeoutMs}ms`)
 }
 
 describe('runBash', () => {
@@ -116,7 +121,7 @@ describe('runBash', () => {
   })
 
   it('escalates to SIGKILL when SIGTERM is trapped', async () => {
-    const running = runBash(spec('trap \'\' TERM; echo ready; sleep 60', { graceMs: 200 }))
+    const running = runBash(spec('trap \'\' TERM; echo ready; while :; do sleep 60 & wait $!; done', { graceMs: 200 }))
     await waitForStdout(running, 'ready\n')
     running.kill()
     const result = await running.done
@@ -128,8 +133,7 @@ describe('runBash', () => {
     // group must take the sleep down with bash.
     const pidFile = join(spillDir, `grandchild-${Date.now()}.pid`)
     const running = runBash(spec(`sleep 60 & echo $! > ${pidFile}; wait`))
-    await waitForFile(pidFile)
-    const grandchild = Number(readFileSync(pidFile, 'utf8').trim())
+    const grandchild = await waitForPidFile(pidFile)
     expect(grandchild).toBeGreaterThan(0)
 
     running.kill()
