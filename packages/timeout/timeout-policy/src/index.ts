@@ -46,6 +46,9 @@ export const TOOL_TIMEOUT = 'TOOL_TIMEOUT'
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'timeout-policy'
 
+/** The tool registry seam this plugin wraps (`tools/execute`) and reads (`tools/change`, `get`). */
+export const inject = ['tools']
+
 /** Per-tool timeout policy. `timeoutMs` is required and must be positive finite. */
 export interface ToolTimeoutPolicy {
   /** The per-call cooperative deadline for this tool, in milliseconds. */
@@ -103,6 +106,15 @@ export function toolTimeoutResult(callId: CallId, timeoutMs: number): ToolExecut
  * `tools/post-execute` sees the caller's own signal, and replaces the result
  * with {@link toolTimeoutResult} when its own timer fired. An unconfigured tool
  * delegates untouched.
+ *
+ * A configured tool name that is never registered is almost always a typo or a
+ * stale config key (e.g. `web_fech` for `web_fetch`): the wrapper would then
+ * silently never fire for the intended tool. Since the tool set is dynamic
+ * (plugins register in `cordis.yml` order, and HMR re-registers), this cannot
+ * be a load-time hard error — a real tool may register later. Instead, mirror
+ * `dsh-tool-subagent`'s lifecycle-driven approach: on every `tools/change` (and
+ * once at apply), `logger.warn` each configured name still absent from the
+ * registry, warning each name at most once so a late registration silences it.
  */
 export function apply(ctx: Context, config: Config): void {
   // schemastery (Config) has already filled `tools` with its {} default.
@@ -110,6 +122,29 @@ export function apply(ctx: Context, config: Config): void {
   for (const [toolName, policy] of Object.entries(resolved.tools)) {
     assertPositiveFinite(toolName, policy.timeoutMs)
   }
+
+  // Warn once per configured name that no registered tool matches, so a typo'd
+  // or stale config key is visible instead of silently applying to nothing. A
+  // name that later registers is dropped from `pending` before it is warned; a
+  // name that never registers is warned at most once (moved to `warned`), so a
+  // busy `tools/change` stream cannot spam the same key.
+  const pending = new Set(Object.keys(resolved.tools))
+  const warned = new Set<string>()
+  const warnUnknownToolNames = (): void => {
+    const nowUnknown: string[] = []
+    for (const name of pending) {
+      if (ctx.tools.get(name) !== undefined) { pending.delete(name); continue }
+      if (!warned.has(name)) { warned.add(name); nowUnknown.push(name) }
+    }
+    if (nowUnknown.length > 0) {
+      ctx.logger.warn(
+        `timeout-policy: configured timeout for unregistered tool(s) ${nowUnknown.map(n => `"${n}"`).join(', ')} `
+        + '— check for a typo or stale config key; the timeout applies to nothing until the tool registers.',
+      )
+    }
+  }
+  ctx.on('tools/change', warnUnknownToolNames)
+  warnUnknownToolNames()
 
   ctx.on('tools/execute', async (exec, next): Promise<ToolExecutionResult> => {
     const timeoutMs = resolved.tools[exec.name]?.timeoutMs

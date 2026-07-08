@@ -84,6 +84,62 @@ describe('timeout-policy config validation', () => {
   })
 })
 
+describe('timeout-policy unknown-tool-name diagnostics', () => {
+  it('warns for a configured tool name that is never registered (typo/stale key)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    // web_fech is a typo for web_fetch, and no tool by that name is registered.
+    await ctx.plugin(timeoutPolicy, { tools: { web_fech: { timeoutMs: 30_000 } } })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0]?.[0]).toContain('"web_fech"')
+    expect(warn.mock.calls[0]?.[0]).toContain('unregistered tool')
+  })
+
+  it('does NOT warn when the configured tool is already registered at load', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    ctx.tools.register(fastTool)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    await ctx.plugin(timeoutPolicy, { tools: { fast: { timeoutMs: 30_000 } } })
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('does NOT warn once a configured tool registers LATER (load-order safe)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    // Plugin loads before the tool it configures — the initial check would warn,
+    // so register first is the interesting case: mount with a not-yet-present
+    // name, then register it; the tools/change listener must clear it.
+    await ctx.plugin(timeoutPolicy, { tools: { late: { timeoutMs: 30_000 } } })
+    expect(warn).toHaveBeenCalledTimes(1) // absent at load → warned once
+    warn.mockClear()
+    ctx.tools.register({ ...fastTool, name: 'late' }) // now it registers
+    // A subsequent tools/change must NOT re-warn the now-registered name.
+    ctx.tools.register({ ...fastTool, name: 'other' })
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('warns at most once per unknown name across repeated tools/change', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    await ctx.plugin(timeoutPolicy, { tools: { ghost: { timeoutMs: 30_000 } } })
+    expect(warn).toHaveBeenCalledTimes(1) // apply-time check
+    // Each register/unregister emits tools/change; the ghost stays unknown but
+    // must not be warned again.
+    const dispose = ctx.tools.register(fastTool)
+    dispose()
+    ctx.tools.register({ ...fastTool, name: 'another' })
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('timeout-policy delegation (unconfigured / fast)', () => {
   it('delegates an UNCONFIGURED tool unchanged and does not touch exec.signal', async () => {
     const ctx = await setup({ other: { timeoutMs: 50 } })
@@ -234,13 +290,14 @@ describe('timeout-policy disposal (HMR safety)', () => {
 })
 
 describe('dsh-timeout-policy real-load-path guard', () => {
-  it('has no default export and keeps name/Config through unwrapExports', () => {
+  it('has no default export and keeps name/inject/Config through unwrapExports', () => {
     expect('default' in timeoutPolicy).toBe(false)
 
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(timeoutPolicy) as Record<string, unknown>
     expect(unwrapped).toBe(timeoutPolicy)
     expect(unwrapped.name).toBe('timeout-policy')
+    expect(unwrapped.inject).toEqual(['tools'])
     expect(typeof unwrapped.apply).toBe('function')
     expect(unwrapped.Config).toBeDefined()
   })

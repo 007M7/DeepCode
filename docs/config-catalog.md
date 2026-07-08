@@ -604,6 +604,8 @@ Source: [`packages/core/system-prompt/src/index.ts:179`](../packages/core/system
 
 ## `@deepseek-ai/dsh-timeout-policy`
 
+Requires: `tools`
+
 ```ts config-catalog
 /**
  * Plugin config: per-tool timeout policy, keyed by the model-facing tool name.
@@ -623,7 +625,7 @@ export interface ToolTimeoutPolicy {
 }
 ```
 
-Source: [`packages/timeout/timeout-policy/src/index.ts:61`](../packages/timeout/timeout-policy/src/index.ts)
+Source: [`packages/timeout/timeout-policy/src/index.ts:64`](../packages/timeout/timeout-policy/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-fs`
 

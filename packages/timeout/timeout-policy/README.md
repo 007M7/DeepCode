@@ -25,6 +25,8 @@ Per-tool policy, keyed by the model-facing tool name. There is deliberately **no
 |---|---|---|
 | `tools` | `Record<string, { timeoutMs }>` | Per-tool timeout policy; an unlisted tool gets no deadline. `timeoutMs` is required per configured tool and must be positive finite. |
 
+A configured tool name that never registers (a typo like `web_fech`, or a stale key) would silently apply the timeout to nothing. Because the tool set is dynamic (plugins register in `cordis.yml` order, HMR re-registers), this is not a load-time error — a real tool may register later. Instead, on every `tools/change` (and once at load) the plugin `logger.warn`s each configured name still absent from `ctx.tools`, warning each name at most once so a late registration silences it. This mirrors `dsh-tool-subagent`'s lifecycle-driven handling of a configured-but-unregistered provider name.
+
 ### Behavior
 
 For a **configured** tool the listener:
