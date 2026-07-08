@@ -31,19 +31,21 @@
  *   lists `structured_output` before further tool calls cannot run side
  *   effects after the final answer was accepted.
  * - `tools/post-execute` (prepend, scoped): the capture COMMIT. The tool body
- *   only STAGES the validated value, KEYED BY CALL ID; it becomes the run's
- *   captured result only when the final post-execute decision accepts THAT
- *   call. Call-keyed staging closes a stale-stage hole: an outer
- *   short-circuiting post-execute listener can orphan a staged value, and an
- *   un-keyed commit would then promote it on a LATER call's acceptance —
- *   reporting success for a value the model saw fail.
+ *   only STAGES the validated value, KEYED BY THE EXECUTION OBJECT'S
+ *   IDENTITY; it becomes the run's captured result only when the final
+ *   post-execute decision accepts THAT SAME pipeline trip. Execution-keyed
+ *   staging closes the stale-stage hole unconditionally: an outer
+ *   short-circuiting listener (post-execute block, or a pre-execute deny
+ *   whose call never dispatched) can orphan a staged value, and neither a
+ *   later call nor one REUSING the same adapter-minted call id can ever
+ *   promote it — only the execution whose own body staged can commit.
  *
  * @module @deepseek-ai/dsh-subagent-inprocess/structured
  */
 
 import type { Context } from 'cordis'
 import type { Agent, ContinuationDecision } from '@deepseek-ai/dsh-agent'
-import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { AssembleContext, PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { ToolArgsError, validateStructuredValue, type StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
@@ -83,8 +85,15 @@ export interface StructuredAttachment {
  * @returns the attachment handle (read `captured()` after the child settles).
  */
 export function attachStructuredRuntime(childCtx: Context, schema: StructuredOutputSchema): StructuredAttachment {
-  /** A validated value staged by the capture tool body, awaiting ITS OWN call's post-execute verdict. */
-  let pending: { callId: CallId; value: unknown } | undefined
+  /**
+   * A validated value staged by the capture tool body, awaiting ITS OWN
+   * call's post-execute verdict — keyed by the {@link ToolExecution} OBJECT
+   * identity, the one token that provably ties a stage to one trip through
+   * the pipeline. A call id cannot key this: ids are adapter-minted and may
+   * repeat across steps, and a denied/failed later call REUSING an orphaned
+   * stage's id must never promote it.
+   */
+  let pending: { exec: ToolExecution; value: unknown } | undefined
   let captured: { value: unknown } | undefined
 
   const schemaEntry: ToolSchema = {
@@ -104,10 +113,10 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
       // ToolArgsError → isError result with INVALID_ARGS: the model retries
       // within the same turn, exactly like a schema-validated defineTool call.
       if (violations.length > 0) throw new ToolArgsError(violations)
-      // Two-phase commit, KEYED BY THIS CALL: the body only stages; the
-      // post-execute listener promotes exactly this call's entry when the
-      // final decision accepts it.
-      pending = { callId: exec.callId, value: args }
+      // Two-phase commit, KEYED BY THIS EXECUTION: the body only stages; the
+      // post-execute listener promotes exactly this pipeline trip's entry
+      // when the final decision accepts it.
+      pending = { exec, value: args }
       return Promise.resolve([{ type: 'text', text: 'Structured output recorded.' }])
     },
   })
@@ -159,13 +168,6 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
         reason: `structured output already recorded: the run is complete, so \`${exec.name}\` is not executed`,
       })
     }
-    // A NEW capture call invalidates any stale stage UNCONDITIONALLY, before
-    // dispatch: only THIS call's own body may stage for this call's commit.
-    // Without this, a stale entry orphaned by an outer short-circuited chain
-    // could be promoted by a later call REUSING the same call id whose body
-    // never staged (pre-execute-denied downstream, or invalid args throwing
-    // before the stage) — reporting success for a value the model saw fail.
-    if (exec.name === STRUCTURED_OUTPUT_TOOL) pending = undefined
     return next()
   }, { prepend: true })
 
@@ -178,14 +180,15 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
     this: unknown, exec: ToolExecution, _result: ToolExecutionResult, next: () => Promise<PostToolDecision>,
   ): Promise<PostToolDecision> {
     if (exec.name !== STRUCTURED_OUTPUT_TOOL || pending === undefined) return next()
-    /* v8 ignore start -- defensive second layer: the pre-execute clear above
-     * already drops every stale stage before a new capture call dispatches,
-     * so a call-id mismatch cannot be reached through the tool pipeline */
-    if (pending.callId !== exec.callId) {
+    if (pending.exec !== exec) {
+      // A stale stage from a DIFFERENT pipeline trip: its own chain was
+      // short-circuited past this commit (an outer post-execute block, or an
+      // outer pre-execute deny whose call never dispatched), so its verdict
+      // never reached us. Whatever the current call's id, the orphan must
+      // never ride its acceptance — drop it.
       pending = undefined
       return next()
     }
-    /* v8 ignore stop */
     const staged = pending
     try {
       const decision = await next()

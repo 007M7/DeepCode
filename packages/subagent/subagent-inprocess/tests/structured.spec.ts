@@ -568,4 +568,49 @@ describe('in-process structured output', () => {
     expect(valid.isError).toBeFalsy()
     await run.dispose()
   })
+
+  it('an outer pre-execute deny with call-id reuse cannot promote an orphaned stage either', async () => {
+    const { ctx, parent } = await setup([
+      toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 1 }),
+    ])
+    const run = ctx.subagents.start('spawn', structuredRequest(parent))
+    const child = ctx.agents.get(run.id)!
+    // Orphan a stage via an outer post-execute BLOCK on the first capture.
+    let blocks = 1
+    ctx.on('tools/post-execute', (exec, _result, next) => {
+      if (exec.name === STRUCTURED_OUTPUT_TOOL && blocks > 0) {
+        blocks -= 1
+        return Promise.resolve({ kind: 'block' as const, feedback: [{ type: 'text' as const, text: 'rejected' }] })
+      }
+      return next()
+    }, { prepend: true })
+    await run.result
+    // An OUTERMOST prepend pre-execute deny: the structured runtime's own
+    // pre-execute never runs for this call, and the denied call still goes
+    // through post-execute — with the SAME call id as the orphaned stage.
+    const offDeny = ctx.on('tools/pre-execute', (exec) => {
+      if (exec.name === STRUCTURED_OUTPUT_TOOL) {
+        return Promise.resolve({ kind: 'deny' as const, reason: 'outer veto' })
+      }
+      return undefined as never
+    }, { prepend: true })
+    const denied = await ctx.tools.execute({
+      callId: 'c1' as never,
+      name: STRUCTURED_OUTPUT_TOOL,
+      arguments: { answer: 2 },
+      agent: child,
+    })
+    expect(denied.isError).toBe(true)
+    offDeny()
+    // The orphan was never promoted: a fresh valid call is still required
+    // (and succeeds, proving the runtime is not wedged).
+    const valid = await ctx.tools.execute({
+      callId: 'c1' as never,
+      name: STRUCTURED_OUTPUT_TOOL,
+      arguments: { answer: 5 },
+      agent: child,
+    })
+    expect(valid.isError).toBeFalsy()
+    await run.dispose()
+  })
 })
