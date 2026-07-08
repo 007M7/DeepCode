@@ -223,13 +223,10 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       if (activeQuestion !== undefined) return
       const pending = questionQueue.shift()
       if (pending === undefined) return
-      if (pending.request.signal?.aborted) {
-        pending.reject(new UserInteractionError('ask_user_question was aborted before the user answered', 'ASK_ABORTED'))
-        startNextQuestion()
-        return
-      }
+      // The queue never contains an aborted pending ask: the seam rejects an
+      // already-aborted request synchronously, and queued asks attach their
+      // abort listener before enqueueing.
       activeQuestion = pending
-      pending.request.signal?.addEventListener('abort', pending.onAbort, { once: true })
       renderQuestion(pending)
     }
 
@@ -325,11 +322,19 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
             resolve,
             reject,
             onAbort: () => {
-              activeQuestion = undefined
+              if (activeQuestion === pending) {
+                activeQuestion = undefined
+                disposeQuestion(pending)
+                startNextQuestion()
+                return
+              }
+              // If it is not active, this listener can only fire while the ask
+              // remains queued; settled asks remove the listener first.
+              questionQueue.splice(questionQueue.indexOf(pending), 1)
               disposeQuestion(pending)
-              startNextQuestion()
             },
           }
+          request.signal?.addEventListener('abort', pending.onAbort, { once: true })
           questionQueue.push(pending)
           startNextQuestion()
         })

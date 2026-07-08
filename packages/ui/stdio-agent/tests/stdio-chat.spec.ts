@@ -550,15 +550,44 @@ describe('createStdioChat input', () => {
     const controller = new AbortController()
     const first = ctx.userInteraction.ask({ questions: [{ id: 'first', question: 'First?' }] })
     const second = ctx.userInteraction.ask({ questions: [{ id: 'second', question: 'Second?' }], signal: controller.signal })
-    const secondRejected = expect(second).rejects.toMatchObject({ code: 'ASK_ABORTED' })
     await new Promise(r => setImmediate(r))
 
     controller.abort()
+
+    await expect(Promise.race([
+      second.then(
+        () => 'resolved',
+        (error: unknown) => (error as { code?: string }).code,
+      ),
+      new Promise<string>((resolve) => { setImmediate(() => { resolve('pending') }) }),
+    ])).resolves.toBe('ASK_ABORTED')
+    expect(out.text()).not.toContain('\nSecond?\n')
     input.feed('first answer')
+    await expect(first).resolves.toEqual({ answers: [{ id: 'first', selected: [], custom: 'first answer' }] })
+  })
+
+  it('removes an aborted queued question without promoting later queued work early', async () => {
+    const { ctx, input, out } = await setup()
+    const controller = new AbortController()
+    const first = ctx.userInteraction.ask({ questions: [{ id: 'first', question: 'First?' }] })
+    const second = ctx.userInteraction.ask({ questions: [{ id: 'second', question: 'Second?' }], signal: controller.signal })
+    const third = ctx.userInteraction.ask({ questions: [{ id: 'third', question: 'Third?' }] })
+    await new Promise(r => setImmediate(r))
+
+    controller.abort()
+
+    await expect(second).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    expect(out.text()).toContain('\nFirst?\n')
+    expect(out.text()).not.toContain('\nSecond?\n')
+    expect(out.text()).not.toContain('\nThird?\n')
+    input.feed('first answer')
+    await new Promise(r => setImmediate(r))
+
+    expect(out.text()).toContain('\nThird?\n')
+    input.feed('third answer')
 
     await expect(first).resolves.toEqual({ answers: [{ id: 'first', selected: [], custom: 'first answer' }] })
-    await secondRejected
-    expect(out.text()).not.toContain('\nSecond?\n')
+    await expect(third).resolves.toEqual({ answers: [{ id: 'third', selected: [], custom: 'third answer' }] })
   })
 
   it('rejects active and queued questions when the UI is disposed', async () => {
