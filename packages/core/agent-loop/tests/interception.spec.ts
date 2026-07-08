@@ -352,6 +352,33 @@ describe('agent/session-prefix', () => {
     expect(agent.session.deriveMessages()[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'go' }] })
   })
 
+  it('composes before the first pre-step and hands the prefix to the seam (pressure gates see the real value)', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    const reminder: Message = { role: 'user', content: [{ type: 'text', text: 'opener' }] }
+    const order: string[] = []
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => {
+      order.push('compose')
+      return [reminder, ...await next()]
+    })
+    const seen: (readonly Message[])[] = []
+    ctx.on('agent/pre-step', (_agent, _turn, _step, _system, sessionPrefix) => {
+      order.push('pre-step')
+      seen.push(sessionPrefix)
+    })
+
+    send(agent, 'hi')
+    await waitForIdle(ctx, agent)
+
+    // Composition precedes the pre-step seam, and the seam receives THIS
+    // instance's composed prefix — a token-pressure gate (compaction) counts
+    // what the request will actually carry, never a stale logged prefix.
+    expect(order).toEqual(['compose', 'pre-step'])
+    expect(seen[0]).toEqual([reminder])
+  })
+
   it('the canonical prepend pattern composes contributions in registration order', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)

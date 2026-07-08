@@ -333,21 +333,28 @@ declare module 'cordis' {
      * value; this event is typed and documented as `void`, so listeners must not
      * return a semantic veto value. `fullSystemPrompt` is the assembled prompt a
      * listener needs to measure pressure (the system prompt counts toward the
-     * budget). `signal` cancels any in-flight work a listener starts (e.g. a
+     * budget), and `sessionPrefix` is the instance's composed
+     * {@link agent/session-prefix} product for the same reason — every request
+     * carries it in front of the derived history, and it is composed BEFORE
+     * this seam fires precisely so a pressure gate counts the prefix the
+     * request will actually send (never a stale logged one). `signal` cancels
+     * any in-flight work a listener starts (e.g. a
      * summarization model call).
      * @param agent - the agent about to open the step.
      * @param turn - the already-open turn this step belongs to.
      * @param step - the number of the step about to start.
      * @param fullSystemPrompt - the assembled prompt, for measuring token pressure.
+     * @param sessionPrefix - the instance's frozen session prefix, for the same measurement.
      * @param signal - aborts in-flight listener work when the turn is torn down.
      * @mode serial
      */
-    // TODO: `fullSystemPrompt` is a smell on a generic per-step seam — compaction
-    // is its only consumer, so a wide event carries a string just one listener
+    // TODO: `fullSystemPrompt`/`sessionPrefix` are a smell on a generic
+    // per-step seam — compaction
+    // is their only consumer, so a wide event carries payloads just one listener
     // reads. Revisit if no second consumer appears: e.g. hand listeners a lazy
     // prompt provider, or move token-pressure measurement behind a
     // compaction-specific seam instead of the shared pre-step checkpoint.
-    'agent/pre-step'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal): Promise<void> | void
+    'agent/pre-step'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void
     /**
      * Waterfall: decide what happens to ONE drained queued message before it
      * becomes a `user/message` — allow (optionally rewriting the prompt bytes or
@@ -389,13 +396,18 @@ declare module 'cordis' {
      * Waterfall: compose the SESSION PREFIX — request-only messages placed in
      * front of the ENTIRE derived history (directly after the provider's
      * system slot) on every request this loop instance sends. Fired ONCE per
-     * loop instance, lazily on its first request-building step; the composed
+     * loop instance, lazily before its first step's {@link agent/pre-step}
+     * seam — BEFORE the pre-step so a token-pressure gate (compaction) counts
+     * the prefix this instance will actually send, never a previous
+     * instance's logged one. The composed
      * result is deep-frozen, recorded as `EpochHeader.messagePrefix` on the
      * instance's anchoring `'initial'`/`'resume'` header snapshot, and reused
      * verbatim for every subsequent request — never recomputed mid-session,
      * so the provider prefix cache holds by construction (a process restart
      * or `ctx.agents.resume()` is a new instance: it recomposes, and any
-     * drift lands attributably on the `'resume'` snapshot).
+     * drift lands attributably on the `'resume'` snapshot). Composition runs
+     * outside the step, before the boundary snapshot: a composing listener's
+     * session append joins the CURRENT request's derived history.
      *
      * This is the home for session-stable openers the model must always see
      * but that must NOT become durable history — a skills catalog, an

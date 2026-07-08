@@ -55,12 +55,13 @@ forever:
     STEP loop:
       drain steering
       assembly = systemPrompt.assemble({agent})  ⟵ renderPrompt(assembly) IS the full prompt
-      await serial agent/pre-step        ⟵ surface mutation (compaction) outside the step
+      prefix ??= waterfall agent/session-prefix   ⟵ once per instance (first step): frozen
+                                                session prefix; on the header, never history
+      await serial agent/pre-step(…, prefix)  ⟵ surface mutation (compaction) outside the step;
+                                                pressure gates see the prefix the request carries
       boundary = session.deriveMessages()   ⟵ reconstruction boundary: same sync frame,
       session('step/start')                     strictly before step/start
       config = waterfall agent/request       ⟵ frozen seed; return a replacement to switch
-      prefix ??= waterfall agent/session-prefix   ⟵ once per instance (first request): frozen
-                                                session prefix; on the header, never history
       session('request/header'[-delta])      ⟵ the header event this request owes the log
       stream llm.stream(freeze({header..., messages: prefix+boundary})) → session('assistant/chunk')
       message = waterfall agent/step-result

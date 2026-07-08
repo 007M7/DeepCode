@@ -157,13 +157,14 @@ export interface LoopHandle {
  *       drain steering → session('steering/message')  ⟵ catches late steering
  *       assembly = ctx.systemPrompt.assemble({agent}) ⟵ waterfall system-prompt/assemble; renderPrompt
  *                                                        (persona section + {{variables}}) IS the full prompt
- *       await ctx.serial('agent/pre-step')            ⟵ surface mutation (compaction) OUTSIDE the step
+ *       prefix ??= waterfall agent/session-prefix     ⟵ once per loop instance (first step): frozen
+ *                                                        session prefix; logged on the header, never
+ *                                                        session history
+ *       await ctx.serial('agent/pre-step', …, prefix) ⟵ surface mutation (compaction) OUTSIDE the step;
+ *                                                        pressure gates see the prefix the request carries
  *       boundary = session.deriveMessages()           ⟵ the reconstruction boundary: snapshot in the
  *       session('step/start')                            same sync frame, strictly before step/start
  *       config = waterfall agent/request(config)      ⟵ frozen seed; a returned replacement switches
- *       prefix ??= waterfall agent/session-prefix     ⟵ once per loop instance (first request):
- *                                                        frozen session prefix; logged on the header,
- *                                                        never session history
  *       session('request/header'|'request/header-delta')  ⟵ the header event this request owes the
  *                                                        log (initial/resume anchor, delta, fallback)
  *       req = freeze({header..., messages: prefix+boundary, sessionId, signal})
@@ -475,6 +476,41 @@ async function runTurn(
         break
       }
 
+      // Compose the session prefix ONCE per loop instance, lazily before the
+      // instance's first pre-step: request-only messages placed in front of
+      // the ENTIRE derived history on every request this instance sends. It
+      // MUST precede the pre-step seam so compaction gates on THIS instance's
+      // prefix — reading a previous instance's logged prefix would let a
+      // resumed/forked instance whose contributor grew skip compaction and
+      // ship an over-window first request. The result is deep-cloned
+      // (decoupled from listener-held references), deep-frozen, and cached on
+      // the transmission bookkeeping, so reuse is structural — the prefix
+      // cannot change mid-session and the provider prefix cache holds by
+      // construction (resume = a new instance = a recompose, anchored by its
+      // 'resume' snapshot). The prefix is not session history — the header
+      // event in runStep is its only durable record
+      // (EpochHeader.messagePrefix). The frozen empty seed serves both the
+      // listener chain and the no-listener fallback: a contribution is a
+      // RETURNED extension of `await next()`, never an in-place push. This
+      // runs OUTSIDE the step, before the boundary snapshot: a composing
+      // listener's session append lands before the boundary and joins the
+      // CURRENT request.
+      if (transmission.sessionPrefix === undefined) {
+        const emptyPrefix: Message[] = deepFreeze([])
+        transmission.sessionPrefix = deepFreeze(structuredClone(await ctx.waterfall(
+          'agent/session-prefix', agent, emptyPrefix, abort.signal,
+          () => Promise.resolve(emptyPrefix),
+        )))
+      }
+
+      // Interruption landing during prefix composition: mirror the assembly
+      // window above — drop the about-to-start step without running the seam.
+      if (handle.isCancelled() || handle.isDisposed()) {
+        handle.setAbort(undefined)
+        reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
+        break
+      }
+
       // Pre-step surface-mutation checkpoint (compaction), fired OUTSIDE the
       // step: after `turn/start` (and the prior step's close) but before
       // `step/start`, so a compaction's log-only `compact/*` records and its
@@ -485,8 +521,10 @@ async function runTurn(
       // concurrent listeners cannot interleave their `session.append`s. A
       // throwing listener escapes to the outer catch, which closes the (not-yet-
       // open) step as a no-op and ends the turn via failTurn — a broken
-      // pre-step plugin ends the turn, not the loop.
-      await ctx.serial('agent/pre-step', agent, turn, step, fullSystemPrompt, abort.signal)
+      // pre-step plugin ends the turn, not the loop. The composed session
+      // prefix rides along so token-pressure listeners count everything the
+      // request will actually carry.
+      await ctx.serial('agent/pre-step', agent, turn, step, fullSystemPrompt, transmission.sessionPrefix, abort.signal)
 
       // Interruption landing during the pre-step seam: do not open an empty step.
       if (handle.isCancelled() || handle.isDisposed()) {
@@ -722,27 +760,10 @@ async function runStep(
     throw new Error(`agent "${agent.id}" has no model: set AgentOptions.model or supply one via the agent/request waterfall`)
   }
 
-  // Compose the session prefix ONCE per loop instance, lazily on its first
-  // request-building step: request-only messages placed in front of the
-  // ENTIRE derived history on every request this instance sends. The result
-  // is deep-cloned (decoupled from listener-held references), deep-frozen,
-  // and cached on the transmission bookkeeping, so reuse is structural — the
-  // prefix cannot change mid-session and the provider prefix cache holds by
-  // construction (resume = a new instance = a recompose, anchored by its
-  // 'resume' snapshot). The prefix is not session history — the header event
-  // below is its only durable record (EpochHeader.messagePrefix), which
-  // keeps the request a pure function of the log. The frozen empty seed
-  // serves both the listener chain and the no-listener fallback: a
-  // contribution is a RETURNED extension of `await next()`, never an
-  // in-place push.
-  if (transmission.sessionPrefix === undefined) {
-    const emptyPrefix: Message[] = deepFreeze([])
-    transmission.sessionPrefix = deepFreeze(structuredClone(await ctx.waterfall(
-      'agent/session-prefix', agent, emptyPrefix, signal,
-      () => Promise.resolve(emptyPrefix),
-    )))
-  }
-  const sessionPrefix = transmission.sessionPrefix
+  // The session prefix was composed (once per instance) before this step's
+  // pre-step seam — the caller guarantees it, so the cache is always set here.
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- runTurn composes the prefix before every runStep call
+  const sessionPrefix = transmission.sessionPrefix!
 
   // The request header (the log's request/header* vocabulary): canonical form,
   // recorded before dispatch so the log always explains the request —

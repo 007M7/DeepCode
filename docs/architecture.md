@@ -70,10 +70,11 @@ forever:
     STEP loop:
       drain steering
       assemble system prompt and tool schemas
+      agent/session-prefix (first step)
       agent/pre-step
       'step/start'
       snapshot the derived messages (the reconstruction boundary)
-      agent/request (config only) -> agent/session-prefix (first request) -> log request/header -> llm/stream (frozen)
+      agent/request (config only) -> log request/header -> llm/stream (frozen)
         'assistant/chunk'
       agent/step-result
       'assistant/message'

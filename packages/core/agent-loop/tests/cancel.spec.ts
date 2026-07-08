@@ -166,6 +166,69 @@ describe('Agent.cancel()', () => {
     expect(reasons.length).toBe(2)
   })
 
+  it('cancel from inside the agent/session-prefix waterfall drops the step (prefix-composition window)', async () => {
+    const adapter = new MockAdapter([textResponse('should not stream')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    // Prefix composition runs before the pre-step seam on the instance's first
+    // step; a cancel landing inside it must drop the about-to-start step
+    // without running the seam or the model.
+    let streamed = false
+    ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next) => {
+      agent.cancel('from prefix composition')
+      return next()
+    })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(streamed).toBe(false)
+    expect(reasons).toEqual([{ kind: 'aborted', reason: 'from prefix composition' }])
+  })
+
+  it('disposal from inside the agent/session-prefix waterfall ends the turn disposed (prefix-composition window)', async () => {
+    const adapter = new MockAdapter([textResponse('should not stream')])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    ctx.llm.registerAdapter(['mock'], adapter)
+
+    const handle = ctx.agents.create({
+      agentId: AgentId('a-dispose-prefix'),
+      sessionId: SessionId('dispose-prefix-session'),
+      agentOptions: { model: 'mock' },
+    })
+    const agent = handle.agent as ReactLoopAgent
+
+    let disposalDone: Promise<void> | undefined
+    let streamed = false
+    ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next) => {
+      disposalDone = handle.dispose()
+      return next()
+    })
+
+    send(agent, 'go')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await disposalDone
+    await agent.done
+
+    // No step opened, no model call ran, and the turn closed disposed.
+    expect(streamed).toBe(false)
+    expect(adapter.requests).toHaveLength(0)
+    const turnEnd = agent.session.events.findLast(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
+  })
+
   it('cancel from a synchronous turn/start session-event listener drops the step (step-start window)', async () => {
     const adapter = new MockAdapter([textResponse('should not stream')])
     const ctx = await harness(adapter)

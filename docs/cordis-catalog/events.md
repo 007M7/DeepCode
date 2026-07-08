@@ -47,21 +47,21 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:460`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:472`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
 Awaited pre-step surface-mutation checkpoint, fired once per step AFTER `turn/start` (and after the prior step closed) but BEFORE this step's `step/start` — so anything a listener appends lands OUTSIDE the step, between `turn/start`/`step/end` and the upcoming `step/start`. `step` is the number of the step about to start. The loop awaits `ctx.serial('agent/pre-step', …)` after assembling the system prompt, then opens the step and derives the request history ONCE from whatever the surface now holds. This is where compaction belongs: it mutates the session surface in place (shadowing an older range with a summary node) with its log-only `compact/*` records cleanly outside any step, and the single subsequent derive reflects the mutation — so there is no double-derive and no listener can see (or be expected to act on) an assembled `messages` array that does not exist yet.
 
-Serial (awaited in registration order), not a waterfall: a listener mutates the surface as a side effect; there is nothing to transform, but the loop must wait for the mutation to complete before opening the step and deriving. Cordis `serial` bails early if a listener returns a bail value; this event is typed and documented as `void`, so listeners must not return a semantic veto value. `fullSystemPrompt` is the assembled prompt a listener needs to measure pressure (the system prompt counts toward the budget). `signal` cancels any in-flight work a listener starts (e.g. a summarization model call).
+Serial (awaited in registration order), not a waterfall: a listener mutates the surface as a side effect; there is nothing to transform, but the loop must wait for the mutation to complete before opening the step and deriving. Cordis `serial` bails early if a listener returns a bail value; this event is typed and documented as `void`, so listeners must not return a semantic veto value. `fullSystemPrompt` is the assembled prompt a listener needs to measure pressure (the system prompt counts toward the budget), and `sessionPrefix` is the instance's composed agent/session-prefix product for the same reason — every request carries it in front of the derived history, and it is composed BEFORE this seam fires precisely so a pressure gate counts the prefix the request will actually send (never a stale logged one). `signal` cancels any in-flight work a listener starts (e.g. a summarization model call).
 
 ```ts cordis-catalog
-'agent/pre-step'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, signal: AbortSignal): Promise<void> | void
+'agent/pre-step'(agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void
 ```
 
-Types: [Agent](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:350`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:357`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -73,7 +73,7 @@ Waterfall: decide what happens to ONE drained queued message before it becomes a
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:363`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:370`](../../packages/core/agent/src/types.ts)
 
 ### `agent/queued` — emit
 
@@ -97,11 +97,11 @@ Waterfall: shape the step's call configuration — model switching, sampling ove
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:387`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:394`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-prefix` — waterfall
 
-Waterfall: compose the SESSION PREFIX — request-only messages placed in front of the ENTIRE derived history (directly after the provider's system slot) on every request this loop instance sends. Fired ONCE per loop instance, lazily on its first request-building step; the composed result is deep-frozen, recorded as `EpochHeader.messagePrefix` on the instance's anchoring `'initial'`/`'resume'` header snapshot, and reused verbatim for every subsequent request — never recomputed mid-session, so the provider prefix cache holds by construction (a process restart or `ctx.agents.resume()` is a new instance: it recomposes, and any drift lands attributably on the `'resume'` snapshot).
+Waterfall: compose the SESSION PREFIX — request-only messages placed in front of the ENTIRE derived history (directly after the provider's system slot) on every request this loop instance sends. Fired ONCE per loop instance, lazily before its first step's agent/pre-step seam — BEFORE the pre-step so a token-pressure gate (compaction) counts the prefix this instance will actually send, never a previous instance's logged one. The composed result is deep-frozen, recorded as `EpochHeader.messagePrefix` on the instance's anchoring `'initial'`/`'resume'` header snapshot, and reused verbatim for every subsequent request — never recomputed mid-session, so the provider prefix cache holds by construction (a process restart or `ctx.agents.resume()` is a new instance: it recomposes, and any drift lands attributably on the `'resume'` snapshot). Composition runs outside the step, before the boundary snapshot: a composing listener's session append joins the CURRENT request's derived history.
 
 This is the home for session-stable openers the model must always see but that must NOT become durable history — a skills catalog, an AGENTS.md digest, a workspace baseline: `Session.deriveMessages()` never returns the prefix, and the header events are its only durable record, so the request stays reconstructable from the log. Content that CHANGES mid-session belongs in the append-only history channels instead — `agent.inject()`, a `tools/post-execute` decision's `additionalContext`, prompt-submit `additionalContext` — each a durable `context/message` paid once and prefix-cached thereafter.
 
@@ -113,7 +113,7 @@ The seed is a frozen empty list; a contributing listener returns a NEW array —
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:425`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:437`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -149,7 +149,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:435`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:447`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -161,7 +161,7 @@ Waterfall: override the turn-continuation decision via a typed ContinuationDecis
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:448`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:460`](../../packages/core/agent/src/types.ts)
 
 ## `fs/*`
 
