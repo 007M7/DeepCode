@@ -68,6 +68,7 @@ flowchart TD
     pkg_session_persistence_sqlite["session-persistence-sqlite"]
   end
   subgraph group_support["packages/support"]
+    pkg_acp_snapshot["acp-snapshot"]
     pkg_invariants["invariants"]
     pkg_llm_replay["llm-replay"]
     pkg_subagent_mock["subagent-mock"]
@@ -212,6 +213,7 @@ flowchart TD
 | Package | Group | Depends on |
 | --- | --- | --- |
 | [`brand`](../packages/util/brand) | `util` | — |
+| [`acp-snapshot`](../packages/support/acp-snapshot) | `support` | — |
 | [`app-boot`](../packages/ui/app-boot) | `ui` | — |
 | [`code-runtime`](../packages/code-runtime/code-runtime) | `code-runtime` | — |
 | [`llm`](../packages/llm/llm) | `llm` | [`brand`](../packages/util/brand) |
