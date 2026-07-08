@@ -385,6 +385,44 @@ describe('the run_code dispatch bridge', () => {
     expect(sawAbort).toBe(true)
   })
 
+  it('a runtime that starts a binding call and then REJECTS still reaches quiescence before returning', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const { agent, events } = fakeAgent()
+    let sawAbort = false
+    let started!: () => void
+    const inFlight = new Promise<void>((resolve) => { started = resolve })
+    ctx.tools.register(defineTool({
+      name: 'slow',
+      description: 'Slow tool observing its signal.',
+      parameters: { id: { type: 'string', required: true } },
+      async execute(args, exec) {
+        started()
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 500)
+          exec.signal?.addEventListener('abort', () => { sawAbort = true; clearTimeout(timer); resolve() }, { once: true })
+        })
+        return [{ type: 'text' as const, text: args.id }]
+      },
+    }))
+    runtime.behavior = async (request) => {
+      // Start a sub-dispatch, keep its rejection held, and fail the run once
+      // the tool is genuinely in flight — a seam error AFTER work has begun.
+      // The bridge's settlement still owes quiescence: without the finally,
+      // run_code would return now and the slow tool would finish (and log)
+      // afterwards.
+      request.bindings[0]!.functions.slow!({ id: 'orphan' }).catch(() => 'held')
+      await inFlight
+      throw new Error('backend exploded')
+    }
+    const result = await runCode(ctx, 'program', { agent })
+    expect(result.isError).toBe(true)
+    expect((result.content[0] as { text: string }).text).toContain('backend exploded')
+    // Quiescence held: the in-flight sub-dispatch was aborted and its event
+    // logged INSIDE the run_code execution, not after it returned.
+    expect(sawAbort).toBe(true)
+    expect(events.filter(event => event.type === 'tool/code-dispatch').map(event => (event.data as { name: string }).name)).toEqual(['slow'])
+  })
+
   it('runs without an owning agent: dispatches work, event logging is skipped', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const calls = registerEcho(ctx)

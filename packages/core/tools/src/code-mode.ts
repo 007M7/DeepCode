@@ -250,21 +250,29 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       }
 
       try {
-        const result = await runtime.run({
-          program: args.code,
-          bindings: [{ global: 'tools', functions }],
-          signal: runController.signal,
-        })
-        // Quiescence before returning: fire the run-scoped abort (cancelling
-        // an in-flight sub-dispatch, abandoning queued ones), then await the
-        // queue's drain — an aborted sub-call still settles and logs its
-        // event INSIDE the open turn; nothing can append after we return.
-        // `queue` is the FOLDED tail (every link swallows its rejection into
-        // undefined), so this await cannot itself reject — an abandoned
-        // queued call can never mask the runtime's own `result.error` below;
-        // rejections surface only on the per-call promises the program holds.
-        runController.abort('run_code settled')
-        await queue
+        let result: CodeRunResult
+        try {
+          result = await runtime.run({
+            program: args.code,
+            bindings: [{ global: 'tools', functions }],
+            signal: runController.signal,
+          })
+        } finally {
+          // Quiescence before returning, whether the runtime fulfilled or
+          // REJECTED (a backend that starts a binding call and then throws
+          // must not leak a live sub-dispatch past this settlement): fire
+          // the run-scoped abort (cancelling an in-flight sub-dispatch,
+          // abandoning queued ones), then await the queue's drain — an
+          // aborted sub-call still settles and logs its event INSIDE the
+          // open turn; nothing can append after we return. `queue` is the
+          // FOLDED tail (every link swallows its rejection into undefined),
+          // so this await cannot itself reject — an abandoned queued call
+          // can never mask the runtime's own failure, returned or thrown;
+          // rejections surface only on the per-call promises the program
+          // holds.
+          runController.abort('run_code settled')
+          await queue
+        }
 
         if (result.error) {
           const logsText = result.logs.length > 0 ? `\nCaptured output:\n${result.logs.map(entry => entry.text).join('\n')}` : ''
