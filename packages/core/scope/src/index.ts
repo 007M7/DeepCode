@@ -217,17 +217,25 @@ export function scopeTarget<T extends object>(base: T, key: ScopeKey | undefined
   // and sets land on `base` directly.
   return new Proxy(base, {
     get(target, prop) {
+      // Proxy get invariants pin what this trap may report for a
+      // non-configurable OWN property of the base: a non-writable data prop
+      // must be reported AS-IS (neither overlaid nor bound), a getterless
+      // accessor as undefined — checked FIRST so even an overlay key
+      // colliding with a frozen own prop of a (pathological) base yields the
+      // base's value instead of an engine TypeError. Such a base forgoes
+      // scope filtering; no production base freezes these keys.
+      const own = Reflect.getOwnPropertyDescriptor(target, prop)
+      const pinned = own !== undefined && own.configurable === false
+        && own.get === undefined && own.writable !== true
       // hasOwn, not `in`: the overlay literal inherits Object.prototype, so
       // `in` would claim `toString`/`constructor` and shadow the subject's.
-      if (Object.hasOwn(overlay, prop)) return overlay[prop]
+      if (!pinned && Object.hasOwn(overlay, prop)) return overlay[prop]
       const value: unknown = Reflect.get(target, prop, target)
-      if (typeof value !== 'function') return value
-      // Proxy invariant guard: a non-configurable, non-writable OWN data
-      // property must be reported unchanged, so it cannot be bound. Class
-      // methods live on the prototype (no own descriptor) and bind freely;
-      // only a frozen own-function prop keeps the raw (unbound) function.
-      const own = Reflect.getOwnPropertyDescriptor(target, prop)
-      if (own !== undefined && own.configurable === false && own.writable === false) return value
+      if (typeof value !== 'function' || pinned) return value
+      // `constructor` is looked up, never invoked as a subject method — keep
+      // the real one (withProps special-cases it the same way), so
+      // `carrier.constructor` still identifies the subject's class.
+      if (prop === 'constructor') return value
       // `Function.prototype.bind` types as `any`; the value is structurally
       // T[prop] and the trap's contract is untyped (`any`), so unknown is the
       // honest safe return.

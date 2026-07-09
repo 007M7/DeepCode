@@ -222,6 +222,28 @@ describe('scopeTarget dispatch filtering', () => {
     // it from shadowing the subject's own prototype-surface members.
     expect(String(carrier)).toBe('base-str')
   })
+
+  it('honors the get invariant even when an overlay key collides with a frozen own prop of the base', () => {
+    // Pathological but engine-enforced: a base whose own [Context.filter] is
+    // a non-configurable, non-writable data prop pins what any proxy over it
+    // may report for that key. The carrier must yield the base's value (an
+    // overlay there would be a runtime TypeError from the engine, not a
+    // filtering choice). Such a base forgoes scope filtering by construction.
+    const pinnedFilter = (): boolean => true
+    const base = {}
+    Object.defineProperty(base, Context.filter, { value: pinnedFilter, writable: false, configurable: false })
+    const carrier = scopeTarget(base, { name: 'key' })
+    expect((carrier as Record<symbol, unknown>)[Context.filter]).toBe(pinnedFilter)
+  })
+
+  it('keeps the real constructor: class identity survives the carrier', () => {
+    class Subject { work(): string { return 'w' } }
+    const subject = new Subject()
+    const carrier = scopeTarget(subject, subject)
+    // `constructor` is looked up, never invoked as a subject method — binding
+    // it would break `carrier.constructor === Subject` for no benefit.
+    expect(carrier.constructor).toBe(Subject)
+  })
 })
 
 describe('carrier marks', () => {
