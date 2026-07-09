@@ -985,6 +985,12 @@ importers:
       '@deepseek-ai/dsh-agent-loop':
         specifier: workspace:^
         version: link:../../core/agent-loop
+      '@deepseek-ai/dsh-approval':
+        specifier: workspace:^
+        version: link:../../approval/approval
+      '@deepseek-ai/dsh-bash':
+        specifier: workspace:^
+        version: link:../../bash/bash
       '@deepseek-ai/dsh-bash-local':
         specifier: workspace:^
         version: link:../../bash/bash-local
@@ -994,6 +1000,9 @@ importers:
       '@deepseek-ai/dsh-fs-policy':
         specifier: workspace:^
         version: link:../../fs/fs-policy
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm

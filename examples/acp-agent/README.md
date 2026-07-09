@@ -37,4 +37,4 @@ This example is the home of the harness's **snapshot tests** — they boot this 
 
 ## MVP limitations
 
-The bridge supports N concurrent sessions per connection, each in its own workspace `cwd` (RFC 011). Remaining limits: prompts support ACP's baseline `text` and `resource_link` blocks only, `additionalDirectories` and `mcpServers` are rejected, and the tool-permission gate is deferred (`TODO(rfc010-permission-gate)` — tools run with the executor's full authority). See `packages/ui/acp/README.md` for the full contract.
+The bridge supports N concurrent sessions per connection, each in its own workspace `cwd` (RFC 011). Remaining limits: prompts support ACP's baseline `text` and `resource_link` blocks only, and `additionalDirectories` and `mcpServers` are rejected. Permission prompts (`session/request_permission`) are wired through the approval seam, but this example composes no ask-producing policy, so tools run with the executor's full authority. See `packages/ui/acp/README.md` for the full contract.

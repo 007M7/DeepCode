@@ -22,8 +22,10 @@
  * `agent→sessionId` reverse map for O(1) demux of `agent/*` events; every
  * `session/event` and `agent/*` event is routed strictly to its owning session
  * record, so two sessions streaming at once never interleave their
- * `session/update` notifications. The `tools/pre-execute` permission gate is
- * deferred — see the TODO(rfc010-permission-gate) note below.
+ * `session/update` notifications. Permission prompts ride the same ownership
+ * map: the bridge answers `approval/request` for its own agents over
+ * `session/request_permission` (see the approval answerer below) — whether a
+ * call ASKS is policy (a hook or plugin returning `ask`), not the bridge's.
  *
  * stdout is the protocol: this plugin must run in an example that loads NO
  * stdout logger (the console logger writes to stdout and would corrupt the
@@ -74,6 +76,9 @@ import type { ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } f
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
 import type {} from '@deepseek-ai/dsh-session-persistence'
+// Side-effect type import: declaration-merges the `approval/request` waterfall
+// the bridge answers for its own agents (see the approval answerer below).
+import type {} from '@deepseek-ai/dsh-approval'
 import {
   UserInteractionError,
   type AskUserQuestionAnswer,
@@ -555,6 +560,37 @@ export function apply(ctx: Context, config: AcpConfig): void {
     if (status === 'idle' || status === 'disposed') settleFromLog(rec)
   })
 
+  // --- Approval answerer -----------------------------------------------------
+  // The bridge is the approval channel for the agents it owns: an `ask` routed
+  // through `ctx.approval` (dsh-tools today, sandbox escalation later) becomes
+  // an editor permission prompt attached to the already-streamed tool call. The
+  // listener occupies the single decision slot ONLY for its own agents — a
+  // foreign or call-less request delegates via next() so another answerer (or
+  // the fail-closed `unavailable` default) takes the question. A rejected
+  // `requestPermission` (client gone, bridge torn down) propagates and the
+  // ApprovalService contains it as `unavailable`. Options are one-shot only:
+  // allow_always is a grant-storage design the approval RFC defers, so the
+  // prompt never offers a durable grant the harness could not honor.
+  ctx.on('approval/request', (req, next) => {
+    const sessionId = bySession.get(req.agent)
+    // The protocol requires `toolCall` (the prompt renders attached to it), so
+    // a request without a callId has nothing to attach to — delegate.
+    if (sessionId === undefined || req.callId === undefined) return next()
+    return conn.requestPermission({
+      sessionId,
+      toolCall: { toolCallId: req.callId },
+      options: [
+        { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+        { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
+      ],
+    }).then(({ outcome }) => {
+      if (outcome.outcome === 'cancelled') return 'cancelled'
+      // Only the two advertised options exist; an unknown optionId from a
+      // non-conforming client counts as a rejection, never a grant.
+      return outcome.optionId === 'allow-once' ? 'allowed-once' : 'rejected'
+    })
+  })
+
   // --- The ACP Agent method surface -----------------------------------------
 
   const makeAgent = (connection: AgentSideConnection): AcpAgent => {
@@ -765,6 +801,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         settlePrompt(rec, 'cancelled')
         return Promise.resolve()
       },
+
     }
   }
 

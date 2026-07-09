@@ -196,6 +196,7 @@ flowchart TD
   pkg_hooks_codex --> pkg_session
   pkg_hooks_codex --> pkg_tools
   pkg_acp --> pkg_agent
+  pkg_acp --> pkg_approval
   pkg_acp --> pkg_llm
   pkg_acp --> pkg_session
   pkg_acp --> pkg_session_persistence
@@ -315,7 +316,7 @@ flowchart TD
 | [`tool-todo`](../packages/todo/tool-todo) | `todo` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
 | [`tool-cordis`](../packages/cordis/tool-cordis) | `cordis` | [`tools`](../packages/core/tools) |
 | [`hooks-codex`](../packages/hooks/hooks-codex) | `hooks` | [`agent`](../packages/core/agent), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
-| [`acp`](../packages/ui/acp) | `ui` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
+| [`acp`](../packages/ui/acp) | `ui` | [`agent`](../packages/core/agent), [`approval`](../packages/approval/approval), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
 | [`tool-ask-user`](../packages/ui/tool-ask-user) | `ui` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
 | [`repeat-tool-guard`](../packages/guard/repeat-tool-guard) | `guard` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools) |
 | [`tool-workflow`](../packages/workflow/tool-workflow) | `workflow` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
