@@ -18,7 +18,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   web/         web seam + search/fetch providers + model-facing web tools
   compact/     compaction seam + basic backend
   subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
-  workflow/    workflow seam + worker-thread script engine + the workflow tool
+  workflow/    workflow seam + worker-thread engine + the workflow tool
   todo/        the todo_write tool
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
@@ -70,7 +70,7 @@ printf '%s\n' "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
 printf '%s\n' "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
 ls .sessions/_no-cwd/main-session-*.jsonl >/dev/null
 rm -rf .sessions
-pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts packages/workflow/workflow-vm/tests/built-worker.e2e.ts
+pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts
 ```
 
 `test:coverage`, not `test`, is the gating run ([why](docs/testing.md)); a sign-off counts only for commands actually run.

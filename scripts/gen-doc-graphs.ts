@@ -191,7 +191,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'workflow',
     title: 'Workflow script engine',
     mode: 'seam',
-    implementations: ['workflow-vm'],
+    implementations: ['workflow-workerthread'],
     consumers: ['tool-workflow'],
     note: 'One engine per context (bash shape, no named-provider registry); the worker-thread engine fans agent() calls out through ctx.subagents.',
   },

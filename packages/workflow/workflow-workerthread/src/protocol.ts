@@ -13,7 +13,7 @@
  * `post(type, payload)` whose payload parameter is looked up from the map,
  * so a tag/payload mismatch is a compile error at the call site.
  *
- * @module @deepseek-ai/dsh-workflow-vm/protocol
+ * @module @deepseek-ai/dsh-workflow-workerthread/protocol
  */
 
 import type { WorkflowAgentEndInfo, WorkflowAgentInfo, WorkflowResult } from '@deepseek-ai/dsh-workflow'

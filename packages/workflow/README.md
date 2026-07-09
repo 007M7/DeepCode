@@ -5,7 +5,7 @@ The workflow seam: a model-written JavaScript orchestration script that fans out
 | Package | Role | ctx key |
 |---|---|---|
 | `workflow/` | Abstract workflow seam: service base class + run vocabulary + `workflow/*` events | `ctx.workflows` |
-| `workflow-vm/` | `node:worker_threads` engine: one worker per run; the script's vm context lives inside the worker, `agent()` bridges to `ctx.subagents` over the message port | (provides `ctx.workflows`) |
+| `workflow-workerthread/` | `node:worker_threads` engine: one worker per run; the script's vm context lives inside the worker, `agent()` bridges to `ctx.subagents` over the message port | (provides `ctx.workflows`) |
 | `tool-workflow/` | Model-facing `workflow` tool over `ctx.workflows` | (registers on `ctx.tools`) |
 
 The interface lives at `workflow/workflow/`. The engine's `agent()` hook rides the [subagent seam](../subagent/README.md) (any registered provider; the shipped examples use `spawn`), and `agent({ schema })` rides the structured-output support the in-process backends implement. The worker thread isolates the SCRIPT — the host never blocks on it, and a cancelled run's post-grace termination is real — but it is NOT a security boundary; an isolated-vm/separate-process engine (actual sandboxing) swaps in behind the same interface if that ever matters.

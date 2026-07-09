@@ -6,7 +6,7 @@
  * JSON data by construction, so the structured-clone hop never meets a value
  * it cannot carry. Types only, per the package convention.
  *
- * @module @deepseek-ai/dsh-workflow-vm/types
+ * @module @deepseek-ai/dsh-workflow-workerthread/types
  */
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'

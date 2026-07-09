@@ -63,7 +63,7 @@
     { "path": "./packages/subagent/subagent-fork" },
     { "path": "./packages/subagent/subagent-acp" },
     { "path": "./packages/workflow/workflow" },
-    { "path": "./packages/workflow/workflow-vm" },
+    { "path": "./packages/workflow/workflow-workerthread" },
     { "path": "./packages/workflow/tool-workflow" },
     { "path": "./packages/todo/tool-todo" },
     { "path": "./packages/hooks/hook-protocol" },

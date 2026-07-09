@@ -1092,9 +1092,9 @@ importers:
       '@deepseek-ai/dsh-workflow':
         specifier: workspace:^
         version: link:../workflow
-      '@deepseek-ai/dsh-workflow-vm':
+      '@deepseek-ai/dsh-workflow-workerthread':
         specifier: workspace:^
-        version: link:../workflow-vm
+        version: link:../workflow-workerthread
       cordis:
         specifier: ^4.0.0-rc.6
         version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
@@ -1117,7 +1117,7 @@ importers:
         specifier: ^4.0.0-rc.6
         version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
 
-  packages/workflow/workflow-vm:
+  packages/workflow/workflow-workerthread:
     dependencies:
       schemastery:
         specifier: ^3.18.0

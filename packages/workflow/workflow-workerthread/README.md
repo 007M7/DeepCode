@@ -1,4 +1,4 @@
-# @deepseek-ai/dsh-workflow-vm
+# @deepseek-ai/dsh-workflow-workerthread
 
 The [`WorkflowService`](../workflow/README.md) implementation, on **`node:worker_threads`**: each run gets its OWN worker thread (one run = one worker, no pooling — a run is heavyweight, so the ~tens-of-ms thread spin-up is noise), the script executes in a vm context INSIDE that worker with the workflow hooks injected, and every `agent()` call bridges back over the message port to [`ctx.subagents`](../../subagent/README.md) on the host. Child agents are I/O-bound LLM loops and stay on the host event loop; the thread isolates the SCRIPT, the only part that can spin synchronously.
 

@@ -10,7 +10,7 @@ import { WorkflowRunId, WorkflowService } from '@deepseek-ai/dsh-workflow'
 import type { WorkflowResult, WorkflowRun, WorkflowStartRequest } from '@deepseek-ai/dsh-workflow'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SubagentService from '@deepseek-ai/dsh-subagent'
-import WorkerWorkflowEngine from '@deepseek-ai/dsh-workflow-vm'
+import WorkerWorkflowEngine from '@deepseek-ai/dsh-workflow-workerthread'
 import * as toolWorkflow from '../src/index.ts'
 
 /** A controllable engine standing in behind ctx.workflows (the tool's only seam). */

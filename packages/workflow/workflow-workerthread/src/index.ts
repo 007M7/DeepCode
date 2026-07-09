@@ -36,7 +36,7 @@
  * Plugin export shape: a default-exported {@link WorkflowService} subclass
  * (the class-based service form, like `dsh-bash-local`).
  *
- * @module @deepseek-ai/dsh-workflow-vm
+ * @module @deepseek-ai/dsh-workflow-workerthread
  */
 
 import { randomUUID } from 'node:crypto'

@@ -14,7 +14,7 @@
  * result — not the source — is the contract: it must materialize to plain
  * JSON data and pass the shape validation).
  *
- * @module @deepseek-ai/dsh-workflow-vm/meta
+ * @module @deepseek-ai/dsh-workflow-workerthread/meta
  */
 
 import * as vm from 'node:vm'

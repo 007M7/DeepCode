@@ -107,8 +107,8 @@
 # subagent backend above, plus the model-facing `workflow` tool. The model
 # writes a JavaScript orchestration script (meta + body); the engine runs it
 # in its own worker thread and fans agent() calls out as spawn children.
-- id: workflow-vm
-  name: '@deepseek-ai/dsh-workflow-vm'
+- id: workflow-workerthread
+  name: '@deepseek-ai/dsh-workflow-workerthread'
   config:
     provider: spawn
 

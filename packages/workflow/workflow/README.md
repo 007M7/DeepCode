@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-workflow
 
-The **workflow seam** (`ctx.workflows`): an abstract service defining WHAT a workflow engine does — execute a model-written orchestration script that fans out subagents — without saying HOW. The bash-shaped third of the [workflow family](../README.md): implementations subclass `WorkflowService` and register as the `workflows` service (one per context); [`dsh-workflow-vm`](../workflow-vm/README.md) (one worker thread per run) is the implementation, and [`dsh-tool-workflow`](../tool-workflow/README.md) is the model-facing consumer.
+The **workflow seam** (`ctx.workflows`): an abstract service defining WHAT a workflow engine does — execute a model-written orchestration script that fans out subagents — without saying HOW. The bash-shaped third of the [workflow family](../README.md): implementations subclass `WorkflowService` and register as the `workflows` service (one per context); [`dsh-workflow-workerthread`](../workflow-workerthread/README.md) (one worker thread per run) is the implementation, and [`dsh-tool-workflow`](../tool-workflow/README.md) is the model-facing consumer.
 
 ## Service: `WorkflowService` (abstract)
 

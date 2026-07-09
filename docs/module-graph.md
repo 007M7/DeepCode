@@ -81,7 +81,7 @@ flowchart TD
   subgraph group_workflow["packages/workflow"]
     pkg_tool_workflow["tool-workflow"]
     pkg_workflow["workflow"]
-    pkg_workflow_vm["workflow-vm"]
+    pkg_workflow_workerthread["workflow-workerthread"]
   end
   pkg_llm --> pkg_brand
   pkg_bash --> pkg_brand
@@ -199,12 +199,12 @@ flowchart TD
   pkg_subagent_mock --> pkg_agent
   pkg_subagent_mock --> pkg_llm
   pkg_subagent_mock --> pkg_subagent
-  pkg_workflow_vm --> pkg_agent
-  pkg_workflow_vm --> pkg_brand
-  pkg_workflow_vm --> pkg_llm
-  pkg_workflow_vm --> pkg_subagent
-  pkg_workflow_vm --> pkg_tools
-  pkg_workflow_vm --> pkg_workflow
+  pkg_workflow_workerthread --> pkg_agent
+  pkg_workflow_workerthread --> pkg_brand
+  pkg_workflow_workerthread --> pkg_llm
+  pkg_workflow_workerthread --> pkg_subagent
+  pkg_workflow_workerthread --> pkg_tools
+  pkg_workflow_workerthread --> pkg_workflow
   pkg_subagent_fork --> pkg_agent
   pkg_subagent_fork --> pkg_session
   pkg_subagent_fork --> pkg_subagent
@@ -268,7 +268,7 @@ flowchart TD
 | [`tool-subagent`](../packages/subagent/tool-subagent) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
 | [`hooks-claude`](../packages/hooks/hooks-claude) | `hooks` | [`agent`](../packages/core/agent), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
 | [`subagent-mock`](../packages/support/subagent-mock) | `support` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent) |
-| [`workflow-vm`](../packages/workflow/workflow-vm) | `workflow` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
+| [`workflow-workerthread`](../packages/workflow/workflow-workerthread) | `workflow` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
 | [`subagent-fork`](../packages/subagent/subagent-fork) | `subagent` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) |
 | [`subagent-spawn`](../packages/subagent/subagent-spawn) | `subagent` | [`subagent`](../packages/subagent/subagent), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) |
 | [`acp-agent`](../packages/ui/acp-agent) | `ui` | [`acp`](../packages/ui/acp), [`agent-core`](../packages/core/agent-core), [`app-boot`](../packages/ui/app-boot), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl) |

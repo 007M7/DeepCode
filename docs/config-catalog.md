@@ -800,7 +800,7 @@ export interface Config {
 
 Source: [`packages/web/web-search-perplexity/src/index.ts:33`](../packages/web/web-search-perplexity/src/index.ts)
 
-## `@deepseek-ai/dsh-workflow-vm`
+## `@deepseek-ai/dsh-workflow-workerthread`
 
 Requires: `subagents`
 
@@ -826,7 +826,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/workflow/workflow-vm/src/index.ts:69`](../packages/workflow/workflow-vm/src/index.ts)
+Source: [`packages/workflow/workflow-workerthread/src/index.ts:69`](../packages/workflow/workflow-workerthread/src/index.ts)
 
 ## Loadable plugins with no config
 

@@ -4,7 +4,7 @@
  * that fans out subagents — without saying HOW. Implementations subclass
  * {@link WorkflowService} and register as the `workflows` service (one
  * implementation per context, cordis' standard duplicate-service behavior);
- * the implementation is `@deepseek-ai/dsh-workflow-vm`, which runs each
+ * the implementation is `@deepseek-ai/dsh-workflow-workerthread`, which runs each
  * script in its own worker thread. Hardened engines (an isolated-vm or
  * separate-process sandbox) swap in without touching the model-facing tool
  * that consumes them (`@deepseek-ai/dsh-tool-workflow`).

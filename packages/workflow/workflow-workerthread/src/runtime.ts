@@ -33,7 +33,7 @@
  * the settles-within-grace guarantee by force-settling `cancelled` and
  * terminating the worker — the real kill an in-process engine could not have.
  *
- * @module @deepseek-ai/dsh-workflow-vm/runtime
+ * @module @deepseek-ai/dsh-workflow-workerthread/runtime
  */
 
 import * as vm from 'node:vm'

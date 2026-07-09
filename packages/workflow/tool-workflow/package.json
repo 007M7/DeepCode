@@ -40,7 +40,7 @@
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/dsh-workflow": "workspace:^",
-    "@deepseek-ai/dsh-workflow-vm": "workspace:^",
+    "@deepseek-ai/dsh-workflow-workerthread": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }
 }

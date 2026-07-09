@@ -6,7 +6,7 @@
  * coverage); loading this module on the main thread throws via
  * `requireParentPort`, which is how the suite covers the file itself.
  *
- * @module @deepseek-ai/dsh-workflow-vm/worker
+ * @module @deepseek-ai/dsh-workflow-workerthread/worker
  */
 
 import { parentPort, workerData } from 'node:worker_threads'

@@ -22,7 +22,7 @@
  * still queued worker-side for a concurrency slot are unknowable then; the
  * worker's own count rides the result message on every graceful path.
  *
- * @module @deepseek-ai/dsh-workflow-vm/host
+ * @module @deepseek-ai/dsh-workflow-workerthread/host
  */
 
 import { fileURLToPath } from 'node:url'
@@ -190,7 +190,7 @@ export class WorkerRun implements WorkflowRun {
       // data, so serialization cannot fail); there is nothing left to
       // deliver to — log and move on.
       /* v8 ignore next -- postMessage teardown race (a throw between exit and its event): not constructible in-process */
-      this.ctx.logger.warn(`workflow-vm: postMessage failed: ${renderThrown(error)}`)
+      this.ctx.logger.warn(`workflow-workerthread: postMessage failed: ${renderThrown(error)}`)
     }
   }
 
@@ -293,7 +293,7 @@ export class WorkerRun implements WorkflowRun {
         // The subagent seam's dispose() is not supposed to reject; a backend
         // that does anyway must not wedge the script's finally (which awaits
         // the ack) — ack and move on.
-        this.ctx.logger.warn(`workflow-vm: child dispose failed: ${renderThrown(error)}`)
+        this.ctx.logger.warn(`workflow-workerthread: child dispose failed: ${renderThrown(error)}`)
         this.finishChild(callId)
         this.post(HostToWorkerType.ChildDisposed, { callId })
       },
@@ -322,7 +322,7 @@ export class WorkerRun implements WorkflowRun {
       void run.dispose().then(
         () => { this.finishChild(callId) },
         (error: unknown) => {
-          this.ctx.logger.warn(`workflow-vm: child dispose failed during reap: ${renderThrown(error)}`)
+          this.ctx.logger.warn(`workflow-workerthread: child dispose failed during reap: ${renderThrown(error)}`)
           this.finishChild(callId)
         },
       )

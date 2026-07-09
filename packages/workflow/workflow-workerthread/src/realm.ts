@@ -27,7 +27,7 @@
  * thrown by a hook is built OUTSIDE the script's vm context, so an in-script
  * `instanceof Error` check is false; read `name`/`code`/`message` instead.
  *
- * @module @deepseek-ai/dsh-workflow-vm/realm
+ * @module @deepseek-ai/dsh-workflow-workerthread/realm
  */
 
 /** Thrown by {@link materializeFromRealm}; the caller wraps it into the right `WorkflowError` code. */

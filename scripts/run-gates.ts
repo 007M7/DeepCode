@@ -313,7 +313,7 @@ function builtBinSmokeGate(): Gate {
     // The workflow engine's built worker bundle: the only automated proof
     // that lib/index.js resolves its sibling lib/worker.js under plain node
     // (the e2e lane runs unbuilt, so this file self-skips there).
-    'packages/workflow/workflow-vm/tests/built-worker.e2e.ts',
+    'packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts',
   ], {
     label: 'built-bin smoke',
     needs: ['build'],

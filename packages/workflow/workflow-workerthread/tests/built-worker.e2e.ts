@@ -28,7 +28,7 @@ describe.skipIf(!existsSync(builtIndex) || !existsSync(builtWorker))('built work
       await writeFile(driver, `
 import { Context } from 'cordis'
 import SubagentService from '@deepseek-ai/dsh-subagent'
-import WorkerWorkflowEngine from '@deepseek-ai/dsh-workflow-vm'
+import WorkerWorkflowEngine from '@deepseek-ai/dsh-workflow-workerthread'
 
 const ctx = new Context()
 await ctx.plugin(SubagentService)

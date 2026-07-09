@@ -14,7 +14,7 @@
  * A `cancel` arriving instead of `go` still releases the gate: `drive()`
  * sees the cancelled state and settles without running the body.
  *
- * @module @deepseek-ai/dsh-workflow-vm/session
+ * @module @deepseek-ai/dsh-workflow-workerthread/session
  */
 
 import type { MessagePort } from 'node:worker_threads'

@@ -119,7 +119,7 @@ async function run(ctx: Context, parent: Agent, source: string, args?: unknown):
   }
 }
 
-describe('dsh-workflow-vm', () => {
+describe('dsh-workflow-workerthread', () => {
   describe('script execution over a real worker thread', () => {
     it('runs a script end-to-end: agent() text results, phases, log, args, return value, events', async () => {
       const { ctx, parent, provider } = await setup({ reply: (_request, index) => text(`answer-${index}`) })
