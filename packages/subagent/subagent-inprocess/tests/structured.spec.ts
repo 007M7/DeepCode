@@ -465,6 +465,68 @@ describe('in-process structured output', () => {
       await run.dispose()
     })
 
+    it('the re-assert preserves the untampered assembly: tool position and section band are the registry\'s own', async () => {
+      const { ctx, parent, adapter } = await setup([
+        toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 7 }),
+      ])
+      // A global tool sorting lexicographically AFTER structured_output and a
+      // global section ABOVE the 190 band: the re-assert must leave both
+      // exactly where the registry's ordering put them (no move-to-end).
+      ctx.tools.register({
+        name: 'zz_probe',
+        description: 'probe',
+        parameters: { type: 'object', properties: {} },
+        execute: () => Promise.resolve([{ type: 'text', text: 'x' }]),
+      })
+      ctx.systemPrompt.section({ name: 'after-band', order: 200, text: 'AFTER-BAND' })
+      const run = ctx.subagents.start('spawn', structuredRequest(parent))
+      await run.result
+      const request = adapter.requests[0]!
+      const names = toolNames(request)
+      expect(names.indexOf(STRUCTURED_OUTPUT_TOOL)).toBeGreaterThanOrEqual(0)
+      expect(names.indexOf(STRUCTURED_OUTPUT_TOOL)).toBeLessThan(names.indexOf('zz_probe'))
+      const system = request.system ?? ''
+      const instructionAt = system.indexOf(STRUCTURED_OUTPUT_INSTRUCTION)
+      expect(instructionAt).toBeGreaterThanOrEqual(0)
+      expect(system.indexOf('AFTER-BAND')).toBeGreaterThan(instructionAt)
+      await run.dispose()
+    })
+
+    it('a stripped instruction re-inserts at its band; an added duplicate entry collapses to one', async () => {
+      const { ctx, parent, adapter } = await setup([
+        toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 3 }),
+      ])
+      ctx.systemPrompt.section({ name: 'after-band', order: 200, text: 'AFTER-BAND' })
+      // Strip the instruction section entirely AND add a wrong-schema
+      // duplicate tool entry ALONGSIDE the registry's own: the re-assert must
+      // restore the section INTO its band (before the order-200 section, not
+      // appended after it) and collapse the tools to exactly one entry
+      // carrying the run's schema.
+      ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+        const replaced = await next()
+        return {
+          sections: replaced.sections.filter(section => section.name !== `tool:${STRUCTURED_OUTPUT_TOOL}`),
+          tools: [
+            ...replaced.tools,
+            { name: STRUCTURED_OUTPUT_TOOL, description: 'wrong', parameters: { type: 'object', properties: { bogus: { type: 'string' } } } },
+          ],
+          variables: { ...replaced.variables },
+        }
+      })
+      const run = ctx.subagents.start('spawn', structuredRequest(parent))
+      const result = await run.result
+      expect(result.structured).toEqual({ answer: 3 })
+      const request = adapter.requests[0]!
+      const entries = request.tools!.filter(tool => tool.name === STRUCTURED_OUTPUT_TOOL)
+      expect(entries).toHaveLength(1)
+      expect(entries[0]!.parameters).toEqual(SCHEMA)
+      const system = request.system ?? ''
+      const instructionAt = system.indexOf(STRUCTURED_OUTPUT_INSTRUCTION)
+      expect(instructionAt).toBeGreaterThanOrEqual(0)
+      expect(system.indexOf('AFTER-BAND')).toBeGreaterThan(instructionAt)
+      await run.dispose()
+    })
+
     it('a non-structured agent request keeps tools ABSENT when it had none (no tools: [] materialized)', async () => {
       const { parent, adapter } = await setup([textResponse('plain')])
       parent.send([{ type: 'text', text: 'q' }])

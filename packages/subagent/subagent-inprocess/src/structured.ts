@@ -21,8 +21,11 @@
  *   always carries its capture tool and the trailing instruction section. The
  *   registry already contributes both; this outermost wrapper preserves the
  *   guarantee against a (global) listener that strips or replaces the
- *   assembly. The loop logs the rendered assembly as the request header, so
- *   the demand is reconstructable log state, never a wire-only mutation.
+ *   assembly — placement-preserving, so an untampered assembly reaches the
+ *   model byte-identical (tools replaced in place, the section re-inserted at
+ *   its ascending-order position). The loop logs the rendered assembly as the
+ *   request header, so the demand is reconstructable log state, never a
+ *   wire-only mutation.
  * - `agent/turn-continuation` (prepend, scoped): stop the child's turn once
  *   its output is captured — the loop's default "had tool calls ⇒ continue"
  *   would buy a wasted extra model step per structured child.
@@ -138,15 +141,39 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
     // REPLACE, not merely ensure-present: a downstream listener may have
     // mutated or injected a same-named entry with the WRONG schema/text, and
     // the model-visible demand must be exactly this run's own — the same
-    // schema validateStructuredValue enforces.
-    final.tools = [
-      ...final.tools.filter(tool => tool.name !== STRUCTURED_OUTPUT_TOOL),
-      { ...schemaEntry, parameters: structuredClone(schemaEntry.parameters) },
-    ]
-    final.sections = [
-      ...final.sections.filter(section => section.name !== `tool:${STRUCTURED_OUTPUT_TOOL}`),
-      { name: `tool:${STRUCTURED_OUTPUT_TOOL}`, order: 190, text: STRUCTURED_OUTPUT_INSTRUCTION },
-    ]
+    // schema validateStructuredValue enforces. Placement-preserving on both
+    // arrays: the untampered path must reach the model byte-identical to the
+    // registry's output (tool order is the `toolOrder`/lexicographic
+    // contract, section order is the ascending contract `renderPrompt`
+    // trusts), so this never reorders what it only re-asserts.
+    const freshTool: ToolSchema = { ...schemaEntry, parameters: structuredClone(schemaEntry.parameters) }
+    // Tools: replace the first same-named entry IN PLACE (its position is the
+    // chain's product; a tool's list position carries no semantic band to
+    // restore), drop any duplicates, append only when stripped entirely.
+    const tools: ToolSchema[] = []
+    let toolReplaced = false
+    for (const tool of final.tools) {
+      if (tool.name !== STRUCTURED_OUTPUT_TOOL) {
+        tools.push(tool)
+      } else if (!toolReplaced) {
+        tools.push(freshTool)
+        toolReplaced = true
+      }
+    }
+    if (!toolReplaced) tools.push(freshTool)
+    final.tools = tools
+    // Sections: remove every same-named entry and re-insert at the
+    // ascending-correct position (the first entry above order 190) — sections
+    // DO carry an order contract, and the renderer reads array order, so a
+    // stripped-or-moved instruction is restored to its band, not appended
+    // after unrelated higher-order sections. On the untampered path this
+    // lands exactly where the registry's stable sort put it (last of the 190
+    // band — the scoped section registers after every load-time 190).
+    const sectionName = `tool:${STRUCTURED_OUTPUT_TOOL}`
+    const sections = final.sections.filter(section => section.name !== sectionName)
+    const insertAt = sections.findIndex(section => section.order > 190)
+    sections.splice(insertAt === -1 ? sections.length : insertAt, 0, { name: sectionName, order: 190, text: STRUCTURED_OUTPUT_INSTRUCTION })
+    final.sections = sections
     return final
   }, { prepend: true })
 
