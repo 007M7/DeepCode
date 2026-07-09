@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService from '@deepseek-ai/dsh-llm'
+import LlmService, { type Message } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -164,6 +164,103 @@ describe('Agent.cancel()', () => {
     // The second turn completed (its reply was streamed).
     const reasons = agent.session.events.filter(e => e.type === 'turn/end')
     expect(reasons.length).toBe(2)
+  })
+
+  it('cancel from inside the agent/session-prefix waterfall drops the step (prefix-composition window)', async () => {
+    const adapter = new MockAdapter([textResponse('should not stream')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    // Prefix composition runs before the pre-step seam on the instance's first
+    // step; a cancel landing inside it must drop the about-to-start step
+    // without running the seam or the model.
+    let streamed = false
+    ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next) => {
+      agent.cancel('from prefix composition')
+      return next()
+    })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    expect(streamed).toBe(false)
+    expect(reasons).toEqual([{ kind: 'aborted', reason: 'from prefix composition' }])
+  })
+
+  it('disposal from inside the agent/session-prefix waterfall ends the turn disposed (prefix-composition window)', async () => {
+    const adapter = new MockAdapter([textResponse('should not stream')])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    ctx.llm.registerAdapter(['mock'], adapter)
+
+    const handle = ctx.agents.create({
+      agentId: AgentId('a-dispose-prefix'),
+      sessionId: SessionId('dispose-prefix-session'),
+      agentOptions: { model: 'mock' },
+    })
+    const agent = handle.agent as ReactLoopAgent
+
+    let disposalDone: Promise<void> | undefined
+    let streamed = false
+    ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next) => {
+      disposalDone = handle.dispose()
+      return next()
+    })
+
+    send(agent, 'go')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await disposalDone
+    await agent.done
+
+    // No step opened, no model call ran, and the turn closed disposed.
+    expect(streamed).toBe(false)
+    expect(adapter.requests).toHaveLength(0)
+    const turnEnd = agent.session.events.findLast(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
+  })
+
+  it('a cancel-interrupted prefix composition is discarded: the next send recomposes and ships the fresh prefix (stale-cache guard)', async () => {
+    const adapter = new MockAdapter([textResponse('reply')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+
+    // The first composition is interrupted mid-waterfall and — like an
+    // abort-aware listener bailing on a firing signal — contributes nothing.
+    // Caching that degraded result would silently strip the prefix from every
+    // later request of this instance; the loop must discard it and recompose
+    // on the next send, and the SECOND composition's value must be what the
+    // wire and the header log carry.
+    const opener: Message = { role: 'user', content: [{ type: 'text', text: 'fresh opener' }] }
+    let compositions = 0
+    ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => {
+      compositions += 1
+      if (compositions === 1) {
+        agent.cancel('mid-composition')
+        return next()
+      }
+      return [opener, ...await next()]
+    })
+
+    send(agent, 'dropped')
+    await waitForIdle(ctx, agent)
+    send(agent, 'real prompt')
+    await waitForIdle(ctx, agent)
+
+    expect(compositions).toBe(2)
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]?.messages[0]).toEqual(opener)
+    const headerEvent = agent.session.events.find(e => e.type === 'request/header')
+    expect(headerEvent?.type === 'request/header' && headerEvent.data.header.messagePrefix).toEqual([opener])
   })
 
   it('cancel from a synchronous turn/start session-event listener drops the step (step-start window)', async () => {

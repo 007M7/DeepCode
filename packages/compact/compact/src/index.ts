@@ -22,6 +22,7 @@
  */
 
 import { Context, Service } from 'cordis'
+import type { Message } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { CompactionResult } from './types.ts'
 
@@ -69,16 +70,20 @@ export abstract class CompactService extends Service {
   /**
    * Check token pressure and compact if the conversation is too large.
    *
-   * Estimates the current surface-derived history size (including the system
-   * prompt), and if it exceeds the backend's threshold, compacts an older range
+   * Estimates the NEXT request's size — the session prefix, the
+   * surface-derived history, and the system prompt — and if it exceeds the
+   * backend's threshold, compacts an older range
    * via {@link compactRegion}, keeping recent context intact. Returns `null`
    * when no compaction is needed.
    *
    * Scope and guarantees a backend MUST honor:
-   * - **Surface-derived history only.** The decision is made against the history
-   *   derived from the session surface — the only thing compaction can act on.
-   *   Non-surface context injected downstream (into the request `messages` by a
-   *   later listener) is out of this accounting by construction.
+   * - **Compaction acts on surface-derived history only**, but the ESTIMATE
+   *   counts everything the request carries: the loop composes the session
+   *   prefix before the pre-step seam fires and hands it here, so the gate
+   *   sees the prefix this instance will actually send (`EpochHeader.messagePrefix`
+   *   — request-only, never derived history). Non-surface context injected
+   *   downstream (into the request `messages` by a later listener) is out of
+   *   this accounting by construction.
    * - **Head-anchored, best-effort.** Auto-compaction consolidates from the
    *   surface HEAD up to a balanced tool-pairing cutoff, so a prior head
    *   checkpoint is
@@ -89,10 +94,14 @@ export abstract class CompactService extends Service {
    * - **Single-unit overflow is out of scope.** If a single retained unit (one
    *   closed step, or a large free node such as a pasted `user/message`) ALONE
    *   exceeds the budget, compaction cannot help and the call may go out
-   *   over-budget. Bounding an individual unit's size is a separate concern.
+   *   over-budget. Bounding an individual unit's size is a separate concern —
+   *   as is a session prefix that alone approaches the window (a
+   *   configuration error no compactor fixes: compaction cannot shrink the
+   *   prefix).
    *
    * @param agent - agent context owning the session surface and model options.
    * @param fullSystemPrompt - assembled system prompt, counted toward the estimate.
+   * @param sessionPrefix - the instance's composed session prefix, counted toward the estimate.
    * @param signal - cancellation signal. A backend summarizing via
    *   `ctx.llm.stream()` MUST forward this into the call's `GenerateOptions.signal`
    *   so an abort/dispose tears down the in-flight summarization rather than
@@ -102,6 +111,7 @@ export abstract class CompactService extends Service {
   abstract compactIfNeeded(
     agent: CompactAgentContext,
     fullSystemPrompt: string,
+    sessionPrefix: readonly Message[],
     signal: AbortSignal,
   ): Promise<CompactionResult | null>
 

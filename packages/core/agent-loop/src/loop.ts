@@ -157,13 +157,17 @@ export interface LoopHandle {
  *       drain steering → session('steering/message')  ⟵ catches late steering
  *       assembly = ctx.systemPrompt.assemble({agent}) ⟵ waterfall system-prompt/assemble; renderPrompt
  *                                                        (persona section + {{variables}}) IS the full prompt
- *       await ctx.serial('agent/pre-step')            ⟵ surface mutation (compaction) OUTSIDE the step
+ *       prefix ??= waterfall agent/session-prefix     ⟵ once per loop instance (first step): frozen
+ *                                                        session prefix; logged on the header, never
+ *                                                        session history
+ *       await ctx.serial('agent/pre-step', …, prefix) ⟵ surface mutation (compaction) OUTSIDE the step;
+ *                                                        pressure gates see the prefix the request carries
  *       boundary = session.deriveMessages()           ⟵ the reconstruction boundary: snapshot in the
  *       session('step/start')                            same sync frame, strictly before step/start
  *       config = waterfall agent/request(config)      ⟵ frozen seed; a returned replacement switches
  *       session('request/header'|'request/header-delta')  ⟵ the header event this request owes the
  *                                                        log (initial/resume anchor, delta, fallback)
- *       req = freeze({header..., messages: boundary, sessionId, signal})
+ *       req = freeze({header..., messages: prefix+boundary, sessionId, signal})
  *       stream ctx.llm.stream(req)                    ⟵ waterfall llm/stream (raw chunks, frozen req)
  *         session('assistant/chunk')
  *       msg = waterfall agent/step-result             ⟵ BEFORE the log append, so the
@@ -472,6 +476,50 @@ async function runTurn(
         break
       }
 
+      // Compose the session prefix ONCE per loop instance, lazily before the
+      // instance's first pre-step: request-only messages placed in front of
+      // the ENTIRE derived history on every request this instance sends. It
+      // MUST precede the pre-step seam so compaction gates on THIS instance's
+      // prefix — reading a previous instance's logged prefix would let a
+      // resumed/forked instance whose contributor grew skip compaction and
+      // ship an over-window first request. The result is deep-cloned
+      // (decoupled from listener-held references), deep-frozen, and cached on
+      // the transmission bookkeeping, so reuse is structural — the prefix
+      // cannot change mid-session and the provider prefix cache holds by
+      // construction (resume = a new instance = a recompose, anchored by its
+      // 'resume' snapshot). The prefix is not session history — the header
+      // event in runStep is its only durable record
+      // (EpochHeader.messagePrefix). The frozen empty seed serves both the
+      // listener chain and the no-listener fallback: a contribution is a
+      // RETURNED extension of `await next()`, never an in-place push. This
+      // runs OUTSIDE the step, before the boundary snapshot: a composing
+      // listener's session append lands before the boundary and joins the
+      // CURRENT request.
+      if (transmission.sessionPrefix === undefined) {
+        const emptyPrefix: Message[] = deepFreeze([])
+        const composed = await ctx.waterfall(
+          'agent/session-prefix', agent, emptyPrefix, abort.signal,
+          () => Promise.resolve(emptyPrefix),
+        )
+
+        // Interruption landing during prefix composition: mirror the assembly
+        // window above — drop the about-to-start step without running the
+        // seam, and DISCARD the composition instead of caching it. An
+        // abort-aware listener may have returned a degraded fallback under
+        // the firing signal; committing it would ship a prefix no request
+        // ever used (and no header ever logged) on this instance's next real
+        // request. The next turn recomposes under a live signal — the cache
+        // only ever holds a fully composed prefix. The cache-hit path needs
+        // no such check: nothing awaits between the assembly check above and
+        // the pre-step seam.
+        if (handle.isCancelled() || handle.isDisposed()) {
+          handle.setAbort(undefined)
+          reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
+          break
+        }
+        transmission.sessionPrefix = deepFreeze(structuredClone(composed))
+      }
+
       // Pre-step surface-mutation checkpoint (compaction), fired OUTSIDE the
       // step: after `turn/start` (and the prior step's close) but before
       // `step/start`, so a compaction's log-only `compact/*` records and its
@@ -482,8 +530,10 @@ async function runTurn(
       // concurrent listeners cannot interleave their `session.append`s. A
       // throwing listener escapes to the outer catch, which closes the (not-yet-
       // open) step as a no-op and ends the turn via failTurn — a broken
-      // pre-step plugin ends the turn, not the loop.
-      await ctx.serial('agent/pre-step', agent, turn, step, fullSystemPrompt, abort.signal)
+      // pre-step plugin ends the turn, not the loop. The composed session
+      // prefix rides along so token-pressure listeners count everything the
+      // request will actually carry.
+      await ctx.serial('agent/pre-step', agent, turn, step, fullSystemPrompt, transmission.sessionPrefix, abort.signal)
 
       // Interruption landing during the pre-step seam: do not open an empty step.
       if (handle.isCancelled() || handle.isDisposed()) {
@@ -674,11 +724,12 @@ function drainSteering(agent: ReactLoopAgent, turn: number): boolean {
 }
 
 /** One step: build the request from the boundary snapshot + the step's
- * header → log the header event the request owes → stream model → record →
- * execute tools. The caller assembles the system prompt, fires the
- * `agent/pre-step` seam, snapshots the derivation, and opens the step BEFORE
- * calling this, so `boundaryMessages` is exactly the surface prefix at
- * step/start and already reflects any compaction. */
+ * header → compose the session prefix if this instance has none yet → log
+ * the header event the request owes → stream model → record → execute
+ * tools. The caller assembles the
+ * system prompt, fires the `agent/pre-step` seam, snapshots the derivation,
+ * and opens the step BEFORE calling this, so `boundaryMessages` is exactly
+ * the surface prefix at step/start and already reflects any compaction. */
 async function runStep(
   ctx: Context,
   agent: ReactLoopAgent,
@@ -718,22 +769,30 @@ async function runStep(
     throw new Error(`agent "${agent.id}" has no model: set AgentOptions.model or supply one via the agent/request waterfall`)
   }
 
+  // The session prefix was composed (once per instance) before this step's
+  // pre-step seam — the caller guarantees it, so the cache is always set here.
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- runTurn composes the prefix before every runStep call
+  const sessionPrefix = transmission.sessionPrefix!
+
   // The request header (the log's request/header* vocabulary): canonical form,
-  // recorded before dispatch so the log always explains the request.
+  // recorded before dispatch so the log always explains the request —
+  // including the session prefix, which no other event carries.
   const header = canonicalHeader({
     config,
     ...system ? { system } : {},
     ...assembly.tools.length > 0 ? { tools: assembly.tools } : {},
+    ...sessionPrefix.length > 0 ? { messagePrefix: sessionPrefix } : {},
   })
   recordRequestHeader(session, transmission, header)
 
   // Build and freeze: the request is a pure function of (boundary snapshot,
   // logged header) — llm/stream listeners and adapters read it, mutation
   // throws. sessionId + frozen is the loop-built marker the dev invariant
-  // keys on.
+  // keys on. Message order: header.messagePrefix, then the boundary
+  // snapshot — the reconstruction equation the invariant recomputes.
   const request: GenerateOptions = deepFreeze({
     model: header.config.model,
-    messages: boundaryMessages,
+    messages: [...header.messagePrefix ?? [], ...boundaryMessages],
     ...header.system !== undefined ? { system: header.system } : {},
     ...header.tools !== undefined ? { tools: header.tools } : {},
     ...header.config.temperature !== undefined ? { temperature: header.config.temperature } : {},
