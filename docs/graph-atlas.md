@@ -14,6 +14,7 @@ The process decision behind this index is recorded in [the documentation graph R
 | [capability seams and core services](capability-seams.md) | `hybrid generated` |
 | [echo-agent app composition](../examples/echo-agent/composition.md) | `hybrid generated` |
 | [coding-agent app composition](../examples/coding-agent/composition.md) | `hybrid generated` |
+| [cordis-agent app composition](../examples/cordis-agent/composition.md) | `hybrid generated` |
 | [acp-agent app composition](../examples/acp-agent/composition.md) | `hybrid generated` |
 | [event producer/consumer matrix](event-producer-consumer.md) | `hybrid generated` |
 | [agent turn and step lifecycle](agent-lifecycle.md) | `curated` |
