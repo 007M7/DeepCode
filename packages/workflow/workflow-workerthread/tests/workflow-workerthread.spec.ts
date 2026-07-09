@@ -597,6 +597,73 @@ describe('dsh-workflow-workerthread', () => {
       // The memo: the host drive and the worker's RPC share one disposal.
       expect(provider.runs[0]!.disposeCalls).toBe(1)
     })
+
+    it('the grace force-settle pairs every stranded start: a host-synthesized cancelled agent-end lands before workflow/end', async () => {
+      const { ctx, parent, provider } = await setup({ manual: true, config: { provider: 'stub', maxConcurrentAgents: 8, disposeGraceMs: 300 } })
+      const ends: { seq: number; outcome: string }[] = []
+      const order: string[] = []
+      ctx.on('workflow/agent-start', (_info, agent) => { order.push(`start:${agent.seq}`) })
+      ctx.on('workflow/agent-end', (_info, agent) => {
+        ends.push({ seq: agent.seq, outcome: agent.outcome })
+        order.push(`end:${agent.seq}`)
+      })
+      ctx.on('workflow/end', () => { order.push('run-end') })
+      const handle = ctx.workflows.start({
+        // 'slow' starts and its agent-start crosses to observers (the awaited
+        // 'fast' call keeps the worker loop turning), then the script seizes
+        // the loop: the wedged worker can never author slow's agent-end —
+        // only the host's ledger can close the pair.
+        ...scripted(`
+          const p = agent('slow')
+          await agent('fast')
+          const end = Date.now() + 1500
+          while (Date.now() < end) {}
+          return 'raced'
+        `),
+        parent,
+      })
+      await vi.waitFor(() => { expect(order.filter(entry => entry.startsWith('start:')).length).toBe(2) })
+      const fast = provider.runs.find(run => (run.request.prompt[0] as { text?: string }).text === 'fast')!
+      fast.settle(text('fast done'))
+      handle.cancel('stop now')
+      const result = await handle.result
+      expect(result.stopReason).toBe('cancelled')
+      // fast's end is the worker's own report; slow's is host-synthesized at
+      // the force-settle — exactly one end per started seq, no third event.
+      expect(ends).toEqual([
+        { seq: 2, outcome: 'completed' },
+        { seq: 1, outcome: 'cancelled' },
+      ])
+      // Both ends reached observers BEFORE workflow/end: a progress consumer
+      // can finalize its state at run-end without dangling agents.
+      expect(order.indexOf('run-end')).toBe(order.length - 1)
+      await handle.dispose()
+    }, 15_000)
+
+    it('graceful cancellation keeps pairing worker-authored: exactly one agent-end per start, nothing synthesized on top', async () => {
+      const { ctx, parent, provider } = await setup({ manual: true })
+      const ends: { seq: number; outcome: string }[] = []
+      const order: string[] = []
+      ctx.on('workflow/agent-end', (_info, agent) => {
+        ends.push({ seq: agent.seq, outcome: agent.outcome })
+        order.push(`end:${agent.seq}`)
+      })
+      ctx.on('workflow/end', () => { order.push('run-end') })
+      const handle = ctx.workflows.start({
+        ...scripted("await parallel([() => agent('a'), () => agent('b')])\nreturn 'unreachable'"),
+        parent,
+      })
+      await vi.waitFor(() => { expect(provider.runs.length).toBe(2) })
+      handle.cancel('user stop')
+      const result = await handle.result
+      expect(result.stopReason).toBe('cancelled')
+      // The live worker reported both pairs itself; the ledger must not add
+      // a synthesized duplicate on any path that settles inside the grace.
+      expect(ends.map(end => end.outcome)).toEqual(['cancelled', 'cancelled'])
+      expect(new Set(ends.map(end => end.seq)).size).toBe(2)
+      expect(order.indexOf('run-end')).toBe(order.length - 1)
+      await handle.dispose()
+    })
   })
 
   describe('worker death', () => {
@@ -666,6 +733,45 @@ describe('dsh-workflow-workerthread', () => {
         expect(provider.runs.length).toBe(1)
         expect(provider.runs[0]!.disposed).toBe(true)
       })
+      await handle.dispose()
+    }, 15_000)
+
+    it('a worker death pairs every stranded start: the synthesized cancelled agent-end precedes the error workflow/end', async () => {
+      const { ctx, parent, provider } = await setup({ manual: true })
+      const ends: { seq: number; outcome: string }[] = []
+      const order: string[] = []
+      ctx.on('workflow/agent-start', (_info, agent) => { order.push(`start:${agent.seq}`) })
+      ctx.on('workflow/agent-end', (_info, agent) => {
+        ends.push({ seq: agent.seq, outcome: agent.outcome })
+        order.push(`end:${agent.seq}`)
+      })
+      ctx.on('workflow/end', () => { order.push('run-end') })
+      const handle = ctx.workflows.start({
+        // Same choreography as the force-settle pairing test, but the worker
+        // DIES (the documented vm escape) instead of being terminated: the
+        // exit path must close slow's pair from the ledger too. The escaped
+        // setTimeout lets the already-posted messages flush before the kill.
+        ...scripted(`
+          const p = agent('slow')
+          await agent('fast')
+          const proc = ${ESCAPE}
+          const st = globalThis.constructor.constructor('return setTimeout')()
+          await new Promise(resolve => st(resolve, 150))
+          proc.exit(7)
+        `),
+        parent,
+      })
+      await vi.waitFor(() => { expect(order.filter(entry => entry.startsWith('start:')).length).toBe(2) })
+      const fast = provider.runs.find(run => (run.request.prompt[0] as { text?: string }).text === 'fast')!
+      fast.settle(text('fast done'))
+      const result = await handle.result
+      expect(result.stopReason).toBe('error')
+      expect(result.error).toContain('exit code 7')
+      expect(ends).toEqual([
+        { seq: 2, outcome: 'completed' },
+        { seq: 1, outcome: 'cancelled' },
+      ])
+      expect(order.indexOf('run-end')).toBe(order.length - 1)
       await handle.dispose()
     }, 15_000)
 

@@ -85,7 +85,10 @@ declare module 'cordis' {
     'workflow/agent-start'(info: WorkflowRunInfo, agent: WorkflowAgentInfo): void
     /**
      * One `agent()` call settled (clean result, child failure, or run
-     * cancellation). Paired with {@link Events['workflow/agent-start']}.
+     * cancellation). Paired with {@link Events['workflow/agent-start']} by
+     * `agent.seq`, exactly once per started call on every stop path — on an
+     * engine termination path (a worker killed past its grace) the end is
+     * engine-synthesized with outcome `'cancelled'`.
      * @param info - the run's identity snapshot.
      * @param agent - the call identity plus its outcome.
      * @mode emit

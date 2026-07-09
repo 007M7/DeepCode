@@ -22,7 +22,11 @@
  * survivor when the worker dies or is terminated mid-flight. The three
  * paths share ONE disposal per child (memoized by callId; the seam's
  * dispose() is idempotent anyway, the memo keeps the bookkeeping and the
- * containment warn single). On a termination path `agentsStarted` reports the
+ * containment warn single). Lifecycle pairing is host-guaranteed the same
+ * way: every forwarded `agent-start` lives in a ledger, and a start the
+ * dead or terminated worker never paired is closed by a synthesized
+ * `agent-end` (outcome `'cancelled'`) before the run settles. On a
+ * termination path `agentsStarted` reports the
  * HOST-observed count (accepted `child-start` messages) — `agent()` calls
  * still queued worker-side for a concurrency slot are unknowable then; the
  * worker's own count rides the result message on every graceful path.
@@ -37,7 +41,7 @@ import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import type { SubagentRun } from '@deepseek-ai/dsh-subagent'
-import type { WorkflowMeta, WorkflowResult, WorkflowRun, WorkflowRunId } from '@deepseek-ai/dsh-workflow'
+import type { WorkflowAgentEndInfo, WorkflowAgentInfo, WorkflowMeta, WorkflowResult, WorkflowRun, WorkflowRunId } from '@deepseek-ai/dsh-workflow'
 import { renderThrown } from './realm.ts'
 import type { ExecutionObserver } from './runtime.ts'
 import { HostToWorkerType, WorkerToHostType } from './protocol.ts'
@@ -92,6 +96,8 @@ export class WorkerRun implements WorkflowRun {
   private readonly children = new Map<number, SubagentRun>()
   /** In-flight child disposals by callId — the memo that gives every path (worker RPC, dispose(), reap) ONE shared disposal per child. */
   private readonly childDisposals = new Map<number, Promise<void>>()
+  /** Started-but-not-ended agents by seq — the pairing ledger the HOST guarantees (see {@link endAgent}). */
+  private readonly liveAgents = new Map<number, WorkflowAgentInfo>()
   private readonly quiescenceWaiters: (() => void)[] = []
   /** The per-run abort fanout every child start request carries. */
   private readonly controller = new AbortController()
@@ -155,6 +161,10 @@ export class WorkerRun implements WorkflowRun {
     // ChildCancel relay (those later RPCs land as idempotent no-ops).
     for (const run of this.children.values()) run.cancel(this.cancelReason)
     this.graceTimer = setTimeout(() => {
+      // The worker may no longer speak (it is about to be terminated): pair
+      // every stranded start before the run settles, so ends precede
+      // workflow/end.
+      this.endStrandedAgents()
       this.settleResult(this.cancelledResult(this.hostStarted))
       void this.worker.terminate()
     }, this.disposeGraceMs)
@@ -225,13 +235,15 @@ export class WorkerRun implements WorkflowRun {
         if (this.cancelReason === undefined) this.observer.log(message.message)
         break
       case WorkerToHostType.AgentStart:
+        this.liveAgents.set(message.info.seq, message.info)
         this.observer.agentStart(message.info)
         break
       case WorkerToHostType.AgentEnd:
         // NOT suppressed on cancel: cancelled children report their paired
-        // agent-end with outcome 'cancelled' (the one-pair-per-started-child
-        // contract holds on every stop path).
-        this.observer.agentEnd(message.info)
+        // agent-end with outcome 'cancelled'. The gate (with the termination
+        // paths' synthesis) is what makes the one-pair-per-started-child
+        // contract hold on every stop path.
+        this.endAgent(message.info)
         break
       case WorkerToHostType.ChildStart:
         this.onChildStart(message.callId, message.request)
@@ -373,6 +385,10 @@ export class WorkerRun implements WorkflowRun {
   private onWorkerDeath(message: string): void {
     // Whatever the worker left behind must not leak — abort + dispose it all.
     if (this.children.size > 0) this.reapChildren('workflow worker gone')
+    // The thread is gone: no more worker-authored agent-ends can arrive —
+    // pair every stranded start (a start that crossed between the grace
+    // force-settle and this exit included) before the run settles.
+    this.endStrandedAgents()
     // settleResult no-ops on an already-settled run (the expected exit after
     // a dispose's terminate lands here too).
     if (this.cancelReason !== undefined) {
@@ -380,6 +396,34 @@ export class WorkerRun implements WorkflowRun {
       return
     }
     this.settleResult({ value: null, stopReason: 'error', error: message, agentsStarted: this.hostStarted })
+  }
+
+  /**
+   * The single agent-end emission gate: forwards `end` iff its start is still
+   * unpaired in the ledger, so every forwarded `workflow/agent-start` gets
+   * EXACTLY one `workflow/agent-end` — the worker's own report where it can
+   * speak, a host-synthesized one where it cannot ({@link endStrandedAgents}).
+   * @param end - the settlement to emit (worker-reported or synthesized).
+   */
+  private endAgent(end: WorkflowAgentEndInfo): void {
+    /* v8 ignore next -- a real end still in flight across the grace force-settle: not orderable in-process */
+    if (!this.liveAgents.delete(end.seq)) return
+    this.observer.agentEnd(end)
+  }
+
+  /**
+   * Synthesize the missing `agent-end` for every started-but-unpaired agent,
+   * outcome `'cancelled'`: the reap cancels every child, and a real
+   * settlement racing the force-settle loses to the cancellation — the same
+   * first-wins override {@link onResult} applies to the run's own result.
+   * Called where the worker can no longer speak (the grace force-settle,
+   * worker death), BEFORE settleResult, so the paired ends reach observers
+   * before `workflow/end`.
+   */
+  private endStrandedAgents(): void {
+    for (const info of [...this.liveAgents.values()]) {
+      this.endAgent({ ...info, outcome: 'cancelled' })
+    }
   }
 
   private cancelledResult(agentsStarted: number): WorkflowResult {
