@@ -323,7 +323,7 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:137`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:151`](../../packages/core/tools/src/index.ts)
 
 ### `tools/execute` — waterfall
 
@@ -335,7 +335,7 @@ Around-dispatch waterfall wrapping the registry's core tool dispatch, between th
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:107`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:121`](../../packages/core/tools/src/index.ts)
 
 ### `tools/post-execute` — waterfall
 
@@ -347,7 +347,7 @@ Waterfall AFTER a tool runs — where hook plugins inspect the result and accept
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:127`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:141`](../../packages/core/tools/src/index.ts)
 
 ### `tools/pre-execute` — waterfall
 
@@ -359,7 +359,7 @@ Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook pl
 
 Types: [ToolExecution](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:83`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:97`](../../packages/core/tools/src/index.ts)
 
 ## Inherited events (cordis core + loader/hmr/timer)
 

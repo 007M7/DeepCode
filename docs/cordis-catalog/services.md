@@ -216,9 +216,9 @@ Source: [`packages/core/system-prompt/src/index.ts:335`](../../packages/core/sys
 
 ## `ctx.tools` — `ToolRegistry`
 
-Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → `tools/execute` → `tools/post-execute` pipeline. The registry contributes its schemas into the system-prompt assembly.
+Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → `tools/execute` → `tools/post-execute` pipeline. The registry contributes its schemas into the system-prompt assembly — WHICH schemas is governed by its `mode` config (see Config.mode); under a non-native mode it also registers the `run_code` tool and the `tools:sdk` prompt section itself.
 
-Two registration layers (`@deepseek-ai/dsh-scope`): a registration through a plain plugin context is GLOBAL (visible to every agent); one through a scoped context (`agent.ctx`) is filed in that scope's layer — visible to that agent alone, disposed with the scope, and SHADOWING a global tool of the same name for that agent (most-specific-wins; within one layer a duplicate name still throws). restrict masks the global layer per scope. One visibility function (visible) feeds prompt assembly, get, and execute, so what the model is shown, what a presenter renders, and what dispatches can never disagree.
+Two registration layers (`@deepseek-ai/dsh-scope`): a registration through a plain plugin context is GLOBAL (visible to every agent); one through a scoped context (`agent.ctx`) is filed in that scope's layer — visible to that agent alone, disposed with the scope, and SHADOWING a global tool of the same name for that agent (most-specific-wins; within one layer a duplicate name still throws). restrict masks the global layer per scope. One visibility function (visible) feeds prompt assembly, get, and execute — and, under a non-native mode, the SDK section and `run_code`'s bindings — so what the model is shown, what a presenter renders, what a program can call, and what dispatches can never disagree.
 
 ```ts cordis-catalog
 register(definition: ToolDefinition): () => Promise<void> | void
@@ -232,7 +232,7 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:352`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:392`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

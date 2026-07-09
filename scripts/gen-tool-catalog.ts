@@ -38,7 +38,7 @@ import { basename, resolve } from 'node:path'
 import { Context } from 'cordis'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -88,6 +88,13 @@ interface ToolPackage {
    * carries `systemPrompt` + `tools`. */
   mount: (ctx: Context) => Promise<void>
   /**
+   * Config for the caller's `ToolRegistry` mount. The registry itself ships a
+   * model-facing tool (`run_code`, registered under a non-native `mode`), so
+   * ITS catalog entry boots the registry in the mode that surfaces it;
+   * every other entry uses the default (native) registry.
+   */
+  toolsConfig?: ToolsConfig
+  /**
    * A deployment note rendered after the package's tools, for a fact that
    * booting the package alone cannot show. The registered tool NAME can be a
    * load-time config (`tool-subagent`'s `toolName`), so one package may surface
@@ -115,6 +122,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'ask_user_question pauses the tool call until the active UI provider returns a human answer.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tools',
+    dir: 'tools',
+    source: 'packages/core/tools/src/code-mode.ts',
+    requires: ['ctx.tools', 'ctx.codeRuntime (execution time)', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'one tool/code-dispatch per bridged sub-call', 'tool/result'],
+    // The registry's OWN tool: run_code exists only under a non-native mode
+    // (the registry registers it in its constructor; the code runtime is read
+    // at assembly/execution time, so the schema harvest needs none mounted).
+    toolsConfig: { mode: 'code' },
+    async mount() {},
+    note:
+      'Registered by the tool registry itself under `mode: code` / `mode: both` (see the Code Mode RFC). Under `code` it is the ONLY wire tool; the other registered tools are declared to the model as a generated TypeScript SDK prompt section instead, and a program calls them through port-bridged bindings that dispatch through the ordinary tools/pre-execute → tools/post-execute pipeline, one at a time.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-bash',
@@ -259,7 +280,7 @@ export async function collectToolCatalog(packages: ToolPackage[] = TOOL_PACKAGES
     // fiber) — the repo's "dispose must reach quiescence" rule.
     try {
       await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRegistry)
+      await ctx.plugin(ToolRegistry, entry.toolsConfig ?? {})
       await entry.mount(ctx)
       const schemas = ctx.tools.schemas().sort((a, b) => a.name.localeCompare(b.name))
       catalog.push({

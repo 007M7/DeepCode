@@ -48,7 +48,7 @@ import z from 'schemastery'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt, { type Config as SystemPromptConfig } from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import * as invariants from '@deepseek-ai/dsh-invariants'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
@@ -61,10 +61,12 @@ export const name = 'agent-core'
  * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
  * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
  * plugin (the deployment's persona section and the explicit model-facing tool
- * order). Every field is optional INPUT here because each owner's schema
- * supplies the default (`[]` / `''` / absent — lexicographic); the schema is
- * the INTERSECTION of the owners' own schemas, so validation and defaulting
- * can never drift from them.
+ * order), the `tools` object to the tool registry (its presentation `mode`).
+ * Every field is optional INPUT here because each owner's schema
+ * supplies the default (`[]` / `''` / absent — lexicographic / `native`); the
+ * schema is the INTERSECTION of the owners' own schemas (the registry's
+ * nested under its `tools` key), so validation and defaulting can never
+ * drift from them.
  */
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
@@ -73,10 +75,12 @@ export interface Config {
   persona?: SystemPromptConfig['persona']
   /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
   toolOrder?: SystemPromptConfig['toolOrder']
+  /** The tool registry's config — its presentation `mode` (see dsh-tools' `Config`). */
+  tools?: ToolsConfig
 }
 
-/** Intersect the owners' schemas so validation + defaulting stay identical. */
-export const Config = z.intersect([AgentLoop.Config, SystemPrompt.Config]) as unknown as z<Config>
+/** Intersect the owners' schemas so validation + defaulting stay identical (the registry's nested under `tools`). */
+export const Config = z.intersect([AgentLoop.Config, SystemPrompt.Config, z.object({ tools: ToolRegistry.Config })]) as unknown as z<Config>
 
 /**
  * Load the spine. Each `ctx.plugin(...)` mounts one child of the bundle fiber;
@@ -101,7 +105,7 @@ export function apply(ctx: Context, config: Config): void {
     persona: config.persona ?? '',
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
   })
-  ctx.plugin(ToolRegistry)
+  ctx.plugin(ToolRegistry, config.tools ?? {})
   ctx.plugin(AgentRegistry)
   ctx.plugin(invariants)
   ctx.plugin(toolBash)

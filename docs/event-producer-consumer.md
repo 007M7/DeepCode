@@ -32,10 +32,10 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `subagent/start` | `emit` | [`packages/subagent/subagent/src/index.ts:96`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude) |
 | `system-prompt/assemble` | `waterfall` | [`packages/core/system-prompt/src/index.ts:44`](../packages/core/system-prompt/src/index.ts) | [`system-prompt`](../packages/core/system-prompt) (`waterfall`) | - |
 | `system-prompt/change` | `emit` | [`packages/core/system-prompt/src/index.ts:54`](../packages/core/system-prompt/src/index.ts) | [`system-prompt`](../packages/core/system-prompt) (`emit`) | - |
-| `tools/change` | `emit` | [`packages/core/tools/src/index.ts:137`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`emit`) | - |
-| `tools/execute` | `waterfall` | [`packages/core/tools/src/index.ts:107`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`timeout-policy`](../packages/timeout/timeout-policy) |
-| `tools/post-execute` | `waterfall` | [`packages/core/tools/src/index.ts:127`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex), [`repeat-tool-guard`](../packages/guard/repeat-tool-guard) |
-| `tools/pre-execute` | `waterfall` | [`packages/core/tools/src/index.ts:83`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
+| `tools/change` | `emit` | [`packages/core/tools/src/index.ts:151`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`emit`) | - |
+| `tools/execute` | `waterfall` | [`packages/core/tools/src/index.ts:121`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`timeout-policy`](../packages/timeout/timeout-policy) |
+| `tools/post-execute` | `waterfall` | [`packages/core/tools/src/index.ts:141`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex), [`repeat-tool-guard`](../packages/guard/repeat-tool-guard) |
+| `tools/pre-execute` | `waterfall` | [`packages/core/tools/src/index.ts:97`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
 
 ## Non-harness or undeclared event strings seen in package source
 
