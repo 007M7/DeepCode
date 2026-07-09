@@ -31,6 +31,7 @@ The default distribution is a composition, not a hierarchy. `packages/core/` is 
 | `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
 | `ctx.compact` | [`compact/`](../packages/compact/README.md) | session-surface compaction |
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
+| `ctx.modes` | [`mode/`](../packages/mode/README.md) | logged session modes (plan mode) |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable storage for session logs |
 
 ## Event Surface

@@ -18,7 +18,7 @@
  * A flush that changes what the last logged request header told the model
  * appends one coalesced `context/message` notice in the same frame.
  *
- * RFC: docs/rfc/proposed/feature/2026-07-07-plan-mode.md
+ * RFC: docs/rfc/implemented/feature/2026-07-07-plan-mode.md
  *
  * @module @deepseek-ai/dsh-mode
  */

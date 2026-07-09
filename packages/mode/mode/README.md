@@ -39,4 +39,4 @@ The model-facing exit tool. Its single required argument is the plan text — a 
 
 Definitions are validated at load (`resolveConfig`): the built-in `plan` (read-only allowlist, `bash`/`subagent` excluded) merges unless overridden, `default` is rejected as a key, and allowlists may name not-yet-registered tools (registration is dynamic). An unknown name fails loudly at `set()` time.
 
-RFC: [plan mode](../../../docs/rfc/proposed/feature/2026-07-07-plan-mode.md).
+RFC: [plan mode](../../../docs/rfc/implemented/feature/2026-07-07-plan-mode.md).

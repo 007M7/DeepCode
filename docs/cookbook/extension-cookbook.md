@@ -102,7 +102,7 @@ Every product feature maps to a listener on a documented extension seam — the 
 | ToolSearch / progressive disclosure | filter tools at `system-prompt/assemble` (the assembly carries the schemas; the loop logs the result as the request header, so disclosure stays reconstructable) |
 | Tool sandbox (landlock / sandbox-exec) | `tools/pre-execute` (deny), or a sandboxing `BashExecutor` on the `dsh-bash` seam |
 | Permission system / AskUserQuestion | `tools/pre-execute` (deny/ask); register an ask tool |
-| Plan mode | `tools/pre-execute` (deny writes) + a mode prompt section via `ctx.systemPrompt.section()` or `agent.inject()` (model-visible ⟺ logged: `agent/request` shapes call config only) |
+| Plan mode | Shipped: [`@deepseek-ai/dsh-mode`](../../packages/mode/mode/README.md) — the logged `mode/set` state, the assemble filter + `mode:policy` section, the deny-by-default `tools/pre-execute` gate, and the user-reviewed `exit_plan_mode` exit |
 | Sub-agent delegation | the `ctx.subagents` provider registry (`dsh-subagent-spawn`/`-fork`/`-acp`) + `dsh-tool-subagent` exposing one configured provider to the model |
 | MCP | one plugin per server: discover tools → `ctx.tools.register()` |
 | Skills | section + tool registration; `inject()` skill content on invocation |

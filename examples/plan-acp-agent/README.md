@@ -1,6 +1,6 @@
 # plan-acp-agent
 
-The coding agent as an ACP server with **session modes** composed — the live composition of [the plan-mode RFC](../../docs/rfc/proposed/feature/2026-07-07-plan-mode.md).
+The coding agent as an ACP server with **session modes** composed — the live composition of [the plan-mode RFC](../../docs/rfc/implemented/feature/2026-07-07-plan-mode.md).
 
 ## What it demonstrates
 
