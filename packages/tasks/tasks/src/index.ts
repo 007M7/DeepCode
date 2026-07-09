@@ -30,6 +30,7 @@
 
 import { Context, Service } from 'cordis'
 import type { Agent, AgentId } from '@deepseek-ai/dsh-agent'
+import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { TaskId } from './types.ts'
 import type { TaskDoneListener, TaskOutcome, TaskRead, TaskRegistration, TaskSnapshot, TaskStatus } from './types.ts'
 
@@ -48,6 +49,14 @@ declare module 'cordis' {
     tasks: TaskService
   }
 }
+
+/**
+ * The `dsh-timeout` code stamped on a {@link TaskService.wait} deadline's
+ * `TimeoutReason`. A wait timeout only ends the WAIT (the task keeps running
+ * and the live snapshot is returned) — scoping `timeoutOf` to this code keeps
+ * a foreign (outer, nested) deadline's timeout from being misread as ours.
+ */
+export const TASK_WAIT_TIMEOUT = 'TASK_WAIT_TIMEOUT'
 
 /** The registry's mutable per-task record (never handed out — see {@link TaskService.snapshot}). */
 interface TrackedTask {
@@ -273,15 +282,22 @@ export class TaskService extends Service {
       if (signal?.aborted) throw new Error('wait aborted')
       task.waiters += 1
       try {
+        // The dsh-timeout deadline fits wait() exactly because both only
+        // NOTIFY: a wait timeout returns the live snapshot (the task keeps
+        // running — nothing is terminated), and timeoutOf scoped to our own
+        // code tells that timeout apart from a caller abort, which rejects
+        // the wait. `using` clears the timer on every exit path.
+        using d = deadline(signal, timeoutMs, TASK_WAIT_TIMEOUT)
         await new Promise<void>((resolve, reject) => {
-          const cleanup = (): void => {
-            clearTimeout(timer)
-            signal?.removeEventListener('abort', onAbort)
+          const onAbort = (): void => {
+            if (timeoutOf(d.signal, TASK_WAIT_TIMEOUT) !== undefined) resolve()
+            else reject(new Error('wait aborted'))
           }
-          const timer = setTimeout(() => { cleanup(); resolve() }, timeoutMs)
-          const onAbort = (): void => { cleanup(); reject(new Error('wait aborted')) }
-          signal?.addEventListener('abort', onAbort, { once: true })
-          void task.settled.then(() => { cleanup(); resolve() })
+          d.signal.addEventListener('abort', onAbort, { once: true })
+          void task.settled.then(() => {
+            d.signal.removeEventListener('abort', onAbort)
+            resolve()
+          })
         })
       } finally {
         task.waiters -= 1

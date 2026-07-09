@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-tasks",
-  "description": "Background task registry (ctx.tasks) for the DeepSeek Harness — shared ids, owner isolation, polling, cancellation, and completion listeners for long-running tool work",
+  "description": "Background task registry (ctx.tasks) for the DeepSeek Harness \u2014 shared ids, owner isolation, polling, cancellation, and completion listeners for long-running tool work",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -24,12 +24,14 @@
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "^0.0.1",
     "@deepseek-ai/dsh-brand": "^0.0.1",
+    "@deepseek-ai/dsh-timeout": "^0.0.1",
     "cordis": "^4.0.0-rc.6"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-brand": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-timeout": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }
 }

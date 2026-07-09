@@ -142,6 +142,10 @@ The established bash habit is poll-between-work, and the guidance tells the mode
 
 Waiting is never useful without reading the result afterwards; a separate tool doubles the calls and the schema surface for zero information. Folding it into `task_output` matches the only real usage pattern.
 
+### Why not `ToolDefinition.timeoutMs` (the timeout-policy plugin) for `task_output`'s wait?
+
+The [timeout library](2026-07-06-timeout-deadline-library.md) gives `wait()` its timing internals — `ctx.tasks.wait` arms a `deadline()` and classifies wait-timeout vs caller-abort with `timeoutOf` scoped to `TASK_WAIT_TIMEOUT` — but the tool-call-level policy is deliberately NOT adopted: timeout-policy replaces a timed-out call with a structured `TOOL_TIMEOUT` failure, whereas a timed-out `task_output(wait: true)` is a SUCCESS that must still report `[status: running]` (the model needs the task's state either way, and the task keeps running). The wait therefore bounds its own deadline through the tool's `waitTimeoutMs`/`maxWaitTimeoutMs` config. For the same reason, no timeout policy manages a background task's LIFETIME: once the id is returned the work is off the tool-call deadline entirely — cancellation belongs to `task_kill` and owner cleanup.
+
 ### Why not a push-sink producer contract (`appendOutput`/`settle`), as Kimi Code's manager uses?
 
 A sink centralizes output buffering, truncation, and spill in the runtime, which is elegant when the runtime owns output storage. In this codebase those concerns already live — bounded, tested, spill-file-aware — inside `dsh-bash-local`, and keeping process concerns in the executor is the point of the bash seam. The pull contract (`readOutput()` returning a formatted delta) reuses that machinery as-is; a sink would relocate it for no v1 gain. If a durable backend later makes the runtime own output storage, the producer contract is the one seam to revisit.

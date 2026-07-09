@@ -224,7 +224,7 @@ attachSurface(name: string): () => void
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/tasks/tasks/src/index.ts:84`](../../packages/tasks/tasks/src/index.ts)
+Source: [`packages/tasks/tasks/src/index.ts:93`](../../packages/tasks/tasks/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

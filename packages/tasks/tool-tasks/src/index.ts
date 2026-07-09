@@ -125,6 +125,11 @@ export function apply(ctx: Context, config: Config): void {
       + 'final-output tasks (subagent) return the final answer once the task finishes. '
       + 'Every response ends with a [status: ...] line. Non-blocking by default; '
       + 'set `wait: true` to block until the task finishes (bounded by a capped timeout) when you are genuinely blocked on its result.',
+    // Deliberately NO ToolDefinition.timeoutMs: the timeout-policy plugin
+    // replaces a timed-out call with a structured TOOL_TIMEOUT failure, but a
+    // timed-out wait here is a SUCCESS that reports [status: running] — the
+    // task's state must reach the model either way, so the wait bounds its
+    // own deadline (waitTimeoutMs/maxWaitTimeoutMs) via ctx.tasks.wait.
     parameters: {
       task_id: { type: 'string', required: true, description: 'Task id returned by the tool that started the background work.' },
       wait: { type: 'boolean', description: 'Block until the task reaches a terminal status or the timeout expires. A timed-out wait returns [status: running] and leaves the task alive.' },
