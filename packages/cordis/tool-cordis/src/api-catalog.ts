@@ -179,6 +179,14 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'userInteraction',
+    summary: '`ctx.userInteraction`: one active UI provider plus an `ask()` surface.',
+    methods: [
+      'registerProvider(provider: UserInteractionProvider): () => void',
+      'async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>',
+    ],
+  },
+  {
     key: 'web',
     summary: 'The web access service.',
     methods: [
@@ -387,6 +395,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AgentStatus',
     declaration: 'export type AgentStatus = \'idle\' | \'running\' | \'disposed\';',
+  },
+  {
+    name: 'AskUserQuestionAnswer',
+    declaration: 'export interface AskUserQuestionAnswer {\n    answers: AskUserQuestionAnswerItem[];\n}',
+  },
+  {
+    name: 'AskUserQuestionAnswerItem',
+    declaration: 'export interface AskUserQuestionAnswerItem {\n    id: string;\n    selected: string[];\n    custom?: string;\n}',
+  },
+  {
+    name: 'AskUserQuestionItem',
+    declaration: 'export interface AskUserQuestionItem {\n    id: string;\n    question: string;\n    header?: string;\n    options?: AskUserQuestionOption[];\n    multiSelect?: boolean;\n}',
+  },
+  {
+    name: 'AskUserQuestionOption',
+    declaration: 'export interface AskUserQuestionOption {\n    label: string;\n    description?: string;\n}',
+  },
+  {
+    name: 'AskUserQuestionRequest',
+    declaration: 'export interface AskUserQuestionRequest {\n    questions: AskUserQuestionItem[];\n    agent?: Agent;\n    signal?: AbortSignal;\n}',
   },
   {
     name: 'AssembleContext',
@@ -759,6 +787,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TurnTriggerMap',
     declaration: 'export interface TurnTriggerMap {\n    message: {\n        kind: \'message\';\n        source: MessageSource;\n    };\n    injection: {\n        kind: \'injection\';\n        source: MessageSource;\n    };\n}',
+  },
+  {
+    name: 'UserInteractionProvider',
+    declaration: 'export interface UserInteractionProvider {\n    ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>;\n}',
   },
   {
     name: 'WebExecContext',
