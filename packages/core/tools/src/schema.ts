@@ -296,6 +296,13 @@ export interface DefineToolOptions<S extends SchemaSpec> {
    */
   parameters: S
   /**
+   * Optional cooperative tool-call timeout budget in milliseconds. When given it
+   * must be a positive finite number; it is attached to the produced
+   * {@link ToolDefinition} for `@deepseek-ai/dsh-timeout-policy` to enforce and
+   * is never sent to the model.
+   */
+  timeoutMs?: number
+  /**
    * Tool execution function. `args` is typed as {@link InferArgs<S>} — zero
    * casts needed. Returns either a bare {@link ContentBlock}`[]` (model-facing
    * content only) or a `{ content, meta }` object to also attach a tool-private
@@ -362,10 +369,14 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
   const userPresentCall = options.presentCall
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const userPresentResult = options.presentResult
+  if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) {
+    throw new Error(`defineTool(${options.name}): timeoutMs must be a positive finite number`)
+  }
   const tool: ToolDefinition = {
     name: options.name,
     description: options.description,
     parameters: schemaSpecToJsonSchema(options.parameters) as unknown as Record<string, unknown>,
+    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
     async execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn> {
       // Validate the model-generated args before the typed body runs. On
       // mismatch we throw ToolArgsError; the registry turns it into an

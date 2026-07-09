@@ -8,6 +8,7 @@
         "examples/echo-agent/src/*.ts",
         "examples/echo-agent/tests/**/*.e2e.ts",
         "examples/coding-agent/tests/**/*.e2e.ts",
+        "examples/cordis-agent/tests/**/*.e2e.ts",
         "examples/acp-agent/tests/**/*.e2e.ts",
         "examples/*/tests/**/*.snapshot.ts"
       ],
@@ -21,12 +22,21 @@
       "project": ["src/**/*.ts"],
       "ignoreDependencies": ["cordis"]
     },
+    "packages/util/timeout": {
+      "entry": ["tests/**/*.spec.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"],
+      "ignoreDependencies": ["cordis"]
+    },
     "packages/support/acp-snapshot": {
       "entry": ["tests/**/*.spec.ts", "tests/fixtures/fake-acp-agent.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"],
       "ignoreDependencies": ["cordis"]
     },
     "packages/core/agent-loop": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
+    "packages/code-runtime/code-runtime-worker": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },

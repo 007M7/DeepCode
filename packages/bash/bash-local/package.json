@@ -23,6 +23,7 @@
   "license": "BSD-3-Clause",
   "peerDependencies": {
     "@deepseek-ai/dsh-bash": "^0.0.1",
+    "@deepseek-ai/dsh-timeout": "^0.0.1",
     "cordis": "^4.0.0-rc.6"
   },
   "dependencies": {
@@ -30,6 +31,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-bash": "workspace:^",
+    "@deepseek-ai/dsh-timeout": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }
 }

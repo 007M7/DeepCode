@@ -98,11 +98,13 @@ Implementations MUST honor:
 - **Blocking**: no compaction begins while another is in progress for the same session. The recommended mechanism is the log-recorded lock — append `compact/start` before the slow work and `compact/end` after (even on failure) — so the lock is visible to replay and crash recovery.
 
 ```ts cordis-catalog
-abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, signal: AbortSignal, ): Promise<CompactionResult | null>
+abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal, ): Promise<CompactionResult | null>
 abstract compactRegion( session: Session, start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 
-Source: [`packages/compact/compact/src/index.ts:63`](../../packages/compact/compact/src/index.ts)
+Types: [Message](../core-data-structures/core.md)
+
+Source: [`packages/compact/compact/src/index.ts:65`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
@@ -214,7 +216,7 @@ Source: [`packages/core/system-prompt/src/index.ts:335`](../../packages/core/sys
 
 ## `ctx.tools` — `ToolRegistry`
 
-Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → dispatch → `tools/post-execute` pipeline. The registry contributes its schemas into the system-prompt assembly.
+Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → `tools/execute` → `tools/post-execute` pipeline. The registry contributes its schemas into the system-prompt assembly.
 
 Two registration layers (`@deepseek-ai/dsh-scope`): a registration through a plain plugin context is GLOBAL (visible to every agent); one through a scoped context (`agent.ctx`) is filed in that scope's layer — visible to that agent alone, disposed with the scope, and SHADOWING a global tool of the same name for that agent (most-specific-wins; within one layer a duplicate name still throws). restrict masks the global layer per scope. One visibility function (visible) feeds prompt assembly, get, and execute, so what the model is shown, what a presenter renders, and what dispatches can never disagree.
 
@@ -230,7 +232,18 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:319`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:352`](../../packages/core/tools/src/index.ts)
+
+## `ctx.userInteraction` — `UserInteractionService`
+
+`ctx.userInteraction`: one active UI provider plus an `ask()` surface.
+
+```ts cordis-catalog
+registerProvider(provider: UserInteractionProvider): () => void
+async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
+```
+
+Source: [`packages/ui/user-interaction/src/index.ts:82`](../../packages/ui/user-interaction/src/index.ts)
 
 ## `ctx.web` — `WebService`
 

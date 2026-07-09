@@ -41,12 +41,15 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import WebService from '@deepseek-ai/dsh-web'
 import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentMock from '@deepseek-ai/dsh-subagent-mock'
+import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
@@ -101,6 +104,19 @@ interface ToolPackage {
  */
 const TOOL_PACKAGES: ToolPackage[] = [
   {
+    pkg: '@deepseek-ai/dsh-tool-ask-user',
+    dir: 'tool-ask-user',
+    source: 'packages/ui/tool-ask-user/src/index.ts',
+    requires: ['ctx.tools', 'ctx.userInteraction'],
+    writes: ['tool/call', 'tool/result after a UI/provider answers the question'],
+    async mount(ctx) {
+      await ctx.plugin(UserInteractionService)
+      await ctx.plugin(ToolAskUser)
+    },
+    note:
+      'ask_user_question pauses the tool call until the active UI provider returns a human answer.',
+  },
+  {
     pkg: '@deepseek-ai/dsh-tool-bash',
     dir: 'tool-bash',
     source: 'packages/bash/tool-bash/src/index.ts',
@@ -112,6 +128,18 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'The bash/bash_output/bash_kill tools are model-facing consumers of the bash executor seam.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-cordis',
+    dir: 'tool-cordis',
+    source: 'packages/cordis/tool-cordis/src/index.ts',
+    requires: ['ctx.tools'],
+    writes: ['tool/call', 'tool/result', 'live plugin-tree mutations (mount/unmount)'],
+    async mount(ctx) {
+      await ctx.plugin(ToolCordis)
+    },
+    note:
+      'Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; the request-header ToolsDelta logs those tool-set changes.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-fs',
