@@ -31,7 +31,12 @@ export default defineConfig({
       // can't import one without booting it, so they are driven by the keyless
       // Loader-path smoke (a real subprocess) instead of the in-process unit
       // suite — the same reason `examples/start.ts` sat out of coverage scope.
-      exclude: ['packages/*/*/src/types.ts', 'packages/*/*/src/bin.ts'],
+      // `worker.ts` files are the same class as bin.ts: self-executing
+      // worker-thread entrypoints that only ever run inside a spawned isolate
+      // the v8 provider cannot observe. They stay thin glue over in-process-
+      // tested logic (bootstrap.ts) and are pinned by real-worker integration
+      // tests.
+      exclude: ['packages/*/*/src/types.ts', 'packages/*/*/src/bin.ts', 'packages/*/*/src/worker.ts'],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).
       // Per-file so a well-covered big file can't subsidize a bare one.
       // Every v8 ignore comment must carry a reason — see the quality-gates RFC
