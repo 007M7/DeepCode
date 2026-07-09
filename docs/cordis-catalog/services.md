@@ -157,6 +157,22 @@ Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../co
 
 Source: [`packages/llm/llm/src/index.ts:88`](../../packages/llm/llm/src/index.ts)
 
+## `ctx.sandbox` — `SandboxProvider` (abstract seam)
+
+Abstract process-sandbox service. Subclass, implement confine, and load the subclass as a plugin — it registers as `ctx.sandbox` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+
+Semantics every implementation must honor:
+
+- confine either returns an argv whose runner ENFORCES the policy or fails closed — at `confine` time with SandboxUnavailableError (no backend for this host), or at EXECUTION time by the runner itself refusing to run the command (exiting without exec'ing it, identified by ConfinedArgv.runnerFailureSignatures). A silent unconfined passthrough is never a legal outcome on either path.
+- Probing exists to ARBITRATE between multiple candidate backends and may be skipped when a platform has exactly one: the sole candidate is selected directly and the runner's exec-time fail-closed refusal carries the safety property. When probing does run, it is functional (actually enforcing a profile, not a version check), at most once per provider lifetime; `confine` itself spawns nothing beyond that one-time probing.
+- The returned ConfinedArgv.enforcement states the backend's actual completeness for THIS host; `partial` is reported, never silently upgraded to `full`.
+
+```ts cordis-catalog
+abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
+```
+
+Source: [`packages/sandbox/sandbox/src/index.ts:180`](../../packages/sandbox/sandbox/src/index.ts)
+
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 
 Abstract durable session-persistence service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.sessionPersistence` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).

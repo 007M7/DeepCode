@@ -70,6 +70,7 @@ const GROUP_ORDER = [
   'llm',
   'core',
   'bash',
+  'sandbox',
   'fs',
   'compact',
   'subagent',
@@ -158,6 +159,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['bash-local'],
     consumers: ['tool-bash', 'hooks-claude', 'hooks-codex'],
     note: 'The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors can replace bash-local.',
+  },
+  {
+    key: 'sandbox',
+    pkg: 'sandbox',
+    title: 'Process-sandbox seam',
+    mode: 'seam',
+    implementations: ['sandbox-local'],
+    consumers: [],
+    note: 'Consumers hand over the exact argv they are about to spawn; same-world backends wrap it under a per-call policy and report enforcement.',
   },
   {
     key: 'approval',

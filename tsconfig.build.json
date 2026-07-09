@@ -19,6 +19,8 @@
     { "path": "./packages/session-persistence/session-persistence-sqlite" },
     { "path": "./packages/core/system-prompt" },
     { "path": "./packages/approval/approval" },
+    { "path": "./packages/sandbox/sandbox" },
+    { "path": "./packages/sandbox/sandbox-local" },
     { "path": "./packages/core/agent" },
     { "path": "./packages/ui/user-interaction" },
     { "path": "./packages/core/tools" },

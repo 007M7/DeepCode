@@ -98,6 +98,10 @@ flowchart TD
   subgraph group_guard["packages/guard"]
     pkg_repeat_tool_guard["repeat-tool-guard"]
   end
+  subgraph group_sandbox["packages/sandbox"]
+    pkg_sandbox["sandbox"]
+    pkg_sandbox_local["sandbox-local"]
+  end
   subgraph group_workflow["packages/workflow"]
     pkg_tool_workflow["tool-workflow"]
     pkg_workflow["workflow"]
@@ -116,6 +120,7 @@ flowchart TD
   pkg_fs --> pkg_brand
   pkg_fs --> pkg_llm
   pkg_web --> pkg_llm
+  pkg_sandbox --> pkg_llm
   pkg_agent --> pkg_brand
   pkg_agent --> pkg_llm
   pkg_agent --> pkg_session
@@ -134,6 +139,8 @@ flowchart TD
   pkg_session_persistence --> pkg_session
   pkg_llm_replay --> pkg_llm
   pkg_llm_replay --> pkg_session
+  pkg_sandbox_local --> pkg_llm
+  pkg_sandbox_local --> pkg_sandbox
   pkg_compact_basic --> pkg_agent
   pkg_compact_basic --> pkg_compact
   pkg_compact_basic --> pkg_llm
@@ -288,6 +295,7 @@ flowchart TD
 | [`bash-local`](../packages/bash/bash-local) | `bash` | [`bash`](../packages/bash/bash), [`timeout`](../packages/util/timeout) |
 | [`fs`](../packages/fs/fs) | `fs` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm) |
 | [`web`](../packages/web/web) | `web` | [`llm`](../packages/llm/llm) |
+| [`sandbox`](../packages/sandbox/sandbox) | `sandbox` | [`llm`](../packages/llm/llm) |
 | [`agent`](../packages/core/agent) | `core` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
 | [`fs-local`](../packages/fs/fs-local) | `fs` | [`fs`](../packages/fs/fs) |
 | [`fs-policy`](../packages/fs/fs-policy) | `fs` | [`fs`](../packages/fs/fs) |
@@ -299,6 +307,7 @@ flowchart TD
 | [`hook-protocol`](../packages/hooks/hook-protocol) | `hooks` | [`bash`](../packages/bash/bash), [`session`](../packages/core/session) |
 | [`session-persistence`](../packages/session-persistence/session-persistence) | `session-persistence` | [`session`](../packages/core/session) |
 | [`llm-replay`](../packages/support/llm-replay) | `support` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
+| [`sandbox-local`](../packages/sandbox/sandbox-local) | `sandbox` | [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox) |
 | [`compact-basic`](../packages/compact/compact-basic) | `compact` | [`agent`](../packages/core/agent), [`compact`](../packages/compact/compact), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl) | `session-persistence` | [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |
 | [`session-persistence-sqlite`](../packages/session-persistence/session-persistence-sqlite) | `session-persistence` | [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |

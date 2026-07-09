@@ -430,6 +430,42 @@ export interface Config {
 
 Source: [`packages/guard/repeat-tool-guard/src/index.ts:55`](../packages/guard/repeat-tool-guard/src/index.ts)
 
+## `@deepseek-ai/dsh-sandbox-local`
+
+```ts config-catalog
+/** Plugin config. All optional — `static Config` supplies the defaults. */
+export interface Config {
+  /**
+   * Override the sandbox runner argv (the bwrap-shaped profile arguments are
+   * appended). A NON-EMPTY argv is the operator's assertion that this runner
+   * exists and FULLY enforces the profile (confinement reports
+   * `enforcement: 'full'`, and — the runner's kernel mechanism being unknown
+   * — carries both Linux file-denial dialects as its denial signatures) —
+   * the runner chain and its probes are skipped,
+   * and a broken runner fails loudly at spawn time like any missing command.
+   * Absent (or empty — the schema normalizes an omitted array to `[]`): the
+   * built-in platform chains — Linux `bwrap` then the Landlock launcher
+   * (probed in that order), darwin `sandbox-exec` (the sole candidate,
+   * selected without a probe). Used for custom/alternative runners and
+   * for deterministic fake runners in keyless test tiers.
+   */
+  runnerCommand?: string[]
+  /**
+   * Per-probe timeout in milliseconds for the chain's functional probes
+   * (default: 5000; must be a positive finite number — Node treats a 0
+   * `spawnSync` timeout as UNBOUNDED, so 0 is rejected at construction). A
+   * probe that exceeds it reads as an unusable rung, so a
+   * host slow enough to trip the default — cold NFS mounts, heavily loaded
+   * CI — would otherwise be misclassified `SANDBOX_UNAVAILABLE` with no
+   * config escape. Bounds ONE probe, and the chain walk runs each at most once
+   * per provider lifetime.
+   */
+  probeTimeoutMs?: number
+}
+```
+
+Source: [`packages/sandbox/sandbox-local/src/index.ts:36`](../packages/sandbox/sandbox-local/src/index.ts)
+
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 
 Requires: `sessions`
@@ -985,6 +1021,7 @@ Abstract service classes — a deployment loads a concrete implementation packag
 - `@deepseek-ai/dsh-code-runtime` — abstract `CodeRuntime` ([`packages/code-runtime/code-runtime/src/index.ts`](../packages/code-runtime/code-runtime/src/index.ts))
 - `@deepseek-ai/dsh-compact` — abstract `CompactService` ([`packages/compact/compact/src/index.ts`](../packages/compact/compact/src/index.ts))
 - `@deepseek-ai/dsh-fs` — abstract `FileSystem` ([`packages/fs/fs/src/index.ts`](../packages/fs/fs/src/index.ts))
+- `@deepseek-ai/dsh-sandbox` — abstract `SandboxProvider` ([`packages/sandbox/sandbox/src/index.ts`](../packages/sandbox/sandbox/src/index.ts))
 - `@deepseek-ai/dsh-session-persistence` — abstract `SessionPersistence` ([`packages/session-persistence/session-persistence/src/index.ts`](../packages/session-persistence/session-persistence/src/index.ts))
 - `@deepseek-ai/dsh-workflow` — abstract `WorkflowService` ([`packages/workflow/workflow/src/index.ts`](../packages/workflow/workflow/src/index.ts))
 

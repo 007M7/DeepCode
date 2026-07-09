@@ -42,6 +42,7 @@
       "@deepseek-ai/dsh-*": [
         "./packages/approval/*/src",
         "./packages/core/*/src",
+        "./packages/sandbox/*/src",
         "./packages/llm/*/src",
         "./packages/bash/*/src",
         "./packages/code-runtime/*/src",
