@@ -61,6 +61,9 @@ flowchart TD
   subgraph group_todo["packages/todo"]
     pkg_tool_todo["tool-todo"]
   end
+  subgraph group_mode["packages/mode"]
+    pkg_mode["mode"]
+  end
   subgraph group_cordis["packages/cordis"]
     pkg_tool_cordis["tool-cordis"]
   end
@@ -173,6 +176,10 @@ flowchart TD
   pkg_tool_todo --> pkg_agent
   pkg_tool_todo --> pkg_session
   pkg_tool_todo --> pkg_tools
+  pkg_mode --> pkg_agent
+  pkg_mode --> pkg_session
+  pkg_mode --> pkg_system_prompt
+  pkg_mode --> pkg_tools
   pkg_tool_cordis --> pkg_tools
   pkg_hooks_codex --> pkg_agent
   pkg_hooks_codex --> pkg_hook_protocol
@@ -236,6 +243,7 @@ flowchart TD
   pkg_stdio_agent --> pkg_agent_core
   pkg_stdio_agent --> pkg_app_boot
   pkg_stdio_agent --> pkg_llm
+  pkg_stdio_agent --> pkg_mode
   pkg_stdio_agent --> pkg_session
   pkg_stdio_agent --> pkg_session_persistence_jsonl
   pkg_stdio_agent --> pkg_tool_ask_user
@@ -284,6 +292,7 @@ flowchart TD
 | [`tool-web`](../packages/web/tool-web) | `web` | [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`web`](../packages/web/web) |
 | [`timeout-policy`](../packages/timeout/timeout-policy) | `timeout` | [`llm`](../packages/llm/llm), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |
 | [`tool-todo`](../packages/todo/tool-todo) | `todo` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
+| [`mode`](../packages/mode/mode) | `mode` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-cordis`](../packages/cordis/tool-cordis) | `cordis` | [`tools`](../packages/core/tools) |
 | [`hooks-codex`](../packages/hooks/hooks-codex) | `hooks` | [`agent`](../packages/core/agent), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
 | [`acp`](../packages/ui/acp) | `ui` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
@@ -298,4 +307,4 @@ flowchart TD
 | [`subagent-fork`](../packages/subagent/subagent-fork) | `subagent` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) |
 | [`subagent-spawn`](../packages/subagent/subagent-spawn) | `subagent` | [`subagent`](../packages/subagent/subagent), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) |
 | [`acp-agent`](../packages/ui/acp-agent) | `ui` | [`acp`](../packages/ui/acp), [`agent-core`](../packages/core/agent-core), [`app-boot`](../packages/ui/app-boot), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
-| [`stdio-agent`](../packages/ui/stdio-agent) | `ui` | [`agent`](../packages/core/agent), [`agent-core`](../packages/core/agent-core), [`app-boot`](../packages/ui/app-boot), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`tool-ask-user`](../packages/ui/tool-ask-user), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
+| [`stdio-agent`](../packages/ui/stdio-agent) | `ui` | [`agent`](../packages/core/agent), [`agent-core`](../packages/core/agent-core), [`app-boot`](../packages/ui/app-boot), [`llm`](../packages/llm/llm), [`mode`](../packages/mode/mode), [`session`](../packages/core/session), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`tool-ask-user`](../packages/ui/tool-ask-user), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |

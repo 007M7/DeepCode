@@ -47,6 +47,7 @@ const GROUP_ORDER = [
   'web',
   'timeout',
   'todo',
+  'mode',
   'cordis',
   'hooks',
   'session-persistence',

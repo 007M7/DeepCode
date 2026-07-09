@@ -107,6 +107,18 @@ A hook command's outcome — log-only, paired with a prior `hook/invoked` (same 
 
 Source: [`packages/hooks/hook-protocol/src/types.ts:45`](../packages/hooks/hook-protocol/src/types.ts)
 
+### `mode/*`
+
+#### `mode/set` — log-only
+
+The session mode in force from this point on: log-only, non-surface, whole-value replace — the last `mode/set` in the log wins (see foldMode). A log with none folds to DEFAULT_MODE.
+
+```ts persistence-catalog
+'mode/set': { mode: string }
+```
+
+Source: [`packages/mode/mode/src/index.ts:39`](../packages/mode/mode/src/index.ts)
+
 ### `prompt/*`
 
 #### `prompt/blocked` — log-only

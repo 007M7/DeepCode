@@ -126,6 +126,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'modes',
+    summary: '`ctx.modes`: the session-mode service.',
+    methods: [
+      'list(): string[]',
+      'get(agent: Agent): { current: string, pending?: string }',
+      'set(agent: Agent, mode: string): void',
+    ],
+  },
+  {
     key: 'sessionPersistence',
     summary: 'Abstract durable session-persistence service.',
     methods: [

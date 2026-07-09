@@ -147,6 +147,20 @@ Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../co
 
 Source: [`packages/llm/llm/src/index.ts:88`](../../packages/llm/llm/src/index.ts)
 
+## `ctx.modes` — `ModesService`
+
+`ctx.modes`: the session-mode service. Owns the `mode/set` vocabulary, the pending-intent flush, the boundary narration, and both policy layers (the assemble filter + `mode:policy` section, and the `tools/pre-execute` gate). UIs read mode flips off `session/event`; there is no live mirror.
+
+```ts cordis-catalog
+list(): string[]
+get(agent: Agent): { current: string, pending?: string }
+set(agent: Agent, mode: string): void
+```
+
+Types: [Agent](../core-data-structures/core.md)
+
+Source: [`packages/mode/mode/src/index.ts:179`](../../packages/mode/mode/src/index.ts)
+
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 
 Abstract durable session-persistence service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.sessionPersistence` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).

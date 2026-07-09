@@ -28,6 +28,9 @@ import {
   type AskUserQuestionOption,
   type AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
+// Type-only edge: makes `ctx.get('modes')` resolve the ModesService type when
+// @deepseek-ai/dsh-mode is composed; the runtime read stays opportunistic.
+import type {} from '@deepseek-ai/dsh-mode'
 
 export const name = 'ui-stdio'
 export const inject = ['agents', 'userInteraction']
@@ -355,6 +358,31 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       const agent = ctx.agents.get(agentId)
       if (!agent) {
         ctx.logger.error('ui-stdio: agent "%s" is not running', agentId)
+        return
+      }
+      if (text === '/mode' || text.startsWith('/mode ')) {
+        // A command line, never sent to the model: print or switch the session
+        // mode. The switch is a pending intent the mode service flushes at the
+        // next turn boundary (dsh-mode's turn-enclosure contract).
+        const modes = ctx.get('modes')
+        if (modes === undefined) {
+          output.write('session modes are not composed in this deployment\n> ')
+          return
+        }
+        const target = text.slice('/mode'.length).trim()
+        if (target === '') {
+          const { current, pending } = modes.get(agent)
+          const pendingNote = pending === undefined ? '' : ` (pending: ${pending})`
+          output.write(`mode: ${current}${pendingNote} — available: ${modes.list().join(', ')}\n> `)
+          return
+        }
+        try {
+          modes.set(agent, target)
+          output.write(`mode → ${target} (applies from the next turn)\n> `)
+        } catch (error) {
+          // ModesService.set throws only Error (its unknown-name validation).
+          output.write(`${(error as Error).message}\n> `)
+        }
         return
       }
       submittedWork = true

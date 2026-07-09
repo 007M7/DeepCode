@@ -398,6 +398,35 @@ export interface Config {
 
 Source: [`packages/support/llm-replay/src/index.ts:429`](../packages/support/llm-replay/src/index.ts)
 
+## `@deepseek-ai/dsh-mode`
+
+Requires: `tools` · `systemPrompt`
+
+```ts config-catalog
+/**
+ * Plugin config: mode definitions by name. The built-in {@link PLAN_MODE}
+ * definition is merged in unless overridden; {@link DEFAULT_MODE} is rejected
+ * as a key ({@link resolveConfig} throws at load).
+ */
+export interface ModeConfig {
+  /** Mode definitions by name, overriding or extending the built-in `plan`. */
+  modes?: Record<string, ModeDefinition>
+}
+
+/**
+ * One mode's deployment-configured policy: the guidance section the model sees
+ * and the allowlist of tool names that stay visible and executable.
+ */
+export interface ModeDefinition {
+  /** Guidance text rendered as the `mode:policy` prompt section while the mode is in force. */
+  section: string
+  /** Allowlist of tool NAMES; names may reference not-yet-registered tools (registration is dynamic). */
+  tools: string[]
+}
+```
+
+Source: [`packages/mode/mode/src/index.ts:94`](../packages/mode/mode/src/index.ts)
+
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 
 ```ts config-catalog

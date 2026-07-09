@@ -19,6 +19,7 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   compact/     compaction seam + basic backend
   subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
   todo/        the todo_write tool
+  mode/        session modes: plan mode as logged per-agent policy state
   guard/       loop-hygiene plugins
   cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library

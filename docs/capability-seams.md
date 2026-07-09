@@ -38,6 +38,8 @@ flowchart LR
   pkg_user_interaction["user-interaction"]
   svc_userInteraction["ctx.userInteraction<br/>Human question/answer seam"]
   pkg_stdio_agent["stdio-agent"]
+  pkg_mode["mode"]
+  svc_modes["ctx.modes<br/>Session-mode policy state"]
   svc_agents["ctx.agents<br/>Agent registry"]
   svc_agentLoop["ctx.agentLoop<br/>Concrete loop driver"]
   pkg_agent_core["agent-core"]
@@ -82,6 +84,7 @@ flowchart LR
   pkg_llm_deepseek --> svc_llm
   pkg_llm_pi_ai --> svc_llm
   pkg_llm_replay --> svc_llm
+  pkg_mode --> svc_modes
   pkg_session --> svc_sessions
   pkg_session_persistence --> svc_sessionPersistence
   pkg_session_persistence_jsonl --> svc_sessionPersistence
@@ -114,6 +117,7 @@ flowchart LR
   svc_fs --> pkg_tool_fs
   svc_llm --> pkg_agent_loop
   svc_llm --> pkg_compact_basic
+  svc_modes --> pkg_stdio_agent
   svc_sessionPersistence --> pkg_acp
   svc_sessionPersistence --> pkg_agent_loop
   svc_sessions --> pkg_agent
@@ -150,6 +154,7 @@ flowchart LR
 | `ctx.systemPrompt` | `core` | [`system-prompt`](../packages/core/system-prompt) | - | [`agent-loop`](../packages/core/agent-loop), [`tools`](../packages/core/tools), [`tool-fs`](../packages/fs/tool-fs), [`tool-web`](../packages/web/tool-web) | - | Collects prompt sections and model-facing tool schemas for each step. |
 | `ctx.tools` | `core` | [`tools`](../packages/core/tools) | - | [`agent-loop`](../packages/core/agent-loop), [`tool-ask-user`](../packages/ui/tool-ask-user), [`tool-bash`](../packages/bash/tool-bash), [`tool-cordis`](../packages/cordis/tool-cordis), [`tool-fs`](../packages/fs/tool-fs), [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-todo`](../packages/todo/tool-todo), [`tool-web`](../packages/web/tool-web), [`acp`](../packages/ui/acp) | - | Registers tool definitions, exposes schemas to the prompt, and routes calls through tools/pre-execute and tools/post-execute. |
 | `ctx.userInteraction` | `seam` | [`user-interaction`](../packages/ui/user-interaction) | [`stdio-agent`](../packages/ui/stdio-agent), [`acp`](../packages/ui/acp) | [`tool-ask-user`](../packages/ui/tool-ask-user), [`stdio-agent`](../packages/ui/stdio-agent), [`acp`](../packages/ui/acp) | - | UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise. |
+| `ctx.modes` | `core` | [`mode`](../packages/mode/mode) | - | [`stdio-agent`](../packages/ui/stdio-agent) | - | Folds the logged per-agent mode (mode/set), flushes user flips at turn boundaries, and enforces the mode through the assemble filter and the tools/pre-execute gate. |
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/ui/acp), [`subagent-inprocess`](../packages/subagent/subagent-inprocess), [`stdio-agent`](../packages/ui/stdio-agent), [`invariants`](../packages/support/invariants) | - | Owns live Agent handles and the create/resume factory seam. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`agent-core`](../packages/core/agent-core) | - | The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package. |
 | `ctx.bash` | `seam` | [`bash`](../packages/bash/bash) | [`bash-local`](../packages/bash/bash-local) | [`tool-bash`](../packages/bash/tool-bash), [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) | - | The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors can replace bash-local. |

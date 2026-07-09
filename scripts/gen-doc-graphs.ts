@@ -75,6 +75,7 @@ const GROUP_ORDER = [
   'subagent',
   'web',
   'todo',
+  'mode',
   'cordis',
   'hooks',
   'session-persistence',
@@ -133,6 +134,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['stdio-agent', 'acp'],
     consumers: ['tool-ask-user', 'stdio-agent', 'acp'],
     note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
+  },
+  {
+    key: 'modes',
+    pkg: 'mode',
+    title: 'Session-mode policy state',
+    mode: 'core',
+    consumers: ['stdio-agent'],
+    note: 'Folds the logged per-agent mode (mode/set), flushes user flips at turn boundaries, and enforces the mode through the assemble filter and the tools/pre-execute gate.',
   },
   {
     key: 'agents',

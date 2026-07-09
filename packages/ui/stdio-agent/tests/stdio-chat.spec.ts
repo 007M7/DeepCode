@@ -5,6 +5,10 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { Session as RealSession, SessionId } from '@deepseek-ai/dsh-session'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ModesService, { PLAN_MODE } from '@deepseek-ai/dsh-mode'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { createStdioChat, type Config, type StdioRuntime } from '../src/stdio-chat.ts'
 
@@ -801,5 +805,69 @@ describe('createStdioChat disposal (HMR safety)', () => {
     }).not.toThrow()
     await flushExit()
     expect(exit).not.toHaveBeenCalled()
+  })
+})
+
+describe('createStdioChat /mode command', () => {
+  /** An agent fake carrying a REAL session, so `ctx.modes` folds a genuine log. */
+  function makeModeAgent(id: string): Agent & { sent: ContentBlock[][] } {
+    const sent: ContentBlock[][] = []
+    return {
+      id: id as Agent['id'],
+      status: 'idle',
+      options: {},
+      sent,
+      session: new RealSession(SessionId(`${id}-session`)),
+      send: (content: ContentBlock[]) => void sent.push(content),
+      steer: () => {},
+    } as never
+  }
+
+  async function setupWithModes() {
+    const bundle = await setup()
+    await bundle.ctx.plugin(SystemPrompt)
+    await bundle.ctx.plugin(ToolRegistry)
+    await bundle.ctx.plugin(ModesService)
+    const agent = makeModeAgent('main')
+    bundle.ctx.agents.register(agent)
+    return { ...bundle, agent }
+  }
+
+  it('reports when session modes are not composed', async () => {
+    const { ctx, input, out } = await setup()
+    const agent = makeAgent('main', 'idle')
+    ctx.agents.register(agent)
+    input.feed('/mode')
+    await new Promise(r => setImmediate(r))
+    expect(out.text()).toContain('session modes are not composed in this deployment')
+    expect(agent.sent).toEqual([])
+  })
+
+  it('prints the current and available modes, never sending the line to the model', async () => {
+    const { input, out, agent } = await setupWithModes()
+    input.feed('/mode')
+    await new Promise(r => setImmediate(r))
+    expect(out.text()).toContain('mode: default — available: default, plan')
+    expect(agent.sent).toEqual([])
+  })
+
+  it('switches the mode as a pending intent and echoes the banner', async () => {
+    const { ctx, input, out, agent } = await setupWithModes()
+    input.feed('/mode plan')
+    await new Promise(r => setImmediate(r))
+    expect(out.text()).toContain('mode → plan (applies from the next turn)')
+    expect(ctx.modes.get(agent)).toEqual({ current: 'default', pending: PLAN_MODE })
+    input.feed('/mode')
+    await new Promise(r => setImmediate(r))
+    expect(out.text()).toContain('mode: default (pending: plan) — available: default, plan')
+    expect(agent.sent).toEqual([])
+  })
+
+  it('prints the validation error for an unknown mode name', async () => {
+    const { ctx, input, out, agent } = await setupWithModes()
+    input.feed('/mode nope')
+    await new Promise(r => setImmediate(r))
+    expect(out.text()).toContain('unknown mode "nope" — available modes: default, plan')
+    expect(ctx.modes.get(agent)).toEqual({ current: 'default' })
   })
 })

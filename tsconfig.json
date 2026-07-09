@@ -70,6 +70,7 @@
     { "path": "./packages/subagent/subagent-fork" },
     { "path": "./packages/subagent/subagent-acp" },
     { "path": "./packages/todo/tool-todo" },
+    { "path": "./packages/mode/mode" },
     { "path": "./packages/guard/repeat-tool-guard" },
     { "path": "./packages/cordis/tool-cordis" },
     { "path": "./packages/hooks/hook-protocol" },
