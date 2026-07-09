@@ -1,6 +1,6 @@
 # Code Runtime
 
-The code-execution seam — a [capability seam](../rfc/implemented/architecture/2026-06-13-capability-seams.md) whose interface ([dsh-code-runtime](../../packages/code-runtime/code-runtime), `ctx.codeRuntime`) runs one model-written program against host-provided async bindings and reports what it printed and returned. Code execution is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). Backends differ by execution substrate and source language, both readonly descriptors on the service; the worker-thread backend and the tool-registry consumer (Code Mode) are specified in the [Code Mode RFC](../rfc/proposed/feature/2026-06-15-code-mode.md).
+The code-execution seam — a [capability seam](../rfc/implemented/architecture/2026-06-13-capability-seams.md) whose interface ([dsh-code-runtime](../../packages/code-runtime/code-runtime), `ctx.codeRuntime`) runs one model-written program against host-provided async bindings and reports what it printed and returned. Code execution is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). Backends differ by execution substrate and source language, both readonly descriptors on the service; the worker-thread backend and the tool-registry consumer (Code Mode) are specified in the [Code Mode RFC](../rfc/implemented/feature/2026-06-15-code-mode.md).
 
 Source: [`packages/code-runtime/code-runtime/src/types.ts`](../../packages/code-runtime/code-runtime/src/types.ts)
 

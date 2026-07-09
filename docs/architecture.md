@@ -1,14 +1,14 @@
 # DeepSeek Harness Architecture
 
-The **DeepSeek Harness SDK** is an SDK for building agent harnesses using the Cordis framework. The governing principle is simple: **everything is a plugin**. For example, the shipped agent loop is just one plugin in the default bundle, not a privileged kernel.
+The **DeepSeek Harness SDK** is an SDK for building agent harnesses on the Cordis framework. The governing principle is simple: **everything is a plugin**. The shipped agent loop is one plugin in the default bundle, not a privileged kernel.
 
-Read this page as the system map before changing `packages/`. It explains how the runtime is shaped, how the default loop moves work, where state lives, and where extensions attach. Type shapes live in [core-data-structures/](core-data-structures/core.md); exact event and service signatures live in the generated [events](cordis-catalog/events.md) and [services](cordis-catalog/services.md) catalogs; package contracts live in the [package map](../packages/README.md); rationale lives in the [RFCs](rfc/README.md). If Cordis itself is new to you, start with the [Cordis primer](cordis-primer.md).
+Read this page as the system map before changing `packages/`. It explains how the runtime is shaped, how the default loop moves work, where state lives, and where extensions attach. Type shapes live in [core-data-structures/](core-data-structures/core.md); exact event and service signatures live in the generated [events](cordis-catalog/events.md) and [services](cordis-catalog/services.md) catalogs; package contracts live in the [package map](../packages/README.md); rationale lives in the [RFCs](rfc/README.md). New to Cordis? Start with the [Cordis primer](cordis-primer.md).
 
 ## System Shape
 
 A running harness is one Cordis context. Packages contribute service keys, typed events, and disposable registrations to that context. Services are the stable call surfaces (`ctx.llm`, `ctx.tools`, `ctx.sessions`); events are interception and notification points (`agent/request`, `tools/pre-execute`, `session/event`); registrations install prompt sections, tool schemas, providers, adapters, and listeners.
 
-The default distribution is a composition, not a hierarchy. `packages/core/` is a repository grouping for the default agent spine; capability seams around it are equally first-class plugins from a Cordis perspective.
+The default distribution is a composition, not a hierarchy. `packages/core/` is a repository grouping for the default agent spine; capability seams around it are equally first-class plugins.
 
 ### Default Service Spine
 
@@ -39,7 +39,7 @@ Events are the harness extension API. Each service owns the vocabulary for the b
 
 ### Event Domains
 
-Use the event domain to decide where new behavior belongs:
+Pick the event domain for new behavior:
 
 - **Session events** are durable, replayable facts. Turn and step boundaries, user input, assistant output, tool calls, tool results, steering, compaction records, and tool-owned durable facts append to the session log and flow through `session/event`.
 - **Agent events** are live runtime surfaces. They carry the live `Agent` handle for status, diagnostics, prompt admission, call-config shaping, result validation, and continuation policy.
@@ -47,11 +47,11 @@ Use the event domain to decide where new behavior belongs:
 
 ### Interception Semantics
 
-Waterfall events behave like around-middleware: a listener delegates by calling `next()` and vetoes or takes over by returning without it. The full rule lives in [Cordis waterfall semantics](cordis-primer.md#cordis-waterfall-semantics).
+Waterfall events behave like around-middleware: a listener delegates by calling `next()`; returning without it vetoes or takes over. Full rule: [Cordis waterfall semantics](cordis-primer.md#cordis-waterfall-semantics).
 
 ## Default Loop Lifecycle
 
-The shipped loop drains queued work, assembles a request, streams a model answer, executes tools, decides whether to continue, and checkpoints durable state. The important architecture is where it pauses: each pause is a documented service call or event seam that another plugin can program against.
+The shipped loop drains queued work, assembles a request, streams a model answer, executes tools, decides whether to continue, and checkpoints durable state. The important architecture is where it pauses: each pause is a documented service call or event seam other plugins program against.
 
 A **session** is one agent's append-only event log. A **turn** drains one queued batch and runs until the model stops asking for tools and no plugin requests continuation. A **step** is one model request plus the tool executions caused by that response. In the flow below ([sequence companion](agent-lifecycle.md)), quoted names are durable session events and event names are extension seams.
 
@@ -70,6 +70,7 @@ forever:
     STEP loop:
       drain steering
       assemble system prompt and tool schemas
+      agent/session-prefix (first step)
       agent/pre-step
       'step/start'
       snapshot the derived messages (the reconstruction boundary)
@@ -89,7 +90,7 @@ forever:
     checkpoint persistence and notify idle/running status
 ```
 
-Prompt assembly is single-path: `renderPrompt(assemble({ agent }))` IS the system prompt sent to the model. Plugins contribute ordered sections (static or computed from the per-call `AssembleContext`), tool schemas, and named variables interpolated as `{{name}}` at render — strictly, so an unknown or valueless reference fails the turn instead of shipping a hole. `dsh-system-prompt` itself owns the openers — the static `harness:identity` section (order −100) and the deployment's persona (order 0, from its `persona` config, shared by every agent in the context) — while the shipped loop registers the `model`/`cwd` variables; prompt-fact ownership is pinned by the [prompt-variables RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
+Prompt assembly is single-path: `renderPrompt(assemble({ agent }))` IS the system prompt sent to the model. Plugins contribute ordered sections (static or computed from the per-call `AssembleContext`), tool schemas, and named variables interpolated as `{{name}}` at render — strictly, so an unknown or valueless reference fails the turn instead of shipping a hole. `dsh-system-prompt` owns the openers — the static `harness:identity` section (order −100) and the deployment's persona (order 0, its `persona` config, shared context-wide) — while the shipped loop registers the `model`/`cwd` variables; prompt-fact ownership is pinned by the [prompt-variables RFC](rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
 
 Post-tool context lands after all tool results so tool-call/result adjacency stays stable. Steering drains between steps; leftover steering after a turn is re-queued as ordinary input.
 
@@ -109,7 +110,7 @@ Every session event is turn-enclosed. Reloading a crashed session preserves the 
 
 The session log is the source of truth. `deriveMessages()` projects session events into the `Message[]` sent to the model; raw `assistant/chunk` events stay in the log for replay and UI fidelity. Replay, fork, resume, transcript rendering, telemetry, and persistence all derive from the same event stream.
 
-**Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start`, headers by folding `request/header` — and dev invariants assert this ([reconstructability RFC](rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)).
+**Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start` fronted by the header's session prefix, headers by folding `request/header` — and dev invariants assert this ([reconstructability RFC](rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
 Durability is a plugin concern. Persistence backends buffer synchronous `session/event` notifications and the loop awaits a turn-end checkpoint before moving on. The `SessionPersistence` seam stores `SessionEvent` directly, with metadata in `SessionHeader`; JSONL and SQLite share one contract suite.
 
@@ -123,7 +124,7 @@ Streaming is a raw chunk protocol (`block-start` through `finish`) with `BlockAs
 
 ### Capability Pattern
 
-A swappable capability usually splits into **interface / implementation / consumer**: the interface owns the `ctx` key and vocabulary; an implementation registers a backend; a consumer exposes model-facing behavior through `ctx.tools` or prompt assembly. The bash trio is the reference shape, and the [capability seam graph](capability-seams.md) shows the current package families.
+A swappable capability usually splits into **interface / implementation / consumer**: the interface owns the `ctx` key and vocabulary; an implementation registers a backend; a consumer exposes model-facing behavior through `ctx.tools` or prompt assembly. The bash trio is the reference shape, and the [capability seam graph](capability-seams.md) shows the package families.
 
 Some seams bend the template deliberately. LLM keeps interface and consumer vocabulary together because adapters are the implementations. Filesystem adds policy as event gates around provider primitives. Web is one service with search and fetch provider registries, so provider swaps do not rename model tools. Subagents use a named provider registry because multiple delegation backends can coexist; `spawn` starts fresh, `fork` seeds from the parent's completed-turn prefix, and ACP can drive an out-of-process child ([subagent.md](core-data-structures/subagent.md)).
 
@@ -142,6 +143,7 @@ New behavior should attach to a documented seam; changing the shipped loop requi
 | Add command execution | implement and register a `ctx.bash` backend |
 | Add filesystem access or policy | implement a `ctx.fs` provider or listen on `fs/*` policy events |
 | Intercept prompts, requests, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` waterfall |
+| Add a session-stable request prefix outside history | compose it on `agent/session-prefix`, once per loop instance; logged on the request header |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
 | Add durable session state | add a `SessionEventMap` member and render/replay from the log |
 | Fork a live session | use `ctx.sessions.fork(source, boundary?, childSessionId?)` |

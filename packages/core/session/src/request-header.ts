@@ -13,15 +13,23 @@
  */
 
 import { callConfigEquals } from '@deepseek-ai/dsh-llm'
-import type { LlmCallConfig, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { LlmCallConfig, Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { EpochHeader, SessionEvent, SystemDelta, ToolsDelta } from './types.ts'
 
+/** The `request/header-delta` payload shape: each present field amends the folded header. */
+type HeaderDelta = {
+  system?: SystemDelta
+  tools?: ToolsDelta
+  config?: LlmCallConfig
+  messagePrefix?: Message[]
+}
+
 /**
- * Normalize a header to canonical form: an empty system prompt and an empty
- * tool list become ABSENT fields, matching how requests are built (both
- * request-build spreads skip empty values). Diff, fold, and comparison all
- * operate on canonical headers, so "no system prompt" has exactly one
- * representation.
+ * Normalize a header to canonical form: an empty system prompt, an empty
+ * tool list, and an empty session prefix become ABSENT fields, matching how
+ * requests are built (the request-build spreads skip empty values). Diff,
+ * fold, and comparison all operate on canonical headers, so "no system
+ * prompt" (and "no session prefix") has exactly one representation.
  * @param header - the header to normalize (not mutated).
  * @returns the canonical header.
  */
@@ -30,6 +38,7 @@ export function canonicalHeader(header: EpochHeader): EpochHeader {
     config: header.config,
     ...header.system !== undefined && header.system.length > 0 ? { system: header.system } : {},
     ...header.tools !== undefined && header.tools.length > 0 ? { tools: header.tools } : {},
+    ...header.messagePrefix !== undefined && header.messagePrefix.length > 0 ? { messagePrefix: header.messagePrefix } : {},
   }
 }
 
@@ -109,16 +118,24 @@ function applyTools(prev: readonly ToolSchema[], delta: ToolsDelta): ToolSchema[
  * writer's round-trip guard runs (`applyHeaderDelta(prev, delta)` must equal
  * the intended header) and the loop runs to skip logging an unchanged header.
  * Tools compare per-schema IN ORDER (canonical JSON), so a pure reordering is
- * correctly unequal.
+ * correctly unequal; the session prefix compares as canonical JSON (both
+ * sides come from the same build path, so key order matches when the values
+ * do).
  * @param a - one canonical header.
  * @param b - the other.
- * @returns whether config, system, and tools (in order) all match.
+ * @returns whether config, system, tools (in order), and the session prefix all match.
  */
 export function headerEquals(a: EpochHeader, b: EpochHeader): boolean {
   if (!callConfigEquals(a.config, b.config) || a.system !== b.system) return false
+  if (!sameMessages(a.messagePrefix, b.messagePrefix)) return false
   const at = a.tools ?? []
   const bt = b.tools ?? []
   return at.length === bt.length && at.every((tool, i) => sameSchema(tool, bt[i] as ToolSchema))
+}
+
+/** Canonical JSON equality over session-prefix arrays; absence equals the empty array. */
+function sameMessages(a: readonly Message[] | undefined, b: readonly Message[] | undefined): boolean {
+  return JSON.stringify(a ?? []) === JSON.stringify(b ?? [])
 }
 
 /**
@@ -127,19 +144,20 @@ export function headerEquals(a: EpochHeader, b: EpochHeader): boolean {
  * ({@link applyHeaderDelta} on `prev` deep-equals `next`) before logging it —
  * the encoding cannot express every change (a pure tool reordering) — and
  * fall back to a full `request/header` snapshot when the check fails.
+ * The session prefix is replaced whole (small advisory content, not worth
+ * diffing); an empty replacement array encodes the transition to "none".
  * @param prev - the folded header the log currently implies.
  * @param next - the header the next request will actually use.
  * @returns the delta payload, or undefined when nothing changed.
  */
-export function diffHeader(
-  prev: EpochHeader, next: EpochHeader,
-): { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig } | undefined {
-  const delta: { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig } = {}
+export function diffHeader(prev: EpochHeader, next: EpochHeader): HeaderDelta | undefined {
+  const delta: HeaderDelta = {}
   if (prev.system !== next.system) delta.system = diffSystem(prev.system, next.system)
   const prevTools = prev.tools ?? []
   const nextTools = next.tools ?? []
   if (JSON.stringify(prevTools) !== JSON.stringify(nextTools)) delta.tools = diffTools(prevTools, nextTools)
   if (!callConfigEquals(prev.config, next.config)) delta.config = next.config
+  if (!sameMessages(prev.messagePrefix, next.messagePrefix)) delta.messagePrefix = next.messagePrefix ?? []
   return Object.keys(delta).length > 0 ? delta : undefined
 }
 
@@ -151,15 +169,15 @@ export function diffHeader(
  * @param delta - the logged delta payload.
  * @returns the canonical header after the delta.
  */
-export function applyHeaderDelta(
-  prev: EpochHeader, delta: { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig },
-): EpochHeader {
+export function applyHeaderDelta(prev: EpochHeader, delta: HeaderDelta): EpochHeader {
   const system = delta.system !== undefined ? applySystem(prev.system, delta.system) : prev.system
   const tools = delta.tools !== undefined ? applyTools(prev.tools ?? [], delta.tools) : prev.tools
+  const messagePrefix = delta.messagePrefix ?? prev.messagePrefix
   return canonicalHeader({
     config: delta.config ?? prev.config,
     ...system !== undefined ? { system } : {},
     ...tools !== undefined ? { tools } : {},
+    ...messagePrefix !== undefined ? { messagePrefix } : {},
   })
 }
 

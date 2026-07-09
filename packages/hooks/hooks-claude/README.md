@@ -37,7 +37,7 @@ The hooks **themselves** run in the agent's session workspace: for the agent-sco
 | `SessionStart` | `agent/session-start` (emit) | additionalContext → `agent.inject()` into the new session (cannot block) |
 | `UserPromptSubmit` | `agent/prompt-submit` (waterfall) | `deny` → `PromptDecision.block`; additionalContext-only → delegate via `next()` then fold context onto the downstream decision (a later listener can still block/rewrite) |
 | `PreToolUse` | `tools/pre-execute` (waterfall) | `deny` → `PreToolDecision.deny`; `ask` → `PreToolDecision.ask` |
-| `PostToolUse` | `tools/post-execute` (waterfall) | `deny` → `block` with feedback; additionalContext-only → delegate via `next()` then fold context onto the downstream decision |
+| `PostToolUse` | `tools/post-execute` (waterfall) | `deny` → `block` with feedback; additionalContext-only → delegate via `next()` then fold context onto the downstream decision (a Code Mode sub-call’s context is dropped by the run_code bridge — see [the pipeline doc](../../../docs/tool-execution-pipeline.md)) |
 | `Stop` | `agent/turn-continuation` (waterfall) | a blocking Stop hook forces `continue`, feeding its reason as next-step steering |
 | `SubagentStart` | `subagent/start` (emit) | additionalContext → `agent.inject()` into the live child |
 | `SubagentStop` | `subagent/end` (emit) | observe-only |

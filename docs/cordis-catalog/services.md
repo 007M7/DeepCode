@@ -98,11 +98,13 @@ Implementations MUST honor:
 - **Blocking**: no compaction begins while another is in progress for the same session. The recommended mechanism is the log-recorded lock — append `compact/start` before the slow work and `compact/end` after (even on failure) — so the lock is visible to replay and crash recovery.
 
 ```ts cordis-catalog
-abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, signal: AbortSignal, ): Promise<CompactionResult | null>
+abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal, ): Promise<CompactionResult | null>
 abstract compactRegion( session: Session, start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 
-Source: [`packages/compact/compact/src/index.ts:63`](../../packages/compact/compact/src/index.ts)
+Types: [Message](../core-data-structures/core.md)
+
+Source: [`packages/compact/compact/src/index.ts:65`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
@@ -213,7 +215,7 @@ Source: [`packages/core/system-prompt/src/index.ts:291`](../../packages/core/sys
 
 ## `ctx.tools` — `ToolRegistry`
 
-Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → `tools/execute` → `tools/post-execute` pipeline. The registry contributes its schemas into the system-prompt assembly.
+Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → `tools/execute` → `tools/post-execute` pipeline. The registry contributes its schemas into the system-prompt assembly — WHICH schemas is governed by its `mode` config (see Config.mode); under a non-native mode it also registers the `run_code` tool and the `tools:sdk` prompt section itself.
 
 ```ts cordis-catalog
 register(definition: ToolDefinition): () => void
@@ -224,7 +226,18 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:307`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:345`](../../packages/core/tools/src/index.ts)
+
+## `ctx.userInteraction` — `UserInteractionService`
+
+`ctx.userInteraction`: one active UI provider plus an `ask()` surface.
+
+```ts cordis-catalog
+registerProvider(provider: UserInteractionProvider): () => void
+async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
+```
+
+Source: [`packages/ui/user-interaction/src/index.ts:82`](../../packages/ui/user-interaction/src/index.ts)
 
 ## `ctx.web` — `WebService`
 

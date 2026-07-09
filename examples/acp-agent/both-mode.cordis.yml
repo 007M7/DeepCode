@@ -1,0 +1,29 @@
+# Both-mode RECORD overlay: the live acp-agent tree (./cordis.yml) with two
+# load-time patches — the app entry's config gains `tools: { mode: both }`
+# (every native tool definition stays on the wire AND run_code + the generated
+# TypeScript SDK prompt section ride along) and the worker-thread code runtime joins the
+# tree as `ctx.codeRuntime`. The dsh-acp-agent bin boots this file when the
+# snapshot harness records the both-mode scenario; DSH_SNAPSHOT=replay swaps
+# it for the sibling both-mode.cordis.snapshot.yml. A config patch REPLACES
+# the entry's whole config, so the base entry's fields are restated verbatim.
+- id: base
+  name: '@cordisjs/plugin-include'
+  config:
+    path: ./cordis.yml
+    patches:
+      - id: acp-agent
+        name: '@deepseek-ai/dsh-acp-agent'
+        config:
+          model: deepseek-v4-flash
+          persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+          tools:
+            mode: both
+          persona: |
+            You are a coding assistant powered by the {{model}} model. Your working
+            directory is {{cwd}}.
+
+            Verify your work by running the code or tests. Keep answers brief and
+            factual.
+      - insert:
+          - id: code-runtime
+            name: '@deepseek-ai/dsh-code-runtime-worker'
