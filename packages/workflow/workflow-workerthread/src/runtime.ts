@@ -109,7 +109,7 @@ export class WorkflowExecution {
     // wrapper, so under one Node version this throw is unreachable in
     // production — the session still maps it to an error result defensively.
     // lineOffset compensates for the wrapper line, so stack traces carry the
-    // script's own line numbers (the meta statement was blanked, not removed).
+    // script's own line numbers.
     try {
       this.compiled = new vm.Script(`(async () => {\n${body}\n})()`, {
         filename: `workflow:${meta.name}`,

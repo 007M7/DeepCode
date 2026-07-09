@@ -42,12 +42,12 @@ async function harness(): Promise<Context> {
   return built
 }
 
-const SCRIPT = `export const meta = {
+const META = {
   name: 'e2e-worker-arithmetic',
   description: 'two real children through a worker thread: one prose, one structured',
   phases: [{ title: 'Ask' }, { title: 'Judge' }],
 }
-phase('Ask')
+const SCRIPT = `phase('Ask')
 log('asking the prose child')
 const prose = await agent('Reply with exactly one short sentence: what is 2 + 2?')
 phase('Judge')
@@ -76,7 +76,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('worker workflow engine with-key 
       })
     }
 
-    const run = ctx.workflows.start({ script: SCRIPT, parent: parentHandle.agent })
+    const run = ctx.workflows.start({ script: SCRIPT, meta: META, parent: parentHandle.agent })
     const result = await run.result
     await run.dispose()
 

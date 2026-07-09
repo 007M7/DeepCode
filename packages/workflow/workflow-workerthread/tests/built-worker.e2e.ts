@@ -34,7 +34,8 @@ const ctx = new Context()
 await ctx.plugin(SubagentService)
 await ctx.plugin(WorkerWorkflowEngine, {})
 const run = ctx.workflows.start({
-  script: "export const meta = { name: 'built-smoke', description: 'built worker smoke' }\\nreturn 6 * 7",
+  script: 'return 6 * 7',
+  meta: { name: 'built-smoke', description: 'built worker smoke' },
   // A zero-agent script never touches the provider, so a bare id suffices.
   parent: { id: 'built-smoke-parent', options: {} },
 })

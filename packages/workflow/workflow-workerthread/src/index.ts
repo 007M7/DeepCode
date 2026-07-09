@@ -47,10 +47,10 @@ import z from 'schemastery'
 import WorkflowService, { WorkflowError, WorkflowRunId } from '@deepseek-ai/dsh-workflow'
 import type { WorkflowRun, WorkflowRunInfo, WorkflowStartRequest } from '@deepseek-ai/dsh-workflow'
 import { WorkerRun } from './host.ts'
-import { extractMeta } from './meta.ts'
+import { validateMeta } from './meta.ts'
 import type { WorkerInit, WorkerLimits } from './types.ts'
 
-export { extractMeta, type ExtractedScript } from './meta.ts'
+export { validateMeta } from './meta.ts'
 export { HostToWorkerType, WorkerToHostType } from './protocol.ts'
 export type { HostToWorkerMessage, HostToWorkerPayloads, WorkerToHostMessage, WorkerToHostPayloads } from './protocol.ts'
 export { materializeFromRealm, MaterializeError } from './realm.ts'
@@ -75,7 +75,7 @@ export interface Config {
   maxTotalAgents?: number
   /** Items accepted by a single `parallel()`/`pipeline()` call (default 4096). */
   maxItemsPerCall?: number
-  /** vm timeout for the initial synchronous slice (inside the worker) AND the host-side meta evaluation (default 5000 ms). */
+  /** vm timeout for the script's initial synchronous slice, inside the worker (default 5000 ms). */
   syncTimeoutMs?: number
   /**
    * How long after a cancellation an unsettled script may keep running before
@@ -87,13 +87,21 @@ export interface Config {
 
 type ResolvedConfig = Required<Config>
 
+/** A body that still carries the Claude Code-style meta header (meta rides the seam as data here). */
+const META_STATEMENT = /^\s*export\s+const\s+meta\b/
+
 /**
  * Parse-check the body with the SAME wrapper the worker-side runtime
  * compiles, so `start()` keeps the seam's synchronous `SCRIPT_PARSE` throw
  * (the worker's own compile happens a thread away, after `start()` returned).
- * One redundant parse per run, bought deliberately for the contract.
+ * One redundant parse per run, bought deliberately for the contract. A body
+ * opening with `export const meta` gets a pointed message instead of the
+ * wrapper's bare SyntaxError — the model's likeliest authoring slip.
  */
 function assertBodyParses(body: string, name: string): void {
+  if (META_STATEMENT.test(body)) {
+    throw new WorkflowError('workflow meta rides the `meta` request field, not the script: remove the `export const meta = {...}` statement from the body', 'SCRIPT_PARSE')
+  }
   try {
     // Parse only — the script object is discarded, nothing executes.
     void new vm.Script(`(async () => {\n${body}\n})()`, { filename: `workflow:${name}`, lineOffset: -1 })
@@ -130,17 +138,18 @@ export class WorkerWorkflowEngine extends WorkflowService {
   }
 
   /**
-   * Parse and execute a workflow script in a fresh worker thread. Throws
-   * {@link WorkflowError} synchronously (`SCRIPT_PARSE`/`META_INVALID`) for a
-   * script that cannot begin; once a run is returned, every failure resolves
-   * through `result.stopReason` instead.
-   * @param request - the script, its `args`, the parent agent, and an
-   *   optional cancel signal.
+   * Validate and execute a workflow script in a fresh worker thread. Throws
+   * {@link WorkflowError} synchronously (`META_INVALID` for a malformed meta
+   * block, `SCRIPT_PARSE` for a body that does not compile) for a request
+   * that cannot begin; once a run is returned, every failure resolves through
+   * `result.stopReason` instead.
+   * @param request - the script body, its meta data and `args`, the parent
+   *   agent, and an optional cancel signal.
    * @returns the live run (its `result` resolves when the script settles).
    */
   start(request: WorkflowStartRequest): WorkflowRun {
-    const { meta, body } = extractMeta(request.script, this.config.syncTimeoutMs)
-    assertBodyParses(body, meta.name)
+    const meta = validateMeta(request.meta)
+    assertBodyParses(request.script, meta.name)
     const id = WorkflowRunId(randomUUID())
     // The event payloads and the run handle get SEPARATE meta clones: a
     // listener mutating its snapshot must not corrupt the holder's view.
@@ -155,7 +164,7 @@ export class WorkerWorkflowEngine extends WorkflowService {
     }
     const init: WorkerInit = {
       meta,
-      body,
+      body: request.script,
       ...request.args !== undefined ? { args: request.args } : {},
       limits,
     }

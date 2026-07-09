@@ -8,20 +8,21 @@ Source: [`packages/workflow/workflow/src/types.ts`](../../packages/workflow/work
 
 ## The start request
 
-What a caller asks for when starting a run. The tool layer builds this from the model's `{ script, args }` plus the calling agent; the engine validates the script's meta block BEFORE the body runs. `parent` is REQUIRED — every child the script spawns is attributed to it (cwd, lineage, and depth flow through the [subagent seam](subagent.md)). `args` must be plain host-realm JSON data; the engine exposes it to the script as the `args` global.
+What a caller asks for when starting a run. The tool layer builds this from the model's `{ script, meta, args }` call plus the calling agent; `meta` and `args` are plain JSON DATA (the engine shape-validates `meta` and rejects loud BEFORE anything runs — no script text is ever evaluated to obtain it). `parent` is REQUIRED — every child the script spawns is attributed to it (cwd, lineage, and depth flow through the [subagent seam](subagent.md)).
 
 ```ts type-equiv
 interface WorkflowStartRequest {
   script: string
+  meta: WorkflowMeta
   args?: unknown
   parent: Agent
   signal?: AbortSignal
 }
 ```
 
-## The script's identity: `WorkflowMeta`
+## The workflow's identity: `WorkflowMeta`
 
-The validated `export const meta` block (Claude Code dynamic-workflows format — a PURE object literal heading the script). `phases` is progress vocabulary only: `phase()` calls match titles for observers; no execution structure is implied.
+The identity block carried as data on the start request (the tool's `meta` parameter; the field vocabulary matches the Claude Code dynamic-workflows meta block). `phases` is progress vocabulary only: `phase()` calls match titles for observers; no execution structure is implied.
 
 ```ts type-equiv
 interface WorkflowMeta {

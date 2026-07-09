@@ -35,9 +35,11 @@ export interface WorkflowPhase {
 }
 
 /**
- * The script's `export const meta` block, validated by the engine before the
- * body runs. `name`/`description` are required; the rest is optional
- * annotation. Matches the Claude Code dynamic-workflows script format.
+ * The script's identity block, provided as plain JSON data alongside the
+ * script body (the model-facing tool carries it as its `meta` parameter) and
+ * validated by the engine before the body runs. `name`/`description` are
+ * required; the rest is optional annotation. The field vocabulary matches the
+ * Claude Code dynamic-workflows meta block.
  */
 export interface WorkflowMeta {
   /** Short kebab-case workflow name (display + persistence key). */
@@ -51,14 +53,18 @@ export interface WorkflowMeta {
 }
 
 /**
- * What a caller asks for when starting a workflow run. `parent` is REQUIRED —
- * every `agent()` the script spawns is attributed to it (cwd, lineage, depth
- * flow through the subagent seam). `args` must be plain host-realm JSON data;
- * the engine exposes it to the script as the `args` global.
+ * What a caller asks for when starting a workflow run. `meta` and `args` are
+ * plain JSON DATA by the seam contract (the tool builds both from the model's
+ * schema-validated call; the engine validates `meta`'s shape and rejects loud
+ * before anything runs) — an engine never evaluates script text to obtain
+ * them. `parent` is REQUIRED — every `agent()` the script spawns is
+ * attributed to it (cwd, lineage, depth flow through the subagent seam).
  */
 export interface WorkflowStartRequest {
-  /** The full script text: `export const meta = {...}` + a plain-JS body. */
+  /** The plain-JS script body (top-level await allowed; ends with `return <json-value>`). */
   script: string
+  /** The workflow's identity block, as plain JSON data (shape-validated by the engine). */
+  meta: WorkflowMeta
   /** Optional input exposed verbatim to the script as the `args` global. */
   args?: unknown
   /** The agent on whose behalf the run executes (parent of every child). */

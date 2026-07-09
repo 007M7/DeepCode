@@ -30,9 +30,9 @@ export interface WorkerLimits {
 
 /** The `workerData` payload one run is initialized with (host → worker, once, at spawn). */
 export interface WorkerInit {
-  /** The validated meta block (extracted host-side). */
+  /** The validated meta block (plain data off the start request, validated host-side). */
   meta: WorkflowMeta
-  /** The script body with the meta statement blanked (host-side `extractMeta`). */
+  /** The plain-JS script body, exactly as the start request carried it. */
   body: string
   /** The run's `args` value; the workerData structured clone is the copy that isolates the caller. */
   args?: unknown

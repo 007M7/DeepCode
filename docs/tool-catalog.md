@@ -283,7 +283,7 @@ todo_write is session-owned state; UIs render the latest todo/write event as a c
 
 Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn.
 
-The script MUST begin with `export const meta = {...}` — a PURE object literal (no variables, calls, or template interpolation) with required `name` (short kebab-case) and `description` strings, optional `whenToUse` string and `phases` array (`{title, detail?, model?}`). The body after it is plain JavaScript (NOT TypeScript) running with top-level await; end with `return <value>` — the value must be JSON-serializable and is this tool's result.
+The workflow's identity rides the `meta` parameter as JSON: required `name` (short kebab-case) and `description` strings, optional `whenToUse` string and `phases` array (`{title, detail?, model?}`). The `script` parameter is the plain JavaScript body ONLY (NOT TypeScript, and NO `export const meta` statement — meta is a parameter, not code), running with top-level await; end with `return <value>` — the value must be JSON-serializable and is this tool's result.
 
 Script-body hooks:
 - `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const — no oneOf/pattern/format/numeric bounds) it resolves to the validated object. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), `model` (override). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly.
@@ -301,7 +301,53 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
   "properties": {
     "script": {
       "type": "string",
-      "description": "The complete workflow script: `export const meta = {...}` followed by the plain-JS body (top-level await allowed; end with `return <json-value>`)."
+      "description": "The plain-JS workflow script body (top-level await allowed; NO `export const meta` statement; end with `return <json-value>`)."
+    },
+    "meta": {
+      "type": "object",
+      "description": "The workflow identity block (plain JSON — never code).",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Short kebab-case workflow name."
+        },
+        "description": {
+          "type": "string",
+          "description": "One-line description of what the workflow does."
+        },
+        "whenToUse": {
+          "type": "string",
+          "description": "Optional guidance on when this workflow applies."
+        },
+        "phases": {
+          "type": "array",
+          "description": "Optional phase declarations matched by phase() calls.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "The phase title phase() calls match by exact string."
+              },
+              "detail": {
+                "type": "string",
+                "description": "Optional one-line description of the phase."
+              },
+              "model": {
+                "type": "string",
+                "description": "Optional model override this phase is expected to use."
+              }
+            },
+            "required": [
+              "title"
+            ]
+          }
+        }
+      },
+      "required": [
+        "name",
+        "description"
+      ]
     },
     "args": {
       "type": "object",
@@ -309,7 +355,8 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
     }
   },
   "required": [
-    "script"
+    "script",
+    "meta"
   ]
 }
 ```

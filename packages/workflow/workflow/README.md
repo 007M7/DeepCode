@@ -11,7 +11,7 @@ The protected `emitWorkflowEvent` helper dispatches the `workflow/*` events with
 ## Vocabulary
 
 - `WorkflowStartRequest` — `{ script, args?, parent: Agent, signal? }`. `parent` is REQUIRED: every child the script spawns is attributed to it. `args` must be plain host-realm JSON data.
-- `WorkflowMeta` / `WorkflowPhase` — the script's validated `export const meta` block (Claude Code format: required `name`/`description`, optional `whenToUse`/`phases`).
+- `WorkflowMeta` / `WorkflowPhase` — the workflow's identity block, carried as plain JSON data on the start request (Claude Code meta vocabulary: required `name`/`description`, optional `whenToUse`/`phases`) and shape-validated by the engine.
 - `WorkflowRun` — `{ id, meta, result, cancel(reason?), dispose() }`; the consumer awaits `result` and MUST `dispose` on every path.
 - `WorkflowResult` — `{ value, stopReason: 'completed'|'cancelled'|'error', error?, agentsStarted }`; `value` is the script's materialized return (plain JSON data; `null` for no return).
 - `WorkflowError` — `HarnessError` with a `WorkflowErrorCode` and a `fatal` flag driving the combinator discipline: a fatal error (bad hook arguments, unsupported options/schemas, tripped caps, seam start failures, cancellation) always propagates through `parallel()`/`pipeline()` instead of dissolving into a per-item `null`. `isFatalWorkflowError(error)` is the catch-site predicate.

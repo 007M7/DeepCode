@@ -50,8 +50,8 @@ describe('dsh-workflow-workerthread over the real in-process stack', () => {
     const childIds: string[] = []
     ctx.on('workflow/agent-start', (_info, agent) => { childIds.push(agent.childId) })
     const run = ctx.workflows.start({
-      script: `export const meta = { name: 'integration', description: 'plain + structured children' }
-phase('Read')
+      meta: { name: 'integration', description: 'plain + structured children' },
+      script: `phase('Read')
 const prose = await agent('read the repo')
 phase('Judge')
 const judged = await agent('judge: ' + prose, {
@@ -78,8 +78,8 @@ return { prose, verdict: judged.verdict, confidence: judged.confidence }`,
       textResponse('still prose after the nudge'),
     ])
     const run = ctx.workflows.start({
-      script: `export const meta = { name: 'null-path', description: 'schema failure maps to null' }
-const judged = await agent('judge it', { schema: { type: 'object', properties: { v: { type: 'string' } } } })
+      meta: { name: 'null-path', description: 'schema failure maps to null' },
+      script: `const judged = await agent('judge it', { schema: { type: 'object', properties: { v: { type: 'string' } } } })
 return { got: judged === null ? 'null' : 'value' }`,
       parent,
     })

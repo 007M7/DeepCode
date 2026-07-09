@@ -685,7 +685,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/workflow/tool-workflow/src/index.ts:40`](../packages/workflow/tool-workflow/src/index.ts)
+Source: [`packages/workflow/tool-workflow/src/index.ts:39`](../packages/workflow/tool-workflow/src/index.ts)
 
 ## `@deepseek-ai/dsh-web`
 
@@ -815,7 +815,7 @@ export interface Config {
   maxTotalAgents?: number
   /** Items accepted by a single `parallel()`/`pipeline()` call (default 4096). */
   maxItemsPerCall?: number
-  /** vm timeout for the initial synchronous slice (inside the worker) AND the host-side meta evaluation (default 5000 ms). */
+  /** vm timeout for the script's initial synchronous slice, inside the worker (default 5000 ms). */
   syncTimeoutMs?: number
   /**
    * How long after a cancellation an unsettled script may keep running before

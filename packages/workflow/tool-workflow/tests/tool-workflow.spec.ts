@@ -55,7 +55,8 @@ async function setup(config?: { toolName?: string; maxResultChars?: number }) {
   return { ctx, engine, parent }
 }
 
-const SCRIPT = "export const meta = { name: 'audit', description: 'd' }\nreturn 1"
+const SCRIPT = 'return 1'
+const META = { name: 'audit', description: 'd' }
 
 function execute(ctx: Context, args: unknown, extra?: { agent?: Agent; signal?: AbortSignal }): Promise<ToolExecutionResult> {
   return ctx.tools.execute({
@@ -71,9 +72,9 @@ describe('dsh-tool-workflow', () => {
   it('starts a run with the script/args/parent/signal and renders the completed value', async () => {
     const { ctx, engine, parent } = await setup()
     const controller = new AbortController()
-    const pending = execute(ctx, { script: SCRIPT, args: { files: ['a.ts'] } }, { agent: parent, signal: controller.signal })
+    const pending = execute(ctx, { script: SCRIPT, meta: META, args: { files: ['a.ts'] } }, { agent: parent, signal: controller.signal })
     await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
-    expect(engine.requests[0]).toMatchObject({ script: SCRIPT, args: { files: ['a.ts'] }, parent })
+    expect(engine.requests[0]).toMatchObject({ script: SCRIPT, meta: META, args: { files: ['a.ts'] }, parent })
     expect(engine.requests[0]!.signal).toBe(controller.signal)
     engine.settle({ value: { findings: [1, 2] }, stopReason: 'completed', agentsStarted: 7 })
     const result = await pending
@@ -86,7 +87,7 @@ describe('dsh-tool-workflow', () => {
 
   it('maps a non-completed stop reason to an isError result (and still disposes)', async () => {
     const { ctx, engine, parent } = await setup()
-    const pending = execute(ctx, { script: SCRIPT }, { agent: parent })
+    const pending = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent })
     await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
     engine.settle({ value: null, stopReason: 'error', error: 'script threw: boom', agentsStarted: 2 })
     const result = await pending
@@ -97,14 +98,14 @@ describe('dsh-tool-workflow', () => {
 
   it('reports a cancelled run distinctly (with and without a reason)', async () => {
     const { ctx, engine, parent } = await setup()
-    const pending = execute(ctx, { script: SCRIPT }, { agent: parent })
+    const pending = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent })
     await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
     engine.settle({ value: null, stopReason: 'cancelled', error: 'user', agentsStarted: 0 })
     const result = await pending
     expect(result.isError).toBe(true)
     expect((result.content[0] as { text: string }).text).toContain('workflow run was cancelled (user)')
 
-    const bare = execute(ctx, { script: SCRIPT }, { agent: parent })
+    const bare = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent })
     await vi.waitFor(() => { expect(engine.requests.length).toBe(2) })
     engine.settle({ value: null, stopReason: 'cancelled', agentsStarted: 0 })
     expect(((await bare).content[0] as { text: string }).text.trim().endsWith('cancelled')).toBe(true)
@@ -112,7 +113,7 @@ describe('dsh-tool-workflow', () => {
 
   it('an error result without a message renders the unknown-error fallback', async () => {
     const { ctx, engine, parent } = await setup()
-    const pending = execute(ctx, { script: SCRIPT }, { agent: parent })
+    const pending = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent })
     await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
     engine.settle({ value: null, stopReason: 'error', agentsStarted: 0 })
     expect(((await pending).content[0] as { text: string }).text).toContain('unknown error')
@@ -121,7 +122,7 @@ describe('dsh-tool-workflow', () => {
   it('cancels the run when exec.signal aborts MID-FLIGHT (the abort bridge)', async () => {
     const { ctx, engine, parent } = await setup()
     const controller = new AbortController()
-    const pending = execute(ctx, { script: SCRIPT }, { agent: parent, signal: controller.signal })
+    const pending = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent, signal: controller.signal })
     await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
     controller.abort()
     const result = await pending
@@ -130,17 +131,17 @@ describe('dsh-tool-workflow', () => {
     expect(engine.disposed).toBe(1)
   })
 
-  it('a synchronous engine start throw (parse/meta failure) becomes an isError result', async () => {
+  it('a synchronous engine start throw (meta/parse failure) becomes an isError result', async () => {
     const { ctx, engine, parent } = await setup()
-    engine.startError = new Error('script must begin with `export const meta = {...}`')
-    const result = await execute(ctx, { script: 'nope' }, { agent: parent })
+    engine.startError = new Error('invalid meta: meta.name must be a non-empty string')
+    const result = await execute(ctx, { script: 'nope', meta: { name: '', description: 'd' } }, { agent: parent })
     expect(result.isError).toBe(true)
-    expect((result.content[0] as { text: string }).text).toContain('must begin with')
+    expect((result.content[0] as { text: string }).text).toContain('meta.name must be a non-empty string')
   })
 
   it('requires a calling agent (fails loud without exec.agent)', async () => {
     const { ctx, engine } = await setup()
-    const result = await execute(ctx, { script: SCRIPT })
+    const result = await execute(ctx, { script: SCRIPT, meta: META })
     expect(result.isError).toBe(true)
     expect((result.content[0] as { text: string }).text).toContain('requires a calling agent')
     expect(engine.requests.length).toBe(0)
@@ -157,7 +158,7 @@ describe('dsh-tool-workflow', () => {
     const { ctx, engine, parent } = await setup()
     const controller = new AbortController()
     controller.abort()
-    const result = await execute(ctx, { script: SCRIPT }, { agent: parent, signal: controller.signal })
+    const result = await execute(ctx, { script: SCRIPT, meta: META }, { agent: parent, signal: controller.signal })
     expect(result.isError).toBe(true)
     expect(engine.cancels).toContain('parent step aborted')
     expect(engine.disposed).toBe(1)
@@ -165,7 +166,7 @@ describe('dsh-tool-workflow', () => {
 
   it('truncates an oversized rendered value with a notice (maxResultChars)', async () => {
     const { ctx, engine, parent } = await setup({ maxResultChars: 40 })
-    const pending = execute(ctx, { script: SCRIPT }, { agent: parent })
+    const pending = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent })
     await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
     engine.settle({ value: { blob: 'x'.repeat(500) }, stopReason: 'completed', agentsStarted: 1 })
     const rendered = ((await pending).content[0] as { text: string }).text
@@ -193,22 +194,22 @@ describe('dsh-tool-workflow', () => {
     expect((await ctx.systemPrompt.assemble()).sections.some(s => s.name === 'tool:orchestrate')).toBe(false)
   })
 
-  it('presents a generic pending card titled by the sniffed meta name, with the script as rawInput', async () => {
+  it('presents a generic pending card titled by the meta name, with the script as rawInput', async () => {
     const { ctx } = await setup()
     const tool = ctx.tools.get('workflow')!
-    const view = tool.presentCall!({ script: SCRIPT })
+    const view = tool.presentCall!({ script: SCRIPT, meta: META })
     expect(view).toMatchObject({ card: 'generic', title: 'workflow: audit', rawInput: SCRIPT })
-    const anonymous = tool.presentCall!({ script: 'export const meta = {}\nreturn 1' })
-    expect(anonymous).toMatchObject({ card: 'generic', title: 'workflow' })
   })
 
   it('presentResult keeps the generic card; presentation is pure and replay-safe on malformed args', async () => {
     const { ctx } = await setup()
     const tool = ctx.tools.get('workflow')!
-    expect(tool.presentResult!({ script: SCRIPT }, { content: [], isError: false })).toEqual({ card: 'generic' })
+    expect(tool.presentResult!({ script: SCRIPT, meta: META }, { content: [], isError: false })).toEqual({ card: 'generic' })
     // defineTool soft-validates presentation args: a malformed logged shape
-    // falls back to undefined instead of throwing mid-replay.
+    // (wrong fields entirely, or a call missing its meta) falls back to
+    // undefined instead of throwing mid-replay.
     expect(tool.presentCall!({ not: 'the schema' })).toBeUndefined()
+    expect(tool.presentCall!({ script: SCRIPT })).toBeUndefined()
   })
 
   it('has the namespace-plugin export shape (no stray default)', () => {
@@ -239,7 +240,8 @@ describe('dsh-tool-workflow', () => {
       const parent = { id: AgentId('caller'), options: {} } as unknown as Agent
       const controller = new AbortController()
       const pending = execute(ctx, {
-        script: "export const meta = { name: 'stuck', description: 'parks forever' }\nawait new Promise(() => {})\nreturn 1",
+        script: 'await new Promise(() => {})\nreturn 1',
+        meta: { name: 'stuck', description: 'parks forever' },
       }, { agent: parent, signal: controller.signal })
       // Give the run a beat to start (past its synchronous slice), then abort.
       await new Promise(resolve => setTimeout(resolve, 20))
