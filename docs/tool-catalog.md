@@ -52,7 +52,7 @@ Ask the user a concise question when you need confirmation, a choice, or missing
           },
           "options": {
             "type": "array",
-            "description": "Optional choices to show the user.",
+            "description": "Optional choices to show the user. If you recommend one, put it first and append \"(Recommended)\" to that label.",
             "items": {
               "type": "object",
               "properties": {
