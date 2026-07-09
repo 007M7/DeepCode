@@ -64,9 +64,11 @@ import type { ChildStartRequest, WorkerInit } from './types.ts'
  * (`DEEPSEEK_API_KEY` et al.) must not ride along — the same stance as
  * `dsh-code-runtime-worker`, stronger than the scrubbed env the
  * defensive-patterns rule requires for spawned commands (a shell needs PATH;
- * this worker needs nothing). This closes the AMBIENT channel only — an
- * escapee still holds process-wide privileges like fs access (the README's
- * trust premise stands).
+ * this worker needs nothing). Sole exception: the unbuilt shape forwards
+ * `TSX_TSCONFIG_PATH` when the parent carries it (loader plumbing the paths
+ * map depends on outside the repo cwd, not a secret). This closes the
+ * AMBIENT channel only — an escapee still holds process-wide privileges
+ * like fs access (the README's trust premise stands).
  * @param init - the run payload, passed as `workerData`.
  * @returns the entry URL and the Worker options to spawn it with.
  */
@@ -76,10 +78,19 @@ function resolveWorkerSpawn(init: WorkerInit): { entry: URL; options: WorkerOpti
     return { entry: new URL('./worker.js', import.meta.url), options: { workerData: init, env: {}, execArgv: [] } }
   }
   // Lazy tsx resolution: only the unbuilt shape needs it, so the built
-  // bundle never requires tsx to be installed.
+  // bundle never requires tsx to be installed. TSX_TSCONFIG_PATH is the one
+  // variable forwarded through the scrub: tsx finds a tsconfig by searching
+  // UP from the worker's cwd, and a parent running with its cwd outside the
+  // repo (the ACP snapshot harness pins the tsconfig through this exact
+  // variable) would otherwise lose the dsh-* paths map and resolve workspace
+  // imports to unbuilt lib/ bundles. Loader plumbing, not a secret.
   return {
     entry: new URL('./worker.ts', import.meta.url),
-    options: { workerData: init, env: {}, execArgv: ['--import', fileURLToPath(import.meta.resolve('tsx'))] },
+    options: {
+      workerData: init,
+      env: process.env.TSX_TSCONFIG_PATH === undefined ? {} : { TSX_TSCONFIG_PATH: process.env.TSX_TSCONFIG_PATH },
+      execArgv: ['--import', fileURLToPath(import.meta.resolve('tsx'))],
+    },
   }
 }
 
