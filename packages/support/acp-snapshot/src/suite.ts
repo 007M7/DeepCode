@@ -339,8 +339,10 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           const pinningScenario = classPin
           const pinnedFixture = await readFile(join(snapshotsDir, pinningScenario.name, 'session.jsonl'), 'utf8')
           const pinned = normalizedHeaders(pinnedFixture, fixtureContext(pinnedFixture))
-          expect(pinned.length, `the pinning fixture (${pinningScenario.name}) must carry exactly one request/header`)
-            .toBe(1)
+          // The classmates' anchor is the pin's FIRST header; a pin may carry
+          // further transition headers of its own (legal only there).
+          expect(pinned.length, `the pinning fixture (${pinningScenario.name}) must carry at least one request/header`)
+            .toBeGreaterThanOrEqual(1)
           for (const log of result.sessionLogs) {
             expect(headerDeltaCount(log.content), `session ${log.id}: a request/header-delta in a non-pinning scenario`)
               .toBe(0)
@@ -411,17 +413,17 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
       }
     })
 
-    it('every pinning fixture carries exactly one request/header and no deltas', async () => {
-      // The live uniformity guard runs only in NON-pinning scenarios, so a
-      // class made of just its pinning scenario would otherwise accept a
-      // re-recorded pin with several headers or a mid-run header-delta —
-      // shapes the pin design cannot represent. Assert the committed pins
-      // directly.
+    it('every pinning fixture carries at least one request/header', async () => {
+      // The live uniformity guard runs only in NON-pinning scenarios, so the
+      // committed pins are asserted directly. A pin carries the class's full
+      // header content — INCLUDING mid-run transitions (a session-mode flip
+      // logs a second snapshot or a delta; those are legal only here, and the
+      // classmates' uniformity anchor is the pin's FIRST header) — so the
+      // shape requirement is presence, not uniqueness.
       for (const scenario of pinningByClass.values()) {
         const fixture = await readFile(join(snapshotsDir, scenario.name, 'session.jsonl'), 'utf8')
         const headers = normalizedHeaders(fixture, fixtureContext(fixture))
-        expect(headers.length, `${scenario.name}: a pinning fixture must carry exactly one request/header`).toBe(1)
-        expect(headerDeltaCount(fixture), `${scenario.name}: a pinning fixture must carry no request/header-delta`).toBe(0)
+        expect(headers.length, `${scenario.name}: a pinning fixture must carry at least one request/header`).toBeGreaterThanOrEqual(1)
       }
     })
 

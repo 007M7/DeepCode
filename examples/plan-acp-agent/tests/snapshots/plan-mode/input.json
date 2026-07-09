@@ -1,0 +1,28 @@
+{
+  "steps": [
+    {
+      "op": "initialize"
+    },
+    {
+      "op": "newSession"
+    },
+    {
+      "op": "setMode",
+      "modeId": "plan"
+    },
+    {
+      "op": "prompt",
+      "text": "The typo is on line 2 of notes.txt itself; the workspace contains no other file. Read notes.txt (use the relative path notes.txt exactly), then present a one-step plan titled '# Fix the greeting typo' via exit_plan_mode: the single step is editing line 2 of notes.txt to say hello world. After the review approves, apply exactly that one edit to notes.txt and stop \u2014 do not look for any other file."
+    },
+    {
+      "op": "prompt",
+      "text": "Read notes.txt (relative path notes.txt) and reply with the single word DONE if line 2 now says hello world."
+    }
+  ],
+  "elicitationAnswers": [
+    {
+      "action": "accept",
+      "choice": "Approve"
+    }
+  ]
+}
