@@ -67,6 +67,25 @@ Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../c
 
 Source: [`packages/bash/bash/src/index.ts:59`](../../packages/bash/bash/src/index.ts)
 
+## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
+
+Abstract code-execution service. Subclass, implement run and the two descriptors, and load the subclass as a plugin — it registers as `ctx.codeRuntime` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+
+Semantics every implementation must honor:
+
+- run resolves with an error FIELD for every program outcome — parse/transform failures, thrown exceptions, budget expiry, abort, substrate death (CodeRunFailure's taxonomy). It REJECTS only for caller misuse of the seam itself (e.g. a run submitted after disposal).
+- Binding calls bridge to the caller's CodeBindingFunctions verbatim; arguments and resolutions must be structured-cloneable, and the runtime treats the program as a hostile peer (arbitrary binding names are own properties, malformed traffic is rejected or ignored, never crashes the host).
+- Runs are isolated from each other: no state survives from one run to the next through the runtime.
+- Disposal reaches quiescence: in-flight runs are terminated AND awaited before the service's own teardown completes (no orphan substrate survives `fiber.dispose()`).
+
+```ts cordis-catalog
+abstract run(request: CodeRunRequest): Promise<CodeRunResult>
+```
+
+Types: [CodeRunRequest](../core-data-structures/code-runtime.md) · [CodeRunResult](../core-data-structures/code-runtime.md)
+
+Source: [`packages/code-runtime/code-runtime/src/index.ts:59`](../../packages/code-runtime/code-runtime/src/index.ts)
+
 ## `ctx.compact` — `CompactService` (abstract seam)
 
 Abstract compaction service. Subclass implement the two abstract methods, and load the subclass as a plugin — it registers as `ctx.compact` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
@@ -194,7 +213,7 @@ Source: [`packages/core/system-prompt/src/index.ts:291`](../../packages/core/sys
 
 ## `ctx.tools` — `ToolRegistry`
 
-Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → dispatch → `tools/post-execute` pipeline. The registry contributes its schemas into the system-prompt assembly.
+Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → `tools/execute` → `tools/post-execute` pipeline. The registry contributes its schemas into the system-prompt assembly.
 
 ```ts cordis-catalog
 register(definition: ToolDefinition): () => void
@@ -205,7 +224,18 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:278`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:307`](../../packages/core/tools/src/index.ts)
+
+## `ctx.userInteraction` — `UserInteractionService`
+
+`ctx.userInteraction`: one active UI provider plus an `ask()` surface.
+
+```ts cordis-catalog
+registerProvider(provider: UserInteractionProvider): () => void
+async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
+```
+
+Source: [`packages/ui/user-interaction/src/index.ts:82`](../../packages/ui/user-interaction/src/index.ts)
 
 ## `ctx.web` — `WebService`
 

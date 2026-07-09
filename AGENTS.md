@@ -20,11 +20,12 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
   workflow/    workflow seam + worker-thread engine + the workflow tool
   todo/        the todo_write tool
+  guard/       loop-hygiene plugins
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
-  ui/          ACP bridge + app-boot glue + the stdio/ACP app bins
-  support/     dev/test infrastructure: invariants, llm-replay, subagent-mock
-  util/        zero-dependency utilities (Branded<B>)
+  ui/          ACP bridge, app-boot glue, stdio/ACP app bins, user-interaction seam, ask-user tool
+  support/     dev/test infrastructure packages
+  util/        zero-dependency utilities
 examples/    Runnable demos: thin cordis.yml leaves over the app packages (see examples/AGENTS.md)
 docs/        architecture, generated catalogs, RFCs, postmortems, cookbook (see docs/AGENTS.md)
 scripts/     repo gates and generators
@@ -35,7 +36,7 @@ Per-package map: the group READMEs, indexed from [packages/README.md](packages/R
 ## Commands
 
 ```sh
-pnpm install            # pnpm workspaces, node >= 24
+pnpm install            # pnpm workspaces, node ^22.19 || >=24
 pnpm run test           # vitest unit tests
 pnpm run test:coverage  # THE gating test run: per-file 100% coverage on packages/*/*/src
 pnpm run test:e2e       # real-API tests; self-skip without DEEPSEEK_API_KEY
@@ -70,7 +71,7 @@ printf '%s\n' "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
 printf '%s\n' "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
 ls .sessions/_no-cwd/main-session-*.jsonl >/dev/null
 rm -rf .sessions
-pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts
+pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts
 ```
 
 `test:coverage`, not `test`, is the gating run ([why](docs/testing.md)); a sign-off counts only for commands actually run.

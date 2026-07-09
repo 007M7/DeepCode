@@ -19,6 +19,7 @@ function fakeContext(): Context {
     // The UI seeds its label map from the registry at install; this suite only
     // exercises readline terminal-mode selection, so an empty roster suffices.
     agents: { list: vi.fn(() => []) },
+    userInteraction: { registerProvider: vi.fn(() => vi.fn()) },
   } as unknown as Context
 }
 

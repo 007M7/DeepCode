@@ -310,10 +310,11 @@ function builtBinSmokeGate(): Gate {
     'vitest.e2e.config.ts',
     'packages/ui/stdio-agent/tests/built-bin.e2e.ts',
     'packages/ui/acp-agent/tests/built-bin.e2e.ts',
-    // The workflow engine's built worker bundle: the only automated proof
+    // The worker-entry packages' built bundles: the only automated proof
     // that lib/index.js resolves its sibling lib/worker.js under plain node
-    // (the e2e lane runs unbuilt, so this file self-skips there).
+    // (the e2e lane runs unbuilt, so these files self-skip there).
     'packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts',
+    'packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts',
   ], {
     label: 'built-bin smoke',
     needs: ['build'],
