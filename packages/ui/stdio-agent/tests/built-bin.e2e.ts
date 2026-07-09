@@ -49,6 +49,14 @@ async function pkgName(absDir: string): Promise<string> {
   return json.name
 }
 
+async function installWorkspacePackageCopy(absDir: string, target: string): Promise<void> {
+  await mkdir(dirname(target), { recursive: true })
+  await cp(absDir, target, {
+    recursive: true,
+    filter: source => !source.split('/').includes('node_modules'),
+  })
+}
+
 /**
  * Build a temp consumer dir: `node_modules` with the workspace + vendor packages
  * symlinked in, a `src/` carrying the example mock backend, and a `cordis.yml`
@@ -59,15 +67,24 @@ async function pkgName(absDir: string): Promise<string> {
  * design, so it exercises that the fail-loud entry-load guard does NOT mistake a
  * valid disabled entry for a failed import.
  */
-async function makeConsumer(welcome: string, disabledBrokenEntry = false): Promise<string> {
+async function makeConsumer(
+  welcome: string,
+  disabledBrokenEntry = false,
+  extraDshPackages: string[] = [],
+  extraEntries: string[] = [],
+): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'stdio-built-bin-'))
   const nm = join(dir, 'node_modules')
-  for (const rel of dshPackages) {
+  for (const rel of [...dshPackages, ...extraDshPackages]) {
     const abs = join(repoRoot, 'packages', rel)
     const name = await pkgName(abs)
     const target = join(nm, name)
-    await mkdir(dirname(target), { recursive: true })
-    await symlink(abs, target)
+    if (extraDshPackages.includes(rel)) {
+      await installWorkspacePackageCopy(abs, target)
+    } else {
+      await mkdir(dirname(target), { recursive: true })
+      await symlink(abs, target)
+    }
   }
   for (const v of vendorPackages) {
     const abs = join(repoRoot, 'vendor', v)
@@ -94,6 +111,7 @@ async function makeConsumer(welcome: string, disabledBrokenEntry = false): Promi
     '    model: mock-echo',
     '    systemPrompt: \'demo\'',
     `    welcome: '${welcome}'`,
+    ...extraEntries,
     ...disabledBrokenEntry
       ? ['- id: off', '  name: \'./src/does-not-exist.ts\'', '  disabled: true']
       : [],
@@ -161,6 +179,27 @@ describe.skipIf(!existsSync(stdioBin))('dsh-stdio-agent BUILT bin (node lib/bin.
     expect(stderr).not.toContain('failed to load')
     expect(stdout).toContain('DISABLED-OK ready.')
     expect(stdout).toContain('[tool result] ECHO: HI')
+    expect(code).toBe(0)
+  }, 30_000)
+
+  it('boots when optional spill plugins are loaded from a built consumer install', async () => {
+    consumer = await makeConsumer(
+      'SPILL-OK ready.',
+      false,
+      ['spill/spill', 'spill/spill-local', 'spill/spill-policy', 'util/retention'],
+      [
+        '- id: spill-local',
+        '  name: \'@deepseek-ai/dsh-spill-local\'',
+        '- id: spill-policy',
+        '  name: \'@deepseek-ai/dsh-spill-policy\'',
+        '  config:',
+        '    maxInlineBytes: 50000',
+      ],
+    )
+    const { stdout, code, stderr } = await runBuiltBin(consumer, './cordis.yml', '')
+    expect(stderr).not.toContain('failed to load')
+    expect(stderr).not.toContain('Cannot find package')
+    expect(stdout).toContain('SPILL-OK ready.')
     expect(code).toBe(0)
   }, 30_000)
 
