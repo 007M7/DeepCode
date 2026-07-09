@@ -166,6 +166,15 @@ export interface RunOptions {
    * start from an empty workspace.
    */
   workspaceDir?: string
+  /**
+   * Alternate LIVE config path for the boot (absolute), overriding
+   * {@link AgentUnderTest.configPath} for this run. A scenario needing a
+   * differently-composed tree (the Code Mode scenarios) ships an overlay
+   * whose basename still ends in `cordis.yml`, so the bin's replay swap
+   * resolves the sibling `*cordis.snapshot.yml` the same way it does for
+   * the default.
+   */
+  configPath?: string
 }
 
 /**
@@ -209,7 +218,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
 
     child = spawn(
       process.execPath,
-      ['--import', tsxLoader, opts.agent.binScript, opts.agent.configPath],
+      ['--import', tsxLoader, opts.agent.binScript, opts.configPath ?? opts.agent.configPath],
       { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] },
     )
 

@@ -1,8 +1,17 @@
 # dsh-tools
 
-Tool registry and execution pipeline. Tool plugins register their schemas and executors; the agent loop executes each call through `tools/pre-execute` (the allow/deny gate) → `tools/execute` (an around-dispatch wrapper for timeout/retry/metrics plugins) → `tools/post-execute` (inspect/replace the result, attach context).
+Tool registry and execution pipeline. Tool plugins register their schemas and executors; the agent loop executes each call through `tools/pre-execute` (the allow/deny gate) → `tools/execute` (an around-dispatch wrapper for timeout/retry/metrics plugins) → `tools/post-execute` (inspect/replace the result, attach context). The registry also owns HOW its tools are presented to the model — its `mode` config selects native function calling, [Code Mode](#code-mode), or both.
 
 ## Service: `ToolRegistry` (ctx key: `tools`)
+
+### Config
+
+```yaml
+tools:
+  mode: native   # native (default) | code | both
+```
+
+`native` contributes every registered tool as a wire function definition — the default, byte-for-byte the pre-config behavior. `code` contributes exactly ONE wire tool, `run_code`, plus the generated `tools:sdk` prompt section (see [Code Mode](#code-mode)). `both` contributes every native definition AND `run_code` + the SDK section. Non-native modes require a loaded `ctx.codeRuntime` with `language: 'typescript'`; a missing or mismatched runtime rejects every prompt assembly with an actionable error, and a `systemPrompt.toolOrder` naming tools the mode no longer contributes rejects the assembly the same way.
 
 ### Public API
 
@@ -118,6 +127,16 @@ const bash = defineTool({
   },
 })
 ```
+
+### Code Mode
+
+Under `mode: code` (or `both`) the registry turns the tool surface into a programming API, per the [Code Mode RFC](../../../docs/rfc/implemented/feature/2026-06-15-code-mode.md): the model writes a TypeScript program (the body of an async function) and passes it to the ONE wire tool `run_code`; the program runs in `ctx.codeRuntime` (the [code-execution seam](../../code-runtime/README.md) — the shipped backend is a worker thread) with one async binding per registered tool (`await tools.bash({...})`), and ONLY what it prints or returns re-enters the model's context.
+
+- **The SDK section** (`tools:sdk`, order 150): a lazy prompt section regenerating, at each assembly, a `declare const tools: {...}` TypeScript declaration of every registered tool except `run_code` (exotic names via quoted keys), plus fixed usage instructions. Deterministic — lexicographic tool order, byte-identical text for an unchanged tool set (prefix-cache-friendly). The codegen (`jsonSchemaToTs`, exported) is TOTAL: constructs outside the `defineTool` subset degrade to `unknown`, never throw.
+- **The dispatch bridge** (`run_code`'s execute): every binding call is JSON-normalized BEFORE dispatch (a value that does not survive — `BigInt`, circulars — rejects that one call, so the dispatched form and the logged form are the same JSON value by construction), serialized through a per-run queue (even `Promise.all` executes the underlying `ctx.tools.execute()` calls one at a time in submission order — the tool contract carries no concurrency-safety metadata yet), gated by `tools/pre-execute`/`tools/post-execute` like any native call (a deny reaches the program as a binding rejection), and logged as one `tool/code-dispatch` session event (log-only: `deriveMessages()` never surfaces it) with the deterministic sub-id `<parent>:code:<n>`. A failed sub-call REJECTS the program-side promise with the tool's error text — real code error handling, no bespoke envelope. A sub-call's `additionalContext` is deliberately DROPPED (no safe outlet mid-run without breaking tool-call/result adjacency; deferred until a real hook needs it through Code Mode).
+- **Settlement discipline**: the bridge owns a run-scoped abort that follows the outer signal in and fires when the run settles for any reason, so a budget expiry aborts an in-flight sub-tool instead of orphaning it; the bridge then drains its queue BEFORE returning, so every `tool/code-dispatch` lands inside the open turn. A failed run throws `CodeRunFailedError` (`code: 'CODE_RUN_FAILED'`, message = the failure kind + captured logs), which the pipeline converts to a structured `isError` the model self-corrects from.
+
+The wire collapse is the registry's own contribution (`systemPrompt.tools()` is mode-aware), so the logged `request/header` records it for free — under `code`, the assembled tool list is exactly `[run_code]`, pinned by tests and the snapshot goldens. Try it: `pnpm run demo:code-mode` ([the coding-agent example's Code Mode overlay](../../../examples/coding-agent/README.md#code-mode)); `pnpm run demo:code-mode acp` serves the same mode over ACP instead of the REPL.
 
 ### What is NOT here (TODO)
 

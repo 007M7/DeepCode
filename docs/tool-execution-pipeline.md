@@ -15,7 +15,7 @@ flowchart TD
   around["<code>tools/execute</code> waterfall<br/>timeout, retry, metrics (around dispatch)"]
   toolBody["Registered tool execute() body"]
   fsGate["<code>fs/write-intent</code> or <code>fs/edit-intent</code><br/>tool-fs mutations only"]
-  owned["Tool-owned session events<br/><code>todo/write</code>, <code>fs/observed</code>, <code>hook/invoked</code>, <code>hook/result</code>"]
+  owned["Tool-owned session events<br/><code>todo/write</code>, <code>fs/observed</code>, <code>hook/invoked</code>, <code>hook/result</code>, <code>tool/code-dispatch</code>"]
   post["<code>tools/post-execute</code> waterfall<br/>accept, block, replace, add context"]
   context["Buffered additionalContext<br/>context/message after all tool results"]
   toolResult["Session event: <code>tool/result</code><br/>single model-facing outcome"]
@@ -37,6 +37,6 @@ flowchart TD
   toolResult --> presentResult
 ```
 
-Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and future permission prompts live on the generic pre/post tool waterfalls; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service.
+Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and future permission prompts live on the generic pre/post tool waterfalls; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service. Code Mode rides the same pipeline twice over: `run_code` is itself a registered tool body, and each tool call its program makes re-enters `ctx.tools.execute()` through BOTH waterfalls — serialized one at a time, logged as a `tool/code-dispatch` session event, with a deny surfacing to the program as a binding rejection (a sub-call's `additionalContext` is deliberately dropped — no safe outlet mid-run preserves call/result adjacency).
 
 Maintenance mode: curated Mermaid flow; exact tool schemas and event signatures live in generated catalogs.

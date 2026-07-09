@@ -19,6 +19,8 @@ A REPL agent demo: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + th
 
 Run with: `pnpm run demo:repl` (needs `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [coding-agent/README.md](coding-agent/README.md) for details.
 
+Its `code-mode.cordis.yml` overlay flips the same tree to **Code Mode**: the worker-thread code runtime is loaded and the tool registry runs `mode: code`, so the model gets exactly one wire tool — `run_code` — plus a generated TypeScript SDK section, and composes the other tools by writing a program whose output it curates. Run with: `pnpm run demo:code-mode` (the REPL is the default UI; `acp` as the argument serves the acp-agent example's same-shaped overlay instead) — see the [Code Mode section](coding-agent/README.md#code-mode) for what to try.
+
 ## cordis-agent
 
 The **self-referential** demo: the coding spine plus [`@deepseek-ai/dsh-tool-cordis`](../packages/cordis/tool-cordis), whose three tools (`cordis_inspect` / `cordis_mount` / `cordis_unmount`) let the agent inspect the live cordis runtime it runs inside, mount model-written plugins into it (an event listener, a brand-new tool for itself, or a service another mount injects), and dispose them again — all dynamic mounts grouped under one `cordis-dynamic` fiber subtree. The `ctx.fs`/`ctx.web` services ride along provider-only, as the capabilities those plugins build on.
@@ -29,4 +31,4 @@ Run with: `pnpm run demo:cordis` (needs `DEEPSEEK_API_KEY`). See [cordis-agent/R
 
 An agent demo exposed as an **Agent Client Protocol (ACP)** server over JSON-RPC stdio, via the [`@deepseek-ai/dsh-acp-agent`](../packages/ui/acp-agent) app — drive it from Zed or any other ACP client. Also the home of the keyless snapshot tests.
 
-Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`). See [acp-agent/README.md](acp-agent/README.md) for the Zed setup and the snapshot-test design.
+Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`); `pnpm run demo:code-mode acp` boots the same server in Code Mode via the `code-mode.cordis.yml` overlay. See [acp-agent/README.md](acp-agent/README.md) for the Zed setup and the snapshot-test design.

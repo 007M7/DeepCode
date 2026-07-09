@@ -7,7 +7,7 @@
  * substrate (worker thread, separate process, container) and by source
  * language, both declared as readonly descriptors. The design and its
  * consumer (the tool registry's Code Mode) are specified in the Code Mode RFC
- * (docs/rfc/proposed/feature/2026-06-15-code-mode.md).
+ * (docs/rfc/implemented/feature/2026-06-15-code-mode.md).
  *
  * The split mirrors the bash seam (`BashExecutor`): the runtime knows nothing
  * about tools or sessions — it is handed named async functions and a program,

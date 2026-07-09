@@ -42,7 +42,8 @@ Source: [`packages/ui/acp/src/index.ts:236`](../packages/ui/acp/src/index.ts)
  * pre-created agent — ACP creates agents at `session/new`); `persona` is the
  * deployment persona (forwarded to the system-prompt plugin); `toolOrder` is
  * the explicit model-facing tool order (forwarded to the system-prompt plugin);
- * `persistenceRoot` is the JSONL backend's directory.
+ * `tools` is the tool registry's config (its presentation `mode`, forwarded
+ * through agent-core); `persistenceRoot` is the JSONL backend's directory.
  */
 export interface Config {
   /** Model name for ACP-created agents (must have a registered adapter). */
@@ -51,12 +52,16 @@ export interface Config {
   persona?: string
   /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
   toolOrder?: string[]
+  /** Tool-registry config — its presentation `mode` (forwarded through agent-core; see dsh-tools). */
+  tools?: ToolsConfig
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
 }
 ```
 
-Source: [`packages/ui/acp-agent/src/index.ts:50`](../packages/ui/acp-agent/src/index.ts)
+Depends on: [`ToolsConfig`](#deepseek-aidsh-tools)
+
+Source: [`packages/ui/acp-agent/src/index.ts:52`](../packages/ui/acp-agent/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-core`
 
@@ -66,10 +71,12 @@ Source: [`packages/ui/acp-agent/src/index.ts:50`](../packages/ui/acp-agent/src/i
  * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
  * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
  * plugin (the deployment's persona section and the explicit model-facing tool
- * order). Every field is optional INPUT here because each owner's schema
- * supplies the default (`[]` / `''` / absent — lexicographic); the schema is
- * the INTERSECTION of the owners' own schemas, so validation and defaulting
- * can never drift from them.
+ * order), the `tools` object to the tool registry (its presentation `mode`).
+ * Every field is optional INPUT here because each owner's schema
+ * supplies the default (`[]` / `''` / absent — lexicographic / `native`); the
+ * schema is the INTERSECTION of the owners' own schemas (the registry's
+ * nested under its `tools` key), so validation and defaulting can never
+ * drift from them.
  */
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
@@ -78,12 +85,14 @@ export interface Config {
   persona?: SystemPromptConfig['persona']
   /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
   toolOrder?: SystemPromptConfig['toolOrder']
+  /** The tool registry's config — its presentation `mode` (see dsh-tools' `Config`). */
+  tools?: ToolsConfig
 }
 ```
 
-Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt)
+Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/core/agent-core/src/index.ts:69`](../packages/core/agent-core/src/index.ts)
+Source: [`packages/core/agent-core/src/index.ts:71`](../packages/core/agent-core/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -492,6 +501,8 @@ export interface Config {
   persona?: string
   /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
   toolOrder?: string[]
+  /** Tool-registry config — its presentation `mode` (forwarded through agent-core; see dsh-tools). */
+  tools?: ToolsConfig
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
@@ -505,7 +516,9 @@ export interface Config {
 }
 ```
 
-Source: [`packages/ui/stdio-agent/src/index.ts:62`](../packages/ui/stdio-agent/src/index.ts)
+Depends on: [`ToolsConfig`](#deepseek-aidsh-tools)
+
+Source: [`packages/ui/stdio-agent/src/index.ts:63`](../packages/ui/stdio-agent/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-acp`
 
@@ -761,6 +774,36 @@ export interface Config {
 
 Source: [`packages/web/tool-web/src/index.ts:40`](../packages/web/tool-web/src/index.ts)
 
+## `@deepseek-ai/dsh-tools`
+
+Requires: `systemPrompt`
+
+```ts config-catalog
+/** Plugin config: how the registered tools are presented to the model. */
+export interface Config {
+  /**
+   * The presentation mode. `'native'` (the default) contributes every
+   * registered tool as a wire function definition — byte-for-byte today's
+   * behavior. `'code'` contributes exactly ONE wire tool, `run_code`, plus
+   * the generated `tools:sdk` prompt section declaring every other tool as a
+   * TypeScript API the program calls. `'both'` contributes every native
+   * definition AND `run_code` + the SDK section. Non-native modes require a
+   * loaded `ctx.codeRuntime` whose `language` is `'typescript'` — a missing
+   * or mismatched runtime rejects every prompt assembly with an actionable
+   * error (misconfiguration fails loud, before any model request). A
+   * configured `systemPrompt.toolOrder` naming native tools likewise rejects
+   * every assembly under `'code'` (those names are no longer contributed) —
+   * a deployment switching modes updates its order config or drops it.
+   */
+  mode?: ToolPresentationMode
+}
+
+/** How the registry presents its tools to the model (see {@link Config.mode}). */
+export type ToolPresentationMode = 'native' | 'code' | 'both'
+```
+
+Source: [`packages/core/tools/src/index.ts:319`](../packages/core/tools/src/index.ts)
+
 ## `@deepseek-ai/dsh-web`
 
 ```ts config-catalog
@@ -887,7 +930,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userInteraction` ([`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts))
 - `@deepseek-ai/dsh-tool-bash` — requires `tools` · `bash` · `systemPrompt` ([`packages/bash/tool-bash/src/index.ts`](../packages/bash/tool-bash/src/index.ts))
 - `@deepseek-ai/dsh-tool-todo` — requires `tools` ([`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts))
-- `@deepseek-ai/dsh-tools` — requires `systemPrompt` ([`packages/core/tools/src/index.ts`](../packages/core/tools/src/index.ts))
 - `@deepseek-ai/dsh-user-interaction` ([`packages/ui/user-interaction/src/index.ts`](../packages/ui/user-interaction/src/index.ts))
 
 ## Seam packages (not directly loadable)

@@ -165,8 +165,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Code-execution seam',
     mode: 'seam',
     implementations: ['code-runtime-worker'],
-    consumers: [],
-    note: 'Runs one model-written program against host-provided async bindings; backends differ by substrate and language (the Code Mode RFC specifies the worker-thread backend and the tool-registry consumer).',
+    consumers: ['tools'],
+    note: 'Runs one model-written program against host-provided async bindings; backends differ by substrate and language (the tool registry consumes it for Code Mode).',
   },
   {
     key: 'fs',
@@ -660,7 +660,7 @@ function renderToolPipeline(): string {
     `  around["${mermaidCode('tools/execute')} waterfall<br/>timeout, retry, metrics (around dispatch)"]`,
     '  toolBody["Registered tool execute() body"]',
     `  fsGate["${mermaidCode('fs/write-intent')} or ${mermaidCode('fs/edit-intent')}<br/>tool-fs mutations only"]`,
-    `  owned["Tool-owned session events<br/>${mermaidCode('todo/write')}, ${mermaidCode('fs/observed')}, ${mermaidCode('hook/invoked')}, ${mermaidCode('hook/result')}"]`,
+    `  owned["Tool-owned session events<br/>${mermaidCode('todo/write')}, ${mermaidCode('fs/observed')}, ${mermaidCode('hook/invoked')}, ${mermaidCode('hook/result')}, ${mermaidCode('tool/code-dispatch')}"]`,
     `  post["${mermaidCode('tools/post-execute')} waterfall<br/>accept, block, replace, add context"]`,
     '  context["Buffered additionalContext<br/>context/message after all tool results"]',
     `  toolResult["Session event: ${mermaidCode('tool/result')}<br/>single model-facing outcome"]`,
@@ -682,7 +682,7 @@ function renderToolPipeline(): string {
     '  toolResult --> presentResult',
     '```',
     '',
-    'Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and future permission prompts live on the generic pre/post tool waterfalls; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service.',
+    'Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and future permission prompts live on the generic pre/post tool waterfalls; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service. Code Mode rides the same pipeline twice over: `run_code` is itself a registered tool body, and each tool call its program makes re-enters `ctx.tools.execute()` through BOTH waterfalls — serialized one at a time, logged as a `tool/code-dispatch` session event, with a deny surfacing to the program as a binding rejection (a sub-call\'s `additionalContext` is deliberately dropped — no safe outlet mid-run preserves call/result adjacency).',
     '',
     ...maintenanceFooter(maintenance),
   ].join('\n')

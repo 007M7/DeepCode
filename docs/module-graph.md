@@ -127,7 +127,9 @@ flowchart TD
   pkg_llm_replay --> pkg_llm
   pkg_llm_replay --> pkg_session
   pkg_tools --> pkg_agent
+  pkg_tools --> pkg_code_runtime
   pkg_tools --> pkg_llm
+  pkg_tools --> pkg_session
   pkg_tools --> pkg_system_prompt
   pkg_compact_basic --> pkg_agent
   pkg_compact_basic --> pkg_compact
@@ -228,6 +230,7 @@ flowchart TD
   pkg_acp_agent --> pkg_agent_core
   pkg_acp_agent --> pkg_app_boot
   pkg_acp_agent --> pkg_session_persistence_jsonl
+  pkg_acp_agent --> pkg_tools
   pkg_acp_agent --> pkg_user_interaction
   pkg_stdio_agent --> pkg_agent
   pkg_stdio_agent --> pkg_agent_core
@@ -236,6 +239,7 @@ flowchart TD
   pkg_stdio_agent --> pkg_session
   pkg_stdio_agent --> pkg_session_persistence_jsonl
   pkg_stdio_agent --> pkg_tool_ask_user
+  pkg_stdio_agent --> pkg_tools
   pkg_stdio_agent --> pkg_user_interaction
 ```
 
@@ -267,7 +271,7 @@ flowchart TD
 | [`hook-protocol`](../packages/hooks/hook-protocol) | `hooks` | [`bash`](../packages/bash/bash), [`session`](../packages/core/session) |
 | [`session-persistence`](../packages/session-persistence/session-persistence) | `session-persistence` | [`session`](../packages/core/session) |
 | [`llm-replay`](../packages/support/llm-replay) | `support` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
-| [`tools`](../packages/core/tools) | `core` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt) |
+| [`tools`](../packages/core/tools) | `core` | [`agent`](../packages/core/agent), [`code-runtime`](../packages/code-runtime/code-runtime), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
 | [`compact-basic`](../packages/compact/compact-basic) | `compact` | [`agent`](../packages/core/agent), [`compact`](../packages/compact/compact), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl) | `session-persistence` | [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |
 | [`session-persistence-sqlite`](../packages/session-persistence/session-persistence-sqlite) | `session-persistence` | [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |
@@ -293,5 +297,5 @@ flowchart TD
 | [`subagent-mock`](../packages/support/subagent-mock) | `support` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent) |
 | [`subagent-fork`](../packages/subagent/subagent-fork) | `subagent` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) |
 | [`subagent-spawn`](../packages/subagent/subagent-spawn) | `subagent` | [`subagent`](../packages/subagent/subagent), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) |
-| [`acp-agent`](../packages/ui/acp-agent) | `ui` | [`acp`](../packages/ui/acp), [`agent-core`](../packages/core/agent-core), [`app-boot`](../packages/ui/app-boot), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`user-interaction`](../packages/ui/user-interaction) |
-| [`stdio-agent`](../packages/ui/stdio-agent) | `ui` | [`agent`](../packages/core/agent), [`agent-core`](../packages/core/agent-core), [`app-boot`](../packages/ui/app-boot), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`tool-ask-user`](../packages/ui/tool-ask-user), [`user-interaction`](../packages/ui/user-interaction) |
+| [`acp-agent`](../packages/ui/acp-agent) | `ui` | [`acp`](../packages/ui/acp), [`agent-core`](../packages/core/agent-core), [`app-boot`](../packages/ui/app-boot), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
+| [`stdio-agent`](../packages/ui/stdio-agent) | `ui` | [`agent`](../packages/core/agent), [`agent-core`](../packages/core/agent-core), [`app-boot`](../packages/ui/app-boot), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`tool-ask-user`](../packages/ui/tool-ask-user), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |

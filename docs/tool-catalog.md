@@ -16,6 +16,7 @@ This table connects model-visible tool names to the plugin package and service s
 | Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Deployment note |
 | --- | --- | --- | --- | --- | --- |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userInteraction` | `tool/call`, `tool/result after a UI/provider answers the question` | - | ask_user_question pauses the tool call until the active UI provider returns a human answer. |
+| `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.codeRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/code-dispatch per bridged sub-call`, `tool/result` | - | Registered by the tool registry itself under `mode: code` / `mode: both` (see the Code Mode RFC). Under `code` it is the ONLY wire tool; the other registered tools are declared to the model as a generated TypeScript SDK prompt section instead, and a program calls them through port-bridged bindings that dispatch through the ordinary tools/pre-execute → tools/post-execute pipeline, one at a time. |
 | `@deepseek-ai/dsh-tool-bash` | `bash`, `bash_kill`, `bash_output` | `ctx.tools`, `ctx.bash` | `tool/call`, `tool/result`, `context/message via agent.inject() for background completion notices` | - | The bash/bash_output/bash_kill tools are model-facing consumers of the bash executor seam. |
 | `@deepseek-ai/dsh-tool-cordis` | `cordis_inspect`, `cordis_mount`, `cordis_unmount` | `ctx.tools` | `tool/call`, `tool/result`, `live plugin-tree mutations (mount/unmount)` | - | Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; the request-header ToolsDelta logs those tool-set changes. |
 | `@deepseek-ai/dsh-tool-fs` | `edit`, `read`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after successful file operations`, `tool/result` | - | The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin. |
@@ -92,6 +93,31 @@ Ask the user a concise question when you need confirmation, a choice, or missing
 Source: [`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts)
 
 ask_user_question pauses the tool call until the active UI provider returns a human answer.
+
+## `@deepseek-ai/dsh-tools`
+
+### `run_code`
+
+Execute a TypeScript program against the available tools. Write the BODY of an async function (erasable syntax only; top-level `await` and `return` work) and call tools as `await tools.name(args)` per the declarations in the system prompt. Only what you print or return comes back — curate it.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "description": "The program: the body of an async TypeScript function."
+    }
+  },
+  "required": [
+    "code"
+  ]
+}
+```
+
+Source: [`packages/core/tools/src/code-mode.ts`](../packages/core/tools/src/code-mode.ts)
+
+Registered by the tool registry itself under `mode: code` / `mode: both` (see the Code Mode RFC). Under `code` it is the ONLY wire tool; the other registered tools are declared to the model as a generated TypeScript SDK prompt section instead, and a program calls them through port-bridged bindings that dispatch through the ordinary tools/pre-execute → tools/post-execute pipeline, one at a time.
 
 ## `@deepseek-ai/dsh-tool-bash`
 
