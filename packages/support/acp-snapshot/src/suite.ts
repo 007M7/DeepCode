@@ -245,7 +245,7 @@ export function refreshFixtureReplacements(logs: HarvestedLog[], fixtures: strin
 function preserveFixtureVolatiles(record: Record<string, unknown>, existing: Record<string, unknown> | undefined): void {
   if (existing === undefined || existing.type !== record.type) return
   if (record.type === 'session') {
-    for (const field of ['id', 'createdAt', 'cwd', 'parentSession', 'seedLength'] as const) {
+    for (const field of ['id', 'createdAt', 'cwd', 'parentSession'] as const) {
       if (field in record && field in existing) record[field] = existing[field]
     }
     return

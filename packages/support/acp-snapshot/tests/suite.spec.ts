@@ -271,7 +271,7 @@ describe('stabilizeRefreshLog', () => {
       { from: 'new-child', to: 'old-child' },
       { from: '/new', to: '/old' },
     ])).toBe([
-      '{"type":"session","id":"old-child","createdAt":100,"cwd":"/old","parentSession":"old-parent","seedLength":5}',
+      '{"type":"session","id":"old-child","createdAt":100,"cwd":"/old","parentSession":"old-parent","seedLength":1}',
       '{"type":"hook/result","seq":1,"time":11,"data":{"decision":"block","durationMs":99}}',
       '{"type":"turn/end","seq":2,"time":33,"data":{"error":"fresh error"}}',
       '{"type":"tool/result","seq":3,"time":44,"data":{"text":"old-parent in /old"}}',
