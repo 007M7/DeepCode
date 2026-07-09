@@ -35,11 +35,15 @@ Placement test: a story about a bug → postmortem. Why we chose X → RFC. How 
 
 ## Wordcount Budgets
 
-Every PR has a lesson it wants to append, and without pressure nothing ever leaves. [scripts/doc-budgets.manifest.json](../scripts/doc-budgets.manifest.json) is the pressure: it stores the allowed word-count ceiling for each budgeted standing doc; `pnpm run verify-doc-budgets` (part of `doc-sync`, so CI and pre-push run it) fails when a doc exceeds its ceiling, and fails when a budgeted file is missing so a rename cannot orphan its budget.
+Every PR has a lesson it wants to append, and without pressure nothing leaves. [scripts/doc-budgets.manifest.json](../scripts/doc-budgets.manifest.json) stores the allowed word-count ceiling for each budgeted standing doc; `pnpm run verify-doc-budgets` fails when a doc exceeds its ceiling or a budgeted file is missing.
 
-- Ceilings are an enforcement frontier with working headroom: a ceiling sits at least 5% above the doc's current size — routine edits pass, real growth trips the gate — and ratchets down, keeping the margin, as the doc reaches target. Target budgets: root `AGENTS.md` ≤ 1,500 words; `architecture.md` ≤ 1,800; each subtree `AGENTS.md` ≤ 600, except this file (which carries the standard) ≤ 1,250; `packages/README.md` ≤ 600.
-- When the gate goes red, first ask whether the added words belong in this tier and whether the existing wording can be condensed. If the words do not belong, relocate per the taxonomy above; if they belong but can be shorter, condense. If they truly need the space, raise the ceiling and justify the manifest diff in the PR. A ceiling set too low is a budget bug, and correcting it is the fix.
-- Unbudgeted tiers (package READMEs, RFCs, reference matrices) have no ceiling — length is legitimate there when every row is a fact. Review and the slop checklist govern them instead.
+When the gate goes red:
+
+1. **Relocate** content that belongs in another tier; leave a one-line link if needed.
+2. **Condense** content that belongs here but can be shorter.
+3. **Raise** the ceiling only when the words truly need the space; justify the manifest diff in the PR. A too-low ceiling is a budget bug.
+
+Ceilings keep working headroom: at least 5% above the current size, ratcheted down after trims. Target budgets: root `AGENTS.md` ≤ 1,500 words; `architecture.md` ≤ 1,800; each subtree `AGENTS.md` ≤ 600, except this file ≤ 1,250; `packages/README.md` ≤ 600. Unbudgeted tiers (package READMEs, RFCs, reference matrices) have no ceiling; review and the slop checklist govern them.
 
 ## The slop checklist
 
