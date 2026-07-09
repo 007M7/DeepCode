@@ -42,3 +42,7 @@ The leaf supplies the swappable backends: an LLM adapter (`llm-deepseek` for the
 Run it under `node --expose-internals`: the cordis Loader resolves the config's bare plugin specifiers through its internal module loader, active only under that flag. (`demo:acp` runs under tsx, whose tsconfig `paths` map resolves them instead.)
 
 All diagnostics go to **stderr** — stdout is the protocol.
+
+## Known Limitations and Deferred Work
+
+- **The front-door cluster is fixed in code** — only `model`/`persona`/`toolOrder`/`persistenceRoot` are config; swapping the baked JSONL persistence for another backend, or adding the deliberately-omitted `tool-ask-user`, means a leaf-level sibling entry or a differently-composed app package.

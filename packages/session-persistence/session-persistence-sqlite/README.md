@@ -2,8 +2,6 @@
 
 A SQLite durable session-persistence backend — a second `SessionPersistence` implementation ([session persistence](../../../docs/rfc/implemented/architecture/2026-06-14-session-persistence.md)), built to validate that the abstract seam and the shared `runPersistenceContract` suite are genuinely backend-agnostic. It satisfies the SAME contract as `dsh-session-persistence-jsonl` (append-only, contiguous-seq, lazy materialization, interrupted-turn close on load), expressed over `node:sqlite` rows instead of file bytes.
 
-> **TODO:** this backend talks to `node:sqlite` directly. If a cordis database service (`cordis/db` / a `@cordisjs` SQL driver plugin) is adopted, route through that instead of holding a raw `DatabaseSync` here — the contract surface (`SessionPersistence`) would not change, only the storage driver.
-
 ## Storage model
 
 Each `SessionEvent` maps 1:1 onto a row in an `events` table `(session_id, seq, type, time, data, source_event_seqs, surface_op)` — `data` is the event payload as JSON text, so the row shape is the event verbatim (including `assistant/chunk`, keeping `seq` contiguous). The two `TEXT` columns `source_event_seqs` and `surface_op` are nullable; they store the event's optional surface-metadata fields (see [session surface](../../../docs/rfc/implemented/architecture/2026-06-18-session-surface.md)). Out-of-log metadata (`SessionHeader`) lives in a `sessions` row. A `sessions` row is written only by the first `append` — its existence is the lazy-materialization signal (`list` reports exactly the sessions that have a row), so no separate column is needed.
@@ -28,3 +26,10 @@ interface Config {
 ## Write path
 
 Like the JSONL backend, the plugin also installs the `session/event` → buffer → `session/flush` drain: it snapshots each event when buffered (the live `session.events` object is mutable), persists a fork's seed once on `session/created`, keeps a per-session write cursor so a resumed session never re-appends stored events, and seeds existing live sessions on apply (HMR does not replay `session/created`). Dispose awaits every in-flight init + final drain and then closes the database, so no write lands after teardown.
+
+## Known Limitations and Deferred Work
+
+- **Raw `node:sqlite`, pending a cordis database service** — the backend holds a `DatabaseSync` directly; if a `cordis/db` / `@cordisjs` SQL driver is adopted, the storage driver routes through it (the `SessionPersistence` contract would not change) — a marked TODO.
+- **`DatabaseSync` is synchronous** — every append transaction blocks the event loop for its duration; acceptable for local stores, a throughput ceiling for busy multi-session servers.
+- **Only the current `SCHEMA_VERSION` opens** — a database written by any other build is rejected rather than migrated (unreleased software; no persisted user data to preserve).
+- **Nothing deletes stored sessions** — rows accumulate until removed externally (the seam has no deletion surface; `ON DELETE CASCADE` is wired for such out-of-band cleanup).

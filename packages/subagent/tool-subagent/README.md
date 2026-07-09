@@ -24,3 +24,9 @@ The tool description and the `prompt` parameter description are DERIVED from the
 `execute` starts a run on the configured provider and **awaits `run.result` inside a `try/finally` that always `dispose()`s the run** — the owned child agent/session is torn down on every path (success, error, abort), never leaked. The tool's abort signal (`exec.signal`) is bridged to `run.cancel()`. A non-`completed` stop reason (aborted/error/max-tokens/refusal) maps to an `isError` tool result rather than returning partial output as success.
 
 Background / poll collection is deferred (see the [RFC](../../../docs/rfc/implemented/feature/2026-06-21-subagent-capability-seam.md)); this cut blocks the parent turn until the child finishes.
+
+## Known Limitations and Deferred Work
+
+- **Delegation blocks the parent turn** — synchronous collect only; background start + poll collection is deferred to the long-running-runtime redesign.
+- **Duplicate `toolName` across waiting loads is detected late** (`TODO(subagent-dup-toolname)`) — two loads waiting on providers collide only when a provider arrives, and the throw rolls back the provider's fiber rather than the misconfigured tool's; config-time detection needs a cross-fiber registry of intended names.
+- **No per-child persona or prompt shaping** — `agentOptions` carries only `model`; the deployment persona is context-wide, and per-child system-prompt variation has no seam yet.

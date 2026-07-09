@@ -37,3 +37,9 @@ Delegation depth rides on a merge-extensible `AgentOptions.subagentDepth` field 
 ### `SubagentDepthError`
 
 Thrown by `startInProcessRun` when a spawn would exceed the request's `maxDepth` cap; carries `attemptedDepth` and `maxDepth`.
+
+## Known Limitations and Deferred Work
+
+- **The structured-output runtime is context-global** — the tool registry and prompt assembly are context-wide while schemas differ per concurrent child, hence the final-assembly enforcement dance; per-agent/per-session scoping would dissolve it (the module-doc `FIXME`).
+- **Runs expose no `sendMessage`/`resume`** — the optional runtime capabilities are absent on in-process runs; the consumer collects synchronously.
+- **`toolFilter` is unimplemented in this driver** — both in-process backends declare it `false`; scoping a child's tool set is deferred.

@@ -63,3 +63,8 @@ Fresh stdio sessions use the process launch directory as `session.header.cwd`, s
 ```
 
 Swap `llm-deepseek` for a `mock-llm` leaf plugin and you have the echo demo — "swap the backend, keep the app".
+
+## Known Limitations and Deferred Work
+
+- **One pre-created `main` agent drives the readline UI** — there is no multi-session or concurrent-agent surface in this app; a run is one conversation.
+- **The front-door cluster is fixed in code** — the JSONL persistence backend and the ask-user tooling are baked; a different composition is a leaf-level sibling entry or another app package.

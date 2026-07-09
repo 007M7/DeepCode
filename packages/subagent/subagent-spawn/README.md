@@ -17,3 +17,8 @@ The run mechanics live in the shared [`@deepseek-ai/dsh-subagent-inprocess`](../
 | Key | Meaning |
 |---|---|
 | `providerName` | Registry name on `ctx.subagents` (default `spawn`). |
+
+## Known Limitations and Deferred Work
+
+- **Tool-scoping (`toolFilter`) is not supported** — the capability is declared `false`, so the service rejects a request needing it before `start` runs; scoping a child's tool set is deferred.
+- **Runs expose no `sendMessage`/`resume`** — the optional runtime capabilities are absent on in-process runs; the consumer collects synchronously.

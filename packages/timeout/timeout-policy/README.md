@@ -32,3 +32,8 @@ The derived signal only **notifies**; termination stays with the tool and the ca
 ### Composing with other `tools/execute` wrappers
 
 Multiple `tools/execute` listeners compose by cordis registration order. Combined with a future retry/sandbox/metrics wrapper, registration order chooses the semantics — "timeout covers the whole retry operation" (timeout registered outer) versus "timeout covers each attempt" (timeout registered inner).
+
+## Known Limitations and Deferred Work
+
+- **Cooperative, never a hard kill** — the deadline only notifies via `exec.signal`; a tool that ignores the signal does not stop on timeout (see § Cooperative, not a hard kill).
+- **No blanket budget** — only tools that declare `timeoutMs` on their `ToolDefinition` get a deadline; there is no registry-wide default for undeclared tools (the shipped `bash`/`read`/`write`/`edit` deliberately declare none).

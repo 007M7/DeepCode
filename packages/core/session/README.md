@@ -73,6 +73,9 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 - Replay/fork: `ctx.sessions.create(id, { seed })` seeds a new session with an existing event log. The surface rebuilds deterministically from `surfaceOp` markers in the seeded events. The seed is validated to the SAME always-on invariants `append` enforces — contiguous seqs, JSON-serializable data, and required `surfaceOp` markers on surface-eligible events — so marker-less message events are rejected at construction rather than silently vanishing from `deriveMessages()`. Broader turn-enclosure checks stay in `dsh-invariants` and persistence repair. Ordinary live-session forks use `ctx.sessions.fork(source, boundary?, childSessionId?)`, where `boundary` is the inclusive source event seq to fork through.
 - Compaction: the `dsh-compact-basic` plugin appends a `user/message` with `surfaceOp: { op: 'replace', start, end }` to shadow old surface nodes behind a summary checkpoint.
 
-### What is NOT here (TODO)
+## Known Limitations and Deferred Work
 
 - **Session branching/tree** (pi-style entry tree) — deferred unless needed beyond boundary-based `fork()`.
+- **`fork()` cuts only at closed-turn boundaries of live sessions** — the boundary must be a `turn/end` event and the source must be in the store; forking a persisted-but-unloaded session is excluded from the [fork API](../../../docs/rfc/implemented/feature/2026-06-30-session-store-fork-api.md).
+- **`SESSION_FORMAT_VERSION` stays pinned at `0`** — pre-release, no compatibility implied: a backend rejects any other version, and no migration path exists until the first release ([policy](../../../AGENTS.md)).
+- **`TurnEndReasonMap` omits the ACP-named `refusal` / `max_turn_requests` variants** — producer-gated: they land when an adapter or the loop first emits them.

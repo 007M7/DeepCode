@@ -54,8 +54,10 @@ A tool call's payload carries the real `tool_name` (the same value the matcher t
 
 Injected context carries an explicit `{ kind: 'plugin', plugin: 'hooks-codex' }` source (`agent.inject()` would otherwise default it to `{ kind: 'user' }`).
 
-## Deferred
+## Known Limitations and Deferred Work
 
-**Stop loop-guard** (`TODO(stop-loop-guard)`): as in CC, a Stop hook that unconditionally blocks would force-continue every step (`stop_hook_active` is always `false` here); the loop-guard is deferred. A hook author must self-limit until it lands.
-
-**`systemMessage`**: a hook's user-facing warning is logged + warned, not surfaced — there is no user-message channel on these seams yet (only model-facing `additionalContext`).
+- **Stop loop-guard** (`TODO(stop-loop-guard)`) — as in CC, a Stop hook that unconditionally blocks would force-continue every step (`stop_hook_active` is always `false` here); the loop-guard is deferred, and a hook author must self-limit until it lands.
+- **`systemMessage`** — a hook's user-facing warning is logged + warned, not surfaced; there is no user-message channel on these seams yet (only model-facing `additionalContext`).
+- **`{"continue": false}` is recorded, not enforced** — the `hook/result` event records decision `stop`, but the run is not halted (`TODO(hook-continue-false)`).
+- **`SessionStart` cannot gate the first turn** — `agent/session-start` is a synchronous emit with a detached continuation, so a hook's injected context lands best-effort before turn 1 (`TODO(session-start-gating)`).
+- **Hook config is process-level** — one `configPath` parsed at load for the whole process; per-session discovery of a project-local config is deferred (`TODO(per-session-hook-config)`).

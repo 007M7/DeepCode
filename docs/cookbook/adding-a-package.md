@@ -13,7 +13,9 @@ packages/<group>/<pkg>/
                    # you use Config, + ../../<group>/<dep> for each dsh dep)
   src/index.ts     # service default export or plugin (name/inject/apply/Config)
   tests/<x>.spec.ts
-  README.md        # service API, events, extension points, design notes
+  README.md        # service API, events, extension points, design notes,
+                   # + the gated "Known Limitations and Deferred Work" section
+                   # (or a whitelist entry in scripts/verify-readme-limitations.ts)
 ```
 
 Choose an existing group when one matches the package's role (`core`, `llm`, `bash`, `compact`, `subagent`, `todo`, `session-persistence`, `ui`, `util`, or `support`). A new group is allowed, but it is a pure container: no `package.json`, no source files, and packages still sit exactly one level below it.

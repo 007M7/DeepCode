@@ -12,5 +12,6 @@ Naming notes:
 - `src/types.ts` contains only types — no runtime code.
 - Tests live at package level under `tests/`, not `src/__tests__/`.
 - A package's README and JSDoc are part of the change: altered behavior (config keys, defaults, error codes, wire fields) updates them in the same commit. `doc-sync` gates what it can; prose accuracy stays on the author ([the documentation standard](../docs/AGENTS.md)).
+- Every package README carries a `## Known Limitations and Deferred Work` section — condensed bullets for consumer-visible gaps and consciously postponed work; `verify-readme-limitations` (in `doc-sync`) gates it. A package with genuinely nothing to declare is instead whitelisted in [scripts/verify-readme-limitations.ts](../scripts/verify-readme-limitations.ts) and must not carry the section ([rationale](../docs/rfc/implemented/process/2026-07-10-readme-known-limitations-gate.md)).
 
-Read the per-package README.md for package-specific details: service API, events, extension points, TODOs.
+Read the per-package README.md for package-specific details: service API, events, extension points, known limitations.

@@ -140,7 +140,12 @@ Under `mode: code` (or `both`) the registry turns the tool surface into a progra
 
 The wire collapse is the registry's own contribution (`systemPrompt.tools()` is mode-aware), so the logged `request/header` records it for free. With no deliberate schema-adding assembly listener, `code` assembles exactly `[run_code]`, pinned by tests and the snapshot goldens; protection guarantees that `run_code` and `tools:sdk` remain present, not that unrelated listener additions are erased. Try it: `pnpm run demo:code-mode` ([the coding-agent example's Code Mode overlay](../../../examples/coding-agent/README.md#code-mode)); `pnpm run demo:code-mode acp` serves the same mode over ACP instead of the REPL.
 
-### What is NOT here (TODO)
+## Known Limitations and Deferred Work
 
-- **Concurrency metadata** — tool definitions do not declare whether executions are safe to overlap.
-- **Parallel execution** — the loop and Code Mode bridge execute tool calls sequentially until that metadata exists.
+- **Native tool calls execute sequentially** — `ToolDefinition` carries no concurrency-safety metadata; adding it (and parallel execution in the loop) waits on the deferred tool-shapes review (`TODO(review)`).
+- **`tools/pre-execute` deliberately cannot rewrite `exec.arguments`** — logged and rendered args would desync from what ran; the rewrite design is [a proposed RFC](../../../docs/rfc/proposed/feature/2026-06-30-pre-tool-input-rewrite.md).
+- **`defineTool`'s schema DSL is a deliberate subset** — string/number/boolean/object/array with string-only `enum`; `validateArgs` tolerates extra keys and never applies `default` (`XXX(unused-default)` flags removing that field); raw-registered JSON-Schema tools validate their own input.
+- **`timeoutMs` on a definition is declarative only** — the registry never enforces deadlines; enforcement requires the `@deepseek-ai/dsh-timeout-policy` wrapper.
+- **Code Mode is TypeScript-only and registry-wide** — `mode: code`/`both` rejects prompt assembly unless `ctx.codeRuntime.language === 'typescript'`, and per-tool visibility tiers (one tool native, another code-only) are knowingly deferred.
+- **Code Mode bindings return text only** — non-text content blocks in a sub-call result collapse to `[<type> content]` placeholders.
+- **`run_code` state is fresh per run** — a persistent REPL-style kernel is rejected for the MVP (cross-call state would be invisible to the log); see [the Code Mode RFC](../../../docs/rfc/implemented/feature/2026-06-15-code-mode.md).

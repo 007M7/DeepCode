@@ -52,6 +52,12 @@ The handle every plugin programs against:
 - Event listeners: all `agent/*` events are declared here — no dependency on the loop package needed.
 - Subagent delegation: implemented by `@deepseek-ai/dsh-subagent`, not by a method on `Agent`; providers create or drive ordinary `Agent` handles through the factory seam, so spawn/fork/ACP transports stay outside the core agent interface.
 
-### What is NOT here (TODO)
+## Known Limitations and Deferred Work
 
 - **Inter-agent channels beyond delegation** — shared state, streaming child output, and background/poll semantics remain outside the current synchronous `ctx.subagents` seam.
+- **`agent/session-start` cannot gate startup** — a synchronous, veto-less emit, so an async listener's injection is best-effort before turn 1; startup gating is a deferred loop-level change.
+- **No public step-only abort** — `cancel()` clears ALL pending work (queued + steering + in-flight); an abort that preserves queued prompts returns only with a named consumer ([stop-surface RFC](../../../docs/rfc/implemented/simplification/2026-06-20-public-agent-stop-surface.md)).
+- **`AgentRegistry` enforces unique agent ids, not session ids** — two live agents sharing a session id mis-route bash owner-token notices; [id unification stays proposed](../../../docs/rfc/proposed/simplification/2026-06-20-unify-agent-and-session-id.md).
+- **`HookContext` carries exactly one `MessageSource`** — contributions from several plugins merged onto one tool call collapse under one source; mixed provenance is unrepresentable.
+- **`SessionStartSource` reserves `'clear'`/`'compact'` with no emitter yet** — only `'startup'`/`'resume'` occur until the driving subsystems land (`TODO(compaction)`).
+- **`agent/pre-step`'s `fullSystemPrompt`/`sessionPrefix` parameters are a flagged smell** — compaction is their only consumer; a lazy prompt provider or a compaction-specific pressure seam is the marked revisit.

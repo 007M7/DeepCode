@@ -35,3 +35,12 @@ Reminders ride the post-execute decision's `additionalContext` (source `{kind: '
 ## Testing
 
 Unit suites drive a real agent loop against a mock adapter (no network) and cover the chain semantics above to per-file 100%. The snapshot tier owns the transcript surface: a scripted-replay scenario repeats a call five times and pins both reminder tiers (gentle at 3, detailed at 5) as `context/message`s in the ACP transcript.
+
+## Known Limitations and Deferred Work
+
+- **Exact-match detection only** — canonicalization is a deep key-sort, so near-identical variants (a tweaked path, extra whitespace inside a value) evade the chain; fuzzy matching is rejected pending evidence of need.
+- **Compaction does not reset chains** — a chain spanning a compaction checkpoint keeps counting.
+- **Advisory only** — escalating to `block` at a high threshold is not implemented, though `PostToolDecision` already supports blocking.
+- **No subagent chain-sharing** — chains stay isolated per agent; a parent and its subagent repeating the same call never combine.
+- **Legitimate idempotent polling still draws nudges** past the thresholds — the pressure valves are `thresholds`/`exclude` config.
+- **Past the highest threshold a chain goes silent** — reminders fire only at exact configured counts, never beyond them.

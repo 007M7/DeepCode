@@ -41,9 +41,13 @@ Merge-extensible: plugins can declare extra fields on `PromptAssembly` and `Asse
 - The `system-prompt/assemble` waterfall: mutate or replace the assembly per caller (dynamic tool filtering, extra variables).
 - `systemPrompt.protect()`: reserve canonical section/tool contributions for invariants that ordinary waterfall listeners must not be able to remove or replace.
 
-### What is NOT here
-
-- Any deployment-authored prompt text outside config — the persona is this plugin's `persona` config, and every other section comes from the plugin that owns the fact. (The `harness:identity` line is deliberately a code literal: a harness fact, not a deployment choice; the `system-prompt/assemble` waterfall is the escape valve for a deployment that must drop it.)
-- Prompt compaction (belongs on the `agent/pre-step` seam in `dsh-agent`).
-
 Design rationale: [the prompt-variables RFC](../../../docs/rfc/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md).
+
+## Known Limitations and Deferred Work
+
+- **No deployment-authored prompt text outside config** — the persona is this plugin's `persona` config, and every other section comes from the plugin that owns the fact. (The `harness:identity` line is deliberately a code literal: a harness fact, not a deployment choice; the `system-prompt/assemble` waterfall is the escape valve for a deployment that must drop it.)
+- **No prompt compaction here** — it belongs on the `agent/pre-step` seam in `dsh-agent` (implemented by `dsh-compact-basic`).
+- **No escape syntax for literal `{{…}}` braces** — every complete group is interpolated against registered variables; an escape is deferred until a real prompt needs one.
+- **`persona` is context-global** — one deployment fragment shared by every agent, subagents included; per-agent personas need a `system-prompt/assemble` listener.
+- **`toolOrder` misconfiguration surfaces at prompt assembly (the first turn), not at boot** — only shape violations throw at config load.
+- **Sections sharing an `order` value tie-break by registration order** — a plugin-load artifact; determinism relies on the distinct-order band convention, unlike the canonicalized tool order.

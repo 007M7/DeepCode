@@ -53,3 +53,8 @@ A `DeepReadonly<SessionEvent>` is high type-noise across every log consumer, and
 ## Seeded sessions
 
 A seeded/forked session arrives with events already in its log (the `Session` constructor copies the seed without emitting `session/event`). On `session/created` the plugin replays the existing log through the checker and freezes those entries, so seeded history is held to the same contract.
+
+## Known Limitations and Deferred Work
+
+- **The request-reconstructability assertion covers loop-built requests only** — hand-built one-shots (e.g. compaction's summarize call) carry no live `sessionId` marker and are skipped.
+- **Merge-extended event families get no family-specific assertions** — `compact/*` lock pairing and `hook/*` invoked/result pairing are not checked here; only the core turn/step/chunk/tool-result contract is.
