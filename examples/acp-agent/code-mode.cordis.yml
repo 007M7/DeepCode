@@ -1,11 +1,12 @@
-# Code Mode RECORD overlay: the live acp-agent tree (./cordis.yml) with two
+# Code Mode overlay: the live acp-agent tree (./cordis.yml) with two
 # load-time patches — the app entry's config gains `tools: { mode: code }`
 # (the registry offers exactly one wire tool, run_code, plus the generated
 # TypeScript SDK prompt section) and the worker-thread code runtime joins the
-# tree as `ctx.codeRuntime`. The dsh-acp-agent bin boots this file when the
-# snapshot harness records the code-mode scenarios; DSH_SNAPSHOT=replay swaps
-# it for the sibling code-mode.cordis.snapshot.yml. A config patch REPLACES
-# the entry's whole config, so the base entry's fields are restated verbatim.
+# tree as `ctx.codeRuntime`. The dsh-acp-agent bin boots this file for
+# `pnpm run demo:acp-code` and when the snapshot harness records the
+# code-mode scenarios; DSH_SNAPSHOT=replay swaps it for the sibling
+# code-mode.cordis.snapshot.yml. A config patch REPLACES the entry's whole
+# config, so the base entry's fields are restated verbatim.
 - id: base
   name: '@cordisjs/plugin-include'
   config:
