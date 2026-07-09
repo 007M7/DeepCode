@@ -80,7 +80,7 @@ class TaskService extends Service {           // ctx.tasks
 }
 ```
 
-`TaskSnapshot` is the read-only projection: id, kind, label, owner session, status, detail, started/finished timestamps, and the `reported` notice-suppression flag (below). `wait` resolves with the terminal snapshot, or with the still-`running` snapshot on timeout; aborting the wait cancels only the wait.
+`TaskSnapshot` is the read-only projection: id, kind, label, owner session, status, detail, started/finished timestamps, and the `reported` notice-suppression flag (below). `wait` resolves with the terminal snapshot, or with the still-`running` snapshot on timeout; aborting the wait cancels only the wait — unless the task already settled, in which case the wait still delivers the terminal snapshot (settlement suppressed the completion notice on this live waiter's behalf, and an aborted waiter un-counts itself synchronously so a same-tick settlement never suppresses a notice nobody will deliver).
 
 **Misconfiguration fails loud**: a deployment that loads a background-capable producer without any control surface would let the model start tasks it can never read or stop — the half-loaded failure mode the subagent RFC's first draft reshaped a whole plugin to avoid. The fence is `attachSurface()`: `dsh-tool-tasks` attaches (effect-scoped) on load, and `start()` throws `background tasks unavailable: no control surface is attached (load @deepseek-ai/dsh-tool-tasks)` when none is attached — the earliest self-contained moment, since concurrent plugin start makes a load-time check racy. The registry stays ignorant of tool names; a deployment with a custom (non-model) surface attaches its own.
 

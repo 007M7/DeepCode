@@ -270,8 +270,12 @@ export class TaskService extends Service {
    * terminal snapshot (marked {@link TaskSnapshot.reported} — the wait
    * response reports the end, so the completion notice is suppressed), or
    * with the still-live snapshot when the timeout expires first. An abort of
-   * `signal` rejects the WAIT only — the task keeps running. Throws for an
-   * unknown id, a task owned by another session, or a non-positive timeout.
+   * `signal` rejects the WAIT only (the task keeps running) — UNLESS the task
+   * has already settled: settlement saw this live waiter and suppressed the
+   * completion notice on its behalf, so the wait still resolves and delivers
+   * the terminal snapshot it owes (an abort must never leave a finished task
+   * both unreported and notice-suppressed). Throws for an unknown id, a task
+   * owned by another session, or a non-positive timeout.
    * @param id - the task to wait for.
    * @param timeoutMs - max wait in milliseconds (positive, finite; the surface caps it).
    * @param caller - the waiting agent, checked against the task's owner.
@@ -286,7 +290,19 @@ export class TaskService extends Service {
     }
     if (!isTerminal(task.status)) {
       if (signal?.aborted) throw new Error('wait aborted')
+      // `waiters` is the settle-path heuristic "someone WILL deliver the
+      // terminal snapshot, suppress the notice". An abort breaks that promise,
+      // so the un-count must happen SYNCHRONOUSLY inside onAbort — the
+      // `finally` decrement alone runs a microtask later, after a same-tick
+      // settlement could already have read the stale count and suppressed the
+      // notice for a waiter that then rejects and delivers nothing.
       task.waiters += 1
+      let counted = true
+      const uncount = (): void => {
+        if (!counted) return
+        counted = false
+        task.waiters -= 1
+      }
       try {
         // The dsh-timeout deadline fits wait() exactly because both only
         // NOTIFY: a wait timeout returns the live snapshot (the task keeps
@@ -296,8 +312,16 @@ export class TaskService extends Service {
         using d = deadline(signal, timeoutMs, TASK_WAIT_TIMEOUT)
         await new Promise<void>((resolve, reject) => {
           const onAbort = (): void => {
-            if (timeoutOf(d.signal, TASK_WAIT_TIMEOUT) !== undefined) resolve()
-            else reject(new Error('wait aborted'))
+            if (timeoutOf(d.signal, TASK_WAIT_TIMEOUT) !== undefined) {
+              resolve()
+            } else if (isTerminal(task.status)) {
+              // Settlement already ran and suppressed the notice for this
+              // waiter — deliver the terminal snapshot instead of rejecting.
+              resolve()
+            } else {
+              uncount()
+              reject(new Error('wait aborted'))
+            }
           }
           d.signal.addEventListener('abort', onAbort, { once: true })
           void task.settled.then(() => {
@@ -306,7 +330,7 @@ export class TaskService extends Service {
           })
         })
       } finally {
-        task.waiters -= 1
+        uncount()
       }
     }
     if (isTerminal(task.status)) task.reported = true

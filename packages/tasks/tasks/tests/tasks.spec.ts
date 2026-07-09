@@ -268,6 +268,49 @@ describe('TaskService.wait', () => {
     preAborted.abort()
     await expect(ctx.tasks.wait(id, 5_000, undefined, preAborted.signal)).rejects.toThrow('wait aborted')
   })
+
+  it('an abort racing settlement in the same tick does not swallow the notice (review finding)', async () => {
+    const ctx = await harness()
+    const seen: TaskSnapshot[] = []
+    ctx.tasks.onTaskDone(snapshot => void seen.push(snapshot))
+    const p = producer()
+    const id = ctx.tasks.start(p.spec)
+
+    const controller = new AbortController()
+    const wait = ctx.tasks.wait(id, 5_000, undefined, controller.signal)
+    // Same synchronous tick, settlement QUEUED first: the settle continuation
+    // will run before the rejected wait's `finally`, so only the SYNCHRONOUS
+    // un-count inside onAbort keeps it from reading a stale waiter count,
+    // marking the task reported, and suppressing the completion notice for a
+    // wait that then delivers nothing.
+    p.settle({ status: 'completed', detail: 'exit code: 0' })
+    controller.abort()
+    await expect(wait).rejects.toThrow('wait aborted')
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ id, status: 'completed', reported: false })
+  })
+
+  it('an abort landing AFTER settlement still delivers the terminal snapshot it owes', async () => {
+    const ctx = await harness()
+    const controller = new AbortController()
+    const seen: TaskSnapshot[] = []
+    // The listener runs synchronously inside settle — aborting HERE lands the
+    // abort after settlement marked this waiter reported (notice suppressed)
+    // but before the wait's own resolve microtask. Rejecting now would leave
+    // the finished task both unreported and notice-suppressed, so the wait
+    // must resolve and deliver instead.
+    ctx.tasks.onTaskDone((snapshot) => {
+      seen.push(snapshot)
+      controller.abort()
+    })
+    const p = producer()
+    const id = ctx.tasks.start(p.spec)
+
+    const wait = ctx.tasks.wait(id, 5_000, undefined, controller.signal)
+    p.settle({ status: 'completed', detail: 'exit code: 0' })
+    await expect(wait).resolves.toMatchObject({ status: 'completed', reported: true })
+    expect(seen[0]).toMatchObject({ id, reported: true }) // suppression stays honest: the wait delivered
+  })
 })
 
 describe('TaskService owner isolation', () => {
