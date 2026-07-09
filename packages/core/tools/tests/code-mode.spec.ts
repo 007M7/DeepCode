@@ -461,10 +461,17 @@ describe('the run_code dispatch bridge', () => {
       isError: false,
       meta: { logs: [{ source: 'console', level: 'log', text: 'printed' }], dispatches: 1 },
     })
-    expect(view).toEqual({ card: 'generic', title: 'Run code (1 tool call)', content: [{ type: 'text', text: 'printed' }] })
-    // Plural title, and no content when the program printed nothing.
+    // The result re-carries the fenced program before the output: the ACP
+    // update's content REPLACES the pending card's, so omitting it would
+    // wipe the code from the card the moment the run completes.
+    expect(view).toEqual({
+      card: 'generic',
+      title: 'Run code (1 tool call)',
+      content: [{ type: 'text', text: '```ts\nreturn 1\n```' }, { type: 'text', text: 'printed' }],
+    })
+    // Plural title, and the program alone when it printed nothing.
     expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { logs: [], dispatches: 2 } }))
-      .toEqual({ card: 'generic', title: 'Run code (2 tool calls)' })
+      .toEqual({ card: 'generic', title: 'Run code (2 tool calls)', content: [{ type: 'text', text: '```ts\nx\n```' }] })
     // Replay with an unrecognizable meta falls back to the generic rendering.
     expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { other: true } })).toBeUndefined()
     expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false })).toBeUndefined()

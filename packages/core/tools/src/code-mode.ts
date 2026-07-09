@@ -136,6 +136,15 @@ function asRunCodeMeta(meta: unknown): RunCodeMeta | undefined {
 }
 
 /**
+ * Render a program as the markdown block the tool-call cards carry.
+ * @param code - the program text.
+ * @returns the ts-fenced markdown block.
+ */
+function fencedProgram(code: string): string {
+  return `\`\`\`ts\n${code}\n\`\`\``
+}
+
+/**
  * Build the `run_code` {@link ToolDefinition}: one required `code` parameter,
  * executed through the dispatch bridge described in the module doc. The
  * registry registers it under non-native modes.
@@ -289,25 +298,32 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
         exec.signal?.removeEventListener('abort', onOuterAbort)
       }
     },
-    // The program IS the call: surface it as an always-visible fenced block in
-    // the card body (rawInput alone lands in detail/expanded views many
-    // clients never open). Fence collisions are impossible to break rendering
-    // — a backtick run inside the program at worst ends the block early.
+    // The program IS the call: surface it as a fenced block in the card body
+    // (rawInput alone lands in detail/expanded views many clients never
+    // open). Fence collisions are impossible to break rendering — a backtick
+    // run inside the program at worst ends the block early.
     presentCall: args => ({
       card: 'generic',
       title: 'Run code',
       kind: 'execute',
       rawInput: args.code,
-      content: [{ type: 'text', text: `\`\`\`ts\n${args.code}\n\`\`\`` }],
+      content: [{ type: 'text', text: fencedProgram(args.code) }],
     }),
-    presentResult: (_args, result) => {
+    // The result re-carries the program BEFORE the captured output: an ACP
+    // tool_call_update's `content` REPLACES the pending card's (clients
+    // truncate to the new list), so a result without the program would wipe
+    // it the moment the run completes.
+    presentResult: (args, result) => {
       const meta = asRunCodeMeta(result.meta)
       if (!meta) return undefined
       const output = meta.logs.map(entry => entry.text).join('\n')
       return {
         card: 'generic',
         title: `Run code (${meta.dispatches} tool call${meta.dispatches === 1 ? '' : 's'})`,
-        ...output.length > 0 ? { content: [{ type: 'text', text: output }] } : {},
+        content: [
+          { type: 'text', text: fencedProgram(args.code) },
+          ...output.length > 0 ? [{ type: 'text' as const, text: output }] : [],
+        ],
       }
     },
   })
