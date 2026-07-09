@@ -204,11 +204,13 @@ describe('config validation', () => {
 })
 
 describe('command construction (shell-safe)', () => {
-  it('glob: fixed rg --files template with quoted pattern and VCS excludes', () => {
+  it('glob: fixed rg --files template with quoted pattern and paired VCS excludes', () => {
     const command = buildGlobCommand({ pattern: '**/*.ts' })
     expect(command).toBe(
       "rg --files --glob='**/*.ts' --sort=modified --no-ignore --hidden "
-      + "--glob='!**/.git' --glob='!**/.svn' --glob='!**/.hg' --glob='!**/.bzr' --glob='!**/.jj' --glob='!**/.sl'",
+      + "--glob='!**/.git' --glob='!**/.git/**' --glob='!**/.svn' --glob='!**/.svn/**' "
+      + "--glob='!**/.hg' --glob='!**/.hg/**' --glob='!**/.bzr' --glob='!**/.bzr/**' "
+      + "--glob='!**/.jj' --glob='!**/.jj/**' --glob='!**/.sl' --glob='!**/.sl/**'",
     )
   })
 

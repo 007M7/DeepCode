@@ -87,6 +87,12 @@ describe.skipIf(!hasRg)('search tools over the real bash executor + real rg', ()
       expect(text(await call('glob', { pattern: '*.nomatch' }))).toBe('No files found')
     })
 
+    it('excludes VCS internals even when the search root IS the VCS directory', async () => {
+      // The prune glob alone never matches root-prefixed paths when rg is
+      // rooted at .git; the paired contents glob keeps the exclusion airtight.
+      expect(text(await call('glob', { pattern: '*', path: '.git' }))).toBe('No files found')
+    })
+
     it('classifies an invalid glob as SEARCH_INVALID_PATTERN', async () => {
       const result = await call('glob', { pattern: '[' })
       expect(result.isError).toBe(true)
