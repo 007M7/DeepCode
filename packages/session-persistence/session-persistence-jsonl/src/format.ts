@@ -27,7 +27,11 @@ export interface HeaderLine {
   seedLength?: number
 }
 
-/** Build the header line object from a {@link SessionHeader}. */
+/**
+ * Build the header line object from a {@link SessionHeader}.
+ * @param header - the immutable session metadata to serialize.
+ * @returns the `type: 'session'`-tagged line object, absent optional fields omitted (never null).
+ */
 export function toHeaderLine(header: SessionHeader): HeaderLine {
   return {
     type: 'session',
@@ -40,7 +44,11 @@ export function toHeaderLine(header: SessionHeader): HeaderLine {
   }
 }
 
-/** Parse a header line back into a {@link SessionHeader}. */
+/**
+ * Parse a header line back into a {@link SessionHeader}.
+ * @param line - the shape-checked first line of a log (see the `isHeaderLine` guard).
+ * @returns the header, absent optional fields omitted.
+ */
 export function fromHeaderLine(line: HeaderLine): SessionHeader {
   return {
     version: line.version,
@@ -77,6 +85,8 @@ function isHeaderLine(value: unknown): value is HeaderLine {
  * `Buffer.from(…, 'utf8')` would do, breaking injectivity). `.` is in the safe
  * set for readability but the whole-segment tokens `.`/`..` are escaped so they
  * can never traverse.
+ * @param raw - the string to encode; must be non-empty (throws on `''`).
+ * @returns the escaped single path segment, decodable back to `raw`.
  */
 export function encodeSegment(raw: string): string {
   if (raw.length === 0) throw new Error('cannot encode an empty path segment')
@@ -97,9 +107,12 @@ export function encodeSegment(raw: string): string {
 
 /**
  * The directory a session's files live in: the configured root, then a per-cwd
- * subdirectory so sessions group by project. The cwd subdir is a stable hash
- * (short, collision-resistant, filesystem-safe) plus an encoded suffix for
- * readability; sessions without a cwd go in a shared `_no-cwd` bucket.
+ * subdirectory so sessions group by project. The cwd subdir is a stable hash of
+ * the cwd (short, collision-resistant, filesystem-safe); sessions without a
+ * cwd go in a shared `_no-cwd` bucket.
+ * @param root - the backend's session root directory.
+ * @param cwd - the session's project directory; `undefined` selects the shared `_no-cwd` bucket.
+ * @returns the per-cwd bucket directory path under `root`.
  */
 export function sessionDir(root: string, cwd: string | undefined): string {
   if (cwd === undefined) return join(root, '_no-cwd')
@@ -107,12 +120,22 @@ export function sessionDir(root: string, cwd: string | undefined): string {
   return join(root, `cwd-${hash}`)
 }
 
-/** The append-only event-log file path for a session. */
+/**
+ * The append-only event-log file path for a session.
+ * @param root - the backend's session root directory.
+ * @param cwd - the session's project directory (picks the per-cwd bucket; `undefined` → `_no-cwd`).
+ * @param id - the session id, path-encoded via {@link encodeSegment} before filesystem use.
+ * @returns the session's `.jsonl` log file path.
+ */
 export function logPath(root: string, cwd: string | undefined, id: SessionId): string {
   return join(sessionDir(root, cwd), `${encodeSegment(id)}.jsonl`)
 }
 
-/** Serialize one event as a JSONL line (no trailing newline). */
+/**
+ * Serialize one event as a JSONL line (no trailing newline).
+ * @param event - the event to serialize verbatim.
+ * @returns the event's single-line JSON text; the writer adds the newline.
+ */
 export function eventLine(event: SessionEvent): string {
   return JSON.stringify(event)
 }
@@ -135,6 +158,9 @@ export function eventLine(event: SessionEvent): string {
  * This relies on the session-log invariant that every event lives inside a turn
  * (`Session.append` enforces it): only the final turn can be open, so the
  * preserved tail is at most one unclosed turn.
+ * @param buffer - the raw bytes of the log file (header line first).
+ * @returns the header, the preserved event prefix, and `committedBytes` — the
+ *   byte offset the next append truncates any torn tail to.
  */
 export function scanLog(buffer: Buffer): { meta: SessionHeader; events: SessionEvent[]; committedBytes: number } {
   const text = buffer.toString('utf8')
@@ -239,6 +265,8 @@ export function scanLog(buffer: Buffer): { meta: SessionHeader; events: SessionE
  * `undefined` if it is missing/not a header. Used by `list()` to read session
  * metadata WITHOUT parsing the whole log: a session picker scales with the
  * number of sessions, not the total size of every conversation.
+ * @param firstLine - the first line of a log file (without its trailing newline).
+ * @returns the parsed header, or `undefined` when the line is not a well-formed session header.
  */
 export function parseHeaderMeta(firstLine: string): SessionHeader | undefined {
   let parsed: unknown

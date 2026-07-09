@@ -8,11 +8,13 @@
 
 import { Context, Service } from 'cordis'
 import { isAbsolute } from 'node:path'
+import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { CreateSessionOptions, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { isJsonValue } from './json.ts'
 import { SurfaceManager, isSurfaceEligibleType } from './surface.ts'
+import { foldRequestHeader } from './request-header.ts'
 
 export * from './types.ts'
 export { isJsonValue } from './json.ts'
@@ -21,6 +23,7 @@ export { interruptedTurnClosers } from './repair.ts'
 export type { SurfaceNode } from './surface.ts'
 export { isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { isToolPairingBalanced } from './tool-pairing.ts'
+export { applyHeaderDelta, canonicalHeader, diffHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -150,10 +153,15 @@ export class Session {
     this.header = header ?? { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now() }
   }
 
+  /**
+   * The append-only event log, exposed live by reference (readonly-typed, not
+   * a snapshot): later appends are visible through the same array.
+   */
   get events(): readonly SessionEvent[] {
     return this.log
   }
 
+  /** The next event's sequence number — always the log length (the `seq = log.length` contiguity contract). */
   get seq(): number {
     return this.log.length
   }
@@ -172,6 +180,9 @@ export class Session {
    *   declare how it joins the surface, the sole source of derived history) and
    *   rejected by the compiler for non-surface types like `turn/start` or
    *   `assistant/chunk`.
+   * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of
+   *   `data` that entered the log, so reading `event.data` back sees the logged
+   *   value, never the caller's still-mutable input.
    * @throws if `data` is not losslessly JSON-serializable (BigInt, function,
    *   symbol, undefined, non-finite number, circular ref, or an exotic object
    *   like Map/Set/Date). The event log is the durable source of truth, so this
@@ -234,53 +245,93 @@ export class Session {
     return event
   }
 
+  /** Cached fold of the request-header events — see {@link requestHeader}. */
+  private headerFold: EpochHeader | undefined
+  /** Log position (events consumed) the header fold has reached. */
+  private headerFoldSeq = 0
+
+  /**
+   * The {@link EpochHeader} in force after the log's last header event — the
+   * header the NEXT request will be compared against — or undefined before
+   * the first `request/header` snapshot. The live, incrementally-maintained
+   * form of `foldRequestHeader(session.events)`: each header event is folded
+   * once, when first seen, so a per-step read costs O(new events).
+   * @returns the folded header, or undefined when no header event exists yet.
+   */
+  requestHeader(): EpochHeader | undefined {
+    if (this.headerFoldSeq < this.log.length) {
+      // Frozen on update: the fold is session state exposed by reference — a
+      // consumer mutating it in place (instead of building a replacement)
+      // would desync every later comparison against the log, so mutation
+      // throws instead.
+      this.headerFold = deepFreeze(foldRequestHeader(this.log.slice(this.headerFoldSeq), this.headerFold))
+      this.headerFoldSeq = this.log.length
+    }
+    return this.headerFold
+  }
+
+  /** The derived-message cache: frozen projections, extended per unseen node. */
+  private derived: Message[] = []
+  /** Surface position (nodes projected) the cache has reached. */
+  private derivedNodes = 0
+  /** {@link SurfaceManager.replaceGeneration} the cache was built under. */
+  private derivedGeneration = 0
+
   /**
    * Derive the LLM message history by walking the session surface — the linked
    * list of message-producing events maintained by `surfaceOp` markers. The
    * surface is the single source of derived history: every message-producing
    * append records its `surfaceOp`, so a raw event with no marker (a chunk, a
    * turn boundary) is correctly absent, and a compaction `replace` deletes the
-   * shadowed nodes from the derivation.
+   * shadowed nodes from the derivation. The projection rules are
+   * {@link deriveEventMessage}, folded per node.
    *
-   * - `user/message` → user message
-   * - `assistant/message` → assistant message (chunks are skipped — they are
-   *   replay/UI data; the assembled message is authoritative for history). An
-   *   EMPTY-content assistant/message is skipped: a max-tokens step cut off with
-   *   no content still records an assistant/message to host its `usage`, but a
-   *   content-less assistant turn must not enter the provider transcript.
-   * - `tool/result` → user message carrying a tool-result block
-   * - `context/message` / `steering/message` → tagged synthetic user messages
-   *   at their chronological position
-   *
-   * The returned `content` is **deep-cloned** off the logged events: the loop
-   * hands these messages into the mutable `agent/request` waterfall and on to
-   * adapters, where mutating the request is sanctioned — but the session log
-   * is append-only by contract. Cloning at this boundary keeps in-flight
-   * mutation from reaching back and rewriting history (which would silently
-   * break replay equivalence). Cost is one structured clone per step,
-   * negligible next to a model call.
+   * CACHED: each surface node is projected exactly once, when first seen — a
+   * call costs O(new nodes), and a surface rewrite (a `replace`;
+   * {@link SurfaceManager.replaceGeneration}) rebuilds. The returned array is
+   * a fresh snapshot per call (later appends never grow an array a caller
+   * already holds); the `Message` objects in it are SHARED and **deep-frozen**
+   * — cloned once off the log at projection time, so consumers can never
+   * mutate logged data, and mutation attempts throw instead of silently
+   * diverging replay from history.
+   * @returns a fresh array of the shared, frozen derived history.
    */
   deriveMessages(): Message[] {
-    const messages: Message[] = []
-    for (const node of this.surface.nodes) {
+    const nodes = this.surface.nodes
+    const generation = this.surface.replaceGeneration
+    if (generation !== this.derivedGeneration) {
+      this.derived = []
+      this.derivedNodes = 0
+      this.derivedGeneration = generation
+    }
+    for (const node of nodes.slice(this.derivedNodes)) {
       // Surface nodes are built from this.log — node.seq is always a valid
       // index by construction. The non-null assertion expresses that invariant.
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const msg = this._deriveOneMessage(this.log[node.seq]!)
+      const msg = this.deriveEventMessage(this.log[node.seq]!)
       // A surface node is one of the five message-producing types, but an
       // empty-content assistant/message (a max-tokens step that hosts only
       // usage) derives to null and must not enter the transcript.
-      if (msg) messages.push(msg)
+      if (msg) this.derived.push(deepFreeze(msg))
     }
-    return messages
+    this.derivedNodes = nodes.length
+    return [...this.derived]
   }
 
   /**
-   * Derive a single LLM message from one surface event, or null if it produces
-   * no message (an empty-content assistant/message that exists only to host
-   * usage).
+   * Project a single event into the LLM message it derives to, or null when
+   * it produces none — a non-surface event (chunk, boundary, log-only record)
+   * or an empty-content assistant/message (which exists only to host usage).
+   * The per-node pure function {@link deriveMessages} folds over the surface;
+   * an external reconstructor (or the dev invariant) folds the same function
+   * over a log prefix's surface to rebuild the exact messages any request was
+   * built from (the reconstructability RFC). The returned `content` is
+   * deep-cloned off the logged event: the log is append-only by contract, so
+   * no live reference to logged data leaves this boundary.
+   * @param event - the event to project.
+   * @returns the derived message, or null when the event produces none.
    */
-  private _deriveOneMessage(event: SessionEvent): Message | null {
+  deriveEventMessage(event: SessionEvent): Message | null {
     // Intentionally non-exhaustive: only message-producing events derive
     // history; turn/step boundaries, chunks, usage, and errors are
     // trace/replay data.
@@ -311,10 +362,37 @@ export class Session {
         const { content, source } = event.data
         return { role: 'user', content: renderTagged('steering', structuredClone(content), source) }
       }
-      /* v8 ignore next 2 -- unreachable: only surface nodes (the 5 message-producing types) reach here */
       default:
+        // A non-surface event (boundary, chunk, log-only record) projects to
+        // no message. Merge-extensible union: no assertNever here.
         return null
     }
+  }
+}
+
+/** A fork source: either the live session object or its live store id. */
+export type SessionForkSource = Session | SessionId
+
+/**
+ * Rejection codes for session forking: the fork source id is unknown to the
+ * live store (`SESSION_NOT_FOUND`) or names a session object that is not the
+ * store's live instance (`SESSION_NOT_LIVE`); the requested child id is
+ * already taken (`SESSION_ALREADY_EXISTS`); the boundary is not a contiguous
+ * existing seq (`INVALID_BOUNDARY`); or the boundary event is not a
+ * `turn/end` — a fork must cut on a closed turn (`OPEN_TURN`).
+ */
+export type SessionForkErrorCode =
+  | 'SESSION_NOT_FOUND'
+  | 'SESSION_NOT_LIVE'
+  | 'SESSION_ALREADY_EXISTS'
+  | 'INVALID_BOUNDARY'
+  | 'OPEN_TURN'
+
+/** Typed error for session fork rejections. */
+export class SessionForkError extends Error {
+  constructor(message: string, public readonly code: SessionForkErrorCode) {
+    super(message)
+    this.name = 'SessionForkError'
   }
 }
 
@@ -452,6 +530,92 @@ export class SessionStore extends Service {
   list(): Session[] {
     return [...this.store.values()]
   }
+
+  /**
+   * Create a live child session from a turn-enclosed prefix of a live source.
+   * `boundary` is an inclusive source event seq; omitted means the source's
+   * current last event. A non-empty selected slice must end at `turn/end`.
+   *
+   * @param source - Live source session object or id.
+   * @param boundary - Inclusive source event seq to fork through; omitted means
+   *   the source's current last event, and omitted on an empty source forks an
+   *   empty child.
+   * @param childSessionId - Optional child session id; omitted delegates to
+   *   `SessionStore`'s id policy.
+   * @returns The created live child session.
+   */
+  fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session {
+    if (childSessionId !== undefined && this.get(childSessionId) !== undefined) {
+      throw new SessionForkError(`session "${childSessionId}" already exists`, 'SESSION_ALREADY_EXISTS')
+    }
+    const liveSource = this._resolveForkSource(source)
+    const seed = this._forkSeed(liveSource, boundary)
+    return this.create(childSessionId, {
+      seed,
+      meta: {
+        ...liveSource.header.cwd !== undefined ? { cwd: liveSource.header.cwd } : {},
+        parentSession: liveSource.id,
+        seedLength: seed.length,
+      },
+    })
+  }
+
+  private _forkSeed(session: Session, requestedBoundary: number | undefined): SessionEvent[] {
+    const events = session.events
+    const lastEvent = events.at(-1)
+    let boundary: number
+    if (requestedBoundary !== undefined) {
+      boundary = requestedBoundary
+    } else {
+      if (lastEvent === undefined) return []
+      boundary = lastEvent.seq
+    }
+    if (!Number.isSafeInteger(boundary) || boundary < 0) {
+      throw new SessionForkError(
+        `fork boundary for session "${session.id}" must be a non-negative safe integer, got ${String(boundary)}`,
+        'INVALID_BOUNDARY',
+      )
+    }
+    if (boundary >= events.length) {
+      const lastSeq = events.at(-1)?.seq
+      throw new SessionForkError(
+        `fork boundary ${boundary} does not exist in session "${session.id}" (last seq: ${lastSeq ?? 'none'})`,
+        'INVALID_BOUNDARY',
+      )
+    }
+
+    const boundaryEvent = events[boundary]
+    if (boundaryEvent === undefined || boundaryEvent.seq !== boundary) {
+      throw new SessionForkError(
+        `fork boundary ${boundary} does not match a contiguous event seq in session "${session.id}"`,
+        'INVALID_BOUNDARY',
+      )
+    }
+    if (boundaryEvent.type !== 'turn/end') {
+      throw new SessionForkError(
+        `fork boundary ${boundary} in session "${session.id}" must be turn/end, got ${boundaryEvent.type}`,
+        'OPEN_TURN',
+      )
+    }
+
+    return events.slice(0, boundary + 1).map(event => structuredClone(event))
+  }
+
+  private _resolveForkSource(source: SessionForkSource): Session {
+    if (typeof source === 'string') {
+      const session = this.get(source)
+      if (session === undefined) throw new SessionForkError(`session "${source}" not found`, 'SESSION_NOT_FOUND')
+      return session
+    }
+
+    const live = this.get(source.id)
+    if (live === undefined) {
+      throw new SessionForkError(`session "${source.id}" not found`, 'SESSION_NOT_FOUND')
+    }
+    if (live !== source) throw new SessionForkError(`session "${source.id}" is not the live store instance`, 'SESSION_NOT_LIVE')
+    return source
+  }
+
 }
 
 export default SessionStore

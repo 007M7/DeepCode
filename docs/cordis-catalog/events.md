@@ -23,7 +23,7 @@ An agent was registered in the AgentRegistry and is ready to receive messages.
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:248`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:264`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -35,7 +35,7 @@ An agent was disposed and removed from the registry; its fiber and any in-flight
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:255`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:271`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -47,7 +47,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:394`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:420`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -61,7 +61,7 @@ Serial (awaited in registration order), not a waterfall: a listener mutates the 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:333`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:349`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -73,7 +73,7 @@ Waterfall: decide what happens to ONE drained queued message before it becomes a
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:346`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:362`](../../packages/core/agent/src/types.ts)
 
 ### `agent/queued` — emit
 
@@ -85,19 +85,19 @@ A message entered the agent's inbox (queued or steering). `source` is the resolv
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:273`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:289`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
-Waterfall: mutate the fully-assembled GenerateOptions before the model call (hooks, model switching, tool filtering, …). Call `next()` to delegate, or return without it to short-circuit. For surface mutation that must precede history derivation (compaction), use agent/pre-step instead — by the time this fires, `options.messages` is already derived.
+Waterfall: shape the step's call configuration — model switching, sampling overrides — by returning a replacement LlmCallConfig (the frozen seed is the config the loop would otherwise use). Config is ALL a listener shapes here: every request is a pure function of the session log (the reconstructability RFC), so model-visible content flows through the log channels — `inject()`, steering, prompt-submit `additionalContext`, prompt sections via `system-prompt/assemble` — never through request mutation, and the loop records whatever config the request actually uses as a `request/header*` event before dispatch. The step's messages are already snapshotted when this fires (the `step/start` boundary): an `inject()` from a listener here lands in the log but joins the NEXT request. For surface mutation that must precede the snapshot (compaction), use agent/pre-step. Call `next()` to delegate, or return an LlmCallConfig without it to short-circuit.
 
 ```ts cordis-catalog
-'agent/request'(agent: Agent, turn: number, step: number, options: GenerateOptions, next: () => Promise<GenerateOptions>): Promise<GenerateOptions>
+'agent/request'(agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:359`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:385`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -109,7 +109,7 @@ The agent's session lifecycle began, fired once before its first turn. `source` 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:288`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:304`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -121,7 +121,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). Drive lifecycle 
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:264`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:280`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step-result` — waterfall
 
@@ -133,7 +133,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:369`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:395`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -145,7 +145,7 @@ Waterfall: override the turn-continuation decision via a typed ContinuationDecis
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:382`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:408`](../../packages/core/agent/src/types.ts)
 
 ## `fs/*`
 
@@ -189,7 +189,7 @@ Source: [`packages/fs/fs/src/index.ts:109`](../../packages/fs/fs/src/index.ts)
 
 ### `llm/stream` — waterfall
 
-Waterfall around every streaming model call (retry, caching, routing). Bound to the LlmService; call `next()` to reach the resolved adapter's stream, or yield your own chunks to short-circuit.
+Waterfall around every streaming model call (retry, replay, routing). Bound to the LlmService; call `next()` to reach the resolved adapter's stream, or yield your own chunks to short-circuit.
 
 ```ts cordis-catalog
 'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
@@ -197,7 +197,7 @@ Waterfall around every streaming model call (retry, caching, routing). Bound to 
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:33`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:39`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 
@@ -209,7 +209,7 @@ A session was created in the store.
 'session/created'(session: Session): void
 ```
 
-Source: [`packages/core/session/src/index.ts:36`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:39`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
@@ -221,7 +221,7 @@ An event was appended to a session log (sync, fire-and-forget). This is the per-
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:44`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:47`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -231,7 +231,7 @@ Awaited durability checkpoint. The agent loop awaits `ctx.parallel('session/flus
 'session/flush'(session: Session): Promise<void> | void
 ```
 
-Source: [`packages/core/session/src/index.ts:54`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:57`](../../packages/core/session/src/index.ts)
 
 ## `subagent/*`
 
@@ -307,11 +307,23 @@ A tool was registered or unregistered (the available tool set changed).
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:87`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:118`](../../packages/core/tools/src/index.ts)
+
+### `tools/execute` — waterfall
+
+Around-dispatch waterfall wrapping the registry's core tool dispatch, between the `tools/pre-execute` gate and the `tools/post-execute` seam. A listener receives `(exec, next)`: call `next()` to delegate to dispatch (returning its ToolExecutionResult, optionally wrapped), or return a replacement result without calling `next()` to short-circuit dispatch. The base `next()` IS the dispatch-with-normalization thunk — a thrown tool (or unknown tool) is already normalized to an `isError` result by the time a listener's `await next()` returns, so a wrapper never sees a raw throw from the tool body. This is the seam a timeout/retry/metrics plugin wraps: it can mutate `exec` (e.g. replace `exec.signal` with a per-call deadline) BEFORE `next()` and inspect the result AFTER. (Cordis `next()` ignores any passed arguments and re-invokes downstream with the shared payload, so a wrapper mutates `exec` in place rather than passing a new object to `next()`.) Multiple listeners compose by registration order — an outer one wraps the inner ones plus dispatch.
+
+```ts cordis-catalog
+'tools/execute'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
+```
+
+Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
+
+Source: [`packages/core/tools/src/index.ts:97`](../../packages/core/tools/src/index.ts)
 
 ### `tools/post-execute` — waterfall
 
-Waterfall AFTER a tool runs — where hook plugins inspect the result and accept it (optionally REPLACING the model-facing content, and/or attaching `additionalContext` for the next request) or block it with corrective `feedback` (Claude Code's `PostToolUse`). Listeners receive `(exec, result, next)`: call `next()` to delegate to the default (accept unchanged), or return a PostToolDecision to override. The core tool dispatch sits between the two waterfalls as plain code, all inside `execute`'s outer try/catch (and the tool body keeps its own inner try/catch, so a thrown tool still reaches `post-execute` as an `isError` result).
+Waterfall AFTER a tool runs — where hook plugins inspect the result and accept it (optionally REPLACING the model-facing content, and/or attaching `additionalContext` for the next request) or block it with corrective `feedback` (Claude Code's `PostToolUse`). Listeners receive `(exec, result, next)`: call `next()` to delegate to the default (accept unchanged), or return a PostToolDecision to override. Core tool dispatch runs earlier as the base `next()` of the `tools/execute` waterfall, all inside `execute`'s outer try/catch (and the tool body keeps its own inner try/catch, so a thrown tool still reaches `post-execute` as an `isError` result).
 
 ```ts cordis-catalog
 'tools/post-execute'(this: ToolRegistry, exec: ToolExecution, result: ToolExecutionResult, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
@@ -319,7 +331,7 @@ Waterfall AFTER a tool runs — where hook plugins inspect the result and accept
 
 Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:82`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:113`](../../packages/core/tools/src/index.ts)
 
 ### `tools/pre-execute` — waterfall
 
@@ -331,7 +343,7 @@ Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook pl
 
 Types: [ToolExecution](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:66`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:77`](../../packages/core/tools/src/index.ts)
 
 ## Inherited events (cordis core + loader/hmr/timer)
 

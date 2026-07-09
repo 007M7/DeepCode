@@ -11,7 +11,11 @@ import type { Branded } from '@deepseek-ai/dsh-brand'
 /** Identifies one background task within an executor (generated `bash-N`). */
 export type BashTaskId = Branded<'BashTaskId'>
 
-/** Brand a string as a {@link BashTaskId}. */
+/**
+ * Brand a string as a {@link BashTaskId}.
+ * @param id - the raw task-id string (the executor generates `bash-N`).
+ * @returns the same string, branded; no validation is performed.
+ */
 export function BashTaskId(id: string): BashTaskId {
   return id as BashTaskId
 }
@@ -26,7 +30,12 @@ export function BashTaskId(id: string): BashTaskId {
  */
 export type OwnerToken = Branded<'OwnerToken'>
 
-/** Brand a string as an {@link OwnerToken}. */
+/**
+ * Brand a string as an {@link OwnerToken}. Only the consuming boundary
+ * (`dsh-tool-bash`) should cast its own id vocabulary in — see the type's doc.
+ * @param id - the consumer's raw owner identity (the tool layer passes the owning agent's session id).
+ * @returns the same string, branded; no validation is performed.
+ */
 export function OwnerToken(id: string): OwnerToken {
   return id as OwnerToken
 }

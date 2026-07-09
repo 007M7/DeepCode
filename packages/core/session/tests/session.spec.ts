@@ -61,8 +61,10 @@ describe('Session', () => {
 
   it('replays identically from a seeded event log', () => {
     const original = new Session(SessionId('s3'))
+    original.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     original.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     original.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'a' }] }, { surfaceOp: 'append' })
+    original.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 
     const replayed = new Session(SessionId('s3-replay'), [...original.events])
     expect(replayed.deriveMessages()).toEqual(original.deriveMessages())
@@ -78,19 +80,25 @@ describe('Session', () => {
     }, { surfaceOp: 'append' })
     const before = structuredClone(session.events)
 
-    // A request middleware / adapter mutates the messages it was handed.
+    // A misbehaving consumer tries to mutate the messages it was handed.
+    // Derived messages are frozen shared projections (cloned once off the
+    // log, then deep-frozen): every mutation attempt THROWS in strict mode —
+    // isolation by unrepresentability, not by per-call cloning.
     const messages = session.deriveMessages()
     const userBlock = messages[0]!.content[0]!
-    if (userBlock.type === 'text') userBlock.text = 'HACKED'
+    expect(() => { if (userBlock.type === 'text') userBlock.text = 'HACKED' }).toThrow(TypeError)
     const toolBlock = messages[1]!.content[0]!
-    if (toolBlock.type === 'tool-result') {
-      toolBlock.content.push({ type: 'text', text: 'injected' })
-    }
-    messages[0]!.content.push({ type: 'text', text: 'extra' })
+    expect(() => {
+      if (toolBlock.type === 'tool-result') toolBlock.content.push({ type: 'text', text: 'injected' })
+    }).toThrow(TypeError)
+    expect(() => { messages[0]!.content.push({ type: 'text', text: 'extra' }) }).toThrow(TypeError)
+    // The returned ARRAY is the caller's own snapshot, though — reordering it
+    // is the caller's business and never reaches the cache or the log.
+    messages.reverse()
 
     // The log is unchanged: deep-equal to the snapshot taken before mutation.
     expect(session.events).toEqual(before)
-    // And a fresh derivation still reflects the original content.
+    // And a fresh derivation still reflects the original content and order.
     expect(session.deriveMessages()[0]!.content).toEqual([{ type: 'text', text: 'original' }])
   })
 
@@ -417,7 +425,9 @@ describe('todo/write event', () => {
 
   it('round-trips through a seeded replay identically (durable, no surfaceOp needed)', () => {
     const original = new Session(SessionId('t4'))
+    original.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     original.append('todo/write', { todos: [{ content: 'only', status: 'completed' }] })
+    original.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     // Seeding a non-surface event with no surfaceOp must not throw.
     const replayed = new Session(SessionId('t4-replay'), [...original.events])
     expect(replayed.events.findLast(e => e.type === 'todo/write')!.data.todos)

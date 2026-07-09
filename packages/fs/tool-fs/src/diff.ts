@@ -40,6 +40,10 @@ export type FsDiffMeta = { diffs: FileDiff[] }
  * (a pure insertion) reports `oldText: null` (nothing to diff against), mirroring
  * the call-time card's new-file convention. The unified-diff "\ No newline at end
  * of file" markers are dropped — they annotate the patch, not file content.
+ * @param path - the path stamped on every produced diff (the model-facing `file_path`; the bridge relativizes it).
+ * @param before - the file text before the change (the backend's LF-normalized diff basis).
+ * @param after - the file text after the change, on the same basis.
+ * @returns one diff per applied hunk, in file order; empty when the texts are identical.
  */
 export function computeHunkDiffs(path: string, before: string, after: string): FileDiff[] {
   const patch = structuredPatch('', '', before, after, undefined, undefined, { context: DIFF_CONTEXT })
@@ -83,6 +87,8 @@ function isFileDiff(value: unknown): value is FileDiff {
  * it validates defensively rather than trusting the payload — a bad `meta` yields
  * `undefined`, and the caller decides the fallback (edit → the generic result
  * rendering; write → an args-derived whole-file diff), never a thrown presenter.
+ * @param meta - the opaque `tool/result` meta payload (live or replayed from the session log).
+ * @returns the validated non-empty hunk list, or undefined for an absent/empty/malformed payload.
  */
 export function diffsFromMeta(meta: unknown): FileDiff[] | undefined {
   if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return undefined

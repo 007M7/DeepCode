@@ -4,7 +4,7 @@
  * This is the relationship layer above the existing catalogs:
  * - module-graph.md answers "which packages depend on which packages?"
  * - cordis-catalog/ answers "which events and services exist?"
- * - tool-catalog/ answers "which tools does the model see?"
+ * - tool-catalog.md answers "which tools does the model see?"
  * - generated relationship diagrams answer "how do those pieces fit together?"
  *
  * Generated pages discover the enumerable facts from source. Hybrid pages use
@@ -149,6 +149,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['bash-local'],
     consumers: ['tool-bash', 'hooks-claude', 'hooks-codex'],
     note: 'The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors can replace bash-local.',
+  },
+  {
+    key: 'codeRuntime',
+    pkg: 'code-runtime',
+    title: 'Code-execution seam',
+    mode: 'seam',
+    implementations: ['code-runtime-worker'],
+    consumers: [],
+    note: 'Runs one model-written program against host-provided async bindings; backends differ by substrate and language (the Code Mode RFC specifies the worker-thread backend and the tool-registry consumer).',
   },
   {
     key: 'fs',
@@ -631,7 +640,7 @@ function renderToolPipeline(): string {
   const maintenance = 'curated Mermaid flow; exact tool schemas and event signatures live in generated catalogs'
   return [
     ...generatedHeader('Tool Execution Pipeline'),
-    'This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, and UI rendering fit without changing the loop. The key extension points are the `tools/pre-execute` and `tools/post-execute` waterfalls.',
+    'This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, and UI rendering fit without changing the loop. The key extension points are the `tools/pre-execute`, `tools/execute`, and `tools/post-execute` waterfalls.',
     '',
     '```mermaid',
     'flowchart TD',
@@ -640,6 +649,7 @@ function renderToolPipeline(): string {
     '  presentCall["UI pending card<br/>presentCall(args)"]',
     `  pre["${mermaidCode('tools/pre-execute')} waterfall<br/>hooks, permission, sandbox"]`,
     '  denied["deny or ask<br/>tool body skipped"]',
+    `  around["${mermaidCode('tools/execute')} waterfall<br/>timeout, retry, metrics (around dispatch)"]`,
     '  toolBody["Registered tool execute() body"]',
     `  fsGate["${mermaidCode('fs/write-intent')} or ${mermaidCode('fs/edit-intent')}<br/>tool-fs mutations only"]`,
     `  owned["Tool-owned session events<br/>${mermaidCode('todo/write')}, ${mermaidCode('fs/observed')}, ${mermaidCode('hook/invoked')}, ${mermaidCode('hook/result')}"]`,
@@ -650,19 +660,21 @@ function renderToolPipeline(): string {
     '  model --> toolCall',
     '  toolCall --> presentCall',
     '  toolCall --> pre',
-    '  pre -->|allow| toolBody',
+    '  pre -->|allow| around',
+    '  around --> toolBody',
     '  pre -->|deny or ask| denied',
     '  denied --> post',
     '  toolBody --> fsGate',
     '  fsGate --> toolBody',
     '  toolBody --> owned',
-    '  toolBody --> post',
+    '  toolBody --> around',
+    '  around --> post',
     '  post --> context',
     '  post --> toolResult',
     '  toolResult --> presentResult',
     '```',
     '',
-    'Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate, while hook bridges and future permission prompts live on the generic tool waterfalls. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service.',
+    'Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and future permission prompts live on the generic pre/post tool waterfalls; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service.',
     '',
     ...maintenanceFooter(maintenance),
   ].join('\n')
@@ -734,7 +746,7 @@ function renderIndex(docs: GraphDoc[]): string {
   }
   const rows = [
     '| [module dependency graph](module-graph.md) | `generated` |',
-    '| [tool schema catalog and package map](tool-catalog/tools.md) | `generated` |',
+    '| [tool schema catalog and package map](tool-catalog.md) | `generated` |',
     ...docs.map((doc) => {
       const link = graphIndexLink(doc.rel)
       return `| [${labels[doc.rel] ?? link}](${link}) | \`${modes[doc.rel] ?? 'generated'}\` |`
@@ -743,7 +755,7 @@ function renderIndex(docs: GraphDoc[]): string {
   const maintenance = 'mixed: each linked page declares generated, hybrid, or curated mode'
   return [
     ...generatedHeader('Documentation Graph Index'),
-    'These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, [tool-catalog/](tool-catalog/tools.md), and [core-data-structures/](core-data-structures/core.md).',
+    'These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, [tool-catalog.md](tool-catalog.md), and [core-data-structures/](core-data-structures/core.md).',
     '',
     'The process decision behind this index is recorded in [the documentation graph RFC](rfc/implemented/process/2026-07-03-documentation-graph-atlas.md).',
     '',

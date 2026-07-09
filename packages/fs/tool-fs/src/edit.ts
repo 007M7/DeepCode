@@ -29,7 +29,13 @@ interface EditInput {
   replaceAll: boolean
 }
 
-/** Validate value constraints the schema DSL can't express. */
+/**
+ * Validate value constraints the schema DSL can't express: a non-blank
+ * `file_path`, a non-empty `old_string`, and `old_string !== new_string`
+ * (an equal pair would be a guaranteed no-op edit).
+ * @param args - the schema-validated raw tool arguments.
+ * @returns the camelCased input with `replace_all` defaulted to false.
+ */
 export function parseEditArgs(args: { file_path: string; old_string: string; new_string: string; replace_all?: boolean }): EditInput {
   if (args.file_path.trim().length === 0) throw new Error('file_path must be a non-empty string')
   if (args.old_string.length === 0) throw new Error('old_string must be a non-empty string')
@@ -42,14 +48,22 @@ export function parseEditArgs(args: { file_path: string; old_string: string; new
   }
 }
 
-/** Format an edit success (single-match or replace-all) as a Claude-style model-facing message. */
+/**
+ * Format an edit success (single-match or replace-all) as a Claude-style model-facing message.
+ * @param displayPath - the backend-resolved path shown to the model.
+ * @param replaceAll - selects the all-occurrences wording over the single-replacement one.
+ * @returns the confirmation sentence the model sees as the tool result.
+ */
 export function formatEditOutput(displayPath: string, replaceAll: boolean): string {
   return replaceAll
     ? `The file ${displayPath} has been updated. All occurrences were successfully replaced.`
     : `The file ${displayPath} has been updated successfully.`
 }
 
-/** Register the `edit` tool and its system-prompt guidance. */
+/**
+ * Register the `edit` tool and its system-prompt guidance.
+ * @param ctx - the plugin context; registrations are effects scoped to it, and execution uses its `fs` service.
+ */
 export function applyEditTool(ctx: Context): void {
   ctx.systemPrompt.section({
     name: 'tool:edit',

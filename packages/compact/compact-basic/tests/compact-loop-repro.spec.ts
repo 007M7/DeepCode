@@ -41,8 +41,8 @@ class ReproCompactService extends BasicCompactService {
     return blocks.length * TOKENS_PER_BLOCK
   }
 
-  override async summarize(): Promise<ContentBlock[]> {
-    return [{ type: 'text', text: 'CHECKPOINT SUMMARY' }]
+  override async summarize(): Promise<{ summary: ContentBlock[]; model: string }> {
+    return { summary: [{ type: 'text', text: 'CHECKPOINT SUMMARY' }], model: 'stub' }
   }
 }
 

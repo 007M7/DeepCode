@@ -71,6 +71,8 @@ function decisionForRank(maxRank: number): MergedDecision {
  * into one {@link MergedHookOutcome} by the precedence rules above. An empty list
  * yields a neutral outcome (`decision: 'none'`, no stop, empty context) — the
  * caller treats that as "no hook had anything to say".
+ * @param outputs - every matched hook's decoded output, in hook order.
+ * @returns the single folded outcome the bridge maps onto its seam.
  */
 export function mergeHookOutputs(outputs: HookOutput[]): MergedHookOutcome {
   let maxRank = 0

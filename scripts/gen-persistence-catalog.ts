@@ -1,6 +1,6 @@
 /**
  * Generate (and verify) the persistence log event catalog in
- * docs/persistence-catalog/log-events.md.
+ * docs/persistence-catalog.md.
  *
  * The catalog is the ON-DISK-vocabulary reference: every event type that can
  * appear in a session's durable event log — every member of the
@@ -47,7 +47,7 @@ import { resolve } from 'node:path'
 import ts from 'typescript'
 
 const root = resolve(import.meta.dirname, '..')
-const OUT = 'docs/persistence-catalog/log-events.md'
+const OUT = 'docs/persistence-catalog.md'
 
 /** The fenced-block info string for generated payload blocks (skipped by
  * doc-typecheck, since a bare payload fragment is not standalone-compilable). */
@@ -381,7 +381,7 @@ function typeLinks(payload: string): string {
     if (new RegExp(`\\b${name}\\b`).test(payload)) seen.add(name)
   }
   if (seen.size === 0) return ''
-  const links = [...seen].sort().map(n => `[${n}](../core-data-structures/${LINK_MAP[n]})`)
+  const links = [...seen].sort().map(n => `[${n}](core-data-structures/${LINK_MAP[n]})`)
   return `Types: ${links.join(' · ')}`
 }
 
@@ -392,7 +392,7 @@ function renderEvent(e: AnnotatedLogEventEntry): string[] {
   out.push('```' + FENCE, `'${e.name}': ${e.payload}`, '```', '')
   const links = typeLinks(e.payload)
   if (links) out.push(links, '')
-  out.push(`Source: [\`${e.source}\`](../../${e.source.split(':')[0]})`, '')
+  out.push(`Source: [\`${e.source}\`](../${e.source.split(':')[0]})`, '')
   return out
 }
 
@@ -404,11 +404,11 @@ export function render(events: AnnotatedLogEventEntry[]): string {
     '',
     '# Persistence Log Event Catalog',
     '',
-    'Every event type that can appear in a session\'s durable event log: each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge in this repo — with the payload it carries, its surface badge, and the declaration it comes from. It complements [session.md](../core-data-structures/session.md) (the `SessionEvent` envelope, surface list, and `deriveMessages()` projection), [persistence.md](../core-data-structures/persistence.md) (how the log is made durable), and the [cordis events catalog](../cordis-catalog/events.md) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).',
+    'Every event type that can appear in a session\'s durable event log: each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge in this repo — with the payload it carries, its surface badge, and the declaration it comes from. It complements [session.md](core-data-structures/session.md) (the `SessionEvent` envelope, surface list, and `deriveMessages()` projection), [persistence.md](core-data-structures/persistence.md) (how the log is made durable), and the [cordis events catalog](cordis-catalog/events.md) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).',
     '',
-    'This file is GENERATED from source (`scripts/gen-persistence-catalog.ts`) and verified fresh by `pnpm run verify-persistence-catalog` (part of `doc-sync`) — do not edit it by hand. Payload blocks use a `ts persistence-catalog` fence (skipped by doc-typecheck, since a bare payload fragment is not standalone-compilable). Type names in a payload link to the page that documents them. See [the persistence-log-catalog RFC](../rfc/implemented/process/2026-07-04-persistence-log-catalog.md).',
+    'This file is GENERATED from source (`scripts/gen-persistence-catalog.ts`) and verified fresh by `pnpm run verify-persistence-catalog` (part of `doc-sync`) — do not edit it by hand. Payload blocks use a `ts persistence-catalog` fence (skipped by doc-typecheck, since a bare payload fragment is not standalone-compilable). Type names in a payload link to the page that documents them. See [the persistence-log-catalog RFC](rfc/implemented/process/2026-07-04-persistence-log-catalog.md).',
     '',
-    'The on-disk envelope around every payload is `SessionEvent` — `type`, monotonic `seq`, epoch-ms `time`, the `data` documented here, plus `surfaceOp`/`sourceEventSeqs` on **surface** events only ([envelope](../core-data-structures/session.md#sessioneventt--one-log-entry)). **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`), and the whole format is pinned at `SESSION_FORMAT_VERSION = 0` — pre-release, no compatibility implied ([the version stance](../core-data-structures/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further event types, which are outside this catalog by construction.',
+    'The on-disk envelope around every payload is `SessionEvent` — `type`, monotonic `seq`, epoch-ms `time`, the `data` documented here, plus `surfaceOp`/`sourceEventSeqs` on **surface** events only ([envelope](core-data-structures/session.md#sessioneventt--one-log-entry)). **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`), and the whole format is pinned at `SESSION_FORMAT_VERSION = 0` — pre-release, no compatibility implied ([the version stance](core-data-structures/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further event types, which are outside this catalog by construction.',
     '',
     '## Events',
     '',

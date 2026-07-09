@@ -29,6 +29,8 @@ const SURFACE_EVENT_TYPES = new Set<string>([
  * surface-eligible event that is MISSING its mandatory marker (e.g. validating
  * a seed/load log); use {@link isSurfaceEvent} to narrow to a fully-formed
  * {@link SurfaceEvent} with `surfaceOp` present.
+ * @param type - the event type string to test.
+ * @returns true when the type is one of the five message-producing types.
  */
 export function isSurfaceEligibleType(type: string): boolean {
   return SURFACE_EVENT_TYPES.has(type)
@@ -38,6 +40,8 @@ export function isSurfaceEligibleType(type: string): boolean {
  * Narrow a {@link SessionEvent} to {@link SurfaceEvent}: checks that the
  * event's `type` is surface-eligible AND that `surfaceOp` is present.
  * The narrowed type has mandatory {@link SurfaceOp}.
+ * @param event - the event to narrow.
+ * @returns true when the event is surface-eligible and carries its `surfaceOp` marker.
  */
 export function isSurfaceEvent(event: SessionEvent): event is SurfaceEvent {
   if (!SURFACE_EVENT_TYPES.has(event.type)) return false
@@ -72,6 +76,9 @@ export class SurfaceManager {
   /** The last processed seq. -1 forces a full rebuild on first access. */
   private _lastProcessedSeq = -1
 
+  /** Rewrite generation — see {@link replaceGeneration}. */
+  private _replaceGeneration = 0
+
   constructor(private log: readonly SessionEvent[]) {}
 
   /**
@@ -83,6 +90,23 @@ export class SurfaceManager {
     this._lastProcessedSeq = -1
     this._nodes = []
     this._nodeBySeq.clear()
+    // A wholesale rebuild is a rewrite: bump the generation so incremental
+    // consumers (the session's derived-message cache) discard their view.
+    this._replaceGeneration += 1
+  }
+
+  /**
+   * The surface's rewrite generation: bumped by every folded `replace` op and
+   * by {@link invalidate}. A replace is the ONE operation that rewrites the
+   * surface non-monotonically, so an incremental consumer of {@link nodes}
+   * (the session's derived-message cache) compares this between visits — an
+   * unchanged generation guarantees every node it has not seen is a pure tail
+   * append; a changed one means its view must rebuild. Monotonic: it never
+   * moves backwards, so comparisons cannot be fooled by a re-fold.
+   */
+  get replaceGeneration(): number {
+    if (this._lastProcessedSeq < this.log.length - 1) this._processDelta()
+    return this._replaceGeneration
   }
 
   /** The surface nodes in linked-list order (head to tail). */
@@ -155,5 +179,6 @@ export class SurfaceManager {
     if (nextNode) nextNode.prev = newSeq
     this._nodes.splice(startIdx, 0, newNode)
     this._nodeBySeq.set(newSeq, newNode)
+    this._replaceGeneration += 1
   }
 }

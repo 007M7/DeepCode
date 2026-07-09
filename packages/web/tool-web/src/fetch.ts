@@ -3,6 +3,13 @@
  * Execution goes through `ctx.web` — this module owns the model-facing schema,
  * argument validation, and PRESENTATION (HTML→markdown, truncation formatting),
  * while the fetch provider owns safe retrieval (transport, redirects, caps).
+ *
+ * The model-facing schema exposes NO timeout knob: the tool-call budget is
+ * deployment policy DECLARED via this package's `fetchTimeoutMs` config (attached
+ * as `ToolDefinition.timeoutMs`) and ENFORCED by `@deepseek-ai/dsh-timeout-policy`
+ * (a `tools/execute` wrapper), matching the reference-agent `WebFetch` shape. This
+ * tool just forwards the (possibly deadline-derived) `exec.signal` to `ctx.web`;
+ * the provider keeps its own timeout only as a resource backstop for direct callers.
  */
 
 import type { Context } from 'cordis'
@@ -14,16 +21,27 @@ import { assertNever } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { htmlToMarkdown } from './html.ts'
 
-/** Validate value constraints the schema DSL can't express. */
-export function parseFetchArgs(args: { url: string; timeout_ms?: number }): { url: string; timeoutMs?: number } {
+/**
+ * Validate value constraints the schema DSL can't express: a non-blank `url`.
+ * Throws a plain `Error` otherwise. No timeout parameter — the tool-call budget
+ * is deployment policy declared via `fetchTimeoutMs` config and enforced by
+ * `@deepseek-ai/dsh-timeout-policy`, not a model argument.
+ *
+ * @param args - the schema-validated `web_fetch` arguments.
+ * @returns the arguments as the seam's request fields.
+ */
+export function parseFetchArgs(args: { url: string }): { url: string } {
   if (args.url.trim().length === 0) throw new Error('url must be a non-empty string')
-  if (args.timeout_ms !== undefined && (!Number.isFinite(args.timeout_ms) || args.timeout_ms <= 0)) {
-    throw new Error('timeout_ms must be a positive number')
-  }
-  return { url: args.url, ...args.timeout_ms !== undefined ? { timeoutMs: args.timeout_ms } : {} }
+  return { url: args.url }
 }
 
-/** Render a fetched body to model-facing markdown text. */
+/**
+ * Render a fetched body to model-facing markdown text.
+ *
+ * @param body - the decoded body; `html` is converted via
+ *   {@link htmlToMarkdown}, `text` passes through verbatim.
+ * @returns the text for the tool's output block.
+ */
 export function renderBody(body: WebFetchBody): string {
   switch (body.kind) {
     case 'html':
@@ -36,20 +54,38 @@ export function renderBody(body: WebFetchBody): string {
   }
 }
 
-/** Format a fetch result as one model-facing text block. */
+/**
+ * Format a fetch result as one model-facing text block.
+ *
+ * @param result - the seam's fetch outcome.
+ * @returns a `Fetched <url> (HTTP <status>)` header, the rendered body, and a
+ *   fetch-something-narrower notice when the provider truncated the content.
+ */
 export function formatFetchOutput(result: WebFetchResult): string {
   const header = `Fetched ${result.url} (HTTP ${result.statusCode})`
   const footer = result.truncated ? '\n\n(Content truncated. Fetch a more specific URL or section for the full text.)' : ''
   return `${header}\n\n${renderBody(result.body)}${footer}`
 }
 
-/** Pending-call presentation: a fetch card titled by the URL. */
-export function presentFetchCall(args: { url: string; timeout_ms?: number }): GenericCallView {
+/**
+ * Pending-call presentation: a fetch card titled by the URL.
+ *
+ * @param args - the raw tool arguments; only `url` feeds the view.
+ * @returns the generic card view (`kind: 'fetch'`) shown while the call runs.
+ */
+export function presentFetchCall(args: { url: string }): GenericCallView {
   return { card: 'generic', title: args.url, kind: 'fetch', rawInput: args.url }
 }
 
-/** Register the `web_fetch` tool and its system-prompt guidance. */
-export function applyWebFetchTool(ctx: Context): void {
+/**
+ * Register the `web_fetch` tool and its system-prompt guidance.
+ *
+ * @param ctx - context whose `tools` and `systemPrompt` registries receive the
+ *   registrations; both are effect-scoped and unregister on plugin dispose.
+ * @param timeoutMs - the cooperative tool-call budget (ms) attached as the tool's
+ *   `ToolDefinition.timeoutMs` for `@deepseek-ai/dsh-timeout-policy` to enforce.
+ */
+export function applyWebFetchTool(ctx: Context, timeoutMs: number): void {
   ctx.systemPrompt.section({
     name: 'tool:web_fetch',
     order: 111,
@@ -61,12 +97,12 @@ export function applyWebFetchTool(ctx: Context): void {
     description: 'Fetch the content of a specific HTTP(S) URL and return it decoded to text.',
     parameters: {
       url: { type: 'string', required: true, description: 'The HTTP(S) URL to fetch.' },
-      timeout_ms: { type: 'number', description: 'Optional fetch timeout in milliseconds (capped by the provider).' },
     },
+    timeoutMs,
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseFetchArgs(args)
       const result = await ctx.web.fetch(
-        { url: input.url, ...input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {} },
+        { url: input.url },
         exec.signal ? { signal: exec.signal } : undefined,
       )
       return [{ type: 'text', text: formatFetchOutput(result) }]

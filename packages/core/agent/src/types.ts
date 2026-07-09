@@ -44,13 +44,17 @@
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { ContentBlock, GenerateOptions, Message, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, LlmCallConfig, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
 /** Identifies one live agent in the registry. */
 export type AgentId = Branded<'AgentId'>
 
-/** Brand a string as an {@link AgentId}. */
+/**
+ * Brand a string as an {@link AgentId}.
+ * @param id - the raw agent id string.
+ * @returns the same string, branded (a compile-time cast — no runtime cost).
+ */
 export function AgentId(id: string): AgentId {
   return id as AgentId
 }
@@ -80,10 +84,22 @@ export interface AgentOptions {
   model?: string
 }
 
+/**
+ * Options for {@link Agent.send}/{@link Agent.steer}/{@link Agent.inject}. An
+ * absent `source` resolves to `{ kind: 'user' }`, so a plugin supplying content
+ * must label itself here or its message is recorded as a user prompt (see
+ * {@link HookContext} on why that label is load-bearing).
+ */
 export interface SendOptions {
   source?: MessageSource
 }
 
+/**
+ * An agent's lifecycle state, emitted on every transition as `agent/status`:
+ * `idle` (parked, waiting for queued work), `running` (a turn is in progress),
+ * `disposed` (terminal — no transition leaves it, and `send`/`steer`/`inject`
+ * throw).
+ */
 export type AgentStatus = 'idle' | 'running' | 'disposed'
 
 /**
@@ -345,18 +361,28 @@ declare module 'cordis' {
      */
     'agent/prompt-submit'(agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>
     /**
-     * Waterfall: mutate the fully-assembled {@link GenerateOptions} before the
-     * model call (hooks, model switching, tool filtering, …). Call `next()` to
-     * delegate, or return without it to short-circuit. For surface mutation that
-     * must precede history derivation (compaction), use {@link agent/pre-step}
-     * instead — by the time this fires, `options.messages` is already derived.
+     * Waterfall: shape the step's call configuration — model switching,
+     * sampling overrides — by returning a replacement {@link LlmCallConfig}
+     * (the frozen seed is the config the loop would otherwise use). Config is
+     * ALL a listener shapes here: every request is a pure function of the
+     * session log (the reconstructability RFC), so model-visible content
+     * flows through the log channels — `inject()`, steering, prompt-submit
+     * `additionalContext`, prompt sections via `system-prompt/assemble` —
+     * never through request mutation, and the loop records whatever config
+     * the request actually uses as a `request/header*` event before dispatch.
+     * The step's messages are already snapshotted when this fires (the
+     * `step/start` boundary): an `inject()` from a listener here lands in the
+     * log but joins the NEXT request. For surface mutation that must precede
+     * the snapshot (compaction), use {@link agent/pre-step}. Call `next()` to
+     * delegate, or return an {@link LlmCallConfig} without it to
+     * short-circuit.
      * @param agent - the agent making the model call.
      * @param turn - the open turn number.
      * @param step - the step whose request this is.
-     * @param options - the assembled request; listeners return a transformed copy.
+     * @param config - the config the loop would use (frozen); return a replacement to switch.
      * @mode waterfall
      */
-    'agent/request'(agent: Agent, turn: number, step: number, options: GenerateOptions, next: () => Promise<GenerateOptions>): Promise<GenerateOptions>
+    'agent/request'(agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
     /**
      * Waterfall: post-process the assembled assistant {@link Message} before
      * tool dispatch (validation, content rewriting, …).
