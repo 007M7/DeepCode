@@ -5,7 +5,7 @@ import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentCapabilities, SubagentProvider, SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
-import type { WorkflowResult, WorkflowRunInfo } from '@deepseek-ai/dsh-workflow'
+import type { WorkflowResult, WorkflowResultInfo, WorkflowRunInfo } from '@deepseek-ai/dsh-workflow'
 import * as vmEngineModule from '../src/index.ts'
 import VmWorkflowEngine, { type Config } from '../src/index.ts'
 
@@ -534,6 +534,8 @@ describe('dsh-workflow-vm', () => {
 
     it('cancel() aborts in-flight children and settles the run cancelled', async () => {
       const { ctx, parent, provider } = await setup({ manual: true })
+      const ends: WorkflowResultInfo[] = []
+      ctx.on('workflow/end', (_info, result) => { ends.push(result) })
       const handle = ctx.workflows.start({ script: script("return await agent('long job')"), parent })
       await vi.waitFor(() => { expect(provider.runs.length).toBe(1) })
       handle.cancel('user stopped it')
@@ -541,6 +543,9 @@ describe('dsh-workflow-vm', () => {
       expect(result.stopReason).toBe('cancelled')
       expect(result.error).toContain('user stopped it')
       expect(provider.runs[0]!.disposed).toBe(true)
+      // workflow/end is an observer's only death signal: it fires for a
+      // cancelled run too, mirroring the settled outcome data.
+      expect(ends).toEqual([{ stopReason: 'cancelled', error: result.error, agentsStarted: 1 }])
       await handle.dispose()
     })
 
@@ -787,6 +792,8 @@ describe('dsh-workflow-vm', () => {
 
     it('cancel() force-settles the result of a script parked on a promise no hook owns', async () => {
       const { ctx, parent } = await setup({ config: { provider: 'stub', disposeGraceMs: 30 } })
+      const ends: WorkflowResultInfo[] = []
+      ctx.on('workflow/end', (_info, result) => { ends.push(result) })
       const handle = ctx.workflows.start({
         // No hooks involved: an unsettleable await cancellation cannot reject
         // — the abandon grace is the only thing that can settle this run.
@@ -797,6 +804,9 @@ describe('dsh-workflow-vm', () => {
       const result = await handle.result
       expect(result.stopReason).toBe('cancelled')
       expect(result.error).toContain('user aborted')
+      // The grace force-settle fires workflow/end exactly like an ordinary
+      // settlement — an abandoned script's death still reaches observers.
+      expect(ends).toEqual([{ stopReason: 'cancelled', error: result.error, agentsStarted: 0 }])
       await handle.dispose()
     })
 

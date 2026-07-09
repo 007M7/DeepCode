@@ -130,17 +130,6 @@ describe('dsh-tool-workflow', () => {
     expect(engine.disposed).toBe(1)
   })
 
-  it('applies raw-config fallbacks when loaded without schemastery defaults (direct apply)', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(StubEngine)
-    // Direct apply with an empty RAW config: the `??` fallbacks resolve the
-    // tool name and render cap without schemastery having filled them.
-    toolWorkflow.apply(ctx, {})
-    expect(ctx.tools.get('workflow')).toBeDefined()
-  })
-
   it('a synchronous engine start throw (parse/meta failure) becomes an isError result', async () => {
     const { ctx, engine, parent } = await setup()
     engine.startError = new Error('script must begin with `export const meta = {...}`')
@@ -192,8 +181,16 @@ describe('dsh-tool-workflow', () => {
     const fiber = await ctx.plugin(toolWorkflow, { toolName: 'orchestrate' })
     expect(ctx.tools.get('orchestrate')).toBeDefined()
     expect(ctx.tools.get('workflow')).toBeUndefined()
+    // The usage-policy prompt section rides the same registration: present
+    // under the CONFIGURED name (its guidance names the tool it describes)…
+    const sections = (await ctx.systemPrompt.assemble()).sections
+    const section = sections.find(s => s.name === 'tool:orchestrate')
+    expect(section?.text).toContain('orchestrate')
+    expect(sections.some(s => s.name === 'tool:workflow')).toBe(false)
     await fiber.dispose()
     expect(ctx.tools.get('orchestrate')).toBeUndefined()
+    // …and gone with the fiber — a reload must not leak a stale section.
+    expect((await ctx.systemPrompt.assemble()).sections.some(s => s.name === 'tool:orchestrate')).toBe(false)
   })
 
   it('presents a generic pending card titled by the sniffed meta name, with the script as rawInput', async () => {

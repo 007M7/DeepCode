@@ -49,6 +49,8 @@ export const Config: z<Config> = z.object({
   maxResultChars: z.natural().min(1).default(50_000),
 })
 
+type ResolvedConfig = Required<Config>
+
 /**
  * The script-authoring contract, embedded in the tool description. This IS the
  * model-facing spec: the meta block, the hooks and their exact semantics, and
@@ -120,8 +122,9 @@ function renderResult(run: WorkflowRun, result: WorkflowResult, maxChars: number
 }
 
 export function apply(ctx: Context, config: Config): void {
-  const maxResultChars = config.maxResultChars ?? 50_000
-  const toolName = config.toolName ?? 'workflow'
+  // schemastery (the exported Config schema) has already filled the defaulted
+  // fields; the assertion records that resolution, not a hidden fallback.
+  const { toolName, maxResultChars } = config as ResolvedConfig
   // Usage policy ships with the tool (the master convention: tool guidance
   // lives in tool plugins as prompt sections, not in the deployment persona).
   ctx.systemPrompt.section({
