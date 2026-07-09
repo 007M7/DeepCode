@@ -54,6 +54,8 @@ import type { SessionEvent } from './types.ts'
  * Only the LAST turn can be open: the invariants plugin guarantees a `turn/end`
  * before any later `turn/start`, so an interior open turn is impossible in a
  * valid committed log. Likewise at most one step is open within that turn.
+ * @param events - the loaded durable log to scan (a valid committed prefix, possibly with a crash tail).
+ * @returns the synthetic closer events to append after `events`, in order; empty when the log is already balanced.
  */
 export function interruptedTurnClosers(events: readonly SessionEvent[]): SessionEvent[] {
   let openTurn: number | null = null

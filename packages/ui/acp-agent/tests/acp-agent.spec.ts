@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
+import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as acpAgent from '../src/index.ts'
 
 /**
@@ -59,6 +60,8 @@ describe('dsh-acp-agent composition', () => {
     expect(ctx.get('sessions')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
+    expect(ctx.get('userInteraction')).toBeDefined()
+    expect(ctx.get('tools')?.get('ask_user_question')).toBeUndefined()
     // No pre-created agents — ACP session/new creates them on demand.
     expect(ctx.get('agents')!.list()).toHaveLength(0)
     await ctx.fiber.dispose()
@@ -97,6 +100,27 @@ describe('dsh-acp-agent composition', () => {
   it('exposes its plugin shape', () => {
     expect(acpAgent.name).toBe('acp-agent')
     expect(acpAgent.Config).toBeDefined()
+  })
+
+  it('forwards toolOrder through agent-core to the system-prompt assembly', async () => {
+    const ctx = await mount({
+      model: 'mock',
+      toolOrder: ['zulu', TOOL_ORDER_REST],
+      persistenceRoot: '/tmp/dsh-acp-agent-test-tool-order',
+    })
+    // The bundle's own bash tools pend on the absent `ctx.bash` executor in
+    // this providerless mount, so register two plain tools to order.
+    for (const name of ['alpha', 'zulu']) {
+      ctx.get('tools')!.register({
+        name,
+        description: name,
+        parameters: {},
+        execute: async () => [],
+      })
+    }
+    const assembly = await ctx.get('systemPrompt')!.assemble()
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'skill'])
+    await ctx.fiber.dispose()
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/Config/apply', () => {

@@ -7,8 +7,9 @@ import { defineConfig } from 'vitest/config'
 //
 // Secrets: tests gate themselves with
 // `describe.skipIf(!process.env.DEEPSEEK_API_KEY)`, so the suite passes
-// (all-skipped) without credentials — CI has none and stays green. Put the
-// key in the environment or in a gitignored `.env` at the repo root:
+// (all-skipped) without credentials. The keyless CI workflow relies on that;
+// the real-API workflow preflights the secret and fails loudly if it is absent.
+// Put the key in the environment or in a gitignored `.env` at the repo root:
 //
 //     DEEPSEEK_API_KEY=sk-…
 //     DEEPSEEK_BASE_URL=https://…   # optional, defaults to the public API
@@ -18,6 +19,21 @@ try {
 } catch {
   // No .env — fine, the environment may already carry the variables.
 }
+
+const DEFAULT_E2E_MAX_WORKERS = 4
+
+function positiveIntFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (raw === undefined || raw === '') return fallback
+
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`${name} must be a positive integer, got ${JSON.stringify(raw)}`)
+  }
+  return value
+}
+
+const e2eMaxWorkers = positiveIntFromEnv('DSH_E2E_MAX_WORKERS', DEFAULT_E2E_MAX_WORKERS)
 
 export default defineConfig({
   // Same resolution note as vitest.config.ts: bare workspace names resolve
@@ -31,9 +47,10 @@ export default defineConfig({
     testTimeout: 120_000,
     hookTimeout: 30_000,
     retry: 2,
-    // Run e2e files one at a time: the shared internal API key has a small
-    // concurrency quota, and parallel files issue enough simultaneous requests
-    // to trip it (manifesting as flaky rate-limit errors).
-    fileParallelism: false,
+    // Run files in a bounded pool: enough lower-level parallelism to keep CI
+    // and local with-key runs moving, while leaving a resource knob for shared
+    // API quotas (`DSH_E2E_MAX_WORKERS=1` restores serial execution).
+    fileParallelism: e2eMaxWorkers > 1,
+    maxWorkers: e2eMaxWorkers,
   },
 })

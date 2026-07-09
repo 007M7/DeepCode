@@ -22,7 +22,11 @@ const RUNTIME_PROVIDER = 'runtime'
 const RUNTIME_RANK = 250
 const SKILL_PROMPT_SECTION_ORDER = 1000
 
-/** Return whether a string is a valid kebab-case skill name. */
+/**
+ * Return whether a string is a valid kebab-case skill name.
+ * @param name - candidate skill name to validate.
+ * @returns whether the name matches the public skill-name grammar.
+ */
 export function isSkillName(name: string): boolean {
   return SKILL_NAME.test(name)
 }

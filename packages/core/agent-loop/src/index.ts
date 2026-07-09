@@ -29,9 +29,14 @@ declare module 'cordis' {
   }
 }
 
+/**
+ * Plugin config: the agents to create — or resume, via `resumeSessionId` —
+ * declaratively at startup, so a cordis.yml deployment needs no code.
+ */
 export interface Config {
   /** Agents created from configuration at startup. */
   agents: (AgentOptions & {
+    /** Agent id to register under; also seeds the fresh per-run session id (`${id}-session-<uuid>`). */
     id: AgentId
     /** Optional workspace cwd for the config-created fresh session. */
     cwd?: string

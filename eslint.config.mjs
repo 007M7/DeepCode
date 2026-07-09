@@ -21,6 +21,8 @@ export default tseslint.config(
     ignores: [
       '**/lib/**',
       '**/node_modules/**',
+      '**/.sessions/**',
+      '**/.doc-typecheck-*/**',
       'vendor/**', // vendored source keeps upstream style and idioms
       '**/*.js',
       '**/*.mjs',

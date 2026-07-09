@@ -66,6 +66,9 @@ export const DEFAULT_STDERR_SUMMARY_MAX_CHARS = 500
  * `undefined` when empty, cut at `maxChars` with an ellipsis when over. The
  * bound is a parameter — like `runHook`'s `defaultTimeoutMs`, each bridge owns
  * the config default and passes it in.
+ * @param stderr - the hook's raw captured stderr.
+ * @param maxChars - the character cap for the summary (the bridge's config value).
+ * @returns the trimmed, capped summary, or `undefined` when stderr is blank.
  */
 export function summarizeStderr(stderr: string, maxChars: number): string | undefined {
   const t = stderr.trim()
@@ -73,7 +76,11 @@ export function summarizeStderr(stderr: string, maxChars: number): string | unde
   return t.length > maxChars ? t.slice(0, maxChars) + '…' : t
 }
 
-/** Append a `hook/invoked` provenance event to `session`. */
+/**
+ * Append a `hook/invoked` provenance event to `session`.
+ * @param session - the session whose open turn records the event.
+ * @param invocation - the invocation identity; an absent `matcher` is omitted from the payload.
+ */
 export function appendHookInvoked(session: Session, invocation: HookInvocation): void {
   session.append('hook/invoked', {
     turn: invocation.turn,
@@ -91,6 +98,8 @@ export function appendHookInvoked(session: Session, invocation: HookInvocation):
  * else `'pass'`; `stderrSummary` is the trimmed stderr truncated to
  * `record.stderrSummaryMaxChars` characters (omitted when empty); `exitCode`
  * is omitted when the hook never ran.
+ * @param session - the session whose open turn records the event.
+ * @param record - the outcome to record: the decoded output plus the summary cap and duration.
  */
 export function appendHookResult(session: Session, record: HookResultRecord): void {
   const { output } = record

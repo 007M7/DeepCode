@@ -24,6 +24,7 @@ import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionRes
 import {
   appendHookInvoked,
   appendHookResult,
+  createDetachedRuns,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
   matchesMatcher,
@@ -96,6 +97,12 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   const model = config.model ?? ''
+
+  // SessionStart is the one emit-shaped (detached) point Codex has: track its
+  // run chains so disposal aborts a still-running hook process and drains the
+  // continuation (docs/defensive-patterns.md: dispose must reach quiescence).
+  const detached = createDetachedRuns()
+  ctx.effect(() => () => detached.drain(), 'hooks-codex: drain detached hook runs')
 
   async function runPoint(
     point: string,
@@ -189,12 +196,12 @@ export function apply(ctx: Context, config: Config): void {
   // the model (a slow hook can miss the first request). Gating is a deferred
   // loop-level change; the contract is "injected as soon as the hook resolves".
   ctx.on('agent/session-start', (agent, source) => {
-    void runPoint('SessionStart', source, { ...base(agent, 'SessionStart', model), source }, { agent, plainStdoutAsContext: true })
+    detached.track(runPoint('SessionStart', source, { ...base(agent, 'SessionStart', model), source }, { agent, plainStdoutAsContext: true, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
         if (context) agent.inject(context.content, { source: context.source })
       })
-      .catch((error: unknown) => { ctx.logger.warn(`hooks-codex: SessionStart hook failed: ${String(error)}`) })
+      .catch((error: unknown) => { ctx.logger.warn(`hooks-codex: SessionStart hook failed: ${String(error)}`) }))
   })
 
   // UserPromptSubmit → PromptDecision. Codex can only BLOCK (no allow/ask).

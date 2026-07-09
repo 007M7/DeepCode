@@ -1,10 +1,14 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { CallId, ContentBlock, LlmCallConfig, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { CallId, ContentBlock, LlmCallConfig, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
 
 /** Identifies one session in the store (and its persistence artifacts). */
 export type SessionId = Branded<'SessionId'>
 
-/** Brand a string as a {@link SessionId}. */
+/**
+ * Brand a string as a {@link SessionId}.
+ * @param id - the raw session id string.
+ * @returns the same string, branded (a compile-time cast — no runtime cost).
+ */
 export function SessionId(id: string): SessionId {
   return id as SessionId
 }
@@ -102,6 +106,7 @@ export interface TurnTriggerMap {
   injection: { kind: 'injection'; source: MessageSource }
 }
 
+/** The union over {@link TurnTriggerMap} — what started a turn; plugins extend it by merging variants into the map. */
 export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap]
 
 /**
@@ -156,6 +161,7 @@ export interface TurnEndReasonMap {
   interrupted: { kind: 'interrupted' }
 }
 
+/** The union over {@link TurnEndReasonMap} — why a turn ended; plugins extend it by merging variants into the map. */
 export type TurnEndReason = TurnEndReasonMap[keyof TurnEndReasonMap]
 
 /**
@@ -177,14 +183,15 @@ export interface TodoItem {
 }
 
 /**
- * The request header: everything about an LLM request besides its message
- * content — the call configuration plus the rendered system prompt and tool
- * schemas. Logged session state (the reconstructability RFC): a
+ * The request header: everything about an LLM request besides its derived
+ * message history — the call configuration plus the rendered system prompt,
+ * tool schemas, and the session prefix. Logged session state (the
+ * reconstructability RFC): a
  * {@link SessionEventMap} `request/header` snapshot installs one, a
  * `request/header-delta` amends it, and folding those events over the log
  * (`foldRequestHeader`) reconstructs the header any request was built under.
- * Canonical form: an empty system prompt and an empty tool list are ABSENT
- * fields, matching how requests are built.
+ * Canonical form: an empty system prompt, an empty tool list, and an empty
+ * prefix are ABSENT fields, matching how requests are built.
  */
 export interface EpochHeader {
   /** The conversation's call configuration (model + sampling scalars). */
@@ -193,6 +200,14 @@ export interface EpochHeader {
   system?: string
   /** Assembled tool schemas; absent for a tool-less request. */
   tools?: ToolSchema[]
+  /**
+   * The session prefix: request-only messages sent BEFORE the entire derived
+   * history (the `agent/session-prefix` waterfall's product, composed once
+   * per loop instance and reused for every request it sends). Not session
+   * history — `deriveMessages()` never returns it — so the header is its
+   * only durable record; absent when the instance composed none.
+   */
+  messagePrefix?: Message[]
 }
 
 /**
@@ -350,17 +365,24 @@ export interface SessionEventMap {
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
   /**
    * Amendment to the folded {@link EpochHeader}: at least one of a
-   * {@link SystemDelta}, a {@link ToolsDelta}, or a whole replacement
-   * {@link LlmCallConfig} (four scalars — not worth diffing). Appended by the
+   * {@link SystemDelta}, a {@link ToolsDelta}, a whole replacement
+   * {@link LlmCallConfig} (four scalars — not worth diffing), or a whole
+   * replacement session prefix (`messagePrefix` — small advisory content,
+   * replaced whole; an EMPTY array encodes the transition to "none",
+   * mirroring the canonical form's absent field — the loop never produces
+   * one in practice: the prefix is composed once per instance and anchored
+   * by that instance's snapshot, so this arm exists for codec totality).
+   * Appended by the
    * loop inside the step, before dispatch, when the header for this request
    * differs from the fold of the log so far; the writer verifies
    * `applyHeaderDelta(previous, delta)` reproduces the new header exactly and
    * falls back to a `'fallback'` `request/header` snapshot when it cannot, so
    * a logged delta ALWAYS round-trips. NOT a {@link SurfaceEventType}.
    */
-  'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig }
+  'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig; messagePrefix?: Message[] }
 }
 
+/** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */
 export type SessionEventType = keyof SessionEventMap
 
 /**

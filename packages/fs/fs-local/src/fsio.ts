@@ -129,6 +129,9 @@ export interface LocalDirEntry {
  * and intermediate directories are created by the write. Two input paths
  * reaching the same file via symlinks share one key. Falls back to the absolute
  * path only when no ancestor (not even the filesystem root) can be resolved.
+ * @param cwd - base directory a relative `path` resolves against.
+ * @param path - absolute or relative path; empty/whitespace-only throws `FS_NOT_FOUND`.
+ * @returns the absolute display path plus the realpath-derived stable target key.
  */
 export async function resolveLocalTarget(cwd: string, path: string): Promise<LocalTarget> {
   if (path.trim().length === 0) throw new FsError('file_path must be a non-empty string', 'FS_NOT_FOUND')
@@ -165,7 +168,11 @@ export async function resolveLocalTarget(cwd: string, path: string): Promise<Loc
   }
 }
 
-/** Probe a path for its version, mode, type, and size. Null if absent. */
+/**
+ * Probe a path for its version, mode, type, and size. Null if absent.
+ * @param absolutePath - the path to stat (typically a target key; symlinks are followed).
+ * @returns the metadata, or null when the path — or a parent segment — does not exist.
+ */
 export async function probe(absolutePath: string): Promise<PathInfo | null> {
   try {
     const info = await stat(absolutePath)
@@ -200,6 +207,9 @@ async function resolveListedChildTarget(parent: LocalTarget, name: string): Prom
  * List direct children of a directory in stable name order. Each child includes
  * a resolved target plus stat metadata when still available; file contents are
  * never read.
+ * @param target - the resolved directory to list; a missing or non-directory target throws.
+ * @param signal - aborts the listing, checked between children (`FS_ABORTED`).
+ * @returns one entry per direct child, sorted by name.
  */
 export async function listDirectory(target: LocalTarget, signal?: AbortSignal): Promise<LocalDirEntry[]> {
   throwIfAborted(signal, 'list')
@@ -290,6 +300,9 @@ async function statRegularFile(target: LocalTarget, verb: 'read', signal?: Abort
 /**
  * Read a whole regular UTF-8 text file into a single decoded string. Rejects
  * non-regular files, invalid UTF-8, and NUL-byte binary samples.
+ * @param target - the resolved file to read.
+ * @param signal - aborts the read (`FS_ABORTED`).
+ * @returns the full decoded text, byte-for-byte (no normalization).
  */
 export async function readWholeText(target: LocalTarget, signal?: AbortSignal): Promise<string> {
   await statRegularFile(target, 'read', signal)
@@ -305,6 +318,9 @@ export async function readWholeText(target: LocalTarget, signal?: AbortSignal): 
  * Stream a whole regular UTF-8 text file as decoded text chunks. Same text
  * semantics as {@link readWholeText} (regular-file check, binary/NUL rejection,
  * cross-chunk UTF-8 decoding), but never holds the whole file in memory.
+ * @param target - the resolved file to stream.
+ * @param signal - aborts the stream, including between chunks (`FS_ABORTED`).
+ * @returns decoded text chunks in file order; chunk boundaries carry no meaning.
  */
 export async function* streamWholeText(target: LocalTarget, signal?: AbortSignal): AsyncIterable<string> {
   await statRegularFile(target, 'read', signal)
@@ -352,6 +368,11 @@ async function removeStagingDirOrThrow(stagingDir: string, originalError: unknow
  * (`0o700`) staging directory, fsync, optionally chmod to the final mode while
  * still private, then rename over the target. `mode` (when given) preserves an
  * existing file's permissions across the replace.
+ * @param absolutePath - the final destination (typically a target key); missing parent dirs are created.
+ * @param content - the full UTF-8 text to write.
+ * @param mode - final file mode applied before the rename (an existing file's, to preserve permissions); undefined leaves `0o600`.
+ * @param signal - aborts the write (`FS_ABORTED`); checked before the rename, so the target is never left torn.
+ * @param internals - test seam for pinning temp names and observing the staged file.
  */
 export async function writeFileAtomic(
   absolutePath: string,
@@ -409,6 +430,12 @@ export async function writeFileAtomic(
 /** Line ending style detected before LF normalization. */
 export type LineEndings = 'LF' | 'CRLF'
 
+/**
+ * Collapse CRLF to LF — the canonical in-memory form every edit/diff basis
+ * uses. Lone `\r` bytes (not followed by `\n`) are left untouched.
+ * @param content - decoded text in whatever line-ending style the file had.
+ * @returns the text with every `\r\n` pair replaced by `\n`.
+ */
 function normalizeLineEndings(content: string): string {
   return content.replaceAll('\r\n', '\n')
 }
@@ -420,6 +447,14 @@ function detectLineEndings(raw: string): LineEndings {
   return crlfCount > lfCount ? 'CRLF' : 'LF'
 }
 
+/**
+ * Convert LF-normalized content back to the line-ending style detected at read
+ * time, for write-back. `LF` returns the content unchanged; `CRLF` re-normalizes
+ * first so an already-CRLF sequence is never doubled to `\r\r\n`.
+ * @param content - the LF-normalized (edited) text.
+ * @param lineEndings - the original file's style, as detected by {@link readForEdit}.
+ * @returns the text in the original file's line-ending style.
+ */
 function restoreLineEndings(content: string, lineEndings: LineEndings): string {
   return lineEndings === 'LF' ? content : normalizeLineEndings(content).split('\n').join('\r\n')
 }
@@ -438,6 +473,10 @@ function countOccurrences(content: string, needle: string): number {
 /**
  * Read and decode a file for editing: rejects binaries, returns LF-normalized
  * content plus the original line-ending style for write-back.
+ * @param absolutePath - the file to read (typically a target key).
+ * @param displayPath - the caller-facing path used in error messages.
+ * @param signal - aborts the read (`FS_ABORTED`).
+ * @returns the LF-normalized content and the detected style to restore on write-back.
  */
 export async function readForEdit(
   absolutePath: string,
@@ -459,6 +498,9 @@ export async function readForEdit(
  * prior bytes, so an undiffable prior file simply yields no contextual-hunk basis
  * (the caller treats `null` the same as an absent file: the result renders a
  * whole-file diff rather than an applied hunk).
+ * @param absolutePath - the file to read (typically a target key); it must exist.
+ * @param signal - aborts the read (`FS_ABORTED`).
+ * @returns the LF-normalized text, or null for a binary or non-UTF-8 file.
  */
 export async function readTextForDiff(absolutePath: string, signal?: AbortSignal): Promise<string | null> {
   const buffer = await readFileAbortable(absolutePath, 'read', signal)
@@ -477,6 +519,12 @@ export async function readTextForDiff(absolutePath: string, signal?: AbortSignal
  * `FS_EDIT_NOT_FOUND` on empty `oldString` or zero matches and
  * `FS_AMBIGUOUS_EDIT` on multiple matches when `replaceAll` is false. Returns
  * the edited content (still LF-normalized) and the replacement count.
+ * @param content - the current file content, already LF-normalized.
+ * @param oldString - literal text to find; CRLF inside it is normalized to LF before matching.
+ * @param newString - literal replacement text, normalized the same way.
+ * @param replaceAll - replace every match instead of requiring exactly one.
+ * @param displayPath - the caller-facing path used in error messages.
+ * @returns the edited LF-normalized content plus how many occurrences were replaced.
  */
 export function applyLiteralEdit(
   content: string,
