@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { type NormalizeContext, normalizeSessionLog, normalizeStdout, scrubRequestHeaders } from '../tests/snapshot-normalize.ts'
+import { type NormalizeContext, normalizeSessionLog, normalizeStdout, scrubRequestHeaders } from '../src/normalize.ts'
 
 /**
  * Unit tests for the pure snapshot normalizers. Live as a *.spec.ts (runs in
- * the default unit gate) and import the harness-side normalizers directly.
+ * the default unit gate) and import the normalizers directly.
  */
 
 const ctx: NormalizeContext = {
@@ -107,6 +107,17 @@ describe('normalizeSessionLog', () => {
     const out = normalizeSessionLog(`${header({})}\n${ev}\n`, ctx)
     expect(out).toContain('"durationMs":88')
   })
+
+  it('tolerates records missing the volatile fields it would zero', () => {
+    const bareHeader = JSON.stringify({ type: 'session', id: 's' })
+    const timeless = JSON.stringify({ type: 'note', seq: 1 })
+    const bareHook = JSON.stringify({ type: 'hook/result', seq: 2, time: 5, data: { decision: 'allow' } })
+    const nullDataHook = JSON.stringify({ type: 'hook/result', seq: 3, time: 6, data: null })
+    const out = normalizeSessionLog(`${bareHeader}\n${timeless}\n${bareHook}\n${nullDataHook}\n`, ctx)
+    expect(out).toContain('"type":"note","seq":1')
+    expect(out).toContain('"decision":"allow"')
+    expect(out).not.toContain('durationMs')
+  })
 })
 
 describe('scrubRequestHeaders', () => {
@@ -133,6 +144,40 @@ describe('scrubRequestHeaders', () => {
     const out = scrubRequestHeaders(`${headerLine}\n${headerEvent({ config: { model: 'm' } })}\n`)
     expect(out).not.toContain('{{system}}')
     expect(out).not.toContain('{{tools}}')
+  })
+
+  it('scrubs a header carrying only one of system/tools, leaving the other absent', () => {
+    const systemOnly = scrubRequestHeaders(`${headerLine}\n${headerEvent({ system: 'secret prompt' })}\n`)
+    expect(systemOnly).toContain('"system":"{{system}}"')
+    expect(systemOnly).not.toContain('{{tools}}')
+    const toolsOnly = scrubRequestHeaders(`${headerLine}\n${headerEvent({ tools: [{ name: 't' }] })}\n`)
+    expect(toolsOnly).toContain('"tools":"{{tools}}"')
+    expect(toolsOnly).not.toContain('{{system}}')
+  })
+
+  it('leaves a delta with no scrubbable payload byte-identical (config-only, or non-array shapes)', () => {
+    const configOnly = JSON.stringify({ type: 'request/header-delta', seq: 8, time: 9, data: { config: { model: 'm2' } } })
+    const oddShapes = JSON.stringify({ type: 'request/header-delta', seq: 9, time: 9, data: { system: { insert: 'not-an-array' }, tools: null } })
+    const headerless = JSON.stringify({ type: 'request/header', seq: 10, time: 9, data: { reason: 'initial' } })
+    const nullData = JSON.stringify({ type: 'request/header', seq: 11, time: 9, data: null })
+    const raw = `${headerLine}\n${configOnly}\n${oddShapes}\n${headerless}\n${nullData}\n`
+    expect(scrubRequestHeaders(raw)).toBe(raw)
+  })
+
+  it('scrubs a one-sided tools delta and passes non-object schema entries through', () => {
+    const addedOnly = JSON.stringify({
+      type: 'request/header-delta', seq: 8, time: 9,
+      data: { tools: { added: [null, 'weird', { name: 'x', description: 'D' }] } },
+    })
+    const out = scrubRequestHeaders(`${headerLine}\n${addedOnly}\n`)
+    // Non-object entries survive untouched; the object entry keeps only name.
+    expect(out).toContain('"added":[null,"weird",{"name":"x","description":"{{tools}}"}]')
+    const changedOnly = JSON.stringify({
+      type: 'request/header-delta', seq: 8, time: 9,
+      data: { tools: { changed: [{ name: 'y', parameters: {} }] } },
+    })
+    expect(scrubRequestHeaders(`${headerLine}\n${changedOnly}\n`))
+      .toContain('"changed":[{"name":"y","parameters":"{{tools}}"}]')
   })
 
   it('scrubs a header-delta system payload but keeps its line positions and arity', () => {

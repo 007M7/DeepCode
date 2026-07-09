@@ -23,6 +23,15 @@ afterEach(async () => {
   for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true })
 })
 
+function appendClosedTurn(session: Session): void {
+  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('user/message', {
+    content: [{ type: 'text', text: 'hello' }],
+    source: { kind: 'user' },
+  }, { surfaceOp: 'append' })
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+}
+
 // Run the shared backend contract against the real JSONL backend.
 runPersistenceContract('jsonl', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-jsonl-'))
@@ -129,6 +138,23 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     await ctx.sessionPersistence.append(m.id, log)
     const loaded = await ctx.sessionPersistence.load(m.id)
     expect(loaded.events).toEqual(log) // chunks preserved, contiguous seqs
+  })
+
+  it('persists a forked child seed through the existing session write path', async () => {
+    const source = ctx.sessions.create(SessionId('persist-parent'), { meta: { cwd: '/workspace' } })
+    appendClosedTurn(source)
+
+    const child = ctx.sessions.fork(source, undefined, SessionId('persist-child'))
+    await ctx.parallel('session/flush', child)
+    const loaded = await ctx.sessionPersistence.load(child.id)
+
+    expect(loaded.events).toEqual(source.events)
+    expect(loaded.meta).toMatchObject({
+      id: SessionId('persist-child'),
+      cwd: '/workspace',
+      parentSession: SessionId('persist-parent'),
+      seedLength: source.events.length,
+    })
   })
 
   it('crash recovery: load preserves the interrupted turn and closes it with a synthetic turn/end {interrupted}', async () => {

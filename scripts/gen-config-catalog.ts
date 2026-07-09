@@ -68,7 +68,8 @@
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import ts from 'typescript'
-import { LINK_MAP, parseJsDoc, pointer, rawJsDoc } from './gen-cordis-catalog.ts'
+import { LINK_MAP } from './gen-cordis-catalog.ts'
+import { parseJsDoc, pointer, rawJsDoc } from './jsdoc.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/config-catalog.md'

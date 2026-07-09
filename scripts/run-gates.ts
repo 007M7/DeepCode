@@ -257,7 +257,9 @@ function docSyncLeafGates(): Gate[] {
   return [
     pnpmScript('doc-typecheck', 'doc-typecheck'),
     pnpmScript('cordis-catalog', 'verify-cordis-catalog', { label: 'cordis catalog' }),
+    pnpmScript('export-jsdoc', 'verify-export-jsdoc', { label: 'export jsdoc' }),
     pnpmScript('tool-catalog', 'verify-tool-catalog', { label: 'tool catalog' }),
+    pnpmScript('config-catalog', 'verify-config-catalog', { label: 'config catalog' }),
     pnpmScript('persistence-catalog', 'verify-persistence-catalog', { label: 'persistence catalog' }),
     pnpmScript('doc-graphs', 'verify-doc-graphs', { label: 'doc graphs' }),
     pnpmScript('markdown-wrap', 'verify-md-wrap', { label: 'markdown wrap' }),
@@ -308,6 +310,7 @@ function builtBinSmokeGate(): Gate {
     'vitest.e2e.config.ts',
     'packages/ui/stdio-agent/tests/built-bin.e2e.ts',
     'packages/ui/acp-agent/tests/built-bin.e2e.ts',
+    'packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts',
   ], {
     label: 'built-bin smoke',
     needs: ['build'],

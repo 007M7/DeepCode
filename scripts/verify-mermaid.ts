@@ -12,9 +12,8 @@
  * Run: `tsx scripts/verify-mermaid.ts`.
  */
 
-import { readFileSync, realpathSync } from 'node:fs'
+import { globSync, readFileSync, realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { glob } from 'node:fs/promises'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
 import { gfm } from 'micromark-extension-gfm'
@@ -72,7 +71,7 @@ const blocks: Block[] = []
 const seen = new Set<string>()
 let checkedFiles = 0
 for (const pattern of PATTERNS) {
-  for await (const match of glob(pattern, { cwd: root })) {
+  for (const match of globSync(pattern, { cwd: root })) {
     const real = realpathSync(resolve(root, match))
     if (seen.has(real)) continue
     seen.add(real)

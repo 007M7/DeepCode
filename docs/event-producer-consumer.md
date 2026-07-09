@@ -7,17 +7,17 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 
 | Event | Mode | Declared in | Dispatchers | Listeners |
 | --- | --- | --- | --- | --- |
-| `agent/created` | `emit` | [`packages/core/agent/src/types.ts:248`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`emit`) | [`stdio-agent`](../packages/ui/stdio-agent) |
-| `agent/disposed` | `emit` | [`packages/core/agent/src/types.ts:255`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`emit`) | [`stdio-agent`](../packages/ui/stdio-agent) |
-| `agent/error` | `emit` | [`packages/core/agent/src/types.ts:404`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | - |
-| `agent/pre-step` | `serial` | [`packages/core/agent/src/types.ts:333`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`serial`) | [`compact-basic`](../packages/compact/compact-basic) |
-| `agent/prompt-submit` | `waterfall` | [`packages/core/agent/src/types.ts:346`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
-| `agent/queued` | `emit` | [`packages/core/agent/src/types.ts:273`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | - |
-| `agent/request` | `waterfall` | [`packages/core/agent/src/types.ts:369`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | - |
-| `agent/session-start` | `emit` | [`packages/core/agent/src/types.ts:288`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
-| `agent/status` | `emit` | [`packages/core/agent/src/types.ts:264`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`acp`](../packages/ui/acp), [`invariants`](../packages/support/invariants), [`stdio-agent`](../packages/ui/stdio-agent) |
-| `agent/step-result` | `waterfall` | [`packages/core/agent/src/types.ts:379`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | - |
-| `agent/turn-continuation` | `waterfall` | [`packages/core/agent/src/types.ts:392`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
+| `agent/created` | `emit` | [`packages/core/agent/src/types.ts:264`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`emit`) | [`stdio-agent`](../packages/ui/stdio-agent) |
+| `agent/disposed` | `emit` | [`packages/core/agent/src/types.ts:271`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`emit`) | [`stdio-agent`](../packages/ui/stdio-agent) |
+| `agent/error` | `emit` | [`packages/core/agent/src/types.ts:420`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | - |
+| `agent/pre-step` | `serial` | [`packages/core/agent/src/types.ts:349`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`serial`) | [`compact-basic`](../packages/compact/compact-basic) |
+| `agent/prompt-submit` | `waterfall` | [`packages/core/agent/src/types.ts:362`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex), [`repeat-tool-guard`](../packages/guard/repeat-tool-guard) |
+| `agent/queued` | `emit` | [`packages/core/agent/src/types.ts:289`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | - |
+| `agent/request` | `waterfall` | [`packages/core/agent/src/types.ts:385`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | - |
+| `agent/session-start` | `emit` | [`packages/core/agent/src/types.ts:304`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
+| `agent/status` | `emit` | [`packages/core/agent/src/types.ts:280`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`acp`](../packages/ui/acp), [`invariants`](../packages/support/invariants), [`repeat-tool-guard`](../packages/guard/repeat-tool-guard), [`stdio-agent`](../packages/ui/stdio-agent) |
+| `agent/step-result` | `waterfall` | [`packages/core/agent/src/types.ts:395`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | - |
+| `agent/turn-continuation` | `waterfall` | [`packages/core/agent/src/types.ts:408`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
 | `fs/edit-intent` | `waterfall` | [`packages/fs/fs/src/index.ts:123`](../packages/fs/fs/src/index.ts) | [`tool-fs`](../packages/fs/tool-fs) (`waterfall`) | [`fs-policy`](../packages/fs/fs-policy) |
 | `fs/observed` | `emit` | [`packages/fs/fs/src/index.ts:138`](../packages/fs/fs/src/index.ts) | [`tool-fs`](../packages/fs/tool-fs) (`emit`) | [`fs-policy`](../packages/fs/fs-policy) |
 | `fs/write-intent` | `waterfall` | [`packages/fs/fs/src/index.ts:109`](../packages/fs/fs/src/index.ts) | [`tool-fs`](../packages/fs/tool-fs) (`waterfall`) | [`fs-policy`](../packages/fs/fs-policy) |
@@ -31,8 +31,9 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `subagent/start` | `emit` | [`packages/subagent/subagent/src/index.ts:91`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude) |
 | `system-prompt/assemble` | `waterfall` | [`packages/core/system-prompt/src/index.ts:38`](../packages/core/system-prompt/src/index.ts) | [`system-prompt`](../packages/core/system-prompt) (`waterfall`) | - |
 | `system-prompt/change` | `emit` | [`packages/core/system-prompt/src/index.ts:44`](../packages/core/system-prompt/src/index.ts) | [`system-prompt`](../packages/core/system-prompt) (`emit`) | - |
-| `tools/change` | `emit` | [`packages/core/tools/src/index.ts:87`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`emit`) | - |
-| `tools/post-execute` | `waterfall` | [`packages/core/tools/src/index.ts:82`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
-| `tools/pre-execute` | `waterfall` | [`packages/core/tools/src/index.ts:66`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
+| `tools/change` | `emit` | [`packages/core/tools/src/index.ts:118`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`emit`) | - |
+| `tools/execute` | `waterfall` | [`packages/core/tools/src/index.ts:97`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`timeout-policy`](../packages/timeout/timeout-policy) |
+| `tools/post-execute` | `waterfall` | [`packages/core/tools/src/index.ts:113`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex), [`repeat-tool-guard`](../packages/guard/repeat-tool-guard) |
+| `tools/pre-execute` | `waterfall` | [`packages/core/tools/src/index.ts:77`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
 
 Maintenance mode: hybrid generated: Cordis event declarations and most producer/listener edges are AST-scanned; dynamic dispatch sites are classified in `scripts/gen-doc-graphs.ts`.

@@ -86,6 +86,14 @@
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
 
+# The repeat-tool-call guard: advisory reminders (injected context, never a
+# block) when the model re-issues the same tool call with identical arguments;
+# defaults [3, 5, 8]. Loaded here so the snapshot tier exercises the reminder
+# transcript (the repeat-tool-guard scenario) — no other scenario repeats a
+# call three times, so it is inert everywhere else.
+- id: repeat-tool-guard
+  name: '@deepseek-ai/dsh-repeat-tool-guard'
+
 # Filesystem capability stack: local provider, read-before-write/edit policy
 # gate, then the model-facing read/write/edit tools. Relative filesystem paths
 # resolve from the server launch cwd; the documented Zed setup launches this

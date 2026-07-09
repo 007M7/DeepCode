@@ -128,6 +128,8 @@ export interface SessionScript {
  * Parse a session `.jsonl` buffer into its event list. Line 0 is the session
  * header (a `{type:'session',…}` record), every subsequent non-empty line is a
  * {@link SessionEvent}. The header is skipped; malformed lines fail loud.
+ * @param text - the raw `.jsonl` file contents.
+ * @returns every event after the header, in log order.
  */
 export function parseSessionLog(text: string): SessionEvent[] {
   const lines = text.split('\n').filter(line => line.trim().length > 0)
@@ -151,6 +153,8 @@ export function parseSessionLog(text: string): SessionEvent[] {
  * own model calls; absent ⇒ 0). A header missing a field falls back to a stable
  * default (`''` / `0` / `0`) rather than throwing: a no-model fixture is
  * header-only and still orders fine as the single (primary) script.
+ * @param text - the raw `.jsonl` file contents (only the header line is read).
+ * @returns the header's `id`, `createdAt`, and `seedLength`, defaulted when absent.
  */
 export function parseSessionHeader(text: string): { id: string; createdAt: number; seedLength: number } {
   const firstLine = text.split('\n').find(line => line.trim().length > 0) ?? '{}'
@@ -180,6 +184,8 @@ export function parseSessionHeader(text: string): { id: string; createdAt: numbe
  * sidecar with an explicit `throw` (or `hang`) entry instead. {@link
  * deriveReplayScript} throws, naming the offending `(turn, step)`, so a missing
  * override fails loud rather than silently replaying a thrown call as success.
+ * @param events - the recorded session's events; only `assistant/chunk` is consulted.
+ * @returns one `chunks` entry per recorded model call, in call order.
  */
 export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
   const script: ReplayEntry[] = []
@@ -218,6 +224,8 @@ export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
  * Fail-loud if the JSONL fixture is missing (the scenario was never recorded) —
  * never silently returns an empty script, so a coverage hole can't masquerade
  * as a passing replay.
+ * @param config - the fixture paths; only `file` and `overrideFile` are consulted.
+ * @returns the primary session's replay entries.
  */
 export function loadReplayScript(config: ReplayConfig): ReplayEntry[] {
   if (config.overrideFile !== undefined && existsSync(config.overrideFile)) {
@@ -245,6 +253,8 @@ export function loadReplayScript(config: ReplayConfig): ReplayEntry[] {
  * the parent issues the FIRST model call (it must stream before it can delegate
  * in the synchronous nested cut), so binding it to the first live session is
  * correct regardless of a timestamp tie.
+ * @param config - the fixture paths: the primary log plus any recorded child logs.
+ * @returns the primary script first, then the child scripts in bind order.
  */
 export function loadSessionScripts(config: ReplayConfig): SessionScript[] {
   const primaryEntries = loadReplayScript(config)
@@ -359,6 +369,9 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined)
  * Each per-session cursor advances synchronously at listener-invocation time
  * (not lazily inside the generator) so call ORDER within a session, not
  * iteration order, fixes the mapping.
+ * @param ctx - the context whose `llm/stream` waterfall the listener short-circuits.
+ * @param config - the resolved fixture paths (env-var defaulting is `apply`'s job).
+ * @returns the `ctx.on` disposer that removes the listener.
  */
 export function installLlmReplay(ctx: Context, config: ReplayConfig): () => void {
   const scripts = loadSessionScripts(config)
@@ -412,6 +425,7 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): () => void
 export const name = 'llm-replay'
 export const inject = ['llm']
 
+/** Plugin config: the {@link ReplayConfig} inputs, each defaulting to its `DSH_SNAPSHOT_*` env var in `apply`. */
 export interface Config {
   /** Override the fixture path; defaults to `$DSH_SNAPSHOT_FILE`. */
   file?: string

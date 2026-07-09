@@ -21,7 +21,7 @@ createAgent(options: CreateAgentOptions): AgentHandle
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:64`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:68`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -66,6 +66,25 @@ onTaskDone(listener: BashTaskListener): () => void
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [BashTask](../core-data-structures/bash.md) · [BashTaskRead](../core-data-structures/bash.md)
 
 Source: [`packages/bash/bash/src/index.ts:59`](../../packages/bash/bash/src/index.ts)
+
+## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
+
+Abstract code-execution service. Subclass, implement run and the two descriptors, and load the subclass as a plugin — it registers as `ctx.codeRuntime` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+
+Semantics every implementation must honor:
+
+- run resolves with an error FIELD for every program outcome — parse/transform failures, thrown exceptions, budget expiry, abort, substrate death (CodeRunFailure's taxonomy). It REJECTS only for caller misuse of the seam itself (e.g. a run submitted after disposal).
+- Binding calls bridge to the caller's CodeBindingFunctions verbatim; arguments and resolutions must be structured-cloneable, and the runtime treats the program as a hostile peer (arbitrary binding names are own properties, malformed traffic is rejected or ignored, never crashes the host).
+- Runs are isolated from each other: no state survives from one run to the next through the runtime.
+- Disposal reaches quiescence: in-flight runs are terminated AND awaited before the service's own teardown completes (no orphan substrate survives `fiber.dispose()`).
+
+```ts cordis-catalog
+abstract run(request: CodeRunRequest): Promise<CodeRunResult>
+```
+
+Types: [CodeRunRequest](../core-data-structures/code-runtime.md) · [CodeRunResult](../core-data-structures/code-runtime.md)
+
+Source: [`packages/code-runtime/code-runtime/src/index.ts:59`](../../packages/code-runtime/code-runtime/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
@@ -124,7 +143,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:84`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:88`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 
@@ -146,7 +165,7 @@ abstract list(): Promise<SessionHeader[]>
 
 Types: [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:98`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:102`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessions` — `SessionStore`
 
@@ -161,9 +180,10 @@ enter(session: Session): () => void
 announce(session: Session): void
 get(id: SessionId): Session | undefined
 list(): Session[]
+fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Source: [`packages/core/session/src/index.ts:371`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:405`](../../packages/core/session/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 
@@ -186,14 +206,14 @@ Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections,
 section(section: PromptSection): () => void
 tools(provider: () => ToolSchema[]): () => void
 variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void
-assemble(context: AssembleContext = {}): Promise<PromptAssembly>
+async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:198`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:291`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 
-Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → dispatch → `tools/post-execute` pipeline. The registry contributes its schemas into the system-prompt assembly.
+Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → `tools/execute` → `tools/post-execute` pipeline. The registry contributes its schemas into the system-prompt assembly.
 
 ```ts cordis-catalog
 register(definition: ToolDefinition): () => void
@@ -204,7 +224,7 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:268`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:307`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.web` — `WebService`
 

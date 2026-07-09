@@ -24,30 +24,47 @@ export class Inbox {
   private steeringMessages: InboxMessage[] = []
   private wakeup: (() => void) | undefined
 
-  /** Resolves when a queued message arrives (used by the idle loop). */
+  /** True while queued messages are pending — read by the idle wait's fast path and the loop's turn-start checks. */
   get hasQueued(): boolean {
     return this.queuedMessages.length > 0
   }
 
+  /** True while steering messages are pending — read by `cancel()`'s arm gate and the loop's stop-override check. */
   get hasSteering(): boolean {
     return this.steeringMessages.length > 0
   }
 
+  /**
+   * Add a message to the queued FIFO and wake a parked {@link waitForQueued}.
+   * @param message - the message to queue for the next turn start.
+   */
   enqueue(message: InboxMessage): void {
     this.queuedMessages.push(message)
     this.wakeup?.()
   }
 
+  /**
+   * Add a message to the steering FIFO. Deliberately no wakeup: steering is
+   * drained between steps of a running turn, never by the idle wait —
+   * `Agent.steer()` on an idle agent falls back to `send()` instead.
+   * @param message - the message to inject between steps of the running turn.
+   */
   steer(message: InboxMessage): void {
     this.steeringMessages.push(message)
   }
 
-  /** Drain all queued messages (turn start). */
+  /**
+   * Drain all queued messages (turn start).
+   * @returns the drained messages in arrival order; the queued FIFO is left empty.
+   */
   drainQueued(): InboxMessage[] {
     return this.queuedMessages.splice(0)
   }
 
-  /** Drain all steering messages (between steps). */
+  /**
+   * Drain all steering messages (between steps).
+   * @returns the drained messages in arrival order; the steering FIFO is left empty.
+   */
   drainSteering(): InboxMessage[] {
     return this.steeringMessages.splice(0)
   }
@@ -62,7 +79,12 @@ export class Inbox {
     this.steeringMessages.length = 0
   }
 
-  /** Wait until a queued message arrives or `cancel` resolves. */
+  /**
+   * Wait until a queued message arrives or `cancel` resolves.
+   * @param cancel - a promise whose resolution abandons the wait without a
+   *   message (the driver loop passes the agent's disposed promise so a parked
+   *   loop can exit).
+   */
   waitForQueued(cancel: Promise<void>): Promise<void> {
     if (this.hasQueued) return Promise.resolve()
     const { promise, resolve } = Promise.withResolvers<void>()

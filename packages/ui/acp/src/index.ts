@@ -701,6 +701,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
  * Build per-agent options from the plugin config, omitting absent fields
  * (exactOptionalPropertyTypes: never assign `undefined` to an optional key).
  * Exported for unit coverage of both the present and absent branches.
+ * @param config - the plugin config carrying the optional model name.
+ * @returns the per-agent options, with `model` present only when configured.
  */
 export function agentOptions(config: AcpConfig): { model?: string } {
   return {
@@ -764,6 +766,16 @@ function validateMcpServers(params: { mcpServers?: unknown[] }): void {
  *
  * Other event types (turn/step boundaries, context/message, …) produce
  * no client update.
+ * @param sessionId - the ACP session id stamped on every emitted notification.
+ * @param event - the harness session event to translate.
+ * @param notify - sink for each produced `session/update` notification; called
+ * zero or more times per event (best-effort UI feed, never load-bearing).
+ * @param presenter - resolves tool-owned render intent for tool events;
+ * defaults to the generic-fallback {@link nullToolPresenter}.
+ * @param terminal - the connection's terminal-rendering context; defaults to
+ * disabled (the plain-text console-block fallback).
+ * @param options - `includeUserMessages` (default `true`): live streaming
+ * passes `false` so a prompt the client just sent is not echoed back.
  */
 export function streamSessionEventUpdate(
   sessionId: SessionId,
@@ -825,6 +837,8 @@ export function streamSessionEventUpdate(
  * harness status triple IS `PlanEntryStatus`). The ACP client REPLACES its whole
  * plan on each `plan` update, matching the harness's whole-list-replace
  * semantics, so no per-entry diffing is needed.
+ * @param todos - the harness todo list (the whole list, not a diff).
+ * @returns the ACP plan body, one entry per todo.
  */
 export function todosToPlan(todos: TodoItem[]): Plan {
   return { entries: todos.map((todo): PlanEntry => ({ content: todo.content, priority: 'medium', status: todo.status })) }
@@ -885,7 +899,16 @@ export class ToolPresenter {
     private readonly onError: (message: string) => void = () => {},
   ) {}
 
-  /** Pending-state render intent for a `tool/call`; remembers `(name, args, card)` for the matching result. */
+  /**
+   * Pending-state render intent for a `tool/call`; remembers `(name, args, card)`
+   * for the matching result.
+   * @param callId - the call id the matching `tool/result` will look up.
+   * @param name - the tool name, resolved against the registry for `presentCall`.
+   * @param argsJson - the raw arguments JSON from the event; parsed for the view
+   * (a non-JSON string is surfaced raw).
+   * @returns the tool-owned view, or the generic fallback (title = tool name,
+   * kind `other`, parsed args as raw input) when the tool defines none or threw.
+   */
   call(callId: CallId, name: string, argsJson: string): ToolCallView {
     const args = parseToolArguments(argsJson)
     let present: ToolCallView | undefined
@@ -905,7 +928,18 @@ export class ToolPresenter {
     return view
   }
 
-  /** Completed-state render intent for a `tool/result`; consumes the remembered `(name, args, card)`. */
+  /**
+   * Completed-state render intent for a `tool/result`; consumes the remembered
+   * `(name, args, card)`.
+   * @param callId - the id of the matching `tool/call`; an unknown or late id
+   * falls back to the raw content.
+   * @param content - the result's content blocks (the fallback and fill-in body).
+   * @param isError - whether the result is an error, forwarded to `presentResult`.
+   * @param meta - the result's machine-readable meta, forwarded when present.
+   * @returns the tool-owned view — an orphaned `terminal` result (no terminal
+   * call side) and a content-less `generic` are normalized — or the raw-content
+   * generic card when the tool defines no `presentResult` or threw.
+   */
   result(callId: CallId, content: ContentBlock[], isError: boolean, meta?: unknown): ToolResultView {
     const call = this.pending.get(callId)
     this.pending.delete(callId)

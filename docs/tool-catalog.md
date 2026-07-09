@@ -289,10 +289,6 @@ Fetch the content of a specific HTTP(S) URL and return it decoded to text.
     "url": {
       "type": "string",
       "description": "The HTTP(S) URL to fetch."
-    },
-    "timeout_ms": {
-      "type": "number",
-      "description": "Optional fetch timeout in milliseconds (capped by the provider)."
     }
   },
   "required": [

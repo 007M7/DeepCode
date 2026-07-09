@@ -110,10 +110,9 @@ describe('fetch formatting', () => {
     expect(renderBody({ kind: 'html', content: '<p>y</p>' })).toBe('y')
   })
 
-  it('validates url and timeout', () => {
+  it('validates url (non-empty), no timeout parameter', () => {
     expect(() => parseFetchArgs({ url: ' ' })).toThrow('non-empty')
-    expect(() => parseFetchArgs({ url: 'https://a.test', timeout_ms: -1 })).toThrow('positive')
-    expect(parseFetchArgs({ url: 'https://a.test', timeout_ms: 5 })).toEqual({ url: 'https://a.test', timeoutMs: 5 })
+    expect(parseFetchArgs({ url: 'https://a.test' })).toEqual({ url: 'https://a.test' })
   })
 
   it('presents a fetch call as a fetch-kind card titled by the url', () => {
@@ -249,7 +248,7 @@ describe('tool-web execution through the real registry', () => {
     expect('default' in ToolWeb).toBe(false)
   })
 
-  it('executes web_fetch, forwarding timeout_ms and the abort signal to the seam', async () => {
+  it('executes web_fetch, forwarding the url (no timeout param) and the abort signal to the seam', async () => {
     const seen: { request?: { url: string; timeoutMs?: number }; signal?: AbortSignal | undefined } = {}
     const fetchProvider = {
       id: 'stub-fetch',
@@ -262,10 +261,32 @@ describe('tool-web execution through the real registry', () => {
     }
     const { ctx, fiber } = await mountTools({ webConfig: { fetchProvider: 'stub-fetch' }, fetchProvider })
     const controller = new AbortController()
-    const out = await ctx.tools.execute({ callId: CallId('fetch-1'), name: 'web_fetch', arguments: { url: 'https://a.test', timeout_ms: 1234 }, signal: controller.signal })
+    const out = await ctx.tools.execute({ callId: CallId('fetch-1'), name: 'web_fetch', arguments: { url: 'https://a.test' }, signal: controller.signal })
     expect(out.isError).toBe(false)
-    expect(seen.request).toEqual({ url: 'https://a.test', timeoutMs: 1234 })
+    // The model schema exposes no timeout: the tool forwards only the url; the
+    // tool-call budget is owned by dsh-timeout-policy over exec.signal.
+    expect(seen.request).toEqual({ url: 'https://a.test' })
     expect(seen.signal).toBe(controller.signal)
+    await fiber.dispose()
+  })
+
+  it('executes web_fetch with no caller signal (forwards undefined to the seam)', async () => {
+    const seen: { signal?: AbortSignal | undefined; passedExec?: boolean } = {}
+    const fetchProvider = {
+      id: 'stub-fetch',
+      status: () => available,
+      fetch: (request: { url: string }, exec?: { signal?: AbortSignal }) => {
+        seen.passedExec = exec !== undefined
+        seen.signal = exec?.signal
+        return Promise.resolve({ providerId: 'stub-fetch', url: request.url, statusCode: 200, body: { kind: 'text' as const, content: 'ok' }, truncated: false })
+      },
+    }
+    const { ctx, fiber } = await mountTools({ webConfig: { fetchProvider: 'stub-fetch' }, fetchProvider })
+    // No signal on the execution: the tool passes `undefined` (not `{ signal: undefined }`).
+    const out = await ctx.tools.execute({ callId: CallId('fetch-2'), name: 'web_fetch', arguments: { url: 'https://a.test' } })
+    expect(out.isError).toBe(false)
+    expect(seen.passedExec).toBe(false)
+    expect(seen.signal).toBeUndefined()
     await fiber.dispose()
   })
 
@@ -326,5 +347,33 @@ describe('searchMaxResults is plugin config', () => {
     await ctx.plugin(WebService, {})
     await expect(ctx.plugin(ToolWeb, { searchMaxResults: value }))
       .rejects.toThrow(/tool-web: searchMaxResults must be a positive integer/)
+  })
+})
+
+describe('tool-call timeout budget is plugin config', () => {
+  it('attaches the default 30s budget to web_fetch and web_search', async () => {
+    const { fiber, ctx } = await mountTools()
+    expect(ctx.tools.get('web_fetch')?.timeoutMs).toBe(30_000)
+    expect(ctx.tools.get('web_search')?.timeoutMs).toBe(30_000)
+    await fiber.dispose()
+  })
+
+  it('honors per-tool timeout overrides from config', async () => {
+    const { fiber, ctx } = await mountTools({ config: { fetchTimeoutMs: 60_000, searchTimeoutMs: 10_000 } })
+    expect(ctx.tools.get('web_fetch')?.timeoutMs).toBe(60_000)
+    expect(ctx.tools.get('web_search')?.timeoutMs).toBe(10_000)
+    await fiber.dispose()
+  })
+
+  it.each([
+    ['fetchTimeoutMs', { fetchTimeoutMs: 0 }],
+    ['searchTimeoutMs', { searchTimeoutMs: -5 }],
+  ])('rejects a non-positive-integer %s at load', async (key, config) => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(WebService, {})
+    await expect(ctx.plugin(ToolWeb, config))
+      .rejects.toThrow(new RegExp(`tool-web: ${key} must be a positive integer`))
   })
 })

@@ -178,7 +178,7 @@ describe('SubagentService', () => {
 
   describe('start-time capability validation (fail loud, before any child)', () => {
     it.each([
-      { field: 'outputSchema', request: baseRequest({ outputSchema: { x: { type: 'string' } } }) },
+      { field: 'outputSchema', request: baseRequest({ outputSchema: { type: 'object', properties: { x: { type: 'string' } } } }) },
       { field: 'maxDepth', request: baseRequest({ maxDepth: 2 }) },
       { field: 'toolFilter', request: baseRequest({ toolFilter: { deny: ['bash'] } }) },
     ])('rejects $field against a provider that lacks the capability — before start() runs', ({ request }) => {
@@ -203,7 +203,7 @@ describe('SubagentService', () => {
       await ctx.plugin(SubagentService)
       const provider = new StubProvider('strong', ALL_CAPS)
       ctx.subagents.registerProvider(provider)
-      ctx.subagents.start('strong', baseRequest({ outputSchema: { x: { type: 'string' } }, maxDepth: 1 }))
+      ctx.subagents.start('strong', baseRequest({ outputSchema: { type: 'object', properties: { x: { type: 'string' } } }, maxDepth: 1 }))
       expect(provider.startCount).toBe(1)
     })
   })

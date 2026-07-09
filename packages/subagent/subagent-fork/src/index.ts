@@ -28,6 +28,10 @@ import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } fro
 import { startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
 
 export const name = 'subagent-fork'
+// `tools` is deliberately NOT injected — same rationale as subagent-spawn: the
+// per-run structured runtime gates its capture-tool registration on `tools`
+// itself, so this backend's apply timing (and the delegation tool's position
+// in the model-visible tool list) is unchanged by structured output.
 export const inject = ['subagents', 'agents']
 
 /** Config: the registry name to register the provider under. */
@@ -47,6 +51,8 @@ export const Config: z<Config> = z.object({
  * empty — i.e. fresh — child). The result is contiguous from seq 0 (the live
  * log keeps `seq === index`), so it is a valid session seed; the in-flight,
  * unbalanced turn is dropped so the invariants replay accepts it.
+ * @param parent - the agent whose session log to slice.
+ * @returns the seed events, contiguous from seq 0; empty when no turn has completed.
  */
 export function completedTurnPrefix(parent: Agent): SessionEvent[] {
   const events = parent.session.events
@@ -57,11 +63,12 @@ export function completedTurnPrefix(parent: Agent): SessionEvent[] {
 }
 
 /**
- * The fork provider. Supports `depthLimit`; NOT `outputSchema`/`toolFilter` this
- * cut (the service rejects a request needing either before `start` runs).
+ * The fork provider. Supports `depthLimit` and `outputSchema` (via the shared
+ * in-process structured runtime); NOT `toolFilter` this cut (the service
+ * rejects a request needing it before `start` runs).
  */
 class ForkProvider implements SubagentProvider {
-  readonly capabilities: SubagentCapabilities = { outputSchema: false, depthLimit: true, toolFilter: false }
+  readonly capabilities: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: false }
   // Context contract: a forked child IS seeded with the parent's completed-turn prefix.
   readonly inheritsParentContext = true
 
