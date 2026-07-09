@@ -103,10 +103,10 @@
     toolName: subagent_fork
 
 
-# Dynamic workflows: the node:vm engine (ctx.workflows) over the spawn subagent
-# backend above, plus the model-facing `workflow` tool. The model writes a
-# JavaScript orchestration script (meta + body); the engine runs it in-process
-# and fans agent() calls out as spawn children.
+# Dynamic workflows: the worker-thread engine (ctx.workflows) over the spawn
+# subagent backend above, plus the model-facing `workflow` tool. The model
+# writes a JavaScript orchestration script (meta + body); the engine runs it
+# in its own worker thread and fans agent() calls out as spawn children.
 - id: workflow-vm
   name: '@deepseek-ai/dsh-workflow-vm'
   config:

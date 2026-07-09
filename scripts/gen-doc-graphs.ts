@@ -193,7 +193,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'seam',
     implementations: ['workflow-vm'],
     consumers: ['tool-workflow'],
-    note: 'One engine per context (bash shape, no named-provider registry); the vm engine fans agent() calls out through ctx.subagents.',
+    note: 'One engine per context (bash shape, no named-provider registry); the worker-thread engine fans agent() calls out through ctx.subagents.',
   },
 ]
 
@@ -203,6 +203,14 @@ const DYNAMIC_EVENT_DISPATCHERS: Array<{ event: string; pkg: string; method: str
   // listeners or strand an already-started child run.
   { event: 'subagent/start', pkg: 'subagent', method: 'events.dispatch' },
   { event: 'subagent/end', pkg: 'subagent', method: 'events.dispatch' },
+  // The workflow/* lifecycle events dispatch the same way, for the same
+  // per-listener-containment reason (WorkflowService.emitWorkflowEvent).
+  { event: 'workflow/start', pkg: 'workflow', method: 'events.dispatch' },
+  { event: 'workflow/phase', pkg: 'workflow', method: 'events.dispatch' },
+  { event: 'workflow/log', pkg: 'workflow', method: 'events.dispatch' },
+  { event: 'workflow/agent-start', pkg: 'workflow', method: 'events.dispatch' },
+  { event: 'workflow/agent-end', pkg: 'workflow', method: 'events.dispatch' },
+  { event: 'workflow/end', pkg: 'workflow', method: 'events.dispatch' },
 ]
 
 function generatedHeader(title: string): string[] {

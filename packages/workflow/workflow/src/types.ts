@@ -89,7 +89,13 @@ export interface WorkflowResult {
   stopReason: WorkflowStopReason
   /** The failure message (present iff `stopReason` is not `completed`). */
   error?: string
-  /** How many `agent()` calls the run accepted (whole lifetime, including calls still queued for a slot when the run was cancelled). */
+  /**
+   * How many `agent()` calls the run accepted over its whole lifetime. On a
+   * graceful settlement this is the script-side count (calls still queued for
+   * a concurrency slot included); on a termination path (grace force-settle,
+   * worker death) it degrades to the host-observed count — calls queued
+   * inside a terminated script are unknowable then.
+   */
   agentsStarted: number
 }
 
@@ -98,18 +104,19 @@ export interface WorkflowResult {
  * `result`, may `cancel` mid-flight, and MUST `dispose` on every path.
  * `result` does NOT reject — a script failure resolves with `stopReason:
  * 'error'` — and once the run is cancelled it SETTLES within the engine's
- * bounded grace even if the script itself never settles (the engine abandons
- * the script and reports `cancelled`), so a consumer awaiting `result` is
- * never wedged past a cancellation. `dispose()` = cancel + that bounded
- * settle + child quiescence; it never hangs on a stuck script and is safe to
- * call on every path (idempotent).
+ * bounded grace even if the script itself never settles (the engine
+ * force-settles `cancelled`; what becomes of the script is engine-documented
+ * — the worker-thread engine terminates its worker), so a consumer awaiting
+ * `result` is never wedged past a cancellation. `dispose()` = cancel + that
+ * bounded settle + child quiescence; it never hangs on a stuck script and is
+ * safe to call on every path (idempotent).
  */
 export interface WorkflowRun {
   readonly id: WorkflowRunId
   /** The validated meta block (available before the body runs). */
   readonly meta: WorkflowMeta
   readonly result: Promise<WorkflowResult>
-  /** Cancel the run: children abort, pending hooks reject, the script dies at its next await (or is abandoned at the grace). */
+  /** Cancel the run: children abort, pending hooks reject, the script dies at its next await (or is force-settled at the grace). */
   cancel(reason?: string): void
   /** Cancel + bounded-grace settle; safe to call on every path (idempotent). */
   dispose(): Promise<void>

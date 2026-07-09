@@ -5,9 +5,9 @@ The workflow seam: a model-written JavaScript orchestration script that fans out
 | Package | Role | ctx key |
 |---|---|---|
 | `workflow/` | Abstract workflow seam: service base class + run vocabulary + `workflow/*` events | `ctx.workflows` |
-| `workflow-vm/` | In-process `node:vm` engine: parses the script, injects the hooks, drives `ctx.subagents` | (provides `ctx.workflows`) |
+| `workflow-vm/` | `node:worker_threads` engine: one worker per run; the script's vm context lives inside the worker, `agent()` bridges to `ctx.subagents` over the message port | (provides `ctx.workflows`) |
 | `tool-workflow/` | Model-facing `workflow` tool over `ctx.workflows` | (registers on `ctx.tools`) |
 
-The interface lives at `workflow/workflow/`. The engine's `agent()` hook rides the [subagent seam](../subagent/README.md) (any registered provider; the shipped examples use `spawn`), and `agent({ schema })` rides the structured-output support the in-process backends implement. The seam split exists for engine hardening: `node:vm` is in-process and cannot kill a pathological synchronous spin — a worker-thread or isolated-vm engine swaps in behind the same interface if that ever matters.
+The interface lives at `workflow/workflow/`. The engine's `agent()` hook rides the [subagent seam](../subagent/README.md) (any registered provider; the shipped examples use `spawn`), and `agent({ schema })` rides the structured-output support the in-process backends implement. The worker thread isolates the SCRIPT — the host never blocks on it, and a cancelled run's post-grace termination is real — but it is NOT a security boundary; an isolated-vm/separate-process engine (actual sandboxing) swaps in behind the same interface if that ever matters.
 
 The proposal, decisions, and deferred work: [docs/rfc/implemented/feature/2026-07-05-dynamic-workflows.md](../../docs/rfc/implemented/feature/2026-07-05-dynamic-workflows.md).

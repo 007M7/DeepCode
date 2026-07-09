@@ -34,11 +34,11 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `tools/change` | `emit` | [`packages/core/tools/src/index.ts:97`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`emit`) | - |
 | `tools/post-execute` | `waterfall` | [`packages/core/tools/src/index.ts:92`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
 | `tools/pre-execute` | `waterfall` | [`packages/core/tools/src/index.ts:76`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) |
-| `workflow/agent-end` | `emit` | [`packages/workflow/workflow/src/index.ts:93`](../packages/workflow/workflow/src/index.ts) | - | - |
-| `workflow/agent-start` | `emit` | [`packages/workflow/workflow/src/index.ts:85`](../packages/workflow/workflow/src/index.ts) | - | - |
-| `workflow/end` | `emit` | [`packages/workflow/workflow/src/index.ts:103`](../packages/workflow/workflow/src/index.ts) | - | - |
-| `workflow/log` | `emit` | [`packages/workflow/workflow/src/index.ts:77`](../packages/workflow/workflow/src/index.ts) | - | - |
-| `workflow/phase` | `emit` | [`packages/workflow/workflow/src/index.ts:70`](../packages/workflow/workflow/src/index.ts) | - | - |
-| `workflow/start` | `emit` | [`packages/workflow/workflow/src/index.ts:62`](../packages/workflow/workflow/src/index.ts) | - | - |
+| `workflow/agent-end` | `emit` | [`packages/workflow/workflow/src/index.ts:93`](../packages/workflow/workflow/src/index.ts) | [`workflow`](../packages/workflow/workflow) (`events.dispatch`) | - |
+| `workflow/agent-start` | `emit` | [`packages/workflow/workflow/src/index.ts:85`](../packages/workflow/workflow/src/index.ts) | [`workflow`](../packages/workflow/workflow) (`events.dispatch`) | - |
+| `workflow/end` | `emit` | [`packages/workflow/workflow/src/index.ts:103`](../packages/workflow/workflow/src/index.ts) | [`workflow`](../packages/workflow/workflow) (`events.dispatch`) | - |
+| `workflow/log` | `emit` | [`packages/workflow/workflow/src/index.ts:77`](../packages/workflow/workflow/src/index.ts) | [`workflow`](../packages/workflow/workflow) (`events.dispatch`) | - |
+| `workflow/phase` | `emit` | [`packages/workflow/workflow/src/index.ts:70`](../packages/workflow/workflow/src/index.ts) | [`workflow`](../packages/workflow/workflow) (`events.dispatch`) | - |
+| `workflow/start` | `emit` | [`packages/workflow/workflow/src/index.ts:62`](../packages/workflow/workflow/src/index.ts) | [`workflow`](../packages/workflow/workflow) (`events.dispatch`) | - |
 
 Maintenance mode: hybrid generated: Cordis event declarations and most producer/listener edges are AST-scanned; dynamic dispatch sites are classified in `scripts/gen-doc-graphs.ts`.

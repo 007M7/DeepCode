@@ -4,10 +4,10 @@
  * that fans out subagents — without saying HOW. Implementations subclass
  * {@link WorkflowService} and register as the `workflows` service (one
  * implementation per context, cordis' standard duplicate-service behavior);
- * `@deepseek-ai/dsh-workflow-vm` (an in-process `node:vm` engine) is the
- * first. Future engines (a worker-thread or isolated-vm sandbox) swap in
- * without touching the model-facing tool that consumes them
- * (`@deepseek-ai/dsh-tool-workflow`).
+ * the implementation is `@deepseek-ai/dsh-workflow-vm`, which runs each
+ * script in its own worker thread. Hardened engines (an isolated-vm or
+ * separate-process sandbox) swap in without touching the model-facing tool
+ * that consumes them (`@deepseek-ai/dsh-tool-workflow`).
  *
  * The `workflow/*` lifecycle events are OBSERVE-ONLY data snapshots: they
  * carry {@link WorkflowRunInfo} (id + meta), never the live {@link WorkflowRun}
@@ -198,6 +198,11 @@ export function isFatalWorkflowError(error: unknown): boolean {
  *   for the script to settle AND its started children to finish disposing,
  *   and abandons whatever is left rather than hanging its caller (the engine
  *   documents what abandonment leaves behind).
+ * - Runs are HOLDER-OWNED: the engine hands control (`cancel`/`dispose`) to
+ *   the `start()` caller and does not track its live runs — disposing the
+ *   engine's own fiber mid-run deliberately leaves those runs to their
+ *   holders' teardown, so an engine reload cannot yank a run out from under
+ *   the consumer awaiting it.
  */
 export abstract class WorkflowService extends Service {
   constructor(ctx: Context) {

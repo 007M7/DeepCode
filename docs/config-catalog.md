@@ -815,18 +815,18 @@ export interface Config {
   maxTotalAgents?: number
   /** Items accepted by a single `parallel()`/`pipeline()` call (default 4096). */
   maxItemsPerCall?: number
-  /** vm timeout for the script's initial synchronous slice AND the meta-literal evaluation (default 5000 ms). */
+  /** vm timeout for the initial synchronous slice (inside the worker) AND the host-side meta evaluation (default 5000 ms). */
   syncTimeoutMs?: number
   /**
    * How long after a cancellation an unsettled script may keep running before
-   * it is abandoned and `result` force-settles `cancelled` (default 5000 ms);
-   * also bounds `dispose()`.
+   * the run force-settles `cancelled` and its worker is TERMINATED (default
+   * 5000 ms); also bounds `dispose()`.
    */
   disposeGraceMs?: number
 }
 ```
 
-Source: [`packages/workflow/workflow-vm/src/index.ts:58`](../packages/workflow/workflow-vm/src/index.ts)
+Source: [`packages/workflow/workflow-vm/src/index.ts:69`](../packages/workflow/workflow-vm/src/index.ts)
 
 ## Loadable plugins with no config
 

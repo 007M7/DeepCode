@@ -2,7 +2,7 @@
 
 The workflow seam — an agent running a model-written orchestration SCRIPT that fans out subagents. Like [subagent](subagent.md) it is **one optional capability**, not part of the agent-loop spine, so its vocabulary lives here rather than in [core.md](core.md). Unlike the subagent registry it takes the bash shape: ONE engine implementation per context provides `ctx.workflows`; there is no named-provider registry (a second engine is a plugin swap, not a co-resident).
 
-Interface: [dsh-workflow](../../packages/workflow/workflow) (`ctx.workflows` + the vocabulary below). The implementation is [dsh-workflow-vm](../../packages/workflow/workflow-vm) (an in-process `node:vm` engine); the model-facing consumer is [dsh-tool-workflow](../../packages/workflow/tool-workflow). The proposal and rationale: [the dynamic-workflows RFC](../rfc/implemented/feature/2026-07-05-dynamic-workflows.md).
+Interface: [dsh-workflow](../../packages/workflow/workflow) (`ctx.workflows` + the vocabulary below). The implementation is [dsh-workflow-vm](../../packages/workflow/workflow-vm) (a `node:worker_threads` engine — one worker per run, the script's vm context inside it); the model-facing consumer is [dsh-tool-workflow](../../packages/workflow/tool-workflow). The proposal and rationale: [the dynamic-workflows RFC](../rfc/implemented/feature/2026-07-05-dynamic-workflows.md).
 
 Source: [`packages/workflow/workflow/src/types.ts`](../../packages/workflow/workflow/src/types.ts)
 
@@ -47,7 +47,7 @@ interface WorkflowResult {
 
 ## A live run: `WorkflowRun`
 
-The handle the consumer holds while a script executes. The consumer awaits `result`, may `cancel` mid-flight, and MUST `dispose` on every path. `result` does NOT reject — a script failure resolves with `stopReason: 'error'` — and once the run is cancelled it SETTLES within the engine's bounded grace even if the script itself never settles (the engine abandons the script and reports `cancelled`), so a consumer awaiting `result` is never wedged past a cancellation. `dispose()` = cancel + that bounded settle + child quiescence (the engine documents what abandonment leaves behind); it never hangs on a stuck script.
+The handle the consumer holds while a script executes. The consumer awaits `result`, may `cancel` mid-flight, and MUST `dispose` on every path. `result` does NOT reject — a script failure resolves with `stopReason: 'error'` — and once the run is cancelled it SETTLES within the engine's bounded grace even if the script itself never settles (the engine force-settles `cancelled`; the worker-thread engine then terminates the script's worker), so a consumer awaiting `result` is never wedged past a cancellation. `dispose()` = cancel + that bounded settle + child quiescence; it never hangs on a stuck script.
 
 ```ts type-equiv
 interface WorkflowRun {
