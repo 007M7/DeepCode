@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { fileURLToPath } from 'node:url'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { AgentId } from '@deepseek-ai/dsh-agent'
@@ -269,6 +270,28 @@ describe('dsh-workflow-workerthread', () => {
         expect(result.stopReason).toBe('completed')
         expect(result.value).toEqual({ canary: null, keys: 0 })
       } finally {
+        delete process.env.WORKFLOW_ENV_CANARY
+      }
+    })
+
+    it('the unbuilt worker forwards exactly TSX_TSCONFIG_PATH through the scrub: the paths-map pin survives, secrets do not', async () => {
+      const { ctx, parent } = await setup()
+      // The ACP snapshot harness runs the parent with its cwd OUTSIDE the
+      // repo and pins the repo tsconfig through this variable; the worker
+      // must inherit the pin (or its dsh-* imports silently resolve to
+      // unbuilt lib/ bundles) while every other variable stays scrubbed.
+      const tsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
+      process.env.TSX_TSCONFIG_PATH = tsconfig
+      process.env.WORKFLOW_ENV_CANARY = 'leak me'
+      try {
+        const result = await run(ctx, parent, scripted(`
+          const proc = ${ESCAPE}
+          return { keys: Object.keys(proc.env), tsconfig: proc.env.TSX_TSCONFIG_PATH }
+        `))
+        expect(result.stopReason).toBe('completed')
+        expect(result.value).toEqual({ keys: ['TSX_TSCONFIG_PATH'], tsconfig })
+      } finally {
+        delete process.env.TSX_TSCONFIG_PATH
         delete process.env.WORKFLOW_ENV_CANARY
       }
     })
