@@ -459,6 +459,14 @@ describe('glob results', () => {
     expect(text(await call(ctx, 'glob', { pattern: '*', path: ' ' }))).toContain('path must be a non-empty string')
   })
 
+  it('threads a valid path through to the command as the quoted search root', async () => {
+    const { ctx, bash } = await setup()
+    bash.handler = () => runResult('sub/a.ts\n')
+    const result = await call(ctx, 'glob', { pattern: '*.ts', path: 'sub' })
+    expect(result.isError).toBe(false)
+    expect(bash.specs[0]?.command).toContain("-- 'sub'")
+  })
+
   it('caps at globMaxResults and saves the FULL sorted list through spillFiles', async () => {
     const { ctx, bash, spill } = await setup({ config: { globMaxResults: 2 }, spill: true })
     bash.handler = () => runResult('a.ts\nb.ts\nc.ts\nd.ts\n')
