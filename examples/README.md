@@ -23,10 +23,10 @@ Run with: `pnpm run demo:repl` (needs `DEEPSEEK_API_KEY` in the environment or a
 
 The coding agent flipped to **Code Mode**: the worker-thread code runtime is loaded and the tool registry runs `mode: code`, so the model gets exactly one wire tool — `run_code` — plus a generated TypeScript SDK section, and composes bash/read/write/edit/todo_write by writing a program whose output it curates.
 
-Run with: `pnpm run demo:code` (needs `DEEPSEEK_API_KEY`). See [code-agent/README.md](code-agent/README.md) for what to try and how it differs from coding-agent.
+Run with: `pnpm run demo:code-mode` (needs `DEEPSEEK_API_KEY`; the REPL is the default UI — `acp` as the argument serves the acp-agent example's Code Mode overlay instead). See [code-agent/README.md](code-agent/README.md) for what to try and how it differs from coding-agent.
 
 ## acp-agent
 
 An agent demo exposed as an **Agent Client Protocol (ACP)** server over JSON-RPC stdio, via the [`@deepseek-ai/dsh-acp-agent`](../packages/ui/acp-agent) app — drive it from Zed or any other ACP client. Also the home of the keyless snapshot tests.
 
-Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`); `pnpm run demo:acp-code` boots the same server in Code Mode via the `code-mode.cordis.yml` overlay. See [acp-agent/README.md](acp-agent/README.md) for the Zed setup and the snapshot-test design.
+Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`); `pnpm run demo:code-mode acp` boots the same server in Code Mode via the `code-mode.cordis.yml` overlay. See [acp-agent/README.md](acp-agent/README.md) for the Zed setup and the snapshot-test design.

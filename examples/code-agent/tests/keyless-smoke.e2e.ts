@@ -42,7 +42,7 @@ async function bootAndEof(): Promise<{ stdout: string; code: number }> {
   return new Promise((resolve, reject) => {
     const proc = spawn(
       process.execPath,
-      // --expose-internals: cordis.yml loads the HMR plugin (mirrors demo:code).
+      // --expose-internals: cordis.yml loads the HMR plugin (mirrors demo:code-mode).
       ['--expose-internals', '--import', tsxLoader, binScript, configPath],
       {
         cwd,
