@@ -141,6 +141,42 @@ export interface Config {
 
 Source: [`packages/bash/bash-local/src/index.ts:28`](../packages/bash/bash-local/src/index.ts)
 
+## `@deepseek-ai/dsh-code-runtime-worker`
+
+```ts config-catalog
+/** Plugin config: every execution cap, changeable from `cordis.yml` (no hardcoded tunables). */
+export interface Config {
+  /**
+   * Busy-time budget in milliseconds: the run fails with kind `'timeout'`
+   * once the worker's MEASURED event-loop active time
+   * (`worker.performance.eventLoopUtilization()`) exceeds this. Metering
+   * measured busy time — not wall time, not host-side pending-call
+   * bookkeeping — is what makes the budget both fair (a program awaiting a
+   * slow tool accrues nothing) and ungameable (a hot loop accrues whether
+   * or not a decoy dispatch is in flight).
+   */
+  computeMs?: number
+  /**
+   * Wall-clock ceiling in milliseconds; never pauses for anything. The
+   * backstop for what busy-time cannot see (a program awaiting a promise
+   * nobody will resolve).
+   */
+  maxWallMs?: number
+  /** Shared byte budget for captured log text (console + raw stream writes), truncation marked in-band. */
+  maxLogBytes?: number
+  /**
+   * Byte cap for the completion value, measured by its real cross-boundary
+   * size (string bytes, or structured-clone wire size); an oversized or
+   * non-cloneable value crosses as a capped string rendering.
+   */
+  maxValueBytes?: number
+  /** The worker's max old-generation heap in MiB (`resourceLimits`); overflow kills the worker, surfacing as kind `'worker-exit'`. */
+  maxOldGenerationSizeMb?: number
+}
+```
+
+Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:29`](../packages/code-runtime/code-runtime-worker/src/index.ts)
+
 ## `@deepseek-ai/dsh-compact-basic`
 
 Requires: `llm`
