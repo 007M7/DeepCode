@@ -30,7 +30,7 @@
       "path": "../../core/tools"
     },
     {
-      "path": "../../core/user-interaction"
+      "path": "../user-interaction"
     },
     {
       "path": "../../session-persistence/session-persistence"

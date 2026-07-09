@@ -320,11 +320,11 @@ importers:
         specifier: ^4.0.0-rc.6
         version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
 
-  packages/core/user-interaction:
+  packages/ui/user-interaction:
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
-        version: link:../agent
+        version: link:../../core/agent
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
@@ -973,7 +973,7 @@ importers:
         version: link:../../core/tools
       '@deepseek-ai/dsh-user-interaction':
         specifier: workspace:^
-        version: link:../../core/user-interaction
+        version: link:../user-interaction
       cordis:
         specifier: ^4.0.0-rc.6
         version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
@@ -1003,7 +1003,7 @@ importers:
         version: link:../../core/system-prompt
       '@deepseek-ai/dsh-user-interaction':
         specifier: workspace:^
-        version: link:../../core/user-interaction
+        version: link:../user-interaction
       cordis:
         specifier: ^4.0.0-rc.6
         version: 4.0.0-rc.6(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
@@ -1060,7 +1060,7 @@ importers:
         version: link:../tool-ask-user
       '@deepseek-ai/dsh-user-interaction':
         specifier: workspace:^
-        version: link:../../core/user-interaction
+        version: link:../user-interaction
       cordis:
         specifier: ^4.0.0-rc.6
         version: 4.0.0-rc.6(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
@@ -1084,7 +1084,7 @@ importers:
         version: link:../../core/tools
       '@deepseek-ai/dsh-user-interaction':
         specifier: workspace:^
-        version: link:../../core/user-interaction
+        version: link:../user-interaction
       cordis:
         specifier: ^4.0.0-rc.6
         version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)

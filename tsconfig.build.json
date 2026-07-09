@@ -19,7 +19,7 @@
     { "path": "./packages/session-persistence/session-persistence-sqlite" },
     { "path": "./packages/core/system-prompt" },
     { "path": "./packages/core/agent" },
-    { "path": "./packages/core/user-interaction" },
+    { "path": "./packages/ui/user-interaction" },
     { "path": "./packages/core/tools" },
     { "path": "./packages/ui/tool-ask-user" },
     { "path": "./packages/core/agent-loop" },

@@ -870,7 +870,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-tool-bash` — requires `tools` · `bash` · `systemPrompt` ([`packages/bash/tool-bash/src/index.ts`](../packages/bash/tool-bash/src/index.ts))
 - `@deepseek-ai/dsh-tool-todo` — requires `tools` ([`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts))
 - `@deepseek-ai/dsh-tools` — requires `systemPrompt` ([`packages/core/tools/src/index.ts`](../packages/core/tools/src/index.ts))
-- `@deepseek-ai/dsh-user-interaction` ([`packages/core/user-interaction/src/index.ts`](../packages/core/user-interaction/src/index.ts))
+- `@deepseek-ai/dsh-user-interaction` ([`packages/ui/user-interaction/src/index.ts`](../packages/ui/user-interaction/src/index.ts))
 
 ## Seam packages (not directly loadable)
 

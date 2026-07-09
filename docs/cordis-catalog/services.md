@@ -235,7 +235,7 @@ registerProvider(provider: UserInteractionProvider): () => void
 async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 ```
 
-Source: [`packages/core/user-interaction/src/index.ts:82`](../../packages/core/user-interaction/src/index.ts)
+Source: [`packages/ui/user-interaction/src/index.ts:82`](../../packages/ui/user-interaction/src/index.ts)
 
 ## `ctx.web` — `WebService`
 

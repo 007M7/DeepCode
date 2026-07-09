@@ -33,7 +33,7 @@
       "path": "../../core/agent-core"
     },
     {
-      "path": "../../core/user-interaction"
+      "path": "../user-interaction"
     },
     {
       "path": "../tool-ask-user"

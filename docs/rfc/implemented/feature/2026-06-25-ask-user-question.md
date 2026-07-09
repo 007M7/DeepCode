@@ -10,7 +10,7 @@ This is a user-facing capability, but it also crosses package boundaries. A mode
 
 ## Decision
 
-Introduce `dsh-user-interaction` as the core interface package for `ctx.userInteraction`, and keep the model-facing consumer `dsh-tool-ask-user` under `packages/ui/tool-ask-user` rather than the core spine. The split is intentional: core owns the abstract seam and stable request/answer/error vocabulary; UI product surfaces own the affordance that asks a human and the concrete provider that collects the answer. The tool registers `ask_user_question`, forwards `{ questions, agent, signal }`, and returns the provider-computed structured answers as the tool result.
+Introduce `dsh-user-interaction` as the provider-neutral interface package for `ctx.userInteraction`, colocated with the model-facing consumer `dsh-tool-ask-user` under `packages/ui`. The grouping is intentional: asking a human is a UI-backed product affordance, not part of the providerless core spine. The seam still owns the stable request/answer/error vocabulary, while UI product surfaces provide the concrete provider that collects the answer. The tool registers `ask_user_question`, forwards `{ questions, agent, signal }`, and returns the provider-computed structured answers as the tool result.
 
 The model-facing request vocabulary is deliberately aligned with the product-research schema: `ask_user_question({ questions: [{ id, question, header?, options?: [{ label, description? }], multi_select? }] })`. `id` is supplied per question and echoed in the result so a batch can be routed without relying on question text. `label` is both user-facing display text and the selected value returned to the model; there is no separate `value`, no `recommended`, no `allow_custom`, and no `desc` alias.
 
@@ -30,7 +30,7 @@ The ACP mapping deliberately uses elicitation, not `session/request_permission`.
 
 **Assistant text followed by a stopped turn.** The model could ask the user in plain assistant text and then stop. That loses the structured option metadata, gives UIs no provider-neutral way to render a choice, and forces the next human answer to arrive as a new user prompt rather than as the result of the operation that needed the answer.
 
-**A core `tool-ask-user` package.** The first implementation put the model-facing tool under `packages/core`, but the tool is not providerless loop infrastructure. It is a product-facing affordance that only works when a UI provider exists, so core owns only the abstract `ctx.userInteraction` seam and the tool lives under `packages/ui`.
+**Core-owned ask-user packages.** The first implementation split the seam and the model-facing tool across `packages/core` and `packages/ui`, but both names describe one UI-backed human-interaction affordance. The seam remains provider-neutral, but it is not providerless core infrastructure like sessions, tools, or the agent registry. Keeping `dsh-user-interaction` and `dsh-tool-ask-user` together under `packages/ui` makes the package map match the product boundary: apps and bridges provide the human-answer provider, and the stdio app opts into the model-facing tool.
 
 **ACP `session/request_permission`.** Permission requests are authorization around tool execution; `ask_user_question` is information gathering with optional free-form answers. Using permission for general questions would collapse two different product concepts and make the future permission gate harder to reason about.
 
@@ -42,7 +42,7 @@ ACP elicitation is currently marked unstable in the SDK. The fallback is still s
 
 The feature gives the model a powerful pause primitive, so prompt guidance matters. The tool description tells the model to ask concise questions and use options when possible. Product policy can later wrap `tools/execute` to restrict when the tool is allowed, but the loop should not special-case it.
 
-`dsh-tool-ask-user` lives in `packages/ui` even though it is a tool, because it is a product-facing human-interaction affordance rather than providerless loop infrastructure. The core package remains only the abstract seam; `agent-core` does not load the tool. `stdio-agent` opts into it alongside its readline provider. `acp-agent` keeps only the `userInteraction` seam/provider by default: ACP elicitation support is still client-dependent, so an ACP leaf must opt into the model-facing tool deliberately once its client can complete elicitation requests.
+`dsh-user-interaction` and `dsh-tool-ask-user` both live in `packages/ui` because they form one product-facing human-interaction capability. `agent-core` does not load either the tool or a provider. `stdio-agent` opts into the seam, its readline provider, and the model-facing tool. `acp-agent` keeps only the `userInteraction` seam/provider by default: ACP elicitation support is still client-dependent, so an ACP leaf must opt into the model-facing tool deliberately once its client can complete elicitation requests.
 
 ## Testing
 
