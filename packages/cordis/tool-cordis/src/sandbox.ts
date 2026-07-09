@@ -6,11 +6,14 @@
  * routed through cordis services, never Node built-ins: filesystem work goes
  * through `ctx.fs`, network through `ctx.web`, processes through `ctx.bash`,
  * timers through the `ctx.timer` helpers (fiber effects, unwound on unmount)
- * — so everything a mounted plugin does stays inspectable and disposable. The
- * sandbox guards against ACCIDENTAL global pollution only — it is not a
- * security boundary; the `ctx` a mounted plugin's `apply` later receives is
- * the real, fully privileged runtime handle, and that is the point of the
- * toolset.
+ * — so a well-behaved mount stays inspectable and disposable. That routing is
+ * STEERING toward the cordis services, not containment: the sandbox guards
+ * against ACCIDENTAL global pollution, and it is not a security boundary. The
+ * host-realm helpers on the sandbox global (`harness`, `console`, `btoa`) are
+ * reachable functions, so a mount that goes looking — e.g. through such a
+ * helper's `.constructor` — can still reach the host realm; that is accepted,
+ * because the `ctx` a mounted plugin's `apply` later receives is the real,
+ * fully privileged runtime handle, and that is the point of the toolset.
  *
  * @module @deepseek-ai/dsh-tool-cordis/sandbox
  */
