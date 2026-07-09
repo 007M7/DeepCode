@@ -17,6 +17,8 @@ function fakeParent(): Agent {
 
 /** The vm-context escape hatch, spelled once: real Worker tests use it to make the WORKER misbehave. */
 const ESCAPE = "globalThis.constructor.constructor('return process')()"
+/** Linux coverage workers can take longer than Vitest's default waitFor timeout to start executing script. */
+const WORKER_CHILD_START_TIMEOUT_MS = 3_000
 
 /** One controllable child run: the test (or auto mode) settles it. */
 interface ControlledRun {
@@ -572,7 +574,7 @@ describe('dsh-workflow-workerthread', () => {
         `),
         parent: fakeParent(),
       })
-      await vi.waitFor(() => { expect(starts).toBe(1) })
+      await vi.waitFor(() => { expect(starts).toBe(1) }, { timeout: WORKER_CHILD_START_TIMEOUT_MS })
       handle.cancel('stop now')
       await vi.waitFor(() => { expect(cancelled).toEqual(['stop now']) }, { timeout: 800 })
       // The wedged worker's own completion loses to the in-flight cancel.
@@ -602,7 +604,7 @@ describe('dsh-workflow-workerthread', () => {
         `),
         parent,
       })
-      await vi.waitFor(() => { expect(provider.runs.length).toBe(1) })
+      await vi.waitFor(() => { expect(provider.runs.length).toBe(1) }, { timeout: WORKER_CHILD_START_TIMEOUT_MS })
       const before = Date.now()
       await handle.dispose()
       // Bounded by the grace (plus the terminate), never by the 1.5s spin.
