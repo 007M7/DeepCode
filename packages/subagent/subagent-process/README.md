@@ -37,4 +37,4 @@ A per-run isolated config directory for an external CLI child (the target of `CL
 
 ## Testing
 
-`tests/subagent-process.spec.ts`: the env scrub and config-dir helpers run against the real process env and real filesystem (including an rm-failure path proving `remove()` never rejects); the exit waits and the dispose ladder run against a scriptable fake child, driving each escalation tier deterministically. The [ACP backend suite](../subagent-acp/README.md) exercises the same ladder against real subprocesses (EOF-cooperative, EOF-ignoring, and SIGTERM-trapping children) end to end.
+`tests/subagent-process.spec.ts`: the env scrub and config-dir helpers run against the real process env and real filesystem (the rm-failure path injects its rejection at the fs boundary — a real recursive-rm failure is not portably provokable, and root ignores permission bits); the exit waits and the dispose ladder run against a scriptable fake child, driving each escalation tier deterministically. The [ACP backend suite](../subagent-acp/README.md) exercises the same ladder against real subprocesses (EOF-cooperative, EOF-ignoring, and SIGTERM-trapping children) end to end.

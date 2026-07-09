@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ChildProcess } from 'node:child_process'
@@ -15,13 +15,24 @@ import {
   waitForExit,
 } from '../src/index.ts'
 
+// `rm` is wrapped (real-passthrough by default) so ONE test can inject a
+// rejection deterministically. A real recursive-rm failure is not portably
+// provokable — permission tricks (a chmod-000 subtree) fail only for
+// unprivileged users and are ignored by root — so this is the fs boundary
+// the testing policy sanctions mocking; everything else stays the real fs.
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, rm: vi.fn(actual.rm) }
+})
+
 /**
  * Unit tests for the shared out-of-process machinery. The env scrub and the
  * isolated-config-dir helpers run against the REAL process env and REAL
- * filesystem; the exit waits and the dispose ladder run against a scriptable
- * fake child so each escalation tier's timing is driven deterministically
- * (the ACP backend's suite exercises the same ladder against real
- * subprocesses end to end).
+ * filesystem (one exception: the rm-failure path injects its rejection at the
+ * mocked fs boundary, see above); the exit waits and the dispose ladder run
+ * against a scriptable fake child so each escalation tier's timing is driven
+ * deterministically (the ACP backend's suite exercises the same ladder
+ * against real subprocesses end to end).
  */
 
 /** What fells a scripted {@link FakeChild}. */
@@ -287,20 +298,16 @@ describe('createIsolatedConfigDir', () => {
     expect(existsSync(missing)).toBe(false)
   })
 
-  it('remove() is best-effort: an rm failure resolves instead of rejecting', async () => {
+  it('remove() is best-effort: an rm rejection resolves instead of rejecting', async () => {
     const dir = await createIsolatedConfigDir('dsh-subagent-process-locked-')
-    const locked = join(dir.path, 'locked')
-    await mkdir(locked)
-    await writeFile(join(locked, 'entry'), 'x')
-    // An unreadable, unwritable non-empty subdir makes recursive rm fail
-    // (EACCES on readdir/unlink) for a non-root user.
-    await chmod(locked, 0o000)
     try {
+      // The swallow contract is error-kind agnostic; EACCES stands in for the
+      // family (EBUSY, a vanished mount, …) that best-effort must absorb.
+      vi.mocked(rm).mockRejectedValueOnce(Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }))
       await expect(dir.remove()).resolves.toBeUndefined()
-      // rm really did fail — the locked subtree is still there.
-      expect(existsSync(locked)).toBe(true)
+      // The injected rejection consumed the only rm call — nothing was deleted.
+      expect(existsSync(dir.path)).toBe(true)
     } finally {
-      await chmod(locked, 0o700)
       await rm(dir.path, { recursive: true, force: true })
     }
   })
