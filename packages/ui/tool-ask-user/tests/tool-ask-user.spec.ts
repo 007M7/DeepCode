@@ -99,6 +99,37 @@ describe('ask_user_question tool', () => {
     }])
   })
 
+  it('passes recommended option labels through without adding schema fields', async () => {
+    const ctx = await setup()
+    const seen: AskUserQuestionRequest[] = []
+    ctx.userInteraction.registerProvider({
+      async ask(request) {
+        seen.push(request)
+        return { answers: [{ id: 'pkg', selected: ['pnpm (Recommended)'] }] }
+      },
+    })
+
+    await ctx.tools.execute({
+      callId: CallId('ask-recommended'),
+      name: 'ask_user_question',
+      arguments: {
+        questions: [{
+          id: 'pkg',
+          question: 'Which package manager should I use?',
+          options: [
+            { label: 'pnpm (Recommended)' },
+            { label: 'npm' },
+          ],
+        }],
+      },
+    })
+
+    expect(seen[0]?.questions[0]?.options).toEqual([
+      { label: 'pnpm (Recommended)' },
+      { label: 'npm' },
+    ])
+  })
+
   it('projects custom answers and multi-select choices', async () => {
     const ctx = await setup()
     ctx.userInteraction.registerProvider({
