@@ -28,7 +28,7 @@ Source: [`packages/core/agent-loop/src/index.ts:70`](../../packages/core/agent-l
 Agent registry (`ctx.agents`): tracks live agents so UI, hook, and orchestrator plugins can find them without depending on the concrete loop package. Agent *creation* is provided by whichever plugin implements the AgentFactory (phase 1: `@deepseek-ai/dsh-agent-loop`), registered via setFactory.
 
 ```ts cordis-catalog
-setFactory(factory: AgentFactory): () => void
+setFactory(factory: AgentFactory): () => Promise<void> | void
 create(options: CreateAgentOptions): AgentHandle
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 register(agent: Agent): () => Promise<void> | void
@@ -191,7 +191,7 @@ Source: [`packages/core/session/src/index.ts:427`](../../packages/core/session/s
 The `subagents` service: a registry of named SubagentProviders and a capability-checked start surface.
 
 ```ts cordis-catalog
-registerProvider(provider: SubagentProvider): () => void
+registerProvider(provider: SubagentProvider): () => Promise<void> | void
 getProvider(name: string): SubagentProvider | undefined
 list(): string[]
 start(name: string, request: SubagentStartRequest): SubagentRun
@@ -204,9 +204,9 @@ Source: [`packages/subagent/subagent/src/index.ts:153`](../../packages/subagent/
 Registry service (`ctx.systemPrompt`): plugins contribute ordered text sections, tool-schema providers, and named prompt variables; the agent loop calls `assemble(context)` once per step. Registers the harness-owned `harness:identity` and `deployment:persona` sections itself (see Config.persona).
 
 ```ts cordis-catalog
-section(section: PromptSection): () => void
-tools(provider: (context: AssembleContext) => ToolProviderResult): () => void
-variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void
+section(section: PromptSection): () => Promise<void> | void
+tools(provider: (context: AssembleContext) => ToolProviderResult): () => Promise<void> | void
+variable(name: string, provider: (context: AssembleContext) => string | undefined): () => Promise<void> | void
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
@@ -219,8 +219,8 @@ Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop e
 Two registration layers (`@deepseek-ai/dsh-scope`): a registration through a plain plugin context is GLOBAL (visible to every agent); one through a scoped context (`agent.ctx`) is filed in that scope's layer — visible to that agent alone, disposed with the scope, and SHADOWING a global tool of the same name for that agent (most-specific-wins; within one layer a duplicate name still throws). restrict masks the global layer per scope. One visibility function (visible) feeds prompt assembly, get, and execute, so what the model is shown, what a presenter renders, and what dispatches can never disagree.
 
 ```ts cordis-catalog
-register(definition: ToolDefinition): () => void
-restrict(filter: ToolRestriction): () => void
+register(definition: ToolDefinition): () => Promise<void> | void
+restrict(filter: ToolRestriction): () => Promise<void> | void
 visible(scope?: ScopeKey): ToolDefinition[]
 get(name: string, scope?: ScopeKey): ToolDefinition | undefined
 schemas(scope?: ScopeKey): ToolSchema[]

@@ -37,7 +37,7 @@ describe('AgentRegistry', () => {
     expect(ctx.agents.get(AgentId('a1'))).toBe(agent)
     expect(ctx.agents.list()).toEqual([agent])
 
-    dispose()
+    await dispose()
     expect(disposed).toEqual(['a1'])
     expect(ctx.agents.get(AgentId('a1'))).toBeUndefined()
   })
@@ -74,7 +74,7 @@ describe('AgentRegistry', () => {
     // tracked exactly once (the duplicate-id check is not wedged).
     const dispose = ctx.agents.register(stubAgent('main'))
     expect(ctx.agents.list().map(a => a.id)).toEqual(['main'])
-    dispose()
+    await dispose()
     expect(ctx.agents.get(AgentId('main'))).toBeUndefined()
   })
 })
@@ -128,7 +128,7 @@ describe('AgentRegistry factory seam', () => {
   it('disposing the setFactory fiber clears the factory (HMR safety)', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
-    let dispose!: () => void
+    let dispose!: () => Promise<void> | void
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       dispose = inner.agents.setFactory(stubFactory().factory)
     }, { inject: ['agents'] }))

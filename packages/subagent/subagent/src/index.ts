@@ -164,9 +164,11 @@ export class SubagentService extends Service {
    * the registration and `subagent/provider-removed` on unregistration, so
    * consumers can mirror provider lifecycle instead of assuming load order.
    * @param provider - the provider; its `name` is the registry key.
-   * @returns the disposer that unregisters the provider.
+   * @returns the disposer that unregisters the provider. The exact
+   *   Cordis effect disposer (single-shot): composite (generator) effects may
+   *   yield it directly — exact identity nests the teardown in order.
    */
-  registerProvider(provider: SubagentProvider): () => void {
+  registerProvider(provider: SubagentProvider): () => Promise<void> | void {
     const dispose = this.ctx.effect(function* (this: SubagentService) {
       if (this.providers.has(provider.name)) {
         throw new SubagentError(`a subagent provider named "${provider.name}" is already registered`, 'DUPLICATE_PROVIDER')
@@ -184,9 +186,13 @@ export class SubagentService extends Service {
       }
       this.ctx.emit('subagent/provider-added', provider)
     }.bind(this), 'subagents.registerProvider()')
-    // ctx.effect's disposer returns Promise<void>; our disposer API is
-    // synchronous fire-and-forget — discard the (always-resolved) promise.
-    return () => void dispose()
+    // The EXACT cordis effect disposer, not a wrapper: a composite (generator)
+    // effect that owns a teardown ORDER must be able to yield THIS function —
+    // cordis nests a disposer out of the fiber's concurrent sibling list by
+    // exact function identity, so a wrapper would silently break the nesting
+    // (the agents.register() lesson). Fire-and-forget callers may still
+    // discard the (always-resolved) promise.
+    return dispose
   }
 
   /**

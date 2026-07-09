@@ -104,7 +104,7 @@ describe('scoped tool providers and toolOrder × restriction', () => {
     const ctx = await mount()
     const scope = await mintScope(ctx, 'child')
     const dispose = scope.ctx.systemPrompt.tools(() => ({ schemas: [schema('scoped_tool')] }))
-    dispose()
+    await dispose()
     const after = await ctx.systemPrompt.assemble({ scope: scopeKeyOf(scope) })
     expect(after.tools.map(t => t.name)).toEqual([])
     // Re-registering through the same scope starts a fresh layer.

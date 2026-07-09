@@ -202,7 +202,7 @@ export function apply(ctx: Context, config: Config): void {
   // available — deriving the wording from THAT provider — and unregister it
   // when the provider goes away, so the description can never outlive or
   // predate the provider it describes.
-  let disposeTool: (() => void) | undefined
+  let disposeTool: (() => Promise<void> | void) | undefined
   const mount = (provider: SubagentProvider): void => {
     const wording = providerWording(provider.inheritsParentContext)
     disposeTool = ctx.tools.register(defineTool({
@@ -284,7 +284,7 @@ export function apply(ctx: Context, config: Config): void {
   })
   ctx.on('subagent/provider-removed', (name) => {
     if (name !== config.provider || disposeTool === undefined) return
-    disposeTool()
+    void disposeTool()
     disposeTool = undefined
   })
   const present = ctx.subagents.getProvider(config.provider)

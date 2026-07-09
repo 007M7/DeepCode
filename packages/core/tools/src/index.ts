@@ -344,9 +344,11 @@ export class ToolRegistry extends Service {
    * Emits `tools/change` on register/unregister.
    * @param definition - the tool's schema plus its execute (and optional
    *   presentation) functions.
-   * @returns the disposer that unregisters the tool.
+   * @returns the disposer that unregisters the tool. The exact
+   *   Cordis effect disposer (single-shot): composite (generator) effects may
+   *   yield it directly — exact identity nests the teardown in order.
    */
-  register(definition: ToolDefinition): () => void {
+  register(definition: ToolDefinition): () => Promise<void> | void {
     const scope = scopeOf(this.ctx)
     const dispose = this.ctx.effect(function* (this: ToolRegistry) {
       const layer = scope === undefined ? this.global : this.layerFor(scope)
@@ -370,9 +372,13 @@ export class ToolRegistry extends Service {
       }
       this.ctx.emit('tools/change')
     }.bind(this), 'tools.register()')
-    // ctx.effect's disposer returns Promise<void>; our disposer API is
-    // synchronous fire-and-forget — discard the (always-resolved) promise.
-    return () => void dispose()
+    // The EXACT cordis effect disposer, not a wrapper: a composite (generator)
+    // effect that owns a teardown ORDER must be able to yield THIS function —
+    // cordis nests a disposer out of the fiber's concurrent sibling list by
+    // exact function identity, so a wrapper would silently break the nesting
+    // (the agents.register() lesson). Fire-and-forget callers may still
+    // discard the (always-resolved) promise.
+    return dispose
   }
 
   /**
@@ -389,9 +395,11 @@ export class ToolRegistry extends Service {
    * Scoped registrations bypass restrictions (explicit grants win). Disposed
    * with the calling fiber (revocable independently); emits `tools/change`.
    * @param filter - global-surface mask: `allow` (keep only) and/or `deny` (remove).
-   * @returns the disposer that lifts this restriction.
+   * @returns the disposer that lifts this restriction. The exact
+   *   Cordis effect disposer (single-shot): composite (generator) effects may
+   *   yield it directly — exact identity nests the teardown in order.
    */
-  restrict(filter: ToolRestriction): () => void {
+  restrict(filter: ToolRestriction): () => Promise<void> | void {
     const scope = scopeOf(this.ctx)
     if (scope === undefined) {
       throw new Error('tools.restrict() requires a scoped context (agent.ctx): a context-global restriction would mask every agent — deny the tool for the intended agent instead')
@@ -422,9 +430,13 @@ export class ToolRegistry extends Service {
       }
       this.ctx.emit('tools/change')
     }.bind(this), 'tools.restrict()')
-    // ctx.effect's disposer returns Promise<void>; our disposer API is
-    // synchronous fire-and-forget — discard the (always-resolved) promise.
-    return () => void dispose()
+    // The EXACT cordis effect disposer, not a wrapper: a composite (generator)
+    // effect that owns a teardown ORDER must be able to yield THIS function —
+    // cordis nests a disposer out of the fiber's concurrent sibling list by
+    // exact function identity, so a wrapper would silently break the nesting
+    // (the agents.register() lesson). Fire-and-forget callers may still
+    // discard the (always-resolved) promise.
+    return dispose
   }
 
   /** The (created-on-demand) scoped layer for `scope`. */

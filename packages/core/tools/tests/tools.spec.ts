@@ -358,7 +358,7 @@ describe('ToolRegistry', () => {
     const dispose = ctx.tools.register({ ...echoTool, name: 'disposable' })
     expect(ctx.tools.schemas().map(t => t.name)).toEqual(['echo', 'disposable'])
 
-    dispose()
+    await dispose()
     expect(ctx.tools.schemas().map(t => t.name)).toEqual(['echo'])
   })
 
@@ -379,8 +379,37 @@ describe('ToolRegistry', () => {
     // exposed exactly once (the duplicate-name check is not wedged).
     const dispose = ctx.tools.register(echoTool)
     expect(ctx.tools.schemas().map(t => t.name)).toEqual(['echo'])
-    dispose()
+    await dispose()
     expect(ctx.tools.get('echo')).toBeUndefined()
+  })
+
+  it('register() returns the EXACT effect disposer: a composite yield nests the teardown in order', async () => {
+    // The registry-disposer convention (set by agents.register): the returned
+    // function IS the cordis effect disposer, so a composite (generator)
+    // effect that yields it has the unregistration run at that yield's LIFO
+    // position on owner unload. A wrapper would leave the inner effect
+    // disposing as a CONCURRENT SIBLING of the composite; the async probe
+    // below (disposed first, LIFO) yields the event loop exactly like the
+    // agent factory's stop-and-drain link, and a sibling unregistration fires
+    // in that window — the probe would observe the tool already gone. Pins
+    // the convention for the whole register-method family (system-prompt
+    // registrars, registerProvider, setFactory share the same return).
+    const ctx = await setup()
+    const order: string[] = []
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      inner.effect(function* () {
+        yield () => { order.push('disposed-last') }
+        yield inner.tools.register({ ...echoTool, name: 'nested' })
+        order.push('registered')
+        yield async () => {
+          await new Promise(resolve => setTimeout(resolve, 0))
+          order.push(inner.tools.get('nested') ? 'first: still registered' : 'first: already gone')
+        }
+      })
+    }, { inject: ['tools'] }))
+    await fiber.dispose()
+    expect(order).toEqual(['registered', 'first: still registered', 'disposed-last'])
+    expect(ctx.tools.get('nested')).toBeUndefined()
   })
 })
 

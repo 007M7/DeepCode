@@ -35,7 +35,7 @@ async function setup() {
  * The registration disposer is tracked so {@link unregisterFakeAgents} can drop
  * it (simulating the owning session disconnecting before a task completes).
  */
-const fakeAgentDisposers = new Map<Context, (() => void)[]>()
+const fakeAgentDisposers = new Map<Context, (() => Promise<void> | void)[]>()
 function registerFakeAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void): Agent {
   // The registry KEY (agent.id) is deliberately DIFFERENT from the session
   // token (session.header.id) — a config agent has `agentId !== sessionId`. The
@@ -53,7 +53,7 @@ function registerFakeAgent(ctx: Context, sessionId: string, inject: (...args: un
 
 /** Unregister every fake agent in this ctx (simulate the owning session disconnecting). */
 function unregisterFakeAgents(ctx: Context): void {
-  for (const dispose of fakeAgentDisposers.get(ctx) ?? []) dispose()
+  for (const dispose of fakeAgentDisposers.get(ctx) ?? []) void dispose()
   fakeAgentDisposers.delete(ctx)
 }
 

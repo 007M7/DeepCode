@@ -389,9 +389,11 @@ export class SystemPrompt extends Service {
    * alternative). Removed when the calling fiber is disposed. Emits
    * `system-prompt/change` on register/unregister.
    * @param section - the section to contribute (name, order, text or provider).
-   * @returns the disposer that removes the section.
+   * @returns the disposer that removes the section. The exact
+   *   Cordis effect disposer (single-shot): composite (generator) effects may
+   *   yield it directly — exact identity nests the teardown in order.
    */
-  section(section: PromptSection): () => void {
+  section(section: PromptSection): () => Promise<void> | void {
     const scope = scopeOf(this.ctx)
     const dispose = this.ctx.effect(function* (this: SystemPrompt) {
       const layer = scope === undefined
@@ -420,9 +422,13 @@ export class SystemPrompt extends Service {
       }
       this.ctx.emit('system-prompt/change')
     }.bind(this), 'systemPrompt.section()')
-    // ctx.effect's disposer returns Promise<void>; our disposer API is
-    // synchronous fire-and-forget — discard the (always-resolved) promise.
-    return () => void dispose()
+    // The EXACT cordis effect disposer, not a wrapper: a composite (generator)
+    // effect that owns a teardown ORDER must be able to yield THIS function —
+    // cordis nests a disposer out of the fiber's concurrent sibling list by
+    // exact function identity, so a wrapper would silently break the nesting
+    // (the agents.register() lesson). Fire-and-forget callers may still
+    // discard the (always-resolved) promise.
+    return dispose
   }
 
   /**
@@ -437,9 +443,11 @@ export class SystemPrompt extends Service {
    * {@link Config.toolOrder}'s rest entry and rejects the assembly. Emits
    * `system-prompt/change`.
    * @param provider - evaluated at every {@link assemble} for fresh schemas.
-   * @returns the disposer that removes the provider.
+   * @returns the disposer that removes the provider. The exact
+   *   Cordis effect disposer (single-shot): composite (generator) effects may
+   *   yield it directly — exact identity nests the teardown in order.
    */
-  tools(provider: (context: AssembleContext) => ToolProviderResult): () => void {
+  tools(provider: (context: AssembleContext) => ToolProviderResult): () => Promise<void> | void {
     const scope = scopeOf(this.ctx)
     const dispose = this.ctx.effect(function* (this: SystemPrompt) {
       const layer = scope === undefined
@@ -460,9 +468,13 @@ export class SystemPrompt extends Service {
       }
       this.ctx.emit('system-prompt/change')
     }.bind(this), 'systemPrompt.tools()')
-    // ctx.effect's disposer returns Promise<void>; our disposer API is
-    // synchronous fire-and-forget — discard the (always-resolved) promise.
-    return () => void dispose()
+    // The EXACT cordis effect disposer, not a wrapper: a composite (generator)
+    // effect that owns a teardown ORDER must be able to yield THIS function —
+    // cordis nests a disposer out of the fiber's concurrent sibling list by
+    // exact function identity, so a wrapper would silently break the nesting
+    // (the agents.register() lesson). Fire-and-forget callers may still
+    // discard the (always-resolved) promise.
+    return dispose
   }
 
   /**
@@ -479,9 +491,11 @@ export class SystemPrompt extends Service {
    * emits `system-prompt/change` on register/unregister.
    * @param name - the reference name (matches `[a-z][a-z0-9_]*`).
    * @param provider - evaluated at every {@link assemble} for the value.
-   * @returns the disposer that removes the variable.
+   * @returns the disposer that removes the variable. The exact
+   *   Cordis effect disposer (single-shot): composite (generator) effects may
+   *   yield it directly — exact identity nests the teardown in order.
    */
-  variable(name: string, provider: (context: AssembleContext) => string | undefined): () => void {
+  variable(name: string, provider: (context: AssembleContext) => string | undefined): () => Promise<void> | void {
     const scope = scopeOf(this.ctx)
     const dispose = this.ctx.effect(function* (this: SystemPrompt) {
       if (!VARIABLE_NAME.test(name)) {
@@ -508,9 +522,13 @@ export class SystemPrompt extends Service {
       }
       this.ctx.emit('system-prompt/change')
     }.bind(this), 'systemPrompt.variable()')
-    // ctx.effect's disposer returns Promise<void>; our disposer API is
-    // synchronous fire-and-forget — discard the (always-resolved) promise.
-    return () => void dispose()
+    // The EXACT cordis effect disposer, not a wrapper: a composite (generator)
+    // effect that owns a teardown ORDER must be able to yield THIS function —
+    // cordis nests a disposer out of the fiber's concurrent sibling list by
+    // exact function identity, so a wrapper would silently break the nesting
+    // (the agents.register() lesson). Fire-and-forget callers may still
+    // discard the (always-resolved) promise.
+    return dispose
   }
 
   /**

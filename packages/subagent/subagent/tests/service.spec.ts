@@ -57,7 +57,7 @@ describe('SubagentService', () => {
     expect(added).toEqual(['alpha'])
     expect(removed).toEqual([])
 
-    dispose()
+    await dispose()
     expect(removed).toEqual(['alpha'])
   })
 
@@ -92,7 +92,7 @@ describe('SubagentService', () => {
     ctx.on('subagent/provider-removed', name => void heard.push(name))
 
     const dispose = ctx.subagents.registerProvider(new StubProvider('alpha'))
-    expect(() => { dispose() }).not.toThrow()
+    expect(() => void dispose()).not.toThrow()
     expect(heard).toEqual(['alpha']) // the listener AFTER the thrower still ran
     expect(ctx.subagents.getProvider('alpha')).toBeUndefined() // teardown reached quiescence
     expect(warnings.some(w => w.includes('boom removed listener'))).toBe(true)
@@ -167,12 +167,12 @@ describe('SubagentService', () => {
 
     const dispose = ctx.subagents.registerProvider(new StubProvider('reuse'))
     expect(ctx.subagents.list()).toEqual(['reuse'])
-    dispose()
+    await dispose()
     expect(ctx.subagents.list()).toEqual([])
 
     const disposeAgain = ctx.subagents.registerProvider(new StubProvider('reuse'))
     expect(ctx.subagents.list()).toEqual(['reuse'])
-    disposeAgain()
+    await disposeAgain()
     expect(ctx.subagents.list()).toEqual([])
   })
 

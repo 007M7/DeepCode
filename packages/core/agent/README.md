@@ -10,7 +10,7 @@ Tracks live agents so UI, hook, and orchestrator plugins can find them without i
 
 The scoped-registration surface: `Agent.ctx` is the agent's scope context (`dsh-scope`, key = the agent) — register tools/sections/variables/listeners through it for that agent alone, all unwound on disposal. `agentEvents(ctx, agent)` is the fused dispatcher every agent-subject event goes through (carrier + injected subject in one move); `assembleContextFor(agent)` builds the per-agent assembly context (`agent` + `scope` together). `CreateAgentOptions.setup(agentCtx)` composes a child's scoped world at creation — setup registers, it never drives.
 
-- `ctx.agents.register(agent: Agent): () => void` — record an **already-constructed** agent. Disposed with the calling fiber.
+- `ctx.agents.register(agent: Agent): () => Promise<void> | void` — record an **already-constructed** agent. Disposed with the calling fiber.
 - `ctx.agents.get(id: AgentId): Agent | undefined`
 - `ctx.agents.list(): Agent[]`
 
@@ -18,7 +18,7 @@ The scoped-registration surface: `Agent.ctx` is the agent's scope context (`dsh-
 
 Agent *creation* is provided by whichever plugin implements `AgentFactory` (phase 1: `dsh-agent-loop`), registered via `setFactory`. This keeps creation on the `dsh-agent` interface so consumers (UI, the ACP bridge) program against `ctx.agents` without depending on the concrete loop package.
 
-- `ctx.agents.setFactory(factory: AgentFactory): () => void` — register the creation factory (the loop calls this on construction). Throws on a second factory; the slot clears on dispose.
+- `ctx.agents.setFactory(factory: AgentFactory): () => Promise<void> | void` — register the creation factory (the loop calls this on construction). Throws on a second factory; the slot clears on dispose.
 - `ctx.agents.create(options: CreateAgentOptions): AgentHandle` — construct, start, AND register a new agent on a caller-supplied `sessionId` (with optional `meta.cwd`/`meta.parentSession`/`meta.seedLength` and optional `seed` events for forked children). Distinct from `register` (which only records). Throws if no factory is registered.
 - `ctx.agents.resume(options: ResumeAgentOptions): Promise<AgentHandle>` — load a persisted session ([session persistence](../../../docs/rfc/implemented/architecture/2026-06-14-session-persistence.md)) and resume an agent on it. Async; rejects if no factory is registered, or if the factory finds session persistence unconfigured.
 

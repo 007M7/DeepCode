@@ -125,7 +125,7 @@ describe('restrict()', () => {
     const liftAllow = scope.ctx.tools.restrict({ allow: ['a', 'b'] })
     scope.ctx.tools.restrict({ deny: ['b'] })
     expect(ctx.tools.schemas(key).map(t => t.name)).toEqual(['a'])
-    liftAllow()
+    await liftAllow()
     // The deny remains after the allow-list is lifted.
     expect(ctx.tools.schemas(key).map(t => t.name).sort()).toEqual(['a', 'c'])
   })

@@ -162,15 +162,21 @@ export class AgentRegistry extends Service {
    * effect-scoped). Throws if a factory is already registered. Returns the
    * disposer; on dispose the factory slot is cleared.
    * @param factory - the loop-owned factory {@link create}/{@link resume} delegate to.
-   * @returns the disposer that clears the factory slot.
+   * @returns the disposer that clears the factory slot. The exact
+   *   Cordis effect disposer (single-shot): composite (generator) effects may
+   *   yield it directly — exact identity nests the teardown in order.
    */
-  setFactory(factory: AgentFactory): () => void {
+  setFactory(factory: AgentFactory): () => Promise<void> | void {
     const dispose = this.ctx.effect(() => {
       if (this.factory !== undefined) throw new Error('an agent factory is already registered')
       this.factory = factory
       return () => { this.factory = undefined }
     }, 'agents.setFactory()')
-    return () => void dispose()
+    // The exact cordis effect disposer (the agents.register() convention): a
+    // caller's composite effect can yield it for in-order teardown; the
+    // loop's constructor effect returns it directly, identity-nesting the
+    // registration under that effect.
+    return dispose
   }
 
   /**
