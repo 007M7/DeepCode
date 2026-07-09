@@ -33,7 +33,10 @@ export const name = 'tool-web'
 /** Services required by the web tool suite. */
 export const inject = ['tools', 'web', 'systemPrompt']
 
-/** Plugin config: which web tools to register, and the `web_search` source cap. */
+/** Default cooperative tool-call timeout budget (ms) for the web tools. */
+export const DEFAULT_WEB_TOOL_TIMEOUT_MS = 30_000
+
+/** Plugin config: which web tools to register, the source cap, and per-tool budgets. */
 export interface Config {
   /** Register `web_search`. Defaults to true. */
   search?: boolean
@@ -41,12 +44,18 @@ export interface Config {
   fetch?: boolean
   /** Upper bound on sources returned by one `web_search` call. */
   searchMaxResults?: number
+  /** Cooperative timeout budget (ms) for `web_fetch`. Defaults to 30000. */
+  fetchTimeoutMs?: number
+  /** Cooperative timeout budget (ms) for `web_search`. Defaults to 30000. */
+  searchTimeoutMs?: number
 }
 
 export const Config: z<Config> = z.object({
   search: z.boolean().default(true),
   fetch: z.boolean().default(true),
   searchMaxResults: z.number().default(WEB_SEARCH_MAX_RESULTS),
+  fetchTimeoutMs: z.number().default(DEFAULT_WEB_TOOL_TIMEOUT_MS),
+  searchTimeoutMs: z.number().default(DEFAULT_WEB_TOOL_TIMEOUT_MS),
 })
 
 /** The shape after schemastery applies its defaults to every field. */
@@ -61,7 +70,10 @@ function assertPositiveInteger(name: string, value: number): void {
 
 /**
  * Register the enabled web tools. `search`/`fetch` default to true; a product
- * that wants only one disables the other in config. The tools' disposers are
+ * that wants only one disables the other in config. Each tool's cooperative
+ * timeout budget (`fetchTimeoutMs`/`searchTimeoutMs`, default 30000) is resolved
+ * here and attached to the tool as `ToolDefinition.timeoutMs` for
+ * `@deepseek-ai/dsh-timeout-policy` to enforce. The tools' disposers are
  * fiber-scoped (the effect-based registries clean up on dispose), so no manual
  * teardown is needed.
  */
@@ -69,6 +81,8 @@ export function apply(ctx: Context, config: Config): void {
   // schemastery (Config) has already filled every defaulted field.
   const resolved = config as ResolvedConfig
   assertPositiveInteger('searchMaxResults', resolved.searchMaxResults)
-  if (resolved.search) applyWebSearchTool(ctx, resolved.searchMaxResults)
-  if (resolved.fetch) applyWebFetchTool(ctx)
+  assertPositiveInteger('fetchTimeoutMs', resolved.fetchTimeoutMs)
+  assertPositiveInteger('searchTimeoutMs', resolved.searchTimeoutMs)
+  if (resolved.search) applyWebSearchTool(ctx, resolved.searchMaxResults, resolved.searchTimeoutMs)
+  if (resolved.fetch) applyWebFetchTool(ctx, resolved.fetchTimeoutMs)
 }

@@ -10,3 +10,7 @@ The filesystem stack: a provider seam (text IO + atomic mutation with an optiona
 | `tool-fs/` | Model-facing `read`/`write`/`edit` tools AND the executor (reads via `ctx.fs`, owns read windowing, dispatches `fs/*`) | (registers on `ctx.tools`) |
 
 The interface lives at `fs/fs/`. A sandboxed, remote, or project-scoped filesystem backend can replace `fs-local` without touching the seam, the policy gate, or the model-facing tool schemas. The policy (`fs-policy/`) is a plugin that participates only through the `fs/*` event gate, not a service the tool injects — so dropping it gracefully loses the policy and leaves the unconstrained bare provider rather than breaking the tool. A deployment that loads `tool-fs/` is expected to also load it.
+
+## No timeouts on file IO
+
+`read`/`write`/`edit` take **no** `timeoutMs`, and the provider seam arms no deadline — unlike bash and web, which consume [`@deepseek-ai/dsh-timeout`](../util/timeout/README.md). A local syscall is best-effort-abortable at most: a timeout could not force an in-progress `fsync`/`rename` to stop, so a deadline here would be a knob that cannot deliver on its promise. Adding one would also be an implicit default in the exact place explicit-over-implicit forbids. Both reference agents (Claude Code, Codex) leave file IO untimed for the same reason; cancellation still propagates through the tool-execution signal for best-effort abort at syscall boundaries.

@@ -10,9 +10,7 @@
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
     { "path": "../../llm/llm" },
-    { "path": "../../core/tools" },
-    { "path": "../../core/system-prompt" },
-    { "path": "../../timeout/timeout-policy" },
-    { "path": "../web" }
+    { "path": "../../util/timeout" },
+    { "path": "../../core/tools" }
   ]
 }

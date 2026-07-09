@@ -26,7 +26,6 @@ function spec(command: string, overrides: Partial<Parameters<typeof runBash>[0]>
   return {
     command,
     cwd: process.cwd(),
-    timeoutMs: 0,
     maxOutputBytes: 64_000,
     graceMs: 3_000,
     ...overrides,
@@ -75,8 +74,6 @@ describe('runBash', () => {
     const result = await runBash(spec('echo hello')).done
     expect(result.exitCode).toBe(0)
     expect(result.signal).toBeNull()
-    expect(result.timedOut).toBe(false)
-    expect(result.aborted).toBe(false)
     expect(result.stdout.text).toBe('hello\n')
     expect(result.stdout.truncated).toBe(false)
     expect(result.stderr.text).toBe('')
@@ -111,11 +108,16 @@ describe('runBash', () => {
     expect(result.stdout.text.trim()).toMatch(/\/tmp$/)
   })
 
-  it('kills with SIGTERM on timeout', async () => {
+  it('kills the process group with SIGTERM when the signal fires', async () => {
+    // runBash owns no timer: it kills on abort. The executor drives the timeout
+    // by firing this signal via a deadline (see executor.spec.ts); here we
+    // assert the kill itself lands as SIGTERM.
+    const controller = new AbortController()
     const start = Date.now()
-    const result = await runBash(spec('sleep 60', { timeoutMs: 100 })).done
+    const running = runBash(spec('sleep 60', { signal: controller.signal }))
+    setTimeout(() => { controller.abort('deadline') }, 100)
+    const result = await running.done
     expect(Date.now() - start).toBeLessThan(5_000)
-    expect(result.timedOut).toBe(true)
     expect(result.signal).toBe('SIGTERM')
     expect(result.exitCode).toBeNull()
   })
@@ -147,7 +149,6 @@ describe('runBash', () => {
     const running = runBash(spec('sleep 60', { signal: controller.signal }))
     setTimeout(() => { controller.abort('user cancelled') }, 50)
     const result = await running.done
-    expect(result.aborted).toBe(true)
     expect(result.signal).toBe('SIGTERM')
   })
 
@@ -224,7 +225,6 @@ describe('stdin and extra env (set by in-process plugins)', () => {
     const big = 'x'.repeat(1024 * 1024)
     const result = await runBash(spec('exit 7', { stdin: big })).done
     expect(result.exitCode).toBe(7)
-    expect(result.aborted).toBe(false)
   })
 })
 
@@ -352,11 +352,11 @@ describe('abort edge cases', () => {
       .toThrow(/aborted before spawn: aborted/)
   })
 
-  it('reports an externally self-killed command without the timeout marker', async () => {
+  it('reports the terminating signal of an externally self-killed command', async () => {
+    // runBash reports the raw signal; whether it counts as timeout/cancel is the
+    // executor's classification (a self-kill is neither) — see executor.spec.ts.
     const result = await runBash(spec('kill -TERM $$')).done
     expect(result.signal).toBe('SIGTERM')
-    expect(result.timedOut).toBe(false)
-    expect(result.aborted).toBe(false)
   })
 })
 
@@ -409,10 +409,9 @@ describe('review fixes: env scrubbing and spill hardening', () => {
 
   it('honors AbortSignal on background-style runs (no timeout)', async () => {
     const controller = new AbortController()
-    const running = runBash(spec('sleep 60', { timeoutMs: 0, signal: controller.signal }))
+    const running = runBash(spec('sleep 60', { signal: controller.signal }))
     setTimeout(() => { controller.abort() }, 50)
     const result = await running.done
-    expect(result.aborted).toBe(true)
     expect(result.signal).toBe('SIGTERM')
   })
 })
