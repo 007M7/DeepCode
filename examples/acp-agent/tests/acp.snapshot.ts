@@ -21,6 +21,11 @@ const AGENT = {
   tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
 }
 
+// The Code Mode overlay configs (include-patched variants of cordis.yml; the
+// replay swap resolves each one's sibling `*cordis.snapshot.yml`).
+const CODE_MODE_CONFIG = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
+const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import.meta.url))
+
 const SCENARIOS: Scenario[] = [
   { name: 'handshake', hasModelTurn: false, recorded: false },
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
@@ -89,6 +94,13 @@ const SCENARIOS: Scenario[] = [
   { name: 'hook-codex-posttool-block', hasModelTurn: true, recorded: true },
   { name: 'hook-codex-posttool-context', hasModelTurn: true, recorded: true },
   { name: 'hook-codex-stop-continue', hasModelTurn: true, recorded: true },
+  // Code Mode: the registry in `mode: code` — the wire tool list collapses to
+  // [run_code], the tools:sdk section rides in the prompt, and the program's
+  // tool calls land as tool/code-dispatch events. Each mode boots its own
+  // overlay config, composes a different header by construction, and
+  // therefore pins its own class.
+  { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configPath: CODE_MODE_CONFIG },
+  { name: 'both-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'both', configPath: BOTH_MODE_CONFIG },
 ]
 
 defineAcpSnapshotSuite({

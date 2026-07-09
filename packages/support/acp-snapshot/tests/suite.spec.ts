@@ -34,12 +34,18 @@ const AGENT = {
 const REPLAY_DIR = fileURLToPath(new URL('./fixtures/suite', import.meta.url))
 const RECORD_SRC = fileURLToPath(new URL('./fixtures/record-suite', import.meta.url))
 
+// The replay suite doubles as the header-CLASS coverage: every scenario names
+// the same explicit class (the record suite exercises the 'default' fallback),
+// and plain-turn boots through a per-scenario configPath override (the same
+// dummy path the agent default carries — the plumbing, not the composition,
+// is what this suite can exercise; the real overlay boot is the acp-agent
+// example's code-mode scenarios).
 const REPLAY_SCENARIOS: Scenario[] = [
-  { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
-  { name: 'plain-turn', hasModelTurn: true, recorded: true, childSessions: 1 },
-  { name: 'no-model', hasModelTurn: false, recorded: false },
-  { name: 'blocked-log', hasModelTurn: false, comparesLog: true, recorded: false },
-  { name: 'authored-error', hasModelTurn: true, recorded: false, overridden: true },
+  { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'main' },
+  { name: 'plain-turn', hasModelTurn: true, recorded: true, childSessions: 1, headerClass: 'main', configPath: AGENT.configPath },
+  { name: 'no-model', hasModelTurn: false, recorded: false, headerClass: 'main' },
+  { name: 'blocked-log', hasModelTurn: false, comparesLog: true, recorded: false, headerClass: 'main' },
+  { name: 'authored-error', hasModelTurn: true, recorded: false, overridden: true, headerClass: 'main' },
 ]
 
 const RECORD_SCENARIOS: Scenario[] = [
@@ -70,7 +76,7 @@ describe('defineAcpSnapshotSuite: record mode', () => {
 })
 
 describe('defineAcpSnapshotSuite: registration contract', () => {
-  it('throws when no scenario pins the request-header content', () => {
+  it("throws when a scenario's header class has no pinning scenario", () => {
     expect(() => {
       defineAcpSnapshotSuite({
         agent: AGENT,
@@ -78,7 +84,33 @@ describe('defineAcpSnapshotSuite: registration contract', () => {
         scenarios: [{ name: 'pinless', hasModelTurn: true, recorded: true }],
         mode: 'replay',
       })
-    }).toThrow(/no scenario pins/)
+    }).toThrow(/no scenario pins the request-header content of class "default"/)
+    // A pinned class does not cover a DIFFERENT class's members.
+    expect(() => {
+      defineAcpSnapshotSuite({
+        agent: AGENT,
+        snapshotsDir: REPLAY_DIR,
+        scenarios: [
+          { name: 'pinned', hasModelTurn: true, recorded: true, pinsHeader: true },
+          { name: 'classless-orphan', hasModelTurn: true, recorded: true, headerClass: 'other' },
+        ],
+        mode: 'replay',
+      })
+    }).toThrow(/class "other" \(needed by classless-orphan\)/)
+  })
+
+  it('throws when two scenarios pin the same header class', () => {
+    expect(() => {
+      defineAcpSnapshotSuite({
+        agent: AGENT,
+        snapshotsDir: REPLAY_DIR,
+        scenarios: [
+          { name: 'first-pin', hasModelTurn: true, recorded: true, pinsHeader: true },
+          { name: 'second-pin', hasModelTurn: true, recorded: true, pinsHeader: true },
+        ],
+        mode: 'replay',
+      })
+    }).toThrow(/header class "default" pinned by both first-pin and second-pin/)
   })
 })
 
