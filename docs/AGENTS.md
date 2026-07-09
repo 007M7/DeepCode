@@ -16,8 +16,8 @@ Every fact has exactly one home — the tier whose job it is — and every other
 | [postmortem/](postmortem/README.md) | Incident stories — the only tier where war-story narrative belongs | — |
 | [cookbook/](cookbook/adding-a-package.md) | Step-by-step how-tos with numbered verify steps | Design rationale (→ the RFC each guide links) |
 | Package README | The per-package contract: config, semantics, limitations, extension points | JSDoc restatement, generated-catalog restatement (event/tool tables), other packages' concerns |
-| [development.md](development.md) | Human-facing setup and daily workflow; a bilingual pair under the [i18n contract](i18n/README.md) | Gate-by-gate enumerations that drift from `package.json` scripts |
-| Generated catalogs: [cordis events](cordis-catalog/events.md), [cordis services](cordis-catalog/services.md), [tool-catalog](tool-catalog/tools.md), [persistence-catalog](persistence-catalog/log-events.md), [module-graph.md](module-graph.md) | Exhaustive enumerations regenerated from source, freshness-gated | Hand edits of any kind |
+| [development.md](development.md) | First-stop contributor onboarding: local setup, daily workflow, and CI shape at summary level; a bilingual pair under the [i18n contract](i18n/README.md) | Runtime/version rationale (→ RFCs), gate-by-gate enumerations that drift from `package.json` scripts |
+| Generated catalogs: [cordis events](cordis-catalog/events.md), [cordis services](cordis-catalog/services.md), [tool-catalog](tool-catalog.md), [config-catalog](config-catalog.md), [persistence-catalog](persistence-catalog.md), [module-graph.md](module-graph.md) | Exhaustive enumerations regenerated from source, freshness-gated | Hand edits of any kind |
 | Skills (`.agents/skills/`) | Workflows: how to carry out a recurring task against the contracts | The contracts themselves (→ docs) |
 
 Placement test: a story about a bug → postmortem. Why we chose X → RFC. How to do task Y → cookbook. What type Z looks like → core-data-structures. What package P promises → its README. A rule every agent must always obey → root AGENTS.md, one line, linking the home that holds the why.
@@ -37,7 +37,7 @@ Placement test: a story about a bug → postmortem. Why we chose X → RFC. How 
 Standing docs accrete: every PR has a lesson it wants to append, and without displacement pressure nothing ever leaves. The gate is that pressure. [scripts/doc-budgets.manifest.json](../scripts/doc-budgets.manifest.json) lists the accretion-prone standing docs with a word ceiling each; `pnpm run verify-doc-budgets` (part of `doc-sync`, so CI and pre-push run it) fails when a doc exceeds its ceiling, and fails when a budgeted file is missing so a rename cannot orphan its budget.
 
 - Ceilings are an enforcement frontier with working headroom: a ceiling sits at least 5% above the doc's current size — routine edits pass, real growth trips the gate — and ratchets down, keeping the margin, as the doc reaches target. Target budgets: root `AGENTS.md` ≤ 1,500 words; `architecture.md` ≤ 1,800; each subtree `AGENTS.md` ≤ 600, except this file (which carries the standard) ≤ 1,250; `packages/README.md` ≤ 600.
-- When the gate goes red, the fix is to relocate or condense per the taxonomy above. Raising a ceiling is the last resort: the PR must justify it; the manifest diff is the reviewable act.
+- When the gate goes red, first ask whether the added words belong in this tier and whether the existing wording can be condensed. If the words do not belong, relocate per the taxonomy above; if they belong but can be shorter, condense. If they truly need the space, raise the ceiling and justify the manifest diff in the PR. A ceiling set too low is a budget bug, and correcting it is the fix.
 - Unbudgeted tiers (package READMEs, RFCs, reference matrices) have no ceiling — length is legitimate there when every row is a fact. Review and the slop checklist govern them instead.
 
 ## The slop checklist

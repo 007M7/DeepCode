@@ -30,6 +30,7 @@ export const name = 'web-fetch-local'
 /** The web seam this provider registers into. */
 export const inject = ['web']
 
+/** Plugin config: the provider's transport and size limits plus its `User-Agent` (all defaulted). */
 export interface Config {
   /** Maximum accepted request URL length. */
   maxUrlLength?: number

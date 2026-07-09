@@ -33,6 +33,8 @@ flowchart LR
   cfg --> plugin_acp_tool_subagent_fork
   plugin_acp_tool_todo["tool-todo<br/>@deepseek-ai/dsh-tool-todo"]
   cfg --> plugin_acp_tool_todo
+  plugin_acp_repeat_tool_guard["repeat-tool-guard<br/>@deepseek-ai/dsh-repeat-tool-guard"]
+  cfg --> plugin_acp_repeat_tool_guard
   plugin_acp_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
   cfg --> plugin_acp_fs_local
   plugin_acp_fs_policy["fs-policy<br/>@deepseek-ai/dsh-fs-policy"]
@@ -56,6 +58,7 @@ flowchart LR
 | `tool-subagent` | `@deepseek-ai/dsh-tool-subagent` |
 | `tool-subagent-fork` | `@deepseek-ai/dsh-tool-subagent` |
 | `tool-todo` | `@deepseek-ai/dsh-tool-todo` |
+| `repeat-tool-guard` | `@deepseek-ai/dsh-repeat-tool-guard` |
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |
 | `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
 | `tool-fs` | `@deepseek-ai/dsh-tool-fs` |

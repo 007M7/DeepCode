@@ -40,6 +40,10 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | { [key:
  * hiding under a symbol/non-enumerable key cannot make the round-trip lossy.
  * Getters are invoked during the check (again as `JSON.stringify` would), so the
  * contract is for plain data records, not objects with side-effecting accessors.
+ * @param value - the candidate event data to test.
+ * @param seen - objects on the current descent path, for circular-reference
+ *   detection; the recursion threads it — callers omit it.
+ * @returns true when `value` survives a JSON round-trip losslessly.
  */
 export function isJsonValue(value: unknown, seen: Set<object> = new Set()): boolean {
   if (value === null) return true

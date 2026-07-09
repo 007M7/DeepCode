@@ -144,7 +144,7 @@ function appendAdditionalContext(agent: Agent, result: { additionalContext?: Hoo
 }
 
 async function runBaselinePreStep(ctx: Context, agent: Agent): Promise<void> {
-  await ctx.serial('agent/pre-step', agent, 1, 1, '', AbortSignal.timeout(1000))
+  await ctx.serial('agent/pre-step', agent, 1, 1, '', [], AbortSignal.timeout(1000))
 }
 
 function derivedText(agent: Agent): string {

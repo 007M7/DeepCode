@@ -30,6 +30,12 @@
       "path": "../../prompt/project-instructions"
     },
     {
+      "path": "../user-interaction"
+    },
+    {
+      "path": "../tool-ask-user"
+    },
+    {
       "path": "../../session-persistence/session-persistence-jsonl"
     }
   ]

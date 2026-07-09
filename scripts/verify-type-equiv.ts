@@ -22,9 +22,8 @@
  * Run: `tsx scripts/verify-type-equiv.ts`.
  */
 
-import { readFileSync, existsSync } from 'node:fs'
+import { globSync, readFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { glob } from 'node:fs/promises'
 import ts from 'typescript'
 
 const root = resolve(import.meta.dirname, '..')
@@ -148,7 +147,7 @@ const keyOf = (x: { doc: string; symbol: string }): string => `${x.doc}::${x.sym
 // as an orphan rather than silently skipped.
 const docSet = new Set<string>()
 for (const pattern of MARKDOWN_GLOBS) {
-  for await (const match of glob(pattern, { cwd: root })) docSet.add(match)
+  for (const match of globSync(pattern, { cwd: root })) docSet.add(match)
 }
 const blocks: EquivBlock[] = [...docSet].sort().flatMap(extractEquivBlocks)
 

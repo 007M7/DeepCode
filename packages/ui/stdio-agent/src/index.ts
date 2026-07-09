@@ -46,6 +46,8 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import * as agentCore from '@deepseek-ai/dsh-agent-core'
 import * as projectInstructions from '@deepseek-ai/dsh-project-instructions'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as uiStdio from './stdio-chat.ts'
 
 export const name = 'stdio-agent'
@@ -54,7 +56,8 @@ export const name = 'stdio-agent'
  * App config: the swappable per-demo values, each routed to where the app wires
  * it. `model`/`resumeSessionId` configure the pre-created `main` agent (through
  * {@link @deepseek-ai/dsh-agent-core}'s forwarded `agents` list); `persona` is
- * the deployment persona (forwarded to the system-prompt plugin);
+ * the deployment persona (forwarded to the system-prompt plugin); `toolOrder`
+ * is the explicit model-facing tool order (forwarded to the system-prompt plugin);
  * `persistenceRoot` is the JSONL backend's directory; `welcome` is the UI banner.
  */
 export interface Config {
@@ -62,6 +65,8 @@ export interface Config {
   model: string
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
+  /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
+  toolOrder?: string[]
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
@@ -79,6 +84,10 @@ export interface Config {
 export const Config: z<Config> = z.object({
   model: z.string().required(),
   persona: z.string(),
+  // The array default is forced to undefined: ABSENT means "lexicographic
+  // order" (the owning dsh-system-prompt schema does the same), while
+  // schemastery's native [] default would read as an invalid configured list.
+  toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   persistenceRoot: z.string().default('./.sessions'),
   welcome: z.string().default('ready.'),
   resumeSessionId: z.string(),
@@ -96,6 +105,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(ConsoleExporter)
   ctx.plugin(agentCore, {
     ...config.persona !== undefined ? { persona: config.persona } : {},
+    ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
     agents: [{
       id: AgentId('main'),
       model: config.model,
@@ -104,5 +114,7 @@ export function apply(ctx: Context, config: Config): void {
     ...config.projectInstructions !== undefined ? { projectInstructions: config.projectInstructions } : {},
   })
   ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
+  ctx.plugin(UserInteractionService)
+  ctx.plugin(toolAskUser)
   ctx.plugin(uiStdio, { welcome: config.welcome ?? 'ready.', agent: 'main' })
 }

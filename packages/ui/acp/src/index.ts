@@ -47,6 +47,9 @@ import {
   type AuthenticateRequest,
   type CancelNotification,
   type ContentBlock as AcpContentBlock,
+  type CreateElicitationRequest,
+  type ElicitationContentValue,
+  type EnumOption,
   type InitializeRequest,
   type InitializeResponse,
   type LoadSessionRequest,
@@ -72,6 +75,14 @@ import type { ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } f
 // Context (the bridge injects it and reads `list()` for load cwd validation).
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import {
+  UserInteractionError,
+  type AskUserQuestionAnswer,
+  type AskUserQuestionAnswerItem,
+  type AskUserQuestionItem,
+  type AskUserQuestionOption,
+  type AskUserQuestionRequest,
+} from '@deepseek-ai/dsh-user-interaction'
+import {
   acpPromptToText,
   harnessBlockToAcpContent,
   promptHasUnsupportedContent,
@@ -84,7 +95,7 @@ export const name = 'acp'
 // because `initialize` advertises `loadSession: true`. `tools` lets a tool own
 // how its calls render (`presentCall`/`presentResult`); the bridge looks up the
 // definition by name and falls back to a generic presentation when absent.
-export const inject = ['agents', 'sessions', 'sessionPersistence', 'tools']
+export const inject = ['agents', 'sessions', 'sessionPersistence', 'tools', 'userInteraction']
 
 /**
  * Build an ACP "invalid params" error whose human detail rides in the message.
@@ -109,6 +120,116 @@ function internalError(detail: string): RequestError {
 
 function sameWorkspaceCwd(left: string, right: string): boolean {
   return resolvePath(left) === resolvePath(right)
+}
+
+function optionDescription(option: AskUserQuestionOption): string {
+  return option.description === undefined
+    ? option.label
+    : `${option.label}: ${option.description}`
+}
+
+function requireStringContent(
+  content: Record<string, ElicitationContentValue> | null | undefined,
+  key: string,
+): string | undefined {
+  const value = content?.[key]
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined
+}
+
+function askAbortError(): UserInteractionError {
+  return new UserInteractionError('ask_user_question was aborted before the user answered', 'ASK_ABORTED')
+}
+
+function withAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return promise
+  if (signal.aborted) return Promise.reject(askAbortError())
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      signal.removeEventListener('abort', onAbort)
+      reject(askAbortError())
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(new Error(String(error), { cause: error }))
+      },
+    )
+  })
+}
+
+function elicitationForQuestion(
+  sessionId: SessionId,
+  question: AskUserQuestionItem,
+  options: AskUserQuestionOption[],
+): CreateElicitationRequest {
+  const title = question.header ?? 'Question'
+  if (options.length === 0) {
+    return {
+      sessionId,
+      mode: 'form',
+      message: question.question,
+      requestedSchema: {
+        type: 'object',
+        title,
+        properties: {
+          custom: { type: 'string', title: question.question },
+        },
+        required: ['custom'],
+      },
+    }
+  }
+
+  const choiceOptions: EnumOption[] = options.map(option => ({
+    const: option.label,
+    title: optionDescription(option),
+  }))
+  const choice = question.multiSelect === true
+    ? {
+      type: 'array' as const,
+      title: question.question,
+      description: 'Choose one or more options, or fill a custom answer below.',
+      items: {
+        anyOf: choiceOptions,
+      },
+    }
+    : {
+      type: 'string' as const,
+      title: question.question,
+      description: 'Choose one option, or fill a custom answer below.',
+      oneOf: choiceOptions,
+    }
+  return {
+    sessionId,
+    mode: 'form',
+    message: question.question,
+    requestedSchema: {
+      type: 'object',
+      title,
+      properties: {
+        choice,
+        custom: {
+          type: 'string',
+          title: 'Custom answer',
+          description: 'Optional free-form answer. Leave empty to use the selected option.',
+        },
+      },
+      required: [],
+    },
+  }
+}
+
+function stringArrayContent(
+  content: Record<string, ElicitationContentValue> | null | undefined,
+  key: string,
+): string[] {
+  const value = content?.[key]
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && item.length > 0)
+  return typeof value === 'string' && value.length > 0 ? [value] : []
 }
 
 /** Plugin config: the agent template ACP sessions are created from. */
@@ -211,6 +332,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
   const sessionPersistence = ctx.sessionPersistence
   const logger = ctx.logger
   const tools = ctx.tools
+  const userInteraction = ctx.userInteraction
   // A new ToolPresenter per session (and a throwaway per load replay), each given
   // this warn sink so a throwing tool presenter is logged, not propagated.
   const makePresenter = (): ToolPresenter => new ToolPresenter(tools, (message) => { logger.warn(message) })
@@ -240,6 +362,42 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // exists after `newSession`, which the client calls after construction), so
   // `notify` never observes it unset — no undefined guard needed.
   let conn: AgentSideConnection
+
+  userInteraction.registerProvider({
+    async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer> {
+      if (request.agent === undefined) {
+        throw new UserInteractionError('ACP user questions must come from an agent-owned request', 'NO_AGENT')
+      }
+      const sessionId = bySession.get(request.agent)
+      if (sessionId === undefined) {
+        throw new UserInteractionError('ACP user question has no matching session', 'NO_SESSION')
+      }
+      const answers: AskUserQuestionAnswerItem[] = []
+      for (const question of request.questions) {
+        const options = question.options ?? []
+        const response = await withAbort(conn.unstable_createElicitation(
+          elicitationForQuestion(sessionId, question, options),
+        ), request.signal).catch((error: unknown) => {
+          if (error instanceof UserInteractionError) throw error
+          throw new UserInteractionError('ACP elicitation request failed', 'ASK_FAILED', { cause: error })
+        })
+        if (response.action !== 'accept') {
+          throw new UserInteractionError('ask_user_question was cancelled by the user', 'ASK_CANCELLED')
+        }
+        const custom = requireStringContent(response.content, 'custom')
+        const selected = stringArrayContent(response.content, 'choice')
+        if (custom === undefined && selected.length === 0) {
+          throw new UserInteractionError('ask_user_question returned no answer', 'NO_ANSWER')
+        }
+        answers.push({
+          id: question.id,
+          selected: custom === undefined ? selected : [],
+          ...custom !== undefined ? { custom } : {},
+        })
+      }
+      return { answers }
+    },
+  })
 
   /**
    * Reject any RPC after the bridge has torn down. The `AgentSideConnection`
@@ -701,6 +859,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
  * Build per-agent options from the plugin config, omitting absent fields
  * (exactOptionalPropertyTypes: never assign `undefined` to an optional key).
  * Exported for unit coverage of both the present and absent branches.
+ * @param config - the plugin config carrying the optional model name.
+ * @returns the per-agent options, with `model` present only when configured.
  */
 export function agentOptions(config: AcpConfig): { model?: string } {
   return {
@@ -764,6 +924,16 @@ function validateMcpServers(params: { mcpServers?: unknown[] }): void {
  *
  * Other event types (turn/step boundaries, context/message, …) produce
  * no client update.
+ * @param sessionId - the ACP session id stamped on every emitted notification.
+ * @param event - the harness session event to translate.
+ * @param notify - sink for each produced `session/update` notification; called
+ * zero or more times per event (best-effort UI feed, never load-bearing).
+ * @param presenter - resolves tool-owned render intent for tool events;
+ * defaults to the generic-fallback {@link nullToolPresenter}.
+ * @param terminal - the connection's terminal-rendering context; defaults to
+ * disabled (the plain-text console-block fallback).
+ * @param options - `includeUserMessages` (default `true`): live streaming
+ * passes `false` so a prompt the client just sent is not echoed back.
  */
 export function streamSessionEventUpdate(
   sessionId: SessionId,
@@ -825,6 +995,8 @@ export function streamSessionEventUpdate(
  * harness status triple IS `PlanEntryStatus`). The ACP client REPLACES its whole
  * plan on each `plan` update, matching the harness's whole-list-replace
  * semantics, so no per-entry diffing is needed.
+ * @param todos - the harness todo list (the whole list, not a diff).
+ * @returns the ACP plan body, one entry per todo.
  */
 export function todosToPlan(todos: TodoItem[]): Plan {
   return { entries: todos.map((todo): PlanEntry => ({ content: todo.content, priority: 'medium', status: todo.status })) }
@@ -885,7 +1057,16 @@ export class ToolPresenter {
     private readonly onError: (message: string) => void = () => {},
   ) {}
 
-  /** Pending-state render intent for a `tool/call`; remembers `(name, args, card)` for the matching result. */
+  /**
+   * Pending-state render intent for a `tool/call`; remembers `(name, args, card)`
+   * for the matching result.
+   * @param callId - the call id the matching `tool/result` will look up.
+   * @param name - the tool name, resolved against the registry for `presentCall`.
+   * @param argsJson - the raw arguments JSON from the event; parsed for the view
+   * (a non-JSON string is surfaced raw).
+   * @returns the tool-owned view, or the generic fallback (title = tool name,
+   * kind `other`, parsed args as raw input) when the tool defines none or threw.
+   */
   call(callId: CallId, name: string, argsJson: string): ToolCallView {
     const args = parseToolArguments(argsJson)
     let present: ToolCallView | undefined
@@ -905,7 +1086,18 @@ export class ToolPresenter {
     return view
   }
 
-  /** Completed-state render intent for a `tool/result`; consumes the remembered `(name, args, card)`. */
+  /**
+   * Completed-state render intent for a `tool/result`; consumes the remembered
+   * `(name, args, card)`.
+   * @param callId - the id of the matching `tool/call`; an unknown or late id
+   * falls back to the raw content.
+   * @param content - the result's content blocks (the fallback and fill-in body).
+   * @param isError - whether the result is an error, forwarded to `presentResult`.
+   * @param meta - the result's machine-readable meta, forwarded when present.
+   * @returns the tool-owned view — an orphaned `terminal` result (no terminal
+   * call side) and a content-less `generic` are normalized — or the raw-content
+   * generic card when the tool defines no `presentResult` or threw.
+   */
   result(callId: CallId, content: ContentBlock[], isError: boolean, meta?: unknown): ToolResultView {
     const call = this.pending.get(callId)
     this.pending.delete(callId)

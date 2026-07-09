@@ -2,11 +2,11 @@
 
 English | [中文](development.zh.md)
 
-This guide covers the local setup needed to work on DeepSeek Harness and understand the local hooks, daily checks, and CI gates.
+This onboarding guide helps project contributors get started with the local environment, daily workflow, and CI flow; see the RFCs for design rationale and technical trade-offs.
 
 ## Prerequisites
 
-- Node.js 24 or newer. The repo declares `node >=24`; CI runs the matrix on Node 24 and 26.
+- Node.js supports 22.19+ and 24+. CI covers 22.19, 24, and 26; see the [Node engine floor RFC](rfc/implemented/process/2026-07-06-node-engine-floor.md).
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
 - Git.
 - Optional: a DeepSeek API key for the REPL/ACP agent demos and real-API e2e tests.
@@ -59,30 +59,17 @@ DEEPSEEK_BASE_URL=https://... # optional
 lefthook is configured in `lefthook.yml` as an early local checkpoint before review:
 
 - `pre-commit` runs staged-file ESLint fixes, `pnpm run typecheck`, and the vendor manifest guard.
-- `pre-push` runs `pnpm run test`, `pnpm run test:snapshot`, `pnpm run hygiene`, `pnpm run doc-sync`, and `pnpm run verify-module-graph`.
+- `pre-push` runs `pnpm run check:pre-push`, whose scheduler runs unit tests, snapshot tests, build, module-graph freshness, and the member gates of `pnpm run hygiene` and `pnpm run doc-sync` concurrently.
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 
-These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests without coverage, while CI runs `pnpm run test:coverage`; CI also runs echo-agent and built-bin smoke tests and exercises the matrix on Node 24 and 26.
+These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests without coverage, while CI runs `pnpm run test:coverage`; CI also runs echo-agent and built-bin smoke tests and exercises the compatibility matrix on Node 22.19, 24, and 26.
 
 ## CI gates
 
-The GitHub workflow runs these gates on each pull request:
+The keyless GitHub workflow has eight jobs: five Node 24 lanes run static gates, lint, coverage, snapshot replay, and artifact gates separately, and three compatibility jobs run `pnpm run check:node-compat` on Node 22.19, 24, and 26. The lane schedulers fan out independent gates from `package.json`: constraints, typecheck, lint, coverage, snapshot replay, `doc-sync` members, module-graph freshness, `knip`, and the echo-agent smoke test.
 
-- `pnpm install --frozen-lockfile`
-- `pnpm run constraints`
-- `pnpm run typecheck`
-- `pnpm run lint`
-- `pnpm run doc-sync`
-- `pnpm run verify-module-graph`
-- `pnpm run test:coverage`
-- `pnpm run test:snapshot`
-- `pnpm run build`
-- `pnpm run hygiene`
-- an echo-agent smoke test that checks the demo's tool call, tool result, and JSONL output
-- built-bin smoke tests that run the published `lib/bin.js` entrypoints under plain `node`
-
-`pnpm run hygiene` is the local shorthand for `pnpm run knip && pnpm run publint && pnpm run constraints && pnpm run verify-node-next-types`; CI also runs `pnpm run constraints` as an earlier fail-fast step, then runs the full hygiene script after `pnpm run build`.
+`pnpm run build` feeds the artifact lane, and `publint`, `verify-node-next-types`, and built-bin smoke tests wait for build output. The separate real-API workflow runs `pnpm run test:e2e` with a secret and `DSH_E2E_MAX_WORKERS=14`.
 
 ## Daily commands
 
@@ -98,6 +85,7 @@ pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
 pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events.md + services.md from source
 pnpm run verify-cordis-catalog  # fail if either cordis catalog is stale
+pnpm run verify-export-jsdoc    # fail if a module-level package export lacks complete JSDoc
 pnpm run gen-doc-graphs     # regenerate generated relationship docs from source and curated graph definitions
 pnpm run verify-doc-graphs  # fail if generated relationship docs are stale
 pnpm run gen-rfc-index          # regenerate the docs/rfc/README.md index tables from the RFC tree

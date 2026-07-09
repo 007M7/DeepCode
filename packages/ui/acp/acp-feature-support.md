@@ -47,7 +47,7 @@ These are capabilities the bridge would *drive* on the editor. The harness runs 
 | `terminal/wait_for_exit` | S | ❌ | ❌ | ❌ | As above. |
 | `terminal/kill` | S | ❌ | ❌ | ❌ | As above. |
 | `terminal/release` | S | ❌ | ❌ | ❌ | As above. |
-| `elicitation/create` · `elicitation/complete` | U | ❌ | ✅ | ⚠️ | Structured user-input forms. Claude calls the `unstable_*` elicitation methods (to surface MCP server elicitations); Codex does NOT — its `CodexElicitationHandler` maps elicitations onto `session/request_permission` instead. |
+| `elicitation/create` · `elicitation/complete` | U | ⚠️ | ✅ | ⚠️ | The bridge drives `unstable_createElicitation` for `ask_user_question` form prompts (session-scoped, no URL-mode flow yet). Claude calls the `unstable_*` elicitation methods for MCP server elicitations; Codex maps elicitations onto `session/request_permission`. |
 
 ## 3. Capabilities
 
@@ -140,7 +140,7 @@ The bridge rejects unsupported prompt blocks rather than silently dropping them 
 
 Ranked by how commonly the reference adapters ship them and how much UX they unlock:
 
-1. **Permission gate** — `session/request_permission` + permission options. Tracked `TODO(rfc010-permission-gate)`; the reverse map is already wired. Foundational, and a prerequisite for modes.
+1. **Permission gate** — `session/request_permission` + permission options. Tracked `TODO(rfc010-permission-gate)`; the reverse map is already wired and shared with `ask_user_question` routing. Foundational, and a prerequisite for modes.
 2. **Session lifecycle** — `session/list` + `session/delete` (the persistence layer already lists), then `session/resume` / `session/close`.
 3. **Modes / config options / model selection** — coupled to the permission gate.
 4. **Agent plan** (`sessionUpdate: 'plan'`) — surface the loop's plan as structured entries.

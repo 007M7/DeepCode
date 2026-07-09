@@ -1,10 +1,11 @@
-import { Readable } from 'node:stream'
+import { Readable, Writable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { createStdioChat, type Config, type StdioRuntime } from '../src/stdio-chat.ts'
 
 /**
@@ -79,10 +80,11 @@ const CONFIG: Config = { welcome: 'hi there', agent: 'main' }
 async function setup(config: Config = CONFIG, runtimeOver: Partial<StdioRuntime> = {}) {
   const ctx = new Context()
   await ctx.plugin(AgentRegistry)
+  await ctx.plugin(UserInteractionService)
   const { runtime, input, out, exit } = makeRuntime(runtimeOver)
   const fiber = await ctx.plugin(Object.assign((inner: Context) => {
     createStdioChat(inner, config, runtime)
-  }, { inject: ['agents'] }))
+  }, { inject: ['agents', 'userInteraction'] }))
   return { ctx, fiber, input, out, exit }
 }
 
@@ -103,6 +105,30 @@ describe('createStdioChat rendering', () => {
     const { out } = await setup({})
     expect(out.text()).toBe('ready.\n> ')
     // And it drives the default agent id 'main'.
+  })
+
+  it('detects readline terminal mode from both stream TTY flags', async () => {
+    for (const [inputTTY, outputTTY] of [[true, false], [true, true]] as const) {
+      const ctx = new Context()
+      await ctx.plugin(AgentRegistry)
+      await ctx.plugin(UserInteractionService)
+      let text = ''
+      const output = new Writable({
+        write(chunk, _encoding, callback) {
+          text += String(chunk)
+          callback()
+        },
+      }) as Writable & { isTTY?: boolean }
+      const { runtime } = makeRuntime({ output })
+      ;(runtime.input as Readable & { isTTY?: boolean }).isTTY = inputTTY
+      output.isTTY = outputTTY
+      const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+        createStdioChat(inner, CONFIG, runtime)
+      }, { inject: ['agents', 'userInteraction'] }))
+
+      expect(text).toContain('hi there')
+      await fiber.dispose()
+    }
   })
 
   it('renders text-delta chunks verbatim', async () => {
@@ -160,12 +186,13 @@ describe('createStdioChat rendering', () => {
     // of the raw session id.
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
     const agent = makeAgent('main')
     ctx.agents.register(agent) // registered BEFORE the UI plugin below
     const { runtime, out } = makeRuntime()
     await ctx.plugin(Object.assign((inner: Context) => {
       createStdioChat(inner, CONFIG, runtime)
-    }, { inject: ['agents'] }))
+    }, { inject: ['agents', 'userInteraction'] }))
     ctx.emit('session/event', makeSession('main'), {
       type: 'turn/start', seq: 1, time: 0, data: { turn: 5, trigger: { kind: 'message' } },
     } as SessionEvent)
@@ -264,6 +291,347 @@ describe('createStdioChat rendering', () => {
 })
 
 describe('createStdioChat input', () => {
+  it('answers a pending user question instead of sending the line to the agent', async () => {
+    const { ctx, input, out } = await setup()
+    const agent = makeAgent('main', 'idle')
+    ctx.agents.register(agent)
+
+    const answer = ctx.userInteraction.ask({
+      questions: [{
+        id: 'confirm',
+        header: 'Confirm',
+        question: 'Proceed with the edit?',
+        options: [{ label: 'Yes', description: 'Apply the edit now.' }],
+      }],
+    })
+    await new Promise(r => setImmediate(r))
+    input.feed('Use a smaller change')
+
+    await expect(answer).resolves.toEqual({ answers: [{ id: 'confirm', selected: [], custom: 'Use a smaller change' }] })
+    expect(agent.sent).toEqual([])
+    expect(out.text()).toContain('[Confirm] Proceed with the edit?')
+    expect(out.text()).toContain('1. Yes')
+    expect(out.text()).toContain('Apply the edit now.')
+  })
+
+  it('answers a pending user question by numeric option selection', async () => {
+    const { ctx, input } = await setup()
+    const answer = ctx.userInteraction.ask({
+      questions: [{
+        id: 'mode',
+        question: 'Which mode?',
+        options: [
+          { label: 'Safe' },
+          { label: 'Fast' },
+        ],
+      }],
+    })
+    await new Promise(r => setImmediate(r))
+    input.feed('2')
+
+    await expect(answer).resolves.toEqual({
+      answers: [{ id: 'mode', selected: ['Fast'] }],
+    })
+  })
+
+  it('renders options in input order and selects by displayed number', async () => {
+    const { ctx, input, out } = await setup()
+    const answer = ctx.userInteraction.ask({
+      questions: [{
+        id: 'topic',
+        question: 'Which topic?',
+        options: [
+          { label: 'Hobbies' },
+          { label: 'Work', description: 'Questions about current projects.' },
+          { label: 'Casual', description: 'Easy conversation.' },
+        ],
+      }],
+    })
+    await new Promise(r => setImmediate(r))
+
+    expect(out.text()).toContain([
+      'Which topic?',
+      '  1. Hobbies',
+      '  2. Work',
+      '     Questions about current projects.',
+      '  3. Casual',
+      '     Easy conversation.',
+    ].join('\n'))
+    input.feed('3')
+
+    await expect(answer).resolves.toEqual({
+      answers: [{ id: 'topic', selected: ['Casual'] }],
+    })
+  })
+
+  it('answers a multi-select question with multiple numeric selections', async () => {
+    const { ctx, input } = await setup()
+    const answer = ctx.userInteraction.ask({
+      questions: [{
+        id: 'targets',
+        question: 'What should I update?',
+        options: [{ label: 'Tests' }, { label: 'Docs' }, { label: 'Code' }],
+        multiSelect: true,
+      }],
+    })
+    await new Promise(r => setImmediate(r))
+    input.feed('1 1, 3')
+
+    await expect(answer).resolves.toEqual({
+      answers: [{ id: 'targets', selected: ['Tests', 'Code'] }],
+    })
+  })
+
+  it('accepts non-numeric multi-select input as a custom answer', async () => {
+    const { ctx, input } = await setup()
+    const answer = ctx.userInteraction.ask({
+      questions: [{
+        id: 'targets',
+        question: 'What should I update?',
+        options: [{ label: 'Tests' }, { label: 'Docs' }],
+        multiSelect: true,
+      }],
+    })
+    await new Promise(r => setImmediate(r))
+    input.feed('the release notes')
+
+    await expect(answer).resolves.toEqual({
+      answers: [{ id: 'targets', selected: [], custom: 'the release notes' }],
+    })
+  })
+
+  it('asks every question in a batch and returns answers by id', async () => {
+    const { ctx, input, out } = await setup()
+    const answer = ctx.userInteraction.ask({
+      questions: [
+        { id: 'language', question: 'Which language?', options: [{ label: 'Python' }, { label: 'TypeScript' }] },
+        { id: 'note', question: 'Any note?' },
+      ],
+    })
+    await new Promise(r => setImmediate(r))
+    input.feed('2')
+    await new Promise(r => setImmediate(r))
+    expect(out.text()).toContain('\nAny note?\n')
+    input.feed('ship today')
+
+    await expect(answer).resolves.toEqual({
+      answers: [
+        { id: 'language', selected: ['TypeScript'] },
+        { id: 'note', selected: [], custom: 'ship today' },
+      ],
+    })
+  })
+
+  it('re-prompts when option input is invalid', async () => {
+    const { ctx, input, out } = await setup()
+    const answer = ctx.userInteraction.ask({
+      questions: [{
+        id: 'mode',
+        question: 'Which mode?',
+        options: [{ label: 'Safe' }],
+        multiSelect: true,
+      }],
+    })
+    await new Promise(r => setImmediate(r))
+    input.feed('2')
+    await new Promise(r => setImmediate(r))
+    expect(out.text()).toContain('Please enter one of the option numbers (comma or space separated) or a custom answer.')
+    input.feed('1')
+
+    await expect(answer).resolves.toEqual({
+      answers: [{ id: 'mode', selected: ['Safe'] }],
+    })
+  })
+
+  it('re-prompts when single-select option input is out of range', async () => {
+    const { ctx, input, out } = await setup()
+    const answer = ctx.userInteraction.ask({
+      questions: [{
+        id: 'mode',
+        question: 'Which mode?',
+        options: [{ label: 'Safe' }],
+      }],
+    })
+    await new Promise(r => setImmediate(r))
+    input.feed('2')
+    await new Promise(r => setImmediate(r))
+    expect(out.text()).toContain('Please enter one of the option numbers or a custom answer.')
+    input.feed('1')
+
+    await expect(answer).resolves.toEqual({
+      answers: [{ id: 'mode', selected: ['Safe'] }],
+    })
+  })
+
+  it('re-prompts when multi-select input contains no option numbers', async () => {
+    const { ctx, input, out } = await setup()
+    const answer = ctx.userInteraction.ask({
+      questions: [{
+        id: 'mode',
+        question: 'Which mode?',
+        options: [{ label: 'Safe' }],
+        multiSelect: true,
+      }],
+    })
+    await new Promise(r => setImmediate(r))
+    input.feed(',')
+    await new Promise(r => setImmediate(r))
+    expect(out.text()).toContain('Please enter one of the option numbers (comma or space separated) or a custom answer.')
+    input.feed('1')
+
+    await expect(answer).resolves.toEqual({
+      answers: [{ id: 'mode', selected: ['Safe'] }],
+    })
+  })
+
+  it('re-prompts when an option question receives an empty answer', async () => {
+    const { ctx, input, out } = await setup()
+    const answer = ctx.userInteraction.ask({
+      questions: [{
+        id: 'mode',
+        question: 'Which mode?',
+        options: [{ label: 'Safe' }],
+      }],
+    })
+    await new Promise(r => setImmediate(r))
+    input.feed('')
+    await new Promise(r => setImmediate(r))
+    expect(out.text()).toContain('Please enter one of the option numbers or a custom answer.')
+    input.feed('1')
+
+    await expect(answer).resolves.toEqual({
+      answers: [{ id: 'mode', selected: ['Safe'] }],
+    })
+  })
+
+  it('re-prompts when a question receives an empty answer', async () => {
+    const { ctx, input, out } = await setup()
+    const answer = ctx.userInteraction.ask({ questions: [{ id: 'path', question: 'What should I use?' }] })
+    await new Promise(r => setImmediate(r))
+    input.feed('')
+    await new Promise(r => setImmediate(r))
+    expect(out.text()).toContain('Please enter an answer.')
+    input.feed('Use defaults')
+
+    await expect(answer).resolves.toEqual({ answers: [{ id: 'path', selected: [], custom: 'Use defaults' }] })
+  })
+
+  it('rejects an active question when its signal aborts', async () => {
+    const { ctx } = await setup()
+    const controller = new AbortController()
+    const answer = ctx.userInteraction.ask({ questions: [{ id: 'continue', question: 'Continue?' }], signal: controller.signal })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await new Promise(r => setImmediate(r))
+
+    controller.abort()
+
+    await rejected
+  })
+
+  it('continues to the next queued question when the active question aborts', async () => {
+    const { ctx, input, out } = await setup()
+    const controller = new AbortController()
+    const first = ctx.userInteraction.ask({ questions: [{ id: 'first', question: 'First?' }], signal: controller.signal })
+    const firstRejected = expect(first).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    const second = ctx.userInteraction.ask({ questions: [{ id: 'second', question: 'Second?' }] })
+    await new Promise(r => setImmediate(r))
+
+    controller.abort()
+    await firstRejected
+    await new Promise(r => setImmediate(r))
+    expect(out.text()).toContain('\nSecond?\n')
+    input.feed('second answer')
+
+    await expect(second).resolves.toEqual({ answers: [{ id: 'second', selected: [], custom: 'second answer' }] })
+  })
+
+  it('skips a queued question whose signal aborted before it became active', async () => {
+    const { ctx, input, out } = await setup()
+    const controller = new AbortController()
+    const first = ctx.userInteraction.ask({ questions: [{ id: 'first', question: 'First?' }] })
+    const second = ctx.userInteraction.ask({ questions: [{ id: 'second', question: 'Second?' }], signal: controller.signal })
+    await new Promise(r => setImmediate(r))
+
+    controller.abort()
+
+    await expect(Promise.race([
+      second.then(
+        () => 'resolved',
+        (error: unknown) => (error as { code?: string }).code,
+      ),
+      new Promise<string>((resolve) => { setImmediate(() => { resolve('pending') }) }),
+    ])).resolves.toBe('ASK_ABORTED')
+    expect(out.text()).not.toContain('\nSecond?\n')
+    input.feed('first answer')
+    await expect(first).resolves.toEqual({ answers: [{ id: 'first', selected: [], custom: 'first answer' }] })
+  })
+
+  it('removes an aborted queued question without promoting later queued work early', async () => {
+    const { ctx, input, out } = await setup()
+    const controller = new AbortController()
+    const first = ctx.userInteraction.ask({ questions: [{ id: 'first', question: 'First?' }] })
+    const second = ctx.userInteraction.ask({ questions: [{ id: 'second', question: 'Second?' }], signal: controller.signal })
+    const third = ctx.userInteraction.ask({ questions: [{ id: 'third', question: 'Third?' }] })
+    await new Promise(r => setImmediate(r))
+
+    controller.abort()
+
+    await expect(second).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    expect(out.text()).toContain('\nFirst?\n')
+    expect(out.text()).not.toContain('\nSecond?\n')
+    expect(out.text()).not.toContain('\nThird?\n')
+    input.feed('first answer')
+    await new Promise(r => setImmediate(r))
+
+    expect(out.text()).toContain('\nThird?\n')
+    input.feed('third answer')
+
+    await expect(first).resolves.toEqual({ answers: [{ id: 'first', selected: [], custom: 'first answer' }] })
+    await expect(third).resolves.toEqual({ answers: [{ id: 'third', selected: [], custom: 'third answer' }] })
+  })
+
+  it('rejects active and queued questions when the UI is disposed', async () => {
+    const { ctx, fiber } = await setup()
+    const active = ctx.userInteraction.ask({ questions: [{ id: 'active', question: 'Active?' }] })
+    const queued = ctx.userInteraction.ask({ questions: [{ id: 'queued', question: 'Queued?' }] })
+    const activeRejected = expect(active).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    const queuedRejected = expect(queued).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await new Promise(r => setImmediate(r))
+
+    await fiber.dispose()
+
+    await activeRejected
+    await queuedRejected
+  })
+
+  it('rejects active and queued questions when stdin closes before the user answers', async () => {
+    const { ctx, input, exit } = await setup()
+    const active = ctx.userInteraction.ask({ questions: [{ id: 'active', question: 'Active?' }] })
+    const queued = ctx.userInteraction.ask({ questions: [{ id: 'queued', question: 'Queued?' }] })
+    const activeRejected = expect(active).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    const queuedRejected = expect(queued).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await new Promise(r => setImmediate(r))
+
+    input.finish()
+    await new Promise(r => setImmediate(r))
+
+    await activeRejected
+    await queuedRejected
+    expect(exit).not.toHaveBeenCalled()
+  })
+
+  it('rejects new questions immediately after stdin has closed', async () => {
+    const { ctx, input, out } = await setup()
+    input.finish()
+    await new Promise(r => setImmediate(r))
+    const before = out.text()
+
+    const answer = ctx.userInteraction.ask({ questions: [{ id: 'late', question: 'Too late?' }] })
+
+    await expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    expect(out.text()).toBe(before)
+  })
+
   it('sends a typed line to an idle agent', async () => {
     const { ctx, input } = await setup()
     const agent = makeAgent('main', 'idle')

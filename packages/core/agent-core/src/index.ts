@@ -60,17 +60,21 @@ export const name = 'agent-core'
 /**
  * Bundle config: each field forwarded verbatim to the child that owns it —
  * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
- * bridge, simply omits it), `persona` to the system-prompt plugin (the
- * deployment's persona section), and `projectInstructions` to the
- * project-instructions plugin. All are optional INPUT here because each owner
- * supplies its own default; this bundle's schema composes the owners' schemas
- * so validation and defaulting can never drift from them.
+ * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
+ * plugin (the deployment's persona section and the explicit model-facing tool
+ * order), and `projectInstructions` to the project-instructions plugin. Every
+ * field is optional INPUT here because each owner's schema supplies the
+ * default (`[]` / `''` / absent — lexicographic / loader defaults); the schema
+ * is the INTERSECTION of the owners' own schemas, so validation and defaulting
+ * can never drift from them.
  */
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
   agents?: AgentLoopConfig['agents']
   /** The deployment persona (see dsh-system-prompt's `Config`). */
   persona?: SystemPromptConfig['persona']
+  /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
+  toolOrder?: SystemPromptConfig['toolOrder']
   /** Project-instruction loader controls; set `false` for hermetic prompts. */
   projectInstructions?: projectInstructions.Config | false
 }
@@ -89,12 +93,12 @@ export const Config = z.intersect([
 /**
  * Load the spine. Each `ctx.plugin(...)` mounts one child of the bundle fiber;
  * `agent-loop` receives the forwarded `agents` list and `system-prompt` the
- * forwarded `persona`. Project-instructions receives its own forwarded config
- * or loads with defaults. Load order is irrelevant (cordis pends each fiber on
- * its `inject` until the services it needs exist), but the listing mirrors the
- * dependency layering for readability: the LLM vocabulary and core registries
- * first, then extension plugins that wrap request/tool seams, then the loop
- * that drives them.
+ * forwarded `persona` and `toolOrder`. Project-instructions receives its own
+ * forwarded config or loads with defaults. Load order is irrelevant (cordis
+ * pends each fiber on its `inject` until the services it needs exist), but the
+ * listing mirrors the dependency layering for readability: the LLM vocabulary
+ * and core registries first, then extension plugins that wrap request/tool
+ * seams, then the loop that drives them.
  */
 export function apply(ctx: Context, config: Config): void {
   ctx.plugin(Timer)
@@ -103,8 +107,13 @@ export function apply(ctx: Context, config: Config): void {
   // The forwarded fields are validated + defaulted by this bundle's intersected
   // schema before apply runs, so the ?? fallbacks only narrow the
   // optional-input TYPES — they mirror the owners' schema defaults, never
-  // introduce different ones.
-  ctx.plugin(SystemPrompt, { persona: config.persona ?? '' })
+  // introduce different ones. toolOrder has no owner-supplied default value —
+  // ABSENT means "lexicographic order" — so it is forwarded conditionally
+  // rather than via ??.
+  ctx.plugin(SystemPrompt, {
+    persona: config.persona ?? '',
+    ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
+  })
   ctx.plugin(ToolRegistry)
   ctx.plugin(AgentRegistry)
   ctx.plugin(invariants)

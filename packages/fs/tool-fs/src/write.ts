@@ -21,13 +21,23 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import { computeHunkDiffs, diffsFromMeta, type FsDiffMeta } from './diff.ts'
 import { sessionCwd } from './session-cwd.ts'
 
-/** Validate value constraints the schema DSL can't express. */
+/**
+ * Validate value constraints the schema DSL can't express: only a non-blank
+ * `file_path` — an empty `content` is legitimate (it writes an empty file).
+ * @param args - the schema-validated raw tool arguments.
+ * @returns the camelCased input; `content` passes through untouched.
+ */
 export function parseWriteArgs(args: { file_path: string; content: string }): { filePath: string; content: string } {
   if (args.file_path.trim().length === 0) throw new Error('file_path must be a non-empty string')
   return { filePath: args.file_path, content: args.content }
 }
 
-/** Format a write outcome as one model-facing text block body. */
+/**
+ * Format a write outcome as one model-facing text block body.
+ * @param displayPath - the backend-resolved path rendered in the envelope's `<path>` element.
+ * @param outcome - the write outcome; its `operation` selects the Created/Updated wording.
+ * @returns the model-facing confirmation envelope (no file content is echoed back).
+ */
 export function formatWriteOutput(displayPath: string, outcome: FsWriteOutcome): string {
   const verb = outcome.operation === 'create' ? 'Created' : 'Updated'
   return `<path>${displayPath}</path>
@@ -37,7 +47,10 @@ ${verb} file
 </content>`
 }
 
-/** Register the `write` tool and its system-prompt guidance. */
+/**
+ * Register the `write` tool and its system-prompt guidance.
+ * @param ctx - the plugin context; registrations are effects scoped to it, and execution uses its `fs` service.
+ */
 export function applyWriteTool(ctx: Context): void {
   ctx.systemPrompt.section({
     name: 'tool:write',

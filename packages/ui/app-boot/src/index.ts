@@ -36,6 +36,10 @@ import Loader from '@cordisjs/plugin-loader'
  * the SAME directory (the keyless replay tree). Other modes — including no
  * snapshot mode at all — use the path as-is. Returns an absolute path resolved
  * from `cwd`.
+ * @param configPath - the requested config path (absolute, or relative to `cwd`).
+ * @param snapshotMode - the bin's `$DSH_SNAPSHOT` value; only `'replay'` swaps the basename.
+ * @param cwd - the base a relative `configPath` resolves against.
+ * @returns the absolute path of the config to boot.
  */
 export function resolveConfigPath(
   configPath: string, snapshotMode: string | undefined, cwd: string = process.cwd(),
@@ -54,6 +58,9 @@ export function resolveConfigPath(
  * them via the `!!js` tag. A present-but-unreadable `.env` is a real
  * misconfiguration: surface it via `warn` (one line, default stderr) rather
  * than silently running with the wrong environment.
+ * @param binName - the diagnostic prefix on the warn line.
+ * @param dir - the directory whose `.env` to load.
+ * @param warn - sink for the one-line misconfiguration diagnostic.
  */
 export function loadEnv(
   binName: string, dir: string = process.cwd(),
@@ -90,6 +97,9 @@ export interface FailLoudProcess {
  * STDERR (never stdout — for the ACP bin that channel carries JSON-RPC) and
  * guarantees `exit(1)`. Install before `boot()`. Returns the uninstaller
  * (tests use it; the bins run until exit and never do).
+ * @param binName - the diagnostic prefix on the fatal-failure line.
+ * @param proc - the process slice to register on; tests inject a fake.
+ * @returns the uninstaller that removes the rejection handler.
  */
 export function installFailLoud(binName: string, proc: FailLoudProcess = process): () => void {
   const handler = (err: unknown): void => {
@@ -108,6 +118,8 @@ export function installFailLoud(binName: string, proc: FailLoudProcess = process
  * entry is the one legitimate fiber-less state: `Entry.refresh()` deliberately
  * skips `init()` for it — a valid "plugin turned off" config, not a failed
  * import — so it is excluded.
+ * @param ctx - the settled context whose loader entries to audit.
+ * @param binName - the diagnostic prefix on the thrown error.
  */
 export function assertEntriesLoaded(ctx: Context, binName: string): void {
   const failed = [...ctx.loader.entries()].filter(entry => entry.fiber === undefined && !entry.disabled)
@@ -139,6 +151,10 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
  * active under `node --expose-internals`; a consumer running a built bin must
  * pass that flag (or install the plugins where node hoists them). Relative
  * specifiers resolve against the config directory with no flag.
+ * @param binName - the diagnostic prefix for load-failure errors.
+ * @param absoluteConfigPath - the config to include; must already be absolute
+ * (see {@link resolveConfigPath}).
+ * @returns the root context once every entry has started.
  */
 export async function boot(binName: string, absoluteConfigPath: string): Promise<Context> {
   const ctx = new Context()
