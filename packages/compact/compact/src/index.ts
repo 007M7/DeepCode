@@ -26,6 +26,7 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type { CompactionResult } from './types.ts'
 
 export type { CompactionResult } from './types.ts'
+export { renderContentBlocks, renderTranscript } from './render.ts'
 
 /** Minimal agent context compaction needs without depending on the agent package. */
 export interface CompactAgentContext {

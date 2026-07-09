@@ -102,7 +102,7 @@ abstract compactIfNeeded( agent: CompactAgentContext, fullSystemPrompt: string, 
 abstract compactRegion( session: Session, start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 
-Source: [`packages/compact/compact/src/index.ts:63`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:64`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 

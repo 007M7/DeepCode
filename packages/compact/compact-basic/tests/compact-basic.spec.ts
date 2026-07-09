@@ -1278,7 +1278,7 @@ describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => 
   })
 })
 
-describe('BasicCompactService._extractText branches', () => {
+describe('BasicCompactService transcript rendering (delegated to dsh-compact)', () => {
   it('renders reasoning, context, and steering messages', async () => {
     const svc = createTestService()
     const s = new Session(SessionId('rich'))
