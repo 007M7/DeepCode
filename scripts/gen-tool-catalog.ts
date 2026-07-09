@@ -41,11 +41,13 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import WebService from '@deepseek-ai/dsh-web'
 import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentMock from '@deepseek-ai/dsh-subagent-mock'
+import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
@@ -100,6 +102,19 @@ interface ToolPackage {
  * guard proves it is exhaustive against the on-disk glob.
  */
 const TOOL_PACKAGES: ToolPackage[] = [
+  {
+    pkg: '@deepseek-ai/dsh-tool-ask-user',
+    dir: 'tool-ask-user',
+    source: 'packages/ui/tool-ask-user/src/index.ts',
+    requires: ['ctx.tools', 'ctx.userInteraction'],
+    writes: ['tool/call', 'tool/result after a UI/provider answers the question'],
+    async mount(ctx) {
+      await ctx.plugin(UserInteractionService)
+      await ctx.plugin(ToolAskUser)
+    },
+    note:
+      'ask_user_question pauses the tool call until the active UI provider returns a human answer.',
+  },
   {
     pkg: '@deepseek-ai/dsh-tool-bash',
     dir: 'tool-bash',

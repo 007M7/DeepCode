@@ -30,6 +30,8 @@ describe('dsh-acp-agent composition', () => {
     expect(ctx.get('sessions')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
+    expect(ctx.get('userInteraction')).toBeDefined()
+    expect(ctx.get('tools')?.get('ask_user_question')).toBeUndefined()
     // No pre-created agents — ACP session/new creates them on demand.
     expect(ctx.get('agents')!.list()).toHaveLength(0)
     await ctx.fiber.dispose()

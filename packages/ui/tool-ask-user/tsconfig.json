@@ -9,31 +9,28 @@
   ],
   "references": [
     {
+      "path": "../../../vendor/cosmokit"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {
       "path": "../../../vendor/schemastery"
     },
     {
-      "path": "../../../vendor/loader"
+      "path": "../../llm/llm"
     },
     {
-      "path": "../app-boot"
+      "path": "../../core/agent"
     },
     {
-      "path": "../acp"
+      "path": "../../core/system-prompt"
     },
     {
-      "path": "../../core/agent-core"
+      "path": "../../core/tools"
     },
     {
       "path": "../user-interaction"
-    },
-    {
-      "path": "../tool-ask-user"
-    },
-    {
-      "path": "../../session-persistence/session-persistence-jsonl"
     }
   ]
 }

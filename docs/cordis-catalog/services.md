@@ -226,6 +226,17 @@ Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../
 
 Source: [`packages/core/tools/src/index.ts:307`](../../packages/core/tools/src/index.ts)
 
+## `ctx.userInteraction` — `UserInteractionService`
+
+`ctx.userInteraction`: one active UI provider plus an `ask()` surface.
+
+```ts cordis-catalog
+registerProvider(provider: UserInteractionProvider): () => void
+async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
+```
+
+Source: [`packages/ui/user-interaction/src/index.ts:82`](../../packages/ui/user-interaction/src/index.ts)
+
 ## `ctx.web` — `WebService`
 
 The web access service. Registered as `ctx.web` (one instance per context).
