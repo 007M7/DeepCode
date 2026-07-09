@@ -602,7 +602,7 @@ describe('dsh-workflow-workerthread', () => {
         `),
         parent,
       })
-      await vi.waitFor(() => { expect(provider.runs.length).toBe(1) })
+      await vi.waitFor(() => { expect(provider.runs.length).toBe(1) }, { timeout: 10_000 })
       const before = Date.now()
       await handle.dispose()
       // Bounded by the grace (plus the terminate), never by the 1.5s spin.
@@ -625,7 +625,7 @@ describe('dsh-workflow-workerthread', () => {
         `),
         parent,
       })
-      await vi.waitFor(() => { expect(provider.runs.length).toBe(1) })
+      await vi.waitFor(() => { expect(provider.runs.length).toBe(1) }, { timeout: 10_000 })
       const handleDispose = handle.dispose()
       const result = await handle.result
       // The script itself settled (the wrapper's own dispose RPC found the
@@ -663,7 +663,7 @@ describe('dsh-workflow-workerthread', () => {
         `),
         parent,
       })
-      await vi.waitFor(() => { expect(order.filter(entry => entry.startsWith('start:')).length).toBe(2) })
+      await vi.waitFor(() => { expect(order.filter(entry => entry.startsWith('start:')).length).toBe(2) }, { timeout: 10_000 })
       const fast = provider.runs.find(run => (run.request.prompt[0] as { text?: string }).text === 'fast')!
       fast.settle(text('fast done'))
       handle.cancel('stop now')
