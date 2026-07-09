@@ -213,7 +213,7 @@ Source: [`packages/core/system-prompt/src/index.ts:291`](../../packages/core/sys
 
 ## `ctx.tools` — `ToolRegistry`
 
-Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → dispatch → `tools/post-execute` pipeline. The registry contributes its schemas into the system-prompt assembly — WHICH schemas is governed by its `mode` config (see Config.mode); under a non-native mode it also registers the `run_code` tool and the `tools:sdk` prompt section itself.
+Tool registry (`ctx.tools`): tool plugins register definitions; the agent loop executes calls through the `tools/pre-execute` → `tools/execute` → `tools/post-execute` pipeline. The registry contributes its schemas into the system-prompt assembly — WHICH schemas is governed by its `mode` config (see Config.mode); under a non-native mode it also registers the `run_code` tool and the `tools:sdk` prompt section itself.
 
 ```ts cordis-catalog
 register(definition: ToolDefinition): () => void
@@ -224,7 +224,7 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:316`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:345`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.web` — `WebService`
 

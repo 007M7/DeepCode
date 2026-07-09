@@ -79,7 +79,7 @@ forever:
       'assistant/message'
       each tool call:
         'tool/call'
-        tools/pre-execute -> dispatch -> tools/post-execute
+        tools/pre-execute -> tools/execute -> tools/post-execute
         'tool/result'
       append post-tool context and steering
       'step/end'

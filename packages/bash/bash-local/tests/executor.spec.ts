@@ -101,6 +101,8 @@ describe('LocalBashExecutor.run', () => {
     const { bash } = await setup({ timeoutMs: 60_000 })
     const result = await bash.run(bash.resolve({ command: 'sleep 60', timeoutMs: 100 }))
     expect(result.timedOut).toBe(true)
+    // Mutually exclusive: a timeout classifies as timedOut, never also aborted.
+    expect(result.aborted).toBe(false)
     expect(result.timeoutMs).toBe(100)
   })
 
@@ -111,6 +113,20 @@ describe('LocalBashExecutor.run', () => {
     setTimeout(() => { controller.abort() }, 50)
     const result = await pending
     expect(result.aborted).toBe(true)
+    // Mutually exclusive: an upstream cancel classifies as aborted, never also timedOut.
+    expect(result.timedOut).toBe(false)
+  })
+
+  it('classifies a self-killed command as neither timed out nor aborted', async () => {
+    // The command kills itself (SIGTERM) with no timeout and no upstream abort:
+    // the deadline signal never fires, so both classifications are false — the
+    // fused-signal classification reports the cause that cut the command short,
+    // and here nothing the executor owns did.
+    const { bash } = await setup({ timeoutMs: 60_000 })
+    const result = await bash.run(bash.resolve({ command: 'kill -TERM $$' }))
+    expect(result.signal).toBe('SIGTERM')
+    expect(result.timedOut).toBe(false)
+    expect(result.aborted).toBe(false)
   })
 
   it('rejects on spawn failure (bad workdir)', async () => {
