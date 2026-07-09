@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import ApprovalService, { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-approval'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ApprovalService, { ApprovalOutcome, ApprovalRequest, effectiveApprovalPolicy, setApprovalPolicy } from '@deepseek-ai/dsh-approval'
 
 /**
  * A minimal Agent stand-in — the service only reaches `agent.session.append`
@@ -201,3 +203,169 @@ describe('ApprovalService.request', () => {
   })
 })
 
+describe('approval policy (the approval/policy fold)', () => {
+  const NEVER_SENTENCE = 'Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).'
+
+  /**
+   * An agent stand-in over a REAL Session — gate, section, and narrator fold
+   * real events; the opened turn satisfies request()'s enclosure precondition.
+   */
+  function sessionAgent(id: string): { agent: Agent; session: Session; injected: string[] } {
+    const session = new Session(SessionId(id))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const injected: string[] = []
+    const agent = {
+      id,
+      session,
+      inject: (content: { type: string; text: string }[]) => { injected.push(content[0]?.text ?? '') },
+    } as unknown as Agent
+    return { agent, session, injected }
+  }
+
+  const preStep = (ctx: Context, agent: Agent): Promise<void> =>
+    ctx.serial('agent/pre-step', agent, 1, 1, '', [], new AbortController().signal)
+
+  /** Append a `request/header` snapshot whose system text is exactly `system`. */
+  function appendHeader(session: Session, system: string): void {
+    session.append('request/header', { header: { config: { model: 'mock' }, system }, reason: 'initial' })
+  }
+
+  it('folds to the last event, or undefined without one', () => {
+    const { session } = sessionAgent('sess-fold')
+    expect(effectiveApprovalPolicy(session.events)).toBeUndefined()
+    setApprovalPolicy(session, 'never')
+    setApprovalPolicy(session, 'ask')
+    expect(effectiveApprovalPolicy(session.events)).toBe('ask')
+    expect(session.events.at(-1)).toMatchObject({ type: 'approval/policy', data: { policy: 'ask' } })
+  })
+
+  it('defaults a schema-less construction to ask (the ?? narrows the optional TYPE)', async () => {
+    // Direct construction bypasses the plugin schema (the SystemPrompt-test
+    // precedent for covering a defaulted Config field's type-narrowing ??).
+    const ctx = new Context()
+    const service = new ApprovalService(ctx, {})
+    const { agent } = sessionAgent('sess-bare-config')
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    await expect(service.request({ agent, toolName: 'echo' })).resolves.toBe('allowed-once')
+  })
+
+  it('contains an answerer that throws SYNCHRONOUSLY as unavailable', async () => {
+    const ctx = new Context()
+    await ctx.plugin(ApprovalService)
+    const { agent } = sessionAgent('sess-syncthrow')
+    ctx.on('approval/request', () => { throw new Error('sync bug') })
+    await expect(ctx.approval.request({ agent, toolName: 'echo' })).resolves.toBe('unavailable')
+  })
+
+  it('a never config rejects deterministically without consulting any answerer', async () => {
+    const ctx = new Context()
+    await ctx.plugin(ApprovalService, { policy: 'never' })
+    const consulted = vi.fn()
+    ctx.on('approval/request', (_req, next) => { consulted(); return next() })
+    const { agent, session } = sessionAgent('sess-gate-1')
+    await expect(ctx.approval.request({ agent, toolName: 'bash' })).resolves.toBe('rejected')
+    expect(consulted).not.toHaveBeenCalled()
+    // The audit pair still lands on the session log.
+    expect(session.events.filter(e => e.type === 'approval/asked')).toHaveLength(1)
+    expect(session.events.filter(e => e.type === 'approval/decided')).toHaveLength(1)
+  })
+
+  it('the gate decides FIRST even against an answerer registered before the service (prepend)', async () => {
+    const ctx = new Context()
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    await ctx.plugin(ApprovalService, { policy: 'never' })
+    const { agent } = sessionAgent('sess-gate-2')
+    await expect(ctx.approval.request({ agent, toolName: 'bash' })).resolves.toBe('rejected')
+  })
+
+  it('never is unbypassable even by an answerer PREPENDED after the service mounts', async () => {
+    // Cordis prepend unshifts ahead of every existing listener, including
+    // any gate LISTENER the service could register — which is exactly why
+    // the 'never' decision lives inside request() instead. The eager grant
+    // below must never be consulted.
+    const ctx = new Context()
+    await ctx.plugin(ApprovalService, { policy: 'never' })
+    const consulted = vi.fn()
+    ctx.on('approval/request', () => { consulted(); return Promise.resolve<ApprovalOutcome>('allowed-once') }, { prepend: true })
+    const { agent, appended } = fakeAgent()
+    await expect(ctx.approval.request(requestOf(agent))).resolves.toBe('rejected')
+    expect(consulted).not.toHaveBeenCalled()
+    expect(appended.map(e => e.type)).toEqual(['approval/asked', 'approval/decided'])
+  })
+
+  it('a session override outranks the configured default, in both directions', async () => {
+    const ctx = new Context()
+    await ctx.plugin(ApprovalService, { policy: 'never' })
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    const { agent, session } = sessionAgent('sess-gate-3')
+    setApprovalPolicy(session, 'ask')
+    await expect(ctx.approval.request({ agent, toolName: 'bash' })).resolves.toBe('allowed-once')
+    setApprovalPolicy(session, 'never')
+    await expect(ctx.approval.request({ agent, toolName: 'bash' })).resolves.toBe('rejected')
+  })
+
+  it('states never (and only never) in the prompt, per session', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ApprovalService)
+    const askAgent = sessionAgent('sess-sect-ask').agent
+    const { agent: neverAgent, session } = sessionAgent('sess-sect-never')
+    setApprovalPolicy(session, 'never')
+    const sectionFor = async (context: object) =>
+      (await ctx.systemPrompt.assemble(context)).sections.find(s => s.name === 'approval:policy')?.text
+    expect(await sectionFor({ agent: askAgent })).toBe('')
+    expect(await sectionFor({ agent: neverAgent })).toBe(NEVER_SENTENCE)
+    // A bare assemble (no agent) has no session to state.
+    expect(await sectionFor({})).toBe('')
+  })
+
+  it('narrates nothing cold, once per coalesced switch (user wording), and idempotently', async () => {
+    const ctx = new Context()
+    await ctx.plugin(ApprovalService)
+    const { agent, session, injected } = sessionAgent('sess-narr-1')
+    await preStep(ctx, agent)
+    expect(injected).toEqual([])
+    setApprovalPolicy(session, 'never')
+    setApprovalPolicy(session, 'ask')
+    setApprovalPolicy(session, 'never')
+    await preStep(ctx, agent)
+    expect(injected).toEqual(['The approval policy changed from "ask" to "never" (changed by the user).'])
+    await preStep(ctx, agent)
+    expect(injected).toHaveLength(1)
+    setApprovalPolicy(session, 'ask')
+    setApprovalPolicy(session, 'never')
+    await preStep(ctx, agent)
+    expect(injected).toHaveLength(1)
+  })
+
+  it('reads what the model was told back from the folded header text after a restart', async () => {
+    // A session whose last request carried the never sentence resumes under
+    // an ask default: the narrator attributes the change to the operator.
+    const ctx = new Context()
+    await ctx.plugin(ApprovalService)
+    const { agent, session, injected } = sessionAgent('sess-narr-2')
+    appendHeader(session, `persona\n\n${NEVER_SENTENCE}`)
+    await preStep(ctx, agent)
+    expect(injected).toEqual(['The approval policy changed from "never" to "ask" (changed by the operator/config).'])
+  })
+
+  it('narrates a config default drift over a sentence-less header (told = ask by absence)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(ApprovalService, { policy: 'never' })
+    const { agent, session, injected } = sessionAgent('sess-narr-3')
+    appendHeader(session, 'persona only')
+    await preStep(ctx, agent)
+    expect(injected).toEqual(['The approval policy changed from "ask" to "never" (changed by the operator/config).'])
+  })
+
+  it('a pinned override survives a default change silently', async () => {
+    const ctx = new Context()
+    await ctx.plugin(ApprovalService, { policy: 'never' })
+    const { agent, session, injected } = sessionAgent('sess-narr-4')
+    appendHeader(session, 'persona only')
+    setApprovalPolicy(session, 'ask')
+    appendHeader(session, 'persona only')
+    await preStep(ctx, agent)
+    expect(injected).toEqual([])
+  })
+})

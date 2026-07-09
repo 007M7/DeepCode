@@ -23,7 +23,7 @@ An approval question was put to the answerer chain — log-only audit (like `hoo
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/approval/approval/src/index.ts:66`](../packages/approval/approval/src/index.ts)
+Source: [`packages/approval/approval/src/index.ts:77`](../packages/approval/approval/src/index.ts)
 
 #### `approval/decided` — log-only
 
@@ -33,7 +33,17 @@ The outcome of a prior `approval/asked` (same `id`) — log-only audit. Exactly 
 'approval/decided': { id: ApprovalRequestId; outcome: ApprovalOutcome }
 ```
 
-Source: [`packages/approval/approval/src/index.ts:77`](../packages/approval/approval/src/index.ts)
+Source: [`packages/approval/approval/src/index.ts:88`](../packages/approval/approval/src/index.ts)
+
+#### `approval/policy` — log-only
+
+The session's approval policy was switched — log-only, durable, replayable, never in the model transcript (the model learns the policy from the prompt section and the narrator's notices). The LAST such event is the session's override (effectiveApprovalPolicy); who asked for it is derivable from position (an event after the log's last `request/header*` was a runtime switch by the user).
+
+```ts persistence-catalog
+'approval/policy': { policy: ApprovalPolicy }
+```
+
+Source: [`packages/approval/approval/src/index.ts:100`](../packages/approval/approval/src/index.ts)
 
 ### `assistant/*`
 
@@ -60,6 +70,18 @@ Assembled assistant message for one step (derived history uses this). Carries th
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
 Source: [`packages/core/session/src/types.ts:320`](../packages/core/session/src/types.ts)
+
+### `bash/*`
+
+#### `bash/sandbox-mode` — log-only
+
+The session's sandbox mode was switched — log-only (like `approval/*`; NOT a surface event, carries no `surfaceOp`): durable and replayable, never in the model transcript. The LAST such event is the session's override (effectiveSandboxMode); who asked for it is derivable from position (an event after the log's last `request/header*` was a runtime switch by the user; see the tool layer's narrator).
+
+```ts persistence-catalog
+'bash/sandbox-mode': { mode: SandboxMode }
+```
+
+Source: [`packages/bash/bash/src/session-mode.ts:31`](../packages/bash/bash/src/session-mode.ts)
 
 ### `compact/*`
 

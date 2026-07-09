@@ -31,7 +31,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:241`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:248`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-agent`
 
@@ -129,6 +129,37 @@ export interface Config {
 Depends on: [`AgentId`](../packages/core/agent/src/index.ts) · [`AgentOptions`](../packages/core/agent/src/index.ts) · [`SessionId`](../packages/core/session/src/index.ts)
 
 Source: [`packages/core/agent-loop/src/index.ts:36`](../packages/core/agent-loop/src/index.ts)
+
+## `@deepseek-ai/dsh-approval`
+
+```ts config-catalog
+/** Plugin config. All optional — `static Config` supplies the defaults. */
+export interface Config {
+  /**
+   * The deployment's default {@link ApprovalPolicy} for sessions without an
+   * `approval/policy` override — `'ask'` delegates to the composed answerers
+   * (fail-closed with none); `'never'` auto-rejects every ask without
+   * prompting (the deterministic CI/unattended stance).
+   */
+  policy?: ApprovalPolicy
+}
+
+/**
+ * A session's approval policy — what happens to an {@link ApprovalService}
+ * ask BEFORE any interactive answerer sees it:
+ *
+ * - `'ask'` (the default) — delegate to the composed answerers; with none
+ *   composed the chain falls through to the fail-closed `'unavailable'`
+ *   (exactly today's behavior).
+ * - `'never'` — never prompt anyone: every ask resolves `'rejected'`
+ *   deterministically. The strict headless stance (CI, unattended runs) and
+ *   the only policy value stated in the system prompt — unlike `'ask'`, its
+ *   outcome is knowable without asking, so stating it cannot overclaim.
+ */
+export type ApprovalPolicy = 'ask' | 'never'
+```
+
+Source: [`packages/approval/approval/src/index.ts:244`](../packages/approval/approval/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -1029,7 +1060,6 @@ Source: [`packages/workflow/workflow-workerthread/src/index.ts:69`](../packages/
 These load from a `cordis.yml` entry with no `config:` block; they declare no config surface.
 
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
-- `@deepseek-ai/dsh-approval` ([`packages/approval/approval/src/index.ts`](../packages/approval/approval/src/index.ts))
 - `@deepseek-ai/dsh-fs-policy` ([`packages/fs/fs-policy/src/index.ts`](../packages/fs/fs-policy/src/index.ts))
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))

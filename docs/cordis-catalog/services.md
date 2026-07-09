@@ -44,11 +44,13 @@ Source: [`packages/core/agent/src/index.ts:117`](../../packages/core/agent/src/i
 
 The `ctx.approval` service: dispatches ApprovalRequests to the `approval/request` waterfall and audits every ask/outcome pair to the requesting agent's session log. Stateless between requests — grants are returned to the caller, never stored here.
 
+Owns the policy tier too (`effective = fold(the session's 'approval/policy' events) ?? config.policy`): a PREPENDED decide-or-delegate gate resolves `'never'` sessions to `'rejected'` before any interactive answerer is prompted, a per-agent prompt section states a `'never'` policy (and only that one — an `'ask'` promise could overclaim an answerer that headless compositions do not have), and an `agent/pre-step` narrator injects at most one coalesced notice when a session's effective policy moved past what the model was last told.
+
 ```ts cordis-catalog
 async request(req: ApprovalRequest): Promise<ApprovalOutcome>
 ```
 
-Source: [`packages/approval/approval/src/index.ts:168`](../../packages/approval/approval/src/index.ts)
+Source: [`packages/approval/approval/src/index.ts:269`](../../packages/approval/approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -75,7 +77,7 @@ onTaskDone(listener: BashTaskListener): () => void
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md) · [BashTask](../core-data-structures/bash.md) · [BashTaskRead](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:61`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:62`](../../packages/bash/bash/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 

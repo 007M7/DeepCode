@@ -4,8 +4,9 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { BashExecutor, BashTaskId } from '@deepseek-ai/dsh-bash'
+import { BashExecutor, BashTaskId, setSandboxMode } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashRunResult, BashTask, BashTaskRead, OwnerToken } from '@deepseek-ai/dsh-bash'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -1135,7 +1136,7 @@ describe('sandbox rendering', () => {
 
 describe('sandbox escalation (sandbox_permissions / justification)', () => {
   /** Compose the real sandbox stack (passthrough runner) at a given default mode. */
-  async function setupSandboxed(mode?: 'read-only' | 'workspace-write' | 'danger-full-access', opts: { approval?: boolean } = {}) {
+  async function setupSandboxed(mode?: 'read-only' | 'workspace-write' | 'danger-full-access', opts: { approval?: boolean; policy?: 'ask' | 'never' } = {}) {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
@@ -1144,7 +1145,7 @@ describe('sandbox escalation (sandbox_permissions / justification)', () => {
     await ctx.plugin(SandboxBashExecutor, { graceMs: 200, ...mode !== undefined ? { mode } : {} })
     const bash = ctx.bash as SandboxBashExecutor
     bash.internals = { spillDir }
-    if (opts.approval === true) await ctx.plugin(ApprovalService)
+    if (opts.approval === true) await ctx.plugin(ApprovalService, opts.policy !== undefined ? { policy: opts.policy } : {})
     await ctx.plugin(ToolBash)
     return { ctx, bash }
   }
@@ -1327,6 +1328,23 @@ describe('sandbox escalation (sandbox_permissions / justification)', () => {
     expect(text(result)).toContain('unreachable')
   })
 
+  it('a never policy rejects an escalation deterministically without consulting any answerer', async () => {
+    // The live-session e.md case: the model requests escalation against a
+    // 'never' session — the prepend gate answers rejected before any
+    // interactive answerer, the fail-closed text is the ordinary rejection
+    // wording, and the audit pair still lands.
+    const { ctx } = await setupSandboxed('read-only', { approval: true, policy: 'never' })
+    const consulted = vi.fn()
+    ctx.on('approval/request', (_req, next) => { consulted(); return next() })
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    const result = await callAs(ctx, escalationAgent(events), ESCALATE)
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('the user rejected escalating this command to "workspace-write"')
+    expect(consulted).not.toHaveBeenCalled()
+    expect(events.map(e => e.type)).toEqual(['approval/asked', 'approval/decided'])
+    expect(events[1]?.data).toMatchObject({ outcome: 'rejected' })
+  })
+
   it('a plain call under a sandboxing executor never consults approval', async () => {
     const { ctx } = await setupSandboxed('read-only', { approval: true })
     const asked = vi.fn()
@@ -1336,4 +1354,123 @@ describe('sandbox escalation (sandbox_permissions / justification)', () => {
     expect(text(result)).toContain('plain')
     expect(asked).not.toHaveBeenCalled()
   })
+})
+
+describe('per-session sandbox mode (the bash/sandbox-mode fold)', () => {
+  /** Compose the real sandbox stack (passthrough runner) at a given default mode. */
+  async function setupModal(mode: 'read-only' | 'workspace-write' | 'danger-full-access' = 'read-only', opts: { approval?: boolean } = {}) {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(LocalSandboxProvider, { runnerCommand: PASSTHROUGH_RUNNER })
+    await ctx.plugin(SandboxBashExecutor, { graceMs: 200, mode })
+    ;(ctx.bash as SandboxBashExecutor).internals = { spillDir }
+    if (opts.approval === true) await ctx.plugin(ApprovalService)
+    await ctx.plugin(ToolBash)
+    return ctx
+  }
+
+  /**
+   * An agent stand-in over a REAL Session — the stamping folds real events;
+   * the opened turn satisfies approval's enclosure precondition on escalating
+   * calls.
+   */
+  function sessionAgent(id: string): { agent: Agent; session: Session; injected: string[] } {
+    const session = new Session(SessionId(id))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const injected: string[] = []
+    const agent = {
+      id,
+      session,
+      inject: (content: { type: string; text: string }[]) => { injected.push(content[0]?.text ?? '') },
+    } as unknown as Agent
+    return { agent, session, injected }
+  }
+
+  let modeCall = 0
+  const callAs = (ctx: Context, agent: Agent | undefined, args: unknown) =>
+    ctx.tools.execute({ callId: CallId(`call-mode-${++modeCall}`), name: 'bash', arguments: args, ...agent ? { agent } : {} })
+
+
+  it('stamps calls with grant > session override > nothing (executor default)', async () => {
+    const ctx = await setupModal('read-only', { approval: true })
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    const seen: (string | undefined)[] = []
+    const original = ctx.bash.resolve.bind(ctx.bash)
+    vi.spyOn(ctx.bash, 'resolve').mockImplementation((req) => {
+      seen.push(req.sandboxMode)
+      return original(req)
+    })
+    const { agent, session } = sessionAgent('sess-stamp-1')
+    const run = { command: 'true', description: 'stamp probe' }
+    await callAs(ctx, agent, run)                       // no override yet
+    setSandboxMode(session, 'workspace-write')
+    await callAs(ctx, agent, run)                       // standing override
+    await callAs(ctx, undefined, run)                   // agent-less caller: no session to fold
+    await callAs(ctx, agent, { ...run, sandbox_permissions: 'danger-full-access', justification: 'grant outranks override' })
+    expect(seen).toEqual([undefined, 'workspace-write', undefined, 'danger-full-access'])
+  })
+
+  it('escalates relative to the session effective mode, not the executor default (narrower override)', async () => {
+    // The blocker scenario: a workspace-write default with a read-only
+    // override — the sensible escalation is workspace-write, which a
+    // default-relative ladder could not even express. The static target
+    // vocabulary advertises it and the execution check accepts it as
+    // strictly wider than the CALL's effective (overridden) mode.
+    const ctx = await setupModal('workspace-write', { approval: true })
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    const seen: (string | undefined)[] = []
+    const original = ctx.bash.resolve.bind(ctx.bash)
+    vi.spyOn(ctx.bash, 'resolve').mockImplementation((req) => {
+      seen.push(req.sandboxMode)
+      return original(req)
+    })
+    const { agent, session } = sessionAgent('sess-esc-narrow')
+    setSandboxMode(session, 'read-only')
+    const result = await callAs(ctx, agent, { command: 'true', description: 'd', sandbox_permissions: 'workspace-write', justification: 'the override is narrower than the default' })
+    expect(result.isError).toBe(false)
+    expect(seen).toEqual(['workspace-write'])
+  })
+
+  it('a danger-full-access default still offers the lever to a narrower-switched session', async () => {
+    // Under the default-relative ladder these fields VANISHED (nothing is
+    // wider than the default), stranding a read-only-overridden session
+    // with no escalation path at all.
+    const ctx = await setupModal('danger-full-access', { approval: true })
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    const schema = ctx.tools.schemas().find(t => t.name === 'bash') as unknown as { parameters: { properties: Record<string, { enum?: string[] }> } }
+    expect(schema.parameters.properties['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
+    const { agent, session } = sessionAgent('sess-esc-dfa')
+    setSandboxMode(session, 'read-only')
+    const result = await callAs(ctx, agent, { command: 'true', description: 'd', sandbox_permissions: 'workspace-write', justification: 'confined by override under a wide default' })
+    expect(result.isError).toBe(false)
+  })
+
+  it('rejects a non-widening request against the OVERRIDDEN effective mode without prompting', async () => {
+    const ctx = await setupModal('read-only', { approval: true })
+    const consulted = vi.fn()
+    ctx.on('approval/request', (_req, next) => { consulted(); return next() })
+    const { agent, session } = sessionAgent('sess-esc-nonwide')
+    setSandboxMode(session, 'danger-full-access')
+    const result = await callAs(ctx, agent, { command: 'true', description: 'd', sandbox_permissions: 'workspace-write', justification: 'already wider via override' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('not strictly wider than this call\'s current "danger-full-access" mode')
+    expect(consulted).not.toHaveBeenCalled()
+  })
+
+  it('never stamps an override under a non-sandboxing executor (nothing honors it)', async () => {
+    const ctx = await setup()
+    const seen: (string | undefined)[] = []
+    const original = ctx.bash.resolve.bind(ctx.bash)
+    vi.spyOn(ctx.bash, 'resolve').mockImplementation((req) => {
+      seen.push(req.sandboxMode)
+      return original(req)
+    })
+    const { agent, session } = sessionAgent('sess-stamp-2')
+    setSandboxMode(session, 'danger-full-access')
+    await callAs(ctx, agent, { command: 'true', description: 'plain probe' })
+    expect(seen).toEqual([undefined])
+  })
+
 })

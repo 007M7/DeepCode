@@ -20,15 +20,27 @@
  * model-visible transcript: the model only ever sees the tool result the
  * caller derives from the outcome.
  *
+ * The seam also owns the per-session POLICY tier (the sandbox RFC § Per-session mode switching):
+ * `effective = fold(the session's 'approval/policy' events, last one wins)
+ * ?? config.policy` — the session log is the store, so an override survives
+ * restart by replay. The service resolves `'never'` sessions to
+ * `'rejected'` inside `request()` before dispatching any answerer (no
+ * registration order, including a later `prepend`, can precede it); a prompt section states `'never'`
+ * (and only `'never'` — an availability promise is unknowable without
+ * asking); an `agent/pre-step` narrator explains a switch to the model in at
+ * most one coalesced notice per step.
+ *
  * @module @deepseek-ai/dsh-approval
  */
 
 import { randomUUID } from 'node:crypto'
 import { Context, Service } from 'cordis'
+import z from 'schemastery'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CallId } from '@deepseek-ai/dsh-llm'
-import type {} from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 
 declare module 'cordis' {
   interface Context {
@@ -78,6 +90,15 @@ declare module '@deepseek-ai/dsh-session' {
       id: ApprovalRequestId
       outcome: ApprovalOutcome
     }
+    /**
+     * The session's approval policy was switched — log-only, durable,
+     * replayable, never in the model transcript (the model learns the policy
+     * from the prompt section and the narrator's notices). The LAST such
+     * event is the session's override ({@link effectiveApprovalPolicy});
+     * who asked for it is derivable from position (an event after the log's
+     * last `request/header*` was a runtime switch by the user).
+     */
+    'approval/policy': { policy: ApprovalPolicy }
   }
 }
 
@@ -114,6 +135,53 @@ export type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unava
 const OUTCOMES: readonly ApprovalOutcome[] = ['allowed-once', 'rejected', 'cancelled', 'unavailable']
 
 /**
+ * A session's approval policy — what happens to an {@link ApprovalService}
+ * ask BEFORE any interactive answerer sees it:
+ *
+ * - `'ask'` (the default) — delegate to the composed answerers; with none
+ *   composed the chain falls through to the fail-closed `'unavailable'`
+ *   (exactly today's behavior).
+ * - `'never'` — never prompt anyone: every ask resolves `'rejected'`
+ *   deterministically. The strict headless stance (CI, unattended runs) and
+ *   the only policy value stated in the system prompt — unlike `'ask'`, its
+ *   outcome is knowable without asking, so stating it cannot overclaim.
+ */
+export type ApprovalPolicy = 'ask' | 'never'
+
+/** Every {@link ApprovalPolicy}, for option advertisement and runtime validation of untrusted policy strings. */
+export const APPROVAL_POLICIES: readonly ApprovalPolicy[] = ['ask', 'never']
+
+/**
+ * The prompt sentence stating a `'never'` policy — visibility for the one
+ * deterministic policy (see {@link ApprovalPolicy}), and the narrator's parse
+ * candidate for "what was the model last told": a folded `request/header*`
+ * system text containing it was assembled under `'never'`; one without it
+ * (but with any header at all) was assembled under `'ask'`, which states
+ * nothing. The exact-wording compatibility surface (writer and parser) lives
+ * entirely in this module; the bash tool description's escalation teaching
+ * additionally defers to the sentence's opening claim by meaning (see
+ * `dsh-tool-bash`), so keep the sentence opening with the approvals-disabled
+ * statement.
+ */
+const NEVER_SENTENCE = 'Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).'
+
+/**
+ * The session's approval-policy override: the last `approval/policy` event in
+ * the log, or undefined when the session never switched (callers apply the
+ * plugin's configured default). The pure fold — resume needs no catch-up
+ * machinery because replaying the log IS the state.
+ * @param events - session events in log order (other event types are skipped).
+ * @returns the policy of the last switch event, or undefined without one.
+ */
+export function effectiveApprovalPolicy(events: readonly SessionEvent[]): ApprovalPolicy | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index] as SessionEvent
+    if (event.type === 'approval/policy') return event.data.policy
+  }
+  return undefined
+}
+
+/**
  * Whether the log currently sits inside an open turn (a `turn/start` not yet
  * closed by a `turn/end`) — the {@link ApprovalService.request} precondition.
  * The audit pair must be turn-enclosed: the turn is the durable log's
@@ -127,6 +195,19 @@ function hasOpenTurn(events: readonly SessionEvent[]): boolean {
     if (type === 'turn/end') return false
   }
   return false
+}
+
+/**
+ * THE write path for a session's approval-policy override: appends exactly
+ * one `approval/policy` event — the switch IS its event; nothing mutates
+ * policy state out of band. Takes effect on the session's next ask and next
+ * prompt assembly (the consumers fold on every read).
+ * @param session - the session the override belongs to.
+ * @param policy - the policy every subsequent ask for this session resolves
+ *   under (until the next switch).
+ */
+export function setApprovalPolicy(session: Session, policy: ApprovalPolicy): void {
+  session.append('approval/policy', { policy })
 }
 
 /**
@@ -159,15 +240,100 @@ export interface ApprovalRequest {
   signal?: AbortSignal
 }
 
+/** Plugin config. All optional — `static Config` supplies the defaults. */
+export interface Config {
+  /**
+   * The deployment's default {@link ApprovalPolicy} for sessions without an
+   * `approval/policy` override — `'ask'` delegates to the composed answerers
+   * (fail-closed with none); `'never'` auto-rejects every ask without
+   * prompting (the deterministic CI/unattended stance).
+   */
+  policy?: ApprovalPolicy
+}
+
 /**
  * The `ctx.approval` service: dispatches {@link ApprovalRequest}s to the
  * `approval/request` waterfall and audits every ask/outcome pair to the
  * requesting agent's session log. Stateless between requests — grants are
  * returned to the caller, never stored here.
+ *
+ * Owns the policy tier too (`effective = fold(the session's 'approval/policy'
+ * events) ?? config.policy`): a PREPENDED decide-or-delegate gate resolves
+ * `'never'` sessions to `'rejected'` before any interactive answerer is
+ * prompted, a per-agent prompt section states a `'never'` policy (and only
+ * that one — an `'ask'` promise could overclaim an answerer that headless
+ * compositions do not have), and an `agent/pre-step` narrator injects at most
+ * one coalesced notice when a session's effective policy moved past what the
+ * model was last told.
  */
 export class ApprovalService extends Service {
-  constructor(ctx: Context) {
+  static Config: z<Config> = z.object({
+    policy: z.union(['ask', 'never'] as const).default('ask'),
+  })
+
+  constructor(ctx: Context, public config: Config) {
     super(ctx, 'approval')
+
+    const effective = (agent: Agent): ApprovalPolicy => this.effectivePolicy(agent)
+
+    // Visibility layer 1, scoped on the prompt registry so headless
+    // compositions mount the seam without it: state the one deterministic
+    // policy per session. 'ask' renders nothing — stating "you will be
+    // asked" would overclaim in a composition with no answerer, and absence
+    // under any logged header is exactly how the narrator reads 'ask' back.
+    ctx.inject(['systemPrompt'], (scope: Context) => {
+      scope.systemPrompt.section({
+        name: 'approval:policy',
+        order: 115,
+        text: (context) => {
+          const agent = context.agent
+          // A bare assemble() (tests, diagnostics) has no session to state.
+          if (agent === undefined) return ''
+          return effective(agent) === 'never' ? NEVER_SENTENCE : ''
+        },
+      })
+    })
+
+    // Visibility layer 2: the boundary narrator. pre-step runs after prompt
+    // assembly but before the request history is derived, so the notice is
+    // seen by THIS step's request: idle-time flip-flops coalesce at the
+    // turn's first step (net-zero → nothing), and a mid-turn switch is
+    // narrated no later than the next step. What each session was last told
+    // is in-memory with a log-derived fallback (the folded header's system
+    // text), so restarts lose nothing. Attribution is positional: an
+    // override event after the log's last `request/header*` was a runtime
+    // switch by the user; otherwise the configured default moved under the
+    // session (operator/config).
+    const narrated = new WeakMap<Agent['session'], ApprovalPolicy>()
+    ctx.on('agent/pre-step', (agent) => {
+      const session = agent.session
+      const events = session.events
+      let overrideIndex = -1
+      let headerIndex = -1
+      for (let index = events.length - 1; index >= 0 && (overrideIndex < 0 || headerIndex < 0); index -= 1) {
+        const event = events[index] as (typeof events)[number]
+        if (overrideIndex < 0 && event.type === 'approval/policy') {
+          overrideIndex = index
+        } else if (headerIndex < 0 && (event.type === 'request/header' || event.type === 'request/header-delta')) {
+          headerIndex = index
+        }
+      }
+      // Same fold effectivePolicy performs — override is scanned here anyway
+      // for POSITIONAL attribution; the default lives once, in the method.
+      const current = this.effectivePolicy(agent)
+      const header = session.requestHeader()
+      const told = narrated.get(session)
+        ?? (header === undefined ? undefined : header.system?.includes(NEVER_SENTENCE) === true ? 'never' : 'ask')
+      narrated.set(session, current)
+      // Cold start (nothing ever told) narrates nothing — the section about
+      // to go out states the truth, and there is no delta to explain.
+      if (told === undefined || told === current) return
+      const cause = overrideIndex > headerIndex ? 'changed by the user' : 'changed by the operator/config'
+      agent.inject(
+        [{ type: 'text', text: `The approval policy changed from "${told}" to "${current}" (${cause}).` }],
+        { source: { kind: 'plugin', plugin: 'approval' } },
+      )
+    })
   }
 
   /**
@@ -205,9 +371,26 @@ export class ApprovalService extends Service {
     return outcome
   }
 
+  /**
+   * The session's effective policy: its own `approval/policy` fold, else the
+   * configured default (the schema already defaulted an omitted policy to
+   * `'ask'`; the `??` only narrows the optional-input TYPE).
+   * @param agent - the agent whose session's policy applies.
+   * @returns the policy every ask for this agent resolves under right now.
+   */
+  private effectivePolicy(agent: Agent): ApprovalPolicy {
+    return effectiveApprovalPolicy(agent.session.events) ?? this.config.policy ?? 'ask'
+  }
+
   /** Dispatch the waterfall, contained and raced against `req.signal`. */
   private async decide(req: ApprovalRequest): Promise<ApprovalOutcome> {
     if (req.signal?.aborted) return 'cancelled'
+    // The 'never' policy is decided HERE, before any dispatch: a listener
+    // registered with `prepend: true` after this service mounts would sit
+    // ahead of any gate LISTENER, so a listener-shaped gate cannot keep the
+    // documented promise that 'never' rejects deterministically regardless
+    // of registration order — only the service's own request path can.
+    if (this.effectivePolicy(req.agent) === 'never') return 'rejected'
     // Enter the promise chain BEFORE dispatching: a listener that throws
     // SYNCHRONOUSLY (before its first await) must land in the same rejection
     // path as an async one — `Promise.resolve(call())` would let it escape

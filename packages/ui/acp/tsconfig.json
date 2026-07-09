@@ -39,6 +39,9 @@
       "path": "../../approval/approval"
     },
     {
+      "path": "../../sandbox/sandbox"
+    },
+    {
       "path": "../../bash/bash"
     }
   ]
