@@ -21,9 +21,10 @@
  *   always carries its capture tool and the trailing instruction section. The
  *   registry already contributes both; this outermost wrapper preserves the
  *   guarantee against a (global) listener that strips or replaces the
- *   assembly — placement-preserving, so an untampered assembly reaches the
- *   model byte-identical (tools replaced in place, the section re-inserted at
- *   its ascending-order position). The loop logs the rendered assembly as the
+ *   assembly — placement-preserving: tools are replaced in place, the section
+ *   re-inserted at its ascending-order position, so the untampered path keeps
+ *   the registry's ordering (identical output, up to intra-band section order
+ *   — which carries no contract). The loop logs the rendered assembly as the
  *   request header, so the demand is reconstructable log state, never a
  *   wire-only mutation.
  * - `agent/turn-continuation` (prepend, scoped): stop the child's turn once
@@ -148,10 +149,12 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
     // mutated or injected a same-named entry with the WRONG schema/text, and
     // the model-visible demand must be exactly this run's own — the same
     // schema validateStructuredValue enforces. Placement-preserving on both
-    // arrays: the untampered path must reach the model byte-identical to the
-    // registry's output (tool order is the `toolOrder`/lexicographic
-    // contract, section order is the ascending contract `renderPrompt`
-    // trusts), so this never reorders what it only re-asserts.
+    // arrays: the untampered path keeps the registry's ordering (tool order
+    // is the `toolOrder`/lexicographic contract, section order the ascending
+    // contract `renderPrompt` trusts), so this never reorders what it only
+    // re-asserts — up to intra-band section order, which carries no contract
+    // (a 190-order section registered AFTER this runtime sorts before the
+    // instruction in the registry but after it here).
     const freshTool: ToolSchema = { ...schemaEntry, parameters: structuredClone(schemaEntry.parameters) }
     // Tools: replace the first same-named entry IN PLACE (its position is the
     // chain's product; a tool's list position carries no semantic band to
@@ -173,8 +176,8 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
     // DO carry an order contract, and the renderer reads array order, so a
     // stripped-or-moved instruction is restored to its band, not appended
     // after unrelated higher-order sections. On the untampered path this
-    // lands exactly where the registry's stable sort put it (last of the 190
-    // band — the scoped section registers after every load-time 190).
+    // lands at the end of the 190 band — where the registry's stable sort
+    // put it too, unless another 190-order section registered later.
     const sectionName = `tool:${STRUCTURED_OUTPUT_TOOL}`
     const sections = final.sections.filter(section => section.name !== sectionName)
     const insertAt = sections.findIndex(section => section.order > 190)
