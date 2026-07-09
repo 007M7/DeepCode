@@ -15,6 +15,8 @@ import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
 import { SandboxProvider } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv } from '@deepseek-ai/dsh-sandbox'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
+import ApprovalService from '@deepseek-ai/dsh-approval'
+import type { ApprovalOutcome } from '@deepseek-ai/dsh-approval'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import { renderResult } from '@deepseek-ai/dsh-tool-bash'
 
@@ -999,6 +1001,17 @@ describe('sandbox rendering', () => {
     expect(text).toMatch(/\[sandbox: file access denied under read-only mode\]\n\[exit code: 1\]$/)
   })
 
+  it('appends the same-turn escalation hint to a denial exactly when the fields are advertised', () => {
+    const hinted = renderResult(sandboxResult(true, 1), ['workspace-write', 'danger-full-access'])
+    expect(hinted).toMatch(
+      /denied under read-only mode\]\n\[sandbox: escalation available — retry this exact command once with sandbox_permissions [^\n]+\]\n\[exit code: 1\]$/, // eslint-disable-line @stylistic/max-len -- the hint sentence is pinned verbatim
+    )
+    // Default (no advertisement): no hint — a lever the schema does not offer is never suggested.
+    expect(renderResult(sandboxResult(true, 1))).not.toContain('escalation available')
+    // A non-denied result never hints, advertised or not.
+    expect(renderResult(sandboxResult(false, 2), ['danger-full-access'])).not.toContain('escalation available')
+  })
+
   it('renders no sandbox marker for a plain failure under a sandboxed mode', () => {
     expect(renderResult(sandboxResult(false, 2))).not.toContain('[sandbox:')
   })
@@ -1017,7 +1030,58 @@ describe('sandbox rendering', () => {
     const id = text(started).match(/started background task (bash-\d+)/)![1]
     await bash.list().find(task => task.id === id)!.done
     const read = await call(ctx, 'bash_output', { task_id: id })
-    expect(text(read)).toMatch(/\[status: completed, exit code: 1\]\n\[sandbox: file access denied under read-only mode\]$/)
+    expect(text(read)).toMatch(
+      /\[status: completed, exit code: 1\]\n\[sandbox: file access denied under read-only mode\]\n\[sandbox: escalation available[^\n]+\]$/,
+    )
+  })
+
+  it('a settled background denial renders no escalation hint without a confining executor (defensive arm)', async () => {
+    // Structurally near-unreachable through the real stack — every confining
+    // default advertises the static target set — but the read path guards
+    // it anyway: an executor that reports no sandboxMode (fields never
+    // advertised) whose task nonetheless carries denial facts must render
+    // the marker without suggesting a lever the schema does not offer.
+    class FactsOnlyExecutor extends BashExecutor {
+      private readonly task: BashTask = {
+        id: BashTaskId('bash-facts'),
+        command: 'fake',
+        status: 'completed',
+        exitCode: 1,
+        signal: null,
+        done: Promise.resolve(),
+        sandbox: { mode: 'read-only', denied: true },
+      }
+
+      resolve(request: BashExecRequest): BashExecSpec {
+        return {
+          command: request.command,
+          workdir: request.workdir ?? process.cwd(),
+          timeoutMs: request.timeoutMs ?? 0,
+          ...request.signal ? { signal: request.signal } : {},
+          owner: request.owner,
+          sandboxMode: request.sandboxMode,
+        }
+      }
+
+      run(): Promise<BashRunResult> { return Promise.reject(new Error('not used')) }
+      start(): BashTask { return this.task }
+      get(id: string): BashTask | undefined { return id === this.task.id ? this.task : undefined }
+      list(): BashTask[] { return [this.task] }
+      kill(): boolean { return false }
+      ownerOf(): OwnerToken | undefined { return undefined }
+      readOutput(): BashTaskRead {
+        return { task: this.task, delta: '', lossy: false }
+      }
+    }
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(FactsOnlyExecutor)
+    await ctx.plugin(ToolBash)
+    const read = await call(ctx, 'bash_output', { task_id: 'bash-facts' })
+    expect(text(read)).toMatch(/\[sandbox: file access denied under read-only mode\]$/)
+    expect(text(read)).not.toContain('escalation available')
   })
 
   it('bash_output reports a settled background RUNNER failure as a sandbox problem, outranking the denial marker', async () => {
@@ -1063,7 +1127,213 @@ describe('sandbox rendering', () => {
     chmodSync(lockedDir, 0o555)
     const result = await call(ctx, 'bash', { command: `echo x > ${lockedDir}/f`, description: 'Write into a locked directory' })
     expect(result.isError).toBe(false)
-    expect(text(result)).toMatch(/\[sandbox: file access denied under read-only mode\]\n\[exit code: \d+\]$/)
+    expect(text(result)).toMatch(
+      /denied under read-only mode\]\n\[sandbox: escalation available[^\n]+\]\n\[exit code: \d+\]$/,
+    )
   })
 })
 
+describe('sandbox escalation (sandbox_permissions / justification)', () => {
+  /** Compose the real sandbox stack (passthrough runner) at a given default mode. */
+  async function setupSandboxed(mode?: 'read-only' | 'workspace-write' | 'danger-full-access', opts: { approval?: boolean } = {}) {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(LocalSandboxProvider, { runnerCommand: PASSTHROUGH_RUNNER })
+    await ctx.plugin(SandboxBashExecutor, { graceMs: 200, ...mode !== undefined ? { mode } : {} })
+    const bash = ctx.bash as SandboxBashExecutor
+    bash.internals = { spillDir }
+    if (opts.approval === true) await ctx.plugin(ApprovalService)
+    await ctx.plugin(ToolBash)
+    return { ctx, bash }
+  }
+
+  /** The registered bash tool's wire schema (what the model actually sees). */
+  function bashSchema(ctx: Context) {
+    const schema = ctx.tools.schemas().find(s => s.name === 'bash')
+    if (!schema) throw new Error('bash tool not registered')
+    return schema as unknown as { description: string; parameters: { properties: Record<string, { enum?: string[] }> } }
+  }
+
+  /**
+   * A fake agent whose session records appends — the approval audit surface.
+   * Seeded mid-turn: an escalating call always runs inside one, and request()
+   * enforces the enclosure.
+   */
+  function escalationAgent(events: Array<{ type: string; data: Record<string, unknown> }>): Agent {
+    return {
+      id: 'agent-esc',
+      session: {
+        header: { version: 0, id: 'sess-esc', createdAt: 0 },
+        events: [{ type: 'turn/start' }],
+        append: (type: string, data: Record<string, unknown>) => { events.push({ type, data }) },
+      },
+    } as unknown as Agent
+  }
+
+  let escCall = 0
+  function callAs(ctx: Context, agent: Agent | undefined, args: unknown) {
+    return ctx.tools.execute({ callId: CallId(`call-esc-${++escCall}`), name: 'bash', arguments: args, ...agent ? { agent } : {} })
+  }
+
+  const ESCALATE = { command: 'true', description: 'test escalation', sandbox_permissions: 'workspace-write', justification: 'the test needs it' }
+
+  it('advertises no escalation surface under a non-sandboxing executor', async () => {
+    const ctx = await setup()
+    expect(ctx.bash.sandboxMode).toBeUndefined()
+    const schema = bashSchema(ctx)
+    expect(schema.parameters.properties['sandbox_permissions']).toBeUndefined()
+    expect(schema.parameters.properties['justification']).toBeUndefined()
+    expect(schema.description).not.toContain('sanctioned exception')
+  })
+
+  it('advertises the full closed target vocabulary under any confining default', async () => {
+    // The enum is deliberately NOT default-relative: a session's effective
+    // mode is per-session and switchable, so every confining composition
+    // advertises every possible target — strict widening is checked at
+    // execution against the call's effective mode instead.
+    for (const mode of [undefined, 'workspace-write', 'danger-full-access'] as const) {
+      const { ctx } = await setupSandboxed(mode)
+      const schema = bashSchema(ctx)
+      expect(schema.parameters.properties['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
+      expect(schema.parameters.properties['justification']).toBeDefined()
+      expect(schema.description).toContain('sanctioned exception')
+    }
+  })
+
+  it('a non-widening request fails at execution with its own text and prompts no one', async () => {
+    const { ctx } = await setupSandboxed('danger-full-access', { approval: true })
+    const consulted = vi.fn()
+    ctx.on('approval/request', (_req, next) => { consulted(); return next() })
+    const result = await callAs(ctx, escalationAgent([]), { command: 'true', description: 'd', sandbox_permissions: 'workspace-write', justification: 'already wider' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('not strictly wider than this call\'s current "danger-full-access" mode')
+    expect(consulted).not.toHaveBeenCalled()
+  })
+
+  it('rejects sandbox_permissions without a justification, and vice versa, and a blank justification', async () => {
+    const { ctx } = await setupSandboxed()
+    const missing = await callAs(ctx, undefined, { command: 'true', description: 'd', sandbox_permissions: 'workspace-write' })
+    expect(missing.isError).toBe(true)
+    expect(text(missing)).toContain('sandbox_permissions requires a justification')
+    const orphan = await callAs(ctx, undefined, { command: 'true', description: 'd', justification: 'why not' })
+    expect(orphan.isError).toBe(true)
+    expect(text(orphan)).toContain('only valid together with sandbox_permissions')
+    const blank = await callAs(ctx, undefined, { command: 'true', description: 'd', sandbox_permissions: 'workspace-write', justification: '   ' })
+    expect(blank.isError).toBe(true)
+    expect(text(blank)).toContain('expected a non-empty sentence')
+  })
+
+  it('the schema enum rejects a mode outside the target vocabulary before execute (registry-level, any caller)', async () => {
+    const { ctx } = await setupSandboxed()
+    const result = await callAs(ctx, undefined, { command: 'true', description: 'd', sandbox_permissions: 'read-only', justification: 'narrow' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('must be one of')
+  })
+
+  it('rejects an unadvertised sandbox_permissions injection under a non-sandboxing executor', async () => {
+    const ctx = await setup()
+    const result = await callAs(ctx, undefined, { command: 'true', description: 'd', sandbox_permissions: 'workspace-write', justification: 'sneaky' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('not available in this composition')
+  })
+
+  it('fails closed with its own text when no approval service is composed', async () => {
+    const { ctx } = await setupSandboxed()
+    const result = await callAs(ctx, escalationAgent([]), ESCALATE)
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('no approval service is composed')
+  })
+
+  it('fails closed with its own text for an agent-less escalating call', async () => {
+    const { ctx } = await setupSandboxed('read-only', { approval: true })
+    const result = await callAs(ctx, undefined, ESCALATE)
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('no agent to route it through')
+  })
+
+  it('fails closed with its own text when the service has no answerer', async () => {
+    const { ctx } = await setupSandboxed('read-only', { approval: true })
+    const result = await callAs(ctx, escalationAgent([]), ESCALATE)
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('no approval channel is available')
+  })
+
+  it('a grant runs THAT call under the wider mode — the denial marker names it — and lands the audit pair', async () => {
+    const { ctx } = await setupSandboxed('read-only', { approval: true })
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    const events: Array<{ type: string; data: Record<string, unknown> }> = []
+    // A real unix denial under the passthrough runner: the marker's mode can
+    // only say workspace-write if the override actually rode the spec.
+    const lockedDir = join(mkdtempSync(join(tmpdir(), 'dsh-esc-denied-')), 'locked')
+    mkdirSync(lockedDir)
+    chmodSync(lockedDir, 0o555)
+    const result = await callAs(ctx, escalationAgent(events), {
+      command: `echo x > ${lockedDir}/f`,
+      description: 'write into a locked directory',
+      sandbox_permissions: 'workspace-write',
+      justification: 'must write outside the workspace',
+    })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toMatch(/\[sandbox: file access denied under workspace-write mode\]/)
+    expect(events.map(e => e.type)).toEqual(['approval/asked', 'approval/decided'])
+    expect(events[0]?.data['toolName']).toBe('bash')
+    expect(events[0]?.data['reason']).toBe('escalate sandbox to workspace-write: must write outside the workspace')
+    expect(events[1]?.data['outcome']).toBe('allowed-once')
+  })
+
+  it('a granted background start settles with the wider mode\'s facts', async () => {
+    const { ctx, bash } = await setupSandboxed('read-only', { approval: true })
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    const started = await callAs(ctx, escalationAgent([]), { ...ESCALATE, run_in_background: true })
+    expect(started.isError).toBe(false)
+    const id = text(started).match(/started background task (bash-\d+)/)?.[1]
+    const task = bash.list().find(t => t.id === id)
+    if (!task) throw new Error('escalated task not tracked')
+    await task.done
+    expect(task.sandbox).toMatchObject({ mode: 'workspace-write', denied: false })
+  })
+
+  it('a rejection denies with the user-said-no text and runs nothing', async () => {
+    const { ctx } = await setupSandboxed('read-only', { approval: true })
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('rejected'))
+    // A live (non-aborted) signal rides the execution: the gate threads it
+    // into the approval request so a turn cancellation can withdraw the ask.
+    const result = await ctx.tools.execute({
+      callId: CallId(`call-esc-${++escCall}`),
+      name: 'bash',
+      arguments: ESCALATE,
+      agent: escalationAgent([]),
+      signal: new AbortController().signal,
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('the user rejected escalating this command to "workspace-write"')
+  })
+
+  it('a cancellation denies with the cancelled text', async () => {
+    const { ctx } = await setupSandboxed('read-only', { approval: true })
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('cancelled'))
+    const result = await callAs(ctx, escalationAgent([]), ESCALATE)
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('approval for escalating to "workspace-write" was cancelled')
+  })
+
+  it('a rogue approval stand-in returning a non-vocabulary outcome hits the exhaustiveness backstop', async () => {
+    const { ctx } = await setupSandboxed()
+    ctx.provide('approval', { request: () => Promise.resolve('yolo') } as unknown as InstanceType<typeof ApprovalService>)
+    const result = await callAs(ctx, escalationAgent([]), ESCALATE)
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('unreachable')
+  })
+
+  it('a plain call under a sandboxing executor never consults approval', async () => {
+    const { ctx } = await setupSandboxed('read-only', { approval: true })
+    const asked = vi.fn()
+    ctx.on('approval/request', (_req, next) => { asked(); return next() })
+    const result = await callAs(ctx, escalationAgent([]), { command: 'echo plain', description: 'plain run' })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('plain')
+    expect(asked).not.toHaveBeenCalled()
+  })
+})

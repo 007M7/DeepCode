@@ -175,7 +175,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Approval seam',
     mode: 'seam',
     implementations: ['acp'],
-    consumers: ['tools'],
+    consumers: ['tools', 'tool-bash'],
     note: 'One-shot permission decisions dispatched over the `approval/request` waterfall; answerers are listeners (the ACP bridge for its own agents), absence fails closed to `unavailable`.',
   },
   {
