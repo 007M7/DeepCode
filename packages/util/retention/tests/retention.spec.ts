@@ -11,26 +11,23 @@ import {
 /** Decode a RetainedText via a round-trip helper for readable UTF-8 assertions. */
 const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s)
 
-describe('ItemRetainer — head, stopWhenFull (glob/grep early stop)', () => {
-  it('keeps the first maxItems and asks to stop on the probe item', () => {
-    const r = new ItemRetainer<string>({ kind: 'head', maxItems: 2, stop: 'stopWhenFull' })
-    expect(r.push('a')).toEqual({ kept: true, truncated: false, shouldStop: false })
-    expect(r.push('b')).toEqual({ kept: true, truncated: false, shouldStop: false })
-    // The (maxItems + 1)th valid item is the probe: not retained, sets truncated,
-    // and shouldStop tells the caller to kill the upstream.
-    expect(r.push('c')).toEqual({ kept: false, truncated: true, shouldStop: true })
+describe('ItemRetainer — head retention', () => {
+  it('keeps the first maxItems while callers keep draining for an exact omitted count', () => {
+    const r = new ItemRetainer<string>({ kind: 'head', maxItems: 2 })
+    expect(r.push('a')).toEqual({ kept: true, truncated: false })
+    expect(r.push('b')).toEqual({ kept: true, truncated: false })
+    expect(r.push('c')).toEqual({ kept: false, truncated: true })
 
     const result = r.finish()
     expect(result.items).toEqual(['a', 'b'])
     expect(result.kept).toBe(2)
     expect(result.seen).toBe(3)
     expect(result.truncated).toBe(true)
-    // Early stop knows only a lower bound, never an exact total.
-    expect(result.omitted).toEqual<Omitted>({ kind: 'atLeast', count: 1 })
+    expect(result.omitted).toEqual<Omitted>({ kind: 'exact', count: 1 })
   })
 
   it('reports none when everything fits', () => {
-    const r = new ItemRetainer<number>({ kind: 'head', maxItems: 3, stop: 'stopWhenFull' })
+    const r = new ItemRetainer<number>({ kind: 'head', maxItems: 3 })
     r.push(1)
     r.push(2)
     const result = r.finish()
@@ -38,15 +35,11 @@ describe('ItemRetainer — head, stopWhenFull (glob/grep early stop)', () => {
     expect(result.truncated).toBe(false)
     expect(result.omitted).toEqual<Omitted>({ kind: 'none' })
   })
-})
-
-describe('ItemRetainer — head, readToEnd (exact omission)', () => {
   it('keeps draining past the cap and reports an exact omitted count', () => {
-    const r = new ItemRetainer<string>({ kind: 'head', maxItems: 1, stop: 'readToEnd' })
-    expect(r.push('a')).toEqual({ kept: true, truncated: false, shouldStop: false })
-    // readToEnd never asks to stop — the caller must keep pushing to count exactly.
-    expect(r.push('b')).toEqual({ kept: false, truncated: true, shouldStop: false })
-    expect(r.push('c')).toEqual({ kept: false, truncated: true, shouldStop: false })
+    const r = new ItemRetainer<string>({ kind: 'head', maxItems: 1 })
+    expect(r.push('a')).toEqual({ kept: true, truncated: false })
+    expect(r.push('b')).toEqual({ kept: false, truncated: true })
+    expect(r.push('c')).toEqual({ kept: false, truncated: true })
 
     const result = r.finish()
     expect(result.items).toEqual(['a'])
@@ -56,53 +49,49 @@ describe('ItemRetainer — head, readToEnd (exact omission)', () => {
 })
 
 describe('ItemRetainer — zero budget', () => {
-  it('keeps nothing; first item is the probe under stopWhenFull', () => {
-    const r = new ItemRetainer<string>({ kind: 'head', maxItems: 0, stop: 'stopWhenFull' })
-    expect(r.push('a')).toEqual({ kept: false, truncated: true, shouldStop: true })
+  it('keeps nothing and counts every pushed item as omitted', () => {
+    const r = new ItemRetainer<string>({ kind: 'head', maxItems: 0 })
+    expect(r.push('a')).toEqual({ kept: false, truncated: true })
     const result = r.finish()
     expect(result.items).toEqual([])
     expect(result.kept).toBe(0)
-    expect(result.omitted).toEqual<Omitted>({ kind: 'atLeast', count: 1 })
+    expect(result.omitted).toEqual<Omitted>({ kind: 'exact', count: 1 })
   })
 
   it('rejects a non-integer / negative maxItems', () => {
-    expect(() => new ItemRetainer({ kind: 'head', maxItems: -1, stop: 'readToEnd' }))
+    expect(() => new ItemRetainer({ kind: 'head', maxItems: -1 }))
       .toThrow(/maxItems must be a non-negative integer/)
-    expect(() => new ItemRetainer({ kind: 'head', maxItems: 1.5, stop: 'readToEnd' }))
+    expect(() => new ItemRetainer({ kind: 'head', maxItems: 1.5 }))
       .toThrow(/maxItems must be a non-negative integer/)
   })
 })
 
-describe('TextRetainer — head, stopWhenFull (early body stop)', () => {
-  it('keeps the prefix and asks to stop on the overflowing chunk', () => {
-    const r = new TextRetainer({ kind: 'head', maxBytes: 5, stop: 'stopWhenFull' })
-    expect(r.push('abc')).toEqual({ kept: true, truncated: false, shouldStop: false })
+describe('TextRetainer — head (exact omission, reads to end)', () => {
+  it('keeps the prefix and counts omitted bytes exactly', () => {
+    const r = new TextRetainer({ kind: 'head', maxBytes: 5 })
+    expect(r.push('abc')).toEqual({ kept: true, truncated: false })
     // 'de' fills the cap exactly (5 bytes) — still fully kept.
-    expect(r.push('de')).toEqual({ kept: true, truncated: false, shouldStop: false })
-    // 'fgh' is wholly dropped: kept:false, and stopWhenFull → shouldStop.
-    expect(r.push('fgh')).toEqual({ kept: false, truncated: true, shouldStop: true })
+    expect(r.push('de')).toEqual({ kept: true, truncated: false })
+    expect(r.push('fgh')).toEqual({ kept: false, truncated: true })
 
     const result = r.finish()
     expect(result.text).toBe('abcde')
     expect(result.truncated).toBe(true)
-    // Early stop: a lower bound, not an exact size.
-    expect(result.omittedBytes).toEqual<Omitted>({ kind: 'atLeast', count: 3 })
+    expect(result.omittedBytes).toEqual<Omitted>({ kind: 'exact', count: 3 })
   })
 
   it('flags a partially-dropped chunk as not fully kept', () => {
-    const r = new TextRetainer({ kind: 'head', maxBytes: 4, stop: 'stopWhenFull' })
+    const r = new TextRetainer({ kind: 'head', maxBytes: 4 })
     r.push('ab')
-    // 'cde' straddles the cap: 'c','d' fit, 'e' drops → kept:false, shouldStop.
-    expect(r.push('cde')).toEqual({ kept: false, truncated: true, shouldStop: true })
+    // 'cde' straddles the cap: 'c','d' fit, 'e' drops → kept:false.
+    expect(r.push('cde')).toEqual({ kept: false, truncated: true })
     expect(r.finish().text).toBe('abcd')
   })
-})
 
-describe('TextRetainer — head, readToEnd (exact omission)', () => {
-  it('keeps the prefix, drains the rest, and counts exactly', () => {
-    const r = new TextRetainer({ kind: 'head', maxBytes: 3, stop: 'readToEnd' })
+  it('keeps draining past the cap', () => {
+    const r = new TextRetainer({ kind: 'head', maxBytes: 3 })
     r.push('abc')
-    expect(r.push('defg')).toEqual({ kept: false, truncated: true, shouldStop: false })
+    expect(r.push('defg')).toEqual({ kept: false, truncated: true })
     const result = r.finish()
     expect(result.text).toBe('abc')
     expect(result.omittedBytes).toEqual<Omitted>({ kind: 'exact', count: 4 })
@@ -112,8 +101,7 @@ describe('TextRetainer — head, readToEnd (exact omission)', () => {
 describe('TextRetainer — tail (exact omission, reads to end)', () => {
   it('keeps the final maxBytes and reports exact omission', () => {
     const r = new TextRetainer({ kind: 'tail', maxBytes: 4 })
-    // tail never asks to stop — it must read to the end to know the true suffix.
-    expect(r.push('hello')).toEqual({ kept: false, truncated: true, shouldStop: false })
+    expect(r.push('hello')).toEqual({ kept: false, truncated: true })
     r.push('world')
     const result = r.finish()
     expect(result.text).toBe('orld') // last 4 bytes of 'helloworld'
@@ -185,12 +173,12 @@ describe('TextRetainer — headTail (prefix + suffix, omit the middle)', () => {
 })
 
 describe('TextRetainer — zero budgets', () => {
-  it('head maxBytes 0 keeps nothing and stops on first byte (stopWhenFull)', () => {
-    const r = new TextRetainer({ kind: 'head', maxBytes: 0, stop: 'stopWhenFull' })
-    expect(r.push('x')).toEqual({ kept: false, truncated: true, shouldStop: true })
+  it('head maxBytes 0 keeps nothing and counts every byte exactly', () => {
+    const r = new TextRetainer({ kind: 'head', maxBytes: 0 })
+    expect(r.push('x')).toEqual({ kept: false, truncated: true })
     const result = r.finish()
     expect(result.text).toBe('')
-    expect(result.omittedBytes).toEqual<Omitted>({ kind: 'atLeast', count: 1 })
+    expect(result.omittedBytes).toEqual<Omitted>({ kind: 'exact', count: 1 })
   })
 
   it('an empty stream omits nothing', () => {
@@ -202,7 +190,7 @@ describe('TextRetainer — zero budgets', () => {
   })
 
   it('rejects non-integer / negative byte budgets', () => {
-    expect(() => new TextRetainer({ kind: 'head', maxBytes: -1, stop: 'readToEnd' }))
+    expect(() => new TextRetainer({ kind: 'head', maxBytes: -1 }))
       .toThrow(/maxBytes must be a non-negative integer/)
     expect(() => new TextRetainer({ kind: 'tail', maxBytes: 2.5 }))
       .toThrow(/maxBytes must be a non-negative integer/)
@@ -218,7 +206,7 @@ describe('TextRetainer — UTF-8 boundary handling', () => {
     // '€' is 3 bytes (E2 82 AC). A 2-byte head cap keeps 'a' (61) + the first
     // byte of '€' (E2); that partial lead byte must be trimmed, not decoded to
     // a replacement char.
-    const r = new TextRetainer({ kind: 'head', maxBytes: 2, stop: 'readToEnd' })
+    const r = new TextRetainer({ kind: 'head', maxBytes: 2 })
     r.push('a€b') // bytes: 61 E2 82 AC 62
     const result = r.finish()
     expect(result.text).toBe('a') // partial '€' dropped, no U+FFFD
@@ -256,7 +244,7 @@ describe('TextRetainer — UTF-8 boundary handling', () => {
   })
 
   it('preserves a whole multibyte codepoint that fits exactly', () => {
-    const r = new TextRetainer({ kind: 'head', maxBytes: 3, stop: 'readToEnd' })
+    const r = new TextRetainer({ kind: 'head', maxBytes: 3 })
     r.push('€x') // '€' is exactly 3 bytes
     expect(r.finish().text).toBe('€')
   })
@@ -272,7 +260,7 @@ describe('TextRetainer — UTF-8 boundary handling', () => {
   })
 
   it('accepts a raw Uint8Array chunk', () => {
-    const r = new TextRetainer({ kind: 'head', maxBytes: 2, stop: 'readToEnd' })
+    const r = new TextRetainer({ kind: 'head', maxBytes: 2 })
     r.push(utf8('xy'))
     r.push(utf8('z'))
     expect(r.finish().text).toBe('xy')
@@ -281,7 +269,7 @@ describe('TextRetainer — UTF-8 boundary handling', () => {
   it('trims a partial 2-byte codepoint at the head cut', () => {
     // 'é' is 2 bytes (C3 A9). A 2-byte head cap over 'aé' keeps 'a' (61) + the
     // lead byte of 'é' (C3) — an incomplete 2-byte sequence to trim.
-    const r = new TextRetainer({ kind: 'head', maxBytes: 2, stop: 'readToEnd' })
+    const r = new TextRetainer({ kind: 'head', maxBytes: 2 })
     r.push('aé') // bytes: 61 C3 A9
     const result = r.finish()
     expect(result.text).toBe('a')
@@ -291,7 +279,7 @@ describe('TextRetainer — UTF-8 boundary handling', () => {
   it('trims a partial 4-byte codepoint (emoji) at the head cut', () => {
     // '😀' is 4 bytes (F0 9F 98 80). A 3-byte head cap keeps 'a' + the first two
     // bytes of the emoji — an incomplete 4-byte sequence that must be trimmed.
-    const r = new TextRetainer({ kind: 'head', maxBytes: 3, stop: 'readToEnd' })
+    const r = new TextRetainer({ kind: 'head', maxBytes: 3 })
     r.push('a😀') // bytes: 61 F0 9F 98 80
     const result = r.finish()
     expect(result.text).toBe('a')
@@ -299,7 +287,7 @@ describe('TextRetainer — UTF-8 boundary handling', () => {
   })
 
   it('keeps a whole 4-byte codepoint that fits exactly', () => {
-    const r = new TextRetainer({ kind: 'head', maxBytes: 4, stop: 'readToEnd' })
+    const r = new TextRetainer({ kind: 'head', maxBytes: 4 })
     r.push('😀x')
     expect(r.finish().text).toBe('😀')
   })
@@ -308,7 +296,7 @@ describe('TextRetainer — UTF-8 boundary handling', () => {
     // A cut whose trailing bytes are ALL continuation bytes with no lead in
     // reach is not a trimmable incomplete sequence — the trimmer bails (no lead
     // byte found) and leaves them for the non-fatal decoder to replace.
-    const r = new TextRetainer({ kind: 'head', maxBytes: 2, stop: 'readToEnd' })
+    const r = new TextRetainer({ kind: 'head', maxBytes: 2 })
     // 0x80 0x80 are bare continuation bytes; 'z' follows so the head keeps just
     // the two continuation bytes and the cut lands right after them.
     r.push(new Uint8Array([0x80, 0x80, 0x7a]))
@@ -322,7 +310,7 @@ describe('TextRetainer — UTF-8 boundary handling', () => {
     // 0xF8 is not a valid UTF-8 lead byte (only 0x00–0xF7 lead). The trimmer
     // recognizes it as "not a lead" (expected length 0) and leaves the byte in
     // place rather than trimming a phantom partial sequence.
-    const r = new TextRetainer({ kind: 'head', maxBytes: 1, stop: 'readToEnd' })
+    const r = new TextRetainer({ kind: 'head', maxBytes: 1 })
     r.push(new Uint8Array([0xf8, 0x61])) // 0xF8 kept, 'a' dropped by the 1-byte cap
     const result = r.finish()
     expect(result.omittedBytes).toEqual<Omitted>({ kind: 'exact', count: 1 })
@@ -335,10 +323,7 @@ describe('describeOmitted — false precision safety', () => {
     expect(describeOmitted({ kind: 'exact', count: 12 }, 'bytes')).toBe('Omitted 12 bytes.')
   })
 
-  it('prints NO count for atLeast (early stop) and unknown', () => {
-    // The whole point of atLeast: never claim "omitted 1" when the true count is
-    // unknown. Both atLeast and unknown collapse to a countless clause.
-    expect(describeOmitted({ kind: 'atLeast', count: 1 }, 'items')).toBe('More items were omitted.')
+  it('prints NO count for unknown omission', () => {
     expect(describeOmitted({ kind: 'unknown' }, 'lines')).toBe('More lines were omitted.')
   })
 
@@ -359,10 +344,10 @@ describe('formatRetentionNotice', () => {
 
   it('joins the standardized omission clause with the tool recovery guidance', () => {
     const out = formatRetentionNotice(
-      notice({ kind: 'atLeast', count: 1 }),
+      notice({ kind: 'exact', count: 25 }),
       ({ kept }) => `Results capped at ${kept}. Narrow the pattern, path, or include to see more.`,
     )
-    expect(out).toBe('More items were omitted. Results capped at 100. Narrow the pattern, path, or include to see more.')
+    expect(out).toBe('Omitted 25 items. Results capped at 100. Narrow the pattern, path, or include to see more.')
   })
 
   it('omits the empty half when nothing was omitted', () => {

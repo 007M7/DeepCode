@@ -1,12 +1,11 @@
 /**
  * A dependency-light **retention** library: bounded model-facing output for
  * tools that must cap how much context they return. A caller feeds items or
- * text chunks into a bounded object, gets a per-push {@link PushDecision} about
- * whether the upstream may stop, and later gets the retained content plus exact
- * or partial omission metadata ({@link RetainedItems} / {@link RetainedText}).
+ * text chunks into a bounded object, then gets the retained content plus exact
+ * omission metadata ({@link RetainedItems} / {@link RetainedText}).
  *
  * The library owns ONLY the mechanical question "what did we keep, what did we
- * omit, and may the caller stop reading now?". Tool-specific code still owns
+ * omit?". Tool-specific code still owns
  * business semantics: file grouping, line numbering, exit codes, provider error
  * states, per-line preview truncation, spill files, and the model-facing prose.
  * In particular {@link RetainedText.truncated}/{@link RetainedItems.truncated}
@@ -23,12 +22,10 @@
  * The two retainers differ in resource model, which is why they are two names
  * rather than one generic collector:
  * - {@link ItemRetainer} bounds ordered logical units (paths, grep matches,
- *   search sources). `head` retention only in v1. With `stopWhenFull` it can ask
- *   the caller to stop the upstream after the first over-cap probe item.
+ *   search sources). `head` retention only in v1.
  * - {@link TextRetainer} bounds byte-oriented text streams (bash stdout/stderr,
  *   web bodies). `head` / `tail` / `headTail`, preserving UTF-8 boundaries at
- *   {@link TextRetainer.finish}. Only `head` can stop early; `tail`/`headTail`
- *   must read to the end to know the true suffix and exact omission.
+ *   {@link TextRetainer.finish}.
  *
  * @module @deepseek-ai/dsh-retention
  */
@@ -36,45 +33,31 @@
 /**
  * How much content the retainer omitted.
  *
- * `atLeast` is the early-stop shape: an {@link ItemRetainer}/{@link TextRetainer}
- * with `stopWhenFull` sees the first unit/chunk past the cap, asks the caller to
- * stop the upstream, and therefore knows only a LOWER bound — reporting an exact
- * count there would be false precision when the true total may be much larger.
- * `exact` is the read-to-end shape (`tail`, `headTail`, or `head` with
- * `readToEnd`), where every unit/byte was observed. `unknown` is reserved for a
- * caller that omits without a count; the retainers themselves never return it.
+ * `exact` is the normal retainer shape: every unit/byte was observed, so the
+ * omitted count is precise. `unknown` is reserved for a caller that omits
+ * without a count; the retainers themselves never return it.
  */
 export type Omitted =
   | { kind: 'none' }
   | { kind: 'exact'; count: number }
-  | { kind: 'atLeast'; count: number }
   | { kind: 'unknown' }
 
 /**
  * The caller receives this after each `push()`.
- *
- * `shouldStop` is ADVISORY, not automatic: the tool owns how to stop its upstream
- * source — aborting an HTTP body, breaking a file scan, killing ripgrep. The
- * retainer cannot reach the upstream; it only reports that keeping more would
- * exceed the budget. A `readToEnd` / `tail` / `headTail` retainer never sets it
- * (those must drain to the end).
  */
 export interface PushDecision {
   /** Was this whole unit / all of this chunk's bytes retained (nothing dropped)? */
   kept: boolean
   /** Cumulative: has the retainer omitted anything due to the budget yet? */
   truncated: boolean
-  /** Advisory: keeping more would exceed the budget — the tool may stop its upstream. */
-  shouldStop: boolean
 }
 
 /**
  * Final result for ordered logical units.
  *
  * `seen` means units OBSERVED by the retainer, not necessarily the total in the
- * upstream source; with an early stop, the true total is intentionally unknown
- * (hence {@link Omitted.atLeast}). `kept` is `items.length`, surfaced explicitly
- * so a notice formatter need not re-count.
+ * upstream source. `kept` is `items.length`, surfaced explicitly so a notice
+ * formatter need not re-count.
  */
 export interface RetainedItems<T> {
   items: T[]
@@ -100,30 +83,19 @@ export interface RetainedText {
   omittedBytes: Omitted
 }
 
-/**
- * Whether a retainer asks the caller to stop the upstream once keeping more
- * would exceed the budget (`stopWhenFull`), or must keep accepting input even
- * after the retained output is full (`readToEnd`) — usually to preserve a true
- * tail, count exact omission, or drain an upstream process to avoid pipe
- * backpressure. Names avoid implementation phrases like "overflow".
- */
-export type StopMode = 'stopWhenFull' | 'readToEnd'
-
 /** Item retention strategy. Only `head` in v1; windows/grouped budgets wait for a second consumer. */
 export type ItemRetentionStrategy = {
   /** Keep the first `maxItems` units. Use for `glob`, `grep`, and web sources. */
   kind: 'head'
   maxItems: number
-  stop: StopMode
 }
 
 /** Text retention strategy: keep a prefix, a suffix, or both, counted in bytes. */
 export type TextRetentionStrategy =
   | {
-    /** Keep the first `maxBytes` bytes. May stop an upstream body early. */
+    /** Keep the first `maxBytes` bytes. */
     kind: 'head'
     maxBytes: number
-    stop: StopMode
   }
   | {
     /** Keep the final `maxBytes` bytes. Requires reading to the end. */
@@ -164,8 +136,7 @@ function assertBudget(value: number, name: string): void {
 /**
  * Bounds an ordered stream of logical units, keeping the first `maxItems`
  * ({@link ItemRetentionStrategy} `head`). `push()` reports, per unit, whether it
- * was kept and — under `stopWhenFull` — whether the caller should stop the
- * upstream now that the first over-cap probe unit has been seen.
+ * was kept and whether the retained result is now truncated.
  *
  * Grouping, sorting, path mapping, per-unit preview truncation, and any
  * `incomplete` state stay OUTSIDE the retainer: it counts and keeps, nothing
@@ -174,24 +145,20 @@ function assertBudget(value: number, name: string): void {
  */
 export class ItemRetainer<T> {
   private readonly maxItems: number
-  private readonly stop: StopMode
   private readonly items: T[] = []
   private seen = 0
   private omittedCount = 0
 
-  /** @param strategy Head strategy: `maxItems` (non-negative integer) and the {@link StopMode}. */
+  /** @param strategy Head strategy: `maxItems` (non-negative integer). */
   constructor(strategy: ItemRetentionStrategy) {
     assertBudget(strategy.maxItems, 'maxItems')
     this.maxItems = strategy.maxItems
-    this.stop = strategy.stop
   }
 
   /**
    * Offer one unit. Kept when the retainer is below `maxItems`; otherwise dropped
-   * and counted as omitted. Under `stopWhenFull` the first dropped unit is the
-   * probe: `shouldStop` is `true` so the caller can kill ripgrep / cancel the
-   * stream, and the final {@link Omitted} stays `atLeast` (the true total is
-   * unknown). Under `readToEnd` the caller keeps pushing so omission is `exact`.
+   * and counted as omitted. Callers keep pushing all observed units, so the final
+   * {@link Omitted} count is exact.
    *
    * @param item The already-shaped logical unit (path, flat match, source).
    * @returns The per-push {@link PushDecision}.
@@ -202,22 +169,17 @@ export class ItemRetainer<T> {
       // Reached only below the cap, before any omission (items only grow, the
       // cap is fixed), so nothing has been dropped yet: truncated is always false.
       this.items.push(item)
-      return { kept: true, truncated: false, shouldStop: false }
+      return { kept: true, truncated: false }
     }
     this.omittedCount++
     return {
       kept: false,
       truncated: true,
-      // Only ask to stop when the caller opted into it; readToEnd must keep
-      // draining to reach an exact omission count.
-      shouldStop: this.stop === 'stopWhenFull',
     }
   }
 
   /**
-   * Finalize and report what was kept and omitted. `omitted` is `atLeast` under
-   * `stopWhenFull` (a lower bound — the caller was asked to stop before the true
-   * total was known) and `exact` under `readToEnd`.
+   * Finalize and report what was kept and omitted.
    *
    * @returns The {@link RetainedItems} snapshot (safe to group/sort downstream).
    */
@@ -229,7 +191,7 @@ export class ItemRetainer<T> {
       seen: this.seen,
       kept: this.items.length,
       omitted: truncated
-        ? { kind: this.stop === 'stopWhenFull' ? 'atLeast' : 'exact', count: this.omittedCount }
+        ? { kind: 'exact', count: this.omittedCount }
         : { kind: 'none' },
     }
   }
@@ -275,8 +237,6 @@ function trimLeadingContinuationUtf8(bytes: Uint8Array): Uint8Array {
  * Bounds a byte-oriented text stream, keeping a prefix, a suffix, or both
  * ({@link TextRetentionStrategy}). All three strategies share one prefix/suffix
  * accumulator: `head` is prefix-only, `tail` is suffix-only, `headTail` is both.
- * Only `head` with `stopWhenFull` sets `shouldStop`; `tail`/`headTail` must read
- * to the end to know the true suffix and the exact omitted byte count.
  *
  * Bytes, not characters: caps and `omittedBytes` are byte counts for process/
  * body safety. Chunks that straddle a codepoint are handled — {@link finish}
@@ -288,7 +248,6 @@ function trimLeadingContinuationUtf8(bytes: Uint8Array): Uint8Array {
 export class TextRetainer {
   private readonly prefixCap: number
   private readonly suffixCap: number
-  private readonly allowStop: boolean
   private readonly prefixChunks: Uint8Array[] = []
   private prefixHeld = 0
   private readonly suffixChunks: Uint8Array[] = []
@@ -302,20 +261,17 @@ export class TextRetainer {
         assertBudget(strategy.maxBytes, 'maxBytes')
         this.prefixCap = strategy.maxBytes
         this.suffixCap = 0
-        this.allowStop = strategy.stop === 'stopWhenFull'
         break
       case 'tail':
         assertBudget(strategy.maxBytes, 'maxBytes')
         this.prefixCap = 0
         this.suffixCap = strategy.maxBytes
-        this.allowStop = false
         break
       case 'headTail':
         assertBudget(strategy.headBytes, 'headBytes')
         assertBudget(strategy.tailBytes, 'tailBytes')
         this.prefixCap = strategy.headBytes
         this.suffixCap = strategy.tailBytes
-        this.allowStop = false
         break
     }
   }
@@ -324,9 +280,7 @@ export class TextRetainer {
    * Offer one chunk (a `Uint8Array`, or a `string` encoded as UTF-8). Prefix
    * bytes fill up to the prefix cap then stop; suffix bytes roll so only the
    * last `suffixCap` bytes are retained. `kept` is `true` only when no byte of
-   * this chunk was dropped. Under `head` + `stopWhenFull`, `shouldStop` turns
-   * `true` on the chunk that first drops a byte (the caller may then abort the
-   * body); other strategies never set it.
+   * this chunk was dropped.
    *
    * @param chunk The next bytes of the stream (`Uint8Array` or UTF-8 `string`).
    * @returns The per-push {@link PushDecision}.
@@ -373,12 +327,11 @@ export class TextRetainer {
     // Dropped = bytes that no side can keep. Compute cumulative omission the
     // SAME way finish() does (via omittedAt), so push and finish never disagree;
     // per-push we only need whether THIS chunk pushed the total past what the
-    // two caps hold, and — for head+stopWhenFull — whether to stop.
+    // two caps hold.
     const droppedThisChunk = this.omittedAt(this.total) > this.omittedAt(before)
     return {
       kept: !droppedThisChunk,
       truncated: this.omittedAt(this.total) > 0,
-      shouldStop: this.allowStop && droppedThisChunk,
     }
   }
 
@@ -391,10 +344,7 @@ export class TextRetainer {
 
   /**
    * Finalize: decode the retained prefix and suffix (each trimmed to a UTF-8
-   * boundary at its cut) and report the exact or lower-bound omitted byte count.
-   * `head` + `stopWhenFull` yields `atLeast` (a lower bound — the caller was
-   * asked to stop before the true size was known); every other case reads to the
-   * end and yields `exact`.
+   * boundary at its cut) and report the exact omitted byte count.
    *
    * @returns The {@link RetainedText} snapshot (safe to hand to a formatter).
    */
@@ -423,8 +373,7 @@ export class TextRetainer {
     // Report omission against the bytes ACTUALLY returned, not the pre-trim
     // budget: a boundary trim drops partial-codepoint bytes too, so an exact
     // count derived from the budget alone would overstate the retained text (and
-    // any "Omitted N bytes" notice built from it would be a lie). total_seen −
-    // retained stays a valid lower bound under `atLeast` (true total ≥ seen).
+    // any "Omitted N bytes" notice built from it would be a lie).
     const omitted = this.total - keptPrefix.length - keptSuffix.length
     const truncated = omitted > 0
 
@@ -432,7 +381,7 @@ export class TextRetainer {
       text,
       truncated,
       omittedBytes: truncated
-        ? { kind: this.allowStop ? 'atLeast' : 'exact', count: omitted }
+        ? { kind: 'exact', count: omitted }
         : { kind: 'none' },
     }
   }
@@ -454,10 +403,8 @@ function concat(chunks: readonly Uint8Array[]): Uint8Array {
 /**
  * Standardized, false-precision-safe wording for one {@link Omitted} value —
  * the "may standardize omission wording" half the library owns. `exact` prints
- * the count (`Omitted 3 items`); `atLeast`/`unknown` print NO count, because an
- * early stop knows only that more was dropped, not how much (claiming "omitted
- * 1" when the true total may be huge is the false-precision trap the `atLeast`
- * variant exists to avoid). `none` is the empty string.
+ * the count (`Omitted 3 items`); `unknown` prints NO count because the caller
+ * did not provide one. `none` is the empty string.
  *
  * @param omitted The omission metadata from a retainer result.
  * @param unit The noun for the omitted quantity (`items`, `bytes`, `chars`, `lines`).
@@ -469,7 +416,6 @@ export function describeOmitted(omitted: Omitted, unit: RetentionNotice['unit'])
       return ''
     case 'exact':
       return `Omitted ${omitted.count} ${unit}.`
-    case 'atLeast':
     case 'unknown':
       return `More ${unit} were omitted.`
   }

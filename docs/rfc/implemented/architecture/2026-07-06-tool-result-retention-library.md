@@ -4,9 +4,9 @@ Status: implemented
 
 ## Problem
 
-Several model-facing tools already bound the amount of context they return, but each one owns a different local mechanism and vocabulary: bash keeps a tail plus spill files, web search caps source lists, web fetch caps body content, and `glob` / `grep` discovery needs `cap + 1` early stop while reading ripgrep output. A single post-hoc `truncate(text)` helper cannot cover those cases: by the time `grep` or `glob` has collected every result, the expensive traversal has already happened and the process may have emitted more output than the harness intended to buffer.
+Several model-facing tools already bound the amount of context they return, but each one owns a different local mechanism and vocabulary: bash keeps a tail plus spill files, web search caps source lists, web fetch caps body content, and `glob` / `grep` discovery needs an inline first page while keeping exact omission metadata for the full result set. A single `truncate(text)` helper cannot cover those cases: item tools need item counts and grouping outside the primitive, while text tools need byte budgets and UTF-8-safe head/tail cuts.
 
-The shared abstraction the tools need is **retention**, not generic collection. A caller feeds items or text chunks into a bounded object, receives a per-push decision about whether the upstream can stop, and later receives the retained content plus exact or partial omission metadata. Tool-specific code still owns business semantics: file grouping, line numbering, exit codes, provider error states, and model-facing prose. The common library owns only the mechanical question "what did we keep, what did we omit, and may the caller stop reading now?"
+The shared abstraction the tools need is **retention**, not generic collection. A caller feeds items or text chunks into a bounded object and later receives the retained content plus exact omission metadata. Tool-specific code still owns business semantics: file grouping, line numbering, exit codes, provider error states, spill files, and model-facing prose. The common library owns only the mechanical question "what did we keep, and what did we omit?"
 
 ## Decision
 
@@ -17,38 +17,27 @@ The library has two independent retainers:
 - `ItemRetainer<T>` handles ordered logical units such as paths, grep matches, or search sources. It supports `head` retention only in v1.
 - `TextRetainer` handles byte-oriented text streams such as bash stdout/stderr or web response bodies. It supports `head`, `tail`, and `headTail` retention while preserving UTF-8 boundaries at `finish()`.
 
-Both retainers return a `PushDecision` after each `push()`. `shouldStop` is the critical control-flow field: `glob` / `grep` use it to kill ripgrep once the probe item proves truncation, while bash ignores it because tail/head-tail retention must read to process exit to know the true suffix and to avoid pipe backpressure.
+Both retainers return a small `PushDecision` after each `push()` so callers can tell whether that unit/chunk was fully retained and whether the accumulated result is now truncated. Omission counts are exact because callers keep feeding every observed item/chunk.
 
 ```ts ignore-check
 /**
  * How much content the retainer omitted.
  *
- * `atLeast` is the early-stop shape: `glob` / `grep` see the first item past the cap,
- * stop the upstream process, and know only that at least one item was omitted.
+ * `unknown` is reserved for callers that omit without a count; the retainers
+ * themselves return `none` or `exact`.
  */
 type Omitted =
   | { kind: 'none' }
   | { kind: 'exact'; count: number }
-  | { kind: 'atLeast'; count: number }
   | { kind: 'unknown' }
 
-/**
- * The caller receives this after each `push()`.
- *
- * `shouldStop` is advisory, not automatic: the tool owns how to stop its upstream
- * source, such as aborting an HTTP body, breaking a file scan, or killing ripgrep.
- */
 interface PushDecision {
   kept: boolean
   truncated: boolean
-  shouldStop: boolean
 }
 
 /**
  * Final result for ordered logical units.
- *
- * `seen` means units observed by the retainer, not necessarily total units in the
- * upstream source; with early stop, total is intentionally unknown.
  */
 interface RetainedItems<T> {
   items: T[]
@@ -73,25 +62,21 @@ interface RetainedText {
 
 ### Strategies
 
-The strategy names are caller-facing and avoid implementation phrases such as "overflow". `stopWhenFull` means the retainer should ask the caller to stop once keeping more would exceed the budget. `readToEnd` means the retainer must keep accepting input even after the retained output is full, usually to preserve a true tail, count exact omission, or drain an upstream process.
+Item retention supports a head window. Text retention supports head, tail, and headTail byte windows.
 
 ```ts ignore-check
-type StopMode = 'stopWhenFull' | 'readToEnd'
-
 type ItemRetentionStrategy =
   | {
       /** Keep the first `maxItems` units. Use for `glob`, `grep`, and web sources. */
       kind: 'head'
       maxItems: number
-      stop: StopMode
     }
 
 type TextRetentionStrategy =
   | {
-      /** Keep the first `maxBytes` bytes. May stop an upstream body early. */
+      /** Keep the first `maxBytes` bytes. */
       kind: 'head'
       maxBytes: number
-      stop: StopMode
     }
   | {
       /** Keep the final `maxBytes` bytes. Requires reading to the end. */
@@ -112,15 +97,15 @@ type TextRetentionStrategy =
 
 `FsGlobEntry` and `FlatGrepMatch` below are the intended discovery-tool item shapes, not existing retention-library exports. `FsGlobEntry` is one backend-derived path, and `FlatGrepMatch` is one ungrouped grep match before the backend groups retained matches by file.
 
-`glob` uses `ItemRetainer<FsGlobEntry>` with `{ kind: 'head', maxItems: globMaxResults, stop: 'stopWhenFull' }` inside the backend or executor that is consuming traversal output. The `(maxItems + 1)`th valid path is the probe item: it is not retained, it sets `truncated: true`, and `shouldStop: true` tells the caller to stop ripgrep, cancel a remote stream, or stop whatever upstream is producing candidates. `omitted` is `{ kind: 'atLeast', count: 1 }` because the traversal stopped before the full count was known. Path mapping, skipped candidates, and `incomplete` stay outside the retainer.
+`glob` uses `ItemRetainer<FsGlobEntry>` with `{ kind: 'head', maxItems: globMaxResults }` after collecting the full sorted path list. The tool keeps the retained first page inline and may save the full list through the spill seam. Path mapping, skipped candidates, and `incomplete` stay outside the retainer.
 
-`grep` uses `ItemRetainer<FlatGrepMatch>` with `{ kind: 'head', maxItems: grepMaxMatches, stop: 'stopWhenFull' }` before grouping. The backend parses a ripgrep match record, maps the path, applies per-line preview truncation, then pushes a flat match. After `finish()`, the backend groups retained matches by file and sorts the returned subset. Grouping is not part of the retainer because the cap is total matches, not files; per-match preview truncation and `incomplete` are also separate from result-level retention.
+`grep` uses `ItemRetainer<FlatGrepMatch>` with `{ kind: 'head', maxItems: grepMaxMatches }` before grouping. The executor parses ripgrep output, maps paths, applies per-line preview truncation, and pushes flat matches. After `finish()`, the tool groups retained matches by file and can save the full match list through the spill seam when the inline result is capped. Grouping is not part of the retainer because the cap is total matches, not files; per-match preview truncation and `incomplete` are also separate from result-level retention.
 
-`bash` uses `TextRetainer` with `tail` or `headTail` and reads to process completion. It does not stop when full: stopping the read would lose the real tail and can create pipe backpressure. The bash executor still owns spill files, exit status, signal, timeout, and background-task behavior; the retention helper only replaces ad hoc in-memory head/tail accounting where that behavior is desired. Long-running task ownership remains orthogonal to the [generic long-running tool runtime](../../proposed/architecture/2026-06-20-generic-long-running-tool-runtime.md) proposal.
+`bash` can use `TextRetainer` with `tail` or `headTail` and reads to process completion. The bash executor still owns spill files, exit status, signal, timeout, and background-task behavior; the retention helper only replaces ad hoc in-memory head/tail accounting where that behavior is desired. Long-running task ownership remains orthogonal to the [generic long-running tool runtime](../../proposed/architecture/2026-06-20-generic-long-running-tool-runtime.md) proposal.
 
-`web_fetch` can use `TextRetainer` with `head` when the provider exposes a stream, or keep provider-owned body caps when the provider must read and decode internally. Either way, the fetch result's `truncated` remains a provider/tool fact, and the library only supplies retained text and omission metadata.
+`web_fetch` can use `TextRetainer` with `head` or `headTail`, or keep provider-owned body caps when the provider must read and decode internally. Either way, the fetch result's `truncated` remains a provider/tool fact, and the library only supplies retained text and omission metadata.
 
-`web_search` can use `ItemRetainer<WebSearchSource>` with `head`. Current providers often return an array, so this is post-hoc but still standardizes notices; a streaming provider can use the same strategy with `stopWhenFull`.
+`web_search` can use `ItemRetainer<WebSearchSource>` with `head`. Current providers often return an array, so this is post-hoc but still standardizes notices.
 
 ### Notices
 
@@ -149,19 +134,19 @@ The formatter hook is deliberately small: a tool turns a `RetentionNotice` into 
 
 ## Consequences
 
-**What shipped.** `@deepseek-ai/dsh-retention` exports `ItemRetainer`, `TextRetainer`, the result types (`RetainedItems`, `RetainedText`), the strategy types (`ItemRetentionStrategy`, `TextRetentionStrategy`, `StopMode`), `Omitted`, `PushDecision`, `RetentionNotice`, and the neutral notice helpers `describeOmitted` / `formatRetentionNotice` — with no dependency on Cordis or any tool package. Unit tests cover item-head early stop with a probe item, item-head read-to-end with exact omission counts, text-head early stop, text-tail retention with exact omission counts, head-tail byte retention, zero budgets, UTF-8 boundary handling (2-, 3-, and 4-byte codepoints and invalid lead bytes at each cut), and the difference between `{ kind: 'atLeast', count: 1 }` and exact omission.
+**What shipped.** `@deepseek-ai/dsh-retention` exports `ItemRetainer`, `TextRetainer`, the result types (`RetainedItems`, `RetainedText`), the strategy types (`ItemRetentionStrategy`, `TextRetentionStrategy`), `Omitted`, `PushDecision`, `RetentionNotice`, and the neutral notice helpers `describeOmitted` / `formatRetentionNotice` — with no dependency on Cordis or any tool package. Unit tests cover item-head retention with exact omission counts, text-head retention, text-tail retention, head-tail byte retention, zero budgets, UTF-8 boundary handling (2-, 3-, and 4-byte codepoints and invalid lead bytes at each cut), and unknown omission wording.
 
-**What is documented but not yet migrated.** `glob`, `grep`, `bash`, `web_fetch`, and `web_search` have their mappings documented in the [package README](../../../../packages/util/retention/README.md) — each stating whether it may stop upstream early — but no tool has been migrated onto the library in this change; migration is deliberately separate follow-up work. `glob` / `grep` do not yet exist as tools, so the `shouldStop` early-stop path has no in-repo caller until they land. `read` is documented as intentionally out of scope: its `read-render` line-window contract (`offset`/`limit`, `totalLines`, offset-range errors, per-line preview truncation, a byte cap over the selected window) is not generic retention, and one `Omitted` count cannot represent both sides of a line window.
+**What is documented but not yet migrated.** `glob`, `grep`, `bash`, `web_fetch`, and `web_search` have their mappings documented in the [package README](../../../../packages/util/retention/README.md), but not every tool has been migrated onto the library in this change; migration is deliberately separate follow-up work. `read` is documented as intentionally out of scope: its `read-render` line-window contract (`offset`/`limit`, `totalLines`, offset-range errors, per-line preview truncation, a byte cap over the selected window) is not generic retention, and one `Omitted` count cannot represent both sides of a line window.
 
 **Boundaries the library holds.** `truncated` means the retainer omitted otherwise-available content because of a budget; it never means the upstream was incomplete. Tool-specific states — `incomplete`, permission failures, provider partial failures, binary skips, bash spill-path recovery, invalid UTF-8 — stay in tool-domain fields, outside the retainer. When a future change migrates a tool, that package's README and tests must prove the model-facing result text is unchanged except for deliberate notice wording.
 
-**Tradeoffs accepted.** The v1 surface deliberately supports only item `head` retention and text `head` / `tail` / `headTail`; windows, grouped budgets, and sort-aware caps wait until a second consumer proves the need (the generic-collector alternative is why). Text retention counts bytes for process/body safety, leaving character- and line-level preview budgets as separate tool-owned concerns. `glob` / `grep` cannot report an exact omitted count once they stop the upstream at the first overflow item, so `Omitted.atLeast` exists and `describeOmitted` prints no number for it — formatters never claim "omitted 1" when the true count may be far larger.
+**Tradeoffs accepted.** The v1 surface deliberately supports only item `head` retention and text `head` / `tail` / `headTail`; windows, grouped budgets, sort-aware caps, and upstream-stop control wait until a second consumer proves the need. Text retention counts bytes for process/body safety, leaving character- and line-level preview budgets as separate tool-owned concerns.
 
 ## Alternatives considered
 
-**Post-hoc `truncate(text)` only.** Rejected: it matches Codex's history/tool-output truncation use case but fails the `glob` / `grep` resource model. The tool must stop ripgrep once the probe result proves truncation; collecting all output and trimming afterward defeats the point and can exceed the command runner's in-memory output cap.
+**Post-hoc `truncate(text)` only.** Rejected: it matches Codex's history/tool-output truncation use case but loses item counts, grouping boundaries, UTF-8-safe byte windows, and exact omission metadata.
 
-**One generic `Collector<T>` with pluggable callbacks.** Rejected for v1: it hides the two important resource modes. Logical item retention can ask the caller to stop after a probe item; text tail/head-tail retention usually must read to the end. Separate `ItemRetainer` and `TextRetainer` names make that difference explicit while keeping the API small.
+**One generic `Collector<T>` with pluggable callbacks.** Rejected for v1: it hides the two important resource modes. Logical item retention counts items; text retention counts bytes and preserves UTF-8 boundaries. Separate `ItemRetainer` and `TextRetainer` names make that difference explicit while keeping the API small.
 
 **Put `read` windowing behind `ItemRetainer`.** Rejected for v1: `read` is the only current window consumer, and its semantics are file pagination rather than generic retention. A single `Omitted` count cannot represent both sides of a line window, and `read` also carries `totalLines`, offset-range errors, per-line preview truncation, and a byte cap over selected output. Keeping `read-render` tool-owned avoids growing the shared library around one special case.
 

@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-retention",
-  "description": "Zero-dependency bounded-retention primitive: ItemRetainer/TextRetainer + neutral notice helpers (what did we keep, what did we omit, may the caller stop reading)",
+  "description": "Zero-dependency bounded-retention primitive: ItemRetainer/TextRetainer + neutral notice helpers (what did we keep, what did we omit)",
   "version": "0.0.1",
   "private": true,
   "type": "module",

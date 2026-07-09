@@ -128,7 +128,7 @@ This separation is important. `web-fetch-local` still owns resource caps (`maxRe
 
 Retention is separate from spill storage:
 
-- `@deepseek-ai/dsh-retention` owns preview mechanics (`TextRetainer`, `ItemRetainer`, omitted metadata, early-stop decisions).
+- `@deepseek-ai/dsh-retention` owns preview mechanics (`TextRetainer`, `ItemRetainer`, and omitted metadata).
 - `@deepseek-ai/dsh-spill` owns saving final text to a session-scoped path.
 - `@deepseek-ai/dsh-spill-policy` applies the default final-result policy in the tool pipeline, composing the two.
 
@@ -136,7 +136,7 @@ The final-result policy cannot replace tool-owned early spill. Some useful conte
 
 - `bash` final output is already a tail plus a temp spill path; the complete stdout/stderr streams live in executor files.
 - `subagent` final output is the child final answer, not the child rollout.
-- Future `grep`/`glob` may early-stop and never collect full results.
+- Future tools may produce runtime artifacts that are never represented by their final `ToolExecutionResult.content`.
 
 Those cases can consume `ctx.spillFiles` directly in later work. They are not part of the first showcase.
 
@@ -188,4 +188,4 @@ The policy can become too large if it starts owning tool-specific semantics. It 
 
 **Let `web-fetch-local` fetch without caps and rely on spill-policy.** Rejected: spill-policy runs after the final tool result exists and cannot protect network, memory, or decoding resources. Provider resource caps stay mandatory.
 
-**Merge retention into spill.** Rejected: retention and spill have different responsibilities. `TextRetainer`/`ItemRetainer` decide what preview is kept and whether upstream may stop; spill storage only saves the final text the policy asks it to save.
+**Merge retention into spill.** Rejected: retention and spill have different responsibilities. `TextRetainer`/`ItemRetainer` decide what preview is kept and what was omitted; spill storage only saves the final text the policy asks it to save.
