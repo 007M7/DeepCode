@@ -9,16 +9,14 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as Spawn from '@deepseek-ai/dsh-subagent-spawn'
-import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
-import { CallId } from '@deepseek-ai/dsh-llm'
-import VmWorkflowEngine from '../src/index.ts'
+import WorkerWorkflowEngine from '../src/index.ts'
 
 /**
- * With-key e2e for the workflow engine: a REAL script drives REAL spawn
- * children against the live DeepSeek API — one plain child and one schema'd
- * child through the real structured-output runtime — and the run's value,
- * events, and child sessions are asserted from the outside (never the
- * script's self-report alone). Key-gated (self-skips without
+ * With-key e2e: a REAL script in a REAL worker thread
+ * drives REAL spawn children against the live DeepSeek API — one plain child
+ * and one schema'd child through the real structured-output runtime — and
+ * the run's value, events, and child sessions are asserted from the outside
+ * (never the script's self-report alone). Key-gated (self-skips without
  * DEEPSEEK_API_KEY).
  */
 
@@ -40,14 +38,13 @@ async function harness(): Promise<Context> {
   await built.plugin(LlmDeepSeek, { models: ['deepseek-v4-flash'] })
   await built.plugin(SubagentService)
   await built.plugin(Spawn, { providerName: 'spawn' })
-  await built.plugin(VmWorkflowEngine, { provider: 'spawn' })
-  await built.plugin(ToolWorkflow, {})
+  await built.plugin(WorkerWorkflowEngine, { provider: 'spawn' })
   return built
 }
 
 const SCRIPT = `export const meta = {
-  name: 'e2e-arithmetic',
-  description: 'two real children: one prose, one structured',
+  name: 'e2e-worker-arithmetic',
+  description: 'two real children through a worker thread: one prose, one structured',
   phases: [{ title: 'Ask' }, { title: 'Judge' }],
 }
 phase('Ask')
@@ -61,12 +58,12 @@ const judged = await agent(
 )
 return { prose, containsFour: judged === null ? null : judged.containsFour }`
 
-describe.skipIf(!process.env.DEEPSEEK_API_KEY)('workflow engine with-key e2e', () => {
-  it('runs a two-phase script over real children, one through the structured runtime', async () => {
+describe.skipIf(!process.env.DEEPSEEK_API_KEY)('worker workflow engine with-key e2e', () => {
+  it('runs a two-phase script in a worker thread over real children, one through the structured runtime', async () => {
     ctx = await harness()
     const parentHandle = ctx.agents.create({
-      agentId: AgentId('wf-e2e-parent'),
-      sessionId: 'wf-e2e-session' as never,
+      agentId: AgentId('wf-worker-e2e-parent'),
+      sessionId: 'wf-worker-e2e-session' as never,
       agentOptions: { model: 'deepseek-v4-flash' },
     })
 
@@ -100,32 +97,6 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('workflow engine with-key e2e', (
     for (const childId of childIds) {
       expect(ctx.agents.get(AgentId(childId))).toBeUndefined()
     }
-    await parentHandle.dispose()
-  }, 240_000)
-
-  it('the workflow TOOL runs the same path through the real registry pipeline', async () => {
-    ctx = await harness()
-    const parentHandle = ctx.agents.create({
-      agentId: AgentId('wf-e2e-tool-parent'),
-      sessionId: 'wf-e2e-tool-session' as never,
-      agentOptions: { model: 'deepseek-v4-flash' },
-    })
-
-    const result = await ctx.tools.execute({
-      callId: CallId('wf-e2e-call'),
-      name: 'workflow',
-      arguments: {
-        script: `export const meta = { name: 'e2e-tool', description: 'one real child via the tool' }
-const answer = await agent('Reply with exactly one word: the capital of France.')
-return { answer }`,
-      },
-      agent: parentHandle.agent,
-    })
-
-    expect(result.isError).toBe(false)
-    const text = (result.content[0] as { text: string }).text
-    expect(text).toContain('workflow "e2e-tool" completed (1 agent)')
-    expect(text.toLowerCase()).toContain('paris')
     await parentHandle.dispose()
   }, 240_000)
 })

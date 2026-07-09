@@ -1,7 +1,10 @@
 /**
- * The vm engine's value boundary: copy script-realm values into plain host
- * JSON data — loud about everything JSON cannot carry — and render thrown
- * script values to failure text.
+ * The engine's value boundary: copy script-realm values into plain JSON data
+ * — loud about everything JSON cannot carry — and render thrown script
+ * values to failure text. The script runs in a vm context INSIDE the worker
+ * thread, so "host" here means the worker-side JavaScript around that
+ * context; everything that later crosses the thread boundary is JSON by this
+ * walk, which is what makes the postMessage hop total.
  *
  * TRUST PREMISE (everything in this module hangs on it): workflow scripts are
  * MODEL-WRITTEN, the same trust level as the model's existing bash access, so
@@ -13,18 +16,16 @@
  * properties ordinarily (a getter runs, and whatever it returns is what
  * crosses), {@link renderThrown} reads `stack`/`message`/`String()` directly,
  * and a proxy is walked through its traps. A hostile script gains nothing
- * worth defending here — it can already occupy the event loop forever with a
- * synchronous spin past the first await (the engine's documented, accepted
- * limitation) — so host-side hostile-value containment would be cost without
- * a threat model; genuine hardening is an ENGINE SWAP (worker/isolated-vm,
- * where the boundary is serialization by construction), not incremental
- * defenses here.
+ * worth defending here — the vm context inside the worker is escapable by
+ * construction, so hostile-value containment would be cost without a threat
+ * model (what the worker thread DOES buy is that a spin occupies the
+ * worker's loop, not the host's, and termination is real).
  *
  * The host→realm direction needs no machinery at all: hooks hand the script
- * plain host values, host prototypes included — the script is trusted. One
- * consequence is documented in the engine README: an error thrown by a hook
- * is a HOST error, so an in-script `instanceof Error` check is false; read
- * `name`/`code`/`message` instead.
+ * plain values of the worker realm, prototypes included — the script is
+ * trusted. One consequence is documented in the engine README: an error
+ * thrown by a hook is built OUTSIDE the script's vm context, so an in-script
+ * `instanceof Error` check is false; read `name`/`code`/`message` instead.
  *
  * @module @deepseek-ai/dsh-workflow-vm/realm
  */

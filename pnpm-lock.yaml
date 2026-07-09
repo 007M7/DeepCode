@@ -1159,6 +1159,9 @@ importers:
       cordis:
         specifier: ^4.0.0-rc.6
         version: 4.0.0-rc.6(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.4)
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
 
   vendor/cordis:
     dependencies:

@@ -105,12 +105,25 @@ const dshBinPackageFiles = [
   'src',
 ] as const
 
+const dshWorkerPackageFiles = [
+  'lib/index.js',
+  'lib/worker.js',
+  'lib/types/**/*.d.ts',
+  'lib/types/**/*.d.ts.map',
+  'src',
+] as const
+
 function sameStringList(actual: readonly string[] | undefined, expected: readonly string[]): boolean {
   return !!actual && actual.length === expected.length && actual.every((value, index) => value === expected[index])
 }
 
 function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
-  return manifest.bin ? dshBinPackageFiles : dshPackageFiles
+  if (manifest.bin) return dshBinPackageFiles
+  // A declared "./worker" subpath export sanctions the one extra runtime
+  // bundle a worker-thread entry needs (and NodeNext/publint then validate
+  // that subpath's targets like any other export).
+  if (manifest.exports?.['./worker']) return dshWorkerPackageFiles
+  return dshPackageFiles
 }
 
 function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {

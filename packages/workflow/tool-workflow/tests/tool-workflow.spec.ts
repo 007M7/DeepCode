@@ -10,7 +10,7 @@ import { WorkflowRunId, WorkflowService } from '@deepseek-ai/dsh-workflow'
 import type { WorkflowResult, WorkflowRun, WorkflowStartRequest } from '@deepseek-ai/dsh-workflow'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SubagentService from '@deepseek-ai/dsh-subagent'
-import VmWorkflowEngine from '@deepseek-ai/dsh-workflow-vm'
+import WorkerWorkflowEngine from '@deepseek-ai/dsh-workflow-vm'
 import * as toolWorkflow from '../src/index.ts'
 
 /** A controllable engine standing in behind ctx.workflows (the tool's only seam). */
@@ -221,7 +221,7 @@ describe('dsh-tool-workflow', () => {
     expect(typeof unwrapped.apply).toBe('function')
   })
 
-  describe('composition with the REAL vm engine (the mock above must stay honest)', () => {
+  describe('composition with the REAL worker-thread engine (the mock above must stay honest)', () => {
     it('an abort releases the tool even when the script parks on a promise no hook owns', async () => {
       // Regression for the review-found turn wedge: the tool awaits
       // run.result BEFORE its disposing finally, the registry and the loop
@@ -234,7 +234,7 @@ describe('dsh-tool-workflow', () => {
       await ctx.plugin(SystemPrompt)
       await ctx.plugin(ToolRegistry)
       await ctx.plugin(SubagentService)
-      await ctx.plugin(VmWorkflowEngine, { disposeGraceMs: 30 })
+      await ctx.plugin(WorkerWorkflowEngine, { disposeGraceMs: 30 })
       await ctx.plugin(toolWorkflow, {})
       const parent = { id: AgentId('caller'), options: {} } as unknown as Agent
       const controller = new AbortController()

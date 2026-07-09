@@ -11,15 +11,17 @@ import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as spawn from '@deepseek-ai/dsh-subagent-spawn'
 import { STRUCTURED_OUTPUT_TOOL } from '@deepseek-ai/dsh-subagent-inprocess'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import VmWorkflowEngine from '../src/index.ts'
+import WorkerWorkflowEngine from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
 /**
- * The whole in-process stack, keyless: the vm engine drives the REAL spawn
- * backend (with its structured runtime) on a real agent loop; the scripted
- * mock MODEL is the only mocked boundary. This is the integration guard the
- * per-hook unit tests (which stub the subagent seam) structurally cannot give.
+ * The whole in-process stack, keyless, with the script in a REAL worker
+ * thread: the engine drives the REAL spawn backend (with its
+ * structured runtime) on a real agent loop; the scripted mock MODEL is the
+ * only mocked boundary. This is the guard the unit suites structurally
+ * cannot give — the MessageChannel suite fakes the host, and the host suite
+ * stubs the subagent seam.
  */
 async function setup(script: Script) {
   const ctx = new Context()
@@ -33,7 +35,7 @@ async function setup(script: Script) {
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
   await ctx.plugin(spawn, { providerName: 'spawn' })
-  await ctx.plugin(VmWorkflowEngine, {})
+  await ctx.plugin(WorkerWorkflowEngine, {})
   ctx.llm.registerAdapter(['mock'], adapter)
   const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
   return { ctx, parent, adapter }
