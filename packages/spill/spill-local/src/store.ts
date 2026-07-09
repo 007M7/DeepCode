@@ -21,6 +21,8 @@ let defaultRoot: string | undefined
  * tmpdir, created lazily. Predictable world-readable paths would let other
  * local users read spilled tool output or pre-create symlinks; `mkdtemp` gives
  * an unpredictable suffix and 0700 semantics.
+ *
+ * @returns The lazily-created private spill root.
  */
 export function privateRoot(): string {
   defaultRoot ??= mkdtempSync(join(tmpdir(), 'dsh-spill-'))
@@ -36,6 +38,9 @@ export function privateRoot(): string {
  * inputs never collide. The whole-segment tokens `.`/`..` are escaped so they
  * can never traverse. An empty string encodes to `~` (never an empty segment).
  * (Mirrors the JSONL persistence backend's `encodeSegment`.)
+ *
+ * @param raw The untrusted string to encode as one safe path segment.
+ * @returns An injective, filesystem-safe single path segment.
  */
 export function encodeSegment(raw: string): string {
   if (raw.length === 0) return '~'
@@ -54,7 +59,13 @@ export function encodeSegment(raw: string): string {
   return out
 }
 
-/** The session-scoped directory: `<root>/session-<hash(sessionId)>`, a short stable hash. */
+/**
+ * The session-scoped directory: `<root>/session-<hash(sessionId)>`, a short stable hash.
+ *
+ * @param root The spill root directory.
+ * @param sessionId The owning session id to hash into a stable directory name.
+ * @returns The absolute session-scoped spill directory path.
+ */
 export function sessionDir(root: string, sessionId: string): string {
   const hash = createHash('sha256').update(sessionId).digest('hex').slice(0, 12)
   return join(root, `session-${hash}`)
@@ -85,6 +96,9 @@ export interface SavedText {
  * a shared root) AND stays readable. The open is exclusive + owner-only
  * (`'wx', 0o600`): it fails on any existing path — symlink or not — so a
  * pre-planted target cannot redirect the write.
+ *
+ * @param options The resolved root and request fields required to save the file.
+ * @returns The written file path and UTF-8 byte length.
  */
 export async function saveTextFile(options: SaveTextOptions): Promise<SavedText> {
   const dir = sessionDir(options.root, options.sessionId)

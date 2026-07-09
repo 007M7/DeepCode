@@ -19,7 +19,12 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
  */
 export type SpillPath = Branded<'SpillPath'>
 
-/** Brand a string as a {@link SpillPath}. */
+/**
+ * Brand a string as a {@link SpillPath}.
+ *
+ * @param path The backend-produced path string to brand.
+ * @returns The branded spill path.
+ */
 export function SpillPath(path: string): SpillPath {
   return path as SpillPath
 }
