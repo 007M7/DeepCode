@@ -15,9 +15,14 @@
  * terminated — the real kill an in-process engine could not perform).
  *
  * Children live in a host-side registry (callId → run): the worker drives
- * their disposal by RPC on the graceful path, and the registry is what lets
- * the host abort and dispose every survivor when the worker dies or is
- * terminated mid-flight. On a termination path `agentsStarted` reports the
+ * their disposal by RPC on the graceful path, `dispose()` host-drives every
+ * registered child's disposal immediately (a wedged worker can relay no
+ * dispose RPC, and child teardown must overlap the grace, not start after
+ * it), and the registry is what lets the host abort and dispose every
+ * survivor when the worker dies or is terminated mid-flight. The three
+ * paths share ONE disposal per child (memoized by callId; the seam's
+ * dispose() is idempotent anyway, the memo keeps the bookkeeping and the
+ * containment warn single). On a termination path `agentsStarted` reports the
  * HOST-observed count (accepted `child-start` messages) — `agent()` calls
  * still queued worker-side for a concurrency slot are unknowable then; the
  * worker's own count rides the result message on every graceful path.
@@ -85,6 +90,8 @@ export class WorkerRun implements WorkflowRun {
   private hostStarted = 0
   /** Live children by callId; an entry leaves ONLY after its dispose settles (quiescence = empty). */
   private readonly children = new Map<number, SubagentRun>()
+  /** In-flight child disposals by callId — the memo that gives every path (worker RPC, dispose(), reap) ONE shared disposal per child. */
+  private readonly childDisposals = new Map<number, Promise<void>>()
   private readonly quiescenceWaiters: (() => void)[] = []
   /** The per-run abort fanout every child start request carries. */
   private readonly controller = new AbortController()
@@ -156,17 +163,24 @@ export class WorkerRun implements WorkflowRun {
   }
 
   /**
-   * Cancel + bounded settle + termination. Waits (at most the grace) for the
-   * result and child quiescence, then terminates the worker unconditionally
-   * — the thread never outlives its run — and reaps whatever children
-   * remain (their disposal is contained, not awaited past the grace, the
-   * same abandonment the seam documents for a slow-disposing child).
-   * Idempotent; safe on every path.
+   * Cancel + bounded settle + termination. Host-drives every registered
+   * child's disposal IMMEDIATELY — a wedged worker can relay no dispose RPC,
+   * and deferring child teardown to the post-terminate reap would spend the
+   * whole grace waiting for a quiescence that cannot start, then return with
+   * the disposals still in flight — so child disposal overlaps the same
+   * grace the worker gets to settle (the worker's own dispose RPCs join the
+   * shared per-child disposal). Waits (at most the grace) for the result and
+   * child quiescence, then terminates the worker unconditionally — the
+   * thread never outlives its run — and reaps whatever children remain
+   * (their disposal is contained, not awaited past the grace, the same
+   * abandonment the seam documents for a slow-disposing child). Idempotent;
+   * safe on every path.
    * @returns resolves when the run's resources are released or abandoned.
    */
   dispose(): Promise<void> {
     this.disposed ??= (async () => {
       this.cancel('workflow disposed')
+      for (const [callId, run] of [...this.children]) void this.disposeChild(callId, run)
       await Promise.race([
         (async () => {
           await this.result
@@ -278,31 +292,47 @@ export class WorkerRun implements WorkflowRun {
 
   private onChildDispose(callId: number): void {
     const run = this.children.get(callId)
-    /* v8 ignore next 5 -- dispose RPC for an already-reaped child: only a worker-death race can produce it, not orderable in-process */
     if (run === undefined) {
-      // Already reaped — the ack is still owed (the worker-side wrapper awaits it).
+      // Already disposed host-side (a dispose() drive or a death reap beat
+      // the RPC) — the ack is still owed (the worker-side wrapper awaits it).
       this.post(HostToWorkerType.ChildDisposed, { callId })
       return
     }
-    void run.dispose().then(
-      () => {
-        this.finishChild(callId)
-        this.post(HostToWorkerType.ChildDisposed, { callId })
-      },
-      (error: unknown) => {
-        // The subagent seam's dispose() is not supposed to reject; a backend
-        // that does anyway must not wedge the script's finally (which awaits
-        // the ack) — ack and move on.
-        this.ctx.logger.warn(`workflow-workerthread: child dispose failed: ${renderThrown(error)}`)
-        this.finishChild(callId)
-        this.post(HostToWorkerType.ChildDisposed, { callId })
-      },
-    )
+    // disposeChild never rejects (containment is inside), so the ack always follows.
+    void this.disposeChild(callId, run).then(() => { this.post(HostToWorkerType.ChildDisposed, { callId }) })
   }
 
-  /** Drop a child from the registry, releasing quiescence waiters at zero. */
+  /**
+   * Start (or join) one registered child's disposal; the registry entry
+   * leaves when it settles. Memoized per callId: the worker's dispose RPC,
+   * the dispose() host drive, and the reap can all land on the same child —
+   * the child's `dispose()` runs once and every caller awaits that one
+   * settlement. A rejection is contained (the subagent seam's dispose() is
+   * not supposed to reject, but a backend that does anyway must not break
+   * quiescence): logged, and the child still leaves the registry.
+   * @param callId - the child's registry key.
+   * @param run - the registered child (the caller looked it up).
+   * @returns resolves when the disposal settled either way; never rejects.
+   */
+  private disposeChild(callId: number, run: SubagentRun): Promise<void> {
+    let disposal = this.childDisposals.get(callId)
+    if (disposal === undefined) {
+      disposal = run.dispose().then(
+        () => { this.finishChild(callId) },
+        (error: unknown) => {
+          this.ctx.logger.warn(`workflow-workerthread: child dispose failed: ${renderThrown(error)}`)
+          this.finishChild(callId)
+        },
+      )
+      this.childDisposals.set(callId, disposal)
+    }
+    return disposal
+  }
+
+  /** Drop a child from the registry (and its disposal memo), releasing quiescence waiters at zero. */
   private finishChild(callId: number): void {
     this.children.delete(callId)
+    this.childDisposals.delete(callId)
     if (this.children.size === 0) {
       for (const waiter of this.quiescenceWaiters.splice(0)) waiter()
     }
@@ -319,13 +349,7 @@ export class WorkerRun implements WorkflowRun {
     this.controller.abort(this.cancelReason ?? reason)
     for (const [callId, run] of [...this.children]) {
       run.cancel(this.cancelReason ?? reason)
-      void run.dispose().then(
-        () => { this.finishChild(callId) },
-        (error: unknown) => {
-          this.ctx.logger.warn(`workflow-workerthread: child dispose failed during reap: ${renderThrown(error)}`)
-          this.finishChild(callId)
-        },
-      )
+      void this.disposeChild(callId, run)
     }
   }
 

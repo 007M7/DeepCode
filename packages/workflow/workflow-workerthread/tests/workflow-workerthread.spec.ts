@@ -23,6 +23,7 @@ interface ControlledRun {
   settle(result: SubagentResult): void
   cancelled: string | undefined
   disposed: boolean
+  disposeCalls: number
 }
 
 /**
@@ -45,7 +46,7 @@ class StubProvider implements SubagentProvider {
   start(request: SubagentStartRequest): SubagentRun {
     let settle!: (result: SubagentResult) => void
     const result = new Promise<SubagentResult>((resolve) => { settle = resolve })
-    const controlled: ControlledRun = { request, settle, cancelled: undefined, disposed: false }
+    const controlled: ControlledRun = { request, settle, cancelled: undefined, disposed: false, disposeCalls: 0 }
     this.runs.push(controlled)
     const index = this.runs.length - 1
     request.signal?.addEventListener('abort', () => { settle({ output: [], stopReason: 'aborted' }) }, { once: true })
@@ -61,6 +62,7 @@ class StubProvider implements SubagentProvider {
         settle({ output: [], stopReason: 'aborted' })
       },
       dispose: () => {
+        controlled.disposeCalls += 1
         if (this.disposeDelayMs === 0) {
           controlled.disposed = true
           return Promise.resolve()
@@ -537,6 +539,64 @@ describe('dsh-workflow-workerthread', () => {
       expect(result.stopReason).toBe('cancelled')
       await handle.dispose()
     }, 15_000)
+
+    it('dispose() on a wedged worker host-drives child disposal inside the grace: it returns with the children DISPOSED, not with their teardown still in flight', async () => {
+      const { ctx, parent, provider } = await setup({
+        manual: true,
+        disposeDelayMs: 40,
+        config: { provider: 'stub', maxConcurrentAgents: 8, disposeGraceMs: 400 },
+      })
+      const handle = ctx.workflows.start({
+        // Same shape as the wedged-cancel test above: the child's start RPC
+        // reaches the host, then the script seizes its worker's loop, so the
+        // worker can relay NO dispose RPC — the host's own dispose() drive is
+        // the only thing that can start (and finish) this child's disposal
+        // before the grace runs out.
+        ...scripted(`
+          agent('wedged child')
+          for (let i = 0; i < 20; i++) await null
+          const end = Date.now() + 1500
+          while (Date.now() < end) {}
+          return 'raced'
+        `),
+        parent,
+      })
+      await vi.waitFor(() => { expect(provider.runs.length).toBe(1) })
+      const before = Date.now()
+      await handle.dispose()
+      // Bounded by the grace (plus the terminate), never by the 1.5s spin.
+      expect(Date.now() - before).toBeLessThan(1200)
+      // Not a waitFor: dispose() resolving IS the quiescence claim — the slow
+      // child disposal must be complete, not merely started (before the
+      // host-driven drive, disposal only STARTED at the post-terminate reap,
+      // so dispose() returned with it still in flight).
+      expect(provider.runs[0]!.disposed).toBe(true)
+      const result = await handle.result
+      expect(result.stopReason).toBe('cancelled')
+    }, 15_000)
+
+    it('a live child disposed by the dispose() drive is disposed ONCE, and the worker\'s late dispose RPC still gets its ack (the script settles, not the grace)', async () => {
+      const { ctx, parent, provider } = await setup({ manual: true })
+      const handle = ctx.workflows.start({
+        ...scripted(`
+          await agent('long child')
+          return 'unreachable'
+        `),
+        parent,
+      })
+      await vi.waitFor(() => { expect(provider.runs.length).toBe(1) })
+      const handleDispose = handle.dispose()
+      const result = await handle.result
+      // The script itself settled (the wrapper's own dispose RPC found the
+      // child already reaped host-side and was acked) — a missing ack would
+      // wedge the wrapper's finally until the 5s default grace force-settle.
+      expect(result.stopReason).toBe('cancelled')
+      expect(result.error).toContain('workflow disposed')
+      await handleDispose
+      expect(provider.runs[0]!.disposed).toBe(true)
+      // The memo: the host drive and the worker's RPC share one disposal.
+      expect(provider.runs[0]!.disposeCalls).toBe(1)
+    })
   })
 
   describe('worker death', () => {
