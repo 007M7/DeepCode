@@ -16,7 +16,7 @@ Spawn-failure capture: a promise that resolves (never rejects) with the child's 
 
 ### `waitForExit(child)` / `exitsWithin(child, ms)`
 
-Exit waits over a `ChildProcess`: resolve once the child exits by any code or signal (immediately if it is already gone), or race that against a timer (`true` = exited in time; the pending timer is `unref()`ed so a grace window never keeps the parent's event loop alive).
+Exit waits over a `ChildProcess`: resolve once the child exits by any code or signal (immediately if it is already gone), or race that against a timer (`true` = exited in time). The race cleans up after itself on both outcomes — the pending timer is `unref()`ed and cleared on exit, the exit listener removed on timeout — so repeated calls (the dispose ladder's tiers, a poll loop) never accumulate listeners on the child.
 
 ### `disposeChildProcess(child, graces)`
 

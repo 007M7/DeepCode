@@ -78,17 +78,29 @@ export function waitForExit(child: ChildProcess): Promise<void> {
 }
 
 /**
- * Race the child's exit against a timer.
+ * Race the child's exit against a timer. Neither outcome leaves anything
+ * behind on the child: the exit listener is removed on timeout and the timer
+ * is cleared on exit, so repeated calls (the dispose ladder's tiers, a poll
+ * loop) never accumulate listeners.
  * @param child - the child process to watch.
  * @param ms - the wait window in milliseconds.
- * @returns `true` if the child exits within `ms`, `false` on timeout.
+ * @returns `true` if the child exits within `ms` (immediately if it is
+ * already gone), `false` on timeout.
  */
 export function exitsWithin(child: ChildProcess, ms: number): Promise<boolean> {
-  return Promise.race([
-    waitForExit(child).then(() => true),
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true)
+  return new Promise<boolean>((resolve) => {
+    const onExit = (): void => {
+      clearTimeout(timer)
+      resolve(true)
+    }
     // `.unref()` so a pending grace timer never keeps the parent's loop alive.
-    new Promise<boolean>(resolve => setTimeout(() => { resolve(false) }, ms).unref()),
-  ])
+    const timer = setTimeout(() => {
+      child.removeListener('exit', onExit)
+      resolve(false)
+    }, ms).unref()
+    child.once('exit', onExit)
+  })
 }
 
 /**

@@ -181,15 +181,27 @@ describe('waitForExit / exitsWithin', () => {
     expect(fake.signalCode).toBe('SIGTERM')
   })
 
+  it('exitsWithin resolves true immediately for an already-exited child (no listener attached)', async () => {
+    const fake = new FakeChild()
+    fake.exitCode = 0
+    await expect(exitsWithin(asChild(fake), 1000)).resolves.toBe(true)
+    expect(fake.listenerCount('exit')).toBe(0)
+  })
+
   it('exitsWithin resolves true when the child exits inside the window', async () => {
     const fake = new FakeChild({ diesOn: 'SIGTERM', delayMs: 5 })
     fake.kill('SIGTERM')
     await expect(exitsWithin(asChild(fake), 1000)).resolves.toBe(true)
+    // The once-listener fired and the grace timer was cleared — nothing lingers.
+    expect(fake.listenerCount('exit')).toBe(0)
   })
 
   it('exitsWithin resolves false on timeout for a child that never exits', async () => {
     const fake = new FakeChild() // nothing short of SIGKILL fells it; no signal sent
     await expect(exitsWithin(asChild(fake), 20)).resolves.toBe(false)
+    // The timeout arm removed its exit listener: repeated waits (a poll loop,
+    // the ladder's tiers) never accumulate listeners on the same child.
+    expect(fake.listenerCount('exit')).toBe(0)
   })
 })
 
