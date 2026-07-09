@@ -57,7 +57,7 @@ A spawn/transport/RPC failure resolves `error` (or `aborted` if a cancel was req
 
 ## Environment scrub
 
-The child env is built by [`buildChildEnv` from `@deepseek-ai/dsh-subagent-process`](../subagent-process/README.md) — the ambient env minus credential-shaped vars, with `config.env` layered on top after the scrub; the pattern and full semantics live there. For this backend that means the parent harness's own secrets never leak into the spawned agent implicitly, while the child's OWN `DEEPSEEK_API_KEY` is supplied deliberately via `config.env` and survives.
+The child env is built by [`buildChildEnv` from `@deepseek-ai/dsh-subagent-subprocess`](../subagent-subprocess/README.md) — the ambient env minus credential-shaped vars, with `config.env` layered on top after the scrub; the pattern and full semantics live there. For this backend that means the parent harness's own secrets never leak into the spawned agent implicitly, while the child's OWN `DEEPSEEK_API_KEY` is supplied deliberately via `config.env` and survives.
 
 ## Testing
 

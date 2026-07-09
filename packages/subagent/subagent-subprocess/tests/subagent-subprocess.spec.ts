@@ -256,9 +256,9 @@ describe('disposeChildProcess', () => {
 
 describe('createIsolatedConfigDir', () => {
   it('creates a fresh private mkdtemp dir under the OS temp root', async () => {
-    const dir = await createIsolatedConfigDir('dsh-subagent-process-test-')
+    const dir = await createIsolatedConfigDir('dsh-subagent-subprocess-test-')
     try {
-      expect(dir.path.startsWith(join(tmpdir(), 'dsh-subagent-process-test-'))).toBe(true)
+      expect(dir.path.startsWith(join(tmpdir(), 'dsh-subagent-subprocess-test-'))).toBe(true)
       const st = await stat(dir.path)
       expect(st.isDirectory()).toBe(true)
       // Private (0700) per the defensive-patterns temp-dir rule.
@@ -269,8 +269,8 @@ describe('createIsolatedConfigDir', () => {
   })
 
   it('creates a distinct dir per call (per-run isolation)', async () => {
-    const a = await createIsolatedConfigDir('dsh-subagent-process-test-')
-    const b = await createIsolatedConfigDir('dsh-subagent-process-test-')
+    const a = await createIsolatedConfigDir('dsh-subagent-subprocess-test-')
+    const b = await createIsolatedConfigDir('dsh-subagent-subprocess-test-')
     try {
       expect(a.path).not.toBe(b.path)
     } finally {
@@ -280,7 +280,7 @@ describe('createIsolatedConfigDir', () => {
   })
 
   it('remove() deletes a fresh dir recursively and is idempotent', async () => {
-    const dir = await createIsolatedConfigDir('dsh-subagent-process-test-')
+    const dir = await createIsolatedConfigDir('dsh-subagent-subprocess-test-')
     await writeFile(join(dir.path, 'settings.json'), '{}')
     await dir.remove()
     expect(existsSync(dir.path)).toBe(false)
@@ -289,7 +289,7 @@ describe('createIsolatedConfigDir', () => {
   })
 
   it('returns a pinned dir verbatim and NEVER removes it', async () => {
-    const pinned = await mkdtemp(join(tmpdir(), 'dsh-subagent-process-pinned-'))
+    const pinned = await mkdtemp(join(tmpdir(), 'dsh-subagent-subprocess-pinned-'))
     try {
       const dir = await createIsolatedConfigDir('ignored-prefix-', pinned)
       expect(dir.path).toBe(pinned)
@@ -302,7 +302,7 @@ describe('createIsolatedConfigDir', () => {
   })
 
   it('does not create a missing pinned path (the deployment owns its lifecycle)', async () => {
-    const missing = join(tmpdir(), `dsh-subagent-process-missing-${process.pid}`)
+    const missing = join(tmpdir(), `dsh-subagent-subprocess-missing-${process.pid}`)
     const dir = await createIsolatedConfigDir('ignored-prefix-', missing)
     expect(dir.path).toBe(missing)
     expect(existsSync(missing)).toBe(false)
@@ -311,7 +311,7 @@ describe('createIsolatedConfigDir', () => {
   })
 
   it('remove() is best-effort: an rm rejection resolves instead of rejecting', async () => {
-    const dir = await createIsolatedConfigDir('dsh-subagent-process-locked-')
+    const dir = await createIsolatedConfigDir('dsh-subagent-subprocess-locked-')
     try {
       // The swallow contract is error-kind agnostic; EACCES stands in for the
       // family (EBUSY, a vanished mount, …) that best-effort must absorb.

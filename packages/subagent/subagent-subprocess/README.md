@@ -1,4 +1,4 @@
-# @deepseek-ai/dsh-subagent-process
+# @deepseek-ai/dsh-subagent-subprocess
 
 Shared machinery for **out-of-process subagent backends** — providers that spawn an external agent as a child process, such as the [ACP backend](../subagent-acp/README.md). A pure library (no provider, no registration, no Config): what every spawn-a-CLI-child backend needs to keep the parent deployment's credentials out of the child, tear the child down to quiescence, and isolate it from the host user's on-disk CLI state. Design rationale: [the Claude Code / Codex subagent backends RFC](../../../docs/rfc/proposed/feature/2026-07-07-claude-code-and-codex-subagent-backends.md).
 
@@ -37,4 +37,4 @@ A per-run isolated config directory for an external CLI child (the target of `CL
 
 ## Testing
 
-`tests/subagent-process.spec.ts`: the env scrub and config-dir helpers run against the real process env and real filesystem (the rm-failure path injects its rejection at the fs boundary — a real recursive-rm failure is not portably provokable, and root ignores permission bits); the exit waits and the dispose ladder run against a scriptable fake child, driving each escalation tier deterministically. The [ACP backend suite](../subagent-acp/README.md) exercises the same ladder against real subprocesses (EOF-cooperative, EOF-ignoring, and SIGTERM-trapping children) end to end.
+`tests/subagent-subprocess.spec.ts`: the env scrub and config-dir helpers run against the real process env and real filesystem (the rm-failure path injects its rejection at the fs boundary — a real recursive-rm failure is not portably provokable, and root ignores permission bits); the exit waits and the dispose ladder run against a scriptable fake child, driving each escalation tier deterministically. The [ACP backend suite](../subagent-acp/README.md) exercises the same ladder against real subprocesses (EOF-cooperative, EOF-ignoring, and SIGTERM-trapping children) end to end.

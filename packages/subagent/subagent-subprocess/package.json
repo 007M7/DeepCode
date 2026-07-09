@@ -1,5 +1,5 @@
 {
-  "name": "@deepseek-ai/dsh-subagent-process",
+  "name": "@deepseek-ai/dsh-subagent-subprocess",
   "description": "Shared out-of-process subagent machinery: credential env scrub, spawn-failure capture, child-exit waits, the EOF-to-SIGTERM-to-SIGKILL dispose ladder, and isolated config dirs (pure lib; registers nothing)",
   "version": "0.0.1",
   "private": true,

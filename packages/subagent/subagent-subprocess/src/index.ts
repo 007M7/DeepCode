@@ -15,7 +15,7 @@
  * periods, a pinned config dir — is a PARAMETER here: defaults belong in each
  * consuming plugin's Config, per the no-hardcoded-tunables rule.
  *
- * @module @deepseek-ai/dsh-subagent-process
+ * @module @deepseek-ai/dsh-subagent-subprocess
  */
 
 import type { ChildProcess } from 'node:child_process'
