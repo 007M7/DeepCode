@@ -511,9 +511,13 @@ describe('dsh-workflow-workerthread', () => {
         // The stray child's start RPC reaches the host, then the script wedges
         // its own worker in a synchronous spin: the worker cannot process the
         // Cancel message, so it can relay NO ChildCancel RPC — only the host's
-        // own children loop can deliver the explicit cancel in time.
+        // own children loop can deliver the explicit cancel in time. The
+        // microtask yields let the agent() continuation POST its child-start
+        // before the spin seizes the worker's loop (the posted message needs
+        // no further worker-loop turns to reach the host).
         script: script(`
           agent('wedged child')
+          for (let i = 0; i < 20; i++) await null
           const end = Date.now() + 1500
           while (Date.now() < end) {}
           return 'raced'
