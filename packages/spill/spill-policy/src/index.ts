@@ -76,25 +76,20 @@ function ownerSessionId(exec: ToolExecution): SessionId | undefined {
   return (exec as SpillPolicyExec).agent?.session.header.id
 }
 
-/** Build the bounded head/tail preview for `text`, splitting `maxInlineBytes` across the two ends. */
-function preview(text: string, maxInlineBytes: number): { text: string; omitted: Omitted } {
-  const headBytes = Math.ceil(maxInlineBytes / 2)
-  const tailBytes = Math.floor(maxInlineBytes / 2)
+/** Build the bounded head/tail preview for `text`, splitting `budget` bytes across the two ends. */
+function preview(text: string, budget: number): { text: string; omitted: Omitted } {
+  const headBytes = Math.ceil(budget / 2)
+  const tailBytes = Math.floor(budget / 2)
   const retainer = new TextRetainer({ kind: 'headTail', headBytes, tailBytes })
   retainer.push(text)
   const kept = retainer.finish()
   return { text: kept.text, omitted: kept.omittedBytes }
 }
 
-/**
- * Compose the replacement text: the bounded preview, a blank line, then the
- * spill notice. The omission clause comes from the retention library
- * (`describeOmitted`); the recovery sentence names the concrete spill path.
- */
-function replacementText(previewText: string, omitted: Omitted, spillPath: string): string {
+/** The spill-notice line for a given omission + path (no preview, no leading blank line). */
+function spillNotice(omitted: Omitted, spillPath: string): string {
   const omission = describeOmitted(omitted, 'bytes')
-  const notice = `(${omission} Full formatted result saved to: ${spillPath}. Use read with offset/limit to inspect it.)`
-  return `${previewText}\n\n${notice}`
+  return `(${omission} Full formatted result saved to: ${spillPath}. Use read with offset/limit to inspect it.)`
 }
 
 export function apply(ctx: Context, config: Config): void {
@@ -119,7 +114,8 @@ export function apply(ctx: Context, config: Config): void {
     const content = decision.content ?? result.content
     const text = flattenPlainText(content)
     if (text === undefined) return decision
-    if (Buffer.byteLength(text, 'utf8') <= maxInlineBytes) return decision
+    const totalBytes = Buffer.byteLength(text, 'utf8')
+    if (totalBytes <= maxInlineBytes) return decision
 
     const sessionId = ownerSessionId(exec)
     if (sessionId === undefined) {
@@ -148,8 +144,28 @@ export function apply(ctx: Context, config: Config): void {
       return decision
     }
 
-    const { text: previewText, omitted } = preview(text, maxInlineBytes)
-    const replaced: ContentBlock[] = [{ type: 'text', text: replacementText(previewText, omitted, path) }]
+    // Reserve the notice's byte cost INSIDE maxInlineBytes so the replacement
+    // (preview + blank line + notice) never exceeds the documented cap — a naive
+    // preview that spent the whole budget then appended the notice could be
+    // larger than the cap, and for a marginally-over result even larger than the
+    // original. The reservation uses a notice priced at the worst-case omission
+    // count (the full byte total): its digit count bounds the real count's, so
+    // the reserved size is a safe upper bound and the final notice is never
+    // longer than what we reserved. `\n\n` is the 2-byte join.
+    const reserve = Buffer.byteLength(spillNotice({ kind: 'exact', count: totalBytes }, path), 'utf8') + 2
+    const previewBudget = Math.max(0, maxInlineBytes - reserve)
+    const { text: previewText, omitted } = preview(text, previewBudget)
+    const notice = spillNotice(omitted, path)
+    const replacedText = previewText.length > 0 ? `${previewText}\n\n${notice}` : notice
+    // Guard against a pathological tiny cap + long path where even the
+    // notice-only replacement is not smaller than the original: spilling then
+    // gains nothing and would only add bytes, so keep the inline result. (The
+    // spill file already written is a harmless orphan; cleanup is deferred.)
+    if (Buffer.byteLength(replacedText, 'utf8') >= totalBytes) {
+      ctx.logger.warn(`spill-policy: spill notice for ${exec.name} is not smaller than the result; keeping the inline result`)
+      return decision
+    }
+    const replaced: ContentBlock[] = [{ type: 'text', text: replacedText }]
     return { kind: 'accept', content: replaced, ...decision.additionalContext ? { additionalContext: decision.additionalContext } : {} }
   })
 }

@@ -16,13 +16,15 @@ This plugin registers **no service** and owns no storage or preview mechanics: p
 2. Skip `read` (avoids a `read → spill file → read again` loop) and any non-`accept` decision (a `block`'s corrective feedback passes through).
 3. Flatten the accepted content only when it is **plain text** (all `text` blocks); a result with any non-text block is left untouched.
 4. If its UTF-8 size is `≤ maxInlineBytes`, leave it unchanged.
-5. Otherwise save the full text and replace the result with a preview + this notice:
+5. Otherwise save the full text and replace the result with a preview + this notice, sized so the whole replacement (preview + blank line + notice) stays within `maxInlineBytes` — the notice's byte cost is reserved out of the budget, so the preview shrinks to fit and the model-facing result never exceeds the cap:
 
    ```text
    <retained head/tail preview>
 
    (Omitted N bytes. Full formatted result saved to: /…/session-…/…-web_fetch.txt. Use read with offset/limit to inspect it.)
    ```
+
+   When the notice alone fills the budget (a tiny cap or a long path) the preview is empty and only the notice is returned. If even that notice-only replacement is not smaller than the original result, the policy keeps the inline result — spilling would only add bytes.
 
 **Best-effort:** no session owner, no `ctx.spillFiles` backend, or a `saveText` rejection ⇒ the policy logs a warning and returns the original result. A spill failure never turns a successful call into an `isError` or hides the inline result.
 

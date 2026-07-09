@@ -355,6 +355,19 @@ export class TextRetainer {
         this.suffixHeld -= head.length
         head = this.suffixChunks[0]
       }
+      // The head chunk can still hold leading bytes beyond the last `suffixCap`
+      // — a single chunk LARGER than the window is retained whole by the loop
+      // above (dropping the only chunk would leave < cap). Trim those leading
+      // bytes so the accumulator (and finish()'s concat) stays bounded by
+      // `suffixCap` instead of allocating/copying the full chunk again;
+      // finish() only ever reads the last `suffixLen ≤ suffixCap` bytes, so this
+      // drops nothing it would return. (head.length > excess by the loop
+      // invariant `suffixHeld - head.length < suffixCap`, so the slice is non-empty.)
+      if (head !== undefined && this.suffixHeld > this.suffixCap) {
+        const excess = this.suffixHeld - this.suffixCap
+        this.suffixChunks[0] = head.subarray(excess)
+        this.suffixHeld -= excess
+      }
     }
 
     // Dropped = bytes that no side can keep. Compute cumulative omission the

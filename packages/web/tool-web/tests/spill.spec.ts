@@ -33,7 +33,8 @@ let handler: Handler
 let spillRoot: string
 let ctx: Context
 
-const BODY = 'X'.repeat(4000) // formatted result is well over the 200-byte policy cap
+const BODY = 'X'.repeat(4000) // formatted result is well over the policy cap
+const MAX_INLINE_BYTES = 1000 // leaves room for a head/tail preview beside the notice
 
 beforeEach(async () => {
   handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(BODY) }
@@ -50,7 +51,7 @@ beforeEach(async () => {
   // policy cap is what triggers the spill (the RFC's separation of concerns).
   await ctx.plugin(WebFetchLocal, { maxBodyChars: 500_000 })
   await ctx.plugin(LocalSpillFiles, { root: spillRoot })
-  await ctx.plugin(SpillPolicy, { maxInlineBytes: 200 })
+  await ctx.plugin(SpillPolicy, { maxInlineBytes: MAX_INLINE_BYTES })
   await ctx.plugin(ToolWeb)
 })
 
@@ -72,8 +73,9 @@ describe('web_fetch spill showcase', () => {
     expect(out.isError).toBe(false)
     const text = out.content.map(b => b.text).join('')
 
-    // Model-facing text is a preview + notice, NOT the full body.
+    // Model-facing text is a preview + notice within the cap, NOT the full body.
     expect(text.length).toBeLessThan(BODY.length)
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(MAX_INLINE_BYTES)
     expect(text).toContain(`Fetched ${base}`) // the head of the formatted result survives
     expect(text).toContain('Full formatted result saved to:')
     expect(text).toContain('Use read with offset/limit')

@@ -93,9 +93,9 @@ describe('config validation', () => {
 })
 
 describe('oversized plain-text replacement', () => {
-  it('spills the full text and replaces the result with a preview + path', async () => {
-    const { ctx, spill } = await setup({ maxInlineBytes: 20 })
-    const body = 'HEAD'.repeat(20) + 'TAIL'.repeat(20) // 160 bytes > 20
+  it('spills the full text and replaces the result with a preview + path within the cap', async () => {
+    const { ctx, spill } = await setup({ maxInlineBytes: 200 })
+    const body = 'HEAD'.repeat(200) + 'TAIL'.repeat(200) // 1600 bytes > 200
     ctx.tools.register(textTool('big', body))
     const result = await ctx.tools.execute(exec('big'))
 
@@ -112,6 +112,22 @@ describe('oversized plain-text replacement', () => {
     expect(text).toContain('Full formatted result saved to: /spill/big.txt')
     expect(text).toContain('Use read with offset/limit')
     expect(text).toContain('Omitted')
+    // The replacement (preview + blank line + notice) stays within the cap and
+    // is smaller than the original — the whole point of spilling.
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(200)
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThan(body.length)
+  })
+
+  it('keeps the inline result when even the notice-only replacement is not smaller', async () => {
+    // A body just over a tiny cap: the notice alone is larger than the result,
+    // so spilling would only add bytes — the policy keeps the inline result.
+    const { ctx } = await setup({ maxInlineBytes: 4 })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const body = 'xxxxx' // 5 bytes > 4, but far shorter than the notice
+    ctx.tools.register(textTool('big', body))
+    const result = await ctx.tools.execute(exec('big'))
+    expect(textOf(result.content)).toBe(body)
+    expect(warn).toHaveBeenCalled()
   })
 
   it('leaves a small plain-text result unchanged', async () => {
