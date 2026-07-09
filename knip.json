@@ -8,6 +8,7 @@
         "examples/echo-agent/src/*.ts",
         "examples/echo-agent/tests/**/*.e2e.ts",
         "examples/coding-agent/tests/**/*.e2e.ts",
+        "examples/cordis-agent/tests/**/*.e2e.ts",
         "examples/acp-agent/tests/**/*.e2e.ts",
         "examples/*/tests/**/*.snapshot.ts"
       ],

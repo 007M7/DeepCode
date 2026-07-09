@@ -52,6 +52,7 @@
         "./packages/web/*/src",
         "./packages/timeout/*/src",
         "./packages/todo/*/src",
+        "./packages/cordis/*/src",
         "./packages/hooks/*/src",
         "./packages/session-persistence/*/src",
         "./packages/ui/*/src",

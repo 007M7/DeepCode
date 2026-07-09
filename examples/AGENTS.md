@@ -21,6 +21,7 @@ A keyless smoke that spawns the example from a temp cwd must set `TSX_TSCONFIG_P
 |---|---|---|
 | `echo-agent` | `tests/echo.e2e.ts` — boots the real `cordis.yml`, drives the echo tool round-trip and the direct canned reply | **N/A — keyless by nature** (the `mock-echo` model has no real provider) |
 | `coding-agent` | `tests/keyless-smoke.e2e.ts` — boots the full real tree (dummy key, no prompt → no model call), asserts banner + clean exit | `tests/{full-loop,coding-task,resume,compaction,todo-write}.e2e.ts` — real model + real bash + real todo_write, world-verified |
+| `cordis-agent` | `tests/keyless-smoke.e2e.ts` — boots the real tree incl. `@deepseek-ai/dsh-tool-cordis` by package name; the tool logic is unit-tested in `packages/cordis/tool-cordis` | `tests/cordis-tools.e2e.ts` — real model mounts a listener (tagged line fires), builds+calls its own tool, composes two mounts via provide/inject |
 | `acp-agent` | `pnpm run test:snapshot` — boots the real ACP subprocess and replays a recorded session keyless (incl. the hook matrix: a scenario per hook point × outcome for BOTH the Claude and Codex bridges — block, deny, ask, context-fold, force-continue); `tests/acp.e2e.ts` also asserts stdout purity without a key | `tests/acp.e2e.ts` — real ACP prompt, verifies a file the agent wrote; `tests/hooks.e2e.ts` — a real `PreToolUse` hook blocks bash, verifies the file is NOT written |
 
 See [the root AGENTS.md](../AGENTS.md) for repo-wide conventions and [docs/architecture.md](../docs/architecture.md) for the design.
