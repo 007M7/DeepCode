@@ -289,7 +289,17 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
         exec.signal?.removeEventListener('abort', onOuterAbort)
       }
     },
-    presentCall: args => ({ card: 'generic', title: 'Run code', kind: 'execute', rawInput: args.code }),
+    // The program IS the call: surface it as an always-visible fenced block in
+    // the card body (rawInput alone lands in detail/expanded views many
+    // clients never open). Fence collisions are impossible to break rendering
+    // — a backtick run inside the program at worst ends the block early.
+    presentCall: args => ({
+      card: 'generic',
+      title: 'Run code',
+      kind: 'execute',
+      rawInput: args.code,
+      content: [{ type: 'text', text: `\`\`\`ts\n${args.code}\n\`\`\`` }],
+    }),
     presentResult: (_args, result) => {
       const meta = asRunCodeMeta(result.meta)
       if (!meta) return undefined

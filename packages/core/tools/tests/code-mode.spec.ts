@@ -447,7 +447,15 @@ describe('the run_code dispatch bridge', () => {
   it('presents the pending call as a generic execute card carrying the program, and the result with the captured output', async () => {
     const { ctx } = await setup({ mode: 'code' })
     const tool = ctx.tools.get(RUN_CODE_NAME)!
-    expect(tool.presentCall?.({ code: 'return 1' })).toEqual({ card: 'generic', title: 'Run code', kind: 'execute', rawInput: 'return 1' })
+    expect(tool.presentCall?.({ code: 'return 1' })).toEqual({
+      card: 'generic',
+      title: 'Run code',
+      kind: 'execute',
+      rawInput: 'return 1',
+      // The program rides the card BODY as a fenced block — visible in ACP
+      // clients that never open the rawInput detail view.
+      content: [{ type: 'text', text: '```ts\nreturn 1\n```' }],
+    })
     const view = tool.presentResult?.({ code: 'return 1' }, {
       content: [{ type: 'text', text: 'model-facing' }],
       isError: false,
