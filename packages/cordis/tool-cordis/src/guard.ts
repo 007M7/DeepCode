@@ -27,8 +27,12 @@
  * realm's `Object.prototype`, and the session log's append-time plainness check
  * (`dsh-session`'s `isJsonValue`, a prototype-identity comparison) rejects
  * foreign-realm data — so every dynamic tool's `execute` return is JSON
- * round-tripped into the host realm before it reaches the registry, and the
- * schema itself is rebuilt as fresh host-realm objects. And a malformed tool
+ * round-tripped into the host realm and shape-checked against the two
+ * `ToolExecuteReturn` forms before it reaches the registry (the registry
+ * trusts the shape blindly — it spreads `result.content`, so an unvalidated
+ * `{ content: 'ok' }` would enter the session log as `['o','k']` and silently
+ * corrupt the next model request), and the schema itself is rebuilt as fresh
+ * host-realm objects. And a malformed tool
  * schema must fail at REGISTRATION, not when a later request assembles it — so
  * dynamic tool registration accepts only definitions produced by the sandbox's
  * `harness.defineTool`, which normalizes `parameters` up front.
@@ -138,13 +142,66 @@ function assertDynamicTool(tool: unknown): asserts tool is DynamicToolDefinition
 }
 
 /**
+ * Structurally a content block, checked AFTER the JSON round-trip: a plain
+ * object carrying a string `type` tag. Deliberately nothing deeper — the
+ * ContentBlock union is merge-extensible (an unknown tag must pass), and every
+ * downstream consumer dispatches on `type` and falls through unknowns.
+ */
+function isContentBlockShape(value: unknown): boolean {
+  return isPlainRecord(value) && typeof value.type === 'string'
+}
+
+/**
+ * How much of an invalid execute return the teaching error echoes back — a
+ * huge blob would burn the model turn the error is trying to save.
+ */
+const RETURN_PREVIEW_LIMIT = 120
+
+/**
+ * Compact JSON preview of an invalid execute return for the teaching error
+ * (`String(…)` for the un-stringifiable undefined case), truncated to
+ * {@link RETURN_PREVIEW_LIMIT}.
+ */
+function describeReturn(value: unknown): string {
+  // JSON.stringify is TYPED as always returning string, but it yields
+  // undefined for an undefined input (the routed forgot-return case) — the
+  // assertion widens the type back to the runtime truth.
+  const json = JSON.stringify(value) as string | undefined
+  if (json === undefined) return String(value)
+  return json.length > RETURN_PREVIEW_LIMIT ? `${json.slice(0, RETURN_PREVIEW_LIMIT)}…` : json
+}
+
+/**
+ * Validate a round-tripped `execute` return against the two shapes
+ * {@link ToolExecuteReturn} allows: an ARRAY of content blocks, or
+ * `{ content: blocks, meta? }`. The registry trusts the shape blindly — it
+ * spreads `result.content`, so an unvalidated `{ content: 'ok' }` would enter
+ * the session log as `['o','k']` and silently corrupt the next model request —
+ * so a wrong shape fails THIS call with a teaching error instead.
+ */
+function assertExecuteReturn(value: unknown): ToolExecuteReturn {
+  if (Array.isArray(value) && value.every(isContentBlockShape)) {
+    return value as ToolExecuteReturn
+  }
+  if (isPlainRecord(value) && Array.isArray(value.content) && value.content.every(isContentBlockShape)) {
+    return value as ToolExecuteReturn
+  }
+  throw new Error(
+    `execute returned ${describeReturn(value)} — a tool's execute must return an ARRAY of content blocks, never a bare string:\n`
+    + '  ✓ return [{ type: \'text\', text: someString }]\n'
+    + '  ✓ return { content: [{ type: \'text\', text: someString }], meta: anyJsonValue }',
+  )
+}
+
+/**
  * The `harness.defineTool` handed into the sandbox: the real DSL, with
  * `parameters` normalized into a fresh host-realm SchemaSpec (JSON-Schema
  * wrapper unwrapped, `integer` mapped, `required: false` dropped) and the
  * tool's `execute` return normalized into the host realm via a JSON round-trip
- * (see the module doc). The round-trip also projects the return onto exactly
- * what the log would durably store, so a non-JSON-serializable return surfaces
- * as that one call's error instead of poisoning the turn.
+ * (see the module doc). The round-trip projects the return onto exactly what
+ * the log would durably store, and {@link assertExecuteReturn} then vets that
+ * projection — so a non-JSON-serializable OR wrong-shape return surfaces as
+ * that one call's teaching error instead of poisoning the turn.
  * @param options - the standard `defineTool` options; `parameters` may be the SchemaSpec DSL or a JSON-Schema-style wrapper.
  * @returns the marker-tagged definition `harness.registerTool` (and the guarded `ctx.tools.register`) accepts.
  */
@@ -155,7 +212,12 @@ export function sandboxDefineTool(options: Parameters<typeof defineTool>[0]): To
   return markDynamicTool({
     ...tool,
     async execute(args, exec) {
-      return JSON.parse(JSON.stringify(await execute(args, exec))) as ToolExecuteReturn
+      // JSON.stringify yields NO JSON for an undefined (or function/symbol)
+      // return despite its string-typed signature — route that into
+      // assertExecuteReturn's teaching error rather than letting JSON.parse
+      // throw its cryptic '"undefined" is not valid JSON'.
+      const json = JSON.stringify(await execute(args, exec)) as string | undefined
+      return assertExecuteReturn(json === undefined ? undefined : JSON.parse(json) as unknown)
     },
   })
 }

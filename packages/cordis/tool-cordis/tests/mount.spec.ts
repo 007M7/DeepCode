@@ -60,6 +60,95 @@ describe('cordis_mount', () => {
     expect(isJsonValue({ content: reversed.content, isError: reversed.isError })).toBe(true)
   })
 
+  it('threads the { content, meta } object return form through to the registry result', async () => {
+    const ctx = await setup()
+    await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'meta-return',
+          inject: ['tools'],
+          apply(ctx) {
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'meta_tool',
+              description: 'attaches a private presentation payload',
+              parameters: {},
+              async execute() {
+                return { content: [{ type: 'text', text: 'ok' }], meta: { kind: 'demo' } }
+              },
+            }))
+          },
+        }
+      `,
+    })
+    const result = await call(ctx, 'meta_tool', {})
+    expect(result.isError).toBe(false)
+    expect(text(result)).toBe('ok')
+    expect(result.meta).toEqual({ kind: 'demo' })
+  })
+
+  it.each([
+    ['a bare string', 'return \'ok\'', '"ok"'],
+    ['an object whose content is a string', 'return { content: \'ok\' }', '{"content":"ok"}'],
+    ['an array of non-objects', 'return [\'ok\']', '["ok"]'],
+    ['blocks missing the type tag', 'return [{ text: \'hi\' }]', '[{"text":"hi"}]'],
+    ['object-form blocks missing the type tag', 'return { content: [{ text: \'hi\' }] }', '{"content":[{"text":"hi"}]}'],
+    ['undefined — a forgotten return', 'return undefined', 'undefined'],
+  ])('rejects an execute return of %s as that one call\'s teaching error', async (_label, returnStatement, preview) => {
+    // The failure this prevents: the registry trusts the return shape
+    // (postExecute spreads result.content), so an unvalidated { content: 'ok' }
+    // would enter the session log as ['o','k'] and silently corrupt the next
+    // model request. The shape check turns it into THIS call's error instead —
+    // one well-formed text block the log and the model can digest.
+    const ctx = await setup()
+    await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'bad-return',
+          inject: ['tools'],
+          apply(ctx) {
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'bad_return_tool',
+              description: 'returns a wrong shape',
+              parameters: {},
+              async execute() { ${returnStatement} },
+            }))
+          },
+        }
+      `,
+    })
+    const result = await call(ctx, 'bad_return_tool', {})
+    expect(result.isError).toBe(true)
+    expect(result.content).toHaveLength(1)
+    expect(result.content[0]!.type).toBe('text')
+    expect(text(result)).toContain(`execute returned ${preview}`)
+    expect(text(result)).toContain('must return an ARRAY of content blocks')
+    expect(text(result)).toContain('✓ return { content: [{ type: \'text\', text: someString }], meta: anyJsonValue }')
+  })
+
+  it('truncates a huge invalid execute return in the teaching error', async () => {
+    const ctx = await setup()
+    await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'huge-return',
+          inject: ['tools'],
+          apply(ctx) {
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'huge_return_tool',
+              description: 'returns a huge wrong shape',
+              parameters: {},
+              async execute() { return 'x'.repeat(500) },
+            }))
+          },
+        }
+      `,
+    })
+    const result = await call(ctx, 'huge_return_tool', {})
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('…')
+    expect(text(result)).not.toContain('x'.repeat(200))
+  })
+
   it('accepts a JSON-Schema-style parameters wrapper and normalizes it to the DSL', async () => {
     // The dialect models write by strong prior: the { type:'object',
     // properties, required: […] } wrapper, `type: 'integer'`, and
