@@ -209,6 +209,18 @@ Types: [CallId](core-data-structures/core.md)
 
 Source: [`packages/core/session/src/types.ts:326`](../packages/core/session/src/types.ts)
 
+#### `tool/code-dispatch` — log-only
+
+One bridged sub-dispatch from a `run_code` program: the parent `run_code` call id, the deterministic sub-call id (`<parent>:code:<n>`), the tool `name` with its JSON-normalized `arguments` — the exact value dispatched, normalized BEFORE dispatch, so this append can never fail on payload shape — whether the sub-call errored, and a bounded `resultSummary` of its model-facing text. Log-only: `deriveMessages()` ignores it, so sub-calls never re-enter model context; persistence and UIs get every call. Appended inside the parent `run_code`'s execution (the bridge drains its queue before returning), so the turn-enclosure invariant holds by construction.
+
+```ts persistence-catalog
+'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; resultSummary: string }
+```
+
+Types: [CallId](core-data-structures/core.md)
+
+Source: [`packages/core/tools/src/code-mode.ts:36`](../packages/core/tools/src/code-mode.ts)
+
 #### `tool/result` — surface
 
 A completed tool call's model-facing result, plus an optional tool-private `meta` presentation payload. `meta` is opaque to the core (`unknown` — the producing tool owns its shape and reads it back in `presentResult`) but MUST be JSON-serializable: `Session.append` runtime-validates all event data with `isJsonValue`, so a non-serializable `meta` is rejected at the source, and the durable log reproduces the identical card on replay. Absent unless the tool attaches one (e.g. `dsh-tool-fs` carries its result-time contextual diff here).

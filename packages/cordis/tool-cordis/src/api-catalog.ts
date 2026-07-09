@@ -196,6 +196,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       'async fetch(request: WebFetchRequest, exec?: WebExecContext): Promise<WebFetchResult>',
     ],
   },
+  {
+    key: 'workflows',
+    summary: 'Abstract workflow execution service.',
+    methods: [
+      'abstract start(request: WorkflowStartRequest): WorkflowRun',
+    ],
+  },
 ]
 
 /** Every harness event, sorted by name. */
@@ -373,6 +380,42 @@ export const EVENT_API: readonly EventApiEntry[] = [
     mode: 'waterfall',
     signature: '\'tools/pre-execute\'(this: ToolRegistry, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>',
     summary: 'Waterfall BEFORE a tool runs — the gate where sandbox, permission, and hook plugins allow or deny a call (Claude Code\'s `PreToolUse`).',
+  },
+  {
+    name: 'workflow/agent-end',
+    mode: 'emit',
+    signature: '\'workflow/agent-end\'(info: WorkflowRunInfo, agent: WorkflowAgentEndInfo): void',
+    summary: 'One `agent()` call settled (clean result, child failure, or run cancellation).',
+  },
+  {
+    name: 'workflow/agent-start',
+    mode: 'emit',
+    signature: '\'workflow/agent-start\'(info: WorkflowRunInfo, agent: WorkflowAgentInfo): void',
+    summary: 'One `agent()` call started a child run.',
+  },
+  {
+    name: 'workflow/end',
+    mode: 'emit',
+    signature: '\'workflow/end\'(info: WorkflowRunInfo, result: WorkflowResultInfo): void',
+    summary: 'A workflow run settled (any stop reason).',
+  },
+  {
+    name: 'workflow/log',
+    mode: 'emit',
+    signature: '\'workflow/log\'(info: WorkflowRunInfo, message: string): void',
+    summary: 'The script emitted a narration line (a `log(message)` call).',
+  },
+  {
+    name: 'workflow/phase',
+    mode: 'emit',
+    signature: '\'workflow/phase\'(info: WorkflowRunInfo, title: string): void',
+    summary: 'The script entered a phase (a `phase(title)` call) — progress grouping for observers; no execution semantics.',
+  },
+  {
+    name: 'workflow/start',
+    mode: 'emit',
+    signature: '\'workflow/start\'(info: WorkflowRunInfo): void',
+    summary: 'A workflow run started — the script\'s meta block validated, the body about to execute.',
   },
 ]
 
@@ -837,6 +880,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WebSearchSource',
     declaration: 'export interface WebSearchSource {\n    readonly url: string;\n    readonly title?: string;\n    readonly snippet?: string;\n    readonly publishedAt?: string;\n}',
+  },
+  {
+    name: 'WorkflowMeta',
+    declaration: 'export interface WorkflowMeta {\n    name: string;\n    description: string;\n    whenToUse?: string;\n    phases?: WorkflowPhase[];\n}',
+  },
+  {
+    name: 'WorkflowPhase',
+    declaration: 'export interface WorkflowPhase {\n    title: string;\n    detail?: string;\n    model?: string;\n}',
+  },
+  {
+    name: 'WorkflowResult',
+    declaration: 'export interface WorkflowResult {\n    value: unknown;\n    stopReason: WorkflowStopReason;\n    error?: string;\n    agentsStarted: number;\n}',
+  },
+  {
+    name: 'WorkflowRun',
+    declaration: 'export interface WorkflowRun {\n    readonly id: WorkflowRunId;\n    readonly meta: WorkflowMeta;\n    readonly result: Promise<WorkflowResult>;\n    cancel(reason?: string): void;\n    dispose(): Promise<void>;\n}',
+  },
+  {
+    name: 'WorkflowRunId',
+    declaration: 'export type WorkflowRunId = Branded<\'WorkflowRunId\'>;',
+  },
+  {
+    name: 'WorkflowStartRequest',
+    declaration: 'export interface WorkflowStartRequest {\n    script: string;\n    meta: WorkflowMeta;\n    args?: unknown;\n    parent: Agent;\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'WorkflowStopReason',
+    declaration: 'export type WorkflowStopReason = \'completed\' | \'cancelled\' | \'error\';',
   },
 ]
 
