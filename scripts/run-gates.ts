@@ -310,6 +310,7 @@ function builtBinSmokeGate(): Gate {
     'vitest.e2e.config.ts',
     'packages/ui/stdio-agent/tests/built-bin.e2e.ts',
     'packages/ui/acp-agent/tests/built-bin.e2e.ts',
+    'packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts',
   ], {
     label: 'built-bin smoke',
     needs: ['build'],
