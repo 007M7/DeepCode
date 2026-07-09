@@ -35,6 +35,7 @@ flowchart TD
     pkg_fs_local["fs-local"]
     pkg_fs_policy["fs-policy"]
     pkg_tool_fs["tool-fs"]
+    pkg_tool_fs_search["tool-fs-search"]
   end
   subgraph group_compact["packages/compact"]
     pkg_compact["compact"]
@@ -161,6 +162,13 @@ flowchart TD
   pkg_tool_fs --> pkg_session
   pkg_tool_fs --> pkg_system_prompt
   pkg_tool_fs --> pkg_tools
+  pkg_tool_fs_search --> pkg_bash
+  pkg_tool_fs_search --> pkg_llm
+  pkg_tool_fs_search --> pkg_retention
+  pkg_tool_fs_search --> pkg_session
+  pkg_tool_fs_search --> pkg_spill
+  pkg_tool_fs_search --> pkg_system_prompt
+  pkg_tool_fs_search --> pkg_tools
   pkg_subagent --> pkg_agent
   pkg_subagent --> pkg_llm
   pkg_subagent --> pkg_tools
@@ -278,6 +286,7 @@ flowchart TD
 | [`agent-loop`](../packages/core/agent-loop) | `core` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-bash`](../packages/bash/tool-bash) | `bash` | [`agent`](../packages/core/agent), [`bash`](../packages/bash/bash), [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-fs`](../packages/fs/tool-fs) | `fs` | [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
+| [`tool-fs-search`](../packages/fs/tool-fs-search) | `fs` | [`bash`](../packages/bash/bash), [`llm`](../packages/llm/llm), [`retention`](../packages/util/retention), [`session`](../packages/core/session), [`spill`](../packages/spill/spill), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`subagent`](../packages/subagent/subagent) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-web`](../packages/web/tool-web) | `web` | [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`web`](../packages/web/web) |
 | [`spill-policy`](../packages/spill/spill-policy) | `spill` | [`llm`](../packages/llm/llm), [`retention`](../packages/util/retention), [`session`](../packages/core/session), [`spill`](../packages/spill/spill), [`tools`](../packages/core/tools) |

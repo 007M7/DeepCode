@@ -48,6 +48,7 @@ import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentMock from '@deepseek-ai/dsh-subagent-mock'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
@@ -128,6 +129,23 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-fs-search',
+    dir: 'tool-fs-search',
+    source: 'packages/fs/tool-fs-search/src/index.ts',
+    requires: ['ctx.tools', 'ctx.bash', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // The tools inject `bash` (search executes fixed `rg` commands through
+      // the executor seam, not ctx.fs); boot the local executor to satisfy it.
+      // `ctx.spillFiles` is optional (read via ctx.get) and does not affect the
+      // schemas, so no spill backend is mounted.
+      await ctx.plugin(LocalBashExecutor)
+      await ctx.plugin(ToolFsSearch)
+    },
+    note:
+      'glob and grep are bash-backed discovery tools: they run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillFiles backend; returned paths are follow-up-readable in co-located bash/filesystem deployments.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent',
