@@ -1,6 +1,6 @@
 {
-  "name": "@deepseek-ai/dsh-tool-web",
-  "description": "Model-facing web tools (web_search, web_fetch) over the DeepSeek Harness web capability seam (ctx.web)",
+  "name": "@deepseek-ai/dsh-timeout-policy",
+  "description": "Tool-call timeout policy: a tools/execute wrapper that arms a per-tool deadline on exec.signal and returns TOOL_TIMEOUT when it wins",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -23,24 +23,14 @@
   "license": "BSD-3-Clause",
   "peerDependencies": {
     "@deepseek-ai/dsh-llm": "^0.0.1",
-    "@deepseek-ai/dsh-system-prompt": "^0.0.1",
+    "@deepseek-ai/dsh-timeout": "^0.0.1",
     "@deepseek-ai/dsh-tools": "^0.0.1",
-    "@deepseek-ai/dsh-web": "^0.0.1",
     "cordis": "^4.0.0-rc.6"
   },
-  "dependencies": {
-    "schemastery": "^3.18.0"
-  },
   "devDependencies": {
-    "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^",
-    "@deepseek-ai/dsh-system-prompt": "workspace:^",
+    "@deepseek-ai/dsh-timeout": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
-    "@deepseek-ai/dsh-timeout-policy": "workspace:^",
-    "@deepseek-ai/dsh-web": "workspace:^",
-    "@deepseek-ai/dsh-web-fetch-local": "workspace:^",
-    "@deepseek-ai/dsh-web-search-exa": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }
 }

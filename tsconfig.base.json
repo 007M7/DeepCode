@@ -49,6 +49,7 @@
         "./packages/guard/*/src",
         "./packages/subagent/*/src",
         "./packages/web/*/src",
+        "./packages/timeout/*/src",
         "./packages/todo/*/src",
         "./packages/hooks/*/src",
         "./packages/session-persistence/*/src",

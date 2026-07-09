@@ -92,8 +92,10 @@ export function presentSearchCall(args: { query: string }): GenericCallView {
  *   registrations; both are effect-scoped and unregister on plugin dispose.
  * @param maxResults - the deployment's source cap, sent as every seam
  *   request's `maxResults`.
+ * @param timeoutMs - the cooperative tool-call budget (ms) attached as the tool's
+ *   `ToolDefinition.timeoutMs` for `@deepseek-ai/dsh-timeout-policy` to enforce.
  */
-export function applyWebSearchTool(ctx: Context, maxResults: number): void {
+export function applyWebSearchTool(ctx: Context, maxResults: number, timeoutMs: number): void {
   ctx.systemPrompt.section({
     name: 'tool:web_search',
     order: 110,
@@ -106,6 +108,7 @@ export function applyWebSearchTool(ctx: Context, maxResults: number): void {
     parameters: {
       query: { type: 'string', required: true, description: 'The search query.' },
     },
+    timeoutMs,
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseSearchArgs(args)
       const result = await ctx.web.search(
