@@ -21,7 +21,7 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | [tools.md](tools.md) | `ToolDefinition` full fields, the schema DSL, `ToolExecution`/`ToolResult`, tool-presentation UI types, the `tools/pre-execute`/`tools/post-execute` pipeline |
 | [user-interaction.md](user-interaction.md) | the UI-backed human question/answer seam: `AskUserQuestionRequest`, answer/options vocabulary, provider API, error taxonomy |
 | [bash.md](bash.md) | the bash executor seam: `BashExecRequest`/`Spec`, `BashRunResult`, the background `BashProcess` handle |
-| [tasks.md](tasks.md) | the background task runtime: `TaskId`, `TaskRegistration`, `TaskOutcome`, `TaskSnapshot`/`TaskRead`, owner isolation, the control-tool surface |
+| [tasks.md](tasks.md) | the background task runtime: `TaskId`, `TaskStart`/`TaskHooks`, `TaskOutcome`, `TaskSnapshot`/`TaskRead`, owner isolation, the control-tool surface |
 | [code-runtime.md](code-runtime.md) | the code-execution seam: `CodeRunRequest`/`Result`, binding namespaces, captured logs, the `CodeRunFailure` taxonomy |
 | [filesystem.md](filesystem.md) | the filesystem seam: `FsTarget`, read/write/edit outcomes, observed-file state, `FsErrorCode` |
 | [compaction.md](compaction.md) | the compaction seam: the `compact/*` session events, `CompactionResult`, the `CompactService` interface |

@@ -4,7 +4,7 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import TaskService, { TaskId } from '@deepseek-ai/dsh-tasks'
-import type { TaskOutcome, TaskRegistration, TaskSnapshot } from '@deepseek-ai/dsh-tasks'
+import type { TaskHooks, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
 
 function stubAgent(rawId: string): Agent {
   const id = AgentId(rawId)
@@ -21,19 +21,19 @@ function stubAgent(rawId: string): Agent {
   }
 }
 
-/** A controllable producer: settle its `done` on demand, record cancels. */
-function producer(overrides: Partial<TaskRegistration> = {}) {
+/** A controllable producer start-spec: settle its `done` on demand, record cancels. */
+function producer(overrides: Partial<Omit<TaskStart, 'run'> & TaskHooks> = {}) {
   let settle!: (outcome: TaskOutcome) => void
   let reject!: (error: unknown) => void
   const cancels: (string | undefined)[] = []
-  const registration: TaskRegistration = {
-    kind: 'bash',
-    label: 'sleep 60',
+  const { kind = 'bash', label = 'sleep 60', owner, ...hookOverrides } = overrides
+  const hooks: TaskHooks = {
     cancel(reason) { cancels.push(reason) },
     done: new Promise<TaskOutcome>((res, rej) => { settle = res; reject = rej }),
-    ...overrides,
+    ...hookOverrides,
   }
-  return { registration, settle, reject, cancels }
+  const spec: TaskStart = { kind, label, ...owner !== undefined ? { owner } : {}, run: () => hooks }
+  return { spec, settle, reject, cancels }
 }
 
 async function harness() {
@@ -47,25 +47,25 @@ async function harness() {
 /** Let the settlement continuation (a `done.then`) run. */
 const tick = () => new Promise<void>(r => setTimeout(r, 0))
 
-describe('TaskService.register', () => {
+describe('TaskService.start', () => {
   it('refuses to register while no control surface is attached', async () => {
     const ctx = new Context()
     await ctx.plugin(TaskService)
-    expect(() => ctx.tasks.register(producer().registration))
+    expect(() => ctx.tasks.start(producer().spec))
       .toThrow('background tasks unavailable: no control surface is attached (load @deepseek-ai/dsh-tool-tasks)')
   })
 
   it('rejects an empty kind and an empty label', async () => {
     const ctx = await harness()
-    expect(() => ctx.tasks.register(producer({ kind: '' }).registration)).toThrow('invalid task kind')
-    expect(() => ctx.tasks.register(producer({ label: '' }).registration)).toThrow('invalid task label')
+    expect(() => ctx.tasks.start(producer({ kind: '' }).spec)).toThrow('invalid task kind')
+    expect(() => ctx.tasks.start(producer({ label: '' }).spec)).toThrow('invalid task label')
   })
 
   it('issues kind-prefixed ids from per-kind counters', async () => {
     const ctx = await harness()
-    expect(ctx.tasks.register(producer().registration)).toBe('bash-1')
-    expect(ctx.tasks.register(producer().registration)).toBe('bash-2')
-    expect(ctx.tasks.register(producer({ kind: 'subagent' }).registration)).toBe('subagent-1')
+    expect(ctx.tasks.start(producer().spec)).toBe('bash-1')
+    expect(ctx.tasks.start(producer().spec)).toBe('bash-2')
+    expect(ctx.tasks.start(producer({ kind: 'subagent' }).spec)).toBe('subagent-1')
   })
 })
 
@@ -74,7 +74,7 @@ describe('TaskService reads and settlement', () => {
     const ctx = await harness()
     const chunks = ['first', '', 'rest']
     const p = producer({ readOutput: () => chunks.shift() ?? '' })
-    const id = ctx.tasks.register(p.registration)
+    const id = ctx.tasks.start(p.spec)
 
     expect(ctx.tasks.read(id)).toMatchObject({ text: 'first', snapshot: { status: 'running', reported: false } })
     expect(ctx.tasks.read(id).text).toBe('')
@@ -90,7 +90,7 @@ describe('TaskService reads and settlement', () => {
   it('final-output kinds read empty while live, the outcome output idempotently once settled', async () => {
     const ctx = await harness()
     const p = producer({ kind: 'subagent', label: 'research task' })
-    const id = ctx.tasks.register(p.registration)
+    const id = ctx.tasks.start(p.spec)
 
     expect(ctx.tasks.read(id)).toMatchObject({ text: '', snapshot: { status: 'running' } })
 
@@ -103,7 +103,7 @@ describe('TaskService reads and settlement', () => {
   it('a settled task without output reads as empty text', async () => {
     const ctx = await harness()
     const p = producer({ kind: 'subagent' })
-    const id = ctx.tasks.register(p.registration)
+    const id = ctx.tasks.start(p.spec)
     p.settle({ status: 'failed', detail: 'max-tokens' })
     await tick()
     expect(ctx.tasks.read(id)).toMatchObject({ text: '', snapshot: { status: 'failed', detail: 'max-tokens' } })
@@ -122,7 +122,7 @@ describe('TaskService reads and settlement', () => {
     ctx.tasks.onTaskDone(snapshot => void seen.push(snapshot))
 
     const p = producer()
-    const id = ctx.tasks.register(p.registration)
+    const id = ctx.tasks.start(p.spec)
     p.settle({ status: 'completed', detail: 'exit code: 0' })
     await tick()
 
@@ -135,7 +135,7 @@ describe('TaskService reads and settlement', () => {
     const ctx = await harness()
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const p = producer()
-    const id = ctx.tasks.register(p.registration)
+    const id = ctx.tasks.start(p.spec)
     p.reject(new Error('transport exploded'))
     await tick()
 
@@ -155,7 +155,7 @@ describe('TaskService reads and settlement', () => {
     detach()
 
     const p = producer()
-    ctx.tasks.register(p.registration)
+    ctx.tasks.start(p.spec)
     p.settle({ status: 'completed' })
     await tick()
     expect(seen).toEqual([])
@@ -168,7 +168,7 @@ describe('TaskService.kill', () => {
     const seen: TaskSnapshot[] = []
     ctx.tasks.onTaskDone(snapshot => void seen.push(snapshot))
     const p = producer()
-    const id = ctx.tasks.register(p.registration)
+    const id = ctx.tasks.start(p.spec)
 
     expect(ctx.tasks.kill(id, undefined, 'no longer needed')).toBe('requested')
     expect(p.cancels).toEqual(['no longer needed'])
@@ -184,7 +184,7 @@ describe('TaskService.kill', () => {
   it('reports an already-terminal task instead of failing', async () => {
     const ctx = await harness()
     const p = producer()
-    const id = ctx.tasks.register(p.registration)
+    const id = ctx.tasks.start(p.spec)
     p.settle({ status: 'completed' })
     await tick()
     expect(ctx.tasks.kill(id)).toBe('already-terminal')
@@ -196,11 +196,13 @@ describe('TaskService.kill', () => {
     ctx.tasks.onTaskDone(snapshot => void seen.push(snapshot))
     let broken = true
     let settle!: (outcome: TaskOutcome) => void
-    const id = ctx.tasks.register({
+    const id = ctx.tasks.start({
       kind: 'bash',
       label: 'flaky cancel',
-      cancel() { if (broken) throw new Error('cancel boom') },
-      done: new Promise<TaskOutcome>((res) => { settle = res }),
+      run: () => ({
+        cancel() { if (broken) throw new Error('cancel boom') },
+        done: new Promise<TaskOutcome>((res) => { settle = res }),
+      }),
     })
     expect(() => ctx.tasks.kill(id)).toThrow('cancel boom')
     // The failed kill mutated NOTHING: still running, notice not suppressed,
@@ -221,7 +223,7 @@ describe('TaskService.wait', () => {
     const seen: TaskSnapshot[] = []
     ctx.tasks.onTaskDone(snapshot => void seen.push(snapshot))
     const p = producer()
-    const id = ctx.tasks.register(p.registration)
+    const id = ctx.tasks.start(p.spec)
 
     const wait = ctx.tasks.wait(id, 5_000)
     p.settle({ status: 'completed', detail: 'exit code: 0' })
@@ -232,14 +234,14 @@ describe('TaskService.wait', () => {
 
   it('returns the live snapshot on timeout without marking reported', async () => {
     const ctx = await harness()
-    const id = ctx.tasks.register(producer().registration)
+    const id = ctx.tasks.start(producer().spec)
     expect(await ctx.tasks.wait(id, 5)).toMatchObject({ status: 'running', reported: false })
   })
 
   it('returns immediately for an already-terminal task', async () => {
     const ctx = await harness()
     const p = producer()
-    const id = ctx.tasks.register(p.registration)
+    const id = ctx.tasks.start(p.spec)
     p.settle({ status: 'completed' })
     await tick()
     expect(await ctx.tasks.wait(id, 5_000)).toMatchObject({ status: 'completed', reported: true })
@@ -247,14 +249,14 @@ describe('TaskService.wait', () => {
 
   it('rejects a non-positive or non-finite timeout', async () => {
     const ctx = await harness()
-    const id = ctx.tasks.register(producer().registration)
+    const id = ctx.tasks.start(producer().spec)
     await expect(ctx.tasks.wait(id, 0)).rejects.toThrow('invalid wait timeout')
     await expect(ctx.tasks.wait(id, Number.NaN)).rejects.toThrow('invalid wait timeout')
   })
 
   it('an aborted signal rejects the wait only — the task stays alive', async () => {
     const ctx = await harness()
-    const id = ctx.tasks.register(producer().registration)
+    const id = ctx.tasks.start(producer().spec)
 
     const controller = new AbortController()
     const wait = ctx.tasks.wait(id, 5_000, undefined, controller.signal)
@@ -275,8 +277,8 @@ describe('TaskService owner isolation', () => {
     ctx.agents.register(owner)
     const other = stubAgent('other')
 
-    const owned = ctx.tasks.register(producer({ owner }).registration)
-    const open = ctx.tasks.register(producer().registration)
+    const owned = ctx.tasks.start(producer({ owner }).spec)
+    const open = ctx.tasks.start(producer().spec)
 
     // The owner and the unowned task are reachable.
     expect(ctx.tasks.read(owned, owner).snapshot.id).toBe(owned)
@@ -296,9 +298,9 @@ describe('TaskService owner isolation', () => {
     ctx.agents.register(alice)
     ctx.agents.register(bob)
 
-    const aliceTask = ctx.tasks.register(producer({ owner: alice }).registration)
-    const bobTask = ctx.tasks.register(producer({ owner: bob }).registration)
-    const openTask = ctx.tasks.register(producer({ kind: 'subagent' }).registration)
+    const aliceTask = ctx.tasks.start(producer({ owner: alice }).spec)
+    const bobTask = ctx.tasks.start(producer({ owner: bob }).spec)
+    const openTask = ctx.tasks.start(producer({ kind: 'subagent' }).spec)
 
     expect(ctx.tasks.list(alice).map(t => t.id)).toEqual([aliceTask, openTask])
     expect(ctx.tasks.list(bob).map(t => t.id)).toEqual([bobTask, openTask])
@@ -309,11 +311,11 @@ describe('TaskService owner isolation', () => {
     const ctx = new Context()
     await ctx.plugin(TaskService)
     ctx.tasks.attachSurface('test-surface')
-    expect(() => ctx.tasks.register(producer({ owner: stubAgent('a') }).registration))
+    expect(() => ctx.tasks.start(producer({ owner: stubAgent('a') }).spec))
       .toThrow('background task ownership requires the agent registry')
     // The failed registration mutated nothing: no stored task, counter untouched.
     expect(ctx.tasks.list()).toEqual([])
-    expect(ctx.tasks.register(producer().registration)).toBe('bash-1')
+    expect(ctx.tasks.start(producer().spec)).toBe('bash-1')
   })
 
   it('a failed owner-cleanup attach leaves the registry unchanged and does not poison the owner', async () => {
@@ -321,7 +323,7 @@ describe('TaskService owner isolation', () => {
     const ghost = stubAgent('ghost') // never registered in ctx.agents
 
     // onCleanup rejects the unregistered agent BEFORE any registry mutation.
-    expect(() => ctx.tasks.register(producer({ owner: ghost }).registration))
+    expect(() => ctx.tasks.start(producer({ owner: ghost }).spec))
       .toThrow('is not registered')
     expect(ctx.tasks.list(ghost)).toEqual([])
 
@@ -330,12 +332,14 @@ describe('TaskService owner isolation', () => {
     ctx.agents.register(ghost)
     const cancels: (string | undefined)[] = []
     let settle!: (outcome: TaskOutcome) => void
-    const id = ctx.tasks.register({
+    const id = ctx.tasks.start({
       kind: 'bash',
       label: 'after retry',
       owner: ghost,
-      cancel(reason) { cancels.push(reason); settle({ status: 'killed' }) },
-      done: new Promise<TaskOutcome>((res) => { settle = res }),
+      run: () => ({
+        cancel(reason) { cancels.push(reason); settle({ status: 'killed' }) },
+        done: new Promise<TaskOutcome>((res) => { settle = res }),
+      }),
     })
     expect(id).toBe('bash-1') // the failed attempt burned no counter
     await ctx.agents.drainCleanups(ghost.id)
@@ -353,15 +357,17 @@ describe('TaskService owner cleanup', () => {
     // The producer settles only when cancelled — models a child that stops on request.
     let settle!: (outcome: TaskOutcome) => void
     const cancels: (string | undefined)[] = []
-    ctx.tasks.register({
+    ctx.tasks.start({
       kind: 'subagent',
       label: 'long research',
       owner,
-      cancel(reason) { cancels.push(reason); settle({ status: 'killed' }) },
-      done: new Promise<TaskOutcome>((res) => { settle = res }),
+      run: () => ({
+        cancel(reason) { cancels.push(reason); settle({ status: 'killed' }) },
+        done: new Promise<TaskOutcome>((res) => { settle = res }),
+      }),
     })
     const terminal = producer({ owner })
-    ctx.tasks.register(terminal.registration)
+    ctx.tasks.start(terminal.spec)
     terminal.settle({ status: 'completed' })
     await tick()
 
@@ -378,8 +384,8 @@ describe('TaskService owner cleanup', () => {
 
     const first = producer({ owner })
     const second = producer({ owner })
-    ctx.tasks.register(first.registration)
-    ctx.tasks.register(second.registration)
+    ctx.tasks.start(first.spec)
+    ctx.tasks.start(second.spec)
     first.settle({ status: 'completed' })
     second.settle({ status: 'completed' })
     await tick()
@@ -387,7 +393,7 @@ describe('TaskService owner cleanup', () => {
 
     // A fresh task after the drain gets a fresh cleanup (the set was consumed).
     const third = producer({ owner })
-    ctx.tasks.register(third.registration)
+    ctx.tasks.start(third.spec)
     third.settle({ status: 'completed' })
     await tick()
     expect(ctx.tasks.list(owner)).toHaveLength(1)
@@ -402,12 +408,14 @@ describe('TaskService owner cleanup', () => {
     ctx.agents.register(owner)
 
     let settle!: (outcome: TaskOutcome) => void
-    ctx.tasks.register({
+    ctx.tasks.start({
       kind: 'bash',
       label: 'broken producer',
       owner,
-      cancel() { throw new Error('cancel boom') },
-      done: new Promise<TaskOutcome>((res) => { settle = res }),
+      run: () => ({
+        cancel() { throw new Error('cancel boom') },
+        done: new Promise<TaskOutcome>((res) => { settle = res }),
+      }),
     })
 
     const drain = ctx.agents.drainCleanups(owner.id)
@@ -432,11 +440,13 @@ describe('TaskService disposal', () => {
     ctx.tasks.onTaskDone(snapshot => void seen.push(snapshot.id))
     let settle!: (outcome: TaskOutcome) => void
     const cancels: (string | undefined)[] = []
-    ctx.tasks.register({
+    ctx.tasks.start({
       kind: 'bash',
       label: 'sleep 600',
-      cancel(reason) { cancels.push(reason); settle({ status: 'killed' }) },
-      done: new Promise<TaskOutcome>((res) => { settle = res }),
+      run: () => ({
+        cancel(reason) { cancels.push(reason); settle({ status: 'killed' }) },
+        done: new Promise<TaskOutcome>((res) => { settle = res }),
+      }),
     })
 
     await fiber.dispose()
@@ -456,10 +466,10 @@ describe('TaskService disposal', () => {
 
     detachA1()
     detachA1() // second call of the same disposer is a no-op
-    expect(() => ctx.tasks.register(producer().registration)).not.toThrow() // a ×1 + b remain
+    expect(() => ctx.tasks.start(producer().spec)).not.toThrow() // a ×1 + b remain
     detachA2()
-    expect(() => ctx.tasks.register(producer().registration)).not.toThrow() // b remains
+    expect(() => ctx.tasks.start(producer().spec)).not.toThrow() // b remains
     await fiber.dispose() // detaches b with its fiber (HMR safety)
-    expect(() => ctx.tasks.register(producer().registration)).toThrow('no control surface is attached')
+    expect(() => ctx.tasks.start(producer().spec)).toThrow('no control surface is attached')
   })
 })

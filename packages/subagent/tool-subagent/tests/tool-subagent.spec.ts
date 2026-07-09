@@ -602,28 +602,29 @@ describe('dsh-tool-subagent background mode', () => {
   })
 })
 
-describe('background registration failure (no orphaned child)', () => {
-  it('cancels and disposes the just-started run when register() throws', async () => {
-    // TaskService is loaded but NO control surface is attached, so
-    // ctx.tasks.register throws AFTER the provider run already started.
+describe('background preflight failure (no orphaned child, by construction)', () => {
+  it('never starts the child when tasks.start preflight throws', async () => {
+    // TaskService is loaded but NO control surface is attached: tasks.start
+    // preflights that fence BEFORE invoking the producer's run(), so the
+    // provider is never asked to spawn — there is no orphan to roll back.
     const ctx = await setup({ provider: 'mock' })
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(TaskService)
     const parent = { id: AgentId('agent-sess-p'), inject: () => {}, session: { header: { version: 0, id: 'sess-p', createdAt: 0 } } } as unknown as Agent
     ctx.agents.register(parent)
 
-    const events: string[] = []
+    let starts = 0
     ctx.subagents.registerProvider({
       name: 'probe',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false },
       inheritsParentContext: false,
       start: () => {
-        let settle!: (value: { output: never[]; stopReason: 'aborted' }) => void
+        starts += 1
         return {
           id: AgentId('probe-child'),
-          result: new Promise((res) => { settle = res }),
-          cancel(reason?: string) { events.push(`cancel:${reason}`); settle({ output: [], stopReason: 'aborted' }) },
-          dispose() { events.push('dispose'); return Promise.resolve() },
+          result: Promise.resolve({ output: [], stopReason: 'completed' as const }),
+          cancel() {},
+          dispose: () => Promise.resolve(),
         }
       },
     })
@@ -637,8 +638,7 @@ describe('background registration failure (no orphaned child)', () => {
     })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('no control surface is attached')
-    // The child was cancelled AND disposed before the call settled — the
-    // model never got an id, so nothing else could ever collect or kill it.
-    expect(events).toEqual(['cancel:background task registration failed', 'dispose'])
+    // Declare-then-execute: the failed preflight means no child ever existed.
+    expect(starts).toBe(0)
   })
 })

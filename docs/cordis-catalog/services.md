@@ -212,7 +212,7 @@ Source: [`packages/core/system-prompt/src/index.ts:291`](../../packages/core/sys
 The `tasks` service: the runtime-global background task registry. See the module doc for the ownership, isolation, and lifecycle contracts.
 
 ```ts cordis-catalog
-register(registration: TaskRegistration): TaskId
+start(spec: TaskStart): TaskId
 list(caller?: Agent): TaskSnapshot[]
 get(id: TaskId, caller?: Agent): TaskSnapshot
 read(id: TaskId, caller?: Agent): TaskRead
@@ -224,7 +224,7 @@ attachSurface(name: string): () => void
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/tasks/tasks/src/index.ts:93`](../../packages/tasks/tasks/src/index.ts)
+Source: [`packages/tasks/tasks/src/index.ts:95`](../../packages/tasks/tasks/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

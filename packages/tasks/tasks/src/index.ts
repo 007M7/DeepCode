@@ -4,8 +4,9 @@
  * snapshots, incremental/final output reads, cancellation, wait-for-terminal,
  * completion listeners, and the awaited owner-cleanup path. Producers
  * (`dsh-tool-bash` background commands, `dsh-tool-subagent` background
- * delegations, future long-running tools) register running work via
- * {@link TaskService.register} and keep their own execution concerns; the
+ * delegations, future long-running tools) hand their work to
+ * {@link TaskService.start} — preflight, then the producer's starter, then an
+ * atomic commit — and keep their own execution concerns; the
  * model-facing control surface (`@deepseek-ai/dsh-tool-tasks`) drives the
  * generic read/list/kill/wait operations.
  *
@@ -32,15 +33,16 @@ import { Context, Service } from 'cordis'
 import type { Agent, AgentId } from '@deepseek-ai/dsh-agent'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { TaskId } from './types.ts'
-import type { TaskDoneListener, TaskOutcome, TaskRead, TaskRegistration, TaskSnapshot, TaskStatus } from './types.ts'
+import type { TaskDoneListener, TaskOutcome, TaskRead, TaskSnapshot, TaskStart, TaskStatus } from './types.ts'
 
 export { TaskId } from './types.ts'
 export type {
   TaskDoneListener,
+  TaskHooks,
   TaskOutcome,
   TaskRead,
-  TaskRegistration,
   TaskSnapshot,
+  TaskStart,
   TaskStatus,
 } from './types.ts'
 
@@ -114,44 +116,48 @@ export class TaskService extends Service {
   }
 
   /**
-   * Register running background work and receive its task id (`<kind>-N`,
-   * per-kind counter). The registry attaches ONE continuation to
-   * `registration.done` that records the terminal snapshot, notifies
-   * {@link onTaskDone} listeners, and releases waiters; an owned task also
-   * gets the owner's awaited disposal cleanup attached (once per owner agent)
-   * through `ctx.agents.onCleanup`. Throws when no control surface is
-   * attached ({@link attachSurface}) — a task the model could never read or
-   * stop must fail loud at the start, not dangle — and for an empty
-   * kind/label. ATOMIC: a throw mutates no registry state, so a producer can
-   * cancel its just-started work and rethrow without leaving a stored task
-   * behind.
-   * @param registration - the producer's task contract (see {@link TaskRegistration}).
+   * PREFLIGHT, start, then atomically register background work; returns its
+   * task id (`<kind>-N`, per-kind counter). Every check that can fail — the
+   * control-surface fence ({@link attachSurface}; a task the model could
+   * never read or stop must fail loud before it exists), kind/label
+   * validation, and the owner's awaited disposal-cleanup attach (once per
+   * owner agent, through `ctx.agents.onCleanup`) — runs BEFORE
+   * `spec.run()` starts the actual work, and nothing in the runtime can fail
+   * after it returns: "work started but never got a collectable id" is
+   * structurally impossible, not a producer rollback obligation. The runtime
+   * attaches ONE continuation to the returned `done` that records the
+   * terminal snapshot, notifies {@link onTaskDone} listeners, and releases
+   * waiters. A throwing `run()` propagates with nothing registered (the
+   * producer owns any partial cleanup of its own failed start).
+   * @param spec - the task's identity/owner plus the `run()` starter (see {@link TaskStart}).
    * @returns the registry-issued task id.
    */
-  register(registration: TaskRegistration): TaskId {
+  start(spec: TaskStart): TaskId {
+    // -- Preflight: everything that can throw, before any work or mutation. --
     if (this.surfaces.size === 0) {
       throw new Error('background tasks unavailable: no control surface is attached (load @deepseek-ai/dsh-tool-tasks)')
     }
-    if (registration.kind.length === 0) throw new Error('invalid task kind: expected a non-empty string')
-    if (registration.label.length === 0) throw new Error('invalid task label: expected a non-empty string')
-    // EVERYTHING that can throw runs before any mutation (counter, store):
-    // a failed registration must leave the registry exactly as it was — no
-    // stored-but-unreturned task the producer could never read or kill.
-    if (registration.owner !== undefined) this.ensureOwnerCleanup(registration.owner)
+    if (spec.kind.length === 0) throw new Error('invalid task kind: expected a non-empty string')
+    if (spec.label.length === 0) throw new Error('invalid task label: expected a non-empty string')
+    if (spec.owner !== undefined) this.ensureOwnerCleanup(spec.owner)
 
-    const count = (this.counters.get(registration.kind) ?? 0) + 1
-    this.counters.set(registration.kind, count)
-    const id = TaskId(`${registration.kind}-${count}`)
+    // -- Start: the producer's work begins only now, preflight-clean. --
+    const hooks = spec.run()
+
+    // -- Commit: pure mutations; nothing below can throw. --
+    const count = (this.counters.get(spec.kind) ?? 0) + 1
+    this.counters.set(spec.kind, count)
+    const id = TaskId(`${spec.kind}-${count}`)
 
     let markSettled!: () => void
     const settled = new Promise<void>((resolve) => { markSettled = resolve })
     const task: TrackedTask = {
       id,
-      kind: registration.kind,
-      label: registration.label,
-      ownerSession: registration.owner?.session.header.id,
-      cancel: registration.cancel.bind(registration),
-      readOutput: registration.readOutput?.bind(registration),
+      kind: spec.kind,
+      label: spec.label,
+      ownerSession: spec.owner?.session.header.id,
+      cancel: hooks.cancel.bind(hooks),
+      readOutput: hooks.readOutput?.bind(hooks),
       status: 'running',
       detail: undefined,
       output: undefined,
@@ -164,7 +170,7 @@ export class TaskService extends Service {
     }
     this.store.set(id, task)
 
-    void registration.done.then(
+    void hooks.done.then(
       (outcome) => { this.settle(task, outcome) },
       (error: unknown) => {
         // Producer contract violation (`done` must never reject) — contained
@@ -325,7 +331,7 @@ export class TaskService extends Service {
 
   /**
    * Declare that a control surface capable of reading/stopping tasks is
-   * loaded. {@link register} refuses to start a background task while NO
+   * loaded. {@link start} refuses to start a background task while NO
    * surface is attached — the loud fence against a deployment exposing
    * `run_in_background` without any way to collect or stop the work. The
    * model-facing `@deepseek-ai/dsh-tool-tasks` attaches on load; a deployment

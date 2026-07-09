@@ -361,25 +361,22 @@ export function apply(ctx: Context, config: Config): void {
         // (cancellation belongs to task_kill / owner cleanup), so the check
         // happens here, once, instead of passing the signal to start().
         if (exec.signal?.aborted) throw new Error('command aborted')
-        const proc = ctx.bash.start(ctx.bash.resolve(request))
-        let id: string
-        try {
-          id = tasks.register({
-            kind: 'bash',
-            label: args.command,
-            ...exec.agent ? { owner: exec.agent } : {},
-            cancel: () => void proc.kill(),
-            done: proc.done.then(() => processOutcome(proc)),
-            readOutput: () => renderProcessRead(proc.readOutput()),
-          })
-        } catch (error: unknown) {
-          // A failed registration must not leak the just-started process: the
-          // model never received an id, so nothing could ever task_kill it.
-          // Kill, await quiescence, then fail the call with the real cause.
-          proc.kill()
-          await proc.done
-          throw error
-        }
+        // tasks.start preflights (surface fence, owner cleanup) BEFORE run()
+        // spawns anything, and cannot fail after — the process can never
+        // start without a collectable id.
+        const id = tasks.start({
+          kind: 'bash',
+          label: args.command,
+          ...exec.agent ? { owner: exec.agent } : {},
+          run: () => {
+            const proc = ctx.bash.start(ctx.bash.resolve(request))
+            return {
+              cancel: () => void proc.kill(),
+              done: proc.done.then(() => processOutcome(proc)),
+              readOutput: () => renderProcessRead(proc.readOutput()),
+            }
+          },
+        })
         return [{ type: 'text', text: `started background task ${id}` }]
       }
       const result = await ctx.bash.run(ctx.bash.resolve({

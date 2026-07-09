@@ -1,7 +1,8 @@
 /**
- * Task-registry vocabulary: the registration a producer hands to
- * {@link TaskService.register} and the snapshots/reads consumers get back.
- * Types only — the service lives in `./index.ts`.
+ * Task-runtime vocabulary: the {@link TaskStart} a producer hands to
+ * {@link TaskService.start} (identity + the `run()` starter), the
+ * {@link TaskHooks} its work is driven through, and the snapshots/reads
+ * consumers get back. Types only — the service lives in `./index.ts`.
  *
  * @module @deepseek-ai/dsh-tasks/types
  */
@@ -36,7 +37,7 @@ export function TaskId(id: string): TaskId {
 export type TaskStatus = 'running' | 'stopping' | 'completed' | 'killed' | 'failed'
 
 /**
- * The terminal result a producer's {@link TaskRegistration.done} resolves
+ * The terminal result a producer's {@link TaskHooks.done} resolves
  * with, mapped from the producer's own vocabulary (a process exit, a subagent
  * stop reason) into the registry's closed status set.
  */
@@ -46,7 +47,7 @@ export interface TaskOutcome {
   /** Kind-specific detail rendered into status lines ('exit code: 3', 'max-tokens'). */
   detail?: string
   /**
-   * Final output for FINAL-OUTPUT-ONLY kinds (no {@link TaskRegistration.readOutput}),
+   * Final output for FINAL-OUTPUT-ONLY kinds (no {@link TaskHooks.readOutput}),
    * read idempotently after the task settles. Stream kinds leave it unset —
    * their output is consumed incrementally through `readOutput`.
    */
@@ -54,13 +55,15 @@ export interface TaskOutcome {
 }
 
 /**
- * What a producer registers with {@link TaskService.register}: the running
- * work's identity, its owner, and the three hooks the registry drives it
- * through. The producer stays the owner of its execution concerns (process
- * streams, child agents); the registry owns ids, isolation, status, and
- * completion fan-out.
+ * What a producer hands to {@link TaskService.start}: the task's identity and
+ * owner (preflighted BEFORE any work starts), plus {@link run} — the starter
+ * the runtime invokes only once preflight cannot fail anymore. The producer
+ * stays the owner of its execution concerns (process streams, child agents);
+ * the runtime owns ids, isolation, status, and completion fan-out. This
+ * declare-then-execute split is what makes "work started but never got a
+ * collectable id" structurally impossible.
  */
-export interface TaskRegistration {
+export interface TaskStart {
   /** Producer kind — also the id prefix (`bash`, `subagent`, …). Non-empty. */
   kind: string
   /** One-line model-facing label (the command; the delegation description). */
@@ -69,10 +72,27 @@ export interface TaskRegistration {
    * The spawning agent. Its `session.header.id` becomes the task's owner
    * token (read/kill/wait/list are fenced to that session), and its disposal
    * cancels and awaits the task through the `ctx.agents.onCleanup` seam.
-   * `undefined` registers an UNOWNED task: open to any caller, alive until the
+   * `undefined` starts an UNOWNED task: open to any caller, alive until the
    * tasks service disposes.
    */
   owner?: Agent | undefined
+  /**
+   * Start the actual work and return its {@link TaskHooks}. Called EXACTLY
+   * once, synchronously, after every preflight check (control-surface fence,
+   * validation, owner-cleanup attach) has passed — nothing in the runtime can
+   * fail after it returns, so the started work is always registered. A throw
+   * here propagates with nothing registered; the producer owns any partial
+   * cleanup of its own failed start.
+   */
+  run(): TaskHooks
+}
+
+/**
+ * The live-work hooks a {@link TaskStart.run} returns: how the runtime
+ * cancels the work, observes its settlement, and (for stream kinds) reads
+ * its incremental output.
+ */
+export interface TaskHooks {
   /**
    * Request termination. Idempotent, synchronous, and must lead to
    * {@link done} settling; a throw propagates to the killer (fail loud — a

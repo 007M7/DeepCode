@@ -6,7 +6,7 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import TaskService from '@deepseek-ai/dsh-tasks'
-import type { TaskOutcome, TaskRegistration, TaskSnapshot } from '@deepseek-ai/dsh-tasks'
+import type { TaskHooks, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import { statusLine } from '@deepseek-ai/dsh-tool-tasks'
 
@@ -32,18 +32,18 @@ function fakeAgent(ctx: Context, sessionId: string, inject: (...args: unknown[])
   return agent
 }
 
-/** A controllable producer registration (settle `done` on demand, record cancels). */
-function producer(overrides: Partial<TaskRegistration> = {}) {
+/** A controllable producer start-spec (settle `done` on demand, record cancels). */
+function producer(overrides: Partial<Omit<TaskStart, 'run'> & TaskHooks> = {}) {
   let settle!: (outcome: TaskOutcome) => void
   const cancels: (string | undefined)[] = []
-  const registration: TaskRegistration = {
-    kind: 'bash',
-    label: 'sleep 60',
+  const { kind = 'bash', label = 'sleep 60', owner, ...hookOverrides } = overrides
+  const hooks: TaskHooks = {
     cancel(reason) { cancels.push(reason) },
     done: new Promise<TaskOutcome>((res) => { settle = res }),
-    ...overrides,
+    ...hookOverrides,
   }
-  return { registration, settle, cancels }
+  const spec: TaskStart = { kind, label, ...owner !== undefined ? { owner } : {}, run: () => hooks }
+  return { spec, settle, cancels }
 }
 
 let callCounter = 0
@@ -60,9 +60,9 @@ const tick = () => new Promise<void>(r => setTimeout(r, 0))
 describe('tool-tasks setup', () => {
   it('attaches the control surface on load and detaches it with the fiber', async () => {
     const { ctx, toolsFiber } = await setup()
-    expect(() => ctx.tasks.register(producer().registration)).not.toThrow()
+    expect(() => ctx.tasks.start(producer().spec)).not.toThrow()
     await toolsFiber.dispose()
-    expect(() => ctx.tasks.register(producer().registration)).toThrow('no control surface is attached')
+    expect(() => ctx.tasks.start(producer().spec)).toThrow('no control surface is attached')
   })
 
   it('rejects a config whose default wait exceeds the cap', async () => {
@@ -89,7 +89,7 @@ describe('tool-tasks setup', () => {
     await ctx.plugin(TaskService)
     ToolTasks.apply(ctx, {})
     expect(ctx.tools.get('task_output')).toBeDefined()
-    expect(() => ctx.tasks.register(producer().registration)).not.toThrow()
+    expect(() => ctx.tasks.start(producer().spec)).not.toThrow()
   })
 })
 
@@ -97,7 +97,7 @@ describe('task_output', () => {
   it('reads a consuming delta with a trailing status line', async () => {
     const { ctx } = await setup()
     const chunks = ['line one\n', '']
-    ctx.tasks.register(producer({ readOutput: () => chunks.shift() ?? '' }).registration)
+    ctx.tasks.start(producer({ readOutput: () => chunks.shift() ?? '' }).spec)
 
     // A body already ending in a newline gets no doubled separator.
     expect(text(await call(ctx, 'task_output', { task_id: 'bash-1' }))).toBe('line one\n[status: running]')
@@ -107,7 +107,7 @@ describe('task_output', () => {
   it('returns the final output of a settled final-output task', async () => {
     const { ctx } = await setup()
     const p = producer({ kind: 'subagent', label: 'research' })
-    ctx.tasks.register(p.registration)
+    ctx.tasks.start(p.spec)
     expect(text(await call(ctx, 'task_output', { task_id: 'subagent-1' }))).toBe('(no new output)\n[status: running]')
 
     p.settle({ status: 'completed', detail: 'completed', output: 'the answer' })
@@ -118,7 +118,7 @@ describe('task_output', () => {
   it('wait: true blocks until settlement and reports the terminal state', async () => {
     const { ctx } = await setup()
     const p = producer({ kind: 'subagent', label: 'research' })
-    ctx.tasks.register(p.registration)
+    ctx.tasks.start(p.spec)
 
     const pending = call(ctx, 'task_output', { task_id: 'subagent-1', wait: true })
     p.settle({ status: 'completed', output: 'done deal' })
@@ -127,7 +127,7 @@ describe('task_output', () => {
 
   it('wait: true times out against the configured cap and leaves the task alive', async () => {
     const { ctx } = await setup({ waitTimeoutMs: 10, maxWaitTimeoutMs: 20 })
-    ctx.tasks.register(producer().registration)
+    ctx.tasks.start(producer().spec)
 
     // A model-supplied timeout far above the cap is clamped: this returns
     // promptly (≤ the 20ms cap), not after ten minutes.
@@ -150,10 +150,10 @@ describe('task_list', () => {
     expect(text(await call(ctx, 'task_list', {}))).toBe('(no background tasks)')
 
     const alice = fakeAgent(ctx, 'sess-alice')
-    ctx.tasks.register(producer({ owner: alice, label: 'pnpm test' }).registration)
-    ctx.tasks.register(producer({ kind: 'subagent', label: 'open research' }).registration)
+    ctx.tasks.start(producer({ owner: alice, label: 'pnpm test' }).spec)
+    ctx.tasks.start(producer({ kind: 'subagent', label: 'open research' }).spec)
     const p = producer({ owner: alice, label: 'build' })
-    ctx.tasks.register(p.registration)
+    ctx.tasks.start(p.spec)
     p.settle({ status: 'completed', detail: 'exit code: 0' })
     await tick()
 
@@ -172,7 +172,7 @@ describe('task_kill', () => {
   it('requests cancellation with the forwarded reason', async () => {
     const { ctx } = await setup()
     const p = producer()
-    ctx.tasks.register(p.registration)
+    ctx.tasks.start(p.spec)
 
     const result = await call(ctx, 'task_kill', { task_id: 'bash-1', reason: 'superseded' })
     expect(text(result)).toBe('requested cancellation of task bash-1')
@@ -183,7 +183,7 @@ describe('task_kill', () => {
     const { ctx } = await setup()
     let delta = 'unread tail'
     const p = producer({ readOutput: () => { const d = delta; delta = ''; return d } })
-    ctx.tasks.register(p.registration)
+    ctx.tasks.start(p.spec)
     p.settle({ status: 'completed', detail: 'exit code: 0' })
     await tick()
 
@@ -217,7 +217,7 @@ describe('completion notices', () => {
     const inject = vi.fn()
     const owner = fakeAgent(ctx, 'sess-1', inject)
     const p = producer({ owner, label: 'pnpm test' })
-    ctx.tasks.register(p.registration)
+    ctx.tasks.start(p.spec)
 
     p.settle({ status: 'completed', detail: 'exit code: 0' })
     await tick()
@@ -233,7 +233,7 @@ describe('completion notices', () => {
     const inject = vi.fn()
     const owner = fakeAgent(ctx, 'sess-1', inject)
     const p = producer({ owner })
-    ctx.tasks.register(p.registration)
+    ctx.tasks.start(p.spec)
 
     await call(ctx, 'task_kill', { task_id: 'bash-1' }, owner)
     p.settle({ status: 'killed' })
@@ -246,7 +246,7 @@ describe('completion notices', () => {
     const inject = vi.fn()
     const owner = fakeAgent(ctx, 'sess-1', inject)
     const p = producer({ owner, kind: 'subagent' })
-    ctx.tasks.register(p.registration)
+    ctx.tasks.start(p.spec)
 
     const pending = call(ctx, 'task_output', { task_id: 'subagent-1', wait: true }, owner)
     p.settle({ status: 'completed', output: 'answer' })
@@ -258,7 +258,7 @@ describe('completion notices', () => {
     const { ctx } = await setup()
     // Unowned: settles with nobody to notify — nothing throws.
     const unowned = producer()
-    ctx.tasks.register(unowned.registration)
+    ctx.tasks.start(unowned.spec)
     unowned.settle({ status: 'completed' })
     await tick()
 
@@ -266,7 +266,7 @@ describe('completion notices', () => {
     const inject = vi.fn(() => { throw new Error('agent "agent-sess-1" is disposed') })
     const owner = fakeAgent(ctx, 'sess-1', inject)
     const p = producer({ owner })
-    ctx.tasks.register(p.registration)
+    ctx.tasks.start(p.spec)
     p.settle({ status: 'completed' })
     await tick()
     expect(inject).toHaveBeenCalledTimes(1)
@@ -277,7 +277,7 @@ describe('completion notices', () => {
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const owner = fakeAgent(ctx, 'sess-1', () => { throw new Error('unexpected inject bug') })
     const p = producer({ owner })
-    ctx.tasks.register(p.registration)
+    ctx.tasks.start(p.spec)
     p.settle({ status: 'completed' })
     await tick()
     // The throw escapes the notice listener and is contained (logged) by the
@@ -292,10 +292,10 @@ describe('completion notices', () => {
 
     // Owner known at registration, unregistered before settlement → no match.
     const p1 = producer({ owner })
-    ctx.tasks.register(p1.registration)
+    ctx.tasks.start(p1.spec)
     // A second task whose settlement happens after the whole registry is gone.
     const p2 = producer({ owner })
-    ctx.tasks.register(p2.registration)
+    ctx.tasks.start(p2.spec)
 
     await agentsFiber.dispose()
     p1.settle({ status: 'completed' })

@@ -264,32 +264,27 @@ export function apply(ctx: Context, config: Config): void {
           // (the child outlives this step; cancellation belongs to task_kill
           // and owner-disposal cleanup), so the request carries NO signal.
           if (exec.signal?.aborted) throw new Error('subagent delegation aborted')
-          const run = ctx.subagents.start(config.provider, {
-            prompt: [{ type: 'text', text: args.prompt }],
-            parent,
-            ...config.agentOptions ? { agentOptions: config.agentOptions } : {},
+          // tasks.start preflights (surface fence, owner cleanup) BEFORE run()
+          // spawns the child, and cannot fail after — a child can never start
+          // without a collectable id.
+          const id = tasks.start({
+            kind: 'subagent',
+            label: args.description,
+            owner: parent,
+            run: () => {
+              const run = ctx.subagents.start(config.provider, {
+                prompt: [{ type: 'text', text: args.prompt }],
+                parent,
+                ...config.agentOptions ? { agentOptions: config.agentOptions } : {},
+              })
+              return {
+                cancel: (reason?: string) => { run.cancel(reason ?? 'background subagent task killed') },
+                done: settleRun(run),
+                // No readOutput: a subagent task is final-output-only — the
+                // child session remains the detailed trace.
+              }
+            },
           })
-          const done = settleRun(run)
-          let id: string
-          try {
-            id = tasks.register({
-              kind: 'subagent',
-              label: args.description,
-              owner: parent,
-              cancel: (reason) => { run.cancel(reason ?? 'background subagent task killed') },
-              done,
-              // No readOutput: a subagent task is final-output-only — the child
-              // session remains the detailed trace.
-            })
-          } catch (error: unknown) {
-            // A failed registration must not leak the just-started child: the
-            // model never received an id, so nothing could ever task_kill it.
-            // Cancel, await `done` (which settles only after run.dispose() —
-            // child quiescence), then fail the call with the real cause.
-            run.cancel('background task registration failed')
-            await done
-            throw error
-          }
           return [{ type: 'text', text: `started background subagent task ${id}` }]
         }
 

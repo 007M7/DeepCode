@@ -6,8 +6,8 @@
  * registry (`@deepseek-ai/dsh-tasks`).
  *
  * This plugin IS the control surface: it calls `ctx.tasks.attachSurface()` on
- * load, which is what re-arms producers' `register()` (the registry refuses
- * background work while no surface could collect or stop it).
+ * load, which is what arms producers' `ctx.tasks.start()` (the runtime's
+ * preflight refuses background work while no surface could collect or stop it).
  *
  * Completion notices: when a task settles, a short notice is injected into
  * the owning agent's session (`agent.inject()` — durable context for the NEXT

@@ -354,36 +354,30 @@ describe('background execution through the task runtime', () => {
     expect((ctx.bash as CountingStartExecutor).starts).toBe(0)
   })
 
-  it('a failed registration kills the just-started process (no orphan without an id)', async () => {
+  it('never spawns the process when tasks.start preflight throws (no orphan, by construction)', async () => {
     class LeakProbeExecutor extends BashExecutor {
-      kills = 0
+      starts = 0
       resolve(request: BashExecRequest): BashExecSpec {
         return { command: request.command, workdir: request.workdir ?? '/x', timeoutMs: request.timeoutMs ?? 0 }
       }
 
       run(): Promise<BashRunResult> { return Promise.reject(new Error('unused')) }
       start(spec: BashExecSpec): BashProcess {
-        let close!: () => void
-        const done = new Promise<void>((res) => { close = res })
-        const proc: BashProcess = {
+        this.starts += 1
+        return {
           command: spec.command,
-          status: 'running',
-          exitCode: null,
+          status: 'completed',
+          exitCode: 0,
           signal: null,
-          done,
+          done: Promise.resolve(),
           readOutput: () => ({ delta: '', lossy: false }),
-          kill: () => {
-            this.kills += 1
-            proc.status = 'killed'
-            close()
-            return true
-          },
+          kill: () => false,
         }
-        return proc
       }
     }
-    // TaskService WITHOUT any control surface: register() throws AFTER the
-    // process already started — the producer must kill and await it.
+    // TaskService WITHOUT any control surface: tasks.start preflights that
+    // fence BEFORE invoking the producer's run(), so the executor is never
+    // asked to spawn — there is no orphan to roll back.
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
@@ -395,8 +389,8 @@ describe('background execution through the task runtime', () => {
     const result = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('no control surface is attached')
-    // The call resolved only after the kill landed (the catch awaits done).
-    expect((ctx.bash as LeakProbeExecutor).kills).toBe(1)
+    // Declare-then-execute: the failed preflight means no process ever ran.
+    expect((ctx.bash as LeakProbeExecutor).starts).toBe(0)
   })
 
   it('enableRunInBackground: false removes the parameter and flips the description', async () => {

@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-tool-tasks
 
-The model-facing background task control surface over `ctx.tasks`: three kind-agnostic tools, the completion-notice injection, and the prompt section that teaches the background habit. Loading this plugin calls `ctx.tasks.attachSurface('tool-tasks')`, which is what arms producers' `register()`.
+The model-facing background task control surface over `ctx.tasks`: three kind-agnostic tools, the completion-notice injection, and the prompt section that teaches the background habit. Loading this plugin calls `ctx.tasks.attachSurface('tool-tasks')`, which is what arms producers' `ctx.tasks.start()`.
 
 ## Tools
 

@@ -173,7 +173,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolTasks)
     },
     note:
-      'The kind-agnostic background-task control surface: a background bash command and a background subagent are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers\' `ctx.tasks.register()`.',
+      'The kind-agnostic background-task control surface: a background bash command and a background subagent are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers\' `ctx.tasks.start()`.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-todo',
