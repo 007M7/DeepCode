@@ -203,6 +203,10 @@ const DYNAMIC_EVENT_DISPATCHERS: Array<{ event: string; pkg: string; method: str
   // listeners or strand an already-started child run.
   { event: 'subagent/start', pkg: 'subagent', method: 'events.dispatch' },
   { event: 'subagent/end', pkg: 'subagent', method: 'events.dispatch' },
+  // provider-removed fires inside the provider registration's DISPOSER and
+  // routes through the same contained dispatch (see emitLifecycle in
+  // dsh-subagent), so the AST scan cannot attribute it either.
+  { event: 'subagent/provider-removed', pkg: 'subagent', method: 'events.dispatch' },
 ]
 
 function generatedHeader(title: string): string[] {
@@ -578,6 +582,24 @@ function renderEventRelations(pkgs: Pkg[]): string {
   for (const event of [...events].sort((a, b) => a.name.localeCompare(b.name))) {
     const relation = relations.get(event.name) ?? { dispatchers: new Map<string, Set<string>>(), listeners: new Set<string>() }
     lines.push(`| \`${event.name}\` | \`${event.mode}\` | ${sourceLink(event.source)} | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
+  }
+  // Completeness guard: every DECLARED event must have at least one dispatcher
+  // edge — a zero-dispatcher row is either dead vocabulary or (the observed
+  // failure mode) a dispatch spelling the AST scan does not recognize, silently
+  // dropping the producer from the matrix. Fail the generation loud instead:
+  // teach the scan the new spelling, add a DYNAMIC_EVENT_DISPATCHERS override,
+  // or remove the dead event. Zero LISTENERS is deliberately legal — an event
+  // dispatched for out-of-repo plugins is an ordinary extension point.
+  const undispatched = [...events]
+    .filter(event => (relations.get(event.name)?.dispatchers.size ?? 0) === 0)
+    .map(event => event.name)
+    .sort()
+  if (undispatched.length > 0) {
+    throw new Error(
+      `event-producer-consumer matrix: no dispatcher found for declared event${undispatched.length > 1 ? 's' : ''} `
+      + `${undispatched.map(name => `"${name}"`).join(', ')} — dead vocabulary, or a dispatch spelling the scan misses `
+      + '(teach scripts/gen-doc-graphs.ts the spelling or add a DYNAMIC_EVENT_DISPATCHERS override)',
+    )
   }
   const declared = new Set(events.map(event => event.name))
   const extra = [...relations.keys()].filter(event => !declared.has(event)).sort()
