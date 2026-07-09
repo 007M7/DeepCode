@@ -218,11 +218,12 @@ export abstract class WorkflowService extends Service {
    * with its OWN structural clone of the payload (the payloads are plain JSON
    * data by the seam contract), so a listener mutating what it received can
    * corrupt neither the engine's live state nor any other listener's or later
-   * event's view; a thrown listener is logged (never propagated), so one bad
-   * subscriber can neither fail the engine mid-run, surface as an unhandled
-   * rejection on a detached settle hook, nor starve the listeners registered
-   * after it (cordis `emit` halts on the first throw — same guarantee as the
-   * subagent seam's lifecycle emits).
+   * event's view; a thrown listener is logged (never propagated — the logging
+   * itself is total, even for a thrown value whose own string coercion
+   * throws), so one bad subscriber can neither fail the engine mid-run,
+   * surface as an unhandled rejection on a detached settle hook, nor starve
+   * the listeners registered after it (cordis `emit` halts on the first throw
+   * — same guarantee as the subagent seam's lifecycle emits).
    * @param name - the `workflow/*` event to dispatch.
    * @param args - the event's payload, matching its declared signature.
    */
@@ -233,9 +234,27 @@ export abstract class WorkflowService extends Service {
         // dispatch callback applies the payload tuple.
         ;(callback as (...payload: unknown[]) => void)(...structuredClone(args))
       } catch (error: unknown) {
-        this.ctx.logger.warn(`workflow: ${name} listener threw: ${String(error)}`)
+        this.ctx.logger.warn(`workflow: ${name} listener threw: ${renderListenerError(error)}`)
       }
     }
+  }
+}
+
+/**
+ * Total renderer for a listener-thrown value: the containment catch must never
+ * itself throw, and `String(error)` does when the value's own `toString` /
+ * `Symbol.toPrimitive` throws. Local rather than an engine package's renderer
+ * — the seam sits below every engine and cannot import one.
+ * @param error - any thrown value.
+ * @returns `String(error)`, or a fixed label when even coercion throws.
+ */
+function renderListenerError(error: unknown): string {
+  try {
+    return String(error)
+  } catch {
+    // Only a throwing toString/Symbol.toPrimitive lands here; the fixed label
+    // keeps the containment guarantee total.
+    return '[unrenderable thrown value]'
   }
 }
 

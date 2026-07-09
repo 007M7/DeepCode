@@ -102,6 +102,22 @@ describe('dsh-workflow (interface)', () => {
     expect(String(warn.mock.calls[0]![0])).toContain('workflow/phase listener threw')
   })
 
+  it('containment is total: a listener throwing a value whose coercion throws neither propagates nor starves later listeners', async () => {
+    const ctx = new Context()
+    await ctx.plugin(StubEngine)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => ctx.logger)
+    const reached: string[] = []
+    ctx.on('workflow/phase', () => {
+      throw { toString: () => { throw new Error('coercion trap') } }
+    })
+    ctx.on('workflow/phase', (_info, title) => { reached.push(title) })
+    const engine = ctx.workflows as StubEngine
+    expect(() => { engine.emit('workflow/phase', INFO, 'Scan') }).not.toThrow()
+    expect(reached).toEqual(['Scan'])
+    expect(warn).toHaveBeenCalledOnce()
+    expect(String(warn.mock.calls[0]![0])).toContain('[unrenderable thrown value]')
+  })
+
   it('has the expected export surface (default = the abstract service class)', () => {
     expect(WorkflowServiceDefault).toBe(WorkflowService)
   })
