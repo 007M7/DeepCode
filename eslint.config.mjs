@@ -22,6 +22,7 @@ export default tseslint.config(
       '**/lib/**',
       '**/node_modules/**',
       '**/.sessions/**',
+      '.claude/**', // harness-local state (worktrees, skills) — other checkouts, not this one's sources
       '**/.doc-typecheck-*/**',
       'vendor/**', // vendored source keeps upstream style and idioms
       '**/*.js',

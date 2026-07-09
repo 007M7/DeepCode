@@ -818,7 +818,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:319`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:323`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-web`
 
@@ -966,6 +966,7 @@ Source: [`packages/workflow/workflow-workerthread/src/index.ts:69`](../packages/
 These load from a `cordis.yml` entry with no `config:` block; they declare no config surface.
 
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
+- `@deepseek-ai/dsh-approval` ([`packages/approval/approval/src/index.ts`](../packages/approval/approval/src/index.ts))
 - `@deepseek-ai/dsh-fs-policy` ([`packages/fs/fs-policy/src/index.ts`](../packages/fs/fs-policy/src/index.ts))
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))

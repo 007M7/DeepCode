@@ -9,28 +9,28 @@
   ],
   "references": [
     {
-      "path": "../../core/session"
-    },
-    {
-      "path": "../../code-runtime/code-runtime"
-    },
-    {
       "path": "../../../vendor/cosmokit"
     },
     {
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
       "path": "../../llm/llm"
     },
     {
-      "path": "../../core/system-prompt"
+      "path": "../../core/session"
     },
     {
       "path": "../../core/agent"
     },
     {
-      "path": "../../approval/approval"
+      "path": "../../core/system-prompt"
     }
   ]
 }

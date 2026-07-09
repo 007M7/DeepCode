@@ -11,6 +11,30 @@ The on-disk envelope around every payload is `SessionEvent` — `type`, monotoni
 
 ## Events
 
+### `approval/*`
+
+#### `approval/asked` — log-only
+
+An approval question was put to the answerer chain — log-only audit (like `hook/*`; NOT a surface event, carries no `surfaceOp`). `id` pairs it with the `approval/decided` that always follows; `toolName` is the tool the question is about, `callId` the exact tool call when the asker had one, `reason` the asker's human-readable explanation (e.g. a hook's permission-decision reason).
+
+```ts persistence-catalog
+'approval/asked': { id: ApprovalRequestId; toolName: string; callId?: CallId; reason?: string }
+```
+
+Types: [CallId](core-data-structures/core.md)
+
+Source: [`packages/approval/approval/src/index.ts:66`](../packages/approval/approval/src/index.ts)
+
+#### `approval/decided` — log-only
+
+The outcome of a prior `approval/asked` (same `id`) — log-only audit. Exactly one per ask, appended when the outcome is known: a decision, a cancellation, or the fail-closed `'unavailable'`.
+
+```ts persistence-catalog
+'approval/decided': { id: ApprovalRequestId; outcome: ApprovalOutcome }
+```
+
+Source: [`packages/approval/approval/src/index.ts:77`](../packages/approval/approval/src/index.ts)
+
 ### `assistant/*`
 
 #### `assistant/chunk` — log-only

@@ -40,6 +40,7 @@
       // here. The build graph's project references (tsconfig.build.json) stay
       // explicit — TS project references have no wildcard form.
       "@deepseek-ai/dsh-*": [
+        "./packages/approval/*/src",
         "./packages/core/*/src",
         "./packages/llm/*/src",
         "./packages/bash/*/src",

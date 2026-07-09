@@ -40,6 +40,16 @@ Types: [Agent](../core-data-structures/core.md)
 
 Source: [`packages/core/agent/src/index.ts:117`](../../packages/core/agent/src/index.ts)
 
+## `ctx.approval` — `ApprovalService`
+
+The `ctx.approval` service: dispatches ApprovalRequests to the `approval/request` waterfall and audits every ask/outcome pair to the requesting agent's session log. Stateless between requests — grants are returned to the caller, never stored here.
+
+```ts cordis-catalog
+async request(req: ApprovalRequest): Promise<ApprovalOutcome>
+```
+
+Source: [`packages/approval/approval/src/index.ts:168`](../../packages/approval/approval/src/index.ts)
+
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
 Abstract bash execution service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.bash` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
@@ -226,7 +236,7 @@ async execute(exec: ToolExecution): Promise<ToolExecutionResult>
 
 Types: [ToolDefinition](../core-data-structures/tools.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:345`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:349`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 
