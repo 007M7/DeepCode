@@ -1,6 +1,6 @@
 {
-  "name": "@deepseek-ai/dsh-web-fetch-local",
-  "description": "Anonymous public HTTP(S) fetch provider for the DeepSeek Harness web capability seam (ctx.web)",
+  "name": "@deepseek-ai/dsh-timeout",
+  "description": "Zero-dependency timeout/deadline primitive: clampTimeout, deadline, timeoutOf, TimeoutReason (timing + classification only, no termination)",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -22,16 +22,9 @@
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
-    "@deepseek-ai/dsh-timeout": "^0.0.1",
-    "@deepseek-ai/dsh-web": "^0.0.1",
     "cordis": "^4.0.0-rc.6"
   },
-  "dependencies": {
-    "schemastery": "^3.18.0"
-  },
   "devDependencies": {
-    "@deepseek-ai/dsh-timeout": "workspace:^",
-    "@deepseek-ai/dsh-web": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }
 }
