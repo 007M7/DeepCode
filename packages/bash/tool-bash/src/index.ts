@@ -36,7 +36,7 @@
  * docs/architecture.md § Extension And Composition. Under a sandboxing
  * executor this plugin also advertises the ESCALATION surface
  * (`sandbox_permissions`/`justification` — the sandbox RFC § Escalation,
- * docs/rfc/proposed/feature/2026-07-06-sandbox.md): a command the
+ * docs/rfc/implemented/feature/2026-07-06-sandbox.md): a command the
  * sandbox denied may be retried once under a strictly wider mode, resolved
  * through `ctx.approval` BEFORE anything executes and failing closed on every
  * unanswerable path. The fields exist only when the mounted executor reports

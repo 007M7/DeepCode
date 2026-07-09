@@ -26,7 +26,7 @@ The bridge implements the **core prompt-turn loop** for N concurrent sessions: i
 | `session/prompt` | S | ✅ | ✅ | ✅ | Maps to `agent.send`; one in-flight prompt per session; settles on the owning turn's end. |
 | `session/cancel` | S | ✅ | ✅ | ✅ | Queue-aware `agent.cancel`; settles the in-flight prompt `cancelled`, scoped to the one session. |
 | `session/set_mode` | S | ❌ | ✅ | ✅ | Session modes deliberately skipped: config options are the spec's replacement (modes are slated for removal in ACP v2), and one mode list cannot carry the two orthogonal knobs (see [§6](#6-session-modes--config-options--models)). |
-| `session/set_config_option` | S | ✅ | ✅ | ✅ | Two capability-gated selects — `sandbox-mode` (confining executor mounted) and `approval-policy` (approval seam composed); values validated against the domain vocabularies, one log-only event per switch on the session's own log, complete refreshed state in the response ([sandbox RFC § Per-session mode switching](../../../docs/rfc/proposed/feature/2026-07-06-sandbox.md)). |
+| `session/set_config_option` | S | ✅ | ✅ | ✅ | Two capability-gated selects — `sandbox-mode` (confining executor mounted) and `approval-policy` (approval seam composed); values validated against the domain vocabularies, one log-only event per switch on the session's own log, complete refreshed state in the response ([sandbox RFC § Per-session mode switching](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md)). |
 | model selection | S | ❌ | ✅ | ✅ | No distinct stable `session/set_model` — model is the `model`-category `session/set_config_option`. The bridge fixes the model per-bridge via config; no runtime switch. Codex still uses the legacy `unstable_setSessionModel` ext method. |
 | `session/list` | S | ❌ | ✅ | ✅ | Gated by `sessionCapabilities.list`. The harness HAS `sessionPersistence.list()` (used internally for load-cwd validation) but does not expose it over ACP. |
 | `session/delete` | S | ❌ | ✅ | ✅ | Gated by `sessionCapabilities.delete`. |
@@ -86,7 +86,7 @@ These are capabilities the bridge would *drive* on the editor. The harness runs 
 | `plan` | S | ❌ | ✅ | ✅ | No agent plan emitted. Both adapters emit real plan entries (Codex's `CodexEventHandler.updatePlan` maps `turn/plan/updated` → `{ sessionUpdate: 'plan', entries }`). |
 | `available_commands_update` | S | ❌ | ✅ | ✅ | No slash commands advertised. |
 | `current_mode_update` | S | ❌ | ✅ | ✅ | No session modes. |
-| `config_option_update` | S | ❌ | ✅ | ✅ | Config options exist (advertised in `session/new`/`session/load`, switched via `session/set_config_option`), but the bridge never pushes agent-initiated changes — an operator default drift is narrated to the MODEL, not echoed to the editor. Future work in the [sandbox RFC § Per-session mode switching](../../../docs/rfc/proposed/feature/2026-07-06-sandbox.md). |
+| `config_option_update` | S | ❌ | ✅ | ✅ | Config options exist (advertised in `session/new`/`session/load`, switched via `session/set_config_option`), but the bridge never pushes agent-initiated changes — an operator default drift is narrated to the MODEL, not echoed to the editor. Future work in the [sandbox RFC § Per-session mode switching](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md). |
 | `usage_update` | S | ❌ | ✅ | ✅ | Token/cost reporting not surfaced (the harness records token usage internally on `assistant/message`). |
 | `session_info_update` | S | ❌ | ⚠️ | ⚠️ | Session title/metadata not pushed. |
 
@@ -111,7 +111,7 @@ Tool-call presentation is **owned by each tool** (`presentCall` / `presentResult
 
 ## 6. Session modes / config options / models
 
-Config options ✅ (the [sandbox RFC § Per-session mode switching](../../../docs/rfc/proposed/feature/2026-07-06-sandbox.md)): the bridge advertises one independent `select` per composable knob — `sandbox-mode` iff the mounted executor confines, `approval-policy` iff the approval seam is composed — with per-session current values folded from each session's own log, and honors `session/set_config_option` end to end (idle switches anchor at the next turn under the turn-enclosure contract). Session MODES stay deliberately unmodeled: config options are the spec's replacement (modes are slated for removal in ACP v2), and one mode list cannot carry two orthogonal knobs. Runtime model selection is still not modeled — the harness fixes the model per-bridge via `AcpConfig.model` (both reference adapters ship a model selector).
+Config options ✅ (the [sandbox RFC § Per-session mode switching](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md)): the bridge advertises one independent `select` per composable knob — `sandbox-mode` iff the mounted executor confines, `approval-policy` iff the approval seam is composed — with per-session current values folded from each session's own log, and honors `session/set_config_option` end to end (idle switches anchor at the next turn under the turn-enclosure contract). Session MODES stay deliberately unmodeled: config options are the spec's replacement (modes are slated for removal in ACP v2), and one mode list cannot carry two orthogonal knobs. Runtime model selection is still not modeled — the harness fixes the model per-bridge via `AcpConfig.model` (both reference adapters ship a model selector).
 
 ## 7. Content blocks
 

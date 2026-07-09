@@ -27,4 +27,4 @@ Design surveyed against the bash tools of Claude Code, OpenCode, Codex, and pi; 
 
 ## Sandboxing
 
-Execution policy does NOT belong in this package: this executor always runs commands unconfined. Confinement is [`dsh-bash-sandbox`](../bash-sandbox/README.md), which extends this executor verbatim and confines commands under the `ctx.sandbox` seam's bwrap/Landlock/Seatbelt backends ([sandbox RFC](../../../docs/rfc/proposed/feature/2026-07-06-sandbox.md)); per-call allow/deny/ask policy belongs on the `tools/pre-execute` gate.
+Execution policy does NOT belong in this package: this executor always runs commands unconfined. Confinement is [`dsh-bash-sandbox`](../bash-sandbox/README.md), which extends this executor verbatim and confines commands under the `ctx.sandbox` seam's bwrap/Landlock/Seatbelt backends ([sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md)); per-call allow/deny/ask policy belongs on the `tools/pre-execute` gate.

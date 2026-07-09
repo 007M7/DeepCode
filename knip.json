@@ -1,8 +1,8 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "exclude": ["duplicates"],
-  "ignoreWorkspaces": ["vendor/*"],
   "ignoreBinaries": ["bwrap", "sandbox-exec"],
+  "ignoreWorkspaces": ["vendor/*"],
   "workspaces": {
     ".": {
       "entry": [
@@ -15,16 +15,16 @@
       ],
       "project": ["scripts/**/*.ts", "examples/**/*.ts"]
     },
+    "packages/*/*": {
+      "entry": ["tests/**/*.spec.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
     "packages/bash/bash-sandbox": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/sandbox/sandbox-local": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"]
-    },
-    "packages/*/*": {
-      "entry": ["tests/**/*.spec.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/util/brand": {

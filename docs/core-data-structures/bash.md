@@ -197,7 +197,7 @@ interface BashSandboxInfo {
 }
 ```
 
-One more piece completes the vocabulary: the `SANDBOX_UNAVAILABLE` error code (owned by the sandbox seam) is what the `ctx.sandbox` provider throws — and the executor propagates — when a confined mode has no usable backend: sandboxed modes fail CLOSED instead of silently running unconfined. The model's view of the sandbox is result facts only: the static bash tool description explains the denial marker, and each run's `result.sandbox` carries the mode it executed under (no live-mode getter on the seam and no current-mode prompt statement — both arrive with the runtime-context phase of the RFC below). Denials are deny-only result facts today; the approval/escalated-retry flow on top of them is the [sandbox RFC](../rfc/proposed/feature/2026-07-06-sandbox.md).
+One more piece completes the vocabulary: the `SANDBOX_UNAVAILABLE` error code (owned by the sandbox seam) is what the `ctx.sandbox` provider throws — and the executor propagates — when a confined mode has no usable backend: sandboxed modes fail CLOSED instead of silently running unconfined. The model's view of the sandbox is result facts only: the static bash tool description explains the denial marker, and each run's `result.sandbox` carries the mode it executed under (no live-mode getter on the seam and no current-mode prompt statement — both arrive with the runtime-context phase of the RFC below). Denials are deny-only result facts today; the approval/escalated-retry flow on top of them is the [sandbox RFC](../rfc/implemented/feature/2026-07-06-sandbox.md).
 
 ## Background tasks: `BashTask`
 

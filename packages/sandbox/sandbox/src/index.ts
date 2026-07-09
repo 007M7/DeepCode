@@ -7,7 +7,7 @@
  * npm-distributed `landlock-run` launcher, macOS `sandbox-exec`/Seatbelt) is
  * the first.
  * Consumers hand over the exact argv they are about to spawn
- * (the staged bash executor wraps `['bash', '-c', command]`; a
+ * (`@deepseek-ai/dsh-bash-sandbox` wraps `['bash', '-c', command]`; a
  * subagent backend wraps its child-agent argv) and spawn the returned argv
  * instead.
  *
@@ -17,7 +17,7 @@
  * backends of this seam — they are sibling implementations of whole
  * capability seams (`ctx.bash`, `ctx.fs`), deployed as environment-coherent
  * groups; the boundary is recorded in
- * docs/rfc/proposed/feature/2026-07-06-sandbox.md.
+ * docs/rfc/implemented/feature/2026-07-06-sandbox.md.
  *
  * @module @deepseek-ai/dsh-sandbox
  */

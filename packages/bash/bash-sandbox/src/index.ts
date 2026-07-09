@@ -31,7 +31,7 @@
  *
  * Deny-only at the seam, escalation at the tool: a denial is a reported FACT
  * here, and the one-shot user-approved escalated retry of a denied action
- * (docs/rfc/proposed/feature/2026-07-06-sandbox.md) is driven by
+ * (docs/rfc/implemented/feature/2026-07-06-sandbox.md) is driven by
  * `dsh-tool-bash` through `ctx.approval` — this executor's contribution is the
  * per-call `sandboxMode` override it honors in {@link resolve}: an escalated
  * call runs (and classifies, and reports) under ITS granted mode while every

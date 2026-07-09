@@ -6,6 +6,6 @@ The contract in one line: `ctx.sandbox.confine(argv, policy)` returns the argv t
 
 Policy rides the call, not the provider: two consumers may confine under different policies at the same instant (bash under `read-only` while a confined child agent keeps its state directory writable), and an approved escalated retry is just a new call with a wider policy.
 
-**Same-world confinement only.** A backend shares the host's filesystem and kernel (`bwrap`, Landlock, Seatbelt); `workspaceRoot` names a real host path. Containers, microVMs, and remote executors are NOT backends of this seam — they replace whole capability implementations (`ctx.bash`, `ctx.fs`) as environment-coherent groups. The boundary and its rationale: [the sandbox RFC](../../../docs/rfc/proposed/feature/2026-07-06-sandbox.md).
+**Same-world confinement only.** A backend shares the host's filesystem and kernel (`bwrap`, Landlock, Seatbelt); `workspaceRoot` names a real host path. Containers, microVMs, and remote executors are NOT backends of this seam — they replace whole capability implementations (`ctx.bash`, `ctx.fs`) as environment-coherent groups. The boundary and its rationale: [the sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md).
 
-Implementations: [`@deepseek-ai/dsh-sandbox-local`](../sandbox-local/) (Linux: `bwrap`, else the per-platform Landlock launcher; macOS: `sandbox-exec`/Seatbelt). The staged first consumer is the sandboxed bash executor (wrapping `['bash', '-c', command]`).
+Implementations: [`@deepseek-ai/dsh-sandbox-local`](../sandbox-local/) (Linux: `bwrap`, else the per-platform Landlock launcher; macOS: `sandbox-exec`/Seatbelt). Consumers: [`@deepseek-ai/dsh-bash-sandbox`](../../bash/bash-sandbox/) (wraps `['bash', '-c', command]`).

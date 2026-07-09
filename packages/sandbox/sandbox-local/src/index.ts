@@ -9,7 +9,7 @@
  * `bwrap`, else the `landlock-run` Landlock launcher (kernel confinement
  * that needs no userns/mount privileges; distributed as the npm package
  * family `node-addon-landlock-run` — the decision recorded in
- * docs/rfc/proposed/feature/2026-07-06-sandbox.md); darwin: macOS
+ * docs/rfc/implemented/feature/2026-07-06-sandbox.md); darwin: macOS
  * `sandbox-exec` speaking a Seatbelt (SBPL) profile, unprobed.
  * When the platform has no chain or no candidate passes,
  * {@link LocalSandboxProvider.confine} FAILS CLOSED with the seam's
