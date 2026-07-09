@@ -279,6 +279,27 @@ describe('workdir derivation and signal forwarding', () => {
     expect(result.error).toMatchObject({ code: 'SEARCH_ABORTED' })
     expect(text(result)).toContain('timed out after 1234ms')
   })
+
+  it('translates a run() rejection under a pre-aborted signal into SEARCH_ABORTED', async () => {
+    // The seam contract: run() REJECTS for a pre-aborted signal (it never
+    // spawns). The plain rejection must not escape the SEARCH_* taxonomy.
+    const { ctx, bash } = await setup()
+    const controller = new AbortController()
+    controller.abort()
+    bash.handler = () => { throw new Error('aborted before spawn') }
+    const result = await call(ctx, 'grep', { pattern: 'x' }, { signal: controller.signal })
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_ABORTED' })
+  })
+
+  it('translates a run() rejection without an abort (unusable workdir) into SEARCH_FAILED', async () => {
+    const { ctx, bash } = await setup()
+    bash.handler = () => { throw new Error('spawn bash ENOENT') }
+    const result = await call(ctx, 'glob', { pattern: '*' })
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_FAILED' })
+    expect(text(result)).toContain('could not start')
+  })
 })
 
 describe('exit semantics and failure classification', () => {

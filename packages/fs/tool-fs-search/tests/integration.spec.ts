@@ -158,4 +158,27 @@ describe.skipIf(!hasRg)('search tools over the real bash executor + real rg', ()
       }
     })
   })
+
+  describe('bash-start infrastructure failures stay in the SEARCH_* taxonomy', () => {
+    it('a pre-aborted exec.signal (real executor rejects before spawn) is SEARCH_ABORTED', async () => {
+      const controller = new AbortController()
+      controller.abort()
+      const result = await ctx.tools.execute({
+        callId: CallId(`it-${++callCounter}`),
+        name: 'grep',
+        arguments: { pattern: 'x' },
+        signal: controller.signal,
+      })
+      expect(result.isError).toBe(true)
+      expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_ABORTED' })
+    })
+
+    it('an unusable session cwd (spawn failure) is SEARCH_FAILED', async () => {
+      const gone = join(dir, 'deleted-session-dir')
+      const result = await call('glob', { pattern: '*' }, { session: { header: { id: 'session-int', cwd: gone } } })
+      expect(result.isError).toBe(true)
+      expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_FAILED' })
+      expect(text(result)).toContain('could not start')
+    })
+  })
 })
