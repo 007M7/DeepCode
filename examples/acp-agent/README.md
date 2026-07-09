@@ -6,7 +6,7 @@ The DeepSeek Harness SDK agent demo exposed as an **Agent Client Protocol (ACP)*
 pnpm run demo:acp          # needs DEEPSEEK_API_KEY (repo-root .env or env)
 ```
 
-This example is just a leaf `cordis.yml`: it loads the [`@deepseek-ai/dsh-acp-agent`](../../packages/ui/acp-agent) app (which bundles the [`@deepseek-ai/dsh-agent-core`](../../packages/core/agent-core) spine, JSONL session persistence, and the `@deepseek-ai/dsh-acp` bridge — with **no pre-created agents**, since ACP `session/new` creates them on demand), the swappable DeepSeek, bash, and filesystem backends, and the model-facing `read`/`write`/`edit`/`subagent`/`subagent_fork`/`todo_write` tool entries. The app package bakes in the no-stdout-logger cluster, so a leaf has no logger entry to get wrong by default — keeping stdout pure for JSON-RPC.
+This example is just a leaf `cordis.yml`: it loads the [`@deepseek-ai/dsh-acp-agent`](../../packages/ui/acp-agent) app (which bundles the [`@deepseek-ai/dsh-agent-core`](../../packages/core/agent-core) spine, JSONL session persistence, and the `@deepseek-ai/dsh-acp` bridge — with **no pre-created agents**, since ACP `session/new` creates them on demand), the swappable DeepSeek, bash, and filesystem backends, the model-facing `read`/`write`/`edit`/`subagent`/`subagent_fork`/`todo_write` tool entries, and the advisory `repeat-tool-guard` loop-hygiene plugin. The app package bakes in the no-stdout-logger cluster, so a leaf has no logger entry to get wrong by default — keeping stdout pure for JSON-RPC.
 
 ## stdout is the protocol
 
