@@ -511,6 +511,36 @@ describe('dsh-tool-subagent', () => {
     expect(seen?.toolFilter).not.toHaveProperty('allow')
   })
 
+  it('an omitted agentOptions does not materialize an empty object onto the request', async () => {
+    // Same schemastery trap as toolFilter, adjacent field: an omitted
+    // `agentOptions` config key materializes `{}` without the forced default,
+    // which reads as present and puts a dishonest `agentOptions: {}` on every
+    // start request.
+    let seen: { agentOptions?: unknown } | undefined
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'capture4',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: (request) => {
+        seen = request
+        return {
+          id: AgentId('capture4-child'),
+          result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
+          cancel() {},
+          dispose: async () => {},
+        }
+      },
+    })
+    await ctx.plugin(tool, { provider: 'capture4' })
+    await callSubagent(ctx, { description: 'd', prompt: 'p' })
+    expect(seen).toBeDefined()
+    expect(seen).not.toHaveProperty('agentOptions')
+  })
+
   it('an explicit empty toolFilter fails at plugin load, not at first delegation', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)

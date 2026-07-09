@@ -93,9 +93,13 @@ export interface Config {
 export const Config: z<Config> = z.object({
   provider: z.string().required(),
   toolName: z.string().default('subagent'),
+  // Omitted-object discipline (see the toolFilter note below): without the
+  // forced default an omitted `agentOptions` materializes `{}`, which reads as
+  // present — the request would carry `agentOptions: {}` and the presence
+  // check in execute() could never be false through config.
   agentOptions: z.object({
     model: z.string(),
-  }),
+  }).default(undefined as unknown as { model: string }),
   persona: z.string(),
   // A schemastery object materializes {} (with [] for nested arrays) when the
   // key is omitted — for toolFilter that would mean an EMPTY ALLOW-LIST, i.e.
@@ -229,7 +233,7 @@ export function apply(ctx: Context, config: Config): void {
           prompt: [{ type: 'text', text: args.prompt }],
           parent,
           ...exec.signal ? { signal: exec.signal } : {},
-          ...config.agentOptions ? { agentOptions: config.agentOptions } : {},
+          ...config.agentOptions !== undefined ? { agentOptions: config.agentOptions } : {},
           ...config.persona !== undefined ? { persona: config.persona } : {},
           ...config.toolFilter !== undefined ? { toolFilter: config.toolFilter } : {},
           ...config.maxDepth !== undefined ? { maxDepth: config.maxDepth } : {},
