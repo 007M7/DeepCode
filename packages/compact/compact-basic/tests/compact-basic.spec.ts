@@ -557,6 +557,24 @@ describe('BasicCompactService.compactIfNeeded', () => {
     expect(result!.shadowedSeqs.length).toBeGreaterThan(0)
   })
 
+  it('counts the session prefix toward pressure (every request carries it in front of the history)', async () => {
+    const svc = createTestService({ contextWindow: 200, thresholdRatio: 0.5, retainTokens: 10 })
+    const session = multiTurnSession(3, 1) // 6 derived messages ≈ 84 estimated tokens — under the 100 threshold alone
+    expect(await compactIfNeeded(svc, session, '', 'm', SIGNAL)).toBeNull()
+
+    // The loop composes the agent/session-prefix product before the pre-step
+    // seam and hands it to the gate; it rides every request, so pressure must
+    // include it — the same history now crosses the threshold.
+    const sessionPrefix: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: `opener one.${LONG_FIXTURE_TEXT}` }] },
+      { role: 'user', content: [{ type: 'text', text: `opener two.${LONG_FIXTURE_TEXT}` }] },
+    ]
+    const result = await compactIfNeeded(svc, session, '', 'm', SIGNAL, sessionPrefix)
+    expect(result).not.toBeNull()
+    // The prefix itself is NOT history: compaction shadowed surface nodes only.
+    expect(sessionPrefix).toHaveLength(2)
+  })
+
   it('returns the first compaction result when a zero-retry pass converges after the loop', async () => {
     // With compactionRetries=0 there is no next-loop threshold check after the
     // first mutation, so the success path is the post-loop `return result`.
@@ -982,8 +1000,9 @@ function compactIfNeeded(
   fullSystemPrompt: string,
   model: string,
   signal: AbortSignal,
+  sessionPrefix: readonly Message[] = [],
 ) {
-  return svc.compactIfNeeded(stubAgent(session, model), fullSystemPrompt, signal)
+  return svc.compactIfNeeded(stubAgent(session, model), fullSystemPrompt, sessionPrefix, signal)
 }
 
 function compactRegion(
@@ -1151,7 +1170,7 @@ describe('BasicCompactService.summarize (real ctx.llm.stream)', () => {
 describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => {
   /** Fire the agent/pre-step serial checkpoint as the loop does. */
   function firePreStep(ctx: Context, agent: Agent, step: number, fullSystemPrompt: string): Promise<unknown> {
-    return ctx.serial('agent/pre-step', agent, 1, step, fullSystemPrompt, SIGNAL)
+    return ctx.serial('agent/pre-step', agent, 1, step, fullSystemPrompt, [], SIGNAL)
   }
 
   it('compacts (mutating the surface) when over threshold', async () => {
@@ -1253,7 +1272,7 @@ describe('BasicCompactService auto-compaction (agent/pre-step listener)', () => 
     const session = multiTurnSession(5, 1)
     const agent = stubAgent(session, 'agent-model')
 
-    await ctx.serial('agent/pre-step', agent, 1, 1, '', SIGNAL)
+    await ctx.serial('agent/pre-step', agent, 1, 1, '', [], SIGNAL)
 
     expect(adapter.lastOptions?.model).toBe('routed-model')
     expect(session.events.some(e => e.type === 'compact/summary')).toBe(true)
@@ -1392,7 +1411,7 @@ describe('BasicCompactService edge cases', () => {
     const session = multiTurnSession(4, 1)
     const agent = stubAgent(session, 'test-model')
 
-    await ctx.serial('agent/pre-step', agent, 1, 1, '', SIGNAL)
+    await ctx.serial('agent/pre-step', agent, 1, 1, '', [], SIGNAL)
     expect(session.events.some(e => e.type === 'compact/summary')).toBe(true)
     // The surface was mutated; the head message is the framed summary checkpoint.
     expect(session.deriveMessages()[0]!.content).toContainEqual({ type: 'text', text: 'SUMMARY' })
@@ -1472,7 +1491,7 @@ describe('BasicCompactService edge cases', () => {
     const agent = stubAgent(session, 'test-model')
     const before = session.surface.nodes.length
 
-    await ctx.serial('agent/pre-step', agent, 1, 1, '', SIGNAL)
+    await ctx.serial('agent/pre-step', agent, 1, 1, '', [], SIGNAL)
     // The failure was swallowed; the surface is untouched and a warning logged.
     expect(session.surface.nodes.length).toBe(before)
     expect(session.events.some(e => e.type === 'compact/summary')).toBe(false)
@@ -1489,7 +1508,7 @@ describe('BasicCompactService edge cases', () => {
     const agent = stubAgent(session, 'test-model')
     const bigSystem = 'x'.repeat(900) // ceil(900/4)=225 > threshold 200
 
-    await ctx.serial('agent/pre-step', agent, 1, 1, bigSystem, SIGNAL)
+    await ctx.serial('agent/pre-step', agent, 1, 1, bigSystem, [], SIGNAL)
     expect(session.events.some(e => e.type === 'compact/start')).toBe(false)
     expect(svc.summarizeCalls.length).toBe(0)
   })

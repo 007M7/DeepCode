@@ -367,8 +367,11 @@ export function apply(ctx: Context, config: Config = {}): void {
   // hand-built one-shot (compaction summarize) is unfrozen and skipped — must
   // be EXACTLY what the session log reconstructs:
   //
-  // - messages: the derivation over the log prefix strictly before the
-  //   in-flight step's `step/start` (the reconstruction boundary). Compared
+  // - messages: the folded header's session prefix (messagePrefix — the
+  //   `agent/session-prefix` product, logged on the header because no
+  //   session event carries it) followed by the
+  //   derivation over the log prefix strictly before the in-flight step's
+  //   `step/start` (the reconstruction boundary). The derivation is compared
   //   against a FRESH Session built over that prefix — the same projection
   //   code with zero shared state, so the live cache under test cannot vouch
   //   for itself. Boundary-correct by construction: content appended after
@@ -408,18 +411,22 @@ export function apply(ctx: Context, config: Config = {}): void {
     if (boundary === -1) {
       throw new InvariantError('a loop-built request with no step/start in its session log')
     }
-    const rebuilt = new Session(SessionId(`${String(session.id)}-invariant-rebuild`), structuredClone(events.slice(0, boundary)))
-    // JSON equality is sound here: both sides are structuredClones produced by
-    // the same projection code path, so key insertion order matches when the
-    // values do.
-    if (JSON.stringify(options.messages) !== JSON.stringify(rebuilt.deriveMessages())) {
-      throw new InvariantError(`llm request for session "${String(session.id)}" diverges from the boundary derivation (log-reconstruction desync)`)
-    }
-
     const header = foldRequestHeader(events)
     if (header === undefined) {
       throw new InvariantError('a loop-built request with no request/header event in its session log')
     }
+    const rebuilt = new Session(SessionId(`${String(session.id)}-invariant-rebuild`), structuredClone(events.slice(0, boundary)))
+    // The reconstruction equation: the folded header's session prefix, then
+    // the boundary derivation — the loop
+    // logs the header event BEFORE dispatch, so the fold already covers this
+    // request's prefix. JSON equality is sound here: both sides are
+    // structuredClones produced by the same projection/build code path, so key
+    // insertion order matches when the values do.
+    const expected = [...header.messagePrefix ?? [], ...rebuilt.deriveMessages()]
+    if (JSON.stringify(options.messages) !== JSON.stringify(expected)) {
+      throw new InvariantError(`llm request for session "${String(session.id)}" diverges from the boundary derivation (log-reconstruction desync)`)
+    }
+
     const headerMatches = options.model === header.config.model
       && options.system === header.system
       && options.temperature === header.config.temperature

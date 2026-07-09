@@ -183,11 +183,11 @@ export class BasicCompactService extends CompactService {
       // log-only `compact/*` records and the replacement node cleanly outside a
       // step, so a crash mid-compaction leaves an inert orphan the turn-repair
       // closes — never a half-open step.
-      ctx.on('agent/pre-step', async (agent: Agent, _turn: number, _step: number, fullSystemPrompt: string, signal: AbortSignal) => {
+      ctx.on('agent/pre-step', async (agent: Agent, _turn: number, _step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal) => {
         try {
-          const result = await this.compactIfNeeded(agent, fullSystemPrompt, signal)
+          const result = await this.compactIfNeeded(agent, fullSystemPrompt, sessionPrefix, signal)
           if (result) {
-            const after = this.estimateTokens(agent.session.deriveMessages(), fullSystemPrompt)
+            const after = this.estimatePressure(agent.session, fullSystemPrompt, sessionPrefix)
             ctx.logger.info(
               `compaction: shadowed ${result.shadowedSeqs.length} surface nodes ` +
               `(seqs ${result.shadowedRange.start}-${result.shadowedRange.end}, ` +
@@ -359,11 +359,23 @@ export class BasicCompactService extends CompactService {
   // ---- Core API (implements the abstract contract) ----
 
   /**
-   * The sole token-pressure gate: estimate the current surface-derived history,
-   * and if it exceeds the threshold (`contextWindow * thresholdRatio`), compact
+   * The sole token-pressure gate: estimate the NEXT request's pressure — the
+   * session prefix + the surface-derived history + the system prompt
+   * ({@link estimatePressure}) — and if it exceeds the threshold
+   * (`contextWindow * thresholdRatio`), compact
    * the oldest surface nodes outside the `retainTokens` budget. The auto-
    * compaction listener delegates here rather than pre-checking, so this is the
-   * only place the decision lives.
+   * only place the decision lives. The prefix counts because every request
+   * carries it in front of the history (`EpochHeader.messagePrefix`) even
+   * though it is not derived history — omitting it would under-estimate by
+   * exactly the prefix and let a deployment at the window edge skip
+   * compaction, then ship an over-window request. The loop composes the
+   * prefix BEFORE the pre-step seam and hands it through, so the gate sees
+   * this instance's actual prefix (never a previous instance's logged one —
+   * a resumed/forked instance whose contributor grew is gated on the grown
+   * value from its very first step). Compaction itself can only
+   * shrink HISTORY: a prefix that alone approaches the window is a
+   * configuration error no compactor fixes.
    *
    * Retention is a UNIFORM tail→head walk over the whole surface — turn
    * boundaries play NO role. Walking node-by-node from the tail and summing
@@ -387,13 +399,14 @@ export class BasicCompactService extends CompactService {
   override async compactIfNeeded(
     agent: Agent,
     fullSystemPrompt: string,
+    sessionPrefix: readonly Message[],
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
     const session = agent.session
     const threshold = Math.floor(this.config.contextWindow * this.config.thresholdRatio)
     let result: CompactionResult | null = null
     for (let attempt = 0; attempt <= this.config.compactionRetries; attempt++) {
-      const totalTokens = this.estimateTokens(session.deriveMessages(), fullSystemPrompt)
+      const totalTokens = this.estimatePressure(session, fullSystemPrompt, sessionPrefix)
       if (totalTokens < threshold) return result
 
       const range = this._compactableRange(session)
@@ -407,13 +420,27 @@ export class BasicCompactService extends CompactService {
       result = await this.compactRegion(session, range.start, range.end, agent, signal)
     }
 
-    const totalTokens = this.estimateTokens(session.deriveMessages(), fullSystemPrompt)
+    const totalTokens = this.estimatePressure(session, fullSystemPrompt, sessionPrefix)
     if (totalTokens < threshold) return result
 
     throw new Error(
       `compaction still above threshold after ${this.config.compactionRetries + 1} compaction attempts `
       + `(${totalTokens} estimated tokens >= threshold ${threshold})`,
     )
+  }
+
+  /**
+   * Estimated token pressure of the NEXT request: the session prefix
+   * (`EpochHeader.messagePrefix` — request-only messages the loop sends in
+   * front of the derived history, composed before the pre-step seam and
+   * handed to the gate), the derived history, and the system prompt.
+   * @param session - the session whose next request is being estimated.
+   * @param fullSystemPrompt - the assembled system prompt (counts toward pressure).
+   * @param sessionPrefix - the instance's composed session prefix (counts toward pressure).
+   * @returns the estimated token total the next request will carry.
+   */
+  estimatePressure(session: Session, fullSystemPrompt: string, sessionPrefix: readonly Message[]): number {
+    return this.estimateTokens([...sessionPrefix, ...session.deriveMessages()], fullSystemPrompt)
   }
 
   override async compactRegion(
