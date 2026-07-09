@@ -91,6 +91,44 @@ describe('cross-mount provide/inject', () => {
     expect(api).toContain('- greeter (provided by greeter-provider, no catalog entry)')
   })
 
+  it('a primitive (or null) provided value passes through the façade unwrapped, on both read paths', async () => {
+    const ctx = await setup()
+    const provider = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'answer-provider',
+          apply(ctx) {
+            ctx.provide('answer', 42)
+            ctx.provide('nothing', null)
+          },
+        }
+      `,
+    })
+    expect(provider.isError).toBe(false)
+
+    const consumer = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'answer-consumer',
+          inject: ['answer', 'nothing', 'tools'],
+          apply(ctx) {
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'answer',
+              description: 'Read the provided primitive services.',
+              parameters: {},
+              async execute() {
+                return [{ type: 'text', text: ctx.answer + '/' + ctx.get('answer') + '/' + ctx.nothing }]
+              },
+            }))
+          },
+        }
+      `,
+    })
+    expect(consumer.isError).toBe(false)
+    expect(text(consumer)).toContain('state: active')
+    expect(text(await call(ctx, 'answer', {}))).toBe('42/42/null')
+  })
+
   it('unmounting the consumer leaves the provider and its service intact', async () => {
     const ctx = await setup()
     await call(ctx, 'cordis_mount', { code: PROVIDER_CODE })   // dyn-1

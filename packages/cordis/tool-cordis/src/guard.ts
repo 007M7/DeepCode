@@ -9,8 +9,9 @@
  * The façade is a WHITELIST, not a pass-through proxy. Mount code needs to do
  * exactly four things — register a tool, listen to an event, provide a service,
  * call an injected service (timers included) — so the façade exposes only those
- * verbs and the injected services, each individually wrapped. Every framework
- * plumbing member (`root`, `parent`, `scope`, `fiber`, `reflect`, `registry`,
+ * verbs and the injected services, each object-valued service individually
+ * wrapped (a primitive provided value passes through as-is — see
+ * {@link sandboxContext}). Every framework plumbing member (`root`, `parent`, `scope`, `fiber`, `reflect`, `registry`,
  * `events`, `extend`, `isolate`, `intercept`, `plugin`, `set`, `mixin`, …) is
  * DENIED with a teaching error rather than passed through. This closes an
  * entire escape class at once: a pass-through proxy that only special-cased
@@ -284,11 +285,17 @@ function sandboxContext(ctx: Context): Context {
   // error; a DECLARED one resolves to the guarded service. A declared inject
   // is required in cordis (the fiber only activates once every declared
   // service is live), so at `apply`/`execute` time `ctx.get(name)` is present
-  // for a declared name — no undefined case to handle here.
+  // for a declared name — no undefined case to handle here. `provide()`
+  // accepts ANY value though (cross-mount composition advertises
+  // `ctx.provide('name', value)`), so a primitive or null value passes
+  // through unwrapped: Proxy throws on a non-object target, and only an
+  // object can carry a method that hands back a Context.
   const readService = (name: string): unknown => {
     if (name === 'tools') return tools
     if (!declared.has(name)) return denyRead(name)
-    return guardedService(ctx.get(name) as object, name)
+    const service = denyContext(ctx.get(name), name)
+    if (service === null || (typeof service !== 'object' && typeof service !== 'function')) return service
+    return guardedService(service, name)
   }
   const get = (name: string): unknown => readService(name)
   return new Proxy({}, {
