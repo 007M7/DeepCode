@@ -578,7 +578,7 @@ describe('in-process structured output', () => {
     expect(result.error?.code).toBe('UNKNOWN_TOOL')
   })
 
-  it('drops a stale stage from a short-circuited chain: a later call never promotes it (call-keyed commit)', async () => {
+  it('a stale stage from a short-circuited chain is never promoted by a later call (execution-keyed commit)', async () => {
     const { ctx, parent } = await setup([
       toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 1 }),
     ])

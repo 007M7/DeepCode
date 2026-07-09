@@ -34,14 +34,14 @@
  *   lists `structured_output` before further tool calls cannot run side
  *   effects after the final answer was accepted.
  * - `tools/post-execute` (prepend, scoped): the capture COMMIT. The tool body
- *   only STAGES the validated value, KEYED BY THE EXECUTION OBJECT'S
- *   IDENTITY; it becomes the run's captured result only when the final
+ *   only STAGES the validated value, KEYED BY THE EXECUTION OBJECT in a
+ *   WeakMap; it becomes the run's captured result only when the final
  *   post-execute decision accepts THAT SAME pipeline trip. Execution-keyed
- *   staging closes the stale-stage hole unconditionally: an outer
- *   short-circuiting listener (post-execute block, or a pre-execute deny
- *   whose call never dispatched) can orphan a staged value, and neither a
- *   later call nor one REUSING the same adapter-minted call id can ever
- *   promote it — only the execution whose own body staged can commit.
+ *   staging makes the stale-stage class structurally impossible: a value
+ *   orphaned by an outer short-circuiting listener (a post-execute block, or
+ *   a pre-execute deny whose call never dispatched) can never match another
+ *   execution's lookup — whatever call id that execution carries — and is
+ *   reclaimed with the execution object itself.
  *
  * @module @deepseek-ai/dsh-subagent-inprocess/structured
  */
@@ -89,14 +89,20 @@ export interface StructuredAttachment {
  */
 export function attachStructuredRuntime(childCtx: Context, schema: StructuredOutputSchema): StructuredAttachment {
   /**
-   * A validated value staged by the capture tool body, awaiting ITS OWN
-   * call's post-execute verdict — keyed by the {@link ToolExecution} OBJECT
-   * identity, the one token that provably ties a stage to one trip through
-   * the pipeline. A call id cannot key this: ids are adapter-minted and may
-   * repeat across steps, and a denied/failed later call REUSING an orphaned
-   * stage's id must never promote it.
+   * Validated values staged by the capture tool body, awaiting THEIR OWN
+   * call's post-execute verdict — keyed by the {@link ToolExecution} OBJECT,
+   * the one token that provably ties a stage to one trip through the
+   * pipeline. A call id cannot key this: ids are adapter-minted and may
+   * repeat across steps. Keying by execution makes the stale-stage class
+   * structurally impossible — an entry orphaned by an outer short-circuiting
+   * listener can never match a different execution's lookup, needs no drop
+   * bookkeeping (the WeakMap reclaims it with the execution object), and two
+   * in-flight captures can never cross-clobber each other's STAGE should
+   * tool execution ever go parallel (the loop's documented TODO). Staging is
+   * the only layer this future-proofs: a parallel-execution cut would still
+   * owe its own single-accept rule for `captured` itself.
    */
-  let pending: { exec: ToolExecution; value: unknown } | undefined
+  const staged = new WeakMap<ToolExecution, { value: unknown }>()
   let captured: { value: unknown } | undefined
 
   const schemaEntry: ToolSchema = {
@@ -119,7 +125,7 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
       // Two-phase commit, KEYED BY THIS EXECUTION: the body only stages; the
       // post-execute listener promotes exactly this pipeline trip's entry
       // when the final decision accepts it.
-      pending = { exec, value: args }
+      staged.set(exec, { value: args })
       return Promise.resolve([{ type: 'text', text: 'Structured output recorded.' }])
     },
   })
@@ -204,35 +210,26 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
     return next()
   }, { prepend: true })
 
-  // The capture COMMIT: promote the staged value only when the final
-  // post-execute decision accepts THE SAME CALL that staged it. The staging
-  // slot clears on every path for that call; a stale entry from an outer
-  // short-circuited chain (its verdict never reached us) is dropped when any
-  // later call reaches the commit, never promoted.
+  // The capture COMMIT: promote a staged value only when the final
+  // post-execute decision accepts THE SAME EXECUTION that staged it — the
+  // lookup key IS the execution, so a stale entry from a different pipeline
+  // trip (its own chain short-circuited past this commit by an outer
+  // post-execute block, or an outer pre-execute deny whose call never
+  // dispatched) is unreachable here by construction, whatever the current
+  // call's id.
   childCtx.on('tools/post-execute', async function (
     this: unknown, exec: ToolExecution, _result: ToolExecutionResult, next: () => Promise<PostToolDecision>,
   ): Promise<PostToolDecision> {
-    if (exec.name !== STRUCTURED_OUTPUT_TOOL || pending === undefined) return next()
-    if (pending.exec !== exec) {
-      // A stale stage from a DIFFERENT pipeline trip: its own chain was
-      // short-circuited past this commit (an outer post-execute block, or an
-      // outer pre-execute deny whose call never dispatched), so its verdict
-      // never reached us. Whatever the current call's id, the orphan must
-      // never ride its acceptance — drop it.
-      pending = undefined
-      return next()
-    }
-    const staged = pending
-    try {
-      const decision = await next()
-      if (decision.kind === 'accept') captured = { value: staged.value }
-      return decision
-    } finally {
-      /* v8 ignore next -- defensive false branch: a concurrent re-stage
-       * would need a second capture call INSIDE the first's post-execute
-       * chain */
-      if (pending === staged) pending = undefined
-    }
+    if (exec.name !== STRUCTURED_OUTPUT_TOOL) return next()
+    const entry = staged.get(exec)
+    if (entry === undefined) return next()
+    // Single-shot per execution: this trip's verdict is decided by the chain
+    // below, never revisited (the WeakMap would reclaim the entry either way;
+    // deleting states the intent).
+    staged.delete(exec)
+    const decision = await next()
+    if (decision.kind === 'accept') captured = { value: entry.value }
+    return decision
   }, { prepend: true })
 
   return { captured: () => captured }
