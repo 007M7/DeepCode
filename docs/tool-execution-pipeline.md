@@ -3,7 +3,7 @@
 
 # Tool Execution Pipeline
 
-This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, and UI rendering fit without changing the loop. The key extension points are the `tools/pre-execute` and `tools/post-execute` waterfalls.
+This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, and UI rendering fit without changing the loop. The key extension points are the `tools/pre-execute`, `tools/execute`, and `tools/post-execute` waterfalls.
 
 ```mermaid
 flowchart TD
@@ -12,6 +12,7 @@ flowchart TD
   presentCall["UI pending card<br/>presentCall(args)"]
   pre["<code>tools/pre-execute</code> waterfall<br/>hooks, permission, sandbox"]
   denied["deny or ask<br/>tool body skipped"]
+  around["<code>tools/execute</code> waterfall<br/>timeout, retry, metrics (around dispatch)"]
   toolBody["Registered tool execute() body"]
   fsGate["<code>fs/write-intent</code> or <code>fs/edit-intent</code><br/>tool-fs mutations only"]
   owned["Tool-owned session events<br/><code>todo/write</code>, <code>fs/observed</code>, <code>hook/invoked</code>, <code>hook/result</code>"]
@@ -22,18 +23,20 @@ flowchart TD
   model --> toolCall
   toolCall --> presentCall
   toolCall --> pre
-  pre -->|allow| toolBody
+  pre -->|allow| around
+  around --> toolBody
   pre -->|deny or ask| denied
   denied --> post
   toolBody --> fsGate
   fsGate --> toolBody
   toolBody --> owned
-  toolBody --> post
+  toolBody --> around
+  around --> post
   post --> context
   post --> toolResult
   toolResult --> presentResult
 ```
 
-Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate, while hook bridges and future permission prompts live on the generic tool waterfalls. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service.
+Filesystem read-before-edit checks live below `tool-fs` on the `fs/*` event gate; hook bridges and future permission prompts live on the generic pre/post tool waterfalls; and around-dispatch concerns like the tool-call timeout policy (`@deepseek-ai/dsh-timeout-policy`) wrap core dispatch on `tools/execute`. That split lets the same hooks observe bash, fs, web, todo, and subagent calls without coupling those tools to one policy service.
 
 Maintenance mode: curated Mermaid flow; exact tool schemas and event signatures live in generated catalogs.

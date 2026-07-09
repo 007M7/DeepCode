@@ -39,8 +39,13 @@ const SCENARIOS: Scenario[] = [
   { name: 'fs-read-window', hasModelTurn: true, recorded: true },
   { name: 'fs-policy-reject', hasModelTurn: true, recorded: true },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
-  { name: 'error-finish', hasModelTurn: true, recorded: false },
-  { name: 'cancel', hasModelTurn: true, recorded: false },
+  { name: 'error-finish', hasModelTurn: true, recorded: false, overridden: true },
+  // Keyless, authored (like error-finish/cancel): deterministically forcing a
+  // LIVE model to repeat one call three times is not a stable recording, so
+  // the fixture scripts five identical todo_write calls and pins BOTH reminder
+  // tiers (gentle at 3, detailed at 5) as context/message in transcript and log.
+  { name: 'repeat-tool-guard', hasModelTurn: true, recorded: false },
+  { name: 'cancel', hasModelTurn: true, recorded: false, overridden: true },
   { name: 'subagent-spawn', hasModelTurn: true, recorded: true, childSessions: 1 },
   { name: 'subagent-multi', hasModelTurn: true, recorded: true, childSessions: 2 },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true, childSessions: 1 },

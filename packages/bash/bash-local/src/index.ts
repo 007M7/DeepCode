@@ -19,6 +19,7 @@ import { Context } from 'cordis'
 import z from 'schemastery'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult } from '@deepseek-ai/dsh-bash'
+import { clampTimeout, deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { DEFAULT_GRACE_MS, runBash } from './run.ts'
 import type { RunInternals, RunningBash } from './run.ts'
 
@@ -107,8 +108,12 @@ export class LocalBashExecutor extends BashExecutor {
    * values and never re-default.
    */
   resolve(request: BashExecRequest): BashExecSpec {
-    if (request.timeoutMs !== undefined) assertPositiveFinite('request.timeoutMs', request.timeoutMs)
-    const timeoutMs = Math.min(request.timeoutMs ?? this.config.timeoutMs, this.config.maxTimeoutMs)
+    const timeoutMs = clampTimeout(
+      request.timeoutMs,
+      this.config.timeoutMs,
+      this.config.maxTimeoutMs,
+      'bash-local: request.timeoutMs',
+    )
     return {
       command: request.command,
       workdir: request.workdir ?? this.config.cwd ?? process.cwd(),
@@ -122,29 +127,39 @@ export class LocalBashExecutor extends BashExecutor {
   }
 
   async run(spec: BashExecSpec): Promise<BashRunResult> {
+    // One fused deadline drives both the timeout and upstream cancellation;
+    // runBash listens on d.signal and runs the SIGTERM→grace→SIGKILL kill.
+    // `using` clears the timer across the awaited process lifetime.
+    using d = deadline(spec.signal, spec.timeoutMs, 'BASH_TIMEOUT')
     const outcome = await runBash({
       command: spec.command,
       cwd: spec.workdir,
-      timeoutMs: spec.timeoutMs,
       maxOutputBytes: this.config.maxOutputBytes,
       graceMs: this.config.graceMs,
-      signal: spec.signal,
+      signal: d.signal,
       stdin: spec.stdin,
       env: spec.env,
     }, this.internals).done
-    return { ...outcome, timeoutMs: spec.timeoutMs }
+    // Classify the FIRST abort reason: a BASH_TIMEOUT TimeoutReason means our
+    // timeout cut the command short; any other abort — an upstream cancel, or a
+    // foreign (outer) deadline's timeout under nesting — is aborted. Scoping to
+    // our own code keeps a nested outer deadline from reading as our timeout.
+    // Mutually exclusive by construction — the fused signal reports one cause.
+    const timedOut = timeoutOf(d.signal, 'BASH_TIMEOUT') !== undefined
+    const aborted = d.signal.aborted && !timedOut
+    return { ...outcome, timedOut, aborted, timeoutMs: spec.timeoutMs }
   }
 
   start(spec: BashExecSpec): BashProcess {
     // No timeout for background processes (matches Claude Code, which
     // detaches the timeout when backgrounding); callers stop them via the
     // handle's kill() — or via spec.signal, which the seam contract honors
-    // for background runs too (runBash wires it to the group kill).
-    // spec.timeoutMs is ignored here by design.
+    // for background runs too (runBash wires it to the group kill). No
+    // deadline is created here, so spec.timeoutMs is ignored by design —
+    // background processes stay timeout-free (see the timeout-library RFC).
     const running = runBash({
       command: spec.command,
       cwd: spec.workdir,
-      timeoutMs: 0,
       maxOutputBytes: this.config.maxOutputBytes,
       graceMs: this.config.graceMs,
       signal: spec.signal,
@@ -160,8 +175,10 @@ export class LocalBashExecutor extends BashExecutor {
       exitCode: null,
       signal: null,
       done: running.done.then((outcome) => {
-        // Abort-killed processes report as killed, not completed.
-        if (proc.status === 'running') proc.status = outcome.aborted ? 'killed' : 'completed'
+        // Abort-killed processes report as killed, not completed. Background
+        // runs forward only the upstream signal (no timeout), so its aborted
+        // state is the authoritative "was this cancelled" signal.
+        if (proc.status === 'running') proc.status = spec.signal?.aborted === true ? 'killed' : 'completed'
         proc.exitCode = outcome.exitCode
         proc.signal = outcome.signal
         this.live.delete(proc)

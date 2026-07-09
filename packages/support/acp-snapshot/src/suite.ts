@@ -52,12 +52,22 @@ export interface Scenario {
   /**
    * Whether `test:snapshot:record` regenerates this scenario's `session.jsonl`
    * from the LIVE API. `recorded` scenarios are model-driven and reproducible;
-   * `authored` scenarios (a hand-written `replay.override.json` sidecar drives
-   * replay — e.g. a provider error or a cancel, which the live API can't be
-   * coaxed into deterministically — or a deterministic hook scenario whose
-   * derived empty script needs no sidecar) are NEVER re-recorded.
+   * `authored` scenarios (fixtures hand-written or hand-harvested — e.g. a
+   * provider error or a cancel the live API can't be coaxed into
+   * deterministically, a deterministic hook scenario, or a scripted repetition
+   * a live model won't reproduce) are NEVER re-recorded.
    */
   recorded: boolean
+  /**
+   * Whether replay is driven by a hand-written `replay.override.json` sidecar
+   * (a `ReplayEntry[]` that REPLACES the script derived from `session.jsonl`)
+   * — the throw/hang cases chunks cannot express. The fixture guard requires
+   * the sidecar exactly when this is set: the harness forwards the file purely
+   * on existence, so an unregistered stray sidecar would silently replace the
+   * derived script — the guard fails loud on either mismatch. Defaults to
+   * false (replay derives from the fixture's `assistant/chunk` events).
+   */
+  overridden?: boolean
   /**
    * How many SUBAGENT child sessions this scenario records beyond the top-level
    * one (0 for a single-session scenario). Each child rides in a sibling fixture
@@ -317,17 +327,18 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
       // throws "fixture not found" when it is absent and no override replaces it.
       // A no-model scenario ships a header-only `session.jsonl` (it derives to an
       // empty script — no model call is made); a model scenario's fixture also
-      // doubles as the expected-log artifact the run is diffed against. An authored
-      // (non-`recorded`) model scenario additionally ships a `replay.override.json`
-      // sidecar for the throw/hang cases a derived script cannot express.
-      for (const { name, hasModelTurn, recorded, childSessions } of scenarios) {
+      // doubles as the expected-log artifact the run is diffed against. The
+      // `replay.override.json` sidecar is matched BOTH ways against the table's
+      // `overridden` flag: required when set, forbidden when not — the harness
+      // forwards the file purely on existence, so an unregistered stray sidecar
+      // would silently replace the derived script.
+      for (const { name, overridden, childSessions } of scenarios) {
         const dir = join(snapshotsDir, name)
         expect(existsSync(join(dir, 'input.json')), `${name}/input.json`).toBe(true)
         expect(existsSync(join(dir, 'stdout.golden.jsonl')), `${name}/stdout.golden.jsonl`).toBe(true)
         expect(existsSync(join(dir, 'session.jsonl')), `${name}/session.jsonl`).toBe(true)
-        if (hasModelTurn && !recorded) {
-          expect(existsSync(join(dir, 'replay.override.json')), `${name}/replay.override.json`).toBe(true)
-        }
+        expect(existsSync(join(dir, 'replay.override.json')), `${name}/replay.override.json presence must match \`overridden\``)
+          .toBe(overridden === true)
         // A nested-agent scenario ships one child fixture per recorded subagent
         // session (`session.1.jsonl` …), the replay source for that child session.
         for (const childFixture of childFixturePaths(dir, childSessions ?? 0)) {

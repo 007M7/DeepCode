@@ -37,6 +37,8 @@ describe('dsh-stdio-agent app', () => {
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
+    expect(ctx.get('userInteraction')).toBeDefined()
+    expect(ctx.get('tools')?.get('ask_user_question')).toBeDefined()
     // The pre-created `main` agent the UI drives.
     expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
     await ctx.fiber.dispose()
@@ -92,9 +94,10 @@ describe('dsh-stdio-agent app', () => {
       })
     }
     const assembly = await ctx.get('systemPrompt')!.assemble()
-    // The rest-slot is lexicographic: the bundle's own task control tools
-    // (tool-tasks needs no executor, unlike the pending bash tool) follow alpha.
-    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'task_kill', 'task_list', 'task_output'])
+    // The rest-slot is lexicographic: the app's ask_user_question and the
+    // bundle's own task control tools (neither needs an executor, unlike the
+    // pending bash tool) follow alpha.
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'ask_user_question', 'task_kill', 'task_list', 'task_output'])
     await ctx.fiber.dispose()
   })
 

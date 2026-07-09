@@ -48,6 +48,14 @@
     { "doc": "docs/core-data-structures/tools.md", "symbol": "StructuredSchemaNode", "source": "packages/core/tools/src/json-schema.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "StructuredOutputSchema", "source": "packages/core/tools/src/json-schema.ts" },
 
+    { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "AskUserQuestionOption", "source": "packages/ui/user-interaction/src/index.ts" },
+    { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "AskUserQuestionItem", "source": "packages/ui/user-interaction/src/index.ts" },
+    { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "AskUserQuestionRequest", "source": "packages/ui/user-interaction/src/index.ts" },
+    { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "AskUserQuestionAnswerItem", "source": "packages/ui/user-interaction/src/index.ts" },
+    { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "AskUserQuestionAnswer", "source": "packages/ui/user-interaction/src/index.ts" },
+    { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "UserInteractionProvider", "source": "packages/ui/user-interaction/src/index.ts" },
+    { "doc": "docs/core-data-structures/user-interaction.md", "symbol": "UserInteractionError", "source": "packages/ui/user-interaction/src/index.ts" },
+
     { "doc": "docs/core-data-structures/bash.md", "symbol": "BashExecRequest", "source": "packages/bash/bash/src/types.ts" },
     { "doc": "docs/core-data-structures/bash.md", "symbol": "BashExecSpec", "source": "packages/bash/bash/src/types.ts" },
     { "doc": "docs/core-data-structures/bash.md", "symbol": "BashRunResult", "source": "packages/bash/bash/src/types.ts" },

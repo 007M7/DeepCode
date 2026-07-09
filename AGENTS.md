@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This is the monorepo of the DeepSeek Harness group; it hosts **DeepSeek Harness SDK**, a plugin-based SDK for building agent harnesses. The codebase is built on the vendored Cordis framework, microkernel-style: **everything is a plugin**. Read [docs/architecture.md](docs/architecture.md) before changing `packages/`; the documentation standard is [docs/AGENTS.md](docs/AGENTS.md).
+This is the DeepSeek Harness group's monorepo; it hosts **DeepSeek Harness SDK**, a plugin-based SDK for building agent harnesses. The codebase is built on the vendored Cordis framework, microkernel-style: **everything is a plugin**. Read [docs/architecture.md](docs/architecture.md) before changing `packages/`; the documentation standard is [docs/AGENTS.md](docs/AGENTS.md).
 
 ## Pre-release stance: foundation over blast radius
 
@@ -19,11 +19,12 @@ packages/    Harness packages at packages/<group>/<pkg>/, all named @deepseek-ai
   compact/     compaction seam + basic backend
   subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
   todo/        the todo_write tool
+  guard/       loop-hygiene plugins
   hooks/       Claude Code / Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
-  ui/          ACP bridge + app-boot glue + the stdio/ACP app bins
-  support/     dev/test infrastructure: invariants, llm-replay, subagent-mock
-  util/        zero-dependency utilities (Branded<B>)
+  ui/          ACP bridge, app-boot glue, stdio/ACP app bins, user-interaction seam, ask-user tool
+  support/     dev/test infrastructure packages
+  util/        zero-dependency utilities
 examples/    Runnable demos: thin cordis.yml leaves over the app packages (see examples/AGENTS.md)
 docs/        architecture, generated catalogs, RFCs, postmortems, cookbook (see docs/AGENTS.md)
 scripts/     repo gates and generators
@@ -69,7 +70,7 @@ printf '%s\n' "$out" | grep -q '\[tool call\] echo({"text":"ci smoke"})'
 printf '%s\n' "$out" | grep -q '\[tool result\] ECHO: CI SMOKE'
 ls .sessions/_no-cwd/main-session-*.jsonl >/dev/null
 rm -rf .sessions
-pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts
+pnpm exec vitest run --config vitest.e2e.config.ts packages/ui/stdio-agent/tests/built-bin.e2e.ts packages/ui/acp-agent/tests/built-bin.e2e.ts packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts
 ```
 
 `test:coverage`, not `test`, is the gating run ([why](docs/testing.md)); a sign-off counts only for commands actually run.
