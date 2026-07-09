@@ -23,7 +23,7 @@
  */
 
 import type { Context } from 'cordis'
-import { Context as CordisContext, withProps } from 'cordis'
+import { Context as CordisContext } from 'cordis'
 
 /**
  * The identity a scope is keyed by. Opaque and compared by object identity —
@@ -178,10 +178,14 @@ export function scopeOf(ctx: Context): ScopeKey | undefined {
  *
  * Use it as the `thisArg` of the dispatch:
  * `ctx.waterfall(scopeTarget(this, exec.agent), 'tools/pre-execute', …)`. The
- * carrier is a proxy over `base` — listener `this` stays `base`-shaped, but
- * identity-comparing `this` against the subject is not supported; the subject
- * always travels in the event's arguments. The returned carrier is branded
- * {@link Scoped} and runtime-marked ({@link isScopeCarrier} /
+ * carrier is a TRANSPARENT proxy over `base`: reads delegate with `base` as
+ * the receiver and retrieved methods are bound to `base`, so a listener may
+ * call subject methods through its `this` (`this.send(…)` on a
+ * `Scoped<Agent>`) even when the subject uses native `#private` fields — a
+ * bare proxy receiver would throw on those. Identity is still not
+ * transparent: `this !== subject` and method identity varies per read; the
+ * subject always travels in the event's arguments. The returned carrier is
+ * branded {@link Scoped} and runtime-marked ({@link isScopeCarrier} /
  * {@link carrierKeyOf}) so both the type system and the dev invariants can
  * tell a carrier from a bare subject.
  * @param base - the object the event is dispatched on behalf of (the owning
@@ -198,15 +202,41 @@ export function scopeTarget<T extends object>(base: T, key: ScopeKey | undefined
     const tag = scopeOf(ctx)
     return tag === undefined || tag === key
   }
-  // withProps overlays own-property reads; the symbol-keyed props have no
-  // structural overlap with T. withProps is typed `any` upstream (a generic
-  // proxy helper); the carrier is structurally the same T it overlays plus
-  // the compile-time brand, so pin the type via the return annotation.
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-  return withProps(base, {
+  const overlay: Record<string | symbol, unknown> = {
     [CordisContext.filter]: filter,
     [kCarrier]: { key },
-  })
+  }
+  // A hand-rolled proxy, NOT cordis withProps: withProps delegates gets with
+  // the PROXY as receiver, so a getter on `base` runs with proxy `this` and a
+  // method call through the carrier gets a proxy receiver — either one throws
+  // on a native `#private` field of the subject (TypeError: private member
+  // not declared). Cordis hands the carrier to listeners as `this`, and the
+  // event declarations type it `Scoped<Agent>` — so subject method calls
+  // through it are a SUPPORTED shape and must reach the real object: gets
+  // delegate with `base` as receiver, functions come back bound to `base`,
+  // and sets land on `base` directly.
+  return new Proxy(base, {
+    get(target, prop) {
+      // hasOwn, not `in`: the overlay literal inherits Object.prototype, so
+      // `in` would claim `toString`/`constructor` and shadow the subject's.
+      if (Object.hasOwn(overlay, prop)) return overlay[prop]
+      const value: unknown = Reflect.get(target, prop, target)
+      if (typeof value !== 'function') return value
+      // Proxy invariant guard: a non-configurable, non-writable OWN data
+      // property must be reported unchanged, so it cannot be bound. Class
+      // methods live on the prototype (no own descriptor) and bind freely;
+      // only a frozen own-function prop keeps the raw (unbound) function.
+      const own = Reflect.getOwnPropertyDescriptor(target, prop)
+      if (own !== undefined && own.configurable === false && own.writable === false) return value
+      // `Function.prototype.bind` types as `any`; the value is structurally
+      // T[prop] and the trap's contract is untyped (`any`), so unknown is the
+      // honest safe return.
+      return value.bind(target) as unknown
+    },
+    set(target, prop, value) {
+      return Reflect.set(target, prop, value, target)
+    },
+  }) as Scoped<T>
 }
 
 /**
@@ -219,9 +249,9 @@ export function scopeTarget<T extends object>(base: T, key: ScopeKey | undefined
  */
 export function isScopeCarrier(value: unknown): value is Scoped<object> {
   if (typeof value !== 'object' || value === null) return false
-  // A property READ, not an `in` check: withProps overlays props via get/set
-  // traps only (no `has` trap), so `kCarrier in carrier` would fall through to
-  // the wrapped base and always answer false.
+  // A property READ, not an `in` check: the carrier overlays its marks in the
+  // get trap only (no `has` trap), so `kCarrier in carrier` would fall
+  // through to the wrapped base and always answer false.
   return (value as { [kCarrier]?: { key: ScopeKey | undefined } })[kCarrier] !== undefined
 }
 

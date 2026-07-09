@@ -179,6 +179,49 @@ describe('scopeTarget dispatch filtering', () => {
     expect(result).toBe('seed+v')
     expect(seenLabel).toBe('the-base')
   })
+
+  it('is transparent for subjects with native #private fields: methods and getters through the carrier reach the real object', () => {
+    // The ds-review-bot regression: cordis hands the carrier to listeners as
+    // `this` (typed Scoped<Agent>), so subject method calls through it are a
+    // supported shape. A proxy that delegates with the PROXY as receiver
+    // (cordis withProps) throws TypeError on any native #private the method
+    // or getter touches; the carrier must delegate with the BASE as receiver
+    // and bind retrieved methods to it.
+    class Subject {
+      #count = 0
+      bump(): number { return ++this.#count }
+      get count(): number { return this.#count }
+    }
+    const subject = new Subject()
+    const carrier = scopeTarget(subject, subject)
+    expect(carrier.bump()).toBe(1) // method call: bound to the base
+    expect(subject.count).toBe(1) // ...and it mutated the REAL object
+    expect(carrier.count).toBe(1) // getter: runs with the base as receiver
+    // The get trap returns the method already bound to the base;
+    // detachability IS the assertion.
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const detached = carrier.bump
+    expect(detached()).toBe(2)
+  })
+
+  it('delegates sets to the base and leaves frozen own function props unbound (proxy invariant)', () => {
+    const frozenFn = (): string => 'frozen'
+    const base: { mutable: number; pinned: () => string; toString: () => string } = {
+      mutable: 0,
+      pinned: frozenFn,
+      toString: () => 'base-str',
+    }
+    Object.defineProperty(base, 'pinned', { value: frozenFn, writable: false, configurable: false })
+    const carrier = scopeTarget(base, undefined)
+    carrier.mutable = 7
+    expect(base.mutable).toBe(7) // sets land on the base, not a detached overlay
+    // A non-configurable, non-writable own data prop must be reported
+    // unchanged (binding it would violate the proxy get invariant).
+    expect(carrier.pinned).toBe(frozenFn)
+    // The overlay literal inherits Object.prototype; hasOwn (not `in`) keeps
+    // it from shadowing the subject's own prototype-surface members.
+    expect(String(carrier)).toBe('base-str')
+  })
 })
 
 describe('carrier marks', () => {

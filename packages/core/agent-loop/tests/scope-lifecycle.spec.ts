@@ -170,6 +170,29 @@ describe('agent scope lifecycle', () => {
     expect(heard).toEqual(['a1:2'])
   })
 
+  it('a listener may drive the agent through its declared `this` (the carrier is method-transparent)', async () => {
+    // ds-review-bot regression: agent/* listeners are typed
+    // `this: Scoped<Agent>`, and ReactLoopAgent's send/steer/cancel read the
+    // native-private #carrier — a proxy-receiver carrier made
+    // `this.send(...)` throw TypeError. The carrier binds methods to the real
+    // agent, so driving through the event `this` is a working supported shape.
+    const adapter = new MockAdapter([textResponse('first'), textResponse('second')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    let followUpSent = false
+    ctx.on('agent/session-start', function (this: Agent) {
+      // Deliberately through `this`, not the args subject.
+      this.send(text('driven through this'))
+      followUpSent = true
+    })
+    const second = ctx.agentLoop.create(AgentId('a2'), { model: 'mock' })
+    expect(followUpSent).toBe(true)
+    await second.whenIdle()
+    // The send actually reached the loop: the prompt ran a turn.
+    expect(second.session.events.some(e => e.type === 'turn/start')).toBe(true)
+    await agent.whenIdle()
+  })
+
   it('owner unload honors the documented teardown order: unregistration AFTER the drain, before detach', async () => {
     const ctx = await harness()
     let handle!: ReturnType<typeof ctx.agents.create>
